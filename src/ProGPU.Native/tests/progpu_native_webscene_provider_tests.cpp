@@ -9,6 +9,9 @@
 #include "progpu_native_semantic_state_mask_scene.hpp"
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
+#include "progpu_native_picture_axis_fixture.hpp"
+#include "progpu_native_picture_layer_fixture.hpp"
+#include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3467,6 +3470,87 @@ int main(int argc, char** argv) {
     canvas_configuration.alpha_mode =
         WEBSCENE_GPU_ALPHA_MODE_PREMULTIPLIED;
     canvas_configuration.buffer_count = 3U;
+    std::array<progpu_native_engine*, 2U> picture_engines{};
+    for (auto& picture_engine : picture_engines) {
+        require(progpu_native_dawn_engine_create(&engine_options, &picture_engine) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && picture_engine != nullptr,
+            "axis picture Dawn engine creation failed");
+    }
+    const auto render_picture =
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            auto* picture_engine = picture_engines[reference ? 1U : 0U];
+            auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
+            require(picture_canvas != nullptr, "axis picture canvas creation failed");
+            std::uintptr_t handle{};
+            require(api.acquire(provider, picture_canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
+                "axis picture texture acquisition failed");
+            auto picture_texture = reinterpret_cast<WGPUTexture>(handle);
+            WGPUTextureViewDescriptor descriptor = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+            auto picture_view = resolve<WGPUProcTextureCreateView>(api, provider,
+                "wgpuTextureCreateView")(picture_texture, &descriptor);
+            require(picture_view != nullptr, "axis picture view creation failed");
+            progpu_native_scene_metrics update{};
+            update.struct_size = sizeof(update);
+            require(progpu_native_engine_update_scene(picture_engine, stream.data(), stream.size(), &update) ==
+                    PROGPU_NATIVE_STATUS_SUCCESS && update.draw_count == 1U,
+                "axis picture Dawn snapshot failed");
+            progpu_native_scene_frame frame{};
+            frame.struct_size = sizeof(frame);
+            frame.width = frame.height = 64U;
+            frame.dpi_scale = 1.0F;
+            frame.target_view = reinterpret_cast<std::uintptr_t>(picture_view);
+            frame.clear_color = {0, 0, 0, 1};
+            frame.scene_id = 0x9491U;
+            frame.generation = generation;
+            progpu_native_scene_frame_metrics metrics{};
+            metrics.struct_size = sizeof(metrics);
+            std::uint64_t before{};
+            require(progpu_native_engine_get_last_submission(picture_engine, &before) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "mapped Dawn submission query failed");
+            const auto status = progpu_native_engine_render_scene(picture_engine, &frame, &metrics);
+            if (submissions == 0U) {
+                std::uint64_t after{};
+                require(progpu_native_engine_get_last_submission(picture_engine, &after) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                    before == after && status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                    metrics.command_count == 0U && metrics.submission_count == 0U,
+                    "mapped prohibited Dawn picture contract was rendered or submitted");
+                resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(picture_view);
+                resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(picture_texture);
+                api.destroy_canvas(provider, picture_canvas);
+                return std::vector<std::uint8_t>{};
+            }
+            require(status ==
+                    PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == 1U && metrics.submission_count == submissions,
+                "axis picture Dawn render failed");
+            resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(picture_view);
+            resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(picture_texture);
+            webscene_gpu_external_texture presented{};
+            presented.struct_size = sizeof(presented);
+            require(api.present(provider, picture_canvas, &presented) == WEBSCENE_GPU_STATUS_SUCCESS &&
+                presented.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
+                (presented.flags & WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
+                "axis picture Dawn GPU completion failed");
+            auto surface = reinterpret_cast<IOSurfaceRef>(presented.shared_handle);
+            require(surface != nullptr && IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
+                kIOReturnSuccess, "axis picture IOSurface lock failed");
+            const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
+            const auto stride = IOSurfaceGetBytesPerRow(surface);
+            require(data != nullptr && IOSurfaceGetWidth(surface) == 64U &&
+                IOSurfaceGetHeight(surface) == 64U && stride >= 256U, "axis picture IOSurface storage is invalid");
+            // Oracle is grayscale, so BGRA/RGBA channel ordering is immaterial.
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t row = 0U; row < 64U; ++row)
+                std::memcpy(pixels.data() + row * 256U, data + row * stride, 256U);
+            require(IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, nullptr) == kIOReturnSuccess,
+                "axis picture IOSurface unlock failed");
+            api.release_external(provider, &presented);
+            api.destroy_canvas(provider, picture_canvas);
+            return pixels;
+        };
+    progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
+    progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
+    progpu::native::tests::verify_picture_layer_presentation(render_picture, require);
+    for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::tests::verify_path_pixel_mapping(
         [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {
             auto* pixel_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);

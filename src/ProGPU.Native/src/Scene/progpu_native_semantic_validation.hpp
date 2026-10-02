@@ -58,6 +58,15 @@ bool is_valid_semantic_image(
     std::uint64_t pixel_bytes, std::uint32_t bytes_per_pixel = 4U) noexcept;
 bool is_valid_semantic_picture_image(
     const progpu_native_scene_picture_image& picture) noexcept;
+bool is_valid_semantic_picture_image(
+    const progpu_native_scene_picture_image& picture,
+    const progpu_native_scene_presentation* presentation) noexcept;
+// Outputs are published together only after exact descriptor/suffix validation.
+// Uniform wire records normalize to a complete per-axis presentation internally.
+bool read_semantic_picture_image(
+    const std::byte* payload, std::size_t payload_size,
+    progpu_native_scene_picture_image& picture,
+    progpu_native_scene_presentation& presentation) noexcept;
 
 bool is_valid_semantic_image_sampling_options(
     const progpu_native_scene_image_sampling_options& options) noexcept;

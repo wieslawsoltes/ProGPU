@@ -851,6 +851,16 @@ bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
     return true;
 }
 
+bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noexcept {
+    constexpr std::uint32_t supported_flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    return (layer.flags & ~supported_flags) == 0U &&
+        (layer.blend_mode == PROGPU_NATIVE_BLEND_SRC ||
+            layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
+        layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+        layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
+}
+
 bool try_resolve_semantic_picture_frame(const progpu_native_scene_layer_picture_mask& picture,
     const scissor& target, float raster_dpi,
     const progpu_native_scene_presentation* parent,

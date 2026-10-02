@@ -191,6 +191,12 @@ public:
     bool try_get_full_image_copy(
         progpu_native_image_rect bounds, std::uint32_t pixel_width,
         std::uint32_t pixel_height, scene_full_image_copy& copy) const noexcept;
+    // The legacy metadata layout stays unchanged and rejects flagged pictures.
+    // This overload additionally returns the original per-axis presentation.
+    bool try_get_full_image_copy(
+        progpu_native_image_rect bounds, std::uint32_t pixel_width,
+        std::uint32_t pixel_height, scene_full_image_copy& copy,
+        progpu_native_scene_presentation& presentation) const noexcept;
     // Copy an owned upload/picture resource without adding a drawing command.
     // Resource ownership is independent; rejects self-import/external handles.
     bool copy_image_resource_from(
@@ -200,6 +206,11 @@ public:
     // sampling it as an ordinary premultiplied image. No CPU pixel materialization.
     bool add_picture_image(
         const progpu_native_scene_picture_image& picture,
+        std::span<const std::byte> nested_scene,
+        std::uint32_t& resource_index) noexcept;
+    bool add_picture_image(
+        const progpu_native_scene_picture_image& picture,
+        const progpu_native_scene_presentation* presentation,
         std::span<const std::byte> nested_scene,
         std::uint32_t& resource_index) noexcept;
     bool add_external_image(

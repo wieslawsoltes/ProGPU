@@ -6,6 +6,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 namespace progpu::native::semantic {
@@ -296,7 +297,24 @@ bool is_valid_semantic_text_style(
 }
 
 bool is_valid_semantic_picture_image(const progpu_native_scene_picture_image& picture) noexcept {
-    return picture.struct_size == sizeof(picture) && picture.flags == 0U &&
+    return is_valid_semantic_picture_image(picture, nullptr);
+}
+
+bool is_valid_semantic_picture_image(const progpu_native_scene_picture_image& picture,
+    const progpu_native_scene_presentation* presentation) noexcept {
+    const bool has_presentation = (picture.flags & PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION) != 0U;
+    if ((picture.flags & ~PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION) != 0U ||
+        has_presentation != (presentation != nullptr)) return false;
+    if (presentation != nullptr &&
+        (presentation->struct_size != sizeof(*presentation) ||
+            presentation->viewport_x != 0U || presentation->viewport_y != 0U ||
+            presentation->viewport_width != picture.width || presentation->viewport_height != picture.height ||
+            presentation->reserved != 0U ||
+            !std::isfinite(presentation->dpi_scale_x) || presentation->dpi_scale_x <= 0.0F ||
+            !std::isfinite(presentation->dpi_scale_y) || presentation->dpi_scale_y <= 0.0F ||
+            !std::isfinite(static_cast<float>(picture.width) / presentation->dpi_scale_x) ||
+            !std::isfinite(static_cast<float>(picture.height) / presentation->dpi_scale_y))) return false;
+    return picture.struct_size == sizeof(picture) &&
         picture.width != 0U && picture.height != 0U &&
         picture.width <= 16384U && picture.height <= 16384U &&
         std::isfinite(picture.dpi_scale) && picture.dpi_scale > 0.0F &&
@@ -307,6 +325,23 @@ bool is_valid_semantic_picture_image(const progpu_native_scene_picture_image& pi
         picture.clear_color.a >= 0.0F && picture.clear_color.a <= 1.0F &&
         picture.reserved[0] == 0U && picture.reserved[1] == 0U && picture.reserved[2] == 0U &&
         static_cast<std::uint64_t>(picture.width) * picture.height * 4U <= PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES;
+}
+
+bool read_semantic_picture_image(const std::byte* payload, std::size_t payload_size,
+    progpu_native_scene_picture_image& picture,
+    progpu_native_scene_presentation& presentation) noexcept {
+    if (payload == nullptr || payload_size < sizeof(picture)) return false;
+    progpu_native_scene_picture_image candidate{};
+    std::memcpy(&candidate, payload, sizeof(candidate));
+    const bool has_presentation = (candidate.flags & PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION) != 0U;
+    if (payload_size != sizeof(candidate) + (has_presentation ? sizeof(presentation) : 0U)) return false;
+    progpu_native_scene_presentation axes{sizeof(axes), 0U, 0U,
+        candidate.width, candidate.height, candidate.dpi_scale, candidate.dpi_scale, 0U};
+    if (has_presentation) std::memcpy(&axes, payload + sizeof(candidate), sizeof(axes));
+    if (!is_valid_semantic_picture_image(candidate, has_presentation ? &axes : nullptr)) return false;
+    picture = candidate;
+    presentation = axes;
+    return true;
 }
 
 bool is_valid_semantic_image(

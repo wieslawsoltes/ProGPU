@@ -5,6 +5,9 @@
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
+#include "progpu_native_picture_axis_fixture.hpp"
+#include "progpu_native_picture_layer_fixture.hpp"
+#include "progpu_native_picture_ownership_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -717,7 +720,8 @@ struct portable_scene final {
     std::uint64_t mil_scene_id = 9011U,
     std::uint64_t mil_generation = 1U,
     progpu_native_scene_frame_metrics* observed_metrics = nullptr,
-    float dpi_scale = 1.0F)
+    float dpi_scale = 1.0F,
+    bool expect_picture_rejection = false)
 {
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = "ProGPU portable Direct2D target";
@@ -746,9 +750,15 @@ struct portable_scene final {
         reinterpret_cast<std::uintptr_t>(view),
         PROGPU_NATIVE_SCENE_FRAME_NONE};
     progpu_native_status render_status = PROGPU_NATIVE_STATUS_SUCCESS;
+    std::uint64_t submission_before{};
+    if (expect_picture_rejection)
+        require(progpu_native_engine_get_last_submission(engine, &submission_before) == PROGPU_NATIVE_STATUS_SUCCESS,
+            "mapped rejection submission query failed");
     if (!mil_scene.empty()) {
         render_status = progpu_native_engine_update_scene(
             engine, mil_scene.data(), mil_scene.size(), &scene_metrics);
+        if (expect_picture_rejection) require(render_status == PROGPU_NATIVE_STATUS_SUCCESS,
+            "mapped prohibited fixture failed wire validation instead of render admission");
         if (render_status == PROGPU_NATIVE_STATUS_SUCCESS) {
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
@@ -772,18 +782,33 @@ struct portable_scene final {
             &frame_metrics,
             &diagnostics);
     }
+    if (expect_picture_rejection) {
+        std::uint64_t submission_after{};
+        require(progpu_native_engine_get_last_submission(engine, &submission_after) == PROGPU_NATIVE_STATUS_SUCCESS &&
+            submission_after == submission_before && render_status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+            scene_metrics.draw_count == 1U && frame_metrics.command_count == 0U && frame_metrics.submission_count == 0U,
+            "mapped prohibited picture contract was rendered or submitted");
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return {};
+    }
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        d2d::scene_render_target_summary target_summary{};
+        if (scene_target != nullptr) scene_target->GetSummary(&target_summary);
         std::array<char, 512U> error{};
         (void)progpu_native_engine_get_last_error(
             engine, error.data(), error.size());
         std::fprintf(
             stderr,
             "Direct2D scene failure: status=%u stage=%u validation=%u "
-            "offset=%u error=%s\n",
+            "offset=%u scene=%llu/%llu error=%s\n",
             static_cast<unsigned>(render_status),
             static_cast<unsigned>(diagnostics.stage),
             scene_metrics.validation_error,
             scene_metrics.error_offset,
+            static_cast<unsigned long long>(scene_target != nullptr ? target_summary.scene_id : mil_scene_id),
+            static_cast<unsigned long long>(scene_target != nullptr ? target_summary.generation : mil_generation),
             error.data());
     }
     const bool render_matches = render_status ==
@@ -1189,6 +1214,24 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     const auto incremental = render_scene(gpu, engine, nullptr, 1U, 1U, 3U, appended_parent, 0x91F1U, 2U);
     auto* reference_engine = create_engine(gpu);
     const auto full = render_scene(gpu, reference_engine, nullptr, 1U, 1U, 2U, appended_parent, 0x91F1U, 2U);
+    if (incremental != full || incremental == first_pixels) {
+        const auto mismatch = std::mismatch(incremental.begin(), incremental.end(), full.begin(), full.end());
+        std::fprintf(stderr,
+            "incremental picture: format=RGBA8 dpi=(1,1) source=0x91f0/2 parent=0x91f1/2 "
+            "sizes=(%zu,%zu,%zu) equalsFull=%u equalsFirst=%u\n",
+            incremental.size(), full.size(), first_pixels.size(),
+            incremental == full ? 1U : 0U, incremental == first_pixels ? 1U : 0U);
+        if (mismatch.first != incremental.end() && mismatch.second != full.end()) {
+            const auto offset = static_cast<std::size_t>(mismatch.first - incremental.begin());
+            const auto pixel_offset = offset - offset % 4U;
+            std::fprintf(stderr, "incremental picture first mismatch: pixel=(%zu,%zu) channel=%zu "
+                "incremental=(%u,%u,%u,%u) full=(%u,%u,%u,%u) first=(%u,%u,%u,%u)\n",
+                pixel_offset / 4U % width, pixel_offset / row_bytes, offset % 4U,
+                incremental[pixel_offset], incremental[pixel_offset + 1U], incremental[pixel_offset + 2U], incremental[pixel_offset + 3U],
+                full[pixel_offset], full[pixel_offset + 1U], full[pixel_offset + 2U], full[pixel_offset + 3U],
+                first_pixels[pixel_offset], first_pixels[pixel_offset + 1U], first_pixels[pixel_offset + 2U], first_pixels[pixel_offset + 3U]);
+        }
+    }
     require(incremental == full && incremental != first_pixels, "incremental picture differs from full replay");
     const auto warm = render_scene(gpu, engine, nullptr, 1U, 1U, 1U, appended_parent, 0x91F1U, 2U);
     require(warm == full, "warm picture backing changed pixels");
@@ -1213,6 +1256,27 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     }
     require(near_rgba(pixel(12U, 4U), 128, 0, 0) && near_rgba(pixel(44U, 4U), 64, 128, 0),
         "picture copy-on-write mutated an older capture");
+    // Scratch captures may reuse one owner/resource generation with genuinely
+    // different bytes. The renderer must retire the child's family identity,
+    // not reuse the preceding brush or disable byte-identical warm retention.
+    std::uint64_t capture_generation = 3U;
+    for (const bool blue : {false, true, false}) {
+        const auto captured_parent = make_parent(++capture_generation, blue ? alternate : first);
+        const auto cold = render_scene(gpu, reference_engine, nullptr, 1U, 1U, 2U,
+            captured_parent, 0x91F1U, capture_generation);
+        const auto replay = render_scene(gpu, reference_engine, nullptr, 1U, 1U, 1U,
+            captured_parent, 0x91F1U, capture_generation);
+        require(cold == replay, "colliding picture warm replay changed pixels");
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            for (std::uint32_t x = 0U; x < width; ++x) {
+                const auto* actual = cold.data() + y * row_bytes + x * 4U;
+                const auto ink = x < 16U && y < 16U ? 128U : 0U;
+                require(actual[0] == (blue ? 0U : ink) && actual[1] == 0U &&
+                    actual[2] == (blue ? ink : 0U) && actual[3] == 255U,
+                    "same-owner/version picture capture reused another payload");
+            }
+        }
+    }
     progpu_native_engine_destroy(reference_engine);
 }
 
@@ -1281,13 +1345,14 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
     require(parent.factory.as(d2d::formatted_scene_factory_native_interface_id, factory) == native_com::ok,
         "formatted scene factory query");
     std::uint64_t source_id = 9304U;
+    for (const d2d::size_f density : {d2d::size_f{192, 192}, d2d::size_f{192, 144}, d2d::size_f{144, 192}}) {
     for (const d2d::pixel_format format : {
             d2d::pixel_format{28U, d2d::alpha_mode::premultiplied},
             d2d::pixel_format{87U, d2d::alpha_mode::premultiplied},
             d2d::pixel_format{28U, d2d::alpha_mode::ignore},
             d2d::pixel_format{87U, d2d::alpha_mode::ignore},
             d2d::pixel_format{65U, d2d::alpha_mode::premultiplied}}) {
-        const d2d::scene_render_target_properties properties{16U, 16U, 192.0F, 192.0F, source_id++, 1U};
+        const d2d::scene_render_target_properties properties{16U, 16U, density.width, density.height, source_id++, 1U};
         native_com::pointer<d2d::render_target> source;
         require(factory->CreateFormattedSceneRenderTarget(&properties, &format, source.put()) == native_com::ok,
             "formatted scene target creation");
@@ -1301,9 +1366,11 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
         const d2d::rectangle_f patch{2, 2, 4, 4};
         source->FillRectangle(&patch, brush.get());
         const d2d::size_u pixel_size{16U, 16U};
+        // Keep the original uniform control; additional cases use 192 x 96 destination DPI.
+        const d2d::size_f logical_size{density.width == density.height ? 16.0F : 8.0F, 16.0F};
         native_com::pointer<d2d::bitmap_render_target> destination;
         native_com::pointer<d2d::bitmap> bitmap;
-        require(parent.target->CreateCompatibleRenderTarget(nullptr, &pixel_size, &format,
+        require(parent.target->CreateCompatibleRenderTarget(&logical_size, &pixel_size, &format,
                 d2d::compatible_render_target_options::none, destination.put()) == native_com::ok &&
             destination->GetBitmap(bitmap.put()) == native_com::ok &&
             bitmap->CopyFromRenderTarget(nullptr, source.get(), nullptr) == native_com::ok,
@@ -1321,7 +1388,8 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
         const auto pixels = render_scene(gpu, engine, parent.scene_target.get(), 1U, 1U, 0U);
         for (std::uint32_t y = 0U; y < 16U; ++y) {
             for (std::uint32_t x = 0U; x < 16U; ++x) {
-                const bool opaque_patch = x >= 4U && x < 8U && y >= 4U && y < 8U;
+                const bool opaque_patch = x >= 2.0F * density.width / 96.0F && x < 4.0F * density.width / 96.0F &&
+                    y >= 2.0F * density.height / 96.0F && y < 4.0F * density.height / 96.0F;
                 const bool alpha_only = format.format == 65U;
                 const int transparent_channel = format.alpha == d2d::alpha_mode::ignore ? 0 : 127;
                 const std::array<int, 3U> expected = opaque_patch
@@ -1335,6 +1403,7 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
                     "formatted copy changed source pixels, alpha, DPI or snapshot lifetime");
             }
         }
+    }
     }
 }
 
@@ -2059,6 +2128,17 @@ int main(int argc, char** argv)
                 clip ? 0x9482U : 0x9481U, 1U, &metrics);
         }, require);
     phase("exact path pixel mapping passed");
+    auto* picture_reference_engine = create_engine(gpu);
+    const auto render_picture =
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine,
+                nullptr, 1U, 1U, submissions, stream, 0x9491U, generation, nullptr, 1.0F, submissions == 0U);
+        };
+    progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
+    progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
+    progpu::native::tests::verify_picture_layer_presentation(render_picture, require);
+    progpu_native_engine_destroy(picture_reference_engine);
+    phase("per-axis picture pixels passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,

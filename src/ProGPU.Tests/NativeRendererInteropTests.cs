@@ -2336,6 +2336,9 @@ public class NativeRendererInteropTests
         Assert.Equal(40, Unsafe.SizeOf<NativeSceneGlyphOutline>());
         Assert.Equal(112, Unsafe.SizeOf<NativeMethods.SceneFrame>());
         Assert.Equal(32, Unsafe.SizeOf<NativeMethods.ScenePresentation>());
+        Assert.Equal(48, Unsafe.SizeOf<NativeMethods.ScenePictureImage>());
+        Assert.Equal(16, OffsetOf<NativeMethods.ScenePictureImage>(nameof(NativeMethods.ScenePictureImage.DpiScale)));
+        Assert.Equal(32, OffsetOf<NativeMethods.ScenePictureImage>(nameof(NativeMethods.ScenePictureImage.ClearColor)));
         Assert.Equal(76, OffsetOf<NativeMethods.SceneFrame>(nameof(NativeMethods.SceneFrame.Presentation)));
         Assert.Equal(4UL, NativeMethods.SceneFramePresentationFlag);
         Assert.Equal(8UL, NativeMethods.SceneFrameCpuStagesFlag);

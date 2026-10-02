@@ -1,6 +1,7 @@
 #include "progpu_native_semantic_identity.hpp"
 
 #include "progpu_native_draw_state.hpp"
+#include "progpu_native_scene.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 
 #include <array>
@@ -433,6 +434,21 @@ bool find_append_only_scene_suffix(const std::byte* previous,
 semantic_content_hashes compute_content_hashes(
     const std::byte* bytes,
     const progpu_native_scene_header& header) noexcept {
+    return compute_content_hashes(bytes, header, 0U);
+}
+
+bool picture_capture_changes_resource_scope(const std::byte* previous,
+    const progpu_native_scene_header& previous_header, const std::byte* current,
+    const progpu_native_scene_header& current_header) noexcept {
+    if (previous == nullptr || current == nullptr) return false;
+    std::uint32_t error{};
+    return previous_header.scene_id != current_header.scene_id ||
+        !scene::generations_do_not_regress(previous, previous_header, current, current_header, error);
+}
+
+semantic_content_hashes compute_content_hashes(
+    const std::byte* bytes, const progpu_native_scene_header& header,
+    std::uint64_t resource_scope) noexcept {
     semantic_content_hashes result{};
     if (bytes == nullptr) {
         return result;
@@ -618,19 +634,27 @@ semantic_content_hashes compute_content_hashes(
         return finish(append_fnv1a64(
             hash, &resources, sizeof(resources)));
     };
+    // Resource ids and generations are unique only within their scene owner.
+    // Child picture engines retain compiled pages while switching among owned
+    // captures, so equal-sized resource1/generation1 in another scene must not
+    // reuse the previous scene's material or draw page. Scene generation stays
+    // excluded: unchanged resources in a new frame still retain their pages.
+    auto owner_seed = append_fnv1a64(fnv_offset, &header.scene_id, sizeof(header.scene_id));
+    if (resource_scope != 0U)
+        owner_seed = append_fnv1a64(owner_seed, &resource_scope, sizeof(resource_scope));
     result.brush = combine(
-        fnv_offset ^ 0x01U, brush_commands, brushes);
+        owner_seed ^ 0x01U, brush_commands, brushes);
     result.text_style = combine(
-        fnv_offset ^ 0x02U, style_commands, styles);
+        owner_seed ^ 0x02U, style_commands, styles);
     result.analytic = combine(
-        fnv_offset ^ 0x03U, analytic_commands, analytics, result.brush);
+        owner_seed ^ 0x03U, analytic_commands, analytics, result.brush);
     result.path = combine(
-        fnv_offset ^ 0x04U, path_commands, paths, result.brush);
+        owner_seed ^ 0x04U, path_commands, paths, result.brush);
     // Legacy positioned glyphs/style remain independent of analytic materials.
     // New material-painted glyphs retain packed brush indices, so that exact
     // remap identity must participate even after another family's insertion.
     result.glyph = combine(
-        fnv_offset ^ 0x05U, glyph_commands, glyphs);
+        owner_seed ^ 0x05U, glyph_commands, glyphs);
     if (glyph_uses_text_styles) {
         result.glyph = finish(append_fnv1a64(
             result.glyph, &result.text_style, sizeof(result.text_style)));
@@ -640,11 +664,11 @@ semantic_content_hashes compute_content_hashes(
             result.glyph, &result.brush, sizeof(result.brush)));
     }
     result.image = combine(
-        fnv_offset ^ 0x06U, image_commands, images);
+        owner_seed ^ 0x06U, image_commands, images);
     result.three_d = combine(
-        fnv_offset ^ 0x07U, three_d_commands, three_d);
+        owner_seed ^ 0x07U, three_d_commands, three_d);
     result.hit_test = resource_only(
-        fnv_offset ^ 0x08U, fnv_offset, hit_tests);
+        owner_seed ^ 0x08U, fnv_offset, hit_tests);
     return result;
 }
 

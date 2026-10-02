@@ -191,7 +191,7 @@ progpu_native_status update_scene(
         const auto next_content_hashes =
             progpu::native::semantic::compute_content_hashes(
                 static_cast<const std::byte*>(stream),
-                validation.header);
+                validation.header, engine->semantic_resource_scope);
         // A lost device is terminal, so replacing the retained CPU snapshot
         // must not dispatch release calls into that device from this CPU-only
         // update path. The terminal engine destructor owns final handle release;
