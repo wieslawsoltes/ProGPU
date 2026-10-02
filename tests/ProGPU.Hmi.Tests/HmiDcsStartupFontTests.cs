@@ -66,8 +66,12 @@ public sealed class HmiDcsStartupFontTests
 
     private static void AssertWorkplaceFonts(HmiDcsStudio studio, TtfFont font)
     {
-        TextBlock[] labels = Descendants(studio).OfType<TextBlock>().Where(label => label.Text.Length != 0).ToArray();
-        Assert.Contains(labels, label => label.Text == "Operator Workplace");
+        TextBlock[] labels = Descendants(studio.Operator).OfType<TextBlock>().Where(label => label.Text.Length != 0).ToArray();
+        foreach (string title in new[] { "Operator Workplace", "Engineering Workplace" })
+        {
+            TextBlock command = Assert.Single(Descendants(studio).OfType<TextBlock>(), label => label.Text == title);
+            Assert.Same(font, command.Font);
+        }
         Assert.Contains(labels, label => label.Text == "PLANT EXPLORER");
         Assert.Contains(labels, label => label.Text == "Simulate");
         Assert.All(labels, label => Assert.Same(font, label.Font));

@@ -20,6 +20,18 @@ required and unchanged. This fixes the missing-label startup path reported in
 [issue #260](https://github.com/wieslawsoltes/ProGPU/issues/260), not a renderer or
 industrial process-policy change.
 
+The three new startup regressions link the exact sample startup source into the
+existing serialized HMI test assembly; they preserve/restore the process-wide
+default font and do not activate a window. They cover empty initial font state,
+an explicit host face, and a later default-font change followed by navigation
+and lazy engineering. Sample edits now trigger the unchanged full HMI visual and
+pointer workflow as well as the existing three-platform build/test/package gate.
+Post-commit local checks validated both changed project files, workflow syntax
+and trigger coverage, and whitespace. Current cached HMI assemblies predate the
+DCS workplace, so these new tests were not compiled or executed locally; no full
+source closure, native renderer, GPU, VM or runtime staging was run. Hosted source
+tests and final Windows visual confirmation remain pending.
+
 ## Workplace structure
 
 The top-level **Operator Workplace / Engineering Workplace** switch changes working context without discarding the engineering document. Operator navigation has a persistent priority/quality band, Back/Forward/Home controls, display tabs, a searchable plant explorer, a central aspect area, a contextual object faceplate and a status strip. The alarm band remains visible while visiting graphics, alarms, events, trends and diagnostics.
