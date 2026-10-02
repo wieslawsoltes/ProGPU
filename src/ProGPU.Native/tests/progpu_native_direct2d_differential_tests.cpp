@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -460,12 +461,7 @@ portable_scene record_portable_scene()
     return {std::move(factory), std::move(target), std::move(scene_target)};
 }
 
-std::vector<std::uint8_t> render_progpu(
-    const dawn_api& api,
-    const gpu_context& gpu,
-    d2d::scene_render_target_native* scene_target,
-    std::uint64_t expected_draws = 9U,
-    std::uint64_t expected_commands = 9U)
+progpu_native_engine* create_differential_engine(const dawn_api& api, const gpu_context& gpu)
 {
     progpu_native_dawn_engine_options options{};
     options.struct_size = sizeof(options);
@@ -483,6 +479,19 @@ std::vector<std::uint8_t> render_progpu(
     require(progpu_native_dawn_engine_create(&options, &engine) ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         engine != nullptr, "ProGPU Dawn engine creation failed");
+    return engine;
+}
+
+std::vector<std::uint8_t> render_progpu(
+    const dawn_api& api,
+    const gpu_context& gpu,
+    d2d::scene_render_target_native* scene_target,
+    std::uint64_t expected_draws = 9U,
+    std::uint64_t expected_commands = 9U,
+    std::uint64_t expected_submissions = 1U,
+    progpu_native_engine* borrowed_engine = nullptr)
+{
+    auto* engine = borrowed_engine != nullptr ? borrowed_engine : create_differential_engine(api, gpu);
 
     WGPUTextureDescriptor texture_descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
     texture_descriptor.usage = WGPUTextureUsage_RenderAttachment |
@@ -522,7 +531,7 @@ std::vector<std::uint8_t> render_progpu(
         diagnostics.stage == d2d::scene_submission_stage::none &&
         scene_metrics.draw_count == expected_draws &&
         frame_metrics.command_count == expected_commands &&
-        frame_metrics.submission_count == 1U,
+        frame_metrics.submission_count == expected_submissions,
         "ProGPU D3D12 Direct2D render failed");
 
     WGPUBufferDescriptor buffer_descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -614,7 +623,7 @@ std::vector<std::uint8_t> render_progpu(
     api.get<WGPUProcBufferRelease>("wgpuBufferRelease")(buffer);
     api.get<WGPUProcTextureViewRelease>("wgpuTextureViewRelease")(view);
     api.get<WGPUProcTextureRelease>("wgpuTextureRelease")(texture);
-    progpu_native_engine_destroy(engine);
+    if (borrowed_engine == nullptr) progpu_native_engine_destroy(engine);
     return result;
 }
 
@@ -748,7 +757,9 @@ void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
     require(SUCCEEDED(target->EndDraw()), "finite affine oracle recording failed");
 }
 
-std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false)
+std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false,
+    int compatible_variant = -1, unsigned compatible_mode = 0U,
+    progpu::native::direct2d::tests::compatible_dpi_snapshot* compatible_metrics = nullptr)
 {
     IWICImagingFactory* raw_wic_factory = nullptr;
     require(SUCCEEDED(CoCreateInstance(
@@ -946,6 +957,12 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
+    if (compatible_variant >= 0) {
+        const auto observed = progpu::native::direct2d::tests::record_compatible_dpi(
+            reinterpret_cast<d2d::render_target*>(target.get()), static_cast<unsigned>(compatible_variant),
+            compatible_mode, require);
+        if (compatible_metrics != nullptr) *compatible_metrics = observed;
+    }
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1080,6 +1097,47 @@ int wmain(int argc, wchar_t** argv)
             affine_progpu[center + 3U] >= 158U && affine_progpu[center + 3U] <= 161U,
             "finite affine layer opacity or visible coverage is missing");
     }
+    // One real engine owns the complete new batch. Preserve the original
+    // independent D2D/WIC path, every map deadline and explicit submission
+    // counts; do not compile a fresh renderer for each metadata combination.
+    auto* compatible_engine = create_differential_engine(api, gpu);
+    for (unsigned variant = 0U; variant < progpu::native::direct2d::tests::compatible_dpi_cases.size(); ++variant) {
+        for (unsigned mode = 0U; mode < 4U; ++mode) {
+            progpu::native::direct2d::tests::compatible_dpi_snapshot original_metrics;
+            const auto original = render_system_direct2d(false, false, static_cast<int>(variant), mode, &original_metrics);
+            const auto actual_metrics = progpu::native::direct2d::tests::record_compatible_dpi(
+                scene.target.get(), variant, mode, require);
+            if (actual_metrics != original_metrics) {
+                for (std::size_t i = 0U; i < original_metrics.logical.size(); ++i)
+                    std::fprintf(stderr, "compatible DPI metric variant=%u mode=%u index=%zu expected=%a actual=%a\n",
+                        variant, mode, i, static_cast<double>(original_metrics.logical[i]),
+                        static_cast<double>(actual_metrics.logical[i]));
+                for (std::size_t i = 0U; i < original_metrics.physical.size(); ++i)
+                    std::fprintf(stderr, "compatible DPI pixel size variant=%u mode=%u index=%zu expected=%u actual=%u\n",
+                        variant, mode, i, original_metrics.physical[i], actual_metrics.physical[i]);
+                std::fflush(stderr);
+            }
+            require(actual_metrics == original_metrics, "compatible target original Windows metrics differ");
+            const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U, 2U, compatible_engine);
+            require(original.size() == width * height * 4U && actual.size() == original.size(),
+                "compatible target original Windows image extent");
+            for (unsigned y = 0U; y < height; ++y) for (unsigned x = 0U; x < width; ++x) {
+                auto expected = progpu::native::direct2d::tests::compatible_dpi_expected(x, y);
+                std::swap(expected[0], expected[2]);
+                const auto* original_pixel = original.data() + (y * width + x) * 4U;
+                const auto* actual_pixel = actual.data() + (y * width + x) * 4U;
+                const bool original_equal = std::equal(expected.begin(), expected.end(), original_pixel);
+                if (!original_equal) progpu::native::direct2d::tests::report_compatible_dpi_pixel(
+                    "Windows absolute BGRA", variant, mode, x, y, expected.data(), original_pixel);
+                require(original_equal, "compatible target original Windows absolute pixels");
+                const bool equal = std::equal(original_pixel, original_pixel + 4U, actual_pixel);
+                if (!equal) progpu::native::direct2d::tests::report_compatible_dpi_pixel(
+                    "Windows/ProGPU BGRA", variant, mode, x, y, original_pixel, actual_pixel);
+                require(equal, "compatible target retained source pixels differ from original Windows");
+            }
+        }
+    }
+    progpu_native_engine_destroy(compatible_engine);
     scene = {};
     release_gpu(api, gpu);
     CoUninitialize();
