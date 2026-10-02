@@ -104,3 +104,12 @@ inheritance contract; it is not execution of ProGPU's new fixture.
 No native renderer link/build, GPU or VM execution, runtime staging or full
 managed source build was performed locally. Provider pixel execution remains a
 required hosted gate, not a result inferred from syntax or original references.
+
+The first hosted Linux ARM64 and GCC runs at `d9da69a2f` failed the new
+parent-inheritance input: the fixture emitted flag `0x02` (EdgeMode), not the
+original `0x01` BitmapScalingMode flag. Consequently the parent never supplied
+Nearest; both the raw scene assertion and GPU pixel assertion correctly rejected
+Linear output. The fixture now emits the actual bitmap flag. All thirteen inputs,
+the original exact pixel/counter assertions and the product inheritance correction
+remain unchanged. This is a packet-construction correction, not a changed oracle
+or a claim that the corrected native run has passed.
