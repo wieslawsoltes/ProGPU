@@ -123,3 +123,18 @@ After the allowlist/control commit, all 37 controls passed against each paired
 old/new x64/ARM64 schema1/2 and schema3/4 receipt (148 executions, zero skipped).
 This is original Windows input evidence, not a successful native producer Build,
 native comparison, interpreter selection, complete Display or application result.
+
+## Hosted source type compilation
+
+The existing Linux Build job now compiles this probe immediately after `Build
+tests`, with the same Release configuration, runtime and CI setting. The earlier
+package-consumer compile builds `Backend.Native` but not `Text`; the two test
+project builds provide both real library outputs under their existing
+`bin/Release/net10.0` paths (library project references omit the executable RID).
+The probe step requires those files, permits its normal restore and sets
+`BuildProjectReferences=false`; missing references or compiler errors fail the
+job, never skip it. It does not rebuild the dependency graph, run the probe,
+stage a native artifact, create a device or change existing tests/deadlines.
+This closes the probe's direct type-compilation gap. A passing compile is not
+native execution or source comparison: the whole exact producer Build must
+still succeed before the separate bounded native observations above.
