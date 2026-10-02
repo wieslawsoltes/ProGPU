@@ -753,21 +753,33 @@ validation_result validate(
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
             progpu_native_scene_shader_effect program{};
             progpu_native_scene_shader_capture_frame capture_frame{};
-            std::uint32_t sampler{}, derivative_register{};
+            progpu_native_scene_shader_sample_frame sample_frame{};
+            std::uint32_t sampler{}, derivative_register{}, input{};
             if (!shader_effect::read_resource(
                     std::span(bytes + resource.payload_offset, resource.payload_size),
                     std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), program, sampler, derivative_register,
-                    capture_frame))
+                    capture_frame, input, sample_frame))
                 return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
-            if (sampler != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            for (const auto dependency : {sampler, input}) {
+                if (dependency == PROGPU_NATIVE_SCENE_NO_INDEX) continue;
                 // Earlier resources only: a finite owned dependency DAG, never
                 // self/forward cycles or an index in another scene's table.
-                if (sampler >= index) return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+                if (dependency >= index) return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
                 const auto source = read_record<progpu_native_scene_resource>(bytes,
-                    header.resource_offset + static_cast<std::size_t>(sampler) * header.resource_stride);
+                    header.resource_offset + static_cast<std::size_t>(dependency) * header.resource_stride);
                 if (source.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
                     (source.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U)
                     return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+                if (input != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    progpu_native_scene_picture_image picture{};
+                    progpu_native_scene_presentation presentation{};
+                    if (!semantic::read_semantic_picture_image(bytes + source.payload_offset,
+                            source.payload_size, picture, presentation) ||
+                        picture.width != sample_frame.capture_width || picture.height != sample_frame.capture_height ||
+                        presentation.dpi_scale_x != 1.0F || presentation.dpi_scale_y != 1.0F ||
+                        presentation.viewport_x != 0U || presentation.viewport_y != 0U)
+                        return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
+                }
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {

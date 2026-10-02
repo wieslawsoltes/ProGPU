@@ -2,6 +2,7 @@
 
 #include "progpu_native_shader_effect.hpp"
 #include "progpu_native_shader_capture_frame.hpp"
+#include "progpu_native_shader_sample_frame.hpp"
 
 #include <cstring>
 
@@ -55,6 +56,35 @@ inline bool read_resource(std::span<const std::byte> payload,
     sampler_resource_index = picture;
     derivative_register = derivatives;
     capture_frame = frame;
+    return true;
+}
+
+// The final-sample reader explicitly returns both owned pictures and the new
+// frame. All older overloads keep rejecting version 5 by its distinct size.
+inline bool read_resource(std::span<const std::byte> payload,
+    std::span<const std::byte> bytecode,
+    progpu_native_scene_shader_effect& program, std::uint32_t& sampler_resource_index,
+    std::uint32_t& derivative_register, progpu_native_scene_shader_capture_frame& capture_frame,
+    std::uint32_t& input_resource_index, progpu_native_scene_shader_sample_frame& sample_frame) noexcept {
+    if (payload.size() != sizeof(progpu_native_scene_shader_effect_samples)) {
+        progpu_native_scene_shader_effect candidate{};
+        progpu_native_scene_shader_capture_frame capture{};
+        std::uint32_t sampler{}, derivatives{};
+        if (!read_resource(payload, bytecode, candidate, sampler, derivatives, capture)) return false;
+        program = candidate; sampler_resource_index = sampler; derivative_register = derivatives;
+        capture_frame = capture; input_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX; sample_frame = {};
+        return true;
+    }
+    progpu_native_scene_shader_effect_samples source{};
+    std::memcpy(&source, payload.data(), sizeof(source));
+    if (source.struct_size != sizeof(source) || source.version != 5U || source.flags != 0U ||
+        source.reserved[0] != 0U || source.reserved[1] != 0U ||
+        source.input_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX ||
+        (source.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && source.derivative_register >= 32U) ||
+        !validate_sample_frame(source.frame) || !validate(source.program, bytecode)) return false;
+    program = source.program; sampler_resource_index = source.sampler_resource_index;
+    derivative_register = source.derivative_register; capture_frame = {};
+    input_resource_index = source.input_resource_index; sample_frame = source.frame;
     return true;
 }
 

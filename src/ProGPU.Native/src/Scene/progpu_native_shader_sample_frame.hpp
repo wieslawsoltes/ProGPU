@@ -3,6 +3,7 @@
 #include "progpu_native_shader_capture_frame.hpp"
 
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 
@@ -132,6 +133,51 @@ inline bool create_sample_frame(const sample_frame_request& request, sample_fram
         return false;
     output = candidate;
     return true;
+}
+
+inline sample_frame_request sample_request(const progpu_native_scene_shader_sample_frame& frame) noexcept {
+    return {frame.local_left, frame.local_top, frame.local_right, frame.local_bottom,
+        {frame.source_scale_x, frame.source_scale_y, 1.0F, 1.0F, frame.source_offset_x, frame.source_offset_y}};
+}
+
+// The wire owns redundant derived values deliberately: validation proves that
+// resource import did not silently mix an allocation from another generation.
+inline bool complete_sample_frame(progpu_native_scene_shader_sample_frame& frame) noexcept {
+    sample_frame derived{};
+    if (!create_sample_frame(sample_request(frame), derived)) return false;
+    auto candidate = frame;
+    candidate.capture_x = derived.capture.x; candidate.capture_y = derived.capture.y;
+    candidate.capture_width = derived.capture.width; candidate.capture_height = derived.capture.height;
+    candidate.output_x = derived.output.x; candidate.output_y = derived.output.y;
+    candidate.output_width = derived.output.width; candidate.output_height = derived.output.height;
+    candidate.quad_x = derived.unit_to_device.x; candidate.quad_y = derived.unit_to_device.y;
+    candidate.quad_z = derived.unit_to_device.z; candidate.quad_w = derived.unit_to_device.w;
+    candidate.quad_offset_x = derived.unit_to_device.tx; candidate.quad_offset_y = derived.unit_to_device.ty;
+    frame = candidate;
+    return true;
+}
+
+inline bool validate_sample_frame(const progpu_native_scene_shader_sample_frame& frame) noexcept {
+    if (!std::isfinite(frame.source_dpi_x) || !std::isfinite(frame.source_dpi_y) ||
+        frame.source_dpi_x <= 0.0 || frame.source_dpi_y <= 0.0 || frame.reserved != 0U ||
+        frame.clip_antialias > 1U || !std::isfinite(frame.clip_left) || !std::isfinite(frame.clip_top) ||
+        !std::isfinite(frame.clip_right) || !std::isfinite(frame.clip_bottom) ||
+        frame.clip_right < frame.clip_left || frame.clip_bottom < frame.clip_top) return false;
+    if (frame.clip_antialias == 0U && (frame.clip_left != std::floor(frame.clip_left) ||
+        frame.clip_top != std::floor(frame.clip_top) || frame.clip_right != std::floor(frame.clip_right) ||
+        frame.clip_bottom != std::floor(frame.clip_bottom))) return false;
+    auto expected = frame;
+    if (!complete_sample_frame(expected)) return false;
+    const auto same = [](float left, float right) {
+        return std::bit_cast<std::uint32_t>(left) == std::bit_cast<std::uint32_t>(right);
+    };
+    return frame.capture_x == expected.capture_x && frame.capture_y == expected.capture_y &&
+        frame.capture_width == expected.capture_width && frame.capture_height == expected.capture_height &&
+        frame.output_x == expected.output_x && frame.output_y == expected.output_y &&
+        frame.output_width == expected.output_width && frame.output_height == expected.output_height &&
+        same(frame.quad_x, expected.quad_x) && same(frame.quad_y, expected.quad_y) &&
+        same(frame.quad_z, expected.quad_z) && same(frame.quad_w, expected.quad_w) &&
+        same(frame.quad_offset_x, expected.quad_offset_x) && same(frame.quad_offset_y, expected.quad_offset_y);
 }
 
 } // namespace progpu::native::shader_effect

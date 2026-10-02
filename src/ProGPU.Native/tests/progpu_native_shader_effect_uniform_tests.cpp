@@ -7,6 +7,7 @@
 #include <bit>
 #include <cstring>
 #include <iostream>
+#include <limits>
 
 namespace {
 bool check(bool value, int line) {
@@ -78,6 +79,57 @@ bool run_shader_effect_uniform_tests() {
     program.revision = 1U; program.bytecode_size = sizeof(tokens);
     for (std::size_t i = 0U; i < 128U; ++i) program.constants[i] = static_cast<float>(i + 1U);
     const auto original = program;
+    // V5 keeps physical clip and final output independent of captured storage.
+    // These are authored wire/atomicity controls, not provider execution evidence.
+    progpu_native_scene_shader_effect_samples sampled{};
+    sampled.struct_size = sizeof(sampled); sampled.version = 5U;
+    sampled.input_resource_index = 0U;
+    sampled.sampler_resource_index = sampled.derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
+    sampled.program = program;
+    sampled.frame.local_left = 16.75F; sampled.frame.local_top = 16.25F;
+    sampled.frame.local_right = 32.25F; sampled.frame.local_bottom = 23.75F;
+    sampled.frame.source_scale_x = sampled.frame.source_scale_y = 1.25F;
+    sampled.frame.source_offset_x = 2.25F; sampled.frame.source_offset_y = 3.5F;
+    sampled.frame.source_dpi_x = sampled.frame.source_dpi_y = 1.25;
+    sampled.frame.clip_left = 20; sampled.frame.clip_top = 21;
+    sampled.frame.clip_right = 42; sampled.frame.clip_bottom = 33;
+    UV_REQUIRE(shader_effect::complete_sample_frame(sampled.frame));
+    UV_REQUIRE(shader_effect::validate_sample_frame(sampled.frame));
+    for (std::uint32_t variant = 0U; variant < 20U; ++variant) {
+        auto wire = sampled;
+        if (variant == 1U) wire.struct_size -= 4U;
+        if (variant == 2U) wire.version = 4U;
+        if (variant == 3U) wire.input_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (variant == 4U) wire.flags = 1U;
+        if (variant == 5U) wire.reserved[0] = 1U;
+        if (variant == 6U) wire.reserved[1] = 1U;
+        if (variant == 7U) wire.frame.capture_x++;
+        if (variant == 8U) wire.frame.capture_width++;
+        if (variant == 9U) wire.frame.output_x++;
+        if (variant == 10U) wire.frame.output_height++;
+        if (variant == 11U) wire.frame.quad_w = std::nextafter(wire.frame.quad_w, 2.0F);
+        if (variant == 12U) wire.frame.quad_offset_x = std::nextafter(wire.frame.quad_offset_x, 100.0F);
+        if (variant == 13U) wire.frame.clip_antialias = 2U;
+        if (variant == 14U) wire.frame.clip_left += .25F;
+        if (variant == 15U) wire.frame.clip_top = std::numeric_limits<float>::quiet_NaN();
+        if (variant == 16U) wire.frame.clip_right = wire.frame.clip_left - 1.0F;
+        if (variant == 17U) wire.frame.reserved = 1U;
+        if (variant == 18U) wire.frame.source_dpi_y = 0.0;
+        if (variant == 19U) wire.derivative_register = 32U;
+        progpu_native_scene_shader_effect read_program = original;
+        progpu_native_scene_shader_capture_frame old_frame{};
+        progpu_native_scene_shader_sample_frame new_frame{};
+        std::uint32_t sampler = 91U, derivative = 92U, input = 93U;
+        const bool accepted = shader_effect::read_resource(std::as_bytes(std::span(&wire, 1U)), bytecode,
+            read_program, sampler, derivative, old_frame, input, new_frame);
+        UV_REQUIRE(accepted == (variant == 0U));
+        if (!accepted) {
+            UV_REQUIRE(sampler == 91U && derivative == 92U && input == 93U);
+            UV_REQUIRE(std::memcmp(&read_program, &original, sizeof(original)) == 0);
+        }
+        UV_REQUIRE(!shader_effect::read_resource(std::as_bytes(std::span(&wire, 1U)), bytecode,
+            read_program, sampler, derivative, old_frame));
+    }
     progpu_native_scene_shader_effect_derivatives metadata{
         sizeof(metadata), 3U, PROGPU_NATIVE_SCENE_NO_INDEX, 0U, 0U, {0U, 0U, 0U}, program};
     semantic_scene_builder builder(0x9590U, 1U);

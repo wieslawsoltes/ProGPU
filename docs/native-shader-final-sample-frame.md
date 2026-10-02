@@ -33,8 +33,16 @@ and atomic invalid-frame controls. They have not been executed. Intermediate
 commits carry `[skip ci]`; per user direction, validation belongs to the final
 integrated tip, not these source checkpoints.
 
-Remaining implementation in this branch: additive versioned wire validation,
-actual source subtree capture, shared layer/output allocation and retained cache
+The additive version-5 wire now retains the original source frame and DPI,
+independently derived capture/output lattices and full homogeneous unit quad,
+plus a physical output clip. Its mandatory input picture and optional secondary
+sampler picture are earlier same-scene resources with exact capture dimensions
+and zero-origin unit-DPI presentation. All old readers reject the new payload
+rather than discard either picture or frame. Generated managed layouts are
+synchronized from the C authority; malformed/atomicity controls are authored.
+
+Remaining implementation in this branch: actual source subtree capture,
+shared layer/output allocation and retained cache
 integration, original output/source clip and anti-alias coverage, both-provider
 full-pixel controls, and final source/SDK/package qualification. No missing
 contract is redefined as a dyadic-only final feature.
