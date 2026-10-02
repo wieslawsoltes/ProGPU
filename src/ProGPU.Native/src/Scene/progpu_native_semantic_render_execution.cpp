@@ -5262,8 +5262,14 @@ progpu_native_status render_scene(
                 const auto finish_status = finish_active_bundle();
                 if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) return fail_bundle(finish_status);
                 has_active_scissor = false;
-                auto scissor = resolve_semantic_target_scissor(state, target_extent,
-                    frame->width, frame->height, target_cursor.current_presentation());
+                // Target allocation stays outward-rounded. The active binary
+                // source clip instead owns pixel-center coverage: admitting an
+                // allocation fringe here would erase untouched target pixels.
+                auto scissor = (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U
+                    ? resolve_semantic_aliased_composite_scissor(state.clip_rect, target_extent,
+                        target_cursor.current_presentation())
+                    : resolve_semantic_target_scissor(state, target_extent,
+                        frame->width, frame->height, target_cursor.current_presentation());
                 if (semantic_partial_damage_active && current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX)
                     scissor = intersect_semantic_scissors(scissor, semantic_frame_damage);
                 if (!scissor.drawable) continue;
