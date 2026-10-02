@@ -80,6 +80,15 @@ mapping or a different mask family is not an envelope/opacity fallback. Keep
 original wires and final SDK/source/provider qualification separate; see
 docs/native-shader-final-sample-frame.md.
 
+Prepared sideways source glyphs retain raw BOOL and logical order. Use the same
+owned static vertical metrics and rotate each contour about its real vertical
+origin before run offsets; never rotate the pen, substitute horizontal advance,
+or invent an empty-glyph ink origin. Lazy vertical metadata must not alter
+horizontal source admission. Preserve whole-run/cache publication, retained
+outer transforms, SIMD/scalar arithmetic and original provider/reference gates.
+Missing metrics, variable vertical origins and combined sideways/odd bidi remain
+separate contracts. See docs/direct2d-sideways-glyph-placement.md.
+
 Neutral VVAR instances borrow exact immutable font bytes/face and cached original
 normalized-instance scalars. Keep strict VVAR preflight separate from legacy
 HVAR acceptance, optional-map absence distinct from zero variation, and null
