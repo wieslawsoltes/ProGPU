@@ -16574,8 +16574,11 @@ int run_tests()
     return 0;
 }
 
+bool progpu_native_direct2d_font_capture_tests();
+
 int main()
 {
+    if (!progpu_native_direct2d_font_capture_tests()) return 420;
     const int result = run_tests();
     if (result != 0) {
         std::fprintf(

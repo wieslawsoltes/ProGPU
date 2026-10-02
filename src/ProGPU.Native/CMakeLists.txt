@@ -1132,6 +1132,8 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_core.cpp
     src/Direct2D/progpu_native_direct2d_drawing_state.cpp
     src/Direct2D/progpu_native_direct2d_drawing_state.hpp
+    src/Direct2D/progpu_native_direct2d_font_capture.cpp
+    src/Direct2D/progpu_native_direct2d_font_capture.hpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_geometry_group.cpp
@@ -1763,14 +1765,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         progpu_native_direct2d_core_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_direct2d_compat_tests
-        tests/progpu_native_direct2d_compat_tests.cpp)
+        tests/progpu_native_direct2d_compat_tests.cpp
+        tests/progpu_native_direct2d_font_capture_tests.cpp)
     target_compile_features(
         progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
     target_link_libraries(
         progpu_native_direct2d_compat_tests PRIVATE
         progpu_native_direct2d_core)
     if(WIN32)
-        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1)
+        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1 dwrite)
     endif()
     progpu_native_enable_warnings(progpu_native_direct2d_compat_tests)
     progpu_native_enable_sanitizers(progpu_native_direct2d_compat_tests)
@@ -1824,6 +1827,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             WIN32_LEAN_AND_MEAN)
         target_link_libraries(progpu_native_direct2d_tests PRIVATE
             progpu_native_direct2d
+            progpu_native_direct2d_core
             bcrypt
             d2d1
             gdi32
