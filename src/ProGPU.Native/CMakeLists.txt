@@ -1774,7 +1774,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_direct2d_compat_tests.cpp
         tests/progpu_native_direct2d_font_capture_tests.cpp
         tests/progpu_native_direct2d_variable_glyph_tests.cpp
-        tests/progpu_native_direct2d_cff_glyph_tests.cpp)
+        tests/progpu_native_direct2d_cff_glyph_tests.cpp
+        tests/progpu_native_direct2d_vertical_metrics_tests.cpp)
     target_compile_features(
         progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
     target_link_libraries(
