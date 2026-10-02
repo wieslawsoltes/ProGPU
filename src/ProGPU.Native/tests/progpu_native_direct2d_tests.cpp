@@ -190,7 +190,7 @@ void full_target_clear_regressions(
         }
     }
     for (const bool streamed : {false, true}) {
-        for (const bool null_clear : {false, true}) {
+        for (const bool null_clear : {false, true}) for (const bool fractional : {false, true}) {
             progpu_native_direct2d_scene_recorder* recorder = nullptr;
             int32_t hr = E_FAIL;
             require(progpu_native_direct2d_scene_recorder_create(7103U, 1U, nullptr, &recorder, &hr) ==
@@ -204,7 +204,7 @@ void full_target_clear_regressions(
                 ComPtr<ID2D1CommandList> list;
                 require(context->CreateCommandList(list.GetAddressOf()) == S_OK, "clipped Clear native command list failed");
                 context->SetTarget(list.Get());
-                require(fixture::record_clipped_clear(reinterpret_cast<compat::render_target*>(context.Get()), null_clear) == S_OK &&
+                require(fixture::record_clipped_clear(reinterpret_cast<compat::render_target*>(context.Get()), null_clear, false, fractional) == S_OK &&
                     list->Close() == S_OK, "clipped Clear original Windows recording failed");
                 context->SetTarget(nullptr);
                 require(list->Stream(sink.Get()) == S_OK, "clipped Clear original Windows stream translation failed");
@@ -216,7 +216,9 @@ void full_target_clear_regressions(
                     "clipped Clear callback brushes failed");
                 const D2D1_MATRIX_3X2_F identity{1, 0, 0, 1, 0, 0}, capture{2, 0, 0, 2, 4, 6};
                 const D2D1_MATRIX_3X2_F singular{0, 0, 0, 0, 99, 88}, suffix{1, 0, 0, 1, 2, 3};
-                const D2D1_RECT_F whole{0, 0, 64, 64}, first{2, 3, 14, 15}, second{12, 14, 24, 26}, last{0, 0, 3, 4};
+                const D2D1_RECT_F whole{0, 0, 64, 64}, first{2, 3, 14, 15}, last{0, 0, 3, 4};
+                const D2D1_RECT_F second = fractional ? D2D1_RECT_F{12.75F, 14.75F, 23.75F, 25.75F}
+                                                    : D2D1_RECT_F{12, 14, 24, 26};
                 require(sink->BeginDraw() == S_OK && sink->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED) == S_OK &&
                     sink->SetTransform(&identity) == S_OK && sink->Clear(nullptr) == S_OK &&
                     sink->FillRectangle(&whole, before.Get()) == S_OK && sink->SetTransform(&capture) == S_OK &&
@@ -236,7 +238,7 @@ void full_target_clear_regressions(
                 "clipped Clear changed leading clear or original draw callback counts");
             std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
             require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
-                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::clipped_clear_contract(bytes, null_clear),
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::clipped_clear_contract(bytes, null_clear, false, false, fractional),
                 "clipped Clear lost original commands or captured clip frame");
             sink.Reset();
             progpu_native_direct2d_scene_recorder_destroy(recorder);

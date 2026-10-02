@@ -51,9 +51,14 @@ provider gates and deadlines are unchanged. These cases are authored; no local
 GPU or VM execution was performed. Additional aliased clipped-clear cases cover
 the captured nested clip, singular later transform, retained prefix/suffix,
 immutable export, empty intersection, null/straight/IGNORE alpha and mixed-DPI
-history. The same four physical reference variants run cold and warm on both
+history. The same eight integral/fractional physical reference variants run cold and warm on both
 native providers, with exactly three semantic draws, nine commands and one
 submission. Windows additionally compares every pixel against the original
 Microsoft WIC render target and exercises original command-list streaming plus
 direct sink callbacks. These are authored acceptance gates, not successful
 execution evidence; hosted CI must qualify the change before merge.
+
+Fractional aliased clips preserve their original float bounds while checking
+the independently expected physical sample coverage. Exterior/history pixels,
+binary colors and binary alpha are exact; only nonbinary UNORM8 color conversion
+allows one byte of rounding difference against the original WIC reference.

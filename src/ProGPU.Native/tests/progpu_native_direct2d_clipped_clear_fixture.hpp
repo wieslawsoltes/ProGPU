@@ -9,7 +9,8 @@ namespace progpu::native::direct2d::tests {
 
 // This same public-vtable workload runs against portable COM and Microsoft's
 // original render target. The captured intersection is [12,24) x [14,26).
-inline com::result record_clipped_clear(compat::render_target* target, bool null_clear, bool empty = false)
+inline com::result record_clipped_clear(compat::render_target* target, bool null_clear,
+    bool empty = false, bool fractional = false)
 {
     const compat::color_f red{1, 0, 0, 1}, blue{0, 0, 1, 1}, clear{0.75F, 0.5F, 0.25F, 0.5F};
     com::pointer<compat::solid_color_brush> before, after;
@@ -21,7 +22,8 @@ inline com::result record_clipped_clear(compat::render_target* target, bool null
     const compat::matrix_3x2_f singular{0, 0, 0, 0, 99, 88}, suffix{1, 0, 0, 1, 2, 3};
     const compat::rectangle_f whole{0, 0, 64, 64}, first{2, 3, 14, 15};
     const compat::rectangle_f second = empty ? compat::rectangle_f{40, 40, 45, 45}
-                                           : compat::rectangle_f{12, 14, 24, 26};
+        : fractional ? compat::rectangle_f{12.75F, 14.75F, 23.75F, 25.75F}
+                     : compat::rectangle_f{12, 14, 24, 26};
     const compat::rectangle_f last{0, 0, 3, 4};
     target->BeginDraw();
     target->SetTransform(&identity);
@@ -50,7 +52,7 @@ inline com::result record_clipped_clear(compat::render_target* target, bool null
 }
 
 inline bool clipped_clear_contract(std::span<const std::byte> bytes, bool null_clear,
-    bool ignore_alpha = false, bool empty = false)
+    bool ignore_alpha = false, bool empty = false, bool fractional = false)
 {
     progpu_native_scene_header header{};
     if (!read_scene_value(bytes, 0U, header) || header.command_count != (empty ? 6U : 9U)) return false;
@@ -65,10 +67,12 @@ inline bool clipped_clear_contract(std::span<const std::byte> bytes, bool null_c
             commands[i].kind != static_cast<std::uint32_t>(kinds[empty && i >= 3U ? i + 3U : i])) return false;
     }
     if (empty) return true;
+    const float left = fractional ? 12.75F : 12.0F, top = fractional ? 14.75F : 14.0F;
+    const float extent = fractional ? 11.0F : 12.0F;
     progpu_native_scene_layer layer{};
     if (!read_scene_value(bytes, commands[3].payload_offset, layer) ||
         layer.struct_size != sizeof(layer) || layer.flags != PROGPU_NATIVE_SCENE_LAYER_BOUNDS ||
-        layer.bounds.x != 12 || layer.bounds.y != 14 || layer.bounds.width != 12 || layer.bounds.height != 12 ||
+        layer.bounds.x != left || layer.bounds.y != top || layer.bounds.width != extent || layer.bounds.height != extent ||
         layer.opacity != 1 || layer.blend_mode != PROGPU_NATIVE_BLEND_SRC ||
         layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
         layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) return false;
@@ -78,11 +82,11 @@ inline bool clipped_clear_contract(std::span<const std::byte> bytes, bool null_c
     progpu_native_scene_brush brush{};
     std::uint32_t brush_index{};
     const auto& command = commands[4];
-    if (command.bounds_x != 12 || command.bounds_y != 14 || command.bounds_width != 12 || command.bounds_height != 12 ||
+    if (command.bounds_x != left || command.bounds_y != top || command.bounds_width != extent || command.bounds_height != extent ||
         !read_scene_value(bytes, header.resource_offset + std::uint64_t{command.resource_index} * header.resource_stride, geometry) ||
         geometry.kind != PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH || geometry.payload_size != sizeof(primitive) ||
         !read_scene_value(bytes, geometry.payload_offset, primitive) ||
-        primitive.x != 12 || primitive.y != 14 || primitive.width != 12 || primitive.height != 12 ||
+        primitive.x != left || primitive.y != top || primitive.width != extent || primitive.height != extent ||
         primitive.flags != PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED ||
         primitive.transform.m11 != 1 || primitive.transform.m12 != 0 || primitive.transform.m21 != 0 ||
         primitive.transform.m22 != 1 || primitive.transform.m31 != 0 || primitive.transform.m32 != 0 ||
@@ -96,13 +100,14 @@ inline bool clipped_clear_contract(std::span<const std::byte> bytes, bool null_c
 }
 
 inline bool clipped_clear_pixels(std::span<const std::uint8_t> pixels, std::uint32_t image_height,
-    bool null_clear, bool ignore_alpha, bool bgra = false)
+    bool null_clear, bool ignore_alpha, bool bgra = false, bool fractional = false)
 {
     if (pixels.size() != std::size_t{image_height} * 256U) return false;
     for (std::uint32_t y = 0U; y < image_height; ++y) {
         for (std::uint32_t x = 0U; x < 64U; ++x) {
             const bool suffix = x >= 2U && x < 5U && y >= 3U && y < 7U;
-            const bool cleared = x >= 12U && x < 24U && y >= 14U && y < 26U;
+            const bool cleared = x >= (fractional ? 13U : 12U) && x < 24U &&
+                y >= (fractional ? 15U : 14U) && y < 26U;
             const std::array<int, 4U> expected = suffix ? std::array<int, 4U>{0, 0, 255, 255}
                 : !cleared ? std::array<int, 4U>{255, 0, 0, 255}
                 : null_clear ? std::array<int, 4U>{0, 0, 0, ignore_alpha ? 255 : 0}
@@ -110,7 +115,10 @@ inline bool clipped_clear_pixels(std::span<const std::uint8_t> pixels, std::uint
                                : std::array<int, 4U>{96, 64, 32, 128};
             for (std::size_t channel = 0U; channel < 4U; ++channel) {
                 const auto index = std::size_t{y} * 256U + x * 4U + (bgra && channel < 3U ? 2U - channel : channel);
-                if (std::abs(static_cast<int>(pixels[index]) - expected[channel]) > 1) return false;
+                // Only nonintegral normalized-color conversion may differ by
+                // one byte; history, clip coverage and binary alpha stay exact.
+                const int tolerance = expected[channel] == 0 || expected[channel] == 255 ? 0 : 1;
+                if (std::abs(static_cast<int>(pixels[index]) - expected[channel]) > tolerance) return false;
             }
         }
     }
@@ -125,24 +133,25 @@ void verify_clipped_clear(Render render, Require require)
     com::pointer<compat::formatted_scene_factory_native> scene_factory;
     require(factory.as(compat::formatted_scene_factory_native_interface_id, scene_factory) == com::ok,
         "clipped Clear formatted factory query failed");
-    for (unsigned variant = 0U; variant < 4U; ++variant) {
-        const bool null_clear = (variant & 1U) != 0U, ignore_alpha = variant >= 2U;
+    for (unsigned variant = 0U; variant < 8U; ++variant) {
+        const bool null_clear = (variant & 1U) != 0U, ignore_alpha = (variant & 2U) != 0U;
+        const bool fractional = variant >= 4U;
         const compat::scene_render_target_properties properties{64, 64, 96, 96, 0x94F8U + variant, 1U};
         const compat::pixel_format format{87U, ignore_alpha ? compat::alpha_mode::ignore : compat::alpha_mode::premultiplied};
         com::pointer<compat::render_target> target;
         require(scene_factory->CreateFormattedSceneRenderTarget(&properties, &format, target.put()) == com::ok,
             "clipped Clear target creation failed");
-        require(record_clipped_clear(target.get(), null_clear) == com::ok, "clipped Clear recording failed");
+        require(record_clipped_clear(target.get(), null_clear, false, fractional) == com::ok, "clipped Clear recording failed");
         com::pointer<compat::scene_render_target_native> scene;
         require(target.as(compat::scene_render_target_native_interface_id, scene) == com::ok,
             "clipped Clear scene query failed");
         std::vector<std::byte> bytes(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
         std::uint64_t written{};
         require(scene->BuildScene(bytes.data(), bytes.size(), &written) == com::ok && written == bytes.size() &&
-            clipped_clear_contract(bytes, null_clear, ignore_alpha), "clipped Clear retained structure changed");
+            clipped_clear_contract(bytes, null_clear, ignore_alpha, false, fractional), "clipped Clear retained structure changed");
         const auto cold = render(scene.get());
         const auto warm = render(scene.get());
-        require(cold == warm && clipped_clear_pixels(cold, 64U, null_clear, ignore_alpha),
+        require(cold == warm && clipped_clear_pixels(cold, 64U, null_clear, ignore_alpha, false, fractional),
             "clipped Clear cold/warm pixels lost history, transparent replacement, alpha or captured clip frame");
     }
 }
