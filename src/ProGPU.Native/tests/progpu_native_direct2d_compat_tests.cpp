@@ -7,6 +7,7 @@
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_layer_clear_fixture.hpp"
+#include "progpu_native_direct2d_aa_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
@@ -1676,8 +1677,8 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
         if (variant == 0U) earlier = bytes;
         else if (!fixture::full_clear_suffix_contract(earlier)) return false;
     }
-    // AA clips (including an aliased descendant or a containing layer) remain gated. Also
-    // preserve the first error if an invalid Clear precedes an otherwise valid one.
+    // The same three formerly rejected AA source arrangements now publish an
+    // explicit target-storage Clear. Invalid color still retains its first error.
     for (unsigned variant = 0U; variant < 4U; ++variant) {
         target->BeginDraw();
         target->SetTags(123U, 456U);
@@ -1695,7 +1696,26 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
         }
         target->Clear(&clear);
         std::uint64_t tag1 = 0U, tag2 = 0U;
-        if (target->EndDraw(&tag1, &tag2) != (variant < 3U ? compat::not_implemented : com::invalid_argument) ||
+        if (variant < 3U) {
+            target->PopAxisAlignedClip();
+            if (variant == 0U) target->PopAxisAlignedClip();
+            if (variant == 2U) target->PopLayer();
+            std::vector<std::byte> accepted;
+            if (target->EndDraw(&tag1, &tag2) != com::ok || !build(accepted)) return false;
+            progpu_native_scene_header header{};
+            if (!fixture::read_scene_value(accepted, 0U, header) ||
+                header.command_count != (variant == 1U ? 3U : 5U)) return false;
+            unsigned clears{};
+            for (unsigned i = 0; i < header.command_count; ++i) {
+                progpu_native_scene_command command{};
+                if (!fixture::read_scene_value(accepted, header.command_offset + std::uint64_t{i} * header.command_stride,
+                    command)) return false;
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) ++clears;
+            }
+            if (clears != 1U) return false;
+            continue;
+        }
+        if (target->EndDraw(&tag1, &tag2) != com::invalid_argument ||
             tag1 != 123U || tag2 != 456U || scene->GetRequiredSceneSize() != 0U) return false;
         std::array<std::byte, 64U> sentinel;
         sentinel.fill(std::byte{0x5a});
@@ -6678,6 +6698,7 @@ int run_tests()
     if (!progpu::native::direct2d::tests::scoped_source_copy_contract(factory.get())) return 405;
     if (!progpu::native::direct2d::tests::layer_background_source_contract(factory.get())) return 406;
     if (!progpu::native::direct2d::tests::transparent_layer_clear_source_contract(factory.get())) return 407;
+    if (!progpu::native::direct2d::tests::antialiased_clear_source_contract(factory.get())) return 408;
     if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
     if (!progpu::native::direct2d::tests::bitmap_destination_contract(factory.get(), second_factory.get())) return 406;
     if (!progpu::native::direct2d::tests::gradient_stop_contract(scene_factory.get())) return 406;
