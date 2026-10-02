@@ -2213,6 +2213,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_hinted_source_frame_tests)
     add_test(NAME progpu_native_hinted_source_frame_tests COMMAND progpu_native_hinted_source_frame_tests)
     set_tests_properties(progpu_native_hinted_source_frame_tests PROPERTIES TIMEOUT 60)
+    add_executable(progpu_native_hinted_source_policy_tests tests/progpu_native_hinted_source_policy_tests.cpp)
+    target_compile_features(progpu_native_hinted_source_policy_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_hinted_source_policy_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_source_policy_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_source_policy_tests)
+    add_test(NAME progpu_native_hinted_source_policy_tests COMMAND progpu_native_hinted_source_policy_tests)
+    set_tests_properties(progpu_native_hinted_source_policy_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp

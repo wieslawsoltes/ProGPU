@@ -1,5 +1,6 @@
 #include "../src/Text/Interop/progpu_native_hinted_paragraph_internal.hpp"
 #include "../src/Text/Interop/progpu_native_hinted_paragraph_interaction.hpp"
+#include "../src/Text/Interop/progpu_native_hinted_paragraph_glyph_frame.hpp"
 #include "../src/Text/Interop/progpu_native_text_font_source.hpp"
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "../src/Text/progpu_native_text_layout_retained_internal.hpp"
@@ -618,6 +619,97 @@ void actual_paragraph_controls() {
     }
 }
 
+void original_source_policy_controls() {
+    for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
+        for (const auto direction : {PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT, PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT}) {
+            fixture font;
+            paragraph_request request(interpreter, true);
+            request.shaping.direction = direction;
+            request.layout.direction = direction;
+            std::array<hinted_source_style, 2U> source{{
+                {13.25, 1.5, hinted_source_em_policy::nearest_half_up, hinted_source_advance_policy::physical_ties_to_even},
+                {std::nextafter(17.0, 18.0), 1.5, hinted_source_em_policy::nearest_half_up, hinted_source_advance_policy::physical_ties_to_even}}};
+            const auto original_source = source;
+            for (std::size_t i = 0U; i < source.size(); ++i) {
+                auto& configuration = request.configurations[i];
+                hinted_source_device_selection selected{};
+                require(resolve_hinted_source_device(source[i], selected));
+                require(selected.pixels_per_em_26_6 == (i == 0U ? 20U : 26U) * 64U);
+                configuration.hinting.x_pixels_per_em_26_6 = selected.pixels_per_em_26_6;
+                configuration.hinting.y_pixels_per_em_26_6 = selected.pixels_per_em_26_6;
+                configuration.logical_units_per_physical_pixel = selected.logical_units_per_physical_pixel;
+                request.styles[i].scale = static_cast<float>(source[i].em_size) / 1000.0F;
+                configuration.source_scale = request.styles[i].scale;
+            }
+            // The independent raw producer has identical effective capture,
+            // original text/font/features and no additional fitting policy.
+            const auto raw = produce(font, request);
+            verify_raw_runs(font, request, *raw);
+            std::shared_ptr<const hinted_paragraph_generation> rounded;
+            progpu_native_text_paragraph_result diagnostic{};
+            require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
+                request.styles, request.metrics, request.configurations, rounded, diagnostic, source) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(raw->source_styles.empty() && rounded->source_styles.size() == 2U &&
+                rounded->source_styles[1].em_size == original_source[1].em_size &&
+                rounded->source_styles[1].em_size != static_cast<double>(static_cast<float>(original_source[1].em_size)));
+            require(rounded->logical_owners == raw->logical_owners && rounded->logical_bidi_levels == raw->logical_bidi_levels &&
+                rounded->logical_cluster_ends == raw->logical_cluster_ends && rounded->breaks_after == raw->breaks_after &&
+                rounded->runs.size() == raw->runs.size() && rounded->logical_glyphs.size() == raw->logical_glyphs.size());
+            bool changed = false;
+            for (std::size_t i = 0U; i < raw->logical_glyphs.size(); ++i) {
+                auto expected = raw->logical_glyphs[i];
+                const double pixels = static_cast<double>(expected.advance_x) / 64.0;
+                double whole = std::floor(pixels);
+                if (pixels - whole > 0.5 || (pixels - whole == 0.5 && std::fmod(whole, 2.0) != 0.0)) whole += 1.0;
+                expected.advance_x = static_cast<std::int32_t>(whole * 64.0);
+                require(equal_glyph(rounded->logical_glyphs[i], expected));
+                changed |= expected.advance_x != raw->logical_glyphs[i].advance_x;
+            }
+            require(changed); // A real authored GPOS delta, not an integer-only no-op fixture.
+            for (std::size_t i = 0U; i < rounded->runs.size(); ++i) {
+                const auto& a = *raw->runs[i].generation;
+                const auto& b = *rounded->runs[i].generation;
+                require(a.batch->identity->source == b.batch->identity->source && a.batch->glyphs == b.batch->glyphs &&
+                    a.descriptor_indices == b.descriptor_indices && a.glyphs.size() == b.glyphs.size());
+                for (std::size_t j = 0U; j < a.glyphs.size(); ++j) require(equal_glyph(a.glyphs[j], b.glyphs[j]));
+            }
+            verify_writer(*rounded); verify_source_ends(*rounded); verify_interaction(rounded);
+            const auto geometry = create_hinted_paragraph_glyph_resource(rounded, 1.5F,
+                hinted_projection_policy::scalar_reference, hinted_outline_coverage::nonzero_vector);
+            require(geometry.status == PROGPU_NATIVE_STATUS_SUCCESS && geometry.generation != nullptr);
+            const auto previous = rounded;
+            source[1].em_size = 19.0;
+            require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
+                request.styles, request.metrics, request.configurations, rounded, diagnostic, source) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                rounded == previous);
+            source = original_source;
+            source[1].advance_policy = static_cast<hinted_source_advance_policy>(99U);
+            require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
+                request.styles, request.metrics, request.configurations, rounded, diagnostic, source) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                rounded == previous);
+            source = original_source;
+            require(try_layout_context_hinted_paragraph(font.context.value, request.shaping, request.layout,
+                request.styles, request.metrics, request.configurations, rounded, diagnostic, std::span(source).first(1U)) ==
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && rounded == previous);
+            source.fill({});
+            request.configurations.clear();
+            progpu_native_text_context_destroy(font.context.value); font.context.value = nullptr;
+            const auto reflow = reflow_hinted_paragraph(*rounded, rounded->lines.front().input_start, 80.0F);
+            require(reflow.status == PROGPU_NATIVE_STATUS_SUCCESS && reflow.generation != nullptr &&
+                reflow.generation->source_styles.size() == original_source.size());
+            for (std::size_t i = 0U; i < original_source.size(); ++i) {
+                const auto& retained = reflow.generation->source_styles[i];
+                require(retained.em_size == original_source[i].em_size && retained.pixels_per_dip == original_source[i].pixels_per_dip &&
+                    retained.em_policy == original_source[i].em_policy && retained.advance_policy == original_source[i].advance_policy);
+            }
+            require(reflow.generation->logical_owners == rounded->logical_owners);
+            for (std::size_t i = 0U; i < rounded->runs.size(); ++i)
+                require(reflow.generation->runs[i].generation == rounded->runs[i].generation);
+            verify_writer(*reflow.generation); verify_interaction(reflow.generation);
+        }
+    }
+}
+
 void l1_and_rtl_origin_controls() {
     fixture font;
     for (const bool source_bidi : {false, true}) {
@@ -831,7 +923,8 @@ void atomic_failure_and_alias_controls() {
 int main() {
     try {
 #if defined(PROGPU_NATIVE_FONT_HINTING)
-        actual_paragraph_controls(); l1_and_rtl_origin_controls(); mutation_and_retirement_controls(); atomic_failure_and_alias_controls();
+        actual_paragraph_controls(); original_source_policy_controls(); l1_and_rtl_origin_controls();
+        mutation_and_retirement_controls(); atomic_failure_and_alias_controls();
 #else
         const auto bytes = progpu::native::tests::make_hinted_shape_font();
         progpu_native_text_context* context = nullptr;
