@@ -114,3 +114,28 @@ deadline are unchanged. This implementation is authored pending bounded checks
 and actual hosted original Windows execution. No source hardware, native provider,
 package, WPF551 integration, fractional final placement or UI qualification follows
 from source arithmetic or syntax checks.
+
+## Bounded authoring receipt
+
+Major implementation `61fb28b52ba820c004e7a6e4cb47eaf7b2b00c02` preceded
+validation. Followups require nonempty white input and nonempty exact colored
+final-frame baselines; the latter is committed at
+`560d0e2ecfcadca55892f1500bf798a86dc49e8e`.
+
+The dependency-free CPU harness passed all19 unchanged sampler,38 unchanged
+padding and70 new local-capture arithmetic controls (127 total). Its source is
+`/private/tmp/progpu-local-capture-oracle-check.YNQYBDOi/Program.cs`; it compiles
+the actual three pure oracle files, not copied test formulas. Compilation was
+bounded at30 seconds and execution at10 seconds. The new original-only source
+also type-compiled with warnings as errors using SDK10.0.301 Roslyn and already
+cached net10.0 Core/WindowsDesktop10.0.9 reference assemblies, bounded at30 seconds.
+This was a direct seven-file C# compile, not a project/native dependency build;
+the Windows reference executable was not run on this host.
+
+Three changed C# files parsed with zero syntax errors. Workflow YAML parsed;
+every original workflow line remained in order, preserving all previous counts
+and process/job deadline assertions. The two original padding files, both
+original sampler files and the original arithmetic case definitions are unchanged.
+`git diff --check` passed. These checks provide no original Windows pixels,
+hardware/native qualification, staged runtime or source-host admission. Actual
+exact-head Windows capture is the next required gate.
