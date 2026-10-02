@@ -54,6 +54,18 @@ and the receipt qualifies zero shader cases. New original Windows execution is
 pending hosted CI. No original software result qualifies native hardware,
 fractional/cropped source integration, package or application behavior.
 
+Post-commit checks at `4928f3a6536dc25f629a43311d58f65de7616f29`:
+the three changed C# files passed SDK Roslyn syntax parsing; a bounded CPU-only
+executable compiled the two actual pure oracle files with warnings as errors and
+passed all 19 unchanged sampler plus 31 padding controls (50 total). Workflow YAML
+parsing, preservation of every original workflow line/deadline, unchanged original
+sampler files and `git diff --check` also passed. These checks did not compile the
+WPF project, load WPF/native providers or execute shader pixels. The temporary
+driver is `/private/tmp/progpu-padding-oracle-check.z33L0NDS/Program.cs`; compilation
+had a 30-second process bound and its pure arithmetic execution a 10-second bound.
+Actual original x64/ARM64 capture and eventual exact-head whole-Build checks remain
+required; no native producer is staged by this reference companion.
+
 This Windows-only, source-only executable references original Microsoft WPF,
 never LibreWPF or a ProGPU runtime. It captures the committed matrix/cross-product
 family through real `PixelShader`, `ShaderEffect`, `Point4D` constant registers and
