@@ -40,6 +40,21 @@ that the measurement still detects escaping allocations, not their provenance
 in the failed run. This is test-boundary isolation only: no product builder or
 native code changes. Fresh whole exact-head CI remains required.
 
+After implementation commit `fb7e1fd2e`, a bounded macOS ARM64 managed-only
+check compiled the five actual fixture members directly from the test source
+in Release mode, using the existing signed test-assembly identity, real xUnit
+assertions and cached ProGPU managed assemblies. All six cases passed: three
+exact-zero measurements and three positive controls, including the unchanged
+payload and invalid-input assertions in each. The selected builder and record
+sources are byte-identical to cached source commit
+`60347a5f1026b8f95582535e6b7cfc8431a04499`; the reused
+`ProGPU.Backend.Native.dll` SHA-256 is
+`8289bd47098c888c8d34c8b30111940d0034e19d05c9b5fcf59e2da044b3cc89`.
+The direct invocation used a 30-second process bound and no native library or
+provider. Whole-file C# syntax and exact original payload/warmup/validation
+text comparisons also passed. This is not a full test-project build, hosted
+runner result, native execution or qualification of the failed Build.
+
 Build run `34786219474`, Linux job `103802076430`, at `45147156` reports
 4,576 passing tests, seven skips and one failure:
 `SemanticImageEffectBuildsWithoutAllocation` measured 720 bytes against its
