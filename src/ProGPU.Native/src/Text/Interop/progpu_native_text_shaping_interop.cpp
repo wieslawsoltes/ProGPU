@@ -9,6 +9,7 @@
 #include "../Font/progpu_native_hinted_shaper.hpp"
 #include "progpu_native_hinted_paragraph_internal.hpp"
 #include "progpu_native_hinted_source_fitting.hpp"
+#include "progpu_native_hinted_source_resource_cache.hpp"
 #include "progpu_native_hinted_paragraph_transport_internal.hpp"
 #include "progpu_native_owned_allocation_internal.hpp"
 #include "../progpu_native_text_layout_retained_internal.hpp"
@@ -84,6 +85,7 @@ struct progpu_native_hinted_glyph_resource final {
     std::shared_ptr<const progpu::native::text::hinted_paragraph_glyph_resource> generation{};
     std::shared_ptr<const progpu::native::text::hinted_paragraph_interaction> interaction{};
     std::shared_ptr<const progpu_native_hinted_source_cache> source{};
+    std::shared_ptr<const progpu::native::text::hinted_source_resource_cache> source_resource{};
     std::vector<progpu_native_hinted_paragraph_device_style> device_styles{};
     std::vector<std::int32_t> variation_coordinates_16_16{};
     std::vector<progpu_native_hinted_glyph_run_slice> run_slices{};
@@ -4904,6 +4906,17 @@ bool cache_hinted_glyph_resource_view(progpu_native_hinted_glyph_resource& handl
     view.pre_context = hinted_glyph_wire_data(paragraph.pre_context); view.pre_context_count = static_cast<std::uint32_t>(paragraph.pre_context.size());
     view.post_context = hinted_glyph_wire_data(paragraph.post_context); view.post_context_count = static_cast<std::uint32_t>(paragraph.post_context.size());
     view.features = hinted_glyph_wire_data(paragraph.features); view.feature_count = static_cast<std::uint32_t>(paragraph.features.size());
+    if (paragraph.has_source_geometry) {
+        if (handle.source == nullptr) return false;
+        const auto& source_cache = *handle.source;
+        const progpu_native_hinted_source_paragraph_view source_view{source_cache.options,
+            static_cast<std::uint32_t>(source_cache.styles.size()), static_cast<std::uint32_t>(source_cache.logical.size()),
+            static_cast<std::uint32_t>(source_cache.glyphs.size()), static_cast<std::uint32_t>(source_cache.lines.size()),
+            static_cast<std::uint32_t>(source_cache.boxes.size()), static_cast<std::uint32_t>(source_cache.carets.size()),
+            hinted_glyph_wire_data(source_cache.styles), hinted_glyph_wire_data(source_cache.logical), hinted_glyph_wire_data(source_cache.glyphs),
+            hinted_glyph_wire_data(source_cache.lines), hinted_glyph_wire_data(source_cache.boxes), hinted_glyph_wire_data(source_cache.carets)};
+        if (!cache_hinted_source_resource(paragraph, source_view, handle.source_resource)) return false;
+    }
     return true;
 }
 
@@ -4918,6 +4931,7 @@ bool hinted_glyph_resource_aliases(const progpu_native_hinted_glyph_resource& ha
     const owned_output_range range{output, bytes};
     return range.overlaps(&handle, sizeof(handle)) || range.overlaps(handle.device_styles) ||
         hinted_source_cache_aliases(handle.source, output, bytes) ||
+        (handle.source_resource != nullptr && handle.source_resource->allocation_aliases(output, bytes)) ||
         range.overlaps(handle.variation_coordinates_16_16) || range.overlaps(handle.run_slices) ||
         range.overlaps(handle.outline_owners) || range.overlaps(handle.admitted_scalars) ||
         range.overlaps(handle.scalar_levels) || range.overlaps(handle.logical_glyphs) ||
@@ -5217,6 +5231,15 @@ progpu_native_status progpu_native_hinted_glyph_resource_borrow(
     if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(view, 1U) ||
         hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     *view = resource->view; // No allocation or new projection under the caller's producer-library lease.
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_hinted_glyph_resource_borrow_source(
+    const progpu_native_hinted_glyph_resource* resource, progpu_native_hinted_source_glyph_resource_view* view) {
+    if (!valid_hinted_glyph_resource(resource) || !valid_hinted_buffer(view, 1U) ||
+        hinted_glyph_resource_aliases(*resource, view, sizeof(*view))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (resource->source_resource == nullptr) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    *view = resource->source_resource->view;
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
