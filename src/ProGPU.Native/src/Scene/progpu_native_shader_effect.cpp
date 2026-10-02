@@ -25,6 +25,12 @@ std::uint32_t register_type(std::uint32_t token) noexcept {
 bool parameter(std::uint32_t token) noexcept {
     return (token & 0x80000000U) != 0U && (token & 0x0000E000U) == 0U;
 }
+
+std::string modified_source(std::string expression, std::uint32_t modifier) {
+    if (modifier == 11U || modifier == 12U) expression = "abs(" + expression + ")";
+    if (modifier == 1U || modifier == 12U) expression = "(-" + expression + ")";
+    return expression;
+}
 } // namespace
 
 bool translate(std::span<const std::byte> bytecode,
@@ -155,6 +161,7 @@ bool translate(std::span<const std::byte> bytecode,
                 return false; // CRS writes only selected XYZ temporary lanes; W is not defined.
             if (opcode == 37U && mask > 3U) return false;
             std::array<std::string, 3U> operands;
+            std::array<std::array<std::string, 3U>, 2U> cross_operands;
             std::uint32_t constant_register = 32U;
             std::uint32_t constant_reads = 0U, texture_reads = 0U;
             for (std::uint32_t index = 0U; index < sources; ++index) {
@@ -241,6 +248,16 @@ bool translate(std::span<const std::byte> bytecode,
                     opcode == 36U ? (7U | (mask & 8U)) :
                     opcode == 8U ? 7U : opcode == 9U ? 15U :
                     opcode == 66U || opcode == 90U ? 3U : mask;
+                if (opcode == 33U) {
+                    // CRS has already required identity source swizzles. Read
+                    // only each needed scalar from the original register,
+                    // rather than scalar-loading through a vector swizzle view
+                    // such as (r[0].xyzw).y in Dawn's IR lowering.
+                    for (std::uint32_t lane = 0U; lane < 3U; ++lane)
+                        if ((required & (1U << lane)) != 0U)
+                            cross_operands[index][lane] = modified_source(
+                                expression + "." + lanes[lane], source_modifier);
+                }
                 expression += ".";
                 for (std::uint32_t lane = 0U; lane < 4U; ++lane) {
                     const auto selected = (token >> (16U + 2U * lane)) & 3U;
@@ -248,9 +265,7 @@ bool translate(std::span<const std::byte> bytecode,
                         return false;
                     expression += lanes[selected];
                 }
-                if (source_modifier == 11U || source_modifier == 12U) expression = "abs(" + expression + ")";
-                if (source_modifier == 1U || source_modifier == 12U) expression = "(-" + expression + ")";
-                operands[index] = std::move(expression);
+                operands[index] = modified_source(std::move(expression), source_modifier);
             }
             const auto& a = operands[0]; const auto& b = operands[1]; const auto& c = operands[2];
             const auto suffix = std::to_string(instructions);
@@ -286,13 +301,13 @@ bool translate(std::span<const std::byte> bytecode,
                 // Evaluate only the source components needed by actual writes.
                 // A masked cross product must not read an undefined third lane
                 // or manufacture a source W value. Existing writes retain W.
-                const auto component = [&](char first_lane, char second_lane) {
-                    return "(" + a + ")." + first_lane + " * (" + b + ")." + second_lane +
-                        " - (" + a + ")." + second_lane + " * (" + b + ")." + first_lane;
+                const auto component = [&](std::uint32_t first_lane, std::uint32_t second_lane) {
+                    return cross_operands[0U][first_lane] + " * " + cross_operands[1U][second_lane] +
+                        " - " + cross_operands[0U][second_lane] + " * " + cross_operands[1U][first_lane];
                 };
-                result = "vec4<f32>(" + ((mask & 1U) != 0U ? component('y', 'z') : "0.0") + ", " +
-                    ((mask & 2U) != 0U ? component('z', 'x') : "0.0") + ", " +
-                    ((mask & 4U) != 0U ? component('x', 'y') : "0.0") + ", 0.0)";
+                result = "vec4<f32>(" + ((mask & 1U) != 0U ? component(1U, 2U) : "0.0") + ", " +
+                    ((mask & 2U) != 0U ? component(2U, 0U) : "0.0") + ", " +
+                    ((mask & 4U) != 0U ? component(0U, 1U) : "0.0") + ", 0.0)";
                 break;
             }
             case 35U: result = "abs(" + a + ")"; break;
