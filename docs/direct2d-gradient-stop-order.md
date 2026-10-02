@@ -115,3 +115,16 @@ nonuniform scale and shear. The eight original Windows collection observations
 remain, with 24 additional direct/streamed mixed-frame cache cases. These fixes
 and controls are committed before focused source checks. Hosted original
 Windows/provider execution, not this source diagnosis, remains the final judge.
+
+The older Windows semantic-stream fixture recorded a transformed rectangle but
+expected target-frame inverse-draw coefficients. Its four serialized-coordinate
+expectations now require the exact original inverse-brush matrix (no tolerance),
+matching that primitive's local evaluator. Original source operations, resource
+counts, stops, clips and all independent original pixel assertions are unchanged.
+
+Post-fix checks passed strict C++20 syntax for the complete portable target,
+complete portable compatibility test TU and instantiated shared gradient pixel
+fixtures (`-Wall -Wextra -Wpedantic -Wshadow -Werror`, 45-second bounds). The new
+managed embedded-resource guard passed Roslyn syntax parsing only. Windows-only
+source, actual embedded-resource test execution and all native/GPU behavior remain
+hosted gates. No local object/library, renderer build or GPU execution occurred.

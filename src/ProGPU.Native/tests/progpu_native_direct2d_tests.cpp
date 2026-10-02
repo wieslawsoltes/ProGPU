@@ -5675,18 +5675,12 @@ int main()
                 PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
             translated_brushes[1].color_interpolation_mode ==
                 PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB &&
-            std::abs(
-                translated_brushes[1].coordinate_transform0[0] - 0.8F) <
-                0.0001F &&
-            std::abs(
-                translated_brushes[1].coordinate_transform0[2] + 6.4F) <
-                0.0001F &&
-            std::abs(
-                translated_brushes[1].coordinate_transform1[1] -
-                    (4.0F / 3.0F)) < 0.0001F &&
-            std::abs(
-                translated_brushes[1].coordinate_transform1[2] +
-                    (14.0F / 3.0F)) < 0.0001F &&
+            // This recorded rectangle evaluates paint in its original local
+            // frame; its draw transform is retained by the analytic vertices.
+            translated_brushes[1].coordinate_transform0[0] == 1.0F &&
+            translated_brushes[1].coordinate_transform0[2] == -4.0F &&
+            translated_brushes[1].coordinate_transform1[1] == 1.0F &&
+            translated_brushes[1].coordinate_transform1[2] == 2.0F &&
             translated_brushes[2].type ==
                 PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
             translated_brushes[2].stop_count == 2U &&
