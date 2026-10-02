@@ -64,3 +64,10 @@ dotnet run --project \
   --verify \
   "${repo_root}/src/ProGPU.Native/include/progpu_native_text_hinting.h" \
   "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeTextHintingContract.g.cs"
+
+dotnet run --project \
+  "${repo_root}/eng/ProGPU.NativeContractGenerator/ProGPU.NativeContractGenerator.csproj" \
+  --configuration Release -- \
+  --verify \
+  "${repo_root}/src/ProGPU.Native/include/progpu_native_text_source.h" \
+  "${repo_root}/src/ProGPU.Backend.Native/Generated/NativeTextSourceContract.g.cs"

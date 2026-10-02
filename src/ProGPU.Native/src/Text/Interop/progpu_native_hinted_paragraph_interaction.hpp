@@ -45,6 +45,11 @@ public:
         font_error* error = nullptr) const noexcept;
     bool source_selection(std::int32_t input_start, std::int32_t input_end,
         std::span<hinted_source_rectangle> rectangles, std::uint32_t& written, font_error* error = nullptr) const noexcept;
+    bool hit_test_source_line(std::uint32_t line, double x, hinted_source_hit& result, font_error* error = nullptr) const noexcept;
+    bool source_line_caret(std::uint32_t line, std::int32_t input_position, bool trailing,
+        hinted_source_caret_stop& result, font_error* error = nullptr) const noexcept;
+    bool source_line_selection(std::uint32_t line, std::int32_t input_start, std::int32_t input_end,
+        std::span<hinted_source_rectangle> rectangles, std::uint32_t& written, font_error* error = nullptr) const noexcept;
     // Complete local allocation capacities, including unused storage. Caller
     // separately checks the reachable paragraph/run/source owners under its lease.
     bool allocation_aliases(const void* output, std::size_t bytes) const noexcept;
@@ -56,6 +61,8 @@ private:
     std::vector<text_caret_stop> carets_{};
     std::vector<hinted_source_cluster_box> source_boxes_{};
     std::vector<hinted_source_caret_stop> source_carets_{};
+    struct source_line_range final { std::size_t start = 0U, count = 0U; };
+    std::vector<source_line_range> source_box_ranges_{}, source_caret_ranges_{};
     friend struct hinted_paragraph_interaction_result;
     friend hinted_paragraph_interaction_result create_hinted_paragraph_interaction(
         std::shared_ptr<const hinted_paragraph_generation>) noexcept;

@@ -73,7 +73,8 @@ bool exact_source_maps(const hinted_paragraph_generation& paragraph) noexcept {
 bool hinted_paragraph_interaction::allocation_aliases(const void* output, std::size_t bytes) const noexcept {
     const owned_output_range range{output, bytes};
     return range.overlaps(this, sizeof(*this)) || range.overlaps(boxes_) || range.overlaps(carets_) ||
-        range.overlaps(source_boxes_) || range.overlaps(source_carets_);
+        range.overlaps(source_boxes_) || range.overlaps(source_carets_) ||
+        range.overlaps(source_box_ranges_) || range.overlaps(source_caret_ranges_);
 }
 
 bool hinted_paragraph_interaction::hit_test_source(double x, double y, hinted_source_hit& result, font_error* error) const noexcept {
@@ -93,6 +94,49 @@ bool hinted_paragraph_interaction::source_selection(std::int32_t input_start, st
         return false;
     }
     return interaction_detail::selection(source_boxes(), input_start, input_end, rectangles, written, error);
+}
+
+bool hinted_paragraph_interaction::hit_test_source_line(std::uint32_t line, double x,
+    hinted_source_hit& result, font_error* error) const noexcept {
+    if (line >= source_box_ranges_.size()) {
+        if (error != nullptr) *error = font_error::invalid_argument;
+        return false;
+    }
+    const auto range = source_box_ranges_[line];
+    hinted_source_hit candidate{};
+    if (!interaction_detail::hit_test(source_boxes().subspan(range.start, range.count), x,
+        paragraph_->source_lines[line].top, candidate, error)) return false;
+    result = candidate;
+    return true;
+}
+
+bool hinted_paragraph_interaction::source_line_caret(std::uint32_t line, std::int32_t input_position, bool trailing,
+    hinted_source_caret_stop& result, font_error* error) const noexcept {
+    if (line >= source_caret_ranges_.size()) {
+        if (error != nullptr) *error = font_error::invalid_argument;
+        return false;
+    }
+    const auto range = source_caret_ranges_[line];
+    hinted_source_caret_stop candidate{};
+    if (!interaction_detail::get_caret(source_carets().subspan(range.start, range.count), input_position,
+        trailing, candidate, error)) return false;
+    result = candidate;
+    return true;
+}
+
+bool hinted_paragraph_interaction::source_line_selection(std::uint32_t line, std::int32_t input_start, std::int32_t input_end,
+    std::span<hinted_source_rectangle> rectangles, std::uint32_t& written, font_error* error) const noexcept {
+    if (line >= source_box_ranges_.size()) {
+        if (error != nullptr) *error = font_error::invalid_argument;
+        return false;
+    }
+    const auto range = source_box_ranges_[line];
+    std::uint32_t count = 0U;
+    // Shared selection preflights every rectangle before writing its prefix.
+    if (!interaction_detail::selection(source_boxes().subspan(range.start, range.count), input_start, input_end,
+        rectangles, count, error)) return false;
+    written = count;
+    return true;
 }
 
 hinted_paragraph_interaction_result create_hinted_paragraph_interaction(
@@ -122,6 +166,17 @@ hinted_paragraph_interaction_result create_hinted_paragraph_interaction(
                     true, std::span<const text_fragment_placement>{}, origins)) return result;
             candidate->source_boxes_.resize(boxes);
             candidate->source_carets_.resize(carets);
+            std::size_t box = 0U, caret = 0U;
+            candidate->source_box_ranges_.reserve(source_lines.size());
+            candidate->source_caret_ranges_.reserve(source_lines.size());
+            for (std::size_t line = 0U; line < source_lines.size(); ++line) {
+                const auto first_box = box, first_caret = caret;
+                while (box < candidate->source_boxes_.size() && candidate->source_boxes_[box].line_index == line) ++box;
+                while (caret < candidate->source_carets_.size() && candidate->source_carets_[caret].line_index == line) ++caret;
+                candidate->source_box_ranges_.push_back({first_box, box - first_box});
+                candidate->source_caret_ranges_.push_back({first_caret, caret - first_caret});
+            }
+            if (box != candidate->source_boxes_.size() || caret != candidate->source_carets_.size()) return result;
             result.generation = std::move(candidate);
             result.error = font_error::none;
             result.status = PROGPU_NATIVE_STATUS_SUCCESS;

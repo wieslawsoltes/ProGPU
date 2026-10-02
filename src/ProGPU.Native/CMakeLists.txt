@@ -848,6 +848,7 @@ add_library(progpu_native_text STATIC
     src/Text/Interop/progpu_native_hinted_paragraph_glyph_frame.cpp
     src/Text/Interop/progpu_native_hinted_nominal_metrics.cpp
     src/Text/Interop/progpu_native_hinted_source_frame.cpp
+    src/Text/Interop/progpu_native_hinted_source_run.cpp
     src/Text/Interop/progpu_native_hinted_glyph_resource_import.cpp
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
@@ -2219,6 +2220,19 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     progpu_native_enable_sanitizers(progpu_native_hinted_source_frame_tests)
     add_test(NAME progpu_native_hinted_source_frame_tests COMMAND progpu_native_hinted_source_frame_tests)
     set_tests_properties(progpu_native_hinted_source_frame_tests PROPERTIES TIMEOUT 60)
+
+    foreach(source_test IN ITEMS run transport)
+        add_executable(progpu_native_hinted_source_${source_test}_tests tests/progpu_native_hinted_source_${source_test}_tests.cpp)
+        target_compile_features(progpu_native_hinted_source_${source_test}_tests PRIVATE cxx_std_20)
+        target_link_libraries(progpu_native_hinted_source_${source_test}_tests PRIVATE progpu_native_text)
+        if(PROGPU_NATIVE_FONT_HINTING)
+            target_compile_definitions(progpu_native_hinted_source_${source_test}_tests PRIVATE PROGPU_NATIVE_FONT_HINTING=1)
+        endif()
+        progpu_native_enable_warnings(progpu_native_hinted_source_${source_test}_tests)
+        progpu_native_enable_sanitizers(progpu_native_hinted_source_${source_test}_tests)
+        add_test(NAME progpu_native_hinted_source_${source_test}_tests COMMAND progpu_native_hinted_source_${source_test}_tests)
+        set_tests_properties(progpu_native_hinted_source_${source_test}_tests PROPERTIES TIMEOUT 60)
+    endforeach()
     add_executable(progpu_native_hinted_source_policy_tests tests/progpu_native_hinted_source_policy_tests.cpp)
     target_compile_features(progpu_native_hinted_source_policy_tests PRIVATE cxx_std_20)
     target_link_libraries(progpu_native_hinted_source_policy_tests PRIVATE progpu_native_text)
@@ -2390,6 +2404,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
         include/progpu_native_text_hinting.h
+        include/progpu_native_text_source.h
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
         include/progpu_native_text_flow.h

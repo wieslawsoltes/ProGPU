@@ -9,16 +9,33 @@ extern "C" {
 /* Optional source geometry version 1. Existing hinting records and entrypoints
  * are unchanged. This is an explicit capture policy, NOT Display admission.
  * All unknown versions, flags, policies and reserved fields reject atomically.
- * Offset policy 0 retains raw device offsets; no other policy is admitted yet. */
+ * Source ideal-unit policies are explicit producer choices, not automatic WPF
+ * admission. Original em/DPI doubles remain identity under every policy. */
 typedef enum progpu_native_source_em_policy {
     PROGPU_NATIVE_SOURCE_EM_EXACT_26_6 = 0,
     PROGPU_NATIVE_SOURCE_EM_NEAREST_HALF_UP = 1,
-    PROGPU_NATIVE_SOURCE_EM_NEAREST_TIES_TO_EVEN = 2
+    PROGPU_NATIVE_SOURCE_EM_NEAREST_TIES_TO_EVEN = 2,
+    PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP = 3
 } progpu_native_source_em_policy;
 typedef enum progpu_native_source_advance_policy {
     PROGPU_NATIVE_SOURCE_ADVANCE_UNCHANGED = 0,
-    PROGPU_NATIVE_SOURCE_ADVANCE_PHYSICAL_TIES_TO_EVEN = 1
+    PROGPU_NATIVE_SOURCE_ADVANCE_PHYSICAL_TIES_TO_EVEN = 1,
+    PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS = 2
 } progpu_native_source_advance_policy;
+typedef enum progpu_native_source_offset_policy {
+    PROGPU_NATIVE_SOURCE_OFFSET_UNCHANGED = 0,
+    PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS = 1
+} progpu_native_source_offset_policy;
+
+typedef enum progpu_native_source_options_flags {
+    PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS = 1
+} progpu_native_source_options_flags;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceIntrinsicWidths */
+typedef struct progpu_native_hinted_source_intrinsic_widths {
+    double minimum;
+    double maximum;
+} progpu_native_hinted_source_intrinsic_widths;
 
 /* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceOptions */
 typedef struct progpu_native_hinted_source_options {
@@ -104,6 +121,26 @@ typedef struct progpu_native_hinted_source_caret_stop {
     uint8_t reserved1;
 } progpu_native_hinted_source_caret_stop;
 
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceRectangle */
+typedef struct progpu_native_hinted_source_rectangle {
+    double x;
+    double y;
+    double width;
+    double height;
+} progpu_native_hinted_source_rectangle;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceHit */
+typedef struct progpu_native_hinted_source_hit {
+    int32_t input_position;
+    uint32_t line_index;
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceRectangle */
+    progpu_native_hinted_source_rectangle bounds;
+    int8_t bidi_level;
+    uint8_t trailing;
+    uint8_t inside;
+    uint8_t reserved;
+} progpu_native_hinted_source_hit;
+
 /* Borrow only under the existing paragraph's destruction-excluding use lease.
  * All pointers refer to one immutable generation owned by that exact handle.
  * Counts match the ordinary source/logical/positioned snapshot. No imported
@@ -111,6 +148,7 @@ typedef struct progpu_native_hinted_source_caret_stop {
  * not a substitute for these records and is not populated for this lane. */
 /* PROGPU_CSHARP_STRUCT: NativeMethods.HintedSourceParagraphView */
 typedef struct progpu_native_hinted_source_paragraph_view {
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceOptions */
     progpu_native_hinted_source_options options;
     uint32_t style_count;
     uint32_t logical_count;
@@ -141,7 +179,9 @@ typedef struct progpu_native_hinted_source_run_frame {
     int32_t bidi_level;
     uint32_t reserved;
     double paragraph_baseline_y;
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceGlyphOffset */
     progpu_native_hinted_source_glyph_offset source_baseline_origin;
+    /* PROGPU_CSHARP_TYPE: NativeHintedSourceGlyphOffset */
     progpu_native_hinted_source_glyph_offset paragraph_origin;
     progpu_native_point raster_paragraph_origin;
 } progpu_native_hinted_source_run_frame;
@@ -167,9 +207,39 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_layout_hinted_
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_borrow(
     const progpu_native_hinted_paragraph* paragraph,
     progpu_native_hinted_source_paragraph_view* view);
+/* Optional original whole-paragraph measurement, never current-line width.
+ * Requires MEASURE_INTRINSIC_WIDTHS at creation. Reflow preserves its values. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_intrinsic_widths(
+    const progpu_native_hinted_paragraph* paragraph,
+    progpu_native_hinted_source_intrinsic_widths* widths);
 PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_reflow(
     const progpu_native_hinted_paragraph* paragraph, int32_t input_start,
     double maximum_width, progpu_native_hinted_paragraph** reflowed);
+
+/* Same retained double interaction, never raster shadows or managed rebuilds.
+ * Entire output capacities must be disjoint from owned allocations. Failure,
+ * including insufficient selection capacity, leaves all outputs untouched. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_hit_test(
+    const progpu_native_hinted_paragraph* paragraph, double x, double y,
+    progpu_native_hinted_source_hit* hit);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_caret(
+    const progpu_native_hinted_paragraph* paragraph, int32_t input_position, uint32_t trailing,
+    progpu_native_hinted_source_caret_stop* caret);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_selection(
+    const progpu_native_hinted_paragraph* paragraph, int32_t input_start, int32_t input_end,
+    progpu_native_hinted_source_rectangle* rectangles, uint32_t capacity, uint32_t* written);
+
+/* Line-scoped variants select retained native ranges, preserving separate
+ * affinities at a shared soft-wrap source boundary. Invalid lines fail atomically. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_hit_test_line(
+    const progpu_native_hinted_paragraph* paragraph, uint32_t line_index, double x,
+    progpu_native_hinted_source_hit* hit);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_line_caret(
+    const progpu_native_hinted_paragraph* paragraph, uint32_t line_index, int32_t input_position, uint32_t trailing,
+    progpu_native_hinted_source_caret_stop* caret);
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_source_paragraph_get_line_selection(
+    const progpu_native_hinted_paragraph* paragraph, uint32_t line_index, int32_t input_start, int32_t input_end,
+    progpu_native_hinted_source_rectangle* rectangles, uint32_t capacity, uint32_t* written);
 
 /* Source GlyphRun nominal-offset convention remains independent from the raw
  * logical device offsets. Copy derives it from owned DOUBLE writer positions,

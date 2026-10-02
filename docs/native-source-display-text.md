@@ -1,5 +1,52 @@
 # Original source Display text
 
+The additive C transport retains original-double options and styles in an
+immutable shared cache. Snapshots, native double hit/caret/selection queries and
+double-width continuation use the same producer generation. Glyph resources keep
+that cache independently of paragraph destruction. Nominal source-run copying and
+binding use original double writer positions and advances, never promoted raster
+shadows. Old float source-frame and reflow APIs reject this lane. Whole-capacity
+alias preflight and private staging preserve every output and unused tail on failure.
+
+Source-run binding requires one original run, font, full bidi level and line,
+exact original em/DPI, captured hmtx metrics and an exactly representable raster
+translation. Explicit native source-offset policy is transported unchanged; this
+does not establish original DirectWrite placement parity. Authored
+transport/source-run controls are wired into CTest; execution and hosted package
+qualification remain pending. No provider advertises Display. Explicit option flag
+1 requests producer-owned double intrinsic widths through an additive getter; an
+unrequested measurement stays unsupported and reflow preserves original widths.
+
+`NativeTextShapingContext.LayoutHintedSourceParagraph` now has a distinct managed
+`NativeHintedSourceParagraph` owner. UTF-16 uses the existing whole-paragraph
+scalar/style mapper; snapshots are copied before native ownership transfers.
+Queries and double-width reflow acquire the original destruction-excluding lease.
+Prepared resource readers expose separate `HasSourceMetrics`, `CopySourceMetrics`
+and `ValidateSourceRun` operations; they do not impersonate the old float nominal
+metric borrow. The original raster DPI projection is checked exactly, never rounded.
+The four managed schema/gate controls are authored but have not been executed
+against a freshly built native producer. No WPF capability is advertised here.
+
+Typed C and managed choices include float-captured physical em, source ideal-unit
+advances and source ideal-unit offsets with their original numeric enum values.
+They remain independent opt-ins; defaults retain the old raw policies. Unknown
+choices reject before either output is published. The transport fixture retains
+non-float-exact original em/DPI through creation and reflow while selecting these
+policies; actual execution remains a hosted qualification requirement.
+
+Postcommit checks for this transport batch: strict C++20 syntax-only checks passed
+for the full shaping adapter, source-run helper and both new fixtures; the C
+transport fixture was also parsed with hinting enabled. The generated source
+contract verifier, shell syntax and six-file C# syntax parsing passed. These checks
+did not link or execute native code, compile the managed dependency graph, stage a
+runtime or establish font/render/source qualification.
+
+Line-scoped double source queries now select generation-owned native box/caret
+ranges. They preserve separate line identity and affinity at shared soft-wrap
+positions; the ordinary whole-paragraph queries remain unchanged. Invalid line
+indices leave caller results untouched. Authored C controls cover actual wrapped
+paragraph queries and invalid-line atomicity; execution remains pending.
+
 The application target is unchanged AvalonDock theme startup: menus, tab headers
 and title bars set `TextFormattingMode.Display`, reaching LibreWPF's explicit
 `PortableTextLine.CreateCore` rejection tracked in LibreWPF #184. This work is
@@ -62,8 +109,8 @@ This first lane deliberately admits no tabs, objects, justification or trimming.
 Raw offset projection remains the default; the explicit source conversion below
 is a separate policy, not a changed raw result. Original unsafe shaping flags remain immutable;
 the bounded placement family below can fit proven original prepared boundaries.
-Required next work is the original offset policy and paired optional
-source binding/transport. No source-local division,
+Required next work includes the versioned foreign-resource import, complete RTL
+occurrence identity and original source qualification. No source-local division,
 snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
 ## Placement recomposition ownership
