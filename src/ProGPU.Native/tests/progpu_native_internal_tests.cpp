@@ -2223,6 +2223,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_copies_outside_clips_atomically());
     require(progpu::native::tests::
+        semantic_scene_builder_moves_sources_outside_clips_atomically());
+    require(progpu::native::tests::
         semantic_scene_builder_bounds_composite_only_guidelines());
     require(progpu::native::tests::
         semantic_scene_builder_records_final_composite_clip());

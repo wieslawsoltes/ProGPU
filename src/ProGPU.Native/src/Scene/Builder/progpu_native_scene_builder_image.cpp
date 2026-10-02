@@ -359,13 +359,10 @@ bool semantic_scene_builder::copy_image_from_memory(
     return false;
 }
 
-bool semantic_scene_builder::copy_image_from_memory_outside_clips(
-    const progpu_native_scene_image_draw& image,
-    std::uint32_t storage_flags,
-    std::span<const std::byte> pixels,
-    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+template<class Copy>
+bool semantic_scene_builder::copy_image_outside_clips(Copy&& copy) noexcept {
     const auto depth = implementation_->stack_depth;
-    if (depth == 0U) return copy_image_from_memory(image, storage_flags, pixels, color_matrix);
+    if (depth == 0U) return copy();
     if (!implementation_->hit_test_owners.empty())
         return implementation_->fail(scene_build_error::invalid_state);
     // Validate every live frame before appending anything. The suspension is
@@ -395,7 +392,7 @@ bool semantic_scene_builder::copy_image_from_memory_outside_clips(
     const auto kinds = implementation_->stack_kinds;
     bool success = true;
     for (std::uint32_t i = 0U; i < depth && success; ++i) success = restore();
-    if (success) success = copy_image_from_memory(image, storage_flags, pixels, color_matrix);
+    if (success) success = copy();
     for (std::uint32_t i = 0U; i < depth && success; ++i) success = save(states[i]);
     if (success) return true;
     // All old frames were clip-only: restore/save cannot modify hit ranges.
@@ -409,6 +406,25 @@ bool semantic_scene_builder::copy_image_from_memory_outside_clips(
     implementation_->stack_state_indices = states;
     implementation_->stack_kinds = kinds;
     return false;
+}
+
+bool semantic_scene_builder::copy_image_from_memory_outside_clips(
+    const progpu_native_scene_image_draw& image,
+    std::uint32_t storage_flags,
+    std::span<const std::byte> pixels,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    return copy_image_outside_clips([&]() noexcept {
+        return copy_image_from_memory(image, storage_flags, pixels, color_matrix);
+    });
+}
+
+bool semantic_scene_builder::copy_image_from_builder_outside_clips(
+    semantic_scene_builder source, std::uint32_t source_resource_index,
+    const progpu_native_scene_image_draw& image,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    return copy_image_outside_clips([&]() noexcept {
+        return copy_image_from_builder(std::move(source), source_resource_index, image, color_matrix);
+    });
 }
 
 bool semantic_scene_builder::copy_image_from_builder(

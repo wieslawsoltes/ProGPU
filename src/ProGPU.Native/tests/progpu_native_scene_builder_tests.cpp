@@ -49,7 +49,7 @@ T read(const std::vector<std::byte>& bytes, std::uint32_t offset) noexcept {
 
 } // namespace
 
-bool semantic_scene_builder_copies_outside_clips_atomically() {
+static bool copies_outside_clips_atomically(bool retained_source) {
     const std::array pixels{std::byte{0}, std::byte{0}, std::byte{255}, std::byte{255}};
     progpu_native_scene_image_draw image{};
     image.image_width = image.image_height = 1U; image.row_bytes = 4U;
@@ -57,6 +57,16 @@ bool semantic_scene_builder_copies_outside_clips_atomically() {
     image.source_rect = image.destination_rect = {0, 0, 1, 1};
     image.transform = semantic_scene_builder::identity_transform();
     image.opacity = 1.0F; image.max_anisotropy = 1U;
+    const auto copy = [&](semantic_scene_builder& destination, const auto& draw, bool scoped = true) {
+        if (!retained_source) return scoped
+            ? destination.copy_image_from_memory_outside_clips(draw, 0U, pixels)
+            : destination.copy_image_from_memory(draw, 0U, pixels);
+        semantic_scene_builder source(0x95B0U);
+        std::uint32_t index{};
+        if (!source.add_rgba8_image(1U, 1U, 4U, pixels, index)) return false;
+        return scoped ? destination.copy_image_from_builder_outside_clips(std::move(source), index, draw)
+            : destination.copy_image_from_builder(std::move(source), index, draw);
+    };
     const auto prepare = [&](semantic_scene_builder& builder, unsigned int kind) {
         if (kind == 5U && !builder.set_hit_test_owner(42)) return false;
         auto clip = semantic_scene_builder::identity_state();
@@ -79,13 +89,12 @@ bool semantic_scene_builder_copies_outside_clips_atomically() {
         auto rejected = image;
         // Fail after scope suspension/upload/layer append, not only preflight.
         if (kind == 0U) rejected.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
-        if (actual.copy_image_from_memory_outside_clips(rejected, 0U, pixels)) return false;
+        if (copy(actual, rejected)) return false;
         std::vector<std::byte> original, after;
         if (!finish(expected, original) || !finish(actual, after) || after != original) return false;
     }
     semantic_scene_builder builder(0x95A1U, 1U);
-    if (!prepare(builder, 0U) || builder.copy_image_from_memory(image, 0U, pixels) ||
-        !builder.copy_image_from_memory_outside_clips(image, 0U, pixels)) return false;
+    if (!prepare(builder, 0U) || copy(builder, image, false) || !copy(builder, image)) return false;
     std::uint32_t image_index{};
     if (!builder.add_rgba8_image(1U, 1U, 4U, pixels, image_index) ||
         !builder.draw_image(image_index, image, image.destination_rect)) return false;
@@ -111,10 +120,18 @@ bool semantic_scene_builder_copies_outside_clips_atomically() {
     layer.opacity = 0.5F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
     layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!layered.push_layer(layer) || !untouched.push_layer(layer) ||
-        layered.copy_image_from_memory_outside_clips(image, 0U, pixels) ||
+        copy(layered, image) ||
         !layered.pop_layer() || !untouched.pop_layer()) return false;
     std::vector<std::byte> before, after;
     return layered.build(after) && untouched.build(before) && before == after;
+}
+
+bool semantic_scene_builder_copies_outside_clips_atomically() {
+    return copies_outside_clips_atomically(false);
+}
+
+bool semantic_scene_builder_moves_sources_outside_clips_atomically() {
+    return copies_outside_clips_atomically(true);
 }
 
 bool semantic_scene_builder_append_capacity_is_amortized_and_atomic() {

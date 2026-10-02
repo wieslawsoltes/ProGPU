@@ -13,6 +13,7 @@
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
 #include "progpu_native_direct2d_scoped_copy_fixture.hpp"
+#include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -2207,6 +2208,11 @@ int main(int argc, char** argv)
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_scene(gpu, reference ? scoped_copy_reference_engine : engine, nullptr,
                 1U, 1U, submissions, stream, 0x95A3U, generation);
+        }, require);
+    progpu::native::direct2d::tests::verify_scoped_source_copy_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? scoped_copy_reference_engine : engine, nullptr,
+                1U, 1U, submissions, stream, 0x95B3U, generation);
         }, require);
     progpu_native_engine_destroy(scoped_copy_reference_engine);
     phase("scoped bitmap memory copies passed");

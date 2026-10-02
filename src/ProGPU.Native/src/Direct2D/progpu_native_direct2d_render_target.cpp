@@ -6130,9 +6130,7 @@ public:
         // Copy is in physical pixels and ignores the target's drawing transform.
         // Storage replacement suspends only actual aliased clip scopes. Layers
         // own intermediate contents and require a distinct flush contract.
-        if (scope_depth_ != clip_depth_ ||
-            !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
-                [](auto scope) { return scope == scope_axis_aligned_clip; })) return wrong_state;
+        if (!can_copy_outside_clips_locked()) return wrong_state;
         const rectangle_u rectangle = destination == nullptr
             ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
         if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
@@ -6229,6 +6227,13 @@ public:
     }
 
 private:
+    bool can_copy_outside_clips_locked() const noexcept
+    {
+        return scope_depth_ == clip_depth_ &&
+            std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                [](auto scope) { return scope == scope_axis_aligned_clip; });
+    }
+
     template<typename RecordCopy>
     com::result record_bitmap_copy_locked(bool replace_contents, RecordCopy&& record) noexcept
     {
@@ -6318,7 +6323,7 @@ private:
             const std::lock_guard lock(mutex_);
             if (!compatible_) return not_implemented;
             if (com::failed(failure_)) return failure_;
-            if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+            if (!can_copy_outside_clips_locked()) return wrong_state;
             const auto source_rect = rectangle == nullptr
                 ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
             const auto point = destination == nullptr ? point_2u{0U, 0U} : *destination;
@@ -6357,7 +6362,7 @@ private:
             const auto matrix = bitmap_alpha_matrix(snapshot.picture_image);
             if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
             return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-                return recording.copy_image_from_builder(std::move(captured), resource_index, image,
+                return recording.copy_image_from_builder_outside_clips(std::move(captured), resource_index, image,
                     alpha_only ? &matrix : nullptr);
             });
         } catch (const std::bad_alloc&) {

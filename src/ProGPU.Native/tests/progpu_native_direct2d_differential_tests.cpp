@@ -1,6 +1,7 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_direct2d_scoped_copy_fixture.hpp"
+#include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -751,7 +752,7 @@ void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
 }
 
 std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false,
-    int scoped_copy_variant = -1)
+    int scoped_copy_variant = -1, int source_copy_kind = -1)
 {
     IWICImagingFactory* raw_wic_factory = nullptr;
     require(SUCCEEDED(CoCreateInstance(
@@ -949,10 +950,14 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
-    if (scoped_copy_variant >= 0)
+    if (scoped_copy_variant >= 0 && source_copy_kind < 0)
         progpu::native::direct2d::tests::record_scoped_memory_copy(
             reinterpret_cast<d2d::render_target*>(target.get()),
             static_cast<std::uint32_t>(scoped_copy_variant), require);
+    if (scoped_copy_variant >= 0 && source_copy_kind >= 0)
+        progpu::native::direct2d::tests::record_scoped_source_copy(
+            reinterpret_cast<d2d::render_target*>(target.get()),
+            static_cast<std::uint32_t>(scoped_copy_variant), source_copy_kind != 0, require);
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1100,6 +1105,23 @@ int wmain(int argc, wchar_t** argv)
             std::swap(expected[0], expected[2]); // both readbacks are original BGRA8
             require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
                 "original scoped storage-copy ordering/DPI/clip expectation differs");
+        }
+    }
+    for (int source_kind = 0; source_kind < 2; ++source_kind) {
+        for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
+            const auto original = render_system_direct2d(false, false, static_cast<int>(variant), source_kind);
+            progpu::native::direct2d::tests::record_scoped_source_copy(
+                scene.target.get(), variant, source_kind != 0, require);
+            const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U,
+                static_cast<std::uint64_t>(source_kind + 2));
+            require(original.size() == width * height * 4U && original == actual,
+                "scoped source copy differs from original Windows D2D/WIC");
+            for (std::uint32_t y = 0U; y < height; ++y) for (std::uint32_t x = 0U; x < width; ++x) {
+                auto expected = progpu::native::direct2d::tests::scoped_copy_expected_pixel(variant, x, y);
+                std::swap(expected[0], expected[2]);
+                require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
+                    "original scoped source copy physical crop/DPI/clip expectation differs");
+            }
         }
     }
     scene = {};
