@@ -3560,26 +3560,11 @@ static progpu_native_status paragraph_layout_core(
                     const auto style_index = retained.runs[retained.logical_owners[i].run_index].style_index;
                     const double dpi = retained.source_styles[style_index].pixels_per_dip;
                     const auto& glyph = logical[i];
-                    // Divide exact physical metrics by the ORIGINAL source DPI.
-                    // Multiplying a rounded reciprocal (even double) is a
-                    // different contract; float writer output is never read.
-                    double projected[4]{};
-#if defined(__aarch64__) || defined(_M_ARM64)
-                    const double advances[2]{static_cast<double>(glyph.advance_x), static_cast<double>(glyph.advance_y)};
-                    const double offsets[2]{static_cast<double>(glyph.offset_x), static_cast<double>(glyph.offset_y)};
-                    vst1q_f64(projected, vdivq_f64(vmulq_n_f64(vld1q_f64(advances), 1.0 / 64.0), vdupq_n_f64(dpi)));
-                    vst1q_f64(projected + 2U, vdivq_f64(vmulq_n_f64(vld1q_f64(offsets), 1.0 / 64.0), vdupq_n_f64(dpi)));
-#elif defined(__SSE2__) || defined(_M_X64)
-                    const auto divisor = _mm_set1_pd(dpi), scale = _mm_set1_pd(1.0 / 64.0);
-                    _mm_storeu_pd(projected, _mm_div_pd(_mm_mul_pd(_mm_set_pd(glyph.advance_y, glyph.advance_x), scale), divisor));
-                    _mm_storeu_pd(projected + 2U, _mm_div_pd(_mm_mul_pd(_mm_set_pd(glyph.offset_y, glyph.offset_x), scale), divisor));
-#else
-                    projected[0] = (static_cast<double>(glyph.advance_x) / 64.0) / dpi;
-                    projected[1] = (static_cast<double>(glyph.advance_y) / 64.0) / dpi;
-                    projected[2] = (static_cast<double>(glyph.offset_x) / 64.0) / dpi;
-                    projected[3] = (static_cast<double>(glyph.offset_y) / 64.0) / dpi;
-#endif
-                    retained.source_logical_metrics[i] = {projected[0], projected[1], projected[2], projected[3]};
+                    if (!project_hinted_source_geometry(glyph, dpi, retained.source_logical_metrics[i])) {
+                        result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
+                        result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
+                        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                    }
                     retained.source_item_metrics[i] = retained.source_style_metrics[style_index];
                 }
             }
