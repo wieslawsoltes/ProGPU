@@ -52,6 +52,34 @@ The original reference source SHA-256 is
 | x64 | `observations.json` | `1351d7468658357be495863eb7b8943b8b339129ed6ad05fbd2096f5170e5e68` |
 | x64 | `provenance.json` | `86915b223dda817a2ef2a4ff0891c827a8f4c3eebc0d8c85539d6c04eb25d632` |
 
+## Bounded rotation/skew input inventory
+
+A second original-only console harness sampled 1,210 explicit inputs: 1,025
+dyadic rotation angles across minus/plus 360 degrees, 50 boundary neighbors,
+20 finite/large values, 27 centered rotations, 36 single-axis skews, 32 paired
+or centered skews and 20 tangent-pole neighbors. Each compact receipt is less
+than one MiB and retains five original double bit patterns and forty raw float
+lanes per record. There is no host-trigonometry or product comparison in the
+probe. Both architecture inventories are identical record-for-record.
+
+Each architecture returned 1,204 numerical observations and six atomic
+rejections. Those six are a limitation of the diagnostic companion: it narrows
+the original angle for metadata before also computing the double modulo, then
+rejects an infinite metadata value. They must **not** be interpreted as a source
+Rotate/Skew rejection contract when the real modulo/narrowed constructor would
+remain finite. Rejected records contain sentinels, not matrices.
+
+The `Arm64-rotation-lattice` and `X64-rotation-lattice` directories retain the
+same full provenance categories as the named observations. Their receipt hashes
+are:
+
+| Architecture | File | SHA-256 |
+| --- | --- | --- |
+| ARM64 | `observations.json` | `a60b40f533c2346af2ffbda0dee71a7c11a3a11aa06a3f55dbf6b3fe09a14354` |
+| ARM64 | `provenance.json` | `4d23da18b2a611d9a6ea2e60cbdfb1f2658e134895486b908e7b580e81dd60fe` |
+| x64 | `observations.json` | `1d21c7a236305c20fab977866397d8b3d691a18131f142a3ce9c90792c541c05` |
+| x64 | `provenance.json` | `95f45709b22b4fc130847c4b64ac5b3c0dfe8c511203d38de7d5cdb95c5a1ed8` |
+
 Named rotation/skew source witnesses still require their own implementation.
 No native, package, hardware, original-WPF rendering or source application gate
 is satisfied by these CPU observations. Qualified downstream pins and automatic
