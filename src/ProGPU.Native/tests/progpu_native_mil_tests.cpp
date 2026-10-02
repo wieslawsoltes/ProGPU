@@ -21921,8 +21921,9 @@ bool original_shader_sampler_inherits_actual_visual_options() {
                 ++images;
                 const auto image = read_value<progpu_native_scene_image_draw>(stream,
                     resource.auxiliary_offset + record.payload_offset);
-                PROGPU_REQUIRE(image.sampling == (variant == 4U || variant >= 11U
-                    ? PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR : PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST));
+                const std::uint32_t expected_sampling = variant == 4U || variant >= 11U
+                    ? PROGPU_NATIVE_IMAGE_SAMPLING_LINEAR : PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+                PROGPU_REQUIRE(image.sampling == expected_sampling);
                 if (variant >= 11U) {
                     PROGPU_REQUIRE(image.image_width == 400U && image.image_height == 200U);
                     PROGPU_REQUIRE(image.source_rect.x == 0.0F && image.source_rect.y == 0.0F &&
