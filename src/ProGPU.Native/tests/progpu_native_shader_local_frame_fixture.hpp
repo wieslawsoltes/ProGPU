@@ -234,5 +234,28 @@ void verify_original_shader_local_frame_pixels(Render render, Require require) {
         const auto pixels=render(false,legacy,header,shader_local_cases[variant],0U,PROGPU_NATIVE_STATUS_UNSUPPORTED,layers,frame);
         require(pixels.empty() && frame.submission_count==0U,"legacy fractional wire acquired new admission");
     }
+    auto fractional_clip=scenes[0U];
+    progpu_native_scene_header clip_header{}; std::memcpy(&clip_header,fractional_clip.data(),sizeof(clip_header));
+    bool changed_clip=false;
+    for(std::uint32_t i=0U;i<clip_header.command_count;++i) {
+        progpu_native_scene_command command{};
+        std::memcpy(&command,fractional_clip.data()+clip_header.command_offset+i*clip_header.command_stride,sizeof(command));
+        if(command.kind!=PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) continue;
+        progpu_native_scene_layer layer{}; std::memcpy(&layer,fractional_clip.data()+command.payload_offset,sizeof(layer));
+        if(layer.effect_resource_index==PROGPU_NATIVE_SCENE_NO_INDEX) continue;
+        require((layer.flags&PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)!=0U,"local output clip missing");
+        progpu_native_scene_resource state_resource{};
+        std::memcpy(&state_resource,fractional_clip.data()+clip_header.resource_offset+layer.reserved0*clip_header.resource_stride,sizeof(state_resource));
+        progpu_native_scene_state state{}; std::memcpy(&state,fractional_clip.data()+state_resource.payload_offset,sizeof(state));
+        state.clip_rect.x+=.25F; state.clip_rect.width-=.25F;
+        std::memcpy(fractional_clip.data()+state_resource.payload_offset,&state,sizeof(state));
+        changed_clip=true; break;
+    }
+    require(changed_clip,"raw fractional clip control was not installed");
+    progpu_native_layer_metrics clip_layers{}; clip_layers.struct_size=sizeof(clip_layers);
+    progpu_native_scene_frame_metrics clip_frame{}; clip_frame.struct_size=sizeof(clip_frame);
+    const auto clipped=render(false,fractional_clip,clip_header,shader_local_cases[0U],0U,
+        PROGPU_NATIVE_STATUS_UNSUPPORTED,clip_layers,clip_frame);
+    require(clipped.empty() && clip_frame.submission_count==0U,"raw fractional final clip acquired new admission");
 }
 } // namespace progpu::native::tests
