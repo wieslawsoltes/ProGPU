@@ -121,8 +121,8 @@ This first lane deliberately admits no tabs, objects, justification or trimming.
 Raw offset projection remains the default; the explicit source conversion below
 is a separate policy, not a changed raw result. Original unsafe shaping flags remain immutable;
 the bounded placement family below can fit proven original prepared boundaries.
-Required next work includes the versioned foreign-resource import, complete RTL
-occurrence identity and original source qualification. No source-local division,
+Required next qualification includes the versioned foreign-resource import below,
+complete RTL occurrence identity and original source qualification. No source-local division,
 snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
 ## Placement recomposition ownership
@@ -165,8 +165,8 @@ not an overflowing line or fallback. The complete-row fast path is admitted only
 when nonnegative advances prove there is no earlier prefix overflow.
 
 This connects bounded native recomposition to fitting, not ordinary WPF Display
-admission. Complex/mark/contextual placement, offset conversion, source transport
-and independent wrapping/interaction comparisons remain explicit gates.
+admission. Complex/mark/contextual placement and independent offset,
+wrapping/interaction and source-transport qualification remain explicit gates.
 
 Optional intrinsic measurement retains double minimum/maximum widths from the
 complete original paragraph, independent of requested width and maximum lines.
@@ -282,8 +282,46 @@ It validates all wrappers and imports before the same existing staged canonical
 graph update/binding path publishes, preserving original indices and exact font
 association. A source failure cannot trigger an old-route fallback, a partially
 published raw batch, or foreign native-handle reuse. Original raw API layouts,
-calls and defaults remain unchanged. The paired strict source importer and
-source-host binding route are required before any rendering admission.
+calls and defaults remain unchanged. The paired strict source importer now owns
+all fourteen extension arrays and reuses the common policy, measured writer and
+interaction emitter to validate every double, raster shadow and occurrence.
+It does not execute fonts or retain foreign contexts. See
+[Owned source glyph-resource import](native-source-glyph-resource-import.md).
+Actual renderer/source-host qualification remains required.
+
+The mixed MIL fixture creates independent raw and source paragraphs through the
+real C factories, recomposes PairPos wrapping, prepares nominal resources and
+submits both in one canonical transaction. Both interpreters and actual odd/even
+runs retain the original zero-advance/position-offset MIL binding contract.
+Late invalid source metadata or occurrence indices must preserve the prior graph,
+scene cache and metrics; successful C and C++ channels must still compile after
+all producer handles and contexts retire. These semantic fixtures are authored,
+not yet executed; no GPU pixel qualification is claimed.
+
+The paired WPF branch now has an internal explicit `FormatSourceDisplay` factory
+over the complete original request. Caller-selected capture/interpreter/policy
+values reach the actual native owner before its temporary context retires.
+Original doubles, per-style features, digit/bidi identity and tab-origin metadata
+remain retained. The source adapter and MIL batch select the versioned resource
+only when present. This factory is not registered as ordinary Display support;
+source graph compilation and positive native execution require the coherent
+published producer, not the old qualified runtime.
+
+### Publication checkpoint
+
+The producer branch merges published shader foundation
+`0bc0f1eab8b1cbc0ca60a14de166f0b329a47b02` with its history preserved. It is an
+authoring dependency, not a claim that its whole Build is qualified. Source C
+transport/import CTest targets compile the actual shaping adapter, as do the
+existing raw transport targets; no test-only export replacement is used.
+
+Post-integration strict C++20 syntax checks passed the importer, actual C import
+fixture and mixed MIL fixture, with hinting enabled and warnings treated as
+errors. The full native contract verifier passed (143 commands, 141 packet
+layouts, 109 top-level/25 render-data/7 undispatched commands, 93 owned GPU
+fields/7 excluded identities, all generated contracts and three inline-array
+generator controls). `git diff --check` passed. These are syntax/schema results,
+not linking, font execution, renderer execution or application qualification.
 
 After the source-policy implementation commit, a two-translation-unit CPU-only
 executable (`progpu_native_hinted_source_policy.cpp` plus its arithmetic fixture)
