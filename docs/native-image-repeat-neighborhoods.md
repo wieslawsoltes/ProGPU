@@ -243,3 +243,10 @@ assertions, compiler selection and deadlines remain unchanged. The concrete
 pinned-source defect is consistent with the observed Windows boundary; hosted
 pipeline creation and every original strict pixel control must still pass
 before identifying it as the confirmed cause of this execution failure.
+
+After the source-name correction, the fully instantiated raw-reference helper
+passes strict Clang C++20 syntax against the cached original Dawn header and
+whitespace checks. Both WGSL stages remain byte-identical to the failing parent
+(combined source SHA256
+`b8df4b0d03f43fe512cd7a43fae9d0a894c4bdec6abfdfb4baa1913510c21c6b`).
+No local compiler-provider or GPU execution was performed.
