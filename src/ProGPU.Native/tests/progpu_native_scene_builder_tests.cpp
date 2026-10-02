@@ -239,6 +239,77 @@ bool semantic_scene_builder_rgb_transport_is_owned_and_atomic() {
         semantic::compute_content_hashes(changed.data(), valid.header).glyph != original_hash;
 }
 
+bool semantic_scene_builder_axis_clip_area_is_explicit_and_atomic() {
+    const progpu_native_image_rect bounds{2.25F, 3.75F, 10.5F, 11.25F};
+    const semantic::scissor target{3U, 5U, 64U, 64U, true};
+    const progpu_native_scene_presentation presentation{sizeof(presentation), 7U, 11U, 40U, 42U, 1.25F, 1.5F, 0U};
+    std::array<float, 4U> physical{};
+    if (!semantic::try_resolve_semantic_axis_clip_pixel_bounds(bounds, target, presentation, physical) ||
+        physical != std::array<float, 4U>{6.8125F, 11.625F, 19.9375F, 28.5F}) return false;
+    for (unsigned defect = 0U; defect < 5U; ++defect) {
+        auto invalid_bounds = bounds;
+        auto invalid_presentation = presentation;
+        if (defect == 0U) invalid_presentation.dpi_scale_x = 0.0F;
+        if (defect == 1U) invalid_presentation.dpi_scale_y = std::numeric_limits<float>::quiet_NaN();
+        if (defect == 2U) invalid_bounds.width = -1.0F;
+        if (defect == 3U) invalid_bounds.y = std::numeric_limits<float>::infinity();
+        if (defect == 4U) invalid_bounds.x = invalid_bounds.width = std::numeric_limits<float>::max();
+        const auto retained = physical;
+        if (semantic::try_resolve_semantic_axis_clip_pixel_bounds(invalid_bounds, target, invalid_presentation, physical) ||
+            physical != retained) return false;
+    }
+    semantic_scene_builder builder(0x9643U, 1U);
+    std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_axis_aligned_clip_mask({2.25F, 3.75F, 10.5F, 11.25F}, index) || index != 0U) return false;
+    std::vector<std::byte> before;
+    if (!builder.build(before)) return false;
+    const auto header = read<progpu_native_scene_header>(before, 0U);
+    const auto resource = read<progpu_native_scene_resource>(before, header.resource_offset);
+    const auto mask = read<progpu_native_scene_layer_mask>(before, resource.payload_offset);
+    if (mask.flags != PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA ||
+        mask.opacity != 1.0F || mask.transform.m11 != 1.0F || mask.transform.m22 != 1.0F ||
+        scene::validate(before.data(), before.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    for (unsigned defect = 0U; defect < 8U; ++defect) {
+        auto invalid = mask;
+        if (defect == 0U) invalid.flags = 2U;
+        if (defect == 1U) invalid.transform.m31 = 1.0F;
+        if (defect == 2U) invalid.transform.m11 = 2.0F;
+        if (defect == 3U) invalid.transform.m12 = 0.25F;
+        if (defect == 4U) invalid.corner_radii_x[0] = 1.0F;
+        if (defect == 5U) invalid.corner_radii_y[3] = 1.0F;
+        if (defect == 6U) invalid.opacity = 0.5F;
+        if (defect == 7U) invalid.bounds.width = std::numeric_limits<float>::quiet_NaN();
+        auto corrupt = before;
+        std::memcpy(corrupt.data() + resource.payload_offset, &invalid, sizeof(invalid));
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        // Ordinary builder header normalization is unchanged; the seven
+        // actual new coverage-contract failures must still be atomic.
+        if (defect != 0U) {
+            std::uint32_t rejected = 42U;
+            if (builder.add_rounded_rectangle_mask(invalid, rejected) || rejected != PROGPU_NATIVE_SCENE_NO_INDEX)
+                return false;
+            std::vector<std::byte> after;
+            if (!builder.build(after) || before != after) return false;
+        }
+    }
+    const std::array masks{mask, mask};
+    if (!builder.add_analytic_mask_chain(masks, index) || index != 1U) return false;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes) || scene::validate(bytes.data(), bytes.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto result = read<progpu_native_scene_header>(bytes, 0U);
+    const auto chain_resource = read<progpu_native_scene_resource>(bytes, result.resource_offset + result.resource_stride);
+    const auto chain = read<progpu_native_scene_layer_mask_chain>(bytes, chain_resource.payload_offset);
+    if (chain.masks[0].flags != mask.flags || chain.masks[1].flags != mask.flags) return false;
+    // Existing ordinary rounded/translated/translucent masks retain flags zero.
+    auto ordinary = mask;
+    ordinary.flags = 0U;
+    ordinary.transform.m31 = 1.0F;
+    ordinary.opacity = 0.5F;
+    ordinary.corner_radii_x[0] = ordinary.corner_radii_y[0] = 1.0F;
+    return builder.add_rounded_rectangle_mask(ordinary, index) && builder.build(bytes) &&
+        scene::validate(bytes.data(), bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 bool semantic_scene_builder_clear_prepares_exact_aa_owner_chain() {
     const auto push_clip = [](semantic_scene_builder& builder, bool background) {
         progpu_native_scene_layer_mask mask{};

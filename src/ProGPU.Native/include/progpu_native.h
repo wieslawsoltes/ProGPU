@@ -219,7 +219,10 @@ typedef enum progpu_native_scene_layer_mask_kind {
 } progpu_native_scene_layer_mask_kind;
 
 enum {
-    PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS = 4U
+    PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS = 4U,
+    /* Rounded-rectangle wire with zero radii, identity source transform and
+       opacity one only. Exact target-axis rectangle/pixel overlap, not SDF AA. */
+    PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA = 1U
 };
 
 typedef enum progpu_native_scene_command_kind {
@@ -1306,8 +1309,10 @@ typedef struct progpu_native_scene_tile_composite {
  * rounded rectangle in logical target coordinates. The transform maps mask
  * local coordinates to logical target coordinates; radii are normalized by
  * the executor using the same bounded CSS side-fit rule as common masks.
- * Resource generation is the immutable retained identity. All reserved fields
- * and flags remain zero.
+ * Resource generation is the immutable retained identity. Reserved fields stay
+ * zero. Flags zero retains the original SDF coverage. AXIS_CLIP_AREA requires
+ * identity source transform, zero radii and unit opacity; actual presentation
+ * supplies the physical pixel frame for exact rectangular pixel coverage.
  */
 typedef struct progpu_native_scene_layer_mask {
     uint32_t struct_size;

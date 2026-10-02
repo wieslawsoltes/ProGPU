@@ -3622,6 +3622,10 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsValidLayerMask(in NativeSceneLayerMask mask)
     {
+        const uint axisClipFlag = (uint)NativeSceneLayerMaskFlags.AxisClipArea;
+        bool exactClip = (mask.Flags & axisClipFlag) == 0U ||
+            (mask.Transform == Matrix3x2.Identity && mask.Opacity == 1f &&
+             mask.CornerRadiiX == Vector4.Zero && mask.CornerRadiiY == Vector4.Zero);
         bool finiteRadii =
             IsFiniteNonnegative(mask.CornerRadiiX) &&
             IsFiniteNonnegative(mask.CornerRadiiY);
@@ -3631,7 +3635,7 @@ public ref struct NativeSceneStreamBuilder
             out Matrix3x2 inverse) && IsFinite(inverse);
         return mask.StructSize == Unsafe.SizeOf<NativeSceneLayerMask>() &&
             mask.Kind == NativeSceneLayerMaskKind.RoundedRectangle &&
-            mask.Flags == 0U && mask.HasCanonicalReservedFields &&
+            (mask.Flags & ~axisClipFlag) == 0U && exactClip && mask.HasCanonicalReservedFields &&
             IsFinitePositive(mask.Bounds) &&
             IsFinite(mask.Transform) && float.IsFinite(determinant) &&
             MathF.Abs(determinant) > 0.000001f && inverseIsRepresentable &&

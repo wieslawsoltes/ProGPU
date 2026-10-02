@@ -6005,15 +6005,9 @@ public:
                 return;
             }
         } else {
-            progpu_native_scene_layer_mask mask{};
-            mask.bounds = clip;
-            mask.transform = {
-                1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-            mask.opacity = 1.0F;
             std::uint32_t mask_resource_index =
                 PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder_.add_rounded_rectangle_mask(
-                    mask, mask_resource_index)) {
+            if (!builder_.add_axis_aligned_clip_mask(clip, mask_resource_index)) {
                 latch(builder_failure());
                 return;
             }
