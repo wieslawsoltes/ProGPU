@@ -163,9 +163,9 @@ inline bool validate_sample_frame(const progpu_native_scene_shader_sample_frame&
         frame.clip_antialias > 1U || !std::isfinite(frame.clip_left) || !std::isfinite(frame.clip_top) ||
         !std::isfinite(frame.clip_right) || !std::isfinite(frame.clip_bottom) ||
         frame.clip_right < frame.clip_left || frame.clip_bottom < frame.clip_top) return false;
-    if (frame.clip_antialias == 0U && (frame.clip_left != std::floor(frame.clip_left) ||
+    if (frame.clip_left != std::floor(frame.clip_left) ||
         frame.clip_top != std::floor(frame.clip_top) || frame.clip_right != std::floor(frame.clip_right) ||
-        frame.clip_bottom != std::floor(frame.clip_bottom))) return false;
+        frame.clip_bottom != std::floor(frame.clip_bottom)) return false;
     auto expected = frame;
     if (!complete_sample_frame(expected)) return false;
     const auto same = [](float left, float right) {

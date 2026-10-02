@@ -564,9 +564,8 @@ progpu_native_status render_scene(
                         // V5 has an independent complete input picture. Its
                         // output may intersect the target without changing UVs.
                         // Physical clip transport avoids logical-DPI round trips.
-                        complete_frame = sample_frame.source_dpi_x == source_presentation.dpi_scale_x &&
-                            sample_frame.source_dpi_y == source_presentation.dpi_scale_y &&
-                            sample_frame.clip_antialias == 0U &&
+                        complete_frame = static_cast<float>(sample_frame.source_dpi_x) == source_presentation.dpi_scale_x &&
+                            static_cast<float>(sample_frame.source_dpi_y) == source_presentation.dpi_scale_y &&
                             layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                             (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) == 0U &&
                             std::none_of(active_cache_owners.begin(), active_cache_owners.begin() + cache_scope_depth,

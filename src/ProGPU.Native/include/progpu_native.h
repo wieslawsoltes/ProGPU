@@ -2889,8 +2889,9 @@ typedef struct progpu_native_scene_shader_effect_capture {
 /* Version-5 source-frame metadata. Capture is scale-space storage; output is
  * the independent final-device lattice. The original unit quad retains its
  * homogeneous coordinate, rather than resampling already evaluated output.
- * Physical clip edges are independent of both allocations. clip_antialias is
- * 0 for original aliased integer coverage and 1 for antialiased coverage.
+ * Physical integer clip edges are independent of both allocations.
+ * clip_antialias records 0=aliased source bounds, 1=original AA bounds inflation;
+ * both consume the original aliased integer clip, never fractional AA coverage.
  * All source, derived and reserved fields are validated before publication.
  */
 /* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderSampleFrame */
