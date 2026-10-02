@@ -7,7 +7,7 @@ using System.Windows.Media.TextFormatting;
 internal static partial class Program
 {
     private static void CaptureMidpointCases(string font, FontFamily family, string rtlFont, FontFamily rtlFamily,
-        Stopwatch timer, List<object> cases)
+        Stopwatch timer, List<object> cases, bool sourceInputs = false)
     {
         foreach (MidpointInput input in MidpointCases.Create())
         {
@@ -22,7 +22,7 @@ internal static partial class Program
             {
                 original = JsonSerializer.SerializeToElement(Capture(selectedFont, selectedFamily, input.Text,
                     Enum.Parse<TextFormattingMode>(input.Mode), Enum.Parse<FlowDirection>(input.Direction),
-                    input.Dpi, input.Em, input.Width));
+                    input.Dpi, input.Em, input.Width, sourceInputs));
                 // A label is not evidence of mark positioning or RTL shaping.
                 // Include original input/font diagnostics on coverage failure
                 // as well as Capture failure; neither can publish a receipt.

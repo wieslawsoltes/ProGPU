@@ -134,6 +134,15 @@ half-open shared edges and derivatives before discard. Both renderers must use
 the matching vertex count. Folded/near-singular edges, multisampling and complete
 provider/package pixels remain explicit gates; shader compilation is not parity.
 
+Source Display capture retains original double em/DPI separately from explicit
+physical-em and advance policies. Preserve immutable raw post-GPOS generations,
+source/descriptor/bidi identity and unsafe flags while deriving fitting metrics.
+One matching advance corpus does not establish midpoint, offset, wrapping or
+caret policy. Precise source geometry must come from the original native writer,
+not float promotion or source-side division/snapping. Keep public raw ABIs and
+Display activation unchanged until the complete paired source contract qualifies.
+See docs/native-source-display-text.md.
+
 Paired Display probes preserve original Microsoft glyph/run receipts and separate
 raw signed hinted slots from full source-context shaping and positioned output.
 Keep exact source DPI and original 26.6 values beside float render projections;

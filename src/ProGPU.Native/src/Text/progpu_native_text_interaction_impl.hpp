@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <type_traits>
 
 // Native port of the cluster-box/caret/hit/selection ownership in ProGPU-owned
 // TextLayout. Logical cluster ends and bidi levels remain caller-owned inputs.
@@ -43,7 +44,8 @@ bool validate_inputs(
     std::span<const std::int8_t> bidi_levels,
     bool measured_lines = false,
     std::span<const Fragment> fragments = {},
-    std::span<const float> line_origins = {}) noexcept {
+    std::span<const decltype(Glyph{}.x)> line_origins = {}) noexcept {
+    using Coordinate = decltype(Glyph{}.x);
     if (cluster_ends.size() != glyphs.size() ||
         bidi_levels.size() != glyphs.size() ||
         (!fragments.empty() && fragments.size() != lines.size()) ||
@@ -80,15 +82,15 @@ bool validate_inputs(
             ? std::isfinite(line.baseline_y) && std::isfinite(line.height) &&
                 line.height >= 0.0F && std::isfinite(line_bottom) &&
                 line_bottom <= std::numeric_limits<float>::max() &&
-                line.baseline_y >= static_cast<float>(line_top) &&
-                line.baseline_y <= static_cast<float>(line_bottom)
+                line.baseline_y >= static_cast<Coordinate>(line_top) &&
+                line.baseline_y <= static_cast<Coordinate>(line_bottom)
             : finite_line(line);
         if (!valid_metrics || line.glyph_start != expected ||
             line.glyph_count > glyphs.size() - expected) {
             return false;
         }
         const std::size_t end = expected + line.glyph_count;
-        float pen_x = line_origins.empty() ? 0.0F : line_origins[line_index];
+        Coordinate pen_x = line_origins.empty() ? Coordinate{0} : line_origins[line_index];
         if (!line_origins.empty() && !std::isfinite(pen_x)) return false;
         for (std::size_t index = expected; index < end; ++index) {
             if (!finite_glyph(glyphs[index]) ||
@@ -138,7 +140,7 @@ bool get_requirements(
     font_error* error,
     bool measured_lines = false,
     std::span<const Fragment> fragments = {},
-    std::span<const float> line_origins = {}) noexcept {
+    std::span<const decltype(Glyph{}.x)> line_origins = {}) noexcept {
     result = {};
     if (!validate_inputs(
             glyphs,
@@ -171,8 +173,9 @@ bool emit_records(
     std::span<const std::int8_t> bidi_levels,
     bool measured_lines,
     std::span<const Fragment> fragments,
-    std::span<const float> line_origins,
+    std::span<const decltype(Glyph{}.x)> line_origins,
     EmitBox emit_box, EmitCaret emit_caret) noexcept {
+    using Coordinate = decltype(Glyph{}.x);
     Caret previous{};
     bool has_previous = false;
     // Same dependency-bound double prefix as the measured paragraph writer.
@@ -182,16 +185,16 @@ bool emit_records(
          ++line_index) {
         const Line& line = lines[line_index];
         if (!fragments.empty()) line_top = fragments[line_index].top;
-        float pen_x = line_origins.empty() ? 0.0F : line_origins[line_index];
+        Coordinate pen_x = line_origins.empty() ? Coordinate{0} : line_origins[line_index];
         const std::size_t end = static_cast<std::size_t>(line.glyph_start) +
             line.glyph_count;
         for (std::size_t index = line.glyph_start; index < end;) {
             const std::size_t start = index;
             const std::int32_t cluster = glyphs[index].cluster;
-            float left = line_origins.empty()
+            Coordinate left = line_origins.empty()
                 ? std::min(glyphs[index].x, glyphs[index].x + glyphs[index].advance_x)
                 : pen_x;
-            float right = line_origins.empty()
+            Coordinate right = line_origins.empty()
                 ? std::max(glyphs[index].x, glyphs[index].x + glyphs[index].advance_x)
                 : pen_x;
             std::int32_t cluster_end = cluster_ends[index];
@@ -204,7 +207,7 @@ bool emit_records(
                         glyphs[index].x,
                         glyphs[index].x + glyphs[index].advance_x));
                 } else {
-                    const float next_x = pen_x + glyphs[index].advance_x;
+                    const Coordinate next_x = pen_x + glyphs[index].advance_x;
                     left = std::min(left, std::min(pen_x, next_x));
                     right = std::max(right, std::max(pen_x, next_x));
                     pen_x = next_x;
@@ -221,9 +224,9 @@ bool emit_records(
                 0U,
                 0U,
                 left,
-                measured_lines || !fragments.empty() ? static_cast<float>(line_top) : line.baseline_y,
-                std::max(0.0F, right - left),
-                measured_lines || !fragments.empty() ? line.height : std::max(1.0F, line.height)};
+                measured_lines || !fragments.empty() ? static_cast<Coordinate>(line_top) : line.baseline_y,
+                std::max(Coordinate{0}, right - left),
+                measured_lines || !fragments.empty() ? line.height : std::max(Coordinate{1}, line.height)};
             if (!emit_box(box)) return false;
             const bool rtl = (box.bidi_level & 1) != 0;
             const Caret leading{
@@ -270,7 +273,7 @@ bool build(
     std::span<Box> cluster_boxes, std::span<Caret> caret_stops,
     std::uint32_t& cluster_box_count, std::uint32_t& caret_stop_count, font_error* error,
     bool measured_lines = false, std::span<const Fragment> fragments = {},
-    std::span<const float> line_origins = {}) noexcept {
+    std::span<const decltype(Glyph{}.x)> line_origins = {}) noexcept {
     cluster_box_count = caret_stop_count = 0U;
     text_interaction_requirements requirements{};
     if (!get_requirements(glyphs, lines, cluster_ends, bidi_levels, requirements, error,
@@ -294,7 +297,7 @@ bool validate_retained_records(
     std::span<const std::int32_t> cluster_ends, std::span<const std::int8_t> bidi_levels,
     std::span<const Box> boxes, std::span<const Caret> carets, font_error* error,
     bool measured_lines = false, std::span<const Fragment> fragments = {},
-    std::span<const float> line_origins = {}) noexcept {
+    std::span<const decltype(Glyph{}.x)> line_origins = {}) noexcept {
     text_interaction_requirements requirements{};
     if (!get_requirements(glyphs, lines, cluster_ends, bidi_levels, requirements, error,
             measured_lines, fragments, line_origins)) return false;
@@ -304,7 +307,9 @@ bool validate_retained_records(
     }
     // Compare fields, not struct padding; signed zero and every original float
     // bit survive transport. The existing writer's dedup remains authoritative.
-    const auto exact = [](float a, float b) { return std::bit_cast<std::uint32_t>(a) == std::bit_cast<std::uint32_t>(b); };
+    using Coordinate = decltype(Glyph{}.x);
+    using Bits = std::conditional_t<sizeof(Coordinate) == sizeof(std::uint32_t), std::uint32_t, std::uint64_t>;
+    const auto exact = [](Coordinate a, Coordinate b) { return std::bit_cast<Bits>(a) == std::bit_cast<Bits>(b); };
     std::size_t box_index = 0U, caret_index = 0U;
     const bool success = emit_records<Glyph, Line, Box, Caret>(glyphs, lines, cluster_ends, bidi_levels,
         measured_lines, fragments, line_origins,
@@ -332,8 +337,8 @@ bool validate_retained_records(
 template<class Box, class Hit>
 bool hit_test(
     std::span<const Box> cluster_boxes,
-    float x,
-    float y,
+    decltype(Box{}.x) x,
+    decltype(Box{}.x) y,
     Hit& result,
     font_error* error) noexcept {
     result = {};
@@ -341,7 +346,8 @@ bool hit_test(
         set_error(error, font_error::invalid_argument);
         return false;
     }
-    float best_distance = std::numeric_limits<float>::infinity();
+    using Coordinate = decltype(Box{}.x);
+    Coordinate best_distance = std::numeric_limits<Coordinate>::infinity();
     const Box* best = nullptr;
     bool inside = false;
     for (const auto& box : cluster_boxes) {
@@ -353,11 +359,11 @@ bool hit_test(
             set_error(error, font_error::invalid_argument);
             return false;
         }
-        const float right = box.x + box.width;
-        const float bottom = box.y + box.height;
-        const float dx = x < box.x ? box.x - x : x > right ? x - right : 0.0F;
-        const float dy = y < box.y ? box.y - y : y > bottom ? y - bottom : 0.0F;
-        const float distance = dx * dx + dy * dy;
+        const Coordinate right = box.x + box.width;
+        const Coordinate bottom = box.y + box.height;
+        const Coordinate dx = x < box.x ? box.x - x : x > right ? x - right : Coordinate{0};
+        const Coordinate dy = y < box.y ? box.y - y : y > bottom ? y - bottom : Coordinate{0};
+        const Coordinate distance = dx * dx + dy * dy;
         if (distance >= best_distance) {
             continue;
         }
@@ -482,7 +488,8 @@ bool selection(
     }
     std::uint32_t required = 0U;
     std::uint32_t previous_line = std::numeric_limits<std::uint32_t>::max();
-    float previous_right = 0.0F;
+    using Coordinate = decltype(Box{}.x);
+    Coordinate previous_right = Coordinate{0};
     for (const auto& box : cluster_boxes) {
         if (!std::isfinite(box.x) || !std::isfinite(box.y) ||
             !std::isfinite(box.width) || !std::isfinite(box.height) ||
@@ -519,7 +526,7 @@ bool selection(
             box.x <= rectangles[written - 1U].x +
                 rectangles[written - 1U].width + 0.5F) {
             auto& rectangle = rectangles[written - 1U];
-            const float right = std::max(
+            const Coordinate right = std::max(
                 rectangle.x + rectangle.width, box.x + box.width);
             rectangle.x = std::min(rectangle.x, box.x);
             rectangle.width = right - rectangle.x;

@@ -8,7 +8,7 @@ namespace progpu::native::tests {
 // liga substitutes the valid glyph before capture. kern then positions that
 // same retained descriptor. Unused later digit/comma mappings remain faulty.
 // Public wire contracts only; no external font or implementation is copied.
-inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout) {
+inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout, bool pair_positioning = false) {
     using bytes = std::vector<std::byte>;
     const auto original = make_hint_fault_font();
     const auto read16 = [&](std::size_t at) {
@@ -56,39 +56,41 @@ inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout) {
             // FreeType, but native shaping needs a supported Unicode cmap.
             // Keep every authored source/auxiliary mapping and fault identity.
             struct segment final { std::uint16_t first, last, first_glyph; };
-            constexpr std::array segments{
+            std::vector segments{
                 segment{0x20U, 0x20U, 1U}, segment{0x2CU, 0x2CU, 2U},
                 segment{0x2EU, 0x2EU, 1U}, segment{0x30U, 0x31U, 1U},
                 segment{0x41U, 0x42U, 1U}, segment{0xFFFFU, 0xFFFFU, 0U}};
-            value.data.assign(76U, std::byte{0});
+            if (pair_positioning) segments.insert(segments.end() - 1, {0x05D0U, 0x05D0U, 1U});
+            const auto count = static_cast<std::uint16_t>(segments.size());
+            value.data.assign(28U + 8U * count, std::byte{0});
             put16(value.data, 2U, 1U);
             put16(value.data, 4U, 3U); // Windows Unicode BMP
             put16(value.data, 6U, 1U);
             put32(value.data, 8U, 12U);
             put16(value.data, 12U, 4U);
-            put16(value.data, 14U, 64U);
-            put16(value.data, 18U, 12U); // six segments
+            put16(value.data, 14U, static_cast<std::uint16_t>(16U + 8U * count));
+            put16(value.data, 18U, static_cast<std::uint16_t>(2U * count));
             put16(value.data, 20U, 8U);
             put16(value.data, 22U, 2U);
-            put16(value.data, 24U, 4U);
+            put16(value.data, 24U, static_cast<std::uint16_t>(2U * count - 8U));
             for (std::size_t segment_index = 0U; segment_index < segments.size(); ++segment_index) {
                 const auto& mapping = segments[segment_index];
                 put16(value.data, 26U + segment_index * 2U, mapping.last);
-                put16(value.data, 40U + segment_index * 2U, mapping.first);
-                put16(value.data, 52U + segment_index * 2U, static_cast<std::uint16_t>(
+                put16(value.data, 28U + count * 2U + segment_index * 2U, mapping.first);
+                put16(value.data, 28U + count * 4U + segment_index * 2U, static_cast<std::uint16_t>(
                     static_cast<std::int32_t>(mapping.first_glyph) - mapping.first));
             }
         }
         tables.push_back(std::move(value));
     }
     const auto layout = [&](bool substitution) {
-        bytes data(substitution ? 70U : 72U);
+        bytes data(substitution ? 70U : pair_positioning ? 82U : 72U);
         put16(data, 0U, 1U);
         put16(data, 4U, 10U); // ScriptList
         put16(data, 6U, 30U); // FeatureList
         put16(data, 8U, 44U); // LookupList
         put16(data, 10U, 1U);
-        put32(data, 12U, 0x6C61746EU); // latn
+        put32(data, 12U, pair_positioning ? 0x44464C54U : 0x6C61746EU); // DFLT / latn
         put16(data, 16U, 8U);
         put16(data, 18U, 4U); // default LangSys
         put16(data, 24U, 0xFFFFU);
@@ -99,7 +101,7 @@ inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout) {
         put16(data, 40U, 1U); // one lookup, index zero
         put16(data, 44U, 1U);
         put16(data, 46U, 4U);
-        put16(data, 48U, 1U); // SingleSubst / SinglePos
+        put16(data, 48U, !substitution && pair_positioning ? 2U : 1U);
         put16(data, 52U, 1U);
         put16(data, 54U, 8U);
         if (substitution) {
@@ -110,6 +112,16 @@ inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout) {
             put16(data, 64U, 1U);
             put16(data, 66U, 1U);
             put16(data, 68U, 2U); // cover fault glyph two
+        } else if (pair_positioning) {
+            // Original PairPos format 1: glyph one followed by glyph one moves
+            // the first by three design units and reduces its advance by 100.
+            // At physical em 20, the latter is exactly two physical pixels.
+            put16(data, 56U, 1U); put16(data, 58U, 20U);
+            put16(data, 60U, 5U); // xPlacement + xAdvance, no second value
+            put16(data, 64U, 1U); put16(data, 66U, 12U);
+            put16(data, 68U, 1U); put16(data, 70U, 1U);
+            put16(data, 72U, 3U); put16(data, 74U, static_cast<std::uint16_t>(-100));
+            put16(data, 76U, 1U); put16(data, 78U, 1U); put16(data, 80U, 1U);
         } else {
             put16(data, 56U, 1U);
             put16(data, 58U, 10U);
@@ -161,5 +173,9 @@ inline std::vector<std::byte> make_hinted_mapping_font() {
 
 inline std::vector<std::byte> make_hinted_shape_font() {
     return make_hinted_fixture_font(true);
+}
+
+inline std::vector<std::byte> make_hinted_pair_font() {
+    return make_hinted_fixture_font(true, true);
 }
 } // namespace progpu::native::tests
