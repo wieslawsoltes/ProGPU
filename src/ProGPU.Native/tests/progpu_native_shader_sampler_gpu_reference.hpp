@@ -205,6 +205,15 @@ private:
 #endif
         WGPUShaderModuleDescriptor module_descriptor{};
         module_descriptor.nextInChain = &code.chain;
+        // The pinned FXC bridge forwards the module label as a C source name;
+        // its absent-label path instead forwards an empty Rust str pointer.
+        // Retain an actual nonempty name without changing either shader stage.
+        static constexpr char source_name[] = "ProGPU independent native sampler reference";
+#if defined(PROGPU_SAMPLER_REFERENCE_DAWN)
+        module_descriptor.label = {source_name, sizeof(source_name) - 1U};
+#else
+        module_descriptor.label = source_name;
+#endif
         phase("shader module creation");
         auto module = api_.DeviceCreateShaderModule(device_, &module_descriptor);
         require(module != nullptr, "native sampler reference shader creation failed");
