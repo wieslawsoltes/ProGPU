@@ -74,3 +74,12 @@ synthetic JSON tests prove inventory, exact-double preservation and fail-closed
 coverage; they neither execute WPF nor generate qualified oracle receipts. This
 change affects the reference only: managed/native renderers, shaping policies,
 source Display admission and runtime packages are unchanged.
+
+After the substantive source commit, the Windows reference project compiled
+against cached reference assemblies with zero warnings/errors; all 13 device-free
+input/coverage tests passed with zero skips. Workflow YAML and all three PowerShell
+blocks parsed without executing those blocks. The complete original capture and
+source helper methods remain byte-identical, and the original 192-case loop is
+unchanged apart from indentation. No new original Windows observation, native
+text execution, GPU run or runtime staging was performed. Actual Inter mark/RTL
+coverage and midpoint observations remain pending both hosted Windows captures.

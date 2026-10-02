@@ -42,9 +42,9 @@ public sealed class MidpointCasesTests
         MidpointInput[] cases = MidpointCases.Create().ToArray();
         foreach (MidpointInput input in cases.Where(value => value.TextKind == "RtlOverride"))
         {
-            MidpointInput paired = Assert.Single(cases.Where(value => value.TextKind == "Positioned"
+            MidpointInput paired = Assert.Single(cases, value => value.TextKind == "Positioned"
                 && value.Mode == input.Mode && value.Direction == input.Direction && value.Dpi == input.Dpi
-                && value.MidpointPhysicalEm == input.MidpointPhysicalEm && value.Side == input.Side && value.Width == input.Width));
+                && value.MidpointPhysicalEm == input.MidpointPhysicalEm && value.Side == input.Side && value.Width == input.Width);
             Assert.Equal("\u202E" + paired.Text + "\u202C", input.Text);
             Assert.Contains('\u0301', paired.Text);
             Assert.Contains('\u0302', paired.Text);
