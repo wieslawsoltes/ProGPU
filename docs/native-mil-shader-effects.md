@@ -5,6 +5,9 @@ The native MIL decoder connects `pixel_shader`, `implicit_input_brush` and
 not complete WPF ShaderEffect or application qualification. The existing managed
 `WpfShaderEffectExtensionPipeline` consumes explicitly supplied WGSL and remains
 separate; its registry is not a translator for original WPF bytecode.
+The [typed source transport](native-mil-shader-source-transport.md) supplies
+canonical packet writers and complete sampler/source metadata for LibreWPF's
+native compiler; source wiring and package/application qualification remain required.
 
 ## Original source and scene contract
 
@@ -41,8 +44,10 @@ explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)
 adds static, same-channel owned-bitmap capture without changing version 1.
 [Version-3 UV derivatives](native-shader-uv-derivatives.md) retain the original
 selected float register and populate it from the actual native capture basis.
+An additive [source-padding contract](native-shader-capture-padding.md) expands
+asymmetric local bounds while retaining the integral-capture gate.
 Integer and Boolean registers, additional/external samplers,
-nonzero padding, software-only mode, brush animation and transformed input remain
+software-only mode, brush animation and transformed input remain
 unsupported. The effect requires explicit positive source bounds, a positive
 axis-aligned source basis and a complete integral physical capture. Clipped,
 fractional, backdrop and cache-content captures fail preflight. These gates need
@@ -111,5 +116,5 @@ Required follow-up includes the authored native/GPU checks, additional original
 Microsoft-bytecode pixel references, nested clips, retirement/budgets, both
 providers, Windows package/NativeAOT and source applications. Broader ps_3_0
 semantics/instructions, dynamic flow, additional samplers,
-nonintegral/expanded captures and animated inputs remain open. No parity,
+nonintegral/general expanded captures and animated inputs remain open. No parity,
 performance, desktop rendering or complete ShaderEffect claim is made.

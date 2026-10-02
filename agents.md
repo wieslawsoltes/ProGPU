@@ -1,5 +1,22 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Version-4 native ShaderEffect captures retain original local float edges and a
+traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
+scale space, preserving complete UV/derivative extent and integral residual
+placement. Never infer source history from a final aggregate, discard the new
+frame in an older reader, round a residual into admission or substitute managed
+ceil(extent) sizing. The initial exact bounded diagonal-inverse proof is internal;
+general non-dyadic decomposition and fractional final placement remain required
+implementation contracts. Keep v1-v3 gates/bytes and source/pixel qualification
+separate. See docs/native-shader-local-capture-frame.md.
+
+Native ShaderEffect padding retains original packet doubles, inflates local float
+edges before the admitted positive-axis transform, and leaves zero-padding
+arithmetic unchanged. Preserve complete capture/UV/derivative and final-clip
+ownership; do not turn outward allocation rounding into fractional admission.
+See docs/native-shader-capture-padding.md; source and pixel qualification remain
+separate from packet acceptance.
+
 Flagged native visual BitmapScalingMode Unspecified preserves inherited sampling;
 only a genuinely unspecified ancestry uses the Linear default. Preserve actual
 visual-field propagation and same-owner reset semantics: an attached property on
@@ -8,6 +25,13 @@ Keep shader sampling separate from ImageBrush realization, original independent
 reference inputs and paired cold/warm ownership controls. See
 docs/native-shader-sampler-render-options.md; SoftwareOnly reference evidence does
 not qualify hardware filtering or repeated-source addressing.
+
+Effect input sizing shares the pure Scene EffectCaptureFrame with source sampler
+adapters. Preserve original float padded bounds separately from minimum-one
+logical extent, float multiplication before physical ceiling, and fractional
+raster-padding overrides. Keep actual DPI explicit and invalid/overflow output
+atomic; no texture/device ownership or native capture admission belongs here.
+See docs/effect-capture-frame.md; arithmetic checks are not shader pixel parity.
 
 ShaderEffect UV derivative registers use explicit version-3 metadata while
 preserving v1/v2 layouts. The native binding writes the selected register after
