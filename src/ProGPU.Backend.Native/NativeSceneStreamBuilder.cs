@@ -3274,7 +3274,9 @@ public ref struct NativeSceneStreamBuilder
                 (uint)brush.Interpolation >
                     (uint)NativeSceneGradientInterpolation.ScRgb ||
                 (!hatchSet && baseSpread >
-                    (uint)NativeSceneGradientSpread.Decal) ||
+                    (uint)NativeSceneGradientSpread.PadUnitInterval) ||
+                (!hatchSet && baseSpread == (uint)NativeSceneGradientSpread.PadUnitInterval &&
+                    brush.Kind is not (NativeSceneBrushKind.LinearGradient or NativeSceneBrushKind.RadialGradient)) ||
                 (conicalOutsideColor && !conical) ||
                 (padOutsideColors && (!gradient || baseSpread !=
                     (uint)NativeSceneGradientSpread.Pad)))

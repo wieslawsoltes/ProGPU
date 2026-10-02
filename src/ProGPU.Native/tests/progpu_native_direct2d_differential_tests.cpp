@@ -4,6 +4,7 @@
 #include "progpu_native_direct2d_scoped_copy_fixture.hpp"
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
+#include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -762,6 +763,8 @@ struct direct2d_reference_case {
     int scoped_copy_variant{-1};
     int source_copy_kind{-1};
     int bitmap_destination_variant{-1};
+    int gradient_variant{-1};
+    bool ordered{};
 };
 
 std::vector<std::uint8_t> render_system_direct2d(direct2d_reference_case test = {})
@@ -995,6 +998,12 @@ std::vector<std::uint8_t> render_system_direct2d(direct2d_reference_case test = 
             reinterpret_cast<d2d::render_target*>(target.get()),
             static_cast<std::uint32_t>(test.bitmap_destination_variant), require);
     }
+    if (test.gradient_variant == static_cast<int>(progpu::native::direct2d::tests::gradient_stop_variant_count)) progpu::native::direct2d::tests::record_gradient_interval_pad(
+        reinterpret_cast<d2d::render_target*>(target.get()), require);
+    else if (test.gradient_variant == static_cast<int>(progpu::native::direct2d::tests::gradient_stop_variant_count + 1U)) progpu::native::direct2d::tests::record_gradient_endpoint_bands(
+        reinterpret_cast<d2d::render_target*>(target.get()), require);
+    else if (test.gradient_variant >= 0) progpu::native::direct2d::tests::record_gradient_stop_order(
+        reinterpret_cast<d2d::render_target*>(target.get()), static_cast<unsigned>(test.gradient_variant), test.ordered, require);
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1188,6 +1197,76 @@ int wmain(int argc, wchar_t** argv)
             require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
                 "original bitmap destination origin, extent or no-op pixels differ");
         }
+    }
+    for (unsigned variant = 0U; variant < progpu::native::direct2d::tests::gradient_stop_variant_count; ++variant) {
+        std::vector<std::uint8_t> unordered_original;
+        for (const bool ordered : {false, true}) {
+            const auto original = render_system_direct2d({.gradient_variant = static_cast<int>(variant), .ordered = ordered});
+            progpu::native::direct2d::tests::record_gradient_stop_order(scene.target.get(), variant, ordered, require);
+            const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
+            if (original.size() == width * height * 4U && actual.size() == original.size() && actual != original) {
+                for (std::size_t pixel = 0U; pixel < original.size() / 4U; ++pixel) {
+                    const auto* expected_pixel = original.data() + pixel * 4U;
+                    const auto* actual_pixel = actual.data() + pixel * 4U;
+                    if (!std::equal(expected_pixel, expected_pixel + 4U, actual_pixel)) {
+                        progpu::native::direct2d::tests::report_gradient_pixel_mismatch(
+                            "Windows/ProGPU BGRA", variant, ordered,
+                            static_cast<unsigned>(pixel % width), static_cast<unsigned>(pixel / width),
+                            expected_pixel, actual_pixel);
+                        break;
+                    }
+                }
+            }
+            require(original.size() == width * height * 4U && actual == original,
+                "gradient stop order/range differs from original Windows D2D/WIC");
+            for (unsigned y = 0U; y < height; ++y) for (unsigned x = 0U; x < width; ++x) {
+                auto expected = progpu::native::direct2d::tests::gradient_stop_expected(variant, x, y);
+                std::swap(expected[0], expected[2]);
+                const auto* actual_pixel = original.data() + (y * width + x) * 4U;
+                const bool equal = std::equal(expected.begin(), expected.end(), actual_pixel);
+                if (!equal) progpu::native::direct2d::tests::report_gradient_pixel_mismatch(
+                    "Windows absolute BGRA", variant, ordered, x, y, expected.data(), actual_pixel);
+                require(equal, "original gradient absolute hard-edge pixels");
+            }
+            if (!ordered) unordered_original = original;
+            else require(unordered_original == original, "original unordered and stable-order pixels differ");
+        }
+    }
+    {
+        const auto original = render_system_direct2d({.gradient_variant =
+            static_cast<int>(progpu::native::direct2d::tests::gradient_stop_variant_count)});
+        progpu::native::direct2d::tests::record_gradient_interval_pad(scene.target.get(), require);
+        const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
+        require(original.size() == width * height * 4U && actual == original,
+            "Direct2D gradient interval clamp differs from original Windows pixels");
+        for (unsigned y = 0; y < height; ++y) for (unsigned x = 0; x < width; ++x) {
+            const auto grey = progpu::native::direct2d::tests::gradient_interval_expected(x);
+            const std::array<std::uint8_t, 4U> expected{grey, grey, grey, 255};
+            require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
+                "original gradient [-1,1] inside/edge/outside absolute bytes");
+        }
+    }
+    {
+        namespace fixture = progpu::native::direct2d::tests;
+        const auto original = render_system_direct2d({.gradient_variant =
+            static_cast<int>(fixture::gradient_stop_variant_count + 1U)});
+        fixture::record_gradient_endpoint_bands(scene.target.get(), require);
+        const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
+        require(original.size() == width * height * 4U && actual.size() == original.size(),
+            "gradient endpoint-band complete pixel frames");
+        for (unsigned y = 0; y < height; ++y) for (unsigned x = 0; x < width; ++x) {
+            const auto expected = fixture::gradient_endpoint_expected(x); // Gray is unchanged in BGRA.
+            const auto offset = (y * width + x) * 4U;
+            for (const auto* frame : {&original, &actual}) {
+                const auto* pixel = frame->data() + offset;
+                const bool equal = std::equal(expected.begin(), expected.end(), pixel);
+                if (!equal) fixture::report_gradient_pixel_mismatch(
+                    frame == &original ? "Windows endpoint BGRA" : "ProGPU endpoint BGRA",
+                    fixture::gradient_stop_variant_count + 1U, false, x, y, expected.data(), pixel);
+                require(equal, "original Windows/ProGPU endpoint and near-endpoint absolute pixels");
+            }
+        }
+        require(actual == original, "gradient endpoint conversion differs from original Windows");
     }
     scene = {};
     release_gpu(api, gpu);
