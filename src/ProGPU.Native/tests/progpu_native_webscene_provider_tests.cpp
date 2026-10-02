@@ -23,6 +23,7 @@
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3614,6 +3615,10 @@ int main(int argc, char** argv) {
     progpu::native::direct2d::tests::verify_gradient_interval_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation) {
             return render_retained_scene(reference, stream, generation, 1U, 0x95C7U, 1U, 1U);
+        }, require);
+    progpu::native::direct2d::tests::verify_compatible_dpi_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_retained_scene(reference, stream, generation, submissions, 0x95CAU, 1U, 1U);
         }, require);
     progpu::native::tests::verify_original_shader_effect_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,

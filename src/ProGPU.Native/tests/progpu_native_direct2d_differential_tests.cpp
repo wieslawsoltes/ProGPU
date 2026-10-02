@@ -5,6 +5,7 @@
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -465,13 +466,7 @@ portable_scene record_portable_scene()
     return {std::move(factory), std::move(target), std::move(scene_target)};
 }
 
-std::vector<std::uint8_t> render_progpu(
-    const dawn_api& api,
-    const gpu_context& gpu,
-    d2d::scene_render_target_native* scene_target,
-    std::uint64_t expected_draws = 9U,
-    std::uint64_t expected_commands = 9U,
-    std::uint64_t expected_submissions = 1U)
+progpu_native_engine* create_differential_engine(const dawn_api& api, const gpu_context& gpu)
 {
     progpu_native_dawn_engine_options options{};
     options.struct_size = sizeof(options);
@@ -489,6 +484,19 @@ std::vector<std::uint8_t> render_progpu(
     require(progpu_native_dawn_engine_create(&options, &engine) ==
             PROGPU_NATIVE_STATUS_SUCCESS &&
         engine != nullptr, "ProGPU Dawn engine creation failed");
+    return engine;
+}
+
+std::vector<std::uint8_t> render_progpu(
+    const dawn_api& api,
+    const gpu_context& gpu,
+    d2d::scene_render_target_native* scene_target,
+    std::uint64_t expected_draws = 9U,
+    std::uint64_t expected_commands = 9U,
+    std::uint64_t expected_submissions = 1U,
+    progpu_native_engine* borrowed_engine = nullptr)
+{
+    auto* engine = borrowed_engine != nullptr ? borrowed_engine : create_differential_engine(api, gpu);
 
     WGPUTextureDescriptor texture_descriptor = WGPU_TEXTURE_DESCRIPTOR_INIT;
     texture_descriptor.usage = WGPUTextureUsage_RenderAttachment |
@@ -620,7 +628,7 @@ std::vector<std::uint8_t> render_progpu(
     api.get<WGPUProcBufferRelease>("wgpuBufferRelease")(buffer);
     api.get<WGPUProcTextureViewRelease>("wgpuTextureViewRelease")(view);
     api.get<WGPUProcTextureRelease>("wgpuTextureRelease")(texture);
-    progpu_native_engine_destroy(engine);
+    if (borrowed_engine == nullptr) progpu_native_engine_destroy(engine);
     return result;
 }
 
@@ -765,6 +773,9 @@ struct direct2d_reference_case {
     int bitmap_destination_variant{-1};
     int gradient_variant{-1};
     bool ordered{};
+    int compatible_variant{-1};
+    unsigned compatible_mode{};
+    progpu::native::direct2d::tests::compatible_dpi_snapshot* compatible_metrics{};
 };
 
 std::vector<std::uint8_t> render_system_direct2d(direct2d_reference_case test = {})
@@ -1004,6 +1015,12 @@ std::vector<std::uint8_t> render_system_direct2d(direct2d_reference_case test = 
         reinterpret_cast<d2d::render_target*>(target.get()), require);
     else if (test.gradient_variant >= 0) progpu::native::direct2d::tests::record_gradient_stop_order(
         reinterpret_cast<d2d::render_target*>(target.get()), static_cast<unsigned>(test.gradient_variant), test.ordered, require);
+    if (test.compatible_variant >= 0) {
+        const auto observed = progpu::native::direct2d::tests::record_compatible_dpi(
+            reinterpret_cast<d2d::render_target*>(target.get()), static_cast<unsigned>(test.compatible_variant),
+            test.compatible_mode, require);
+        if (test.compatible_metrics != nullptr) *test.compatible_metrics = observed;
+    }
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1268,6 +1285,48 @@ int wmain(int argc, wchar_t** argv)
         }
         require(actual == original, "gradient endpoint conversion differs from original Windows");
     }
+    // One real engine owns the complete new batch. Preserve the original
+    // independent D2D/WIC path, every map deadline and explicit submission
+    // counts; do not compile a fresh renderer for each metadata combination.
+    auto* compatible_engine = create_differential_engine(api, gpu);
+    for (unsigned variant = 0U; variant < progpu::native::direct2d::tests::compatible_dpi_cases.size(); ++variant) {
+        for (unsigned mode = 0U; mode < 4U; ++mode) {
+            progpu::native::direct2d::tests::compatible_dpi_snapshot original_metrics;
+            const auto original = render_system_direct2d({.compatible_variant = static_cast<int>(variant),
+                .compatible_mode = mode, .compatible_metrics = &original_metrics});
+            const auto actual_metrics = progpu::native::direct2d::tests::record_compatible_dpi(
+                scene.target.get(), variant, mode, require);
+            if (actual_metrics != original_metrics) {
+                for (std::size_t i = 0U; i < original_metrics.logical.size(); ++i)
+                    std::fprintf(stderr, "compatible DPI metric variant=%u mode=%u index=%zu expected=%a actual=%a\n",
+                        variant, mode, i, static_cast<double>(original_metrics.logical[i]),
+                        static_cast<double>(actual_metrics.logical[i]));
+                for (std::size_t i = 0U; i < original_metrics.physical.size(); ++i)
+                    std::fprintf(stderr, "compatible DPI pixel size variant=%u mode=%u index=%zu expected=%u actual=%u\n",
+                        variant, mode, i, original_metrics.physical[i], actual_metrics.physical[i]);
+                std::fflush(stderr);
+            }
+            require(actual_metrics == original_metrics, "compatible target original Windows metrics differ");
+            const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U, 2U, compatible_engine);
+            require(original.size() == width * height * 4U && actual.size() == original.size(),
+                "compatible target original Windows image extent");
+            for (unsigned y = 0U; y < height; ++y) for (unsigned x = 0U; x < width; ++x) {
+                auto expected = progpu::native::direct2d::tests::compatible_dpi_expected(x, y);
+                std::swap(expected[0], expected[2]);
+                const auto* original_pixel = original.data() + (y * width + x) * 4U;
+                const auto* actual_pixel = actual.data() + (y * width + x) * 4U;
+                const bool original_equal = std::equal(expected.begin(), expected.end(), original_pixel);
+                if (!original_equal) progpu::native::direct2d::tests::report_compatible_dpi_pixel(
+                    "Windows absolute BGRA", variant, mode, x, y, expected.data(), original_pixel);
+                require(original_equal, "compatible target original Windows absolute pixels");
+                const bool equal = std::equal(original_pixel, original_pixel + 4U, actual_pixel);
+                if (!equal) progpu::native::direct2d::tests::report_compatible_dpi_pixel(
+                    "Windows/ProGPU BGRA", variant, mode, x, y, original_pixel, actual_pixel);
+                require(equal, "compatible target retained source pixels differ from original Windows");
+            }
+        }
+    }
+    progpu_native_engine_destroy(compatible_engine);
     scene = {};
     release_gpu(api, gpu);
     CoUninitialize();

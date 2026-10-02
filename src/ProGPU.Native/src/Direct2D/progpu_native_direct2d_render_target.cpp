@@ -4367,10 +4367,10 @@ public:
         if (desired_pixel_size != nullptr) {
             pixel_size = *desired_pixel_size;
         } else if (desired_size != nullptr) {
-            const double width = std::ceil(
-                static_cast<double>(desired_size->width) * dpi_x / 96.0);
-            const double height = std::ceil(
-                static_cast<double>(desired_size->height) * dpi_y / 96.0);
+            const double requested_width = static_cast<double>(desired_size->width) * dpi_x / 96.0;
+            const double requested_height = static_cast<double>(desired_size->height) * dpi_y / 96.0;
+            const double width = std::ceil(requested_width);
+            const double height = std::ceil(requested_height);
             if (width < 1.0 || height < 1.0 || width > 16384.0 ||
                 height > 16384.0) {
                 return com::invalid_argument;
@@ -4378,6 +4378,12 @@ public:
             pixel_size = {
                 static_cast<std::uint32_t>(width),
                 static_cast<std::uint32_t>(height)};
+            // Preserve an integral axis's exact parent DPI. Only a rounded-up
+            // axis needs denser storage so the requested DIP corner still maps
+            // to the actual physical corner, independently on X and Y.
+            if (width != requested_width) dpi_x = static_cast<float>(width * 96.0 / desired_size->width);
+            if (height != requested_height) dpi_y = static_cast<float>(height * 96.0 / desired_size->height);
+            if (!valid_dpi(dpi_x, dpi_y)) return com::invalid_argument;
         }
         if (desired_size != nullptr && desired_pixel_size != nullptr) {
             dpi_x = static_cast<float>(

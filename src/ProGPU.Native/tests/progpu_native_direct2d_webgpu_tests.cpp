@@ -19,6 +19,7 @@
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -2216,6 +2217,11 @@ int main(int argc, char** argv)
         [&](bool reference, const auto& stream, std::uint64_t generation) {
             return render_scene(gpu, reference ? picture_reference_engine : engine,
                 nullptr, 1U, 1U, 1U, stream, 0x95C7U, generation);
+        }, require);
+    progpu::native::direct2d::tests::verify_compatible_dpi_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine,
+                nullptr, 1U, 1U, submissions, stream, 0x95CAU, generation);
         }, require);
     progpu_native_engine_destroy(picture_reference_engine);
     phase("per-axis picture pixels passed");
