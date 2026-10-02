@@ -11,6 +11,13 @@ enum class variable_pixel_path { original, prepared, independent_geometry, prepa
 inline constexpr std::array<variable_font_options, 4U> variable_pixel_font_options{{
     {false, false, false}, {false, false, true}, {true, false, false}, {true, true, true}}};
 
+inline compat::matrix_3x2_f variable_pixel_transform(std::uint32_t variant)
+{
+    return variant == 0U ? compat::matrix_3x2_f{1, 0, 0, 1, 0, 0} : variant == 1U
+        ? compat::matrix_3x2_f{1, 0, 0, 1, 0.25F, 0.5F}
+        : compat::matrix_3x2_f{1, 0.25F, -0.125F, 1, 7, 9};
+}
+
 // Every expected design bound/origin/advance comes from the fixture's authored
 // table, never a product font parser, outline, HVAR or glyph-run output.
 inline std::array<compat::rectangle_f, 2U> variable_pixel_rectangles(std::size_t case_index, bool nominal)
@@ -36,9 +43,7 @@ void record_variable_pixel_case(compat::factory* factory, compat::render_target*
 {
     require(case_index < variable_font_cases.size() && variant < 3U, "variable pixel inventory");
     const compat::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
-    const auto transform = variant == 0U ? identity : variant == 1U
-        ? compat::matrix_3x2_f{1, 0, 0, 1, 0.25F, 0.5F}
-        : compat::matrix_3x2_f{1, 0.25F, -0.125F, 1, 7, 9};
+    const auto transform = variable_pixel_transform(variant);
     const compat::rectangle_f clip{9, 8, 48, 42};
     const compat::layer_parameters layer{{0, 0, 64, 64}, nullptr, compat::antialias_mode::aliased,
         identity, 0.5F, nullptr, compat::layer_options::none};
