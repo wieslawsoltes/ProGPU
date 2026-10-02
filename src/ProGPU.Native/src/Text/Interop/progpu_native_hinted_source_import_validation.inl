@@ -229,7 +229,8 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
         std::span<const shaping_glyph>{logical}.subspan(s.first_logical_glyph),
         std::span<const text_line_break_kind>{breaks}.subspan(s.first_logical_glyph),
         std::span{v.logical_bidi_levels, p.logical_count}.subspan(s.first_logical_glyph),
-        std::span{v.glyph_scales, p.logical_count}.subspan(s.first_logical_glyph), v.paragraph_level,
+        std::span{v.glyph_scales, p.logical_count}.subspan(s.first_logical_glyph),
+        static_cast<std::int8_t>(v.paragraph_level), // Base import already proved exactly zero or one.
         options, {0.0F, 0.0F, o.allow_emergency_break != 0U}, {groups, indices}, glyphs, lines, glyph_count, line_count,
         {levels, origins, {}}, {o.maximum_width, o.line_height,
             std::span<const text_source_glyph_metrics>{metrics}.subspan(s.first_logical_glyph),
@@ -251,7 +252,8 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
         const auto& expected = lines[i]; const auto& actual = v.lines[i];
         const auto& precise = source_lines[i]; const auto& original = p.line_metrics[i];
         if (actual.glyph_start != expected.glyph_start || actual.glyph_count != expected.glyph_count ||
-            actual.input_start != expected.input_start || actual.input_end != expected.input_end || actual.clipped != expected.clipped ||
+            actual.input_start != expected.input_start || actual.input_end != expected.input_end ||
+            actual.clipped != static_cast<std::uint8_t>(expected.clipped) ||
             actual.reserved0 != expected.flags || actual.reserved1 != expected.reserved1 || actual.reserved2 != expected.reserved2 ||
             !source_exact(actual.width, expected.width) || !source_exact(actual.height, expected.height) ||
             !source_exact(actual.baseline_y, expected.baseline_y) || !source_exact(v.line_origins[i], origins[i]) ||
