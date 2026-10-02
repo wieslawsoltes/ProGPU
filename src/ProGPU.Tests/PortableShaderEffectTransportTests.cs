@@ -80,6 +80,37 @@ public sealed class PortableShaderEffectTransportTests
         Assert.Equal((PortableShaderSamplingMode)99, unknown.SamplingMode);
     }
 
+    [Fact]
+    public void BitmapMetadataPreservesIndependentSourceDpiWithoutReadingPixels()
+    {
+        var original = new PortableBitmapSourceMetrics(320, 180, 192.25, 143.75);
+        var source = new BitmapMetricsSource(original);
+        Assert.True(((IPortableBitmapSourceMetricsSource)source).TryGetPortableBitmapSourceMetrics(out var metrics));
+        Assert.Equal(original, metrics);
+        Assert.Equal(320, metrics.PixelWidth); Assert.Equal(180, metrics.PixelHeight);
+        Assert.Equal(BitConverter.DoubleToInt64Bits(192.25), BitConverter.DoubleToInt64Bits(metrics.DpiX));
+        Assert.Equal(BitConverter.DoubleToInt64Bits(143.75), BitConverter.DoubleToInt64Bits(metrics.DpiY));
+    }
+
+    [Fact]
+    public void BitmapMetadataDoesNotNormalizeInvalidSourceValuesIntoAdmission()
+    {
+        var metrics = new PortableBitmapSourceMetrics(-1, 0, -0.0, double.NaN);
+        Assert.Equal(-1, metrics.PixelWidth); Assert.Equal(0, metrics.PixelHeight);
+        Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(metrics.DpiX));
+        Assert.True(double.IsNaN(metrics.DpiY));
+    }
+
+    private sealed class BitmapMetricsSource(PortableBitmapSourceMetrics metrics)
+        : IPortableBitmapSourceMetricsSource, IPortableBitmapSourcePixelsSource
+    {
+        public bool TryGetPortableBitmapSourceMetrics(out PortableBitmapSourceMetrics result)
+        { result = metrics; return true; }
+
+        public bool TryGetPortableBitmapSourcePixels(out PortableBitmapSourcePixels pixels)
+            => throw new InvalidOperationException("Metadata queries must not copy bitmap pixels.");
+    }
+
     private sealed class Source : IPortablePixelShaderSource
     {
         internal int Calls;

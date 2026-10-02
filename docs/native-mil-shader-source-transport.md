@@ -25,6 +25,14 @@ image, preserving opacity, transform and tile mapping for native compilation.
 It does not promote image-only descriptors into complete source brushes.
 Existing managed shader registry and original constructors remain unchanged.
 
+`IPortableBitmapSourceMetricsSource` is an optional metadata-only capability for
+the paired source ImageBrush path. Its value snapshot retains original pixel
+dimensions and both source DPI axes without copying pixels or creating a GPU
+resource. Consumers must validate the unnormalized metadata, keep source DIP
+brush mapping separate from texel crop/capture dimensions, and retain existing
+source revision/invalidation tracking. The existing pixel-export and native-image
+contracts remain unchanged; this interface does not itself admit image rendering.
+
 The admitted native family keeps one sampler, zero padding, float constants and
 optional original derivative-register selection. Software-only rendering,
 integer/Boolean constants and broader bytecode/capture semantics remain explicit
