@@ -84,6 +84,7 @@ bool semantic_scene_builder::reset(
     implementation_->materialized_layer_depth = 0U;
     implementation_->maximum_stack_depth = 0U;
     implementation_->stack_kinds.fill(0U);
+    implementation_->layer_command_indices.fill(0U);
     implementation_->stack_state_indices.fill(PROGPU_NATIVE_SCENE_NO_INDEX);
     implementation_->arena_reserve = 0U;
     implementation_->error = scene_build_error::none;
