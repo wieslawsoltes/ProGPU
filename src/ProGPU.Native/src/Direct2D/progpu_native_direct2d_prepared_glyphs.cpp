@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_prepared_glyphs.hpp"
+#include "progpu_native_direct2d_cff_source.hpp"
 #include "progpu_native_text.hpp"
 
 #include <algorithm>
@@ -20,6 +21,8 @@ namespace progpu::native::direct2d {
 namespace {
 constexpr std::size_t maximum_segments = 1U << 20U;
 constexpr std::size_t maximum_points = 1U << 20U;
+
+enum class original_outline_family { true_type, cff1, cff2 };
 
 struct decoded_original_glyph final {
     std::vector<progpu_native_path_segment> segments;
@@ -247,6 +250,51 @@ struct varied_outline_storage final {
     return com::ok;
 }
 
+[[nodiscard]] com::result decode_cff_glyph(const text::sfnt_font_view& font,
+    original_outline_family family, text::sfnt_cff1_font_view cff1, text::sfnt_cff2_font_view cff2,
+    std::span<const text::sfnt_cff_outline_transform> matrices,
+    std::span<const std::int16_t> normalized,
+    const text::sfnt_horizontal_metrics_variation_instance& variation,
+    std::uint16_t glyph, std::size_t remaining, std::shared_ptr<const decoded_original_glyph>& output)
+{
+    std::uint32_t count = 0U, dictionary = 0U;
+    if (family == original_outline_family::cff1) {
+        if (!cff1.fd_select.bytes.empty() &&
+            !text::sfnt_cff_data::try_get_font_dictionary(cff1.fd_select, glyph, dictionary))
+            return com::invalid_argument;
+        if (dictionary >= matrices.size()) return com::invalid_argument;
+        text::sfnt_cff1_outline_requirements requirements{};
+        if (!text::sfnt_cff_data::try_get_outline_requirements(cff1, glyph, matrices[dictionary], requirements))
+            return com::invalid_argument;
+        count = requirements.path_segment_count;
+    } else {
+        text::sfnt_cff2_outline_requirements requirements{};
+        if (!text::sfnt_cff_data::try_get_outline_requirements(cff2, glyph, normalized, requirements))
+            return com::invalid_argument;
+        count = requirements.path_segment_count;
+    }
+    if (count > remaining) return com::out_of_memory;
+    auto candidate = std::make_shared<decoded_original_glyph>();
+    candidate->segments.resize(count);
+    std::uint32_t written = 0U;
+    const bool decoded = family == original_outline_family::cff1
+        ? text::sfnt_cff_data::try_decode_outline(cff1, glyph, matrices[dictionary], candidate->segments, written)
+        : text::sfnt_cff_data::try_decode_outline(cff2, glyph, normalized, candidate->segments, written);
+    if (!decoded || written != count) return com::invalid_argument;
+    text::sfnt_horizontal_glyph_metrics base{};
+    if (!font.try_get_horizontal_glyph_metrics(glyph, base)) return com::invalid_argument;
+    candidate->horizontal_advance = base.advance_width;
+    // CFF has a genuine CharString origin, not a glyf phantom point. Its hmtx
+    // bearing is descriptive and must not translate the contour. CFF2 advances
+    // vary only through HVAR; absent HVAR means unchanged hmtx, never gvar.
+    if (family == original_outline_family::cff2 && variation.advance.uses_hvar &&
+        !font.try_get_design_advance_width(glyph, normalized, &variation.advance,
+            candidate->horizontal_advance)) return com::invalid_argument;
+    if (!std::isfinite(candidate->horizontal_advance)) return com::invalid_argument;
+    output = std::move(candidate);
+    return com::ok;
+}
+
 [[nodiscard]] bool place_point(progpu_native_point& value, float scale, float x, float y,
     float horizontal_origin) noexcept
 {
@@ -255,11 +303,11 @@ struct varied_outline_storage final {
 }
 
 // Source coordinate conversion, not raster coverage: two independent XY points
-// use intrinsic lanes; a quadratic's third point is the fixed scalar tail.
+// use intrinsic lanes; the remaining quadratic/cubic controls are fixed tails.
 [[nodiscard]] bool place_segment(progpu_native_path_segment& value, float scale, float x, float y,
     float horizontal_origin) noexcept
 {
-    if (value.kind > PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) return false;
+    if (value.kind > PROGPU_NATIVE_PATH_SEGMENT_CUBIC) return false;
     alignas(16) float points[4]{value.p0.x, value.p0.y, value.p1.x, value.p1.y};
     alignas(16) const float scales[4]{scale, -scale, scale, -scale};
     alignas(16) const float origins[4]{x, y, x, y};
@@ -280,13 +328,18 @@ struct varied_outline_storage final {
     value.p0 = {points[0], points[1]}; value.p1 = {points[2], points[3]};
     return std::isfinite(points[0]) && std::isfinite(points[1]) &&
         std::isfinite(points[2]) && std::isfinite(points[3]) &&
-        (value.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE || place_point(value.p2, scale, x, y, horizontal_origin));
+        (value.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE || place_point(value.p2, scale, x, y, horizontal_origin)) &&
+        (value.kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC || place_point(value.p3, scale, x, y, horizontal_origin));
 }
 } // namespace
 
 struct prepared_original_font::state final {
     std::shared_ptr<const original_font_capture> source;
     text::sfnt_font_view font;
+    original_outline_family family = original_outline_family::true_type;
+    text::sfnt_cff1_font_view cff1{};
+    text::sfnt_cff2_font_view cff2{};
+    std::vector<text::sfnt_cff_outline_transform> cff_matrices;
     std::uint16_t units_per_em = 0U;
     std::vector<std::int16_t> normalized_coordinates;
     std::vector<float> region_scalars;
@@ -315,11 +368,11 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
     std::shared_ptr<prepared_original_font>& output) noexcept
 {
     if (!source || !source->face || source->files.empty()) return com::invalid_argument;
-    // DWRITE_FONT_FACE_TYPE_TRUETYPE / OPENTYPE_COLLECTION, no simulations.
-    // A multi-file/type1/CFF face needs its actual decoder contract;
+    // DWRITE_FONT_FACE_TYPE_CFF / TRUETYPE / OPENTYPE_COLLECTION, no simulations.
+    // A multi-file/type1 face needs its actual decoder contract;
     // do not concatenate files or choose default coordinates here.
     if (source->files.size() != 1U || source->simulations != 0U ||
-        (source->face_type != 1U && source->face_type != 2U)) return compat::not_implemented;
+        source->face_type > 2U) return compat::not_implemented;
     try {
         auto candidate = std::make_unique<state>();
         candidate->source = std::move(source);
@@ -342,11 +395,48 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
         const auto metric_count = static_cast<std::size_t>(horizontal.number_of_horizontal_metrics);
         if (hmtx.bytes.size() < metric_count * 4U + (static_cast<std::size_t>(glyphs) - metric_count) * 2U)
             return com::invalid_argument;
-        text::sfnt_table_view glyf{}, loca{};
-        if (!candidate->font.try_get_table(text::open_type_tag::from_chars('g', 'l', 'y', 'f'), glyf) ||
-            !candidate->font.try_get_table(text::open_type_tag::from_chars('l', 'o', 'c', 'a'), loca))
-            return compat::not_implemented;
+        text::sfnt_table_view glyf{}, loca{}, cff1{}, cff2{}, gvar{}, fvar{};
+        const bool has_glyf = candidate->font.try_get_table(text::open_type_tag::from_chars('g', 'l', 'y', 'f'), glyf);
+        const bool has_loca = candidate->font.try_get_table(text::open_type_tag::from_chars('l', 'o', 'c', 'a'), loca);
+        const bool has_cff1 = candidate->font.try_get_table(text::open_type_tag::from_chars('C', 'F', 'F', ' '), cff1);
+        const bool has_cff2 = candidate->font.try_get_table(text::open_type_tag::from_chars('C', 'F', 'F', '2'), cff2);
+        const auto family_count = static_cast<unsigned>(has_glyf || has_loca) +
+            static_cast<unsigned>(has_cff1) + static_cast<unsigned>(has_cff2);
+        if (family_count == 0U) return compat::not_implemented;
+        if (family_count != 1U || has_glyf != has_loca ||
+            (candidate->source->face_type == 0U && has_glyf) ||
+            (candidate->source->face_type == 1U && !has_glyf)) return com::invalid_argument;
         candidate->units_per_em = header.units_per_em;
+        if (has_cff1 || has_cff2) {
+            text::sfnt_table_view maxp{};
+            if (!detail::validate_cff_source_directory(candidate->source->files[0],
+                    candidate->source->face_index, has_cff2) ||
+                !candidate->font.try_get_table(text::open_type_tag::from_chars('m', 'a', 'x', 'p'), maxp) ||
+                maxp.bytes.size() != 6U || maxp.bytes[0] != std::byte{0} || maxp.bytes[1] != std::byte{0} ||
+                maxp.bytes[2] != std::byte{0x50} || maxp.bytes[3] != std::byte{0} ||
+                candidate->font.try_get_table(text::open_type_tag::from_chars('g', 'v', 'a', 'r'), gvar))
+                return com::invalid_argument;
+            if (has_cff1) {
+                // CFF1's legacy multiple-master/synthetic operators are not the
+                // OpenType CFF2 variation contract. Do not reinterpret fvar.
+                if (candidate->source->has_variations ||
+                    candidate->font.try_get_table(text::open_type_tag::from_chars('f', 'v', 'a', 'r'), fvar))
+                    return compat::not_implemented;
+                candidate->family = original_outline_family::cff1;
+                if (!candidate->font.try_get_cff1_font(glyphs, candidate->cff1)) return com::invalid_argument;
+                const auto status = detail::prepare_cff_source_matrices(candidate->cff1,
+                    candidate->units_per_em, candidate->cff_matrices);
+                if (com::failed(status)) return status;
+            } else {
+                candidate->family = original_outline_family::cff2;
+                if (!candidate->font.try_get_cff2_font(glyphs, candidate->cff2)) return com::invalid_argument;
+                // Do not inherit the generic raw parser's approximate matrix
+                // check as source admission. The CFF2 transform is reciprocal
+                // UPM, not a second arbitrary contour transform.
+                if (candidate->cff2.top_dictionary.font_matrix_scale !=
+                    1.0 / static_cast<double>(candidate->units_per_em)) return compat::not_implemented;
+            }
+        }
         const auto variation_status = prepare_variation(candidate->font, *candidate->source,
             candidate->normalized_coordinates, candidate->region_scalars, candidate->variation);
         if (com::failed(variation_status)) return variation_status;
@@ -387,7 +477,10 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             else if (const auto added = additions.find(glyph); added != additions.end()) decoded = added->second;
             else {
                 const auto remaining = maximum_segments - state_->cached_segments - added_segments;
-                const auto status = state_->normalized_coordinates.empty()
+                const auto status = state_->family != original_outline_family::true_type
+                    ? decode_cff_glyph(state_->font, state_->family, state_->cff1, state_->cff2,
+                        state_->cff_matrices, state_->normalized_coordinates, state_->variation, glyph, remaining, decoded)
+                    : state_->normalized_coordinates.empty()
                     ? decode_glyph(state_->font, glyph, remaining, decoded)
                     : decode_varied_glyph(state_->font, state_->normalized_coordinates, state_->variation,
                         state_->varied_scratch, glyph, remaining, decoded);

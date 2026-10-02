@@ -1136,6 +1136,7 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_font_capture.hpp
     src/Direct2D/progpu_native_direct2d_prepared_glyphs.cpp
     src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp
+    src/Direct2D/progpu_native_direct2d_cff_source.hpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_geometry_group.cpp
