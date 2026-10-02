@@ -32,3 +32,45 @@ Public contract references: [TextFormatter.FormatLine](https://learn.microsoft.c
 and [GlyphRun](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.glyphrun?view=windowsdesktop-10.0).
 Only public APIs and their observed results are used; no foreign text-engine
 implementation is incorporated.
+
+## Independent midpoint and positioned-run receipt
+
+The optional fifth argument `midpoint-positioned-v2` produces a separate schema-2
+receipt, not an extension/replacement of the original schema-1 192 cases. The
+four-argument invocation keeps its original inventory and output fields. Neither
+new producer hashes nor schema-2 receipts are admitted by the paired native
+consumer's existing strict hash whitelist. Qualification requires the complete
+successful exact producer run on each original Windows architecture; these
+authored cases are not observations until that run succeeds.
+
+The additional fixed 288 cases cover physical em 18.5 and 20.5, their immediate
+double predecessors/successors, exact DPI 1/2, Ideal/Display, both paragraph
+directions, and original wrapped/unwrapped widths. Unlike 19.5/25.5, the new
+midpoints distinguish even from half-up rounding. Binary-exact DPI scales keep
+both adjacent sides representable without inventing a tolerance. Input metadata
+records source em, DPI and physical-em double bits, alongside the actual source
+values. WPF may quantize those inputs internally: the probe reports its output
+unchanged and never requires neighbouring inputs to produce different output.
+
+Plain `Hello`, mark-positioning `x\u0301 m\u0302 A\u0308 `, and an otherwise
+identical Unicode RLO/PDF-wrapped text are independent case kinds. The original
+UTF-16 remains intact. A Latin run in an RTL paragraph is not assumed to be an
+RTL GlyphRun. Every positioned case must actually report a nonzero original
+offset, and every override case an odd-direction original run, or the capture
+fails explicitly before receipt publication. This checks coverage, not any
+expected offset or advance value. The no-control counterpart remains present.
+
+`Original` retains every existing line, glyph, physical font, nominal design
+advance, source cluster, offset, caret distance, selection and ink field using
+the original public double values. No float narrowing, rounding, guessed
+26.6-to-source offset conversion or expected-output baseline is applied. The
+same exact Inter physical-face check, Microsoft strong-name/module provenance,
+32-line/caret traversal bounds, 60-second observation and 90-second process
+bounds apply. CI captures each family in a fresh process, within the unchanged
+eight-minute job limit, with distinct CreateNew receipt/log paths.
+
+`WpfDisplayTextReference.Tests` links only the pure input/coverage contract. Its
+synthetic JSON tests prove inventory, exact-double preservation and fail-closed
+coverage; they neither execute WPF nor generate qualified oracle receipts. This
+change affects the reference only: managed/native renderers, shaping policies,
+source Display admission and runtime packages are unchanged.

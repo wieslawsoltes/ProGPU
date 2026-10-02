@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'eng/WpfDisplayTextReference/**'
+      - 'eng/WpfDisplayTextReference.Tests/**'
       - '.github/workflows/wpf-display-text-reference.yml'
       - 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
   workflow_dispatch:
@@ -38,6 +39,11 @@ jobs:
         run: |
           dotnet build eng/WpfDisplayTextReference/WpfDisplayTextReference.csproj -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify device-free midpoint input and coverage contracts
+        shell: pwsh
+        run: |
+          dotnet test eng/WpfDisplayTextReference.Tests/WpfDisplayTextReference.Tests.csproj -c Release -m:1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Capture exact source glyph and interaction metrics
         shell: pwsh
         run: |
@@ -46,22 +52,30 @@ jobs:
           New-Item -ItemType Directory -Path $evidence | Out-Null
           $dll = Join-Path $env:GITHUB_WORKSPACE 'eng/WpfDisplayTextReference/bin/Release/net10.0-windows/WpfDisplayTextReference.dll'
           $font = Join-Path $env:GITHUB_WORKSPACE 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
-          $receipt = Join-Path $evidence 'reference.json'
-          $stdout = Join-Path $evidence 'stdout.log'
-          $stderr = Join-Path $evidence 'stderr.log'
-          $arguments = @($dll, $font, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT) | ForEach-Object { '"' + $_ + '"' }
+          foreach ($family in @('original', 'midpoint-positioned-v2')) {
+          $name = if ($family -eq 'original') { 'reference' } else { $family }
+          $receipt = Join-Path $evidence "$name.json"
+          $stdout = Join-Path $evidence $(if ($family -eq 'original') { 'stdout.log' } else { "$name-stdout.log" })
+          $stderr = Join-Path $evidence $(if ($family -eq 'original') { 'stderr.log' } else { "$name-stderr.log" })
+          $values = @($dll, $font, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT)
+          if ($family -ne 'original') { $values += $family }
+          $arguments = $values | ForEach-Object { '"' + $_ + '"' }
           $child = Start-Process (Get-Command dotnet).Source -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           try {
             if (!$child.WaitForExit(90000)) { throw 'Original reference process exceeded 90 seconds.' }
             if ($child.ExitCode -ne 0) { throw "Original reference exited $($child.ExitCode)." }
             $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
-            if ($value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne 192 -or $value.Cases.Count -ne 192 -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete or wrong-identity reference.' }
+            $count = if ($family -eq 'original') { 192 } else { 288 }
+            $schema = if ($family -eq 'original') { 1 } else { 2 }
+            if ($value.Schema -ne $schema -or $value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete or wrong-identity reference.' }
+            if ($family -ne 'original' -and $value.CaseFamily -ne $family) { throw 'Wrong midpoint reference family.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
             $child.Dispose()
             Get-Content -LiteralPath $stdout
             Get-Content -LiteralPath $stderr
+          }
           }
       - uses: actions/upload-artifact@v7
         if: always()
