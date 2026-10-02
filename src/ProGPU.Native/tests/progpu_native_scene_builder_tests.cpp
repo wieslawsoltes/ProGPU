@@ -64,9 +64,9 @@ bool semantic_scene_builder_copies_outside_clips_atomically() {
         std::uint32_t index{};
         if (!builder.add_state(clip, index) || !builder.save(index)) return false;
         clip.clip_rect = {12, 10, 8, 8};
-        if (kind == 1U) { clip.flags |= PROGPU_NATIVE_SCENE_STATE_TRANSFORM; clip.transform.m31 = 2.0F; }
-        if (kind == 2U) { clip.flags |= PROGPU_NATIVE_SCENE_STATE_OPACITY; clip.opacity = 0.5F; }
-        return builder.add_state(clip, index) && builder.save(index, nullptr, false, kind == 3U, kind == 4U);
+        if (kind == 1U) clip.transform.m31 = 2.0F;
+        if (kind == 2U) clip.opacity = 0.5F;
+        return builder.add_state(clip, index) && builder.save(index, nullptr, false, kind == 3U, false, kind == 4U);
     };
     const auto finish = [](semantic_scene_builder& builder, std::vector<std::byte>& bytes) {
         return builder.restore() && builder.restore() && builder.build(bytes) &&
