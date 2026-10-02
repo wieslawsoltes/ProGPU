@@ -79,6 +79,14 @@ internal sealed class CocoaPopupWindow : IWindow
     internal ulong InputGeneration => _surface?.InputGeneration ?? 0;
     internal bool IsInNativeInputCallback => _surface?.IsInNativeCallback ?? false;
 
+    internal bool SupportsModalInput(IInputContext input)
+    {
+        CheckThread();
+        return _initialized && !_closing && !_disposeRequested && _modalInputRegistered &&
+            ReferenceEquals(_inputContext, input) && _inputContext is { AcceptsInput: true } &&
+            NativeWindowModalSession.HasHealthyPopupInputPolicy;
+    }
+
     internal IInputContext CreateInput()
     {
         CheckUsable();

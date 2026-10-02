@@ -8,6 +8,37 @@ namespace ProGPU.Tests;
 public sealed class CocoaPopupModalInputTests
 {
     [Fact]
+    public void CapabilityRequiresExactLiveProviderContextNotEqualNativeHandles()
+    {
+        using var first = Ready(new PopupOperations());
+        using var second = Ready(new PopupOperations());
+        var input = NativeWindowInput.CreateInput(first);
+        using var other = NativeWindowInput.CreateInput(second);
+        Assert.Equal(first.Handle, second.Handle); // Deliberately identical fixture handles.
+        Assert.True(NativePopupWindow.SupportsModalInput(first, input));
+        Assert.False(NativePopupWindow.SupportsModalInput(first, other));
+        Assert.False(NativePopupWindow.SupportsModalInput(second, input));
+        input.Dispose();
+        using var replacement = NativeWindowInput.CreateInput(first);
+        Assert.False(NativePopupWindow.SupportsModalInput(first, input));
+        Assert.True(NativePopupWindow.SupportsModalInput(first, replacement));
+        first.Close();
+        Assert.False(NativePopupWindow.SupportsModalInput(first, replacement));
+    }
+
+    [Fact]
+    public void HiddenOwnerlessCapabilityDoesNotPermitShowOrPointerInput()
+    {
+        var popup = new PopupOperations();
+        using var window = CocoaPopupWindowTests.Create(popup, sourceScheduled: true);
+        window.Initialize();
+        using var input = NativeWindowInput.CreateInput(window);
+        Assert.True(NativePopupWindow.SupportsModalInput(window, input));
+        Assert.False(popup.Input.CanReceive);
+        Assert.Throws<InvalidOperationException>(() => window.IsVisible = true);
+    }
+
+    [Fact]
     public void BeginBlocksUnrelatedPopupBeforeNativeActivationAndRestoresAfterIdentityRelease()
     {
         var popup = new PopupOperations();
@@ -285,6 +316,7 @@ public sealed class CocoaPopupModalInputTests
             Assert.Equal(identityRelease, session!.IsReleased);
             Assert.Equal(0, completed);
             Assert.False(popup.Input.CanReceive);
+            Assert.False(NativePopupWindow.SupportsModalInput(window, input));
             Assert.True(window.SetInputAllowed(true));
             Assert.False(popup.Input.CanReceive);
             var laterPopup = new PopupOperations();

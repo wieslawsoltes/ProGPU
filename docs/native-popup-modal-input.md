@@ -17,6 +17,13 @@ without restoring stale source policy booleans. New providers, input contexts,
 owner bindings and reopened windows consult authoritative state. Completed
 callbacks may enter new sessions; older wake snapshots do not overwrite them.
 
+`NativePopupWindow.SupportsModalInput` gives source hosts a provider-qualified
+capability query over the actual live window and its exact attached context.
+Equal native handles, foreign providers and replaced contexts are insufficient.
+Hidden ownerless preparation can report the capability while input/Show remain
+blocked by the independent live-owner contract. This is not a source-UI or
+automatic-modality qualification flag.
+
 Blocking immediately invalidates queued and already-copied native event tails and
 clears managed held-button state. Cancel remains a typed event, never an invented
 up or click. Native transitions cannot dispatch source cancellation/disconnection

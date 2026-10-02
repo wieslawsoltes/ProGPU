@@ -139,6 +139,11 @@ public sealed partial class NativeWindowModalSession : IDisposable
             {
                 CocoaPopupFailure.AttachCleanup(failure, "ModalBeginRetirement", cleanup);
             }
+            catch (Exception cleanup)
+            {
+                failure = cleanup;
+                throw;
+            }
             finally
             {
                 if (ownsTransition)

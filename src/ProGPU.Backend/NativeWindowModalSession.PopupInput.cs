@@ -12,6 +12,7 @@ public sealed partial class NativeWindowModalSession
     [ThreadStatic] private static bool s_popupWakePending;
 
     internal static bool IsInputPolicyTransitioning => s_transitioning;
+    internal static bool HasHealthyPopupInputPolicy => s_popupInputFailure == null;
 
     internal static bool AllowsPopupInput(NativeWindowHandle owner) =>
         s_popupInputFailure == null && owner.Kind == NativeWindowKind.Cocoa && owner.IsValid &&
