@@ -3148,6 +3148,14 @@ struct sfnt_horizontal_advance_variation_instance final {
     bool has_advance_map = false;
 };
 
+/* Optional HVAR bearing map paired with the same owned normalized instance.
+ * The advance record and its scalar span retain their original contracts. */
+struct sfnt_horizontal_metrics_variation_instance final {
+    sfnt_horizontal_advance_variation_instance advance{};
+    sfnt_delta_set_index_map_view left_side_bearing_map{};
+    bool has_left_side_bearing_map = false;
+};
+
 struct sfnt_cff_index_view final {
     std::span<const std::byte> bytes{};
     std::size_t offsets_offset = 0U;
@@ -3808,6 +3816,14 @@ public:
         std::int32_t user_fixed,
         std::int16_t& result,
         font_error* error = nullptr) const noexcept;
+    /* Captured design-coordinate float, without an intermediate 16.16
+     * narrowing. The original float remains caller-owned. Unlike the legacy
+     * coordinate API, malformed/unsupported avar maps fail closed. */
+    bool try_normalize_variation_design_coordinate(
+        std::uint16_t axis_index,
+        float user_coordinate,
+        std::int16_t& result,
+        font_error* error = nullptr) const noexcept;
     bool try_get_gvar_header(
         sfnt_gvar_header& result,
         font_error* error = nullptr) const noexcept;
@@ -3872,6 +3888,16 @@ public:
         float& result,
         sfnt_glyph_phantom_variation_scratch scratch,
         font_error* error = nullptr) const noexcept;
+    /* Both horizontal phantom deltas from one tuple walk. Outputs are
+     * published together only after complete payload validation. */
+    bool try_get_glyph_horizontal_phantom_deltas(
+        std::uint16_t glyph_index,
+        std::span<const std::int16_t> normalized_coordinates,
+        std::uint32_t item_count,
+        float& left_delta,
+        float& right_delta,
+        sfnt_glyph_phantom_variation_scratch scratch,
+        font_error* error = nullptr) const noexcept;
     bool try_get_horizontal_advance_variation(
         std::uint16_t glyph_index,
         std::span<const std::int16_t> normalized_coordinates,
@@ -3887,6 +3913,17 @@ public:
         std::span<const std::int16_t> normalized_coordinates,
         std::span<float> region_scalars,
         sfnt_horizontal_advance_variation_instance& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_prepare_horizontal_metrics_variation(
+        std::span<const std::int16_t> normalized_coordinates,
+        std::span<float> region_scalars,
+        sfnt_horizontal_metrics_variation_instance& result,
+        font_error* error = nullptr) const noexcept;
+    bool try_get_horizontal_left_side_bearing_variation(
+        std::uint16_t glyph_index,
+        const sfnt_horizontal_metrics_variation_instance& variation,
+        float& result,
+        bool& has_mapping,
         font_error* error = nullptr) const noexcept;
     bool try_get_metric_variation(
         open_type_tag metric_tag,

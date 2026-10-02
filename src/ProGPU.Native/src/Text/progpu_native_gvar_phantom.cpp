@@ -51,8 +51,27 @@ bool sfnt_font_view::try_get_glyph_phantom_advance_delta(
     sfnt_glyph_phantom_variation_scratch scratch,
     font_error* error) const noexcept {
     result = 0.0F;
+    float left = 0.0F, right = 0.0F;
+    if (!try_get_glyph_horizontal_phantom_deltas(glyph_index,
+            normalized_coordinates, item_count, left, right, scratch, error)) {
+        return false;
+    }
+    result = right - left;
+    return true;
+}
+
+bool sfnt_font_view::try_get_glyph_horizontal_phantom_deltas(
+    std::uint16_t glyph_index,
+    std::span<const std::int16_t> normalized_coordinates,
+    std::uint32_t item_count,
+    float& left_result,
+    float& right_result,
+    sfnt_glyph_phantom_variation_scratch scratch,
+    font_error* error) const noexcept {
     set_error(error, font_error::none);
     if (item_count < 4U) {
+        left_result = 0.0F;
+        right_result = 0.0F;
         return true;
     }
     sfnt_gvar_header gvar{};
@@ -158,7 +177,8 @@ bool sfnt_font_view::try_get_glyph_phantom_advance_delta(
             }
         }
     }
-    result = right_delta - left_delta;
+    left_result = left_delta;
+    right_result = right_delta;
     return true;
 }
 

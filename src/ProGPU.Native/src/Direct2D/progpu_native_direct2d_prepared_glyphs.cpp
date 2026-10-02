@@ -1,6 +1,9 @@
 #include "progpu_native_direct2d_prepared_glyphs.hpp"
 #include "progpu_native_text.hpp"
 
+#include <algorithm>
+#include <array>
+#include <limits>
 #include <mutex>
 #include <unordered_map>
 
@@ -20,8 +23,194 @@ constexpr std::size_t maximum_points = 1U << 20U;
 struct decoded_original_glyph final {
     std::vector<progpu_native_path_segment> segments;
     float horizontal_origin = 0.0F;
-    std::uint16_t horizontal_advance = 0U;
+    float horizontal_advance = 0.0F;
 };
+
+// Each scratch array is bounded by the existing point-domain budget, including
+// tuple metadata. Shared decoders borrow these spans only during preparation.
+// Simple and composite recursion have distinct tuple buffers; phantom extraction
+// may reuse the composite buffers after contour decoding has completed.
+struct varied_outline_storage final {
+    std::vector<std::uint16_t> contours;
+    std::vector<text::sfnt_outline_point> original_points;
+    std::vector<progpu_native_point> varied_points, component_offsets, points;
+    std::vector<text::sfnt_gvar_tuple_header> simple_headers, composite_headers;
+    std::vector<std::int16_t> simple_regions, composite_regions, simple_x, simple_y, composite_x, composite_y;
+    std::vector<std::uint32_t> simple_shared, simple_private, composite_shared, composite_private;
+    std::vector<float> tuple_x, tuple_y;
+    std::vector<std::uint8_t> touched;
+
+    [[nodiscard]] bool resize(const text::sfnt_varied_glyph_requirements& requirements)
+    {
+        const auto& simple = requirements.simple_variation;
+        const auto& composite = requirements.composite_variation;
+        const std::array<std::size_t, 13U> counts{requirements.outline.point_count,
+            requirements.outline.simple_contour_scratch_count, requirements.outline.simple_point_scratch_count,
+            requirements.varied_simple_point_count, requirements.component_offset_count,
+            simple.tuple_header_count, simple.region_coordinate_count, simple.point_number_count,
+            simple.delta_count, simple.tuple_point_count, composite.tuple_header_count,
+            composite.region_coordinate_count, std::max(composite.point_number_count, composite.delta_count)};
+        if (std::any_of(counts.begin(), counts.end(), [](auto count) { return count > maximum_points; })) return false;
+        contours.resize(requirements.outline.simple_contour_scratch_count);
+        original_points.resize(requirements.outline.simple_point_scratch_count);
+        varied_points.resize(requirements.varied_simple_point_count);
+        component_offsets.resize(requirements.component_offset_count);
+        points.resize(requirements.outline.point_count);
+        simple_headers.resize(simple.tuple_header_count); simple_regions.resize(simple.region_coordinate_count);
+        simple_shared.resize(simple.point_number_count); simple_private.resize(simple.point_number_count);
+        simple_x.resize(simple.delta_count); simple_y.resize(simple.delta_count);
+        tuple_x.resize(simple.tuple_point_count); tuple_y.resize(simple.tuple_point_count); touched.resize(simple.tuple_point_count);
+        composite_headers.resize(composite.tuple_header_count); composite_regions.resize(composite.region_coordinate_count);
+        composite_shared.resize(composite.point_number_count); composite_private.resize(composite.point_number_count);
+        composite_x.resize(composite.delta_count); composite_y.resize(composite.delta_count);
+        return true;
+    }
+
+    [[nodiscard]] text::sfnt_varied_glyph_scratch borrow() noexcept
+    {
+        return {contours, original_points, varied_points, component_offsets,
+            {simple_headers, simple_regions, simple_shared, simple_private, simple_x, simple_y, tuple_x, tuple_y, touched},
+            {composite_headers, composite_regions, composite_shared, composite_private, composite_x, composite_y}};
+    }
+
+    [[nodiscard]] bool resize_phantoms(const text::sfnt_glyph_phantom_variation_requirements& requirements)
+    {
+        if (requirements.region_coordinate_count > maximum_points || requirements.point_number_count > maximum_points ||
+            requirements.delta_count > maximum_points) return false;
+        composite_headers.resize(requirements.tuple_header_count); composite_regions.resize(requirements.region_coordinate_count);
+        composite_shared.resize(requirements.point_number_count); composite_private.resize(requirements.point_number_count);
+        composite_x.resize(requirements.delta_count); composite_y.resize(requirements.delta_count);
+        return true;
+    }
+
+    [[nodiscard]] text::sfnt_glyph_phantom_variation_scratch borrow_phantoms() noexcept
+    {
+        return {composite_headers, composite_regions, composite_shared, composite_private, composite_x, composite_y};
+    }
+};
+
+[[nodiscard]] std::uint32_t source_axis_tag(std::uint32_t value) noexcept
+{
+    // DWRITE_MAKE_FONT_AXIS_TAG is byte-little-endian; OpenType tags are not.
+    return (value >> 24U) | ((value >> 8U) & 0x0000FF00U) |
+        ((value << 8U) & 0x00FF0000U) | (value << 24U);
+}
+
+[[nodiscard]] bool standard_axis(std::uint32_t value) noexcept
+{
+    return value == text::open_type_tag::from_chars('w', 'g', 'h', 't').value ||
+        value == text::open_type_tag::from_chars('w', 'd', 't', 'h').value ||
+        value == text::open_type_tag::from_chars('i', 't', 'a', 'l').value ||
+        value == text::open_type_tag::from_chars('s', 'l', 'n', 't').value ||
+        value == text::open_type_tag::from_chars('o', 'p', 's', 'z').value;
+}
+
+[[nodiscard]] com::result prepare_variation(const text::sfnt_font_view& font,
+    const original_font_capture& source, std::vector<std::int16_t>& normalized,
+    std::vector<float>& region_scalars, text::sfnt_horizontal_metrics_variation_instance& metrics)
+{
+    text::sfnt_table_view fvar{};
+    if (!font.try_get_table(text::open_type_tag::from_chars('f', 'v', 'a', 'r'), fvar))
+        return source.has_variations ? com::invalid_argument : com::ok;
+    if (!source.axis_values_available) return compat::not_implemented;
+    if (!source.has_variations || source.axis_values.size() > original_font_capture::maximum_axes ||
+        fvar.bytes.size() < 16U || fvar.bytes[0] != std::byte{0} || fvar.bytes[1] != std::byte{1} ||
+        fvar.bytes[2] != std::byte{0} || fvar.bytes[3] != std::byte{0}) return com::invalid_argument;
+    std::uint16_t count = 0U;
+    if (!font.try_get_variation_axis_count(count) || count == 0U) return com::invalid_argument;
+    std::unordered_map<std::uint32_t, float> captured;
+    captured.reserve(source.axis_values.size());
+    for (const auto& axis : source.axis_values) {
+        if (!std::isfinite(axis.value) || !captured.emplace(source_axis_tag(axis.tag), axis.value).second)
+            return com::invalid_argument;
+    }
+    normalized.resize(count);
+    // Map the genuine captured user coordinates once, in the font's own fvar
+    // order. No default coordinate is supplied for a missing source axis.
+    for (std::uint16_t index = 0U; index < count; ++index) {
+        text::sfnt_variation_axis axis{};
+        if (!font.try_get_variation_axis(index, axis)) return com::invalid_argument;
+        const auto found = captured.find(axis.tag.value);
+        if (found == captured.end() ||
+            !font.try_normalize_variation_design_coordinate(index, found->second, normalized[index]))
+            return com::invalid_argument;
+        captured.erase(found); // also rejects a repeated fvar tag
+    }
+    for (const auto& [tag, value] : captured) {
+        (void)value;
+        if (!standard_axis(tag)) return compat::not_implemented;
+    }
+    text::sfnt_table_view gvar_table{};
+    if (font.try_get_table(text::open_type_tag::from_chars('g', 'v', 'a', 'r'), gvar_table)) {
+        text::sfnt_gvar_header gvar{};
+        if (!font.try_get_gvar_header(gvar) || gvar.axis_count != count || gvar.glyph_count != source.glyph_count)
+            return com::invalid_argument;
+    }
+    std::uint16_t region_count = 0U;
+    bool uses_hvar = false;
+    if (!font.try_get_horizontal_advance_variation_region_count(normalized, region_count, uses_hvar))
+        return com::invalid_argument;
+    region_scalars.resize(region_count);
+    if (!font.try_prepare_horizontal_metrics_variation(normalized, region_scalars, metrics))
+        return com::invalid_argument;
+    return com::ok;
+}
+
+[[nodiscard]] com::result decode_varied_glyph(const text::sfnt_font_view& font,
+    std::span<const std::int16_t> normalized, const text::sfnt_horizontal_metrics_variation_instance& variation,
+    varied_outline_storage& scratch, std::uint16_t glyph, std::size_t remaining,
+    std::shared_ptr<const decoded_original_glyph>& output)
+{
+    text::sfnt_varied_glyph_requirements requirements{};
+    if (!font.try_get_varied_glyph_requirements(glyph, requirements)) return com::invalid_argument;
+    if (requirements.outline.path_segment_count > remaining || !scratch.resize(requirements)) return com::out_of_memory;
+    auto candidate = std::make_shared<decoded_original_glyph>();
+    candidate->segments.resize(requirements.outline.path_segment_count);
+    std::uint32_t points_written = 0U, segments_written = 0U;
+    if (!font.try_decode_varied_glyph_outline(glyph, normalized, scratch.borrow(), scratch.points,
+            candidate->segments, points_written, segments_written) ||
+        points_written != requirements.outline.point_count || segments_written != requirements.outline.path_segment_count)
+        return com::invalid_argument;
+    text::sfnt_horizontal_glyph_metrics base{};
+    text::sfnt_glyph_data_view original{};
+    if (!font.try_get_horizontal_glyph_metrics(glyph, base) || !font.try_get_glyph_data(glyph, original))
+        return com::invalid_argument;
+    std::uint32_t item_count = 0U;
+    text::sfnt_glyph_phantom_variation_requirements phantom_requirements{};
+    if (!font.try_get_glyph_variation_item_count(glyph, item_count) ||
+        !font.try_get_glyph_phantom_variation_requirements(glyph, item_count, phantom_requirements))
+        return com::invalid_argument;
+    if (!scratch.resize_phantoms(phantom_requirements)) return com::out_of_memory;
+    float left = 0.0F, right = 0.0F;
+    if (!font.try_get_glyph_horizontal_phantom_deltas(glyph, normalized, item_count, left, right,
+            scratch.borrow_phantoms())) return com::invalid_argument;
+    candidate->horizontal_advance = static_cast<float>(base.advance_width) + (right - left);
+    // HVAR advance has the existing shared precedence. Its region scalars and
+    // optional maps belong to this same immutable axis instance, not a glyph.
+    if (variation.advance.uses_hvar && !font.try_get_design_advance_width(glyph, normalized,
+            &variation.advance, candidate->horizontal_advance, scratch.borrow_phantoms())) return com::invalid_argument;
+    if (!original.empty()) {
+        candidate->horizontal_origin = static_cast<float>(static_cast<std::int32_t>(original.x_min) -
+            static_cast<std::int32_t>(base.left_side_bearing)) + left;
+        float lsb_delta = 0.0F;
+        bool has_lsb = false;
+        if (!font.try_get_horizontal_left_side_bearing_variation(glyph, variation, lsb_delta, has_lsb))
+            return com::invalid_argument;
+        if (has_lsb) {
+            if (points_written == 0U) return com::invalid_argument;
+            float minimum_x = std::numeric_limits<float>::infinity();
+            for (const auto& point : scratch.points) {
+                if (!std::isfinite(point.x) || !std::isfinite(point.y)) return com::invalid_argument;
+                minimum_x = std::min(minimum_x, point.x);
+            }
+            candidate->horizontal_origin = minimum_x - (static_cast<float>(base.left_side_bearing) + lsb_delta);
+        }
+    }
+    if (!std::isfinite(candidate->horizontal_advance) || !std::isfinite(candidate->horizontal_origin))
+        return com::invalid_argument;
+    output = std::move(candidate);
+    return com::ok;
+}
 
 [[nodiscard]] com::result decode_glyph(const text::sfnt_font_view& font, std::uint16_t glyph,
     std::size_t remaining, std::shared_ptr<const decoded_original_glyph>& output)
@@ -94,6 +283,10 @@ struct prepared_original_font::state final {
     std::shared_ptr<const original_font_capture> source;
     text::sfnt_font_view font;
     std::uint16_t units_per_em = 0U;
+    std::vector<std::int16_t> normalized_coordinates;
+    std::vector<float> region_scalars;
+    text::sfnt_horizontal_metrics_variation_instance variation{};
+    varied_outline_storage varied_scratch;
     std::mutex mutex;
     std::unordered_map<std::uint16_t, std::shared_ptr<const decoded_original_glyph>> cache;
     std::size_t cached_segments = 0U;
@@ -118,7 +311,7 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
 {
     if (!source || !source->face || source->files.empty()) return com::invalid_argument;
     // DWRITE_FONT_FACE_TYPE_TRUETYPE / OPENTYPE_COLLECTION, no simulations.
-    // A multi-file/type1/CFF/variable face needs its actual decoder/axis contract;
+    // A multi-file/type1/CFF face needs its actual decoder contract;
     // do not concatenate files or choose default coordinates here.
     if (source->files.size() != 1U || source->simulations != 0U ||
         (source->face_type != 1U && source->face_type != 2U)) return compat::not_implemented;
@@ -144,14 +337,14 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
         const auto metric_count = static_cast<std::size_t>(horizontal.number_of_horizontal_metrics);
         if (hmtx.bytes.size() < metric_count * 4U + (static_cast<std::size_t>(glyphs) - metric_count) * 2U)
             return com::invalid_argument;
-        text::sfnt_table_view variation{};
-        if (candidate->font.try_get_table(text::open_type_tag::from_chars('f', 'v', 'a', 'r'), variation))
-            return compat::not_implemented;
         text::sfnt_table_view glyf{}, loca{};
         if (!candidate->font.try_get_table(text::open_type_tag::from_chars('g', 'l', 'y', 'f'), glyf) ||
             !candidate->font.try_get_table(text::open_type_tag::from_chars('l', 'o', 'c', 'a'), loca))
             return compat::not_implemented;
         candidate->units_per_em = header.units_per_em;
+        const auto variation_status = prepare_variation(candidate->font, *candidate->source,
+            candidate->normalized_coordinates, candidate->region_scalars, candidate->variation);
+        if (com::failed(variation_status)) return variation_status;
         output = std::shared_ptr<prepared_original_font>(new prepared_original_font(std::move(candidate)));
         return com::ok;
     } catch (const std::bad_alloc&) { return com::out_of_memory; }
@@ -188,8 +381,11 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             if (const auto existing = state_->cache.find(glyph); existing != state_->cache.end()) decoded = existing->second;
             else if (const auto added = additions.find(glyph); added != additions.end()) decoded = added->second;
             else {
-                const auto status = decode_glyph(state_->font, glyph,
-                    maximum_segments - state_->cached_segments - added_segments, decoded);
+                const auto remaining = maximum_segments - state_->cached_segments - added_segments;
+                const auto status = state_->normalized_coordinates.empty()
+                    ? decode_glyph(state_->font, glyph, remaining, decoded)
+                    : decode_varied_glyph(state_->font, state_->normalized_coordinates, state_->variation,
+                        state_->varied_scratch, glyph, remaining, decoded);
                 if (com::failed(status)) return status;
                 added_segments += decoded->segments.size();
                 additions.emplace(glyph, decoded);
