@@ -37,12 +37,17 @@ internal sealed record ParagraphSourceComparison(string Status, bool ExactFittin
 internal static class SourceComparison
 {
     internal static ParagraphSourceComparison Compare(JsonElement sourceCase, NativeSourceParagraph native)
+        => Compare(sourceCase, native, ReferenceInput.FontHash);
+
+    // The new paired source diagnostic may select the independently pinned
+    // Hebrew face. Existing raw callers keep their exact Inter identity gate.
+    internal static ParagraphSourceComparison Compare(JsonElement sourceCase, NativeSourceParagraph native, string expectedFontSha256)
     {
         string text = sourceCase.GetProperty("Text").GetString()!;
         double dpi = sourceCase.GetProperty("Dpi").GetDouble();
         // Do not accept a typed snapshot which has lost its original identity.
         bool sourceIdentity = MatchesSource(text, native.Scalars);
-        bool fontIdentity = native.FontSha256 == ReferenceInput.FontHash && native.FaceIndex == 0;
+        bool fontIdentity = native.FontSha256 == expectedFontSha256 && native.FaceIndex == 0;
         ValidateNative(text.Length, native);
         var reasons = new List<string>();
         if (!sourceIdentity) reasons.Add("native-original-UTF16-source-mismatch");

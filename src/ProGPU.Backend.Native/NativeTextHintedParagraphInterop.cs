@@ -52,9 +52,11 @@ public sealed unsafe class NativeHintedParagraph : IDisposable
     private readonly NativePositionedTextLine[] _lines;
     private readonly NativeTextClusterBox[] _boxes;
     private readonly NativeTextCaretStop[] _carets;
+    private readonly bool _sourceGeometry;
 
-    internal NativeHintedParagraph(nint handle)
+    internal NativeHintedParagraph(nint handle, bool sourceGeometry = false)
     {
+        _sourceGeometry = sourceGeometry;
         NativeHintedParagraphCounts counts = default;
         NativeTextParagraphResult result = new() { StructSize = (uint)sizeof(NativeTextParagraphResult) };
         ThrowForStatus(NativeMethods.GetHintedParagraphCounts(handle, &counts, &result), "paragraph counts");
@@ -104,6 +106,8 @@ public sealed unsafe class NativeHintedParagraph : IDisposable
     public ReadOnlySpan<float> LineOrigins => _lineOrigins;
     public ReadOnlySpan<NativeTextClusterBox> Boxes => _boxes;
     public ReadOnlySpan<NativeTextCaretStop> Carets => _carets;
+
+    internal NativeTextContextOwner.Use AcquireSourceUse() => _owner.Acquire();
 
     private void CopySnapshot(nint handle)
     {
@@ -194,7 +198,7 @@ public sealed unsafe class NativeHintedParagraph : IDisposable
                 ? NativeMethods.PrepareHintedGlyphResourceWithNominalMetrics(use.Handle, &request, &resource)
                 : NativeMethods.PrepareHintedGlyphResource(use.Handle, &request, &resource), "glyph resource preparation");
             if (resource == 0) throw new InvalidOperationException("Native glyph preparation returned no owner.");
-            return new NativeHintedGlyphResource(resource, dpiScale, projection, coverage, nominalMetrics);
+            return new NativeHintedGlyphResource(resource, dpiScale, projection, coverage, nominalMetrics, _sourceGeometry);
         }
         catch
         {

@@ -2,9 +2,14 @@
 #include "progpu_native_direct2d_scene_submission.hpp"
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
+#include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
+#include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
+#include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
+#include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -1433,14 +1438,14 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
         if (variant == 0U) earlier = bytes;
         else if (!fixture::full_clear_suffix_contract(earlier)) return false;
     }
-    // First scoped Clear must not be accepted as a full-target clear. Also
+    // AA clips (including an aliased descendant) and layers remain gated. Also
     // preserve the first error if an invalid Clear precedes an otherwise valid one.
     for (unsigned variant = 0U; variant < 4U; ++variant) {
         target->BeginDraw();
         target->SetTags(123U, 456U);
         if (variant < 2U) {
-            target->PushAxisAlignedClip(&rectangle, variant == 0U
-                ? compat::antialias_mode::aliased : compat::antialias_mode::per_primitive);
+            target->PushAxisAlignedClip(&rectangle, compat::antialias_mode::per_primitive);
+            if (variant == 0U) target->PushAxisAlignedClip(&rectangle, compat::antialias_mode::aliased);
         } else if (variant == 2U) {
             const compat::layer_parameters layer{rectangle, nullptr, compat::antialias_mode::per_primitive,
                 {1, 0, 0, 1, 0, 0}, 0.5F, nullptr, compat::layer_options::none};
@@ -1489,6 +1494,36 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
     scene->GetSummary(&no_clear);
     if (no_clear.has_clear != 0 || compat::detail::make_scene_frame(no_clear, {64, 48}, 96.0F, {1234U, 0U}).flags !=
             PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET) return false;
+    for (const bool null_clear : {false, true}) {
+        for (const bool empty : {false, true}) {
+            if (fixture::record_clipped_clear(target.get(), null_clear, empty) != com::ok) return false;
+            compat::scene_render_target_summary summary{};
+            scene->GetSummary(&summary);
+            std::vector<std::byte> clipped;
+            if (summary.draw_count != (empty ? 2U : 3U) || summary.has_clear != 1 ||
+                summary.clear_color.alpha != 0 || !build(clipped) ||
+                !fixture::clipped_clear_contract(clipped, null_clear, false, empty)) return false;
+            target->BeginDraw();
+            target->Clear(nullptr);
+            if (target->EndDraw(nullptr, nullptr) != com::ok ||
+                !fixture::clipped_clear_contract(clipped, null_clear, false, empty)) return false;
+        }
+        if (fixture::record_clipped_clear(opaque.get(), null_clear) != com::ok) return false;
+        std::vector<std::byte> clipped(static_cast<std::size_t>(opaque_scene->GetRequiredSceneSize()));
+        std::uint64_t written{};
+        if (opaque_scene->BuildScene(clipped.data(), clipped.size(), &written) != com::ok ||
+            written != clipped.size() || !fixture::clipped_clear_contract(clipped, null_clear, true)) return false;
+    }
+    // A clipped clear is retained drawing, not a full reset of DPI history.
+    opaque->BeginDraw();
+    const compat::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
+    opaque->SetTransform(&identity);
+    opaque->Clear(nullptr);
+    opaque->PushAxisAlignedClip(&rectangle, compat::antialias_mode::aliased);
+    opaque->Clear(&clear);
+    opaque->PopAxisAlignedClip();
+    opaque->SetDpi(192, 192);
+    if (opaque->EndDraw(nullptr, nullptr) != compat::not_implemented || opaque_scene->GetRequiredSceneSize() != 0U) return false;
     return fixture::full_clear_suffix_contract(earlier);
 }
 
@@ -6399,7 +6434,11 @@ int run_tests()
     if (!full_target_clear_regressions(scene_factory.get())) return 402;
     if (!progpu::native::direct2d::tests::formatted_scene_copy_contract(factory.get(), second_factory.get())) return 403;
     if (!progpu::native::direct2d::tests::owned_bitmap_scene_copy_contract(factory.get(), second_factory.get())) return 404;
+    if (!progpu::native::direct2d::tests::scoped_source_copy_contract(factory.get())) return 405;
     if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
+    if (!progpu::native::direct2d::tests::bitmap_destination_contract(factory.get(), second_factory.get())) return 406;
+    if (!progpu::native::direct2d::tests::gradient_stop_contract(scene_factory.get())) return 406;
+    if (!progpu::native::direct2d::tests::compatible_dpi_contract(scene_factory.get())) return 406;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
     compat::render_target* raw_target = nullptr;
@@ -6543,7 +6582,7 @@ int run_tests()
     }
     compat::gradient_stop invalid_gradient_stops[]{
         {0.75F, {1.0F, 0.0F, 0.0F, 1.0F}},
-        {0.25F, {0.0F, 0.0F, 1.0F, 1.0F}}};
+        {std::numeric_limits<float>::quiet_NaN(), {0.0F, 0.0F, 1.0F, 1.0F}}};
     raw_gradient_stops = reinterpret_cast<compat::gradient_stop_collection*>(
         static_cast<std::uintptr_t>(1U));
     if (target->CreateGradientStopCollection(
@@ -8783,14 +8822,17 @@ int run_tests()
             return 288;
         upload_target->BeginDraw();
         const compat::rectangle_f clip{0.0F, 0.0F, 2.0F, 2.0F};
-        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::per_primitive);
         if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != compat::wrong_state) return 288;
         upload_target->PopAxisAlignedClip();
-        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok ||
-            upload_target->EndDraw(nullptr, nullptr) != com::ok) return 288;
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok) return 288;
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok) return 288;
+        upload_target->PopAxisAlignedClip();
+        if (upload_target->EndDraw(nullptr, nullptr) != com::ok) return 288;
         compat::scene_render_target_summary after_copy{};
         upload_scene->GetSummary(&after_copy);
-        if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 2U) return 288;
+        if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 3U) return 288;
         std::vector<std::byte> full_upload(8U * 8U * pixel_bytes, std::byte{0});
         if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 288;
         const auto full_copy_size = upload_scene->GetRequiredSceneSize();

@@ -668,7 +668,9 @@ public enum NativeSceneGradientSpread : uint
     Pad = 0,
     Reflect = 1,
     Repeat = 2,
-    Decal = 3
+    Decal = 3,
+    /// <summary>Clamps linear/radial gradient coordinates to [0, 1] before sampling original stops.</summary>
+    PadUnitInterval = 4
 }
 
 public enum NativeSceneGradientInterpolation : uint
@@ -919,7 +921,13 @@ public enum NativeSceneLayerFlags : uint
     /// All consumers of an owner must opt in and agree on content revision and
     /// raster extent. Recursive ownership is invalid; composite state may differ.
     /// </summary>
-    CacheShared = 1U << 9
+    CacheShared = 1U << 9,
+    /// <summary>
+    /// Limits final SRC replacement to physical pixel centers in the original
+    /// bounds, independently of texture allocation. Requires exactly Bounds
+    /// plus this flag, opacity one, no mask/effect, and zero revisions.
+    /// </summary>
+    AliasedCompositeBounds = (uint)NativeMethods.SceneLayerAliasedCompositeBounds
 }
 
 public enum NativeSceneValidationError : uint

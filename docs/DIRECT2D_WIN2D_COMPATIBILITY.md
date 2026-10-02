@@ -2112,7 +2112,13 @@ with the prior target-space clip. The translator records that intersection as
 a native scene-state resource and emits balanced save/restore commands, so
 later transform changes cannot move an already-pushed clip. The admitted depth
 is the native scene maximum of 64; overflow has an explicit capacity failure.
-Clear inside a clip and unbalanced pops fail closed.
+At that checkpoint Clear inside a clip and unbalanced pops failed closed. The
+later [clipped Clear contract](direct2d-full-target-clear.md) admits only an
+all-aliased clip stack through a bounded shared SRC layer, preserving captured
+target coordinates, earlier history and null/straight/IGNORE-alpha semantics.
+Antialiased clip/source-layer Clear and unbalanced pops remain rejected. The
+paired provider and original Windows fixtures require hosted execution; this
+does not broaden managed CanvasCommandList or mapped-picture admission.
 
 Direct2D per-primitive clip antialiasing remains rejected with a typed
 unsupported-state result because ProGPU rectangle clips currently resolve to
@@ -4099,6 +4105,12 @@ behavior. The scoped-recording restriction above is an implementation gap, not a
 claim about native Direct2D's permitted calls.
 
 ## Implementation-first checkpoint: bitmap and compatible-target source copies
+
+An additive implementation-first lane now covers compatible-target memory
+replacement during active captured aliased axis-aligned clips. It preserves the
+root-only old builder API and other copy-scope failures; see
+[storage copies with active aliased clips](direct2d-scoped-memory-copies.md) for
+the exact atomic transaction and pending paired-provider/original-Windows gates.
 
 Native compatible bitmap destinations now implement `CopyFromBitmap` and
 `CopyFromRenderTarget` through the private typed image-source contract. Bitmap

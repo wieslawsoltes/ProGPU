@@ -9,6 +9,7 @@
 
 #include "progpu_native.h"
 #include "progpu_native_text_hinting.h"
+#include "progpu_native_text_source_resource.h"
 #include "progpu_native_mil_commands.generated.hpp"
 
 namespace progpu::native::mil {
@@ -138,6 +139,12 @@ public:
     status apply_with_hinted_glyph_resources(
         std::span<const std::byte> bytes,
         std::span<const progpu_native_hinted_glyph_resource_view> resources,
+        std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+        std::span<const std::uint32_t> positioned_indices) noexcept;
+
+    status apply_with_source_glyph_resources(
+        std::span<const std::byte> bytes,
+        std::span<const progpu_native_hinted_glyph_resource_input> resources,
         std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
         std::span<const std::uint32_t> positioned_indices) noexcept;
 
@@ -324,6 +331,12 @@ private:
     struct implementation;
     struct build_cache;
     explicit channel(std::unique_ptr<implementation> implementation) noexcept;
+    status apply_glyph_resource_inputs(
+        std::span<const std::byte> bytes,
+        std::span<const progpu_native_hinted_glyph_resource_view> legacy_resources,
+        std::span<const progpu_native_hinted_glyph_resource_input> source_resources,
+        std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+        std::span<const std::uint32_t> positioned_indices) noexcept;
     status build_scene_core(
         const implementation& source,
         std::uint32_t target_handle,

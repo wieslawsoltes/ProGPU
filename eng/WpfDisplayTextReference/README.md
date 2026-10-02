@@ -30,8 +30,36 @@ and original application gates remain required.
 
 Public contract references: [TextFormatter.FormatLine](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.textformatting.textformatter.formatline?view=windowsdesktop-10.0)
 and [GlyphRun](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.glyphrun?view=windowsdesktop-10.0).
-Only public APIs and their observed results are used; no foreign text-engine
-implementation is incorporated.
+The original schema-1/3 lanes use public APIs. The separate opt-in source-input
+lane below observes two exact internal request-metric methods; no foreign
+text-engine implementation is incorporated.
+
+## Independent Display request metrics
+
+Prefix either existing invocation with `--source-inputs` to emit a separate
+schema-2 (192 cases) or schema-4 (288 cases) receipt. The old invocations, original
+output fields and complete inventories remain intact. Hosted capture writes
+`source-inputs.json` and `source-midpoint-inputs.json` only after the original
+receipts; a failure cannot erase those earlier observations. Each process keeps
+the same 60-second observation/90-second outer bounds and eight-minute job bound.
+
+`IndependentSourceMetrics` observes the genuine original
+`Typeface.Baseline(double,double,double,TextFormattingMode)` and `LineSpacing`
+methods before constructing TextFormatter or formatting any line. Public family
+ratios expose design metrics, whereas the physical Display path requests
+DPI-specific compatible metrics. They cannot supply this source input. The
+diagnostic uses only the exact internal instance signatures declared on the
+Microsoft Typeface type; absent signatures, changed assembly identity, failed
+queries or another physical face reject with no reflection or public-ratio
+fallback. Production code does not use this reflection.
+
+Original em, DPI, mode, `toReal=1`, returned baseline/spacing, actual font bytes
+and URI, and original PresentationCore identity/hash accompany every input.
+The paired source factory consumes baseline and spacing-minus-baseline as its
+original ascent/descent and spacing as default line height, separately from the
+unchanged expected TextLine outputs. These captures are authored, not observed,
+until both hosted original Windows jobs succeed and exact receipt hashes are
+reviewed. Existing 192/v3 receipts cannot qualify missing independent inputs.
 
 ## Independent midpoint and positioned-run receipt
 

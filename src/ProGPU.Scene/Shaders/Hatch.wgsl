@@ -90,6 +90,9 @@ struct VertexOutput {
 };
 
 fn apply_gradient_spread(t: f32, spreadMethod: u32) -> f32 {
+    if (spreadMethod == 4u) {
+        return clamp(t, 0.0, 1.0);
+    }
     if (spreadMethod == 1u) {
         let period = fract(t * 0.5) * 2.0;
         return select(period, 2.0 - period, period > 1.0);
@@ -123,6 +126,11 @@ fn srgb_to_linear_component(value: f32) -> f32 {
 }
 
 fn linear_to_srgb_component(value: f32) -> f32 {
+    // Preserve the exact normalized endpoints before the rounded pow formula.
+    // Near-endpoint and HDR values still use the original conversion below.
+    if (value == 0.0 || value == 1.0) {
+        return value;
+    }
     let clamped = max(value, 0.0);
     if (clamped <= 0.0031308) {
         return clamped * 12.92;

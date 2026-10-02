@@ -40,6 +40,7 @@ using feature_detail::fraction_feature_kind;
 using feature_detail::get_feature_value;
 using feature_detail::has_feature_settings;
 using feature_detail::inactive_fraction_features;
+using feature_detail::is_run_feature_enabled;
 using feature_detail::lookup_feature_resolution;
 using feature_detail::try_resolve_lookup_feature;
 using detail::clear_arabic_actions;
@@ -313,22 +314,6 @@ std::int64_t round_to_even(float value) noexcept {
     if (fraction > 0.5F) return static_cast<std::int64_t>(lower + 1.0F);
     return static_cast<std::int64_t>(
         std::fmod(lower, 2.0F) == 0.0F ? lower : lower + 1.0F);
-}
-
-bool is_run_feature_enabled(
-    const open_type_shape_run_options& options,
-    open_type_tag tag) noexcept {
-    bool enabled = std::find(
-        options.requested_features.begin(),
-        options.requested_features.end(),
-        tag) != options.requested_features.end();
-    for (const auto& setting : options.feature_settings) {
-        if (setting.tag == tag && setting.start == 0U &&
-            setting.end == 0xFFFFFFFFU) {
-            enabled = setting.value != 0U;
-        }
-    }
-    return enabled;
 }
 
 enum class hangul_feature : std::uint32_t {
@@ -2998,6 +2983,17 @@ static bool shape_open_type_run_core(
             glyph_storage[index].advance_y = 0;
         }
     }
+
+    // Capture exactly the prepared metrics and pre-positioning dependency
+    // flags. No source fragment is shaped here and no final flag is removed.
+    // The bounded replay family excludes every later mark/script stage that
+    // could change descriptors or require attachment ownership beyond this
+    // single/pair placement recipe.
+    if (device != nullptr && device->capture_positioning != nullptr && !arabic_joining && !complex_script &&
+        !vertical && options.cluster_level == shaping_cluster_level::monotone_graphemes &&
+        std::none_of(glyph_storage.begin(), glyph_storage.begin() + glyph_count,
+            [&](const shaping_glyph& glyph) { return is_positioning_mark(glyph, gdef_pointer); }) &&
+        !device->capture_positioning(device->owner, font, options, glyph_storage.first(glyph_count), error)) return false;
 
     bool has_gpos_kerning = false;
     if (gpos.lookup_count() != 0U) {

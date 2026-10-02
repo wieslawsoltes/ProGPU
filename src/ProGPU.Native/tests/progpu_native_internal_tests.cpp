@@ -2221,6 +2221,10 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_append_capacity_is_amortized_and_atomic());
     require(progpu::native::tests::
+        semantic_scene_builder_copies_outside_clips_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_moves_sources_outside_clips_atomically());
+    require(progpu::native::tests::
         semantic_scene_builder_bounds_composite_only_guidelines());
     require(progpu::native::tests::
         semantic_scene_builder_records_final_composite_clip());
@@ -2250,6 +2254,8 @@ int main() {
         semantic_scene_content_hashes_preserve_scene_ownership());
     require(progpu::native::tests::
         semantic_mapped_layers_preserve_bounded_copy_contract());
+    require(progpu::native::tests::
+        semantic_aliased_composite_bounds_preserve_pixel_centers());
     require(progpu::native::tests::
         semantic_scene_builder_shares_glyph_segments_across_raster_sizes());
     require(progpu::native::tests::

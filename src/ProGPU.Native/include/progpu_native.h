@@ -184,7 +184,9 @@ typedef enum progpu_native_scene_gradient_spread {
     PROGPU_NATIVE_SCENE_GRADIENT_PAD = 0,
     PROGPU_NATIVE_SCENE_GRADIENT_REFLECT = 1,
     PROGPU_NATIVE_SCENE_GRADIENT_REPEAT = 2,
-    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3
+    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3,
+    /* Direct2D linear/radial content clamps its parameter, not stop offsets. */
+    PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL = 4
 } progpu_native_scene_gradient_spread;
 
 enum {
@@ -344,7 +346,13 @@ enum {
      * raster extent. Recursive use of an active cache owner is invalid.
      * The producer must preserve identical source content for that revision;
      * opacity, composite state, sampling and final mask may differ. */
-    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U,
+    /* Restricts final replacement to pixel centers in the original BOUNDS,
+     * independently of outward-rounded texture allocation. Requires exactly
+     * BOUNDS plus this flag, SRC, opacity one, no mask/effect and zero revisions.
+     * Original float bounds map through the actual final DPI/viewport. */
+    /* PROGPU_CSHARP_ULONG: SceneLayerAliasedCompositeBounds */
+    PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS = 1024ULL
 };
 
 typedef enum progpu_native_image_sampling {
@@ -2831,6 +2839,52 @@ typedef struct progpu_native_scene_shader_effect_derivatives {
     /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
     progpu_native_scene_shader_effect program;
 } progpu_native_scene_shader_effect_derivatives;
+
+/* Original positive-axis float source frame. Source bounds are local edges
+ * AFTER padding. The source-to-device diagonal/translation comes from original
+ * per-push float composition, including the original root DPI. Capture origin
+ * floors scale-only minima; size outward-integralizes maxima independently.
+ * The residual linear mapping must be exactly identity and final origin an
+ * exact integer. All fields are independently validated; this is not a flag
+ * that permits arbitrary fractional final placement or cropped capture.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderCaptureFrame */
+typedef struct progpu_native_scene_shader_capture_frame {
+    float local_left;
+    float local_top;
+    float local_right;
+    float local_bottom;
+    float source_scale_x;
+    float source_scale_y;
+    float source_offset_x;
+    float source_offset_y;
+    double source_dpi_x;
+    double source_dpi_y;
+    int32_t capture_x;
+    int32_t capture_y;
+    uint32_t capture_width;
+    uint32_t capture_height;
+    int32_t final_x;
+    int32_t final_y;
+} progpu_native_scene_shader_capture_frame;
+
+/* Version 4: explicit retained local capture frame. Existing versions and the
+ * nested program are unchanged. Sampler/derivative NO_INDEX select implicit
+ * input/no derivative override. Flags and reserved fields must remain zero.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectCapture */
+typedef struct progpu_native_scene_shader_effect_capture {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[3];
+    /* PROGPU_CSHARP_TYPE: SceneShaderCaptureFrame */
+    progpu_native_scene_shader_capture_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_capture;
 
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array
