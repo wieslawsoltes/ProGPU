@@ -22045,6 +22045,11 @@ struct channel::implementation {
         }
         const bool record_hit_owner = compile_context != nullptr &&
             compile_context->records_hit_test_owners();
+        if (compile_context != nullptr && compile_context->shader_sample_capture &&
+            require_resource(handle, type_viewport3d_visual)) {
+            active_visuals.erase(handle);
+            return status::unsupported_command;
+        }
         bool zero_scale_source_cache = false;
         if (record_hit_owner && visual->second.cache_mode_handle != 0U) {
             const auto cache = bitmap_caches.find(visual->second.cache_mode_handle);
@@ -22349,7 +22354,23 @@ struct channel::implementation {
 
         std::uint32_t effect_layer_count = 0U;
         bool sampled_effect_content = false;
-        status effect_status = add_visual_effect_layer(
+        const auto source_effect = effects.find(visual->second.effect_handle);
+        const bool source_shader = source_effect != effects.end() && source_effect->second.type == effect_state::kind::shader;
+        const auto fractional = [](double value) { return value != std::floor(value); };
+        const bool requires_final_samples = source_shader && current.shader_source_transform_proven &&
+            (!native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m11)) ||
+             !native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m22)) ||
+             fractional(current.shader_source_transform.m31) || fractional(current.shader_source_transform.m32) ||
+             (current.shader_source_has_clip && std::any_of(current.shader_source_clip.begin(),
+                 current.shader_source_clip.end(), fractional)) ||
+             (compile_context != nullptr &&
+                (current.transform.m11 * compile_context->request.dpi_scale_x != current.shader_source_transform.m11 ||
+                 current.transform.m22 * compile_context->request.dpi_scale_y != current.shader_source_transform.m22 ||
+                 current.transform.m31 * compile_context->request.dpi_scale_x != current.shader_source_transform.m31 ||
+                 current.transform.m32 * compile_context->request.dpi_scale_y != current.shader_source_transform.m32)));
+        status effect_status = requires_final_samples
+            ? add_shader_final_sample_layer(handle, current, builder, mask_context, effect_layer_count)
+            : add_visual_effect_layer(
             handle,
             visual->second.effect_handle,
             current,
@@ -22358,8 +22379,9 @@ struct channel::implementation {
             builder,
             mask_context,
             effect_layer_count);
+        sampled_effect_content = requires_final_samples && effect_status == status::success;
         if (effect_status == status::unsupported_command && effect_layer_count == 0U &&
-            visual->second.effect_handle != 0U) {
+            visual->second.effect_handle != 0U && !requires_final_samples) {
             // Old successful v1-v4 streams stay unchanged. An unsupported
             // capture may use the explicit owned v5 contract; no earlier
             // source draw or layer has been emitted by that rejected branch.

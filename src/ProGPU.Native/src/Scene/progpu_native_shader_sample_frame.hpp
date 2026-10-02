@@ -84,6 +84,34 @@ struct sample_frame final {
     sample_lattice output;
 };
 
+struct sample_projection final {
+    axis_matrix unit_to_clip;
+    float reciprocal_width{}, reciprocal_height{};
+};
+
+// Original target-dependent projection is composed AFTER the retained unit
+// quad. Keep each original float operation; projecting with the effect's small
+// output extent and cancelling it later would change this operation history.
+inline bool project_sample_frame(const sample_frame& frame, const sample_lattice& target,
+    sample_projection& output) noexcept {
+    if (target.width == 0U || target.height == 0U) return false;
+    sample_projection candidate{};
+    candidate.reciprocal_width = source_quotient(1.0F, static_cast<float>(target.width));
+    candidate.reciprocal_height = source_quotient(1.0F, static_cast<float>(target.height));
+    axis_matrix viewport{};
+    viewport.x = source_product(2.0F, candidate.reciprocal_width);
+    viewport.y = source_product(-2.0F, candidate.reciprocal_height);
+    viewport.tx = -source_sum(1.0F, candidate.reciprocal_width);
+    viewport.ty = source_sum(1.0F, candidate.reciprocal_height);
+    const axis_matrix target_origin{1.0F, 1.0F, 1.0F, 1.0F,
+        -static_cast<float>(target.x), -static_cast<float>(target.y)};
+    candidate.unit_to_clip = multiply_axis_matrix(
+        multiply_axis_matrix(frame.unit_to_device, target_origin), viewport);
+    if (!finite_axis_matrix(candidate.unit_to_clip)) return false;
+    output = candidate;
+    return true;
+}
+
 inline bool bounded_sample_lattice(double left, double top, double right, double bottom,
     sample_lattice& output) noexcept {
     constexpr double exact_integer_limit = 1U << 24U;

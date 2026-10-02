@@ -10,11 +10,11 @@ struct SampleEffectUniforms {
     constants: array<vec4<f32>, 32>,
     // xy: complete source capture; zw: retained texture allocation.
     extent: vec4<f32>,
-    // Original unit-quad transform before the device viewport projection.
+    // Original unit-quad transform AFTER the actual target's float projection.
     quad_scale_offset: vec4<f32>,
-    // xy: signed output device origin; zw: output texture extent.
+    // xy: actual parent device origin; zw: its raster viewport extent.
     output_lattice: vec4<f32>,
-    // x: original homogeneous coordinate; y: physical clip antialias mode.
+    // x: original homogeneous coordinate; yz: original target reciprocal size.
     homogeneous: vec4<f32>,
     physical_clip: vec4<f32>,
 };
@@ -35,11 +35,13 @@ struct SampleVertex {
     if (index == 2u || index == 3u) { uv = vec2<f32>(0.0, 1.0); }
     if (index == 5u) { uv = vec2<f32>(1.0, 1.0); }
     let w = effect.homogeneous.x;
-    let device = uv * effect.quad_scale_offset.xy + effect.quad_scale_offset.zw;
-    let local = device - effect.output_lattice.xy * w;
-    let projected = local / effect.output_lattice.zw;
+    let projected = uv * effect.quad_scale_offset.xy + effect.quad_scale_offset.zw;
     var result: SampleVertex;
-    result.position = vec4<f32>(projected.x * 2.0 - w, w - projected.y * 2.0, 0.0, w);
+    // D3D9's original projection includes its half-pixel correction. WebGPU
+    // samples at half-integer device positions; convert that raster convention
+    // explicitly, after retaining the original full projected matrix.
+    result.position = vec4<f32>(projected.x + w * effect.homogeneous.y,
+        projected.y - w * effect.homogeneous.z, 0.0, w);
     result.uv = uv;
     return result;
 }

@@ -34,6 +34,16 @@ bool source_sample_frame_arithmetic() {
     UV_REQUIRE((result.output == sample_lattice{18, 19, 17, 8}));
     UV_REQUIRE(result.unit_to_device.x == 17 && result.unit_to_device.y == 8 &&
         result.unit_to_device.tx == 18 && result.unit_to_device.ty == 19 && result.unit_to_device.w == 1);
+    sample_projection projection{};
+    UV_REQUIRE(project_sample_frame(result, {0, 0, 64U, 64U}, projection));
+    UV_REQUIRE(projection.unit_to_clip.x == .53125F && projection.unit_to_clip.y == -.25F &&
+        projection.unit_to_clip.tx == -.453125F && projection.unit_to_clip.ty == .421875F);
+    UV_REQUIRE(project_sample_frame(result, {8, 10, 32U, 16U}, projection));
+    UV_REQUIRE(projection.unit_to_clip.x == 1.0625F && projection.unit_to_clip.y == -1.0F &&
+        projection.unit_to_clip.tx == -.40625F && projection.unit_to_clip.ty == -.0625F);
+    const auto original_projection = projection;
+    UV_REQUIRE(!project_sample_frame(result, {8, 10, 0U, 16U}, projection));
+    UV_REQUIRE(std::memcmp(&original_projection, &projection, sizeof(projection)) == 0);
     request.source_to_device.tx = 2.25F; request.source_to_device.ty = 3.5F;
     UV_REQUIRE(create_sample_frame(request, result));
     UV_REQUIRE((result.capture == sample_lattice{16, 16, 17, 8}));

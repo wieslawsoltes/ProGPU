@@ -41,6 +41,7 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     bool final_sample_program = false) {
     for (const auto& program : engine.semantic_shader_programs) {
         if (program->source_sampler == descriptor.source_sampler && program->final_sample_program == final_sample_program &&
+            program->target_format == (final_sample_program ? engine.target_format : WGPUTextureFormat_RGBA8Unorm) &&
             std::ranges::equal(program->bytecode, bytecode)) return program;
     }
     std::string body;
@@ -57,6 +58,7 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     program->bytecode.assign(bytecode.begin(), bytecode.end());
     program->source_sampler = descriptor.source_sampler;
     program->final_sample_program = final_sample_program;
+    program->target_format = final_sample_program ? engine.target_format : WGPUTextureFormat_RGBA8Unorm;
     const auto* source_bytes = final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl : generated::wpf_bytecode_effect_wgsl;
     const auto source_size = final_sample_program ? generated::wpf_bytecode_sample_effect_wgsl_size : generated::wpf_bytecode_effect_wgsl_size;
     std::string source(reinterpret_cast<const char*>(source_bytes), source_size);
@@ -90,8 +92,17 @@ std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engin
     const auto pipeline_layout = wgpuDeviceCreatePipelineLayout(engine.device, &pipeline_layout_descriptor);
     if (pipeline_layout == nullptr) return {};
     WGPUColorTargetState target{};
-    target.format = WGPUTextureFormat_RGBA8Unorm;
+    target.format = program->target_format;
     target.writeMask = WGPUColorWriteMask_All;
+    WGPUBlendState blend{};
+    if (final_sample_program) {
+        // Same premultiplied source-over contract as the existing retained
+        // effect composite, now evaluated directly at destination samples.
+        blend.color.operation = blend.alpha.operation = WGPUBlendOperation_Add;
+        blend.color.srcFactor = blend.alpha.srcFactor = WGPUBlendFactor_One;
+        blend.color.dstFactor = blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        target.blend = &blend;
+    }
     WGPUFragmentState fragment{};
     fragment.module = program->module; fragment.entryPoint = webgpu::string_view("fs_main");
     fragment.targetCount = 1U; fragment.targets = &target;
@@ -157,6 +168,7 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
 std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     progpu_native_engine& engine, const progpu_native_scene_shader_effect& descriptor,
     std::span<const std::byte> bytecode, const shader_effect::sample_frame& frame,
+    const shader_effect::sample_lattice& target,
     std::shared_ptr<semantic_picture_backing> source_picture,
     const progpu_native_scene_shader_sample_frame& source_frame,
     std::shared_ptr<semantic_picture_backing> input_picture, std::uint32_t derivative_register) {
@@ -169,6 +181,8 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
         !input_picture || input_picture->owner != &engine || input_picture->view == nullptr ||
         input_picture->descriptor.width != frame.capture.width || input_picture->descriptor.height != frame.capture.height ||
         (derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && derivative_register >= 32U)) return {};
+    shader_effect::sample_projection projection{};
+    if (!shader_effect::project_sample_frame(frame, target, projection)) return {};
     auto program = program_for(engine, descriptor, bytecode, true);
     if (!program) return {};
     sample_effect_uniforms uniforms{};
@@ -184,22 +198,23 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     uniforms.source.extent[1] = static_cast<float>(frame.capture.height);
     uniforms.source.extent[2] = static_cast<float>(source_picture->descriptor.width);
     uniforms.source.extent[3] = static_cast<float>(source_picture->descriptor.height);
-    uniforms.quad_scale_offset[0] = frame.unit_to_device.x;
-    uniforms.quad_scale_offset[1] = frame.unit_to_device.y;
-    uniforms.quad_scale_offset[2] = frame.unit_to_device.tx;
-    uniforms.quad_scale_offset[3] = frame.unit_to_device.ty;
-    uniforms.output_lattice[0] = static_cast<float>(frame.output.x);
-    uniforms.output_lattice[1] = static_cast<float>(frame.output.y);
-    uniforms.output_lattice[2] = static_cast<float>(frame.output.width);
-    uniforms.output_lattice[3] = static_cast<float>(frame.output.height);
-    uniforms.homogeneous[0] = frame.unit_to_device.w;
-    uniforms.homogeneous[1] = static_cast<float>(source_frame.clip_antialias);
+    uniforms.quad_scale_offset[0] = projection.unit_to_clip.x;
+    uniforms.quad_scale_offset[1] = projection.unit_to_clip.y;
+    uniforms.quad_scale_offset[2] = projection.unit_to_clip.tx;
+    uniforms.quad_scale_offset[3] = projection.unit_to_clip.ty;
+    uniforms.output_lattice[0] = static_cast<float>(target.x);
+    uniforms.output_lattice[1] = static_cast<float>(target.y);
+    uniforms.output_lattice[2] = static_cast<float>(target.width);
+    uniforms.output_lattice[3] = static_cast<float>(target.height);
+    uniforms.homogeneous[0] = projection.unit_to_clip.w;
+    uniforms.homogeneous[1] = projection.reciprocal_width;
+    uniforms.homogeneous[2] = projection.reciprocal_height;
     uniforms.physical_clip[0] = source_frame.clip_left; uniforms.physical_clip[1] = source_frame.clip_top;
     uniforms.physical_clip[2] = source_frame.clip_right; uniforms.physical_clip[3] = source_frame.clip_bottom;
     auto binding = std::make_shared<semantic_shader_binding>();
     binding->program = std::move(program); binding->sampler_picture = std::move(source_picture);
     binding->input_picture = std::move(input_picture);
-    binding->width = frame.output.width; binding->height = frame.output.height;
+    binding->width = target.width; binding->height = target.height;
     binding->final_sample_program = true;
     WGPUBufferDescriptor buffer{};
     buffer.label = webgpu::string_view("ProGPU retained final-device shader frame");
@@ -220,7 +235,7 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
 
 bool encode_semantic_shader_effect(progpu_native_engine&, WGPUCommandEncoder encoder,
     const semantic_shader_binding& binding, const semantic_layer_slot& slot, std::uint32_t& pass_count) {
-    if (!binding.program || binding.program->pipeline == nullptr || binding.bind_group == nullptr ||
+    if (binding.final_sample_program || !binding.program || binding.program->pipeline == nullptr || binding.bind_group == nullptr ||
         slot.effect_views[0] == nullptr || binding.width > slot.effect_width || binding.height > slot.effect_height)
         return false;
     WGPURenderPassColorAttachment attachment{};
@@ -236,9 +251,22 @@ bool encode_semantic_shader_effect(progpu_native_engine&, WGPUCommandEncoder enc
     wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F, static_cast<float>(binding.width),
         static_cast<float>(binding.height), 0.0F, 1.0F);
     wgpuRenderPassEncoderSetScissorRect(pass, 0U, 0U, binding.width, binding.height);
-    wgpuRenderPassEncoderDraw(pass, binding.final_sample_program ? 6U : 3U, 1U, 0U, 0U);
+    wgpuRenderPassEncoderDraw(pass, 3U, 1U, 0U, 0U);
     wgpuRenderPassEncoderEnd(pass); wgpuRenderPassEncoderRelease(pass);
     ++pass_count;
+    return true;
+}
+
+bool encode_semantic_sample_shader_draw(WGPURenderPassEncoder pass, const semantic_shader_binding& binding) {
+    if (pass == nullptr || !binding.final_sample_program || !binding.program ||
+        binding.program->pipeline == nullptr || binding.bind_group == nullptr ||
+        binding.width == 0U || binding.height == 0U) return false;
+    wgpuRenderPassEncoderSetPipeline(pass, binding.program->pipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0U, binding.bind_group, 0U, nullptr);
+    wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F, static_cast<float>(binding.width),
+        static_cast<float>(binding.height), 0.0F, 1.0F);
+    wgpuRenderPassEncoderSetScissorRect(pass, 0U, 0U, binding.width, binding.height);
+    wgpuRenderPassEncoderDraw(pass, 6U, 1U, 0U, 0U);
     return true;
 }
 } // namespace progpu::native::execution

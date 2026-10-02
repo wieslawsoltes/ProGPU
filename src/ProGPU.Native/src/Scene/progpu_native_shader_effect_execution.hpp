@@ -19,6 +19,7 @@ struct semantic_shader_program {
     std::vector<std::byte> bytecode;
     std::uint32_t source_sampler = 0U;
     bool final_sample_program = false;
+    WGPUTextureFormat target_format = WGPUTextureFormat_Undefined;
     WGPUBindGroupLayout layout = nullptr;
     WGPUShaderModule module = nullptr;
     WGPURenderPipeline pipeline = nullptr;
@@ -59,6 +60,7 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     progpu_native_engine& engine, const progpu_native_scene_shader_effect& descriptor,
     std::span<const std::byte> bytecode,
     const shader_effect::sample_frame& frame,
+    const shader_effect::sample_lattice& target,
     std::shared_ptr<semantic_picture_backing> source_picture,
     const progpu_native_scene_shader_sample_frame& source_frame,
     std::shared_ptr<semantic_picture_backing> input_picture,
@@ -67,4 +69,9 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
 bool encode_semantic_shader_effect(progpu_native_engine& engine,
     WGPUCommandEncoder encoder, const semantic_shader_binding& binding,
     const semantic_layer_slot& slot, std::uint32_t& pass_count);
+
+// Executes only the v5 effect draw on the actual current parent target. The
+// caller owns pass ordering/load state and restores its viewport afterward.
+bool encode_semantic_sample_shader_draw(WGPURenderPassEncoder pass,
+    const semantic_shader_binding& binding);
 } // namespace progpu::native::execution
