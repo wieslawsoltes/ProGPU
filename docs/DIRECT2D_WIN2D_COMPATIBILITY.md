@@ -5160,3 +5160,13 @@ the retained prefix and incremental replay, while independent full replay was
 red `(128,0,0,255)`. All buffers retained 16,384 bytes and the original counters
 passed. This identifies the cache-owner collision; successful execution of the
 corrected exact head remains required before claiming the fix runtime-qualified.
+
+Build `36988497904` at `5fc73a8b` passed the paired picture ownership controls
+and original incremental/collision replay, then failed a later Direct2D target
+submission with the generic retained-picture error (Linux ARM64 job
+`110778941779`). Failure-only diagnostics now report the child update/render
+stage, installed and requested scene identities, private resource scope, extent,
+presentation, copy seed and original child error. The existing target failure
+also reports its actual scene identity. These diagnostics change no rendering,
+status, assertion, pixel tolerance or submission expectation and are not a fix
+or successful qualification of that failed producer.
