@@ -1,5 +1,16 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Target-storage Clear is an explicit retained operator, not an analytic rectangle
+or source-over transparent draw. Preserve actual attachment identity, straight
+color, source order and exact pixel-center binary clips; source transforms and
+opacity do not move this operation. AA source clips initialize from background
+only inward of the nearest ordinary layer, whose original opacity/mask/policy
+survive. Preflight open and historical child depth atomically without counting
+live AA children twice. AA allocation stays outward-rounded and its coverage
+applies once at pop; no readback, fabricated extent or source hit primitive.
+See docs/native-target-storage-clear.md; source admission remains unqualified
+until final original Windows/full-provider/package gates pass.
+
 Retained RGB glyph replay keeps the explicit box model separate from original
 DirectWrite modes. Prove opacity from the actual materialized target, never a
 root clear or ancestor. Preserve original sampling phase, exact two-axis DPI,
@@ -233,7 +244,8 @@ and premultiply once at ordinary scene submission. Compatible picture conversion
 remains independent. An all-aliased clip stack records bounded SRC replacement in
 its captured target frame, preserving history and ignoring the later transform.
 Keep fractional physical coverage, retained DPI-history accounting and both native
-producers paired; antialiased clips and failed recordings still reject.
+producers paired; failed recordings still reject. AA axis clips use the separate
+target-storage/background-preservation contract, not this analytic SRC path.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
 
 Direct2D transparent-layer Clear requires actual isolated layer storage before

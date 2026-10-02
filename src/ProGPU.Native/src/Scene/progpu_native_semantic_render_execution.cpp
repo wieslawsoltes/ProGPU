@@ -4,6 +4,7 @@
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
 #include "progpu_native_semantic_rgb_glyph.hpp"
+#include "progpu_native_target_clear.hpp"
 #include "progpu_native_shader_effect_resource.hpp"
 #include "progpu_native_glyph_coverage_frame.hpp"
 #include "progpu_native_3d_execution.hpp"
@@ -357,6 +358,7 @@ progpu_native_status render_scene(
         frame->height,
         presentation);
     bool semantic_has_materialized_layers = false;
+    bool semantic_has_target_clears = false;
     bool semantic_has_layer_masks = false;
     std::uint32_t semantic_layer_mask_kind =
         PROGPU_NATIVE_GROUP_MASK_NONE;
@@ -829,6 +831,14 @@ progpu_native_status render_scene(
         }
         if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            continue;
+        }
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) {
+            if ((source_state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U)
+                return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Target Clear requires per-draw coverage to be owned by an enclosing layer.");
+            semantic_has_target_clears = true;
+            ++semantic_draw_count;
             continue;
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
@@ -5248,6 +5258,37 @@ progpu_native_status render_scene(
                 }
                 continue;
             }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) {
+                const auto finish_status = finish_active_bundle();
+                if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) return fail_bundle(finish_status);
+                has_active_scissor = false;
+                // Target allocation stays outward-rounded. The active binary
+                // source clip instead owns pixel-center coverage: admitting an
+                // allocation fringe here would erase untouched target pixels.
+                auto scissor = (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U
+                    ? resolve_semantic_aliased_composite_scissor(state.clip_rect, target_extent,
+                        target_cursor.current_presentation())
+                    : resolve_semantic_target_scissor(state, target_extent,
+                        frame->width, frame->height, target_cursor.current_presentation());
+                if (semantic_partial_damage_active && current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX)
+                    scissor = intersect_semantic_scissors(scissor, semantic_frame_damage);
+                if (!scissor.drawable) continue;
+                semantic_render_bundle_span operation{};
+                operation.kind = semantic_replay_kind::clear_target;
+                std::memcpy(&operation.clear_color, bytes + command.payload_offset, sizeof(operation.clear_color));
+                operation.target_layer = current_target_layer;
+                operation.target_width = current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? frame->width : engine->semantic_layer_slots[current_target_layer].width;
+                operation.target_height = current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? frame->height : engine->semantic_layer_slots[current_target_layer].height;
+                operation.target_ignores_alpha = target_cursor.current_ignores_alpha();
+                operation.clip_x = scissor.x; operation.clip_y = scissor.y;
+                operation.clip_width = scissor.width; operation.clip_height = scissor.height;
+                operation.draw_call_count = 1U;
+                compiled_spans.push_back(std::move(operation));
+                ++draw_calls;
+                continue;
+            }
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind >
@@ -5807,7 +5848,7 @@ progpu_native_status render_scene(
     std::uint32_t executed_draw_calls = 0U;
     std::uint32_t semantic_layer_content_pass_count = 0U;
     if (semantic_draw_count != 0U &&
-        !semantic_has_materialized_layers) {
+        !semantic_has_materialized_layers && !semantic_has_target_clears) {
         bool color_initialized = semantic_preserve_target_active;
         bool depth_initialized = false;
         bool active_pass_uses_depth = false;
@@ -5898,7 +5939,7 @@ progpu_native_status render_scene(
             executed_draw_calls += span.draw_call_count;
         }
         finish_pass();
-    } else if (semantic_has_materialized_layers) {
+    } else if (semantic_has_materialized_layers || semantic_has_target_clears) {
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         bool active_pass_uses_depth = false;
@@ -6249,6 +6290,28 @@ progpu_native_status render_scene(
                 executed_draw_calls += operation.composite_drawable
                     ? (advanced_blend ? 3U : 1U)
                     : 0U;
+                continue;
+            }
+            if (operation.kind == semantic_replay_kind::clear_target) {
+                finish_pass();
+                const bool root_target = operation.target_layer == PROGPU_NATIVE_SCENE_NO_INDEX;
+                if ((!root_target && operation.target_layer >= engine->semantic_layer_slots.size()) ||
+                    operation.target_width != (root_target ? frame->width : engine->semantic_layer_slots[operation.target_layer].width) ||
+                    operation.target_height != (root_target ? frame->height : engine->semantic_layer_slots[operation.target_layer].height) ||
+                    operation.target_ignores_alpha != (!root_target && layer_opaque_replay[operation.target_layer]))
+                    return fail_replay("A target Clear lost its actual attachment identity.");
+                const auto clear_status = encode_target_clear(*engine, target_view(operation.target_layer),
+                    operation.target_width, operation.target_height,
+                    {operation.clip_x, operation.clip_y, operation.clip_width, operation.clip_height, true},
+                    operation.clear_color, operation.target_ignores_alpha);
+                if (clear_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    discard_encoder();
+                    return clear_status;
+                }
+                ++executed_draw_calls;
+                uniform_upload_bytes += sizeof(progpu_native_color);
+                if (!begin_pass(operation.target_layer, WGPULoadOp_Load, false))
+                    return fail_replay("The target Clear continuation pass could not be created.");
                 continue;
             }
             if (operation.kind == semantic_replay_kind::rgb_glyphs) {

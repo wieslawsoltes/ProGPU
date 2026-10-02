@@ -2221,9 +2221,19 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_rgb_transport_is_owned_and_atomic());
     require(progpu::native::tests::
+        semantic_scene_builder_target_clear_is_owned_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_target_clear_preserves_input_owners());
+    require(progpu::native::tests::
         semantic_scene_builder_append_capacity_is_amortized_and_atomic());
     require(progpu::native::tests::
         semantic_scene_builder_isolation_rejects_missing_layer_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_prepares_exact_aa_owner_chain());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_rejects_nonclip_chain_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_counts_open_and_historical_children());
     require(progpu::native::tests::
         semantic_scene_builder_isolation_promotes_nearest_layer());
     require(progpu::native::tests::

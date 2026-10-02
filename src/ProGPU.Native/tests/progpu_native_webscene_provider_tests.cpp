@@ -24,6 +24,7 @@
 #include "progpu_native_shader_source_mask_fixture.hpp"
 #include "progpu_native_shader_input_opacity_fixture.hpp"
 #include "progpu_native_shader_sampled_opacity_fixture.hpp"
+#include "progpu_native_target_clear_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
@@ -3781,6 +3782,21 @@ int main(int argc, char** argv) {
             }, require);
         for (auto& family : sampled_engines)
             for (auto* selected : family) progpu_native_engine_destroy(selected);
+    }
+    {
+        progpu_native_engine* clear_engine{};
+        require(progpu_native_dawn_engine_create(&engine_options, &clear_engine) == PROGPU_NATIVE_STATUS_SUCCESS && clear_engine,
+            "target Clear Dawn engine creation failed");
+        progpu::native::tests::verify_native_target_clear(
+            [&](const auto& stream, const progpu_native_scene_header& header,
+                std::uint32_t draws, std::uint32_t submissions,
+                const progpu_native_scene_presentation* presentation,
+                progpu_native_status expected, progpu_native_scene_frame_metrics& metrics) {
+                return render_retained_scene(false, stream, header.generation, submissions, header.scene_id,
+                    draws, header.command_count, nullptr, &metrics, 1.0F, presentation, expected,
+                    false, 64U, nullptr, clear_engine);
+            }, require);
+        progpu_native_engine_destroy(clear_engine);
     }
     progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {

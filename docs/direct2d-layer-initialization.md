@@ -45,7 +45,10 @@ redirect replacement into an outer layer. The first promotion costs O(C) over
 the layer's recorded commands with O(S) bounded stack scratch; repeated clears
 reuse the materialized identity without another command scan.
 
-Antialiased clip stacks remain explicit unsupported cases.
+Antialiased axis-clip stacks now use the separately documented
+[target-storage Clear operation](native-target-storage-clear.md). Preparation
+promotes all AA groups inward of the nearest ordinary source layer to background
+initialization, while that ordinary owner receives only demand isolation.
 A target-independent command recorder also rejects Clear in
 an unbounded layer unless real target metrics are supplied; it never invents an
 allocation extent. Source setup must keep this boundary explicit.

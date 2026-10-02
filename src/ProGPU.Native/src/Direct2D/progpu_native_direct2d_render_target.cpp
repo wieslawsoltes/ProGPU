@@ -6082,8 +6082,47 @@ public:
         }
         if (scope_depth_ != 0U) {
             if (!std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
-                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip || scope == scope_opacity_layer; })) {
+                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip ||
+                        scope == scope_antialiased_axis_clip || scope == scope_opacity_layer; })) {
                 latch(not_implemented);
+                return;
+            }
+            const bool has_antialiased_clip = std::any_of(scope_stack_.begin(),
+                scope_stack_.begin() + scope_depth_, [](std::uint8_t scope) {
+                    return scope == scope_antialiased_axis_clip;
+                });
+            if (has_antialiased_clip) {
+                // AA clips are background-preserving groups, not binary clear
+                // bounds. Replace actual current storage first; apply each AA
+                // mask once at its original pop. Stop at the nearest ordinary
+                // source layer, whose own initialization/opacity stays intact.
+                std::uint32_t antialiased_layers = 0U;
+                bool ordinary_owner = false;
+                bool opaque = pixel_format_.alpha == alpha_mode::ignore;
+                auto visible_bounds = clip_stack_[clip_depth_ - 1U];
+                for (std::size_t index = scope_depth_; index != 0U; --index) {
+                    const auto scope = scope_stack_[index - 1U];
+                    if (scope == scope_opacity_layer) {
+                        ordinary_owner = true;
+                        opaque = (layer_initialization_[index - 1U] &
+                            PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                        visible_bounds = intersect_rectangles(visible_bounds,
+                            layer_clear_bounds_[index - 1U]);
+                        break;
+                    }
+                    antialiased_layers += scope == scope_antialiased_axis_clip ? 1U : 0U;
+                }
+                if (visible_bounds.width == 0.0F || visible_bounds.height == 0.0F) return;
+                if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
+                    latch(com::out_of_memory);
+                    return;
+                }
+                if (!builder_.prepare_antialiased_clear_layers(antialiased_layers, ordinary_owner) ||
+                    !builder_.clear_target({value.red, value.green, value.blue, opaque ? 1.0F : value.alpha})) {
+                    latch(builder_failure());
+                    return;
+                }
+                ++draw_count_;
                 return;
             }
             progpu_native_image_rect clear_bounds = clip_depth_ == 0U
