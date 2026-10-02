@@ -91,6 +91,41 @@ jobs:
               Get-Content -LiteralPath $stderr
             }
           }
+      - name: Capture independent original source request metrics
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/wpf-display-reference'
+          $dll = Join-Path $env:GITHUB_WORKSPACE 'eng/WpfDisplayTextReference/bin/Release/net10.0-windows/WpfDisplayTextReference.dll'
+          $font = Join-Path $env:GITHUB_WORKSPACE 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
+          foreach ($family in @('original', 'midpoint-rtl-positioned-v3')) {
+            $name = if ($family -eq 'original') { 'source-inputs' } else { 'source-midpoint-inputs' }
+            $receipt = Join-Path $evidence "$name.json"
+            $stdout = Join-Path $evidence "$name-stdout.log"
+            $stderr = Join-Path $evidence "$name-stderr.log"
+            $values = @($dll, '--source-inputs', $font, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT)
+            if ($family -ne 'original') { $values += @($family, (Join-Path $evidence 'rtl-font')) }
+            $arguments = $values | ForEach-Object { '"' + $_ + '"' }
+            $child = Start-Process (Get-Command dotnet).Source -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            try {
+              if (!$child.WaitForExit(90000)) { throw 'Original source-input reference process exceeded 90 seconds.' }
+              if ($child.ExitCode -ne 0) { throw "Original source-input reference exited $($child.ExitCode)." }
+              $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+              $count = if ($family -eq 'original') { 192 } else { 288 }
+              $schema = if ($family -eq 'original') { 2 } else { 4 }
+              if ($value.Schema -ne $schema -or $value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete independent source-input receipt.' }
+              foreach ($case in $value.Cases) {
+                $original = if ($family -eq 'original') { $case } else { $case.Original }
+                $metrics = $original.IndependentSourceMetrics
+                if ($metrics.Version -ne 1 -or $metrics.Mode -cne $original.Mode -or $metrics.Em -ne $original.Em -or $metrics.Dpi -ne $original.Dpi -or $metrics.ToReal -ne 1 -or $metrics.TypefaceIdentity -cne $value.PresentationIdentity -or $metrics.TypefaceAssembly.Sha256 -cne $value.PresentationCore.Sha256) { throw 'Independent source metric identity mismatch.' }
+              }
+              Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
+            } finally {
+              if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
+              $child.Dispose()
+              Get-Content -LiteralPath $stdout
+              Get-Content -LiteralPath $stderr
+            }
+          }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
