@@ -1038,4 +1038,19 @@ internal static unsafe partial class NativeMethods
         internal uint Reserved;
         internal SceneShaderEffect Program;
     }
+
+    // Native source: progpu_native_scene_shader_effect_derivatives.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneShaderEffectDerivatives
+    {
+        internal uint StructSize;
+        internal uint Version;
+        internal uint SamplerResourceIndex;
+        internal uint DerivativeRegister;
+        internal uint Flags;
+        internal uint Reserved0;
+        internal uint Reserved1;
+        internal uint Reserved2;
+        internal SceneShaderEffect Program;
+    }
 }

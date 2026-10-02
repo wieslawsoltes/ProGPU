@@ -752,10 +752,10 @@ validation_result validate(
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
             progpu_native_scene_shader_effect program{};
-            std::uint32_t sampler{};
+            std::uint32_t sampler{}, derivative_register{};
             if (!shader_effect::read_resource(
                     std::span(bytes + resource.payload_offset, resource.payload_size),
-                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), program, sampler))
+                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), program, sampler, derivative_register))
                 return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
             if (sampler != PROGPU_NATIVE_SCENE_NO_INDEX) {
                 // Earlier resources only: a finite owned dependency DAG, never

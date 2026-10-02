@@ -487,7 +487,7 @@ progpu_native_status render_scene(
                 const auto effect_resource = read_resource(
                     layer.effect_resource_index);
                 if (effect_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
-                    // Both versions retain an exact, completely captured input.
+                    // Every version retains an exact, completely captured input.
                     // Fractional/cropped source frames and backdrop/custom
                     // mappings need a separate sampling contract, not UV repair.
                     const auto source_presentation = layer_budget_cursor.current_presentation();
@@ -509,10 +509,11 @@ progpu_native_status render_scene(
                     ++semantic_shader_effect_count;
                     progpu_native_scene_shader_effect shader{};
                     std::uint32_t sampler_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
+                    std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                     if (!shader_effect::read_resource(
                             std::span(bytes + effect_resource.payload_offset, effect_resource.payload_size),
                             std::span(bytes + effect_resource.auxiliary_offset, effect_resource.auxiliary_size),
-                            shader, sampler_picture)) return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                            shader, sampler_picture, derivative_register)) return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                                 "A retained WPF shader descriptor is invalid.");
                     if (sampler_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
                         const auto sampler = read_resource(sampler_picture);
@@ -4366,10 +4367,11 @@ progpu_native_status render_scene(
                 if (operation.source_layer >= engine->semantic_layer_slots.size()) return false;
                 progpu_native_scene_shader_effect shader{};
                 std::uint32_t sampler_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                 if (!shader_effect::read_resource(
                         std::span(bytes + resource.payload_offset, resource.payload_size),
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                        shader, sampler_index)) return false;
+                        shader, sampler_index, derivative_register)) return false;
                 std::shared_ptr<semantic_picture_backing> sampler_picture;
                 if (sampler_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
                     const auto sampler = read_resource(sampler_index);
@@ -4395,7 +4397,7 @@ progpu_native_status render_scene(
                 operation.shader_effect = create_semantic_shader_binding(*engine, shader,
                     std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
                     engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height,
-                    std::move(sampler_picture));
+                    std::move(sampler_picture), derivative_register);
                 if (!operation.shader_effect) return false;
                 operation.effect_count = 1U;
                 operation.final_effect_texture = 0U;

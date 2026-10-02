@@ -712,6 +712,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_shader_effect_execution.cpp
     src/Scene/progpu_native_shader_effect_execution.hpp
     src/Scene/progpu_native_shader_effect_resource.hpp
+    src/Scene/progpu_native_shader_effect_uniforms.hpp
     src/Scene/progpu_native_semantic_image_blur_resources.cpp
     src/Scene/progpu_native_semantic_image_resources.hpp
     src/Scene/progpu_native_semantic_identity.cpp
@@ -1933,6 +1934,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_internal_tests.cpp
         tests/progpu_native_shader_effect_translation_tests.cpp
         tests/progpu_native_shader_effect_arithmetic_tests.cpp
+        tests/progpu_native_shader_effect_uniform_tests.cpp
         tests/progpu_native_scene_builder_tests.cpp
         tests/progpu_native_scene_builder_tests.hpp
         tests/progpu_native_semantic_brush_tests.cpp

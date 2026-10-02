@@ -12,6 +12,7 @@
 #include "progpu_native_picture_axis_fixture.hpp"
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
+#include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
@@ -3481,7 +3482,9 @@ int main(int argc, char** argv) {
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
             std::uint64_t scene_id, std::uint32_t draws, std::uint32_t commands,
             progpu_native_layer_metrics* layers = nullptr,
-            progpu_native_scene_frame_metrics* observed_frame = nullptr) {
+            progpu_native_scene_frame_metrics* observed_frame = nullptr, float dpi = 1.0F,
+            const progpu_native_scene_presentation* presentation = nullptr,
+            progpu_native_status expected_status = PROGPU_NATIVE_STATUS_SUCCESS) {
             auto* picture_engine = picture_engines[reference ? 1U : 0U];
             auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
             require(picture_canvas != nullptr, "axis picture canvas creation failed");
@@ -3501,15 +3504,28 @@ int main(int argc, char** argv) {
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
             frame.width = frame.height = 64U;
-            frame.dpi_scale = 1.0F;
+            frame.dpi_scale = dpi;
             frame.target_view = reinterpret_cast<std::uintptr_t>(picture_view);
             frame.clear_color = {0, 0, 0, 1};
             frame.scene_id = scene_id;
             frame.generation = generation;
+            if (presentation != nullptr) {
+                frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+                frame.presentation = *presentation;
+            }
             progpu_native_scene_frame_metrics metrics{};
             metrics.struct_size = sizeof(metrics);
-            require(progpu_native_engine_render_scene(picture_engine, &frame, &metrics) ==
-                    PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == commands && metrics.submission_count == submissions,
+            const auto rendered = progpu_native_engine_render_scene(picture_engine, &frame, &metrics);
+            if (expected_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                require(expected_status == PROGPU_NATIVE_STATUS_UNSUPPORTED && rendered == expected_status &&
+                    metrics.submission_count == 0U, "unsupported derivative Dawn frame did not reject before submission");
+                if (observed_frame != nullptr) *observed_frame = metrics;
+                resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(picture_view);
+                resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(picture_texture);
+                api.destroy_canvas(provider, picture_canvas);
+                return std::vector<std::uint8_t>{};
+            }
+            require(rendered == PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == commands && metrics.submission_count == submissions,
                 "axis picture Dawn render failed");
             if (observed_frame != nullptr) *observed_frame = metrics;
             if (layers != nullptr)
@@ -3559,6 +3575,15 @@ int main(int argc, char** argv) {
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
             std::uint32_t commands, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
             return render_retained_scene(reference, stream, generation, submissions, 0x9494U, 1U, commands, &layers, &frame);
+        }, require);
+    progpu::native::tests::verify_original_shader_derivative_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation,
+            const progpu::native::tests::shader_derivative_frame_case& test,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            const progpu_native_scene_presentation presentation{
+                sizeof(presentation), test.viewport_x, 0U, 64U - test.viewport_x, 64U, test.dpi, test.dpi, 0U};
+            return render_retained_scene(reference, stream, generation, 1U, 0x9495U, 1U, 3U, &layers, &metrics,
+                test.dpi, test.mapped ? &presentation : nullptr, test.expected);
         }, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::tests::verify_path_pixel_mapping(

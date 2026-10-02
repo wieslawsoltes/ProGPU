@@ -2439,6 +2439,7 @@ struct channel::implementation {
         bool box_blur{};
         std::uint32_t pixel_shader_handle{};
         std::uint32_t input_brush_handle{};
+        std::uint32_t derivative_register{PROGPU_NATIVE_SCENE_NO_INDEX};
         progpu_native_scene_shader_effect shader{};
     };
 
@@ -9264,11 +9265,10 @@ struct channel::implementation {
             effect.type = effect_state::kind::shader;
             std::array<double, 4U> padding{};
             std::array<std::uint32_t, 8U> sizes{};
-            std::uint32_t derivative_register = 0U;
             if (!read_at(view.packet, layout::handle_offset, handle) ||
                 !read_at(view.packet, layout::top_padding_offset, padding) ||
                 !read_at(view.packet, layout::h_pixel_shader_offset, effect.pixel_shader_handle) ||
-                !read_at(view.packet, layout::ddx_uv_ddy_uv_register_index_offset, derivative_register) ||
+                !read_at(view.packet, layout::ddx_uv_ddy_uv_register_index_offset, effect.derivative_register) ||
                 !read_at(view.packet, layout::shader_constant_float_registers_size_offset, sizes))
                 return status::malformed_batch;
             std::size_t total = layout::fixed_size;
@@ -9286,7 +9286,8 @@ struct channel::implementation {
             if (!require_resource(handle, type_shader_effect) ||
                 !require_resource(effect.pixel_shader_handle, type_pixel_shader) ||
                 !pixel_shaders.contains(effect.pixel_shader_handle)) return status::invalid_handle;
-            if (derivative_register != 0xFFFFFFFFU || sizes[2] != 0U || sizes[3] != 0U ||
+            if ((effect.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && effect.derivative_register >= 32U) ||
+                sizes[2] != 0U || sizes[3] != 0U ||
                 sizes[4] != 0U || sizes[5] != 0U || sizes[6] != 8U || sizes[7] != 4U ||
                 std::ranges::any_of(padding, [](double value) { return value != 0.0; })) return status::unsupported_command;
             auto& descriptor = effect.shader;
@@ -19906,6 +19907,7 @@ struct channel::implementation {
                     state.transform, layer.bounds) || layer.bounds.width <= 0.0F || layer.bounds.height <= 0.0F)
                 return status::unsupported_command;
             std::uint32_t effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (require_resource(resolved_effect.input_brush_handle, type_image_brush)) {
                 if (mask_context.frame == nullptr) return status::unsupported_command;
                 const auto& request = mask_context.frame->request;
@@ -19914,11 +19916,16 @@ struct channel::implementation {
                 if (!std::isfinite(width) || !std::isfinite(height) || width <= 0.0 || height <= 0.0 ||
                     width > 16'384.0 || height > 16'384.0 || width != std::floor(width) || height != std::floor(height))
                     return status::unsupported_command;
-                std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 const auto captured = add_shader_sampler_picture(resolved_effect.input_brush_handle,
                     static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), state,
                     builder, picture_index, mask_context);
                 if (captured != status::success) return captured;
+            }
+            if (resolved_effect.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                const progpu_native_scene_shader_effect_derivatives versioned{
+                    sizeof(versioned), 3U, picture_index, resolved_effect.derivative_register, 0U, {0U, 0U, 0U}, descriptor};
+                if (!builder.add_shader_effect(versioned, bytecode, effect_index)) return status::invalid_graph;
+            } else if (picture_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
                 if (!builder.add_shader_effect(descriptor, bytecode, picture_index, effect_index)) return status::invalid_graph;
             } else if (!builder.add_shader_effect(descriptor, bytecode, effect_index)) return status::invalid_graph;
             layer.effect_resource_index = effect_index;

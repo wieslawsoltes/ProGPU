@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+ShaderEffect UV derivative registers use explicit version-3 metadata while
+preserving v1/v2 layouts. The native binding writes the selected register after
+original constants from the proven complete positive-axis physical capture
+basis, including actual DPI and excluding allocation padding. Keep translation
+separate from vector steps, exact register validation and existing mapping gates.
+Never patch source constants, invent identity inverses or admit singular/fractional
+frames by epsilon. See docs/native-shader-uv-derivatives.md; uniform transport is
+not pixel or application qualification.
+
 Original MIL ImageBrush shader samplers retain an earlier same-scene full-RGBA
 picture through explicit version-2 metadata; version 1 stays unchanged. Capture
 over the complete physical implicit-input extent at zero origin, preserving the

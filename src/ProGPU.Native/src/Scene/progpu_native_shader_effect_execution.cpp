@@ -1,5 +1,6 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_shader_effect_execution.hpp"
+#include "progpu_native_shader_effect_uniforms.hpp"
 #include "WpfBytecodeEffectWgsl.generated.hpp"
 
 #include <algorithm>
@@ -21,7 +22,7 @@ namespace progpu::native::execution {
 namespace {
 constexpr std::size_t maximum_programs = 64U;
 struct effect_uniforms {
-    float constants[128];
+    std::array<float, 128U> constants;
     float extent[4];
 };
 static_assert(sizeof(effect_uniforms) == 528U);
@@ -103,12 +104,15 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     progpu_native_engine& engine, const progpu_native_scene_shader_effect& descriptor,
     std::span<const std::byte> bytecode, const semantic_layer_slot& slot,
     std::uint32_t width, std::uint32_t height,
-    std::shared_ptr<semantic_picture_backing> sampler_picture) {
+    std::shared_ptr<semantic_picture_backing> sampler_picture,
+    std::uint32_t derivative_register) {
     if (!shader_effect::validate(descriptor, bytecode) || width == 0U || height == 0U ||
         width > slot.width || height > slot.height || slot.view == nullptr) return {};
     if (sampler_picture && (sampler_picture->owner != &engine ||
         sampler_picture->view == nullptr || sampler_picture->descriptor.width != width ||
         sampler_picture->descriptor.height != height)) return {};
+    effect_uniforms uniforms{};
+    if (!shader_effect::prepare_constants(descriptor, derivative_register, width, height, uniforms.constants)) return {};
     auto program = program_for(engine, descriptor, bytecode);
     if (!program) return {};
     auto binding = std::make_shared<semantic_shader_binding>();
@@ -121,8 +125,6 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     buffer.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
     binding->uniforms = wgpuDeviceCreateBuffer(engine.device, &buffer);
     if (binding->uniforms == nullptr) return {};
-    effect_uniforms uniforms{};
-    std::memcpy(uniforms.constants, descriptor.constants, sizeof(uniforms.constants));
     uniforms.extent[0] = static_cast<float>(width); uniforms.extent[1] = static_cast<float>(height);
     uniforms.extent[2] = static_cast<float>(binding->sampler_picture ? width : slot.width);
     uniforms.extent[3] = static_cast<float>(binding->sampler_picture ? height : slot.height);
