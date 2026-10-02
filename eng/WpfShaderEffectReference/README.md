@@ -1,5 +1,11 @@
 # Original WPF shader reference
 
+The additive [fractional local-capture companion](../../docs/original-shader-local-capture-reference.md)
+preserves every existing case below. It records a separate original-only receipt
+for local fractional bounds, integral final placement, exact float transform
+history and explicitly deferred final-placement controls; it does not widen
+native/source admission or change the established SOFTWARE UV convention.
+
 ## Additive original padding companion
 
 `ShaderPadding.cs` adds a separate `shader-padding.json` receipt without changing
