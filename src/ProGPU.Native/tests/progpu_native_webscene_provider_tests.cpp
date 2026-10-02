@@ -10,6 +10,7 @@
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_picture_axis_fixture.hpp"
+#include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
 #include "progpu_native_webscene_semantic_effect_fixture.hpp"
 #include "progpu_native_webscene_state_mask_fixture.hpp"
@@ -3474,7 +3475,7 @@ int main(int argc, char** argv) {
                 PROGPU_NATIVE_STATUS_SUCCESS && picture_engine != nullptr,
             "axis picture Dawn engine creation failed");
     }
-    progpu::native::tests::verify_picture_axis_presentation(
+    const auto render_picture =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             auto* picture_engine = picture_engines[reference ? 1U : 0U];
             auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
@@ -3529,7 +3530,9 @@ int main(int argc, char** argv) {
             api.release_external(provider, &presented);
             api.destroy_canvas(provider, picture_canvas);
             return pixels;
-        }, require);
+        };
+    progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
+    progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::tests::verify_path_pixel_mapping(
         [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {

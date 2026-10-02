@@ -6,6 +6,7 @@
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_picture_axis_fixture.hpp"
+#include "progpu_native_picture_ownership_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -1232,6 +1233,27 @@ void verify_incremental_picture_backing(const gpu_context& gpu, progpu_native_en
     }
     require(near_rgba(pixel(12U, 4U), 128, 0, 0) && near_rgba(pixel(44U, 4U), 64, 128, 0),
         "picture copy-on-write mutated an older capture");
+    // Scratch captures may reuse one owner/resource generation with genuinely
+    // different bytes. The renderer must retire the child's family identity,
+    // not reuse the preceding brush or disable byte-identical warm retention.
+    std::uint64_t capture_generation = 3U;
+    for (const bool blue : {false, true, false}) {
+        const auto captured_parent = make_parent(++capture_generation, blue ? alternate : first);
+        const auto cold = render_scene(gpu, reference_engine, nullptr, 1U, 1U, 2U,
+            captured_parent, 0x91F1U, capture_generation);
+        const auto replay = render_scene(gpu, reference_engine, nullptr, 1U, 1U, 1U,
+            captured_parent, 0x91F1U, capture_generation);
+        require(cold == replay, "colliding picture warm replay changed pixels");
+        for (std::uint32_t y = 0U; y < height; ++y) {
+            for (std::uint32_t x = 0U; x < width; ++x) {
+                const auto* actual = cold.data() + y * row_bytes + x * 4U;
+                const auto ink = x < 16U && y < 16U ? 128U : 0U;
+                require(actual[0] == (blue ? 0U : ink) && actual[1] == 0U &&
+                    actual[2] == (blue ? ink : 0U) && actual[3] == 255U,
+                    "same-owner/version picture capture reused another payload");
+            }
+        }
+    }
     progpu_native_engine_destroy(reference_engine);
 }
 
@@ -2084,11 +2106,13 @@ int main(int argc, char** argv)
         }, require);
     phase("exact path pixel mapping passed");
     auto* picture_reference_engine = create_engine(gpu);
-    progpu::native::tests::verify_picture_axis_presentation(
+    const auto render_picture =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_scene(gpu, reference ? picture_reference_engine : engine,
                 nullptr, 1U, 1U, submissions, stream, 0x9491U, generation);
-        }, require);
+        };
+    progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
+    progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
     progpu_native_engine_destroy(picture_reference_engine);
     phase("per-axis picture pixels passed");
     auto* glyph_reference_engine = create_engine(gpu);
