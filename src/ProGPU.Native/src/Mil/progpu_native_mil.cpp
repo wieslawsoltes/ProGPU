@@ -21186,11 +21186,17 @@ struct channel::implementation {
         std::uint32_t state_index{};
         if (!capture.add_state(state, state_index) || !capture.save(state_index)) return status::invalid_graph;
         std::uint32_t opacity_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (gradient_brushes.contains(visual->second.alpha_mask_handle)) {
+        if (gradient_brushes.contains(visual->second.alpha_mask_handle) ||
+            is_sampled_brush(visual->second.alpha_mask_handle)) {
             // Original Clip > Effect > OpacityMask/Opacity ordering: realize
             // the source brush in the scale-space input, using the original
             // unpadded visual bounds for relative material coordinates. The
             // final output clip and residual placement must not remap it.
+            // Sampled brushes retain the same owned nested source scene used
+            // by ordinary opacity masks. The capture frame is already S*p-A
+            // at DPI 1; no final residual/viewport belongs in its material map.
+            // Original active-resource/depth guards cross this child capture,
+            // so a VisualBrush cannot recursively recapture its owning visual.
             const mask_replay_context mask_context{&frame, context.active_resources, context.metrics, context.depth};
             const auto masked = add_visual_opacity_mask(visual->second.alpha_mask_handle,
                 visual->second, content, capture, opacity_mask, mask_context);
@@ -21248,11 +21254,9 @@ struct channel::implementation {
         const auto& original = state.shader_source_transform;
         if (original.m12 != 0.0 || original.m21 != 0.0 || original.m11 <= 0.0 || original.m22 <= 0.0)
             return status::unsupported_command;
-        // Gradient alpha belongs to the owned input capture. Sampled brush
-        // opacity remains a separate nested-picture contract, not admission
-        // through a gradient or an output coverage mask.
-        if (visual->second.alpha_mask_handle != 0U && is_sampled_brush(visual->second.alpha_mask_handle))
-            return status::unsupported_command;
+        // Spatial source opacity belongs to the owned input picture below.
+        // Existing typed brush realization retains its mapping and ownership;
+        // it must never become final shader-output coverage.
         effect_state effect{};
         const auto resolved = resolve_effect(visual->second.effect_handle, effect);
         if (resolved != status::success) return resolved;
