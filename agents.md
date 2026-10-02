@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Version-4 native ShaderEffect captures retain original local float edges and a
+traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
+scale space, preserving complete UV/derivative extent and integral residual
+placement. Never infer source history from a final aggregate, discard the new
+frame in an older reader, round a residual into admission or substitute managed
+ceil(extent) sizing. The initial exact bounded diagonal-inverse proof is internal;
+general non-dyadic decomposition and fractional final placement remain required
+implementation contracts. Keep v1-v3 gates/bytes and source/pixel qualification
+separate. See docs/native-shader-local-capture-frame.md.
+
 Native ShaderEffect padding retains original packet doubles, inflates local float
 edges before the admitted positive-axis transform, and leaves zero-padding
 arithmetic unchanged. Preserve complete capture/UV/derivative and final-clip

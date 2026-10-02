@@ -8,6 +8,7 @@
 #include "../Scene/progpu_native_semantic_validation.hpp"
 #include "../Scene/progpu_native_semantic_budget.hpp"
 #include "../Scene/progpu_native_shader_effect.hpp"
+#include "../Scene/progpu_native_shader_capture_frame.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -623,6 +624,20 @@ affine_2d_double compose_wpf_affine(
         first_m21 * second_m12 + first_m22 * second_m22,
         first_m31 * second_m11 + first_m32 * second_m21 + second_m31,
         first_m31 * second_m12 + first_m32 * second_m22 + second_m32};
+}
+
+// Only the new source-capture witness consumes this positive-axis float
+// composition. Generic double transforms and existing scene bytes stay intact.
+affine_2d_double compose_shader_source_affine(const affine_2d_double& local,
+    const affine_2d_double& parent) noexcept {
+    using native::shader_effect::source_product;
+    using native::shader_effect::source_sum;
+    return {source_product(static_cast<float>(local.m11), static_cast<float>(parent.m11)), 0.0, 0.0,
+        source_product(static_cast<float>(local.m22), static_cast<float>(parent.m22)),
+        source_sum(source_product(static_cast<float>(local.m31), static_cast<float>(parent.m11)),
+            static_cast<float>(parent.m31)),
+        source_sum(source_product(static_cast<float>(local.m32), static_cast<float>(parent.m22)),
+            static_cast<float>(parent.m32))};
 }
 
 bool try_transform_bounds(
@@ -2807,6 +2822,14 @@ struct channel::implementation {
 
     struct render_scope_state {
         affine_2d_double transform;
+        // Never initialized from an arbitrary final transform. Only an actual
+        // request root and proven source visual pushes can create this history.
+        affine_2d_double shader_source_transform;
+        affine_2d_double shader_source_parent_transform;
+        affine_2d_double shader_source_local_transform;
+        float shader_source_offset_x{};
+        float shader_source_offset_y{};
+        bool shader_source_transform_proven{};
         double opacity{1.0};
         progpu_native_image_rect clip_rect{};
         bool has_clip{};
@@ -3827,6 +3850,33 @@ struct channel::implementation {
         affine_2d_double& matrix) const noexcept {
         std::array<std::uint32_t, maximum_visual_depth> active{};
         return resolve_transform_core(handle, matrix, active, 0U);
+    }
+
+    bool resolve_shader_source_transform(std::uint32_t handle, affine_2d_double& matrix,
+        std::uint32_t depth = 0U) const noexcept {
+        matrix = {};
+        if (handle == 0U) return true;
+        if (depth >= maximum_visual_depth) return false;
+        const auto found = transforms.find(handle);
+        if (found == transforms.end()) return false;
+        const auto& source = found->second;
+        if (source.type == transform_state::kind::group) {
+            for (const auto child : source.children) {
+                affine_2d_double next{};
+                if (!resolve_shader_source_transform(child, next, depth + 1U)) return false;
+                matrix = compose_shader_source_affine(matrix, next);
+            }
+        } else {
+            // A canceled rotation/skew is not proof of a source axis history.
+            if (source.type != transform_state::kind::matrix &&
+                source.type != transform_state::kind::translate && source.type != transform_state::kind::scale)
+                return false;
+            if (resolve_leaf_transform(source, matrix) != status::success || !try_quantize_wpf_affine(matrix))
+                return false;
+        }
+        return matrix.m12 == 0.0 && matrix.m21 == 0.0 && matrix.m11 > 0.0 && matrix.m22 > 0.0 &&
+            finite_double_as_float(matrix.m11) && finite_double_as_float(matrix.m22) &&
+            finite_double_as_float(matrix.m31) && finite_double_as_float(matrix.m32);
     }
 
     status resolve_animated_vector3(
@@ -19984,20 +20034,102 @@ struct channel::implementation {
             layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
             layer.opacity = 1.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
             layer.content_revision = effect_revision; layer.composite_revision = effect_revision;
-            const auto clip_status = attach_final_clip(layer);
-            if (clip_status != status::success) return clip_status;
             if (!try_shader_capture_bounds(visual->second.cache_bounds_x, visual->second.cache_bounds_y,
                     visual->second.cache_bounds_width, visual->second.cache_bounds_height,
                     resolved_effect.shader_padding, state.transform, layer.bounds) ||
                 layer.bounds.width <= 0.0F || layer.bounds.height <= 0.0F)
                 return status::unsupported_command;
+            progpu_native_scene_shader_capture_frame capture_frame{};
+            const auto* frame_context = mask_context.frame;
+            if (frame_context != nullptr) {
+                const auto& request = frame_context->request;
+                const double physical_left = static_cast<double>(layer.bounds.x) * request.dpi_scale_x;
+                const double physical_top = static_cast<double>(layer.bounds.y) * request.dpi_scale_y;
+                const double physical_width = static_cast<double>(layer.bounds.width) * request.dpi_scale_x;
+                const double physical_height = static_cast<double>(layer.bounds.height) * request.dpi_scale_y;
+                const bool legacy_integral = physical_left == std::floor(physical_left) &&
+                    physical_top == std::floor(physical_top) && physical_width == std::floor(physical_width) &&
+                    physical_height == std::floor(physical_height);
+                if (!legacy_integral) {
+                    if (!state.shader_source_transform_proven || has_local_cache_input || frame_context->is_visual_brush() ||
+                        isolate_source_composite || state.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+                        !state.edge_aliased)
+                        return status::unsupported_command;
+                    const auto& original = state.shader_source_transform;
+                    // The generic content remains untouched. Require its exact
+                    // device mapping to agree with the independently retained
+                    // original float history before admitting this new family.
+                    if (state.transform.m11 * request.dpi_scale_x != original.m11 ||
+                        state.transform.m22 * request.dpi_scale_y != original.m22 ||
+                        state.transform.m31 * request.dpi_scale_x != original.m31 ||
+                        state.transform.m32 * request.dpi_scale_y != original.m32)
+                        return status::unsupported_command;
+                    const auto& padding = resolved_effect.shader_padding;
+                    capture_frame.local_left = static_cast<float>(visual->second.cache_bounds_x) - static_cast<float>(padding[2]);
+                    capture_frame.local_top = static_cast<float>(visual->second.cache_bounds_y) - static_cast<float>(padding[0]);
+                    capture_frame.local_right = static_cast<float>(visual->second.cache_bounds_x + visual->second.cache_bounds_width) + static_cast<float>(padding[3]);
+                    capture_frame.local_bottom = static_cast<float>(visual->second.cache_bounds_y + visual->second.cache_bounds_height) + static_cast<float>(padding[1]);
+                    capture_frame.source_scale_x = static_cast<float>(original.m11);
+                    capture_frame.source_scale_y = static_cast<float>(original.m22);
+                    capture_frame.source_offset_x = static_cast<float>(original.m31);
+                    capture_frame.source_offset_y = static_cast<float>(original.m32);
+                    capture_frame.source_dpi_x = request.dpi_scale_x;
+                    capture_frame.source_dpi_y = request.dpi_scale_y;
+                    if (!native::shader_effect::complete_capture_frame(capture_frame)) return status::unsupported_command;
+                    // Original output bounds apply own local transform first,
+                    // then the visual offset, then the current ancestor matrix.
+                    // This history is distinct from allocation decomposition.
+                    // Keep the first wire family only when that original order
+                    // agrees exactly with its retained diagonal edge mapping.
+                    const auto original_edge = [](float edge, double local_scale, double local_offset,
+                        float visual_offset, double parent_scale, double parent_offset) {
+                        using native::shader_effect::source_product;
+                        using native::shader_effect::source_sum;
+                        const auto local = source_sum(source_product(edge, static_cast<float>(local_scale)),
+                            static_cast<float>(local_offset));
+                        const auto offset = source_sum(local, visual_offset);
+                        return source_sum(source_product(offset, static_cast<float>(parent_scale)),
+                            static_cast<float>(parent_offset));
+                    };
+                    const auto& local = state.shader_source_local_transform;
+                    const auto& parent = state.shader_source_parent_transform;
+                    const auto agrees = [&](float edge, bool horizontal) {
+                        const auto original_edge_value = horizontal
+                            ? original_edge(edge, local.m11, local.m31, state.shader_source_offset_x, parent.m11, parent.m31)
+                            : original_edge(edge, local.m22, local.m32, state.shader_source_offset_y, parent.m22, parent.m32);
+                        const auto mapped = native::shader_effect::source_sum(native::shader_effect::source_product(edge,
+                            horizontal ? capture_frame.source_scale_x : capture_frame.source_scale_y),
+                            horizontal ? capture_frame.source_offset_x : capture_frame.source_offset_y);
+                        return original_edge_value == mapped;
+                    };
+                    if (!agrees(capture_frame.local_left, true) || !agrees(capture_frame.local_right, true) ||
+                        !agrees(capture_frame.local_top, false) || !agrees(capture_frame.local_bottom, false))
+                        return status::unsupported_command;
+                }
+            }
+            if (capture_frame.capture_width != 0U) {
+                const auto coverage = native::shader_effect::output_coverage(capture_frame);
+                auto final_scope = state;
+                intersect_scope_clip(final_scope, {
+                    static_cast<float>(coverage.left / capture_frame.source_dpi_x),
+                    static_cast<float>(coverage.top / capture_frame.source_dpi_y),
+                    static_cast<float>((coverage.right - coverage.left) / capture_frame.source_dpi_x),
+                    static_cast<float>((coverage.bottom - coverage.top) / capture_frame.source_dpi_y)});
+                const auto clip_status = attach_visual_output_clip(layer, final_scope, builder);
+                if (clip_status != status::success) return clip_status;
+            } else {
+                const auto clip_status = attach_final_clip(layer);
+                if (clip_status != status::success) return clip_status;
+            }
             std::uint32_t effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (require_resource(resolved_effect.input_brush_handle, type_image_brush)) {
                 if (mask_context.frame == nullptr) return status::unsupported_command;
                 const auto& request = mask_context.frame->request;
-                const double width = static_cast<double>(layer.bounds.width) * request.dpi_scale_x;
-                const double height = static_cast<double>(layer.bounds.height) * request.dpi_scale_y;
+                const double width = capture_frame.capture_width != 0U ? capture_frame.capture_width
+                    : static_cast<double>(layer.bounds.width) * request.dpi_scale_x;
+                const double height = capture_frame.capture_height != 0U ? capture_frame.capture_height
+                    : static_cast<double>(layer.bounds.height) * request.dpi_scale_y;
                 if (!std::isfinite(width) || !std::isfinite(height) || width <= 0.0 || height <= 0.0 ||
                     width > 16'384.0 || height > 16'384.0 || width != std::floor(width) || height != std::floor(height))
                     return status::unsupported_command;
@@ -20006,7 +20138,12 @@ struct channel::implementation {
                     builder, picture_index, mask_context);
                 if (captured != status::success) return captured;
             }
-            if (resolved_effect.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX) {
+            if (capture_frame.capture_width != 0U) {
+                const progpu_native_scene_shader_effect_capture versioned{
+                    sizeof(versioned), 4U, picture_index, resolved_effect.derivative_register, 0U, {0U, 0U, 0U},
+                    capture_frame, descriptor};
+                if (!builder.add_shader_effect(versioned, bytecode, effect_index)) return status::invalid_graph;
+            } else if (resolved_effect.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX) {
                 const progpu_native_scene_shader_effect_derivatives versioned{
                     sizeof(versioned), 3U, picture_index, resolved_effect.derivative_register, 0U, {0U, 0U, 0U}, descriptor};
                 if (!builder.add_shader_effect(versioned, bytecode, effect_index)) return status::invalid_graph;
@@ -21541,6 +21678,7 @@ struct channel::implementation {
             render_at_scale,
             -cache_visual.cache_bounds_x * render_at_scale,
             -cache_visual.cache_bounds_y * render_at_scale};
+        content_state.shader_source_transform_proven = false;
         content_state.opacity = 1.0;
         content_state.has_clip = false;
         content_state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -21747,6 +21885,24 @@ struct channel::implementation {
             compose_affine(local_transform, offset_transform),
             parent_state.transform);
         current.transform = transform;
+        current.shader_source_transform_proven = parent_state.shader_source_transform_proven &&
+            compile_context != nullptr && !compile_context->is_visual_brush() && !visual->second.has_scroll_clip &&
+            visual->second.cache_mode_handle == 0U;
+        if (current.shader_source_transform_proven) {
+            affine_2d_double source_local{};
+            current.shader_source_transform_proven = resolve_shader_source_transform(
+                visual->second.transform_handle, source_local);
+            if (current.shader_source_transform_proven) {
+                // Original traversal pushes the visual offset onto its parent
+                // first, then the local transform onto that float result.
+                const auto source_offset = compose_shader_source_affine(offset_transform, parent_state.shader_source_transform);
+                current.shader_source_transform = compose_shader_source_affine(source_local, source_offset);
+                current.shader_source_parent_transform = parent_state.shader_source_transform;
+                current.shader_source_local_transform = source_local;
+                current.shader_source_offset_x = static_cast<float>(offset_x);
+                current.shader_source_offset_y = static_cast<float>(offset_y);
+            }
+        }
         // WPF Visual content never inherits the parent's guideline frame.
         current.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         current.per_point_guidelines = false;
@@ -23153,9 +23309,17 @@ status channel::build_scene_core(
         if (target->second.root_handle != 0U &&
             (!target->second.is_window_target ||
              target->second.rendering_enabled)) {
+            implementation::render_scope_state root_scope{};
+            if (request != nullptr && !compile_context.is_visual_brush() &&
+                request->dpi_scale_x == static_cast<float>(request->dpi_scale_x) &&
+                request->dpi_scale_y == static_cast<float>(request->dpi_scale_y)) {
+                root_scope.shader_source_transform = {static_cast<float>(request->dpi_scale_x), 0.0, 0.0,
+                    static_cast<float>(request->dpi_scale_y), 0.0, 0.0};
+                root_scope.shader_source_transform_proven = true;
+            }
             const status append_status = source.append_visual(
                 target->second.root_handle,
-                implementation::render_scope_state{},
+                root_scope,
                 1U,
                 scene_id,
                 builder,

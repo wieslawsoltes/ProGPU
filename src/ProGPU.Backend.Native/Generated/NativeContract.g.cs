@@ -1053,4 +1053,42 @@ internal static unsafe partial class NativeMethods
         internal uint Reserved2;
         internal SceneShaderEffect Program;
     }
+
+    // Native source: progpu_native_scene_shader_capture_frame.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneShaderCaptureFrame
+    {
+        internal float LocalLeft;
+        internal float LocalTop;
+        internal float LocalRight;
+        internal float LocalBottom;
+        internal float SourceScaleX;
+        internal float SourceScaleY;
+        internal float SourceOffsetX;
+        internal float SourceOffsetY;
+        internal double SourceDpiX;
+        internal double SourceDpiY;
+        internal int CaptureX;
+        internal int CaptureY;
+        internal uint CaptureWidth;
+        internal uint CaptureHeight;
+        internal int FinalX;
+        internal int FinalY;
+    }
+
+    // Native source: progpu_native_scene_shader_effect_capture.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneShaderEffectCapture
+    {
+        internal uint StructSize;
+        internal uint Version;
+        internal uint SamplerResourceIndex;
+        internal uint DerivativeRegister;
+        internal uint Flags;
+        internal uint Reserved0;
+        internal uint Reserved1;
+        internal uint Reserved2;
+        internal SceneShaderCaptureFrame Frame;
+        internal SceneShaderEffect Program;
+    }
 }

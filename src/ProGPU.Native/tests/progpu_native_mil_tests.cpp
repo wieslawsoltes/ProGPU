@@ -9,6 +9,7 @@
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
+#include "progpu_native_shader_local_frame_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../src/Scene/progpu_native_semantic_state.hpp"
@@ -22002,8 +22003,10 @@ bool original_shader_padding_retains_local_bounds_and_atomic_updates() {
                 header.resource_offset + layer.reserved0 * header.resource_stride);
             const auto final_clip = read_value<progpu_native_scene_state>(scene, state_resource.payload_offset);
             const float dpi = shader_padding_cases[variant].dpi;
-            PROGPU_REQUIRE(final_clip.clip_rect.x == 14.0F / dpi && final_clip.clip_rect.y == 12.0F / dpi &&
-                final_clip.clip_rect.width == 28.0F / dpi && final_clip.clip_rect.height == 20.0F / dpi);
+            PROGPU_REQUIRE(final_clip.clip_rect.x == 14.0F / dpi &&
+                final_clip.clip_rect.y == (variant == 9U ? 16.0F : 12.0F) / dpi &&
+                final_clip.clip_rect.width == 28.0F / dpi &&
+                final_clip.clip_rect.height == (variant == 9U ? 14.0F : 20.0F) / dpi);
         }
         for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
             const auto resource = read_value<progpu_native_scene_resource>(scene, header.resource_offset + i * header.resource_stride);
@@ -22041,6 +22044,123 @@ bool original_shader_padding_retains_local_bounds_and_atomic_updates() {
                 after.data(), after.size(), &written, nullptr, &result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
             PROGPU_REQUIRE(written == last_scene.size() && after == last_scene);
         }
+    }
+    return true;
+}
+
+bool original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire() {
+    using namespace progpu::native::tests;
+    using namespace progpu::native::shader_effect;
+    static_assert(sizeof(progpu_native_scene_shader_capture_frame) == 72U);
+    static_assert(sizeof(progpu_native_scene_shader_effect_capture) == 648U);
+    static_assert(offsetof(progpu_native_scene_shader_effect_capture, frame) == 32U);
+    static_assert(offsetof(progpu_native_scene_shader_effect_capture, program) == 104U);
+    progpu_native_mil_channel* raw{};
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    mil_clip_channel owner(raw);
+    std::vector<std::byte> first, scene;
+    for (std::uint32_t variant = 0U; variant < shader_local_cases.size(); ++variant) {
+        const auto& test = shader_local_cases[variant];
+        PROGPU_REQUIRE(build_shader_local_scene(raw, variant, test, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(progpu::native::scene::validate(scene.data(), scene.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+        const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+        std::uint32_t found = 0U;
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto offset = header.resource_offset + i * header.resource_stride;
+            const auto resource = read_value<progpu_native_scene_resource>(scene, offset);
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) continue;
+            ++found;
+            PROGPU_REQUIRE(resource.payload_size == sizeof(progpu_native_scene_shader_effect_capture));
+            const auto source = read_value<progpu_native_scene_shader_effect_capture>(scene, resource.payload_offset);
+            const auto& frame = source.frame;
+            PROGPU_REQUIRE(source.version == 4U && validate_capture_frame(frame));
+            PROGPU_REQUIRE(frame.capture_x == static_cast<std::int32_t>(test.allocation[0]) &&
+                frame.capture_y == static_cast<std::int32_t>(test.allocation[1]) &&
+                frame.capture_width == test.allocation[2] && frame.capture_height == test.allocation[3] &&
+                frame.final_x == frame.capture_x + 2 && frame.final_y == frame.capture_y + 3 &&
+                frame.source_scale_x == test.dpi && frame.source_scale_y == test.dpi &&
+                frame.source_offset_x == 2.0F && frame.source_offset_y == 3.0F &&
+                frame.source_dpi_x == test.dpi && frame.source_dpi_y == test.dpi);
+            PROGPU_REQUIRE(frame.local_left == 16.75F - static_cast<float>(test.padding[2]) &&
+                frame.local_top == 16.25F - static_cast<float>(test.padding[0]) &&
+                frame.local_right == 32.25F + static_cast<float>(test.padding[3]) &&
+                frame.local_bottom == 23.75F + static_cast<float>(test.padding[1]));
+            const auto bytecode = std::span(scene).subspan(resource.auxiliary_offset, resource.auxiliary_size);
+            auto program = source.program;
+            std::uint32_t picture = 123U, derivatives = 234U;
+            PROGPU_REQUIRE(!read_resource(std::as_bytes(std::span(&source, 1U)), bytecode, program, picture, derivatives));
+            PROGPU_REQUIRE(std::memcmp(&program, &source.program, sizeof(program)) == 0 && picture == 123U && derivatives == 234U);
+            for (std::uint32_t invalid_kind = 0U; invalid_kind < 16U; ++invalid_kind) {
+                auto invalid = source;
+                switch (invalid_kind) {
+                case 0U: --invalid.struct_size; break;
+                case 1U: invalid.version = 5U; break;
+                case 2U: invalid.flags = 1U; break;
+                case 3U: invalid.reserved[0] = 1U; break;
+                case 4U: invalid.reserved[1] = 1U; break;
+                case 5U: invalid.reserved[2] = 1U; break;
+                case 6U: invalid.derivative_register = 32U; break;
+                case 7U: invalid.frame.source_scale_x = 1.5F; break;
+                case 8U: invalid.frame.source_offset_x = .25F; break;
+                case 9U: invalid.frame.local_left = std::numeric_limits<float>::quiet_NaN(); break;
+                case 10U: invalid.frame.local_right = invalid.frame.local_left; break;
+                case 11U: ++invalid.frame.capture_width; break;
+                case 12U: --invalid.frame.capture_y; break;
+                case 13U: ++invalid.frame.final_x; break;
+                case 14U: invalid.frame.source_dpi_x = std::numeric_limits<double>::infinity(); break;
+                default: invalid.frame.source_scale_y = 0x1p9F; break;
+                }
+                auto retained_frame = frame;
+                PROGPU_REQUIRE(!read_resource(std::as_bytes(std::span(&invalid, 1U)), bytecode,
+                    program, picture, derivatives, retained_frame));
+                PROGPU_REQUIRE(picture == 123U && derivatives == 234U &&
+                    std::memcmp(&program, &source.program, sizeof(program)) == 0 &&
+                    std::memcmp(&retained_frame, &frame, sizeof(frame)) == 0);
+                auto invalid_scene = scene;
+                std::memcpy(invalid_scene.data() + resource.payload_offset, &invalid, sizeof(invalid));
+                PROGPU_REQUIRE(progpu::native::scene::validate(invalid_scene.data(), invalid_scene.size()).status != PROGPU_NATIVE_STATUS_SUCCESS);
+            }
+        }
+        PROGPU_REQUIRE(found == 1U);
+        if (variant == 0U) first = scene;
+        PROGPU_REQUIRE(progpu::native::scene::validate(first.data(), first.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+        auto old = scene;
+        PROGPU_REQUIRE(shader_local_legacy_wire(old));
+        PROGPU_REQUIRE(progpu::native::scene::validate(old.data(), old.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+    }
+    // Real source histories, not caller-supplied metadata, own admission.
+    // Unchanged output is required even after the source update was accepted.
+    const auto before = scene;
+    auto control = shader_local_cases[1U];
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 30U, control, scene, false, 2.25, 3.5) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+    PROGPU_REQUIRE(scene == before);
+    control.history = shader_local_history::separately_narrowed;
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 31U, control, scene) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+    PROGPU_REQUIRE(scene == before);
+    control.history = shader_local_history::intermediate_bounds_rounding;
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 34U, control, scene) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+    PROGPU_REQUIRE(scene == before);
+    control.history = shader_local_history::flat;
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 32U, control, scene, false, 2.0, 3.0, 1.5) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+    PROGPU_REQUIRE(scene == before);
+    // Rejection cannot poison the next proven generation or earlier immutable ownership.
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 33U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    owner.reset();
+    PROGPU_REQUIRE(progpu::native::scene::validate(first.data(), first.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu::native::scene::validate(scene.data(), scene.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+    for (int exponent = -8; exponent <= 8; ++exponent) {
+        const auto scale = std::ldexp(1.0F, exponent);
+        PROGPU_REQUIRE(exact_capture_scale(scale));
+        PROGPU_REQUIRE(!exact_capture_scale(std::nextafter(scale, 0.0F)));
+        PROGPU_REQUIRE(!exact_capture_scale(std::nextafter(scale, std::numeric_limits<float>::infinity())));
+    }
+    PROGPU_REQUIRE(!exact_capture_scale(0.0F) && !exact_capture_scale(-1.0F) &&
+        !exact_capture_scale(0x1p-9F) && !exact_capture_scale(0x1p9F));
+    for (const auto origin : {-17.0F, -1.0F, 0.0F, 1.0F, 17.0F}) {
+        PROGPU_REQUIRE(aliased_capture_edge(origin + .5F) == static_cast<std::int32_t>(origin));
+        PROGPU_REQUIRE(aliased_capture_edge(origin + 17.0F / 32.0F) == static_cast<std::int32_t>(origin) + 1);
+        PROGPU_REQUIRE(aliased_capture_edge(std::nextafter(origin + 17.0F / 32.0F,
+            -std::numeric_limits<float>::infinity())) == static_cast<std::int32_t>(origin));
     }
     return true;
 }
@@ -22346,6 +22466,7 @@ int main() {
     PROGPU_REQUIRE(original_shader_effect_resources_compile_and_reject_atomically());
     PROGPU_REQUIRE(original_shader_sampler_inherits_actual_visual_options());
     PROGPU_REQUIRE(original_shader_padding_retains_local_bounds_and_atomic_updates());
+    PROGPU_REQUIRE(original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire());
     const auto capture_hits = [](progpu::native::semantic_scene_builder& builder,
         progpu::native::scene_hit_test_opacity_mode opacity_mode =
             progpu::native::scene_hit_test_opacity_mode::rendered_visibility) {

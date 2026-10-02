@@ -21,13 +21,20 @@ UV normalization and derivative registers use that same complete capture rather
 than unpadded content or spare allocation. Original final clipping, inner opacity
 and source resource revisions/retirement remain authoritative.
 
-This does **not** admit general fractional captures: the existing render preflight
+This padding checkpoint did **not** admit general fractional captures: the existing render preflight
 still requires exact integral physical origin/extents and a complete uncropped
 input. A fractional padding value can succeed only when original float inflation
 and the admitted mapping yield that exact existing frame. Fractional physical
 edges, out-of-target captures, rotated/reflected mappings, backdrop/cache-content
 captures and custom effect input mapping remain rejected. No source hit-test
 identity, renderer fallback or capability advertisement is added.
+
+The additive version-4 local-frame work is documented separately in
+[native-shader-local-capture-frame.md](native-shader-local-capture-frame.md).
+It admits proven fractional local edges with integral final placement; old wire
+versions keep this original gate. The former fractional source variant 9 now
+exercises that new contract, with the same input pixels/counters, while independent
+legacy-wire controls preserve the old rejection requirement.
 
 ## Independent source contract
 
