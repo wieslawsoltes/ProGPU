@@ -444,6 +444,16 @@ void matrices(controls& test, bool three) {
         auto constant_vector = temporary;
         constant_vector[matrix_at + 2U] = src(2U, 31U);
         test.accept(constant_vector); // One constant port per actual dot.
+        auto bank_end = prefix(three);
+        instruction(bank_end, 1U, dst(0U, 1U), {src(0U, 0U)});
+        for (std::uint32_t row = 0U; row < rows; ++row)
+            instruction(bank_end, 1U, dst(0U, 12U - rows + row, input_mask), {src(0U, 0U)});
+        const auto bank_operation = bank_end.size();
+        instruction(bank_end, opcode, dst(0U, 0U, output_mask), {src(0U, 1U), src(0U, 12U - rows)});
+        finish(bank_end);
+        test.accept(bank_end);
+        bank_end[bank_operation + 3U] = src(0U, 13U - rows);
+        test.reject(bank_end, "matrix implied final register escaped temporary bank without aliasing");
         for (std::uint32_t operand = 0U; operand <= rows; ++operand) {
             for (std::uint32_t lane = 0U; lane < columns; ++lane) {
                 auto missing = temporary;

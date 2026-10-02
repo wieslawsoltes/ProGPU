@@ -55,6 +55,13 @@ vector swizzles/negation, saturation, exact destination masks, preserved lanes,
 every implied row/component, register boundaries, per-dot read ports, aliases,
 source modifiers and atomic malformed-token rejection.
 
+Major implementation commit `c167a6f2d` preceded focused validation. The standalone
+C++20 warnings-as-errors translator check passed the unchanged 110 translation,
+367 arithmetic and 406 cross-product controls, plus 708 matrix controls. The
+instantiated shared GPU fixture also passed strict syntax checking. Additional
+last-temporary-bank controls are retained as a separate follow-up. These are
+CPU compiler/control checks, not execution of a renderer, native library or GPU.
+
 The existing paired-provider GPU fixture retains its original ten cases and
 every byte/counter assertion, then adds ten original matrix programs. Actual
 white input texels feed the vector; independently selected matrix constants
