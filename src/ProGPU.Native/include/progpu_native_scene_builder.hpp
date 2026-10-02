@@ -494,6 +494,16 @@ public:
             PROGPU_NATIVE_SCENE_NO_INDEX,
         const progpu_native_image_rect* local_ink_bounds = nullptr) noexcept;
 
+    // Explicit physical RGB transport over the same owned outline resource.
+    // Descriptor/tiles are copied atomically. Runtime opacity, DPI and source
+    // state admission remain authoritative; this does not select ClearType.
+    bool draw_rgb_glyph_run(
+        std::uint32_t glyph_resource_index,
+        const progpu_native_scene_rgb_glyph_draw& descriptor,
+        std::span<const progpu_native_scene_rgb_glyph_tile> glyphs,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
     bool draw_shaped_text_run(
         std::uint32_t glyph_resource_index,
         std::span<const text::shaping_glyph> shaped_glyphs,

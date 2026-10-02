@@ -5,6 +5,7 @@
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_semantic_rgb_glyph.hpp"
 #include "progpu_native_shader_effect_resource.hpp"
 
 #include <algorithm>
@@ -97,12 +98,12 @@ bool is_known_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
         (kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN);
+            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN);
 }
 
 bool is_draw_command(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN;
+        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN;
 }
 
 std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
@@ -113,6 +114,7 @@ std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
             return PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN:
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN:
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN:
             return PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE:
             return PROGPU_NATIVE_SCENE_RESOURCE_IMAGE;
@@ -1388,6 +1390,11 @@ validation_result validate(
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                         brush_error_offset);
                 }
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
+                std::uint32_t rgb_error_offset = command.payload_offset;
+                if (!semantic::validate_rgb_glyph_draw(bytes, header, command, rgb_error_offset))
+                    return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, rgb_error_offset);
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
                 std::uint32_t paint_error_offset = command.payload_offset;

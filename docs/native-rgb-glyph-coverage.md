@@ -77,3 +77,28 @@ Independent original Windows captures and both-provider full-byte comparisons
 are the final numeric authority. Authored source guards are **unexecuted**;
 all build, shader, GPU, image, performance and package validation is deferred to
 the final integrated stack tip. No compatibility or performance result is claimed.
+
+## Retained physical command transport
+
+`DRAW_RGB_GLYPH_RUN` is a separate required command over an existing original
+outline/segment resource. It carries a 40-byte explicit policy and one 56-byte
+physical tile per source occurrence, including repeated indices, original sample
+origin/scale/phase, target position and straight foreground. The descriptor's
+filter identifier is not a DirectWrite enum. It retains the positive original
+DPI generation; it cannot declare its destination opaque or silently reproject
+physical tiles at another DPI. No ordinary glyph record/layout changes.
+
+Native and managed builders preflight bounded counts, indices, actual sample
+arithmetic, normalized colors, known policy and reserved fields before copying
+the packet. The managed writer rejects overlap with its output arena. Native
+wire validation checks owned outline/segment ranges and every occurrence,
+without retaining caller pointers. The glyph-family identity includes exact
+policy/position/paint bytes, active scopes and original resource ownership.
+
+This transport checkpoint deliberately rejects execution until the shared replay
+integration proves current target opacity, physical frame and source scope. It
+does not call the private encoder against an invented target or introduce a test
+export. Next implementation is actual scoped replay through both native providers,
+then independent full-pixel controls, followed by source producer integration.
+The native and managed ownership/atomicity/layout controls are authored only;
+no generation verifier, build, test, GPU or CI execution has run for this change.

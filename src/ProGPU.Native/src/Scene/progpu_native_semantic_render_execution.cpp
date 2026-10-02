@@ -1350,6 +1350,9 @@ progpu_native_status render_scene(
                 }
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN:
+                return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Retained RGB glyph transport requires its physical target replay integration.");
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN:
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN: {
                 std::uint32_t glyph_payload_offset = 0U;

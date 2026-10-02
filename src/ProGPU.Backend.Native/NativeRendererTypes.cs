@@ -707,7 +707,8 @@ public enum NativeSceneCommandKind : uint
     DrawStrokeBatch = 23,
     DrawLine3DBatch = 24,
     DrawMesh3DBatch = 25,
-    DrawPaintedGlyphRun = 26
+    DrawPaintedGlyphRun = 26,
+    DrawRgbGlyphRun = 27
 }
 
 public enum NativeMesh3DTopology : uint
@@ -1508,6 +1509,81 @@ internal readonly struct NativeSceneGlyphDraw
     internal readonly uint GlyphCount;
     private readonly uint Reserved0;
     private readonly uint Reserved1;
+}
+
+/// <summary>Explicit outline integration model, not a DirectWrite rendering mode.</summary>
+public enum NativeRgbGlyphFilter : uint
+{
+    FullPixelBox8X8 = 1
+}
+
+/// <summary>Retained physical RGB draw policy. Does not assert target opacity or select source ClearType.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneRgbGlyphDraw
+{
+    public NativeSceneRgbGlyphDraw(uint glyphCount, NativeRgbGlyphFilter filterModel,
+        uint pixelGeometry, float gamma, float enhancedContrast, float clearTypeLevel, float dpiScale)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneRgbGlyphDraw>();
+        GlyphCount = glyphCount; FilterModel = filterModel; PixelGeometry = pixelGeometry;
+        Gamma = gamma; EnhancedContrast = enhancedContrast; ClearTypeLevel = clearTypeLevel;
+        DpiScale = dpiScale; Reserved0 = Reserved1 = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly uint GlyphCount;
+    public readonly NativeRgbGlyphFilter FilterModel;
+    public readonly uint PixelGeometry;
+    public readonly float Gamma;
+    public readonly float EnhancedContrast;
+    public readonly float ClearTypeLevel;
+    public readonly float DpiScale;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool IsCanonical => StructSize == 40U && GlyphCount is > 0U and <= 65536U &&
+        FilterModel == NativeRgbGlyphFilter.FullPixelBox8X8 && PixelGeometry <= 2U &&
+        Gamma == 1f && EnhancedContrast == 0f && ClearTypeLevel == 1f &&
+        float.IsFinite(DpiScale) && DpiScale > 0f && Reserved0 == 0U && Reserved1 == 0U;
+}
+
+/// <summary>One original outline occurrence with its physical raster frame and straight foreground.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneRgbGlyphTile
+{
+    public NativeSceneRgbGlyphTile(uint outlineIndex, uint width, uint height,
+        float xStart, float yStart, float scale, float subpixelX,
+        int targetX, int targetY, Vector4 foreground)
+    {
+        OutlineIndex = outlineIndex; Width = width; Height = height; Reserved = 0U;
+        XStart = xStart; YStart = yStart; Scale = scale; SubpixelX = subpixelX;
+        TargetX = targetX; TargetY = targetY; Foreground = foreground;
+    }
+
+    public readonly uint OutlineIndex;
+    public readonly uint Width;
+    public readonly uint Height;
+    private readonly uint Reserved;
+    public readonly float XStart;
+    public readonly float YStart;
+    public readonly float Scale;
+    public readonly float SubpixelX;
+    public readonly int TargetX;
+    public readonly int TargetY;
+    public readonly Vector4 Foreground;
+
+    internal bool IsCanonical(uint outlineCount) => OutlineIndex < outlineCount && Reserved == 0U &&
+        Width is > 0U and <= 4096U && Height is > 0U and <= 4096U &&
+        TargetX is >= -4096 and <= 4096 && TargetY is >= -4096 and <= 4096 &&
+        float.IsFinite(XStart) && float.IsFinite(YStart) && float.IsFinite(Scale) && Scale > 0f &&
+        float.IsFinite(SubpixelX) && Unit(Foreground.X) && Unit(Foreground.Y) &&
+        Unit(Foreground.Z) && Unit(Foreground.W) &&
+        float.IsFinite(((XStart - 1f / 3f) + 0.0625f - SubpixelX) / Scale) &&
+        float.IsFinite(((XStart + (float)(Width - 1U) + 1f / 3f) + 0.9375f - SubpixelX) / Scale) &&
+        float.IsFinite(-(YStart + 0.0625f) / Scale) &&
+        float.IsFinite(-(YStart + (float)(Height - 1U) + 0.9375f) / Scale);
+
+    private static bool Unit(float value) => float.IsFinite(value) && value is >= 0f and <= 1f;
 }
 
 /// <summary>Exact direct glyph paint record; legacy text styles are independent.</summary>

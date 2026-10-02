@@ -77,6 +77,87 @@ bool equal_closed_isolation_builders(semantic_scene_builder& actual, semantic_sc
 
 } // namespace
 
+bool semantic_scene_builder_rgb_transport_is_owned_and_atomic() {
+    semantic_scene_builder builder(0x9680U, 1U);
+    const std::array segments{
+        progpu_native_path_segment{{0, 0}, {4, 0}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{4, 0}, {4, 4}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{4, 4}, {0, 4}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{0, 4}, {0, 0}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline outline{0U, 4U, 0, 0, 4, 4, 1, 0};
+    std::uint32_t resource{};
+    if (!builder.add_glyph_outlines(std::span(&outline, 1U), segments, resource)) return false;
+    const progpu_native_scene_rgb_glyph_draw descriptor{sizeof(descriptor), 2U,
+        PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8, 1U, 1, 0, 1, 1.25F, 0U, 0U};
+    std::array tiles{
+        progpu_native_scene_rgb_glyph_tile{0U, 8U, 8U, 0U, -1, -5, 1, 0.25F, 3, 5, {1, 0, 0, 1}},
+        progpu_native_scene_rgb_glyph_tile{0U, 8U, 8U, 0U, -2, -5, 1.25F, 0.75F, 9, 7, {0, 0, 1, 0.5F}}};
+    const auto original_tiles = tiles;
+    std::vector<std::byte> empty;
+    if (!builder.build(empty)) return false;
+    for (unsigned variant = 0U; variant < 16U; ++variant) {
+        auto bad = descriptor;
+        auto bad_tiles = tiles;
+        switch (variant) {
+            case 0U: bad.struct_size--; break;
+            case 1U: bad.glyph_count--; break;
+            case 2U: bad.filter_model = 2U; break;
+            case 3U: bad.pixel_geometry = 3U; break;
+            case 4U: bad.gamma = 2.2F; break;
+            case 5U: bad.enhanced_contrast = 0.5F; break;
+            case 6U: bad.cleartype_level = 0.5F; break;
+            case 7U: bad.dpi_scale = 0; break;
+            case 8U: bad.reserved1 = 1U; break;
+            case 9U: bad_tiles[1].outline_index = 1U; break;
+            case 10U: bad_tiles[1].reserved = 1U; break;
+            case 11U: bad_tiles[1].width = 4097U; break;
+            case 12U: bad_tiles[1].target_x = -4097; break;
+            case 13U: bad_tiles[1].foreground.a = std::numeric_limits<float>::quiet_NaN(); break;
+            case 14U: bad_tiles[1].scale = std::numeric_limits<float>::denorm_min(); break;
+            case 15U: bad_tiles[1].x_start = std::numeric_limits<float>::infinity(); break;
+        }
+        if (builder.draw_rgb_glyph_run(resource, bad, bad_tiles, {0, 0, 32, 32}) ||
+            builder.last_error() != scene_build_error::invalid_argument) return false;
+        std::vector<std::byte> unchanged;
+        if (!builder.build(unchanged) || unchanged != empty) return false;
+    }
+    if (!builder.draw_rgb_glyph_run(resource, descriptor, tiles, {0, 0, 32, 32})) return false;
+    tiles[0].foreground = {0, 1, 0, 0};
+    tiles[1].target_x = 100;
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) return false;
+    const auto valid = scene::validate(stream.data(), stream.size());
+    if (valid.status != PROGPU_NATIVE_STATUS_SUCCESS || valid.draw_count != 1U) return false;
+    const auto command = read<progpu_native_scene_command>(stream, valid.header.command_offset);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN ||
+        command.flags != PROGPU_NATIVE_SCENE_RECORD_REQUIRED ||
+        command.payload_size != sizeof(descriptor) + sizeof(original_tiles) ||
+        std::memcmp(stream.data() + command.payload_offset, &descriptor, sizeof(descriptor)) != 0 ||
+        std::memcmp(stream.data() + command.payload_offset + sizeof(descriptor),
+            original_tiles.data(), sizeof(original_tiles)) != 0) return false;
+    const auto original_hash = semantic::compute_content_hashes(stream.data(), valid.header).glyph;
+    for (unsigned variant = 0U; variant < 6U; ++variant) {
+        auto corrupt = stream;
+        auto bad = descriptor;
+        auto bad_tile = original_tiles[1];
+        if (variant == 0U) bad.reserved0 = 1U;
+        if (variant == 1U) bad.gamma = std::numeric_limits<float>::quiet_NaN();
+        if (variant == 2U) bad.glyph_count = 65537U;
+        if (variant == 3U) bad_tile.outline_index = 1U;
+        if (variant == 4U) bad_tile.scale = 0.0F;
+        if (variant == 5U) bad_tile.foreground.r = 1.001F;
+        std::memcpy(corrupt.data() + command.payload_offset, &bad, sizeof(bad));
+        std::memcpy(corrupt.data() + command.payload_offset + sizeof(bad) + sizeof(bad_tile), &bad_tile, sizeof(bad_tile));
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    }
+    auto changed = stream;
+    auto moved = original_tiles[1];
+    moved.target_x++;
+    std::memcpy(changed.data() + command.payload_offset + sizeof(descriptor) + sizeof(moved), &moved, sizeof(moved));
+    return scene::validate(changed.data(), changed.size()).status == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic::compute_content_hashes(changed.data(), valid.header).glyph != original_hash;
+}
+
 bool semantic_scene_builder_isolation_rejects_missing_layer_atomically() {
     for (const std::uint32_t saves : {0U, 1U, 3U}) {
         semantic_scene_builder actual(0x9600U, 1U), expected(0x9600U, 1U);

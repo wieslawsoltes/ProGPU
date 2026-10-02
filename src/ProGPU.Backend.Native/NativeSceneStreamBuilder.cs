@@ -2294,6 +2294,49 @@ public ref struct NativeSceneStreamBuilder
             payload,
             stateIndex);
 
+    /// <summary>Copies an explicit physical RGB run without inferring target opacity or source rendering mode.</summary>
+    public bool TryDrawRgbGlyphRun(ulong commandId, uint resourceIndex,
+        NativeImageRect bounds, in NativeSceneRgbGlyphDraw descriptor,
+        scoped ReadOnlySpan<NativeSceneRgbGlyphTile> glyphs, uint stateIndex = uint.MaxValue)
+    {
+        NativeSceneRgbGlyphDraw original = descriptor;
+        ReadOnlySpan<byte> glyphBytes = MemoryMarshal.AsBytes(glyphs);
+        if (_built || _commandCount == _commandCapacity || !original.IsCanonical ||
+            (uint)glyphs.Length != original.GlyphCount || commandId == 0U || commandId <= _lastCommandId ||
+            resourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(resourceIndex, NativeSceneResourceKind.GlyphRun) ||
+            ResourceHasFlags(resourceIndex, NativeSceneRecordFlags.ColorGlyphBitmaps) ||
+            !HasUsableCommandState(stateIndex, allowPerPoint: false) || !IsFiniteBounds(bounds) ||
+            glyphBytes.Overlaps(_destination)) return false;
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(_destination.Slice(
+            _resourceOffset + checked((int)resourceIndex) * ResourceSize, ResourceSize));
+        uint outlineSize = (uint)Unsafe.SizeOf<NativeSceneGlyphOutline>();
+        uint segmentSize = (uint)Unsafe.SizeOf<NativePathSegment>();
+        uint outlineCount = resource.PayloadSize / outlineSize;
+        if (resource.PayloadSize % outlineSize != 0U || outlineCount is 0U or > 65536U ||
+            resource.AuxiliarySize == 0U || resource.AuxiliarySize % segmentSize != 0U ||
+            resource.AuxiliarySize / segmentSize > 1048576U) return false;
+        ulong pixels = 0U;
+        foreach (ref readonly var glyph in glyphs)
+        {
+            if (!glyph.IsCanonical(outlineCount)) return false;
+            pixels += (ulong)glyph.Width * glyph.Height;
+            if (pixels > 4096U * 4096U) return false;
+        }
+        int relativeOffset = checked((int)Align8(_arenaSize));
+        int prefixSize = Unsafe.SizeOf<NativeSceneRgbGlyphDraw>();
+        int payloadSize = checked(prefixSize + glyphBytes.Length);
+        int end = checked(relativeOffset + payloadSize);
+        if (_arenaOffset + (long)end > _destination.Length) return false;
+        uint payloadOffset = (uint)(_arenaOffset + relativeOffset);
+        // Every possible admission/capacity error is resolved before writing.
+        Write((int)payloadOffset, original);
+        glyphBytes.CopyTo(_destination.Slice((int)payloadOffset + prefixSize, glyphBytes.Length));
+        _arenaSize = end;
+        return TryWriteDrawCommand(NativeSceneCommandKind.DrawRgbGlyphRun, commandId,
+            resourceIndex, bounds, payloadOffset, (uint)payloadSize, stateIndex, NativeSceneRecordFlags.Required);
+    }
+
     /// <summary>Paints each original occurrence directly, without a union mask.</summary>
     public bool TryDrawPaintedGlyphRun(ulong commandId, uint resourceIndex,
         NativeImageRect bounds, scoped ReadOnlySpan<NativePositionedGlyph> glyphs,
@@ -3185,6 +3228,8 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneCommandKind.DrawGlyphRun =>
                 NativeSceneResourceKind.GlyphRun,
             NativeSceneCommandKind.DrawPaintedGlyphRun =>
+                NativeSceneResourceKind.GlyphRun,
+            NativeSceneCommandKind.DrawRgbGlyphRun =>
                 NativeSceneResourceKind.GlyphRun,
             NativeSceneCommandKind.DrawImage =>
                 NativeSceneResourceKind.Image,

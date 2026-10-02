@@ -535,7 +535,8 @@ semantic_content_hashes compute_content_hashes(
                 index,
                 command,
                 effective_state_index);
-        } else if (is_glyph_command(command.kind)) {
+        } else if (is_glyph_command(command.kind) ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
             glyph_commands = append_active_layers(
                 glyph_commands, bytes, header, active_scopes, scope_depth);
             glyph_commands = append_glyph_command(
