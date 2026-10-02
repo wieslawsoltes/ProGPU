@@ -518,11 +518,11 @@ progpu_native_status render_scene(
                     if (sampler_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
                         const auto sampler = read_resource(sampler_picture);
                         progpu_native_scene_picture_image picture{};
-                        progpu_native_scene_presentation presentation{};
+                        progpu_native_scene_presentation sampler_presentation{};
                         if (!semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
-                                sampler.payload_size, picture, presentation) ||
+                                sampler.payload_size, picture, sampler_presentation) ||
                             picture.width != target_extent.width || picture.height != target_extent.height ||
-                            presentation.dpi_scale_x != 1.0F || presentation.dpi_scale_y != 1.0F)
+                            sampler_presentation.dpi_scale_x != 1.0F || sampler_presentation.dpi_scale_y != 1.0F)
                             return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
                                 "A WPF shader sampler must own the complete normalized physical source extent.");
                         const std::uint64_t cost = static_cast<std::uint64_t>(picture.width) * picture.height * 4U;

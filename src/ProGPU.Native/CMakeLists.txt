@@ -1749,7 +1749,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
+        src/Scene/progpu_native_scene.cpp
+        src/Scene/progpu_native_semantic_brush.cpp
+        src/Scene/progpu_native_semantic_color_glyph.cpp
         src/Scene/progpu_native_semantic_state.cpp
+        src/Scene/progpu_native_semantic_text_style.cpp
         src/Mil/progpu_native_mil_interop.cpp)
     target_compile_features(progpu_native_mil_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_mil_tests PRIVATE
