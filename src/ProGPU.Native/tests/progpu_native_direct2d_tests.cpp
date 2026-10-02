@@ -4,6 +4,7 @@
 #include "progpu_native_direct2d_brush_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
+#include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -749,6 +750,10 @@ int main()
             reinterpret_cast<compat::factory*>(compat_base_factory.Get()),
             reinterpret_cast<compat::factory*>(static_cast<ID2D1Factory*>(foreign_copy_factory.Get()))),
         "Windows formatted scene factory/copy contract failed");
+    require(progpu::native::direct2d::tests::owned_bitmap_scene_copy_contract(
+            reinterpret_cast<compat::factory*>(compat_base_factory.Get()),
+            reinterpret_cast<compat::factory*>(static_cast<ID2D1Factory*>(foreign_copy_factory.Get()))),
+        "Windows owned bitmap retained-copy contract failed");
 
     compat::scene_factory_native* raw_scene_factory = nullptr;
     require(

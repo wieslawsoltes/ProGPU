@@ -11,6 +11,7 @@
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
+#include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -1431,6 +1432,16 @@ void verify_formatted_scene_copies(const gpu_context& gpu, progpu_native_engine*
     }
 }
 
+void verify_owned_bitmap_scene_copies(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    auto parent = record_scene(9350U);
+    progpu::native::direct2d::tests::verify_owned_bitmap_scene_copy_pixels(parent.factory.get(),
+        [&](d2d::scene_render_target_native* scene, std::uint32_t draws,
+            std::uint32_t commands, std::uint64_t submissions) {
+            return render_scene(gpu, engine, scene, draws, commands, submissions);
+        }, require);
+}
+
 void verify_compatible_bitmap_uploads(const gpu_context& gpu, progpu_native_engine* engine)
 {
     // This independently updated target must not rewind the later main fixture.
@@ -2237,6 +2248,7 @@ int main(int argc, char** argv)
     verify_incremental_picture_backing(gpu, engine);
     verify_compatible_bitmap_uploads(gpu, engine);
     verify_formatted_scene_copies(gpu, engine);
+    verify_owned_bitmap_scene_copies(gpu, engine);
     verify_full_target_clear(gpu, engine);
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
