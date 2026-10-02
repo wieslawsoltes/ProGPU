@@ -41,6 +41,10 @@ with selected-lane dependencies and the original destination, alias and swizzle
 restrictions. Its 406 controls supplement, rather than replace, those original
 translation/arithmetic controls; paired GPU qualification is still required.
 
+The [matrix product family](native-shader-matrices.md) adds the five original
+matrix opcodes with validated consecutive rows, exact component counts and
+per-dot read-port checks. It preserves the original bytecode and register limits.
+
 Version 1 admits one untransformed implicit-input brush at opacity one. An
 explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)
 adds static, same-channel owned-bitmap capture without changing version 1.

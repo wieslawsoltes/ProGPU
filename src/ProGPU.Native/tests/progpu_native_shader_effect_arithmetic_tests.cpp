@@ -374,6 +374,109 @@ void cross_products(controls& test, bool three) {
         test.reject(invalid, "vertex-only comparison was admitted as a pixel instruction");
     }
 }
+
+void matrices(controls& test, bool three) {
+    constexpr std::array<std::array<std::uint32_t, 3U>, 5U> shapes{{
+        {20U, 4U, 4U}, {21U, 4U, 3U}, {22U, 3U, 4U}, {23U, 3U, 3U}, {24U, 3U, 2U}}};
+    for (const auto& shape : shapes) {
+        const auto opcode = shape[0], columns = shape[1], rows = shape[2];
+        const auto output_mask = (1U << rows) - 1U, input_mask = (1U << columns) - 1U;
+        const auto make = [&](std::uint32_t destination, std::uint32_t vector,
+                              std::uint32_t first_row) {
+            auto program = prefix(three);
+            instruction(program, 1U, dst(0U, 11U), {src(0U, 0U)});
+            instruction(program, opcode, destination, {vector, first_row});
+            finish(program, src(0U, 11U));
+            return program;
+        };
+        const auto destination = dst(0U, 11U, output_mask);
+        for (const auto swizzle : {0xE4U, 0x1BU, 0U, 0x55U, 0xAAU, 0xFFU}) {
+            for (const auto negate : {0U, 1U}) {
+                const auto program = make(dst(0U, 11U, output_mask, 1U),
+                    src(0U, 0U, swizzle, negate), src(2U, 32U - rows));
+                const auto body = test.accept(program);
+                const auto begin = body.find("let value5 = ");
+                const auto end = body.find("let value6 = ", begin);
+                const auto operation = body.substr(begin, end - begin);
+                require(operation.starts_with("let value5 = clamp(vec4<f32>(dot("),
+                    "matrix lost GPU dot execution or destination saturation");
+                std::size_t dots = 0U;
+                for (auto at = operation.find("dot("); at != std::string::npos;
+                     at = operation.find("dot(", at + 4U)) ++dots;
+                require(dots == rows, "matrix row count changed");
+                for (std::uint32_t row = 0U; row < 4U; ++row) {
+                    require((operation.find(std::string("r[11].") + "xyzw"[row] + " = value5.") !=
+                        std::string::npos) == (row < rows), "matrix changed unwritten destination components");
+                    if (row < rows) require(operation.find("(c[" + std::to_string(32U - rows + row) +
+                        "].xyzw)" + (columns == 3U ? ".xyz" : "")) != std::string::npos,
+                        "matrix source row or input width changed");
+                }
+            }
+        }
+        for (std::uint32_t mask = 0U; mask < 16U; ++mask) {
+            if (mask != output_mask) test.reject(make(dst(0U, 11U, mask), src(0U, 0U), src(2U, 0U)),
+                "matrix accepted a partial, empty or expanded write mask");
+        }
+        test.reject(make(destination, src(0U, 11U), src(2U, 0U)), "matrix vector aliased its destination");
+        test.reject(make(destination, src(0U, 0U), src(2U, 33U - rows)), "matrix constant row overflow accepted");
+        test.reject(make(destination, src(0U, 0U), src(0U, 13U - rows)), "matrix temporary row overflow accepted");
+        for (const auto row : {src(2U, 0U, 0U), src(2U, 0U, 0xE4U, 1U),
+                               src(2U, 0U, 0xE4U, 11U), src(2U, 0U, 0xE4U, 12U),
+                               src(2U, 0U) | 0x2000U, src(three ? 1U : 3U, 0U), src(10U, 0U)})
+            test.reject(make(destination, src(0U, 0U), row), "matrix row source contract widened");
+        for (const auto modifier : {2U, 11U, 12U})
+            test.reject(make(destination, src(0U, 0U, 0xE4U, modifier), src(2U, 0U)),
+                "matrix vector admitted unsupported modifier");
+        for (std::uint32_t vector_constant = 0U; vector_constant < rows; ++vector_constant)
+            test.reject(make(destination, src(2U, vector_constant), src(2U, 0U)),
+                "matrix did not check each expanded dot's constant read port");
+
+        // Independently prove every implied temporary row and vector component.
+        auto temporary = prefix(three);
+        instruction(temporary, 1U, dst(0U, 11U), {src(0U, 0U)});
+        instruction(temporary, 1U, dst(0U, 1U, input_mask), {src(0U, 0U)});
+        for (std::uint32_t row = 0U; row < rows; ++row)
+            instruction(temporary, 1U, dst(0U, row + 2U, input_mask), {src(0U, 0U)});
+        const auto matrix_at = temporary.size();
+        instruction(temporary, opcode, destination, {src(0U, 1U), src(0U, 2U)});
+        finish(temporary, src(0U, 11U));
+        test.accept(temporary);
+        auto constant_vector = temporary;
+        constant_vector[matrix_at + 2U] = src(2U, 31U);
+        test.accept(constant_vector); // One constant port per actual dot.
+        auto bank_end = prefix(three);
+        instruction(bank_end, 1U, dst(0U, 1U), {src(0U, 0U)});
+        for (std::uint32_t row = 0U; row < rows; ++row)
+            instruction(bank_end, 1U, dst(0U, 12U - rows + row, input_mask), {src(0U, 0U)});
+        const auto bank_operation = bank_end.size();
+        instruction(bank_end, opcode, dst(0U, 0U, output_mask), {src(0U, 1U), src(0U, 12U - rows)});
+        finish(bank_end);
+        test.accept(bank_end);
+        bank_end[bank_operation + 3U] = src(0U, 13U - rows);
+        test.reject(bank_end, "matrix implied final register escaped temporary bank without aliasing");
+        for (std::uint32_t operand = 0U; operand <= rows; ++operand) {
+            for (std::uint32_t lane = 0U; lane < columns; ++lane) {
+                auto missing = temporary;
+                missing[15U + 3U * operand] = dst(0U, operand + 1U, input_mask & ~(1U << lane));
+                test.reject(missing, "matrix read an undefined vector or implied row component");
+            }
+            auto alias = temporary;
+            alias[matrix_at + 1U] = dst(0U, operand + 1U, output_mask);
+            test.reject(alias, "matrix destination aliased vector or an implied source row");
+        }
+        // A two-component declared input is useful only with an explicit
+        // source swizzle providing every real vector component.
+        test.accept(make(destination, src(three ? 1U : 3U, 0U, 0x44U), src(2U, 0U)));
+        test.reject(make(destination, src(three ? 1U : 3U, 0U), src(2U, 0U)),
+            "matrix invented undeclared input components");
+        for (const auto header : {0x02000000U, 0x04000000U, 0x13000000U, 0x43000000U, 0x03010000U}) {
+            auto malformed = temporary;
+            malformed[matrix_at] = header | opcode;
+            test.reject(malformed, "matrix instruction framing, predicates or reserved bits ignored");
+        }
+    }
+}
+
 // Exercise the precise scalar load form independently of the existing CRS
 // admission controls. Only the required source lanes exist in these programs.
 void cross_scalar_sources(controls& test, bool three) {
@@ -440,6 +543,9 @@ bool run_shader_effect_arithmetic_tests() {
         shader_arithmetic_controls::controls cross;
         for (const bool three : {false, true}) shader_arithmetic_controls::cross_products(cross, three);
         std::cout << "shader effect original-bytecode cross-product controls: " << cross.count << " passed\n";
+        shader_arithmetic_controls::controls matrices;
+        for (const bool three : {false, true}) shader_arithmetic_controls::matrices(matrices, three);
+        std::cout << "shader effect original-bytecode matrix controls: " << matrices.count << " passed\n";
         shader_arithmetic_controls::controls scalar_sources;
         for (const bool three : {false, true}) shader_arithmetic_controls::cross_scalar_sources(scalar_sources, three);
         std::cout << "shader effect cross-product scalar-source controls: " << scalar_sources.count << " passed\n";
