@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -36,7 +37,7 @@ std::vector<std::byte> target_clear_scene(unsigned variant, Require require) {
     if (variant == 0U || variant == 1U) {
         require(builder.clear_target(variant == 0U ? progpu_native_color{0, 1, 0, 1} : progpu_native_color{}),
             "target Clear resource-free root command");
-    } else if (variant == 2U || variant == 3U || variant == 7U || variant == 9U) {
+    } else if (variant == 2U || variant == 3U || variant == 7U || variant >= 9U) {
         if (variant == 2U) rectangle({1, 0, 0, 1}, {0, 0, 64, 64});
         auto state = semantic_scene_builder::identity_state();
         // The collapsed basis, zero source opacity and actual per-point
@@ -48,6 +49,11 @@ std::vector<std::byte> target_clear_scene(unsigned variant, Require require) {
             "target Clear original guideline state");
         state.clip_rect = variant == 3U ? progpu_native_image_rect{0, 0, 0, 0} :
             variant == 7U ? progpu_native_image_rect{4, 6, 8, 10} : progpu_native_image_rect{8, 10, 12, 14};
+        if (variant == 10U) state.clip_rect = {8.25F, 10.75F, 12, 13};
+        if (variant == 11U) state.clip_rect = {8.5F, 10.5F, 12, 14};
+        if (variant == 12U) state.clip_rect = {std::nextafter(8.5F, 9.0F), std::nextafter(10.5F, 11.0F), 2, 2};
+        if (variant == 13U) state.clip_rect = {std::nextafter(8.5F, 8.0F), std::nextafter(10.5F, 10.0F), 2, 2};
+        if (variant == 14U) state.clip_rect = {4.25F, 6.25F, 8, 10};
         if (variant == 9U) {
             progpu_native_scene_layer_mask mask{};
             mask.struct_size = sizeof(mask); mask.bounds = {0, 0, 32, 32}; mask.opacity = 1;
@@ -96,7 +102,7 @@ std::vector<std::byte> target_clear_scene(unsigned variant, Require require) {
 
 template<class Render, class Require>
 void verify_native_target_clear(Render render, Require require) {
-    for (unsigned variant = 0U; variant < 10U; ++variant) {
+    for (unsigned variant = 0U; variant < 15U; ++variant) {
         const auto bytes = target_clear_scene(variant, require);
         const auto validated = scene::validate(bytes.data(), bytes.size());
         require(validated.status == PROGPU_NATIVE_STATUS_SUCCESS, "target Clear wire validation");
@@ -106,7 +112,7 @@ void verify_native_target_clear(Render render, Require require) {
             progpu_native_scene_frame_metrics metrics{}; metrics.struct_size = sizeof(metrics);
             const auto pixels = render(bytes, validated.header, validated.draw_count,
                 variant == 8U && replay == 0U ? 2U : 1U,
-                variant == 7U ? &mapped : nullptr,
+                variant == 7U || variant == 14U ? &mapped : nullptr,
                 variant == 9U ? PROGPU_NATIVE_STATUS_UNSUPPORTED : PROGPU_NATIVE_STATUS_SUCCESS, metrics);
             if (variant == 9U) {
                 require(pixels.empty() && metrics.submission_count == 0U, "per-draw target Clear mask submitted before rejection");
@@ -132,6 +138,13 @@ void verify_native_target_clear(Render render, Require require) {
                 }
                 if (variant == 7U && x >= 10U && x < 20U && y >= 16U && y < 31U) expected = {0, 255, 0, 255};
                 if (variant == 8U && x >= 8U && x < 24U && y >= 10U && y < 26U) expected = {0, 255, 0, 255};
+                // Literal intervals are independently derived from original
+                // pixel-center membership, not the renderer's allocation box.
+                if (variant == 10U && x >= 8U && x < 20U && y >= 11U && y < 24U) expected = {0, 255, 0, 255};
+                if (variant == 11U && x >= 8U && x < 20U && y >= 10U && y < 24U) expected = {0, 255, 0, 255};
+                if (variant == 12U && x >= 9U && x < 11U && y >= 11U && y < 13U) expected = {0, 255, 0, 255};
+                if (variant == 13U && x >= 8U && x < 10U && y >= 10U && y < 12U) expected = {0, 255, 0, 255};
+                if (variant == 14U && x >= 10U && x < 20U && y >= 16U && y < 31U) expected = {0, 255, 0, 255};
                 const auto offset = (y * 64U + x) * 4U;
                 if (std::memcmp(pixels.data() + offset, expected.data(), 4U) != 0)
                     std::fprintf(stderr, "Target Clear variant=%u replay=%u xy=%u,%u actual=%u,%u,%u,%u expected=%u,%u,%u,%u\n",
@@ -145,7 +158,7 @@ void verify_native_target_clear(Render render, Require require) {
             require(metrics.draw_call_count == draws && metrics.command_count == validated.header.command_count &&
                 metrics.submission_count == (variant == 8U && replay == 0U ? 2U : 1U),
                 "target Clear actual replay counts differ");
-            if (variant <= 1U || variant == 7U)
+            if (variant <= 1U || variant == 7U || variant >= 10U)
                 require(metrics.uniform_upload_bytes == 16U, "target Clear must upload its actual original color on every replay");
             if (variant == 3U) require(metrics.uniform_upload_bytes == 0U, "empty target Clear allocated a color uniform");
         }
