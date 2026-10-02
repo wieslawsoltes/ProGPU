@@ -16,6 +16,7 @@ internal static partial class Program
     private static void CaptureImageSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
     {
         double startedMilliseconds = timer.Elapsed.TotalMilliseconds;
+        int softwareArithmeticControls = SoftwareSamplerOracle.VerifyArithmeticControls();
         var observations = new List<object>();
         var originals = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         var failures = new List<string>();
@@ -77,7 +78,7 @@ internal static partial class Program
                     failures.Add($"{input.Name}: cold/warm/independent sampler pixels changed.");
                 first ??= pixels;
             }
-            if (input.NativeVariant >= 0 || input.ExactViewboxMapping) ++independentColors;
+            if (input.NativeVariant >= 0 || input.ExactViewboxMapping || input.TwoAxisCheckerboard) ++independentColors;
             if (input.EquivalentTo != null)
             {
                 if (!originals.TryGetValue(input.EquivalentTo, out var prior) || !prior.AsSpan().SequenceEqual(first))
@@ -89,11 +90,11 @@ internal static partial class Program
             {
                 input.Name, Input = description, Replays = 3, Pixels = first,
                 PixelSha256 = Convert.ToHexString(SHA256.HashData(first!)),
-                IndependentColorOracle = input.NativeVariant >= 0 || input.ExactViewboxMapping,
+                IndependentColorOracle = input.NativeVariant >= 0 || input.ExactViewboxMapping || input.TwoAxisCheckerboard,
                 input.EquivalentTo
             });
         }
-        if (observations.Count != 24 || independentColors != 18 || equivalentPairs != 5)
+        if (observations.Count != 28 || independentColors != 22 || equivalentPairs != 5)
             throw new InvalidOperationException("Original ImageBrush inventory is incomplete.");
         var receipt = new
         {
@@ -101,20 +102,21 @@ internal static partial class Program
             PresentationIdentity = typeof(ShaderEffect).Assembly.FullName,
             PresentationCore = FileIdentity(typeof(ShaderEffect).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
-            CaseCount = observations.Count, Cases = observations, Replays = 72,
+            CaseCount = observations.Count, Cases = observations, Replays = 84,
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
             IndependentColorCases = independentColors, EquivalentViewboxPairs = equivalentPairs,
+            SoftwareArithmeticControls = softwareArithmeticControls,
             Failures = failures,
             ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds - startedMilliseconds,
             Qualification = unavailable
                 ? "Original ARM64 unavailable-software control; no sampler shader pixels qualified."
-                : "Original Microsoft WPF ImageBrush observations. Eighteen independent color controls and five complete-pixel equivalence pairs; failures disqualify the entire capture. Not native/source-host/package parity."
+                : "Original Microsoft WPF ImageBrush observations. Twenty-two independent color controls and five complete-pixel equivalence pairs; failures disqualify the entire capture. Not native/source-host/package parity."
         };
         using (var output = new FileStream(Path.Combine(directory, failures.Count == 0 ? "image-samplers.json" : "image-samplers.failed.json"), FileMode.CreateNew))
             JsonSerializer.Serialize(output, receipt, new JsonSerializerOptions { WriteIndented = true });
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine($"Original ImageBrush: 24 cases / 72 replays / 5 viewbox pairs; {(unavailable ? 0 : 24)} source shader cases qualified.");
+        Console.WriteLine($"Original ImageBrush: 28 cases / 84 replays / 5 viewbox pairs; {(unavailable ? 0 : 28)} source shader cases qualified.");
     }
 
     private static readonly uint[] SamplerWords = [0xFFFF0200, 0x0200001F, 0x80000000, 0xB0030000,
@@ -139,6 +141,7 @@ internal static partial class Program
         public SamplingMode Sampling { get; init; } = SamplingMode.NearestNeighbor;
         public double TranslationX { get; init; }
         public bool Blue { get; init; }
+        public bool TwoAxisCheckerboard { get; init; }
         public int NativeVariant { get; init; } = -1;
         public bool ExactViewboxMapping { get; init; }
         public bool ParentNearest { get; init; }
@@ -214,6 +217,16 @@ internal static partial class Program
                 Viewport = new(0, 0, variant == 0 ? 1 : .5, 1), Tile = variant == 0 ? TileMode.None : TileMode.Tile,
                 Sampling = variant == 0 ? SamplingMode.NearestNeighbor : SamplingMode.Bilinear
             };
+        // Preserve all twenty-four original inputs. These exercise both source
+        // axes, including negative source coordinates after translation.
+        for (int variant = 0; variant < 4; ++variant)
+            yield return new($"sampler-mirror-two-axis-{variant}")
+            {
+                Height = 2, TwoAxisCheckerboard = true,
+                Viewport = new(0, 0, .5, 1), Sampling = SamplingMode.Bilinear,
+                Tile = variant switch { 0 => TileMode.FlipX, 1 => TileMode.FlipY, 2 => TileMode.FlipXY, _ => TileMode.FlipX },
+                TranslationX = variant == 3 ? 8 : 0
+            };
     }
 
     private static BitmapSource CreateSamplerBitmap(SamplerCase input, out byte[] pixels)
@@ -223,7 +236,8 @@ internal static partial class Program
         for (int x = 0; x < input.Width; ++x)
         {
             int at = (y * input.Width + x) * 4;
-            pixels[at + (x >= input.Width / 2 ? 1 : input.Blue ? 0 : 2)] = 255;
+            bool green = (x >= input.Width / 2) != (input.TwoAxisCheckerboard && y >= input.Height / 2);
+            pixels[at + (green ? 1 : input.Blue ? 0 : 2)] = 255;
             pixels[at + 3] = 255;
         }
         return BitmapSource.Create(input.Width, input.Height, input.DpiX, input.DpiY, PixelFormats.Pbgra32,
@@ -272,12 +286,27 @@ internal static partial class Program
                 byte actual = pixels[at + channel];
                 if (inside && actual != 0 && actual != 255) ++changed;
                 byte expected = 0;
-                bool exact = unavailable || !inside || input.NativeVariant >= 0 || input.ExactViewboxMapping;
+                bool exact = unavailable || !inside || input.NativeVariant >= 0 || input.ExactViewboxMapping || input.TwoAxisCheckerboard;
                 // On native ARM64 the unavailable software ImageBrush shader
                 // contributes no color, unlike the separate implicit-input
                 // controls that retain their original white input. Neither
                 // behavior qualifies shader execution on that architecture.
-                if (!unavailable && inside && input.NativeVariant >= 0 && (input.VisualNearest || input.ParentVisualNearest))
+                if (!unavailable && inside && input.TwoAxisCheckerboard)
+                {
+                    // The original SOFTWARE color source quantizes affine
+                    // coefficients and fractions, emits bytes, then applies
+                    // fixed-point opacity. This is not a GPU-filter oracle.
+                    float sx = (float)(input.Width / (input.Bounds.Width * input.Viewport.Width));
+                    float sy = (float)(input.Height / (input.Bounds.Height * input.Viewport.Height));
+                    long u = SoftwareSamplerOracle.Coordinate(sx, (float)input.TranslationX, x - (int)input.Bounds.X);
+                    long v = SoftwareSamplerOracle.Coordinate(sy, 0, y - (int)input.Bounds.Y);
+                    if (channel != 0)
+                        expected = SoftwareSamplerOracle.Checkerboard(u, v,
+                            input.Tile is TileMode.FlipX or TileMode.FlipXY,
+                            input.Tile is TileMode.FlipY or TileMode.FlipXY,
+                            channel == 1, SoftwareSamplerOracle.Coefficient((float)input.Opacity));
+                }
+                else if (!unavailable && inside && input.NativeVariant >= 0 && (input.VisualNearest || input.ParentVisualNearest))
                 {
                     int variant = input.NativeVariant;
                     int stripe = ((x - 8 + 32 - (variant == 2 ? 8 : 0)) / (variant == 0 ? 16 : 8)) & 1;

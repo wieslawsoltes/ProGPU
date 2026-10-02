@@ -187,3 +187,63 @@ Both receipts retain the original PresentationCore identity, actual visual-field
 state, all pixels and independent replays. The unchanged 25 arithmetic inputs
 also passed their architecture-specific controls. This establishes the original
 reference, not a native renderer, source-host or package qualification.
+
+## Two-axis mirrored source neighborhoods
+
+Four additive inputs use an original two-by-two red/green checkerboard at
+144/192 DPI, the unchanged 32x24 receiving bounds and 16x16 external clip,
+half-width viewport, half opacity and Bilinear shader sampler. FlipX, FlipY,
+FlipXY and translated FlipX address each original source neighbor before
+bilinear interpolation; the reference does not enlarge a clamped tile first.
+The independent expected colors retain original software pixel-center mapping,
+fixed-point coefficients and periodic/mirrored texel indices on both axes.
+Every output byte, opaque alpha,
+cold/warm/independent replay and the original shared deadline remains checked.
+
+The first twenty-four sampler inputs and all twenty-five arithmetic inputs are
+unchanged. The new complete inventory is 28 sampler inputs, 84 replays,
+22 independent color controls and five complete-pixel equivalence pairs.
+ARM64 still executes every input only as an unavailable-software control with
+zero qualified shaders. These new mirror observations are pending actual Windows
+execution; native-provider, source-host and package qualification remain separate.
+
+The first mirror capture at `ce17d4669a00bf66165eb91d7ed3c261cdc5466d`,
+workflow `37016244093`, x64 job `110867693904`, rejected the ideal continuous
+interpolation oracle. All first twenty-four pixel arrays were byte-identical to
+the earlier successful reference. The complete failed sampler receipt has SHA256
+`cecfa04c5df9952310b728036ff3b32d1cd24970667535e72cdc9217d9b0e24e`;
+all four new cases/replays and their raw/PNG inputs remain retained. No tolerance,
+removed input or passing receipt followed from that failure.
+
+Read-only original source at LibreWPF `381194e1` explains the software boundary:
+`WpfGfx/core/common/BaseMatrix.cpp` applies device/texel center mapping;
+`core/sw/swlib/bilinearspan.cpp` quantizes the inverse affine coefficients to
+16.16, retains the top eight fractional bits, independently addresses four source
+neighbors and rounds their single weighted byte sum. Its later
+`CConstantAlphaSpan` uses independently rounded 16.16 alpha on those bytes.
+`scanpipelinerender.cpp` emits brush bytes before `renderingbuilder.cpp` appends
+that effect. `processorfeatures.cpp` and `swrast.cpp` select this scalar image
+path on x64; the separate SSE2-for-effects capability does not select x86 image
+interpolation. These observable arithmetic contracts informed the independent
+`SoftwareSamplerOracle`; no original implementation was copied.
+
+For the recorded 2x2 image mapped to 16x24, the inverse coefficients are
+8192/65536 and 5461/65536; center offsets are -28672/65536 and -30037/65536.
+TranslateX=8 shifts the original X frame exactly. Fractions truncate to 1/256,
+the four-color weighted sum rounds once to a byte, then half-opacity rounds
+that byte separately. The resulting independent calculation matches all 65,536
+captured bytes. Nineteen arithmetic controls retain negative-coordinate floor,
+mirror periods, fractional truncation, positive/negative coefficient half ties,
+byte and alpha half-up rounding, and translated-coordinate identity.
+
+This corrects only the explicit original SoftwareOnly reference. It does not
+replace native hardware floating-point interpolation, change ProGPU defaults or
+establish that original hardware has the same rounding. The original four native
+mirror controls retain their independent floating-point image-address contract;
+Windows hardware, source-host and package parity still need their own evidence.
+
+After the software-oracle implementation commit, a dependency-free net10.0 host
+linked the actual committed C# oracle and passed all nineteen arithmetic controls
+plus every byte of all four immutable captured images. It loaded no WPF or native
+renderer. The original-only Windows-targeted project then compiled in 0.96 seconds
+with zero warnings/errors. A fresh hosted original capture remains required.
