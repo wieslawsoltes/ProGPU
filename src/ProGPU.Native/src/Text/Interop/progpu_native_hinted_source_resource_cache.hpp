@@ -12,6 +12,7 @@ struct hinted_source_resource_cache final {
     std::vector<progpu_native_hinted_source_positioning_run> positioning_runs{};
     std::vector<progpu_native_hinted_source_fitting_slice> slices{};
     std::vector<std::uint32_t> slice_indices{};
+    std::vector<std::uint8_t> breaks_after{};
     std::vector<progpu_native_hinted_source_fitted_line> lines{};
     progpu_native_hinted_source_glyph_resource_view view{};
     bool allocation_aliases(const void* output, std::size_t bytes) const noexcept;

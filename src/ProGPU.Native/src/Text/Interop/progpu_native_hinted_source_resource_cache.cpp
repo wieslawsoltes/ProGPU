@@ -19,7 +19,7 @@ bool hinted_source_resource_cache::allocation_aliases(const void* output, std::s
     const owned_output_range range{output, bytes};
     return range.overlaps(this, sizeof(*this)) || range.overlaps(raw) || range.overlaps(effective) ||
         range.overlaps(prepared) || range.overlaps(positioning_runs) || range.overlaps(slices) ||
-        range.overlaps(slice_indices) || range.overlaps(lines);
+        range.overlaps(slice_indices) || range.overlaps(lines) || range.overlaps(breaks_after);
 }
 
 bool cache_hinted_source_resource(const hinted_paragraph_generation& paragraph,
@@ -35,6 +35,7 @@ bool cache_hinted_source_resource(const hinted_paragraph_generation& paragraph,
     const auto count = paragraph.logical_glyphs.size();
     cache->raw.resize(count); cache->effective.resize(count);
     cache->slice_indices = fitting.slice_indices;
+    for (const auto value : paragraph.breaks_after) cache->breaks_after.push_back(static_cast<std::uint8_t>(value));
     cache->slices.resize(fitting.slices.size());
     std::vector<std::uint32_t> slice_starts(fitting.slices.size(), UINT32_MAX), slice_counts(fitting.slices.size(), 0U);
     for (std::size_t i = 0U; i < count; ++i) {
@@ -82,6 +83,7 @@ bool cache_hinted_source_resource(const hinted_paragraph_generation& paragraph,
     view.raw_logical_glyphs = data(cache->raw); view.effective_logical_glyphs = data(cache->effective);
     view.positioning_runs = data(cache->positioning_runs); view.prepared_glyphs = data(cache->prepared);
     view.slices = data(cache->slices); view.slice_indices = data(cache->slice_indices); view.fitted_lines = data(cache->lines);
+    view.breaks_after = data(cache->breaks_after);
     result = std::move(cache);
     return true;
 }
