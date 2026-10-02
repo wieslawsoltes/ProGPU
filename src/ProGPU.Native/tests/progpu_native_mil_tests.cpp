@@ -22143,6 +22143,10 @@ bool original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire() 
     control.history = shader_local_history::flat;
     PROGPU_REQUIRE(build_shader_local_scene(raw, 32U, control, scene, false, 2.0, 3.0, 1.5) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
     PROGPU_REQUIRE(scene == before);
+    control.dpi = 1.25F;
+    PROGPU_REQUIRE(build_shader_local_scene(raw, 35U, control, scene, false, 2.0, 3.0, .8, .8) == PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND);
+    PROGPU_REQUIRE(scene == before);
+    control.dpi = 1.0F;
     // Rejection cannot poison the next proven generation or earlier immutable ownership.
     PROGPU_REQUIRE(build_shader_local_scene(raw, 33U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
     owner.reset();

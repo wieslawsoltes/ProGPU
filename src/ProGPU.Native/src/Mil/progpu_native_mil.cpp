@@ -20110,11 +20110,20 @@ struct channel::implementation {
             if (capture_frame.capture_width != 0U) {
                 const auto coverage = native::shader_effect::output_coverage(capture_frame);
                 auto final_scope = state;
-                intersect_scope_clip(final_scope, {
+                const progpu_native_image_rect output_clip{
                     static_cast<float>(coverage.left / capture_frame.source_dpi_x),
                     static_cast<float>(coverage.top / capture_frame.source_dpi_y),
                     static_cast<float>((coverage.right - coverage.left) / capture_frame.source_dpi_x),
-                    static_cast<float>((coverage.bottom - coverage.top) / capture_frame.source_dpi_y)});
+                    static_cast<float>((coverage.bottom - coverage.top) / capture_frame.source_dpi_y)};
+                // Existing clip transport is logical float, not an opaque
+                // physical-scissor escape hatch. Prove the round trip instead
+                // of assuming total dyadic scale implies dyadic original DPI.
+                if (static_cast<double>(output_clip.x) * capture_frame.source_dpi_x != coverage.left ||
+                    static_cast<double>(output_clip.y) * capture_frame.source_dpi_y != coverage.top ||
+                    static_cast<double>(output_clip.x + output_clip.width) * capture_frame.source_dpi_x != coverage.right ||
+                    static_cast<double>(output_clip.y + output_clip.height) * capture_frame.source_dpi_y != coverage.bottom)
+                    return status::unsupported_command;
+                intersect_scope_clip(final_scope, output_clip);
                 const auto clip_status = attach_visual_output_clip(layer, final_scope, builder);
                 if (clip_status != status::success) return clip_status;
             } else {

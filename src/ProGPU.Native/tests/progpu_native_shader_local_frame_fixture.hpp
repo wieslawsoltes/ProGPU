@@ -43,7 +43,7 @@ inline constexpr std::array shader_local_cases{
 inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_channel* channel,
     std::uint32_t variant, const shader_local_case& test, std::vector<std::byte>& scene,
     bool baseline = false, double device_x = 2.0, double device_y = 3.0,
-    double extra_scale = 1.0) {
+    double extra_scale = 1.0, double extra_scale_y = 1.0) {
     using mil::command;
     using mil_clip_fixture_detail::append;
     using mil_clip_fixture_detail::packet;
@@ -69,7 +69,7 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
     const double child_scale = test.history == shader_local_history::nested ? .5 :
         test.history == shader_local_history::separately_narrowed ? separate : 1.0;
     packet(batch, command::matrix_transform, 13U, parent_scale,0.0,0.0,parent_scale,0.0,0.0,0U);
-    packet(batch, command::matrix_transform, 14U, child_scale * extra_scale,0.0,0.0,child_scale,bounds_translation,0.0,0U);
+    packet(batch, command::matrix_transform, 14U, child_scale * extra_scale,0.0,0.0,child_scale * extra_scale_y,bounds_translation,0.0,0U);
     packet(batch, command::visual_set_transform, 12U, 13U);
     packet(batch, command::visual_set_transform, 1U, 14U);
     packet(batch, command::visual_set_render_options, 1U, 3U,1U,0U,3U,0U,0U,0U);

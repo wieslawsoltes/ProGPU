@@ -39,6 +39,11 @@ It differs at both positive and negative half/17-over-32 boundaries from generic
 ceil/floor. Intersect that integer rectangle with the existing final clip only;
 do not crop input or change E. Anti-aliased fractional output remains unadmitted
 until its separate coverage contract is implemented.
+The existing logical-float clip transport must also round-trip each physical
+integer boundary exactly through original DPI. An exact total scale alone does
+not prove this: DPI 1.25 with a compensating source scale can still lose clip-edge
+identity on division. Such source input stays rejected until a real physical clip
+transport or equally exact mapping is implemented.
 
 The first inverse proof deliberately bounds accumulated positive scales to exact
 powers of two in [1/256,256]. This is an internal proof boundary, **not** a new
