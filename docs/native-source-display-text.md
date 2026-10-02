@@ -59,8 +59,8 @@ interaction and raster arrays retain the same original paragraph owner, includin
 after context retirement and width-changing continuation.
 
 This first lane deliberately admits no tabs, objects, justification or trimming.
-Raw device offsets are projected unchanged; this is not yet the original WPF
-offset-conversion contract. Original unsafe shaping flags remain immutable;
+Raw offset projection remains the default; the explicit source conversion below
+is a separate policy, not a changed raw result. Original unsafe shaping flags remain immutable;
 the bounded placement family below can fit proven original prepared boundaries.
 Required next work is the original offset policy and paired optional
 source binding/transport. No source-local division,
@@ -161,6 +161,52 @@ contract and an independent source oracle before provider advertisement; the
 800 matching advances alone cannot establish them.
 
 ## Qualification
+
+### Explicit source arithmetic
+
+The float-capture em choice narrows em and DPI separately, forms their float
+product, then selects the nearest positive physical em with half-up ties.
+Original arbitrary doubles remain owned and are never overwritten by those
+capture arguments. Existing exact-26.6/double-half-up/double-even choices retain
+their original arithmetic. The expanded Windows corpus distinguishes this
+choice from double-only midpoint selection: adjacent doubles around 18.5 and
+20.5 narrow to the same original GDI em argument.
+
+Independent advance and offset policies now represent the original source's
+ideal-unit conversion explicitly. Each device value becomes float DIP geometry
+using the float capture DPI. Advances round to even at 300 ideal units per DIP;
+offsets truncate toward zero. The retained integer is multiplied by the original
+1/300 constant, rounded physically to even using original double DPI, and divided
+by that original DPI. A positive ideal integer retains the original minimum
+1/300 result when physical rounding would produce zero. Wire Y reflection occurs
+around this sign-sensitive conversion. Source geometry, placement fitting,
+intrinsic widths and interaction consume this same selected result; raw run and
+logical 26.6 records stay unchanged. Nonfinite/overflowing conversions reject
+atomically. There is no source-side repair or manufactured epsilon rule.
+
+These independently authored operations follow original `TextAnalyzer.cpp`
+float placement and ideal-unit conversion, followed by
+`TextFormatterImp.IdealToReal`; they do not prove that native device placement
+equals every original DirectWrite placement. Successful Windows v3 captures at
+source `6ef45fee1be4dc1bbf11cf3328c5fcf3086496ac`, Build `36998540745`, have
+288 identical cases across architectures except original FontUri drive paths.
+The x64 receipt hash is `c389f0a6ecdfc6c7e0b9799733da945fdc8c07a360fe8deab19a8f4f5ba53c93`;
+ARM64 is `e705d6469bd41568887d7e5dcaee2833142ee36497de6795b357895c5aeb6ab1`.
+
+A bounded CPU-only diagnostic used the already-qualified 603 native module
+listed above, with exact original Inter/Noto font bytes and immutable CreateNew
+output. Its raw receipt hash is
+`8ebea765dc346da20577605706202935a2977f6afce5072ac3c9062a740c2cdb`;
+the derived conversion hypothesis hash is
+`53d90b044faa73a64a298f78d21e0566a4f1f9d8952b62fb2843891559bd30a1`.
+For strict original-occurrence-aligned Inter, candidate physical em 19 and 21
+each match all 312 advance occurrences and 48 nonzero-X offset occurrences per
+midpoint/interpreter after the explicit source conversion. Lower candidates
+fail advances. The corpus does not distinguish all conversion-order ties and
+contains no nonzero Y offsets. Hebrew has real odd nonzero offsets but different
+within-cluster original/native occurrence order, so its shaped comparisons stay
+rejected rather than reordered. Float-product midpoint edges, complete RTL
+source mapping and actual source/renderer import remain qualification gates.
 
 This implementation-first checkpoint has no new native, font, renderer, GPU,
 source-app or package execution evidence. Display activation stays guarded until

@@ -13,12 +13,19 @@ namespace progpu::native::text {
 enum class hinted_source_em_policy : std::uint32_t {
     exact_26_6,
     nearest_half_up,
-    nearest_ties_to_even
+    nearest_ties_to_even,
+    float_capture_nearest_half_up
 };
 
 enum class hinted_source_advance_policy : std::uint32_t {
     unchanged,
-    physical_ties_to_even
+    physical_ties_to_even,
+    source_ideal_units
+};
+
+enum class hinted_source_offset_policy : std::uint32_t {
+    unchanged,
+    source_ideal_units
 };
 
 struct hinted_source_style final {
@@ -26,6 +33,7 @@ struct hinted_source_style final {
     double pixels_per_dip = 0.0;
     hinted_source_em_policy em_policy = hinted_source_em_policy::exact_26_6;
     hinted_source_advance_policy advance_policy = hinted_source_advance_policy::unchanged;
+    hinted_source_offset_policy offset_policy = hinted_source_offset_policy::unchanged;
 };
 
 struct hinted_source_device_selection final {
@@ -49,6 +57,14 @@ bool project_hinted_source_advance(const shaping_glyph& original,
 // Exact device-to-original-source division, after policy and wire-Y selection.
 // Neither a float metric nor a rounded reciprocal is an input to this operation.
 bool project_hinted_source_geometry(const shaping_glyph& fitting, double pixels_per_dip,
+    text_source_glyph_metrics& result) noexcept;
+
+// Explicit original-source conversion. The selected source-ideal lane narrows
+// DIP placement to float, converts to 300 ideal units (advance ties-to-even,
+// offset truncation), then uses original double DPI and the source positive
+// minimum. Wire Y is reflected around that conversion, not before its sign rule.
+// Raw wire/run metrics and both original source doubles remain unchanged.
+bool project_hinted_source_geometry(const shaping_glyph& fitting, const hinted_source_style& source,
     text_source_glyph_metrics& result) noexcept;
 
 } // namespace progpu::native::text

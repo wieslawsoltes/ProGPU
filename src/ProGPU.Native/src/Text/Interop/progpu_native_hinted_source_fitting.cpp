@@ -126,7 +126,7 @@ progpu_native_status compose_candidate(const hinted_paragraph_generation& paragr
         const auto& original = paragraph.logical_glyphs[i];
         const auto style = paragraph.runs[paragraph.logical_owners[i].run_index].style_index;
         if (glyph.glyph_id != original.glyph_id || glyph.cluster != original.cluster || glyph.code_point != original.code_point ||
-            glyph.advance_y != 0 || !project_hinted_source_geometry(glyph, paragraph.source_styles[style].pixels_per_dip,
+            glyph.advance_y != 0 || !project_hinted_source_geometry(glyph, paragraph.source_styles[style],
                 candidate.metrics[i - start])) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
         candidate.width += candidate.metrics[i - start].advance_x;
         candidate.nonnegative_advances &= candidate.metrics[i - start].advance_x >= 0.0;
@@ -169,7 +169,7 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
         for (std::size_t i = 0U; i < count; ++i) {
             const auto owner = paragraph.logical_owners[i];
             const auto style = paragraph.runs[owner.run_index].style_index;
-            if (!project_hinted_source_geometry(paragraph.logical_glyphs[i], paragraph.source_styles[style].pixels_per_dip, fitted->metrics[i])) return result;
+            if (!project_hinted_source_geometry(paragraph.logical_glyphs[i], paragraph.source_styles[style], fitted->metrics[i])) return result;
         }
         if (!safe_boundary(paragraph, first_logical_glyph)) { result.status = PROGPU_NATIVE_STATUS_UNSUPPORTED; return result; }
         std::size_t visits = 0U;
@@ -332,7 +332,7 @@ bool validate_hinted_source_fitting(const hinted_paragraph_generation& paragraph
         if (!wire_fitting(*raw, paragraph.source_styles[run.style_index].advance_policy, expected) ||
             !same(expected, fitting.fitting_glyphs[i]) || expected.glyph_id != paragraph.logical_glyphs[i].glyph_id ||
             expected.code_point != paragraph.logical_glyphs[i].code_point || expected.cluster != paragraph.logical_glyphs[i].cluster ||
-            !project_hinted_source_geometry(expected, paragraph.source_styles[run.style_index].pixels_per_dip, geometry) ||
+            !project_hinted_source_geometry(expected, paragraph.source_styles[run.style_index], geometry) ||
             !same(geometry, fitting.metrics[i]) || !same(geometry, paragraph.source_logical_metrics[i])) return false;
     }
     std::size_t declared_slice_glyphs = 0U;
