@@ -24,12 +24,16 @@ public sealed partial class HmiDesignerHost
             "Add a protocol profile, configure the host, then map an existing tag to its address/topic/node. Connect read-only is a separate action."));
         Add("HmiSetupComponents", "3. Components", () =>
         {
+            if (_inspectorPane.DisplayMode == SplitViewDisplayMode.Overlay)
+                _inspectorPane.IsPaneOpen = false;
             _libraryTabs!.SelectedIndex = _libraryTabs.Items.IndexOf(_componentsPage);
             _libraryPane.IsPaneOpen = true;
             Status("Search the component library, then drag, draw or insert a symbol. Format changes its graphic convention.");
         });
         Add("HmiSetupBindings", "4. Bind selected", () =>
         {
+            if (_libraryPane.DisplayMode == SplitViewDisplayMode.Overlay)
+                _libraryPane.IsPaneOpen = false;
             _inspectorTabs.SelectedIndex = _inspectorTabs.Items.IndexOf(_propertiesPage);
             _inspectorPane.IsPaneOpen = true;
             Status(IsPreviewing
