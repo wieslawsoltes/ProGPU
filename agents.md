@@ -1,5 +1,11 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+The isolated drawing package group includes the real Native and Dawn backend
+dependencies in source-reference order. Preserve exact version closure and native
+runtime validation; consumers stage real payloads only from the exact successful
+whole producer Build. Source manifest checks do not qualify packages or permit
+fake runtimes. See docs/drawing-native-package-closure.md.
+
 EDIT boundary transport classifies the complete original UTF-16 source with its
 explicit paragraph direction once. Preserve the existing policy/dependency errors,
 original endpoints and interior-grapheme seams; never substitute UAX word stops,
@@ -67,6 +73,15 @@ only surviving content. Keep public clear RGBA straight, honor actual IGNORE alp
 and premultiply once at ordinary scene submission. Compatible picture conversion
 remains independent. Scoped Clear and failed recordings remain explicit rejection.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
+
+Direct2D ordinary scene copies require explicit immutable pixel-format admission
+through the separate formatted factory capability. Keep legacy UNKNOWN targets
+formatless and preserve both original factory vtables. Capture source commands
+before destination locking into owned picture bytes, never retain target cycles,
+read pixels back or infer formats from the destination. Keep physical copy bounds,
+exact factory/format/alpha identity and uniform-DPI history checks. Device-unbound
+IsSupported must not claim hardware/software, GDI/remoting or feature levels;
+its documented query ignores DPI. Authored fixtures are not Windows/GPU parity.
 
 Owned Cocoa popup surfaces allocate real nonactivating NSPanels, never reclassify
 GLFW objects or exchange their content views/delegates. Keep hidden creation,

@@ -1,5 +1,66 @@
 # Native MIL compositor
 
+## Channel resource teardown
+
+The canonical `MilCmdTransportDestroyResourcesOnChannel` packet now removes the
+complete resource graph owned by one ProGPU MIL channel. Exact generated framing
+is required. Unlike individual deletes, this whole-graph operation also retires
+interdependent resources, typed bitmap/font/visibility sidebands and retained
+preparation keys. It runs inside the existing candidate transaction: a later
+invalid packet preserves the published graph and its scene cache. Only successful
+batch publication invalidates the borrowed compiled-scene view. Previously copied
+pointer-free scene streams and other channels remain independent.
+
+The atomic hinted-glyph update follows that same reset boundary: a successful
+reset packet in its unpublished candidate ends prior font associations before
+same-handle recreation/binding. Ordinary glyph recreation still cannot silently
+replace an already associated source font. A failed later binding preserves the
+published graph, original font association, borrowed scene cache and last successful
+hinted metrics. Matched controls use the original byte-distinct ProGPU shape/mapping
+font fixtures, retain the ordinary rejection, verify late-failure rollback and
+compile the accepted replacement from its new retained hinted resource.
+The decoder and hinted regression translation unit pass strict C++20 Clang
+syntax checks with hinting enabled, and the regenerated coverage ledger plus the
+complete native-contract verifier pass. The verifier initially required adding
+its missing managed Unicode source directory to this sparse worktree. These are
+bounded source/contract checks, not native regression execution or GPU qualification.
+
+The existing stroke-preparation accounting owner survives the reset: outstanding
+immutable preparation leases remain charged until their original final release.
+No renderer engine, queue, GPU submission, external texture owner or native window
+is destroyed or synchronously drained. The channel object remains usable for
+later batches; this is resource cleanup, not a claim to implement Microsoft's
+whole connection/partition shutdown or cross-channel resource duplication.
+`NativeMilBatchBuilder.DestroyResourcesOnChannel` emits the canonical twelve-byte
+record (length, opcode and transport channel tag) inside a caller's current batch;
+it does not clear the authored command buffer. The receiving channel object owns
+the graph; the preserved transport tag does not route into a different channel.
+
+This is an original extension of ProGPU's existing transactional channel and
+complete typed graph, informed only by the canonical generated wire layout and
+the resource-teardown behavior of WPF's
+[transport shutdown command](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/WpfGfx/core/uce/composition.cpp).
+No upstream implementation text is incorporated. Both C++ providers share this
+decoder and C export. The managed renderer does not decode MIL channels; the
+managed native-MIL producer is updated alongside the native consumer. Resource
+destruction follows dependent container/lease ownership, not an independent
+numeric workload suitable for SIMD or GPU dispatch. Reset costs O(R + B) for R
+retained entries and B owned payload bytes, within the existing batch-clone cost;
+it introduces no per-resource managed/native crossings.
+
+Authored controls cover exact framing, dependencies, metrics, invalid-tail
+rollback, warm scene-cache invalidation, bitmap and visibility retirement,
+independent channels, repeated empty cleanup, subsequent source batches and the
+shared C ABI. Managed encoding checks preserve preceding packets. Validation is
+deferred until after the implementation commit, per the current work policy;
+full provider/package and application checks remain required before merge.
+The first hosted native execution caught omitted wire fields in the new reset
+producer and glyph-deletion control: the former requires a channel tag, and the
+latter requires its resource type. Both writers now retain those canonical fields;
+the decoder's exact generated size checks and expected failure statuses were not
+relaxed. Explicit truncated/oversized reset controls and managed channel-tag
+round trips accompany the correction. The corrected hosted run remains required.
+
 ## Goal
 
 ProGPU will provide a reflection-free C++ composition endpoint that can consume
