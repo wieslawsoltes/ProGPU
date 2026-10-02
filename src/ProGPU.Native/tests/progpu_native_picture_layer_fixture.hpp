@@ -8,6 +8,101 @@
 
 namespace progpu::native::tests {
 
+template<class Render, class Require>
+void verify_picture_layer_rejections(Render render, Require require) {
+    for (unsigned variant = 0U; variant < 8U; ++variant) {
+        semantic_scene_builder child(0x94C0U + variant, 1U);
+        if (variant == 7U) {
+            progpu_native_matrix_4x4 identity{};
+            identity.m11 = identity.m22 = identity.m33 = identity.m44 = 1.0F;
+            progpu_native_scene_camera_3d camera{};
+            camera.struct_size = sizeof(camera);
+            camera.view = camera.projection = identity;
+            progpu_native_scene_line_3d line{};
+            line.struct_size = sizeof(line);
+            line.start = {-0.5F, 0, 0, 0};
+            line.end = {0.5F, 0, 0, 0};
+            line.color = {1, 1, 1, 1};
+            line.thickness = line.opacity = 1.0F;
+            line.transform = identity;
+            require(child.draw_lines_3d({&line, 1U}, camera, {0, 0, 4, 4}), "mapped rejected 3D record");
+        } else {
+            progpu_native_scene_layer layer{};
+            layer.struct_size = sizeof(layer);
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+            layer.bounds = {0, 0, 4, 4};
+            layer.opacity = 1.0F;
+            layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (variant <= 1U) {
+                layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
+                layer.content_revision = layer.composite_revision = 1U;
+                if (variant == 1U) layer.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE;
+            }
+            if (variant == 1U || variant == 2U) {
+                if (variant == 2U) layer.flags |= PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+                progpu_native_scene_state state{};
+                state.struct_size = sizeof(state);
+                state.transform = semantic_scene_builder::identity_transform();
+                state.opacity = 1.0F;
+                state.mask_resource_index = state.guideline_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                require(child.add_state(state, layer.reserved0), "mapped rejected composite state");
+            }
+            if (variant == 3U) layer.flags |= PROGPU_NATIVE_SCENE_LAYER_BACKDROP;
+            if (variant == 4U) {
+                progpu_native_group_effect blur{};
+                blur.kind = PROGPU_NATIVE_GROUP_EFFECT_GAUSSIAN_BLUR;
+                blur.revision = 1U;
+                blur.sigma_x = blur.sigma_y = 1.0F;
+                require(child.add_effect_chain({&blur, 1U}, 1U, layer.effect_resource_index), "mapped rejected effect");
+            }
+            if (variant == 5U) {
+                progpu_native_scene_layer_mask mask{};
+                mask.bounds = layer.bounds;
+                mask.transform = semantic_scene_builder::identity_transform();
+                mask.opacity = 1.0F;
+                require(child.add_rounded_rectangle_mask(mask, layer.mask_resource_index), "mapped rejected layer mask");
+            }
+            if (variant == 6U) layer.blend_mode = PROGPU_NATIVE_BLEND_MULTIPLY;
+            std::uint32_t brush{};
+            progpu_native_analytic_primitive rectangle{};
+            rectangle.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+            rectangle.width = rectangle.height = 4.0F;
+            rectangle.color = {1, 1, 1, 1};
+            rectangle.transform = semantic_scene_builder::identity_transform();
+            require(child.add_solid_brush({1, 1, 1, 1}, 1.0F, brush) && child.push_layer(layer) &&
+                child.draw_analytic({&rectangle, 1U}, {&brush, 1U}, layer.bounds) && child.pop_layer(),
+                "mapped rejected layer record");
+        }
+        std::vector<std::byte> nested;
+        require(child.build(nested), "mapped rejected nested capture must remain valid");
+        const auto generation = 300U + variant;
+        semantic_scene_builder parent(0x9491U, generation);
+        progpu_native_scene_picture_image picture{};
+        picture.struct_size = sizeof(picture);
+        picture.flags = PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION;
+        picture.width = picture.height = 16U;
+        picture.dpi_scale = 1.0F;
+        const progpu_native_scene_presentation presentation{sizeof(presentation), 0U, 0U, 16U, 16U, 2.0F, 1.0F, 0U};
+        std::uint32_t resource{};
+        progpu_native_scene_image_draw image{};
+        image.image_width = image.image_height = 16U;
+        image.row_bytes = 64U;
+        image.flags = PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED;
+        image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+        image.max_anisotropy = 1U;
+        image.opacity = 1.0F;
+        image.transform = semantic_scene_builder::identity_transform();
+        image.source_rect = image.destination_rect = {0, 0, 16, 16};
+        std::vector<std::byte> stream;
+        require(parent.add_picture_image(picture, &presentation, nested, resource) &&
+            parent.draw_image(resource, image, image.destination_rect) && parent.build(stream),
+            "mapped rejected parent capture must remain valid");
+        // Zero requests an explicit render rejection, never a relaxed count.
+        require(render(false, stream, generation, 0U).empty(), "mapped prohibited contract was admitted");
+    }
+}
+
 // Actual nested captures with two materialized layers, a per-draw clip and
 // transparent SRC replacement. The independent scene records physical geometry
 // at uniform DPI; the integer oracle does not use renderer mapping helpers.
@@ -149,6 +244,7 @@ void verify_picture_layer_presentation(Render render, Require require) {
             }
         }
     }
+    verify_picture_layer_rejections(render, require);
 }
 
 } // namespace progpu::native::tests

@@ -5203,3 +5203,12 @@ capture requires three submissions initially, two with its unchanged nested
 leaf retained; each warm replay requires one. The original formatted Direct2D
 copy assertions remain unchanged. No local native/GPU execution or runtime
 staging was performed; hosted exact-head qualification is still required.
+
+Both provider fixtures also author eight actual render-rejection cases: cache,
+local cache, composite state, backdrop, effect, layer mask, advanced blend and
+3D. Each nested stream must pass transactional wire validation first, then fail
+picture rendering with no encoded command or submission and an unchanged engine
+submission timeline. These controls do not treat an invalid test stream as proof
+of the renderer's admission gate. Strict post-commit C++20 syntax checks passed
+the shared state implementation, complete builder-test unit and positive fixture
+template; no provider GPU test has been run locally.

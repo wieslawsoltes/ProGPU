@@ -720,7 +720,8 @@ struct portable_scene final {
     std::uint64_t mil_scene_id = 9011U,
     std::uint64_t mil_generation = 1U,
     progpu_native_scene_frame_metrics* observed_metrics = nullptr,
-    float dpi_scale = 1.0F)
+    float dpi_scale = 1.0F,
+    bool expect_picture_rejection = false)
 {
     WGPUTextureDescriptor texture_descriptor{};
     texture_descriptor.label = "ProGPU portable Direct2D target";
@@ -749,9 +750,15 @@ struct portable_scene final {
         reinterpret_cast<std::uintptr_t>(view),
         PROGPU_NATIVE_SCENE_FRAME_NONE};
     progpu_native_status render_status = PROGPU_NATIVE_STATUS_SUCCESS;
+    std::uint64_t submission_before{};
+    if (expect_picture_rejection)
+        require(progpu_native_engine_get_last_submission(engine, &submission_before) == PROGPU_NATIVE_STATUS_SUCCESS,
+            "mapped rejection submission query failed");
     if (!mil_scene.empty()) {
         render_status = progpu_native_engine_update_scene(
             engine, mil_scene.data(), mil_scene.size(), &scene_metrics);
+        if (expect_picture_rejection) require(render_status == PROGPU_NATIVE_STATUS_SUCCESS,
+            "mapped prohibited fixture failed wire validation instead of render admission");
         if (render_status == PROGPU_NATIVE_STATUS_SUCCESS) {
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
@@ -774,6 +781,17 @@ struct portable_scene final {
             &scene_metrics,
             &frame_metrics,
             &diagnostics);
+    }
+    if (expect_picture_rejection) {
+        std::uint64_t submission_after{};
+        require(progpu_native_engine_get_last_submission(engine, &submission_after) == PROGPU_NATIVE_STATUS_SUCCESS &&
+            submission_after == submission_before && render_status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+            scene_metrics.draw_count == 1U && frame_metrics.command_count == 0U && frame_metrics.submission_count == 0U,
+            "mapped prohibited picture contract was rendered or submitted");
+        wgpuTextureViewRelease(view);
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return {};
     }
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
         d2d::scene_render_target_summary target_summary{};
@@ -2114,7 +2132,7 @@ int main(int argc, char** argv)
     const auto render_picture =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_scene(gpu, reference ? picture_reference_engine : engine,
-                nullptr, 1U, 1U, submissions, stream, 0x9491U, generation);
+                nullptr, 1U, 1U, submissions, stream, 0x9491U, generation, nullptr, 1.0F, submissions == 0U);
         };
     progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
     progpu::native::tests::verify_picture_resource_ownership(render_picture, require);

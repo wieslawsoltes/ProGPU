@@ -3504,7 +3504,22 @@ int main(int argc, char** argv) {
             frame.generation = generation;
             progpu_native_scene_frame_metrics metrics{};
             metrics.struct_size = sizeof(metrics);
-            require(progpu_native_engine_render_scene(picture_engine, &frame, &metrics) ==
+            std::uint64_t before{};
+            require(progpu_native_engine_get_last_submission(picture_engine, &before) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "mapped Dawn submission query failed");
+            const auto status = progpu_native_engine_render_scene(picture_engine, &frame, &metrics);
+            if (submissions == 0U) {
+                std::uint64_t after{};
+                require(progpu_native_engine_get_last_submission(picture_engine, &after) == PROGPU_NATIVE_STATUS_SUCCESS &&
+                    before == after && status == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                    metrics.command_count == 0U && metrics.submission_count == 0U,
+                    "mapped prohibited Dawn picture contract was rendered or submitted");
+                resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(picture_view);
+                resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(picture_texture);
+                api.destroy_canvas(provider, picture_canvas);
+                return std::vector<std::uint8_t>{};
+            }
+            require(status ==
                     PROGPU_NATIVE_STATUS_SUCCESS && metrics.command_count == 1U && metrics.submission_count == submissions,
                 "axis picture Dawn render failed");
             resolve<WGPUProcTextureViewRelease>(api, provider, "wgpuTextureViewRelease")(picture_view);
