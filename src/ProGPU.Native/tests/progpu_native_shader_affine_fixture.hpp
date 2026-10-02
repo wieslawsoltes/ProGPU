@@ -52,6 +52,25 @@ void verify_shader_affine_frames(Render render,Require require) {
             }
             require(found,"affine shader descriptor absent");
         }
+        for(std::uint32_t variant=0;variant<2U;++variant) {
+            using mil_clip_fixture_detail::packet;
+            std::vector<std::byte> batch;
+            const auto handle=15U+variant;
+            packet(batch,mil::command::channel_create_resource,handle,variant==0U?65U:64U);
+            if(variant==0U) packet(batch,mil::command::rotate_transform,handle,30.0,0.0,0.0,0U,0U,0U);
+            else packet(batch,mil::command::skew_transform,handle,15.0,0.0,0.0,0.0,0U,0U,0U,0U);
+            packet(batch,mil::command::visual_set_transform,1U,handle);
+            require(progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr)==PROGPU_NATIVE_MIL_STATUS_SUCCESS,
+                "unproven primitive source packet failed transport");
+            const progpu_native_mil_scene_build_request request{
+                sizeof(request),0U,3U,0U,0x9497U,500U+variant,1,1,0U,500U+variant};
+            std::array<std::byte,64U> output; output.fill(std::byte{0x5C});
+            const auto prior=output; std::size_t written{};
+            progpu_native_mil_scene_build_result result{}; result.struct_size=sizeof(result);
+            require(progpu_native_mil_channel_build_scene_with_request(raw,&request,output.data(),output.size(),
+                &written,nullptr,&result)==PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND && output==prior,
+                "unproven Rotate/Skew source history was guessed or published");
+        }
     } // All native source owners retire before GPU replay.
     for(std::uint32_t variant=0;variant<scenes.size();++variant) {
         const auto& test=shader_affine_cases[variant];

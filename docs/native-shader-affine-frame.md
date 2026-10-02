@@ -44,7 +44,18 @@ identity. Separate raw controls cover old-reader rejection and malformed-frame
 atomicity. The optional affine parameters on the existing source fixture do not
 change any older invocation or expected result.
 
-Independent installed-SDK matrices are being connected in this child.
+The original Windows reference now authors an independent installed-SDK export
+and eight exact matrix inventories: quarter-turn, mirror, swap, shear, oblique
+matrix, mixed DPI, noncommuting parent and canceled history. Each records nine
+complete 4x4 matrices plus allocation/source values and original input bits;
+the reference compares an independently reduced sparse float algebra, retains
+both signs of structural zero in the receipt, and has four atomic rejection
+controls. The SDK library/compiler/header/PE/hash provenance is the existing
+original-only companion, never a product library. The workflow requires the
+complete new receipt while retaining every older reference inventory and the
+same time limits. Original SDK agreement is not an original hardware pixel or
+wpfgfx build-header claim.
+
 RotateTransform/SkewTransform primitive constructors are not proven by arbitrary
 MatrixTransform support and remain an explicit next contract. No tests, builds,
 verifier or CI runs were executed; validation is reserved for the final integrated
