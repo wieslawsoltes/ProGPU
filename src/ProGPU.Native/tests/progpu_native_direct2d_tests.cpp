@@ -323,6 +323,7 @@ void antialiased_clear_regressions(
     progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
+    require(fixture::antialiased_clear_area_contract(), "AA Clear independent pixel-area arithmetic changed");
     ComPtr<ID2D1Device> device;
     source_context->GetDevice(device.GetAddressOf());
     ComPtr<ID2D1DeviceContext> context;

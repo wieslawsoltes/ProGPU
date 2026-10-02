@@ -39,6 +39,12 @@ inline constexpr std::array aa_clear_cases{
     aa_clear_case{aa_clear_order::aa_binary, 0, false, false, 2, 1},
     aa_clear_case{aa_clear_order::owner_aa, 0, false, false, 1, 1, 0.5F},
     aa_clear_case{aa_clear_order::aa_owner, 2, false, false, 1, 1, 0.5F},
+    aa_clear_case{aa_clear_order::single, 0, false, false, 1.25F, 1.25F},
+    aa_clear_case{aa_clear_order::single, 1, false, false, 1.5F, 1.5F},
+    aa_clear_case{aa_clear_order::single, 2, false, false, 1.25F, 1.5F},
+    aa_clear_case{aa_clear_order::two_aa, 2, false, false, 1.5F, 1.25F},
+    aa_clear_case{aa_clear_order::aa_binary, 0, false, false, 1.25F, 1.5F},
+    aa_clear_case{aa_clear_order::binary_aa, 1, false, false, 1.5F, 1.25F},
 };
 
 inline bool aa_clear_has_owner(const aa_clear_case& value)
@@ -199,6 +205,40 @@ inline bool antialiased_clear_contract(std::span<const std::byte> bytes, const a
         promoted == aa_clear_promoted_count(value) && opaque == (value.ignore_alpha ? 1U : 0U);
 }
 
+inline double aa_clear_pixel_area(const std::array<double, 4>& rectangle, int x, int y)
+{
+    return std::max(0.0, std::min(double(x + 1), rectangle[2]) - std::max(double(x), rectangle[0])) *
+        std::max(0.0, std::min(double(y + 1), rectangle[3]) - std::max(double(y), rectangle[1]));
+}
+
+inline bool antialiased_clear_area_contract()
+{
+    struct area_case { std::array<double, 4> rectangle; int x; int y; double expected; };
+    // Literal rational expectations, including the actual (4,6)-translated
+    // source's physical upper-left corners. No inverse-DPI/local round trip.
+    const std::array controls{
+        area_case{{0, 0, 1, 1}, 0, 0, 1},
+        area_case{{0.25, 0.75, 2, 2}, 0, 0, 3.0 / 16},
+        area_case{{-1, -1, 0.25, 0.75}, 0, 0, 3.0 / 16},
+        area_case{{12.8125, 14.6875, 30.625, 31.5625}, 12, 14, 15.0 / 256}, // 125% XY
+        area_case{{15.375, 17.625, 36.75, 37.875}, 15, 17, 15.0 / 64}, // 150% XY
+        area_case{{12.8125, 17.625, 30.625, 37.875}, 12, 17, 9.0 / 128}, // 125/150%
+        area_case{{15.375, 14.6875, 36.75, 31.5625}, 15, 14, 25.0 / 128}, // 150/125%
+        area_case{{20.5, 23.5, 49, 50.5}, 20, 23, 1.0 / 4}, // 200% XY
+        area_case{{12.8125, 14.6875, 30.625, 31.5625}, 13, 15, 1},
+        area_case{{12.8125, 14.6875, 30.625, 31.5625}, 11, 15, 0},
+        area_case{{1, 0, 2, 1}, 0, 0, 0},
+        area_case{{0.25, 0, 0.25, 1}, 0, 0, 0},
+        area_case{{-0.25, -0.75, 1, 1}, -1, -1, 3.0 / 16},
+        area_case{{0.8125, 0.6875, 18.625, 17.5625}, 0, 0, 15.0 / 256}, // integer target origin removed
+        area_case{{0.125, 0.25, 0.375, 0.75}, 0, 0, 1.0 / 8},
+        area_case{{0, 0, 0.5, 0.5}, 0, 0, 1.0 / 4},
+    };
+    for (const auto& value : controls)
+        if (aa_clear_pixel_area(value.rectangle, value.x, value.y) != value.expected) return false;
+    return true;
+}
+
 // Independent scalar coverage: exact area of a source rectangle intersecting a
 // unit physical pixel. No SDF, derivatives, product mask bytes or shader helper.
 // Every stored layer/composite is independently quantized to RGBA8 UNORM.
@@ -223,9 +263,7 @@ inline bool antialiased_clear_pixels(std::span<const std::uint8_t> pixels,
     for (unsigned y = 0; y < 64U; ++y) for (unsigned x = 0; x < 64U; ++x) {
         const auto inside = [&](const auto& r) { return x + 0.5 >= r[0] && x + 0.5 < r[2] &&
             y + 0.5 >= r[1] && y + 0.5 < r[3]; };
-        const auto coverage = [&](const auto& r) { return
-            std::max(0.0, std::min(double(x + 1U), r[2]) - std::max(double(x), r[0])) *
-            std::max(0.0, std::min(double(y + 1U), r[3]) - std::max(double(y), r[1])); };
+        const auto coverage = [&](const auto& r) { return aa_clear_pixel_area(r, static_cast<int>(x), static_cast<int>(y)); };
         const auto compose = [&](pixel dst, pixel src, double c, bool initialized) {
             pixel out{};
             for (unsigned ch = 0; ch < 4U; ++ch) out[ch] = quantize(src[ch] * c + dst[ch] *
@@ -272,6 +310,7 @@ inline bool antialiased_clear_pixels(std::span<const std::uint8_t> pixels,
 
 inline bool antialiased_clear_source_contract(compat::factory* factory)
 {
+    if (!antialiased_clear_area_contract()) return false;
     com::pointer<compat::scene_factory_native> create;
     if (factory->QueryInterface(compat::scene_factory_native_interface_id,
         reinterpret_cast<void**>(create.put())) != com::ok) return false;
@@ -301,6 +340,7 @@ inline bool antialiased_clear_source_contract(compat::factory* factory)
 template<class Render, class Require>
 void verify_antialiased_clear(Render render, Require require)
 {
+    require(antialiased_clear_area_contract(), "AA Clear independent pixel-area arithmetic changed");
     com::pointer<compat::factory> factory;
     com::pointer<compat::scene_factory_native> create;
     require(compat::create_factory(factory.put()) == com::ok &&
