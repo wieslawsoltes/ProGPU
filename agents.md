@@ -12,6 +12,26 @@ between ordinary bundles and submission-owned GPU resources. Report actual cold
 and warm uploads/draws; packet retention is not coverage retention or modern
 ClearType qualification. See docs/native-rgb-glyph-coverage.md.
 
+Native ShaderEffect spatial gradient opacity applies inside the retained input
+capture before bytecode evaluation, never as final shader coverage. Reuse the
+typed gradient mask, original unpadded brush bounds and scale-space source
+transform; keep complete padding/UV extent independent. Brush opacity and
+visual opacity apply once through the existing inner layer. Sampled/picture
+opacity masks and unproven frames retain their separate gates. See
+docs/native-shader-input-opacity.md; authored controls are not qualification.
+
+Version-5 native ShaderEffect output evaluates original bytecode on the actual
+parent target's device samples, retaining the full homogeneous source residual,
+target-dependent projection and independent complete input capture. Never filter
+an evaluated effect image as a fractional-placement substitute. Exact typed
+source vector clips retain their curves, Boolean topology and inherited frame;
+the shared rasterizer's retained coverage is loaded at the same final device
+pixel and applied once after shader evaluation. Preserve span/submission-owned
+mask leases, masked program identity and the unmasked lazy path. Unproven source
+mapping or a different mask family is not an envelope/opacity fallback. Keep
+original wires and final SDK/source/provider qualification separate; see
+docs/native-shader-final-sample-frame.md.
+
 Version-4 native ShaderEffect captures retain original local float edges and a
 traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
 scale space, preserving complete UV/derivative extent and integral residual

@@ -36,6 +36,7 @@ using ::progpu_native_scene_shader_effect;
 using ::progpu_native_scene_shader_effect_picture;
 using ::progpu_native_scene_shader_effect_derivatives;
 using ::progpu_native_scene_shader_effect_capture;
+using ::progpu_native_scene_shader_effect_samples;
 using ::PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
 using ::PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
 using ::PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA;

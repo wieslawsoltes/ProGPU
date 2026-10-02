@@ -2,6 +2,7 @@
 
 #include "progpu_native_geometry.hpp"
 #include "progpu_native_scene.hpp"
+#include "progpu_native_shader_effect_resource.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -970,10 +971,25 @@ scissor semantic_layer_target_cursor::advance(
         scope_materialized_[scope_depth_++] = materialized;
         if (materialized) {
             auto presentation = current_presentation();
+            progpu_native_scene_shader_sample_frame sample_frame{};
+            const bool sampled = shader_effect::layer_sample_frame(bytes_, layer, sample_frame);
             const bool local_cache =
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
-            if (local_cache) {
+            if (sampled) {
+                // Only final output is target-clipped; retained input and UVs
+                // still span the independent complete scale-space picture.
+                const auto edge = [](std::int64_t value) {
+                    return static_cast<std::uint32_t>(std::clamp<std::int64_t>(value, 0,
+                        std::numeric_limits<std::uint32_t>::max()));
+                };
+                const auto left = edge(static_cast<std::int64_t>(sample_frame.output_x) + presentation.viewport_x);
+                const auto top = edge(static_cast<std::int64_t>(sample_frame.output_y) + presentation.viewport_y);
+                const auto right = edge(static_cast<std::int64_t>(sample_frame.output_x) + sample_frame.output_width + presentation.viewport_x);
+                const auto bottom = edge(static_cast<std::int64_t>(sample_frame.output_y) + sample_frame.output_height + presentation.viewport_y);
+                extents_[materialized_depth_] = intersect_semantic_scissors(current(),
+                    {left, top, right - left, bottom - top, right > left && bottom > top});
+            } else if (local_cache) {
                 const auto local_extent = [](float value, float dpi_scale) noexcept {
                     const double pixels = std::ceil(
                         static_cast<double>(value) * dpi_scale);

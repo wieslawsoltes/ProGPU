@@ -2942,6 +2942,69 @@ typedef struct progpu_native_scene_shader_effect_capture {
     progpu_native_scene_shader_effect program;
 } progpu_native_scene_shader_effect_capture;
 
+/* Version-5 source-frame metadata. Capture is scale-space storage; output is
+ * the independent final-device lattice. The original unit quad retains its
+ * homogeneous coordinate, rather than resampling already evaluated output.
+ * Physical integer clip edges are independent of both allocations.
+ * clip_antialias records 0=aliased source bounds, 1=original AA bounds inflation;
+ * both consume the original aliased integer clip, never fractional AA coverage.
+ * All source, derived and reserved fields are validated before publication.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderSampleFrame */
+typedef struct progpu_native_scene_shader_sample_frame {
+    float local_left;
+    float local_top;
+    float local_right;
+    float local_bottom;
+    float source_scale_x;
+    float source_scale_y;
+    float source_offset_x;
+    float source_offset_y;
+    double source_dpi_x;
+    double source_dpi_y;
+    int32_t capture_x;
+    int32_t capture_y;
+    uint32_t capture_width;
+    uint32_t capture_height;
+    int32_t output_x;
+    int32_t output_y;
+    uint32_t output_width;
+    uint32_t output_height;
+    float quad_x;
+    float quad_y;
+    float quad_z;
+    float quad_w;
+    float quad_offset_x;
+    float quad_offset_y;
+    float clip_left;
+    float clip_top;
+    float clip_right;
+    float clip_bottom;
+    uint32_t clip_antialias;
+    uint32_t reserved;
+} progpu_native_scene_shader_sample_frame;
+
+/* Version 5 owns an earlier complete implicit-input picture, and optionally an
+ * earlier complete ImageBrush sampler picture. Both are same-scene IMAGE_PICTURE
+ * resources, never external textures or borrowed source handles. NO_INDEX
+ * sampler means the input picture; NO_INDEX derivative leaves constants intact.
+ * Legacy descriptor versions remain byte-for-byte independent.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectSamples */
+typedef struct progpu_native_scene_shader_effect_samples {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t input_resource_index;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[2];
+    /* PROGPU_CSHARP_TYPE: SceneShaderSampleFrame */
+    progpu_native_scene_shader_sample_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_samples;
+
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array
  * order, so effects[1] consumes effects[0]'s output. The engine copies all

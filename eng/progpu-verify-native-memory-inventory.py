@@ -57,6 +57,10 @@ if not re.search(r"std::shared_ptr<semantic_picture_backing>\s+sampler_picture\s
     raise ValueError("Shader sampler picture ownership declaration needs review")
 if not re.search(r"inventory\.texture\(value\.sampler_picture->texture\)", collector):
     raise ValueError("Shader sampler picture leases are missing from memory inventory")
+if not re.search(r"std::shared_ptr<semantic_picture_backing>\s+input_picture\s*;", shader_binding):
+    raise ValueError("Shader input picture ownership declaration needs review")
+if not re.search(r"inventory\.texture\(value\.input_picture->texture\)", collector):
+    raise ValueError("Shader input picture leases are missing from memory inventory")
 owners = [
     ("Scene/progpu_native_shader_effect_execution.hpp", "semantic_shader_binding", "value", "semantic_shader_binding"),
     ("Backend/progpu_native_engine.hpp", "progpu_native_engine", "engine", None),
