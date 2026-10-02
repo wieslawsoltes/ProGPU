@@ -167,7 +167,8 @@ private:
 @fragment fn fs(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let uv = (position.xy - vec2(parameters.x, 0.0)) / vec2(16.0, 24.0);
     let sampled = textureSampleGrad(image, image_sampler, uv, vec2(1.0 / 16.0, 0.0), vec2(0.0, 1.0 / 24.0));
-    return vec4(sampled.rgb, sampled.a * parameters.y);
+    let alpha = sampled.a * parameters.y;
+    return vec4(sampled.rgb * alpha, alpha);
 }
 )";
 #if defined(PROGPU_SAMPLER_REFERENCE_DAWN)
@@ -183,10 +184,11 @@ private:
         module_descriptor.nextInChain = &code.chain;
         auto module = api_.DeviceCreateShaderModule(device_, &module_descriptor);
         require(module != nullptr, "native sampler reference shader creation failed");
-        // The original source is straight RGBA; capture performs SRC_OVER into
-        // transparent RGBA8. Do not pre-multiply in WGSL and skip this real blend.
+        // Retained semantic image capture converts its straight source to
+        // premultiplied fragment output, then uses ONE / ONE_MINUS_SRC_ALPHA.
+        // This is deliberately not the separate straight-alpha direct-image API.
         WGPUBlendState blend{};
-        blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
+        blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
         blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_One, WGPUBlendFactor_OneMinusSrcAlpha};
         WGPUColorTargetState color{};
         color.format = WGPUTextureFormat_RGBA8Unorm;

@@ -161,8 +161,9 @@ The paired fixture now separates two contracts without a tolerance:
   A test-only shader takes original 2x1/2x2 opaque input texels, unwrapped
   fragment-center UVs and native Repeat/MirrorRepeat samplers. It imports no
   compiled scene, production shader/address helper or observed output.
-  Straight source-alpha blending into transparent RGBA8 matches the real
-  capture contract; opacity is not pre-multiplied in the reference shader.
+  The original straight source becomes premultiplied fragment output and uses
+  ONE / ONE_MINUS_SRC_ALPHA blending into transparent RGBA8, matching the real
+  retained capture contract (not the separate straight-alpha direct-image API).
   Every final 64x64 effect byte is checked against that independent capture,
   including the original final clip and opaque black exterior.
 - The same seven original scenes also execute with the explicit four-load
@@ -183,3 +184,10 @@ This source checkpoint is not qualification. Both providers, Windows package
 paths and all exact four-load controls still require hosted execution. Even
 explicit sampling is not presumed to guarantee final UNORM arithmetic merely
 because its four loads are authored; any strict failure remains a failure.
+
+The blend boundary is established by actual source selection:
+`Scene/progpu_native_semantic_draw_execution.cpp` selects `image_pipeline` for
+the ordinary unmasked retained draw; `Backend/progpu_native_image_layer_resources.cpp`
+creates it with `fs_retained_image_unmasked` and ONE source blending.
+`Texture.wgsl` applies straight-source alpha before that blend. The reference
+implements this algebra independently, without including that production shader.
