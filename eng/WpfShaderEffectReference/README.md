@@ -97,6 +97,17 @@ not establish hardware/native UV equivalence or complete padding parity. A fresh
 hosted original reference is still required after this correction; the prior
 failed receipt remains failed.
 
+Post-commit checks at `9c808c157d5b70bbe06e61b5059182e47ceea779` passed
+all 19 unchanged sampler and 38 padding arithmetic controls (57 total). The same
+bounded CPU-only driver verified both immutable receipt hashes and every raw
+image hash, then compared all 1,277,952 saved BGRA bytes (13 cases × 3 replays ×
+2 architectures) against the corrected software/explicit-negative expectations,
+with zero differences. This re-reads saved evidence; it is not a new original WPF
+execution and does not relabel the failed producer as passed. Both changed C#
+files passed syntax parsing, workflow YAML parsed, and its only guard change
+requires seven additional controls; original main/sampler source is unchanged.
+Whitespace checks passed. No product renderer, native fixture or runtime changed.
+
 This Windows-only, source-only executable references original Microsoft WPF,
 never LibreWPF or a ProGPU runtime. It captures the committed matrix/cross-product
 family through real `PixelShader`, `ShaderEffect`, `Point4D` constant registers and
