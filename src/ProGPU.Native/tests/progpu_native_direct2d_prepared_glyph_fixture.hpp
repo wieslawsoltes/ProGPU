@@ -22,8 +22,30 @@ inline std::vector<std::byte> prepared_pixel_font(std::uint32_t origins)
         : progpu::native::tests::make_hint_fault_font(-19, 29, true);
 }
 
-inline std::array<compat::rectangle_f, 2U> prepared_pixel_rectangles(std::uint32_t origins, bool nominal = false)
+inline compat::point_2f prepared_pixel_baseline(bool nominal, bool right_to_left = false)
 {
+    if (right_to_left) return nominal ? compat::point_2f{60.59375F, 17.90625F}
+        : compat::point_2f{60.1875F, 30.8125F};
+    return nominal ? compat::point_2f{3.59375F, 17.90625F} : compat::point_2f{3.1875F, 30.8125F};
+}
+
+inline std::array<compat::rectangle_f, 2U> prepared_pixel_rectangles(std::uint32_t origins, bool nominal = false,
+    bool right_to_left = false)
+{
+    if (right_to_left) {
+        // Separate literal RTL oracle. Logical boxes consume explicit24,-3,24
+        // or nominal15.625 advances; the third advanceOffset=-.75 moves left
+        // in source-run units and therefore right in physical coordinates.
+        // Neither font decoding nor prepared placement supplies these values.
+        if (nominal) {
+            if (origins == 1U) return {{{45.875F, 5, 55.25F, 17.5F}, {13.875F, 2.5F, 23.25F, 15}}};
+            if (origins == 2U) return {{{44.375F, 5, 53.75F, 17.5F}, {15.375F, 2.5F, 24.75F, 15}}};
+            return {{{45.375F, 5, 54.75F, 17.5F}, {14.875F, 2.5F, 24.25F, 15}}};
+        }
+        if (origins == 1U) return {{{38, 5, 56.75F, 30}, {14.75F, 2.5F, 33.5F, 27.5F}}};
+        if (origins == 2U) return {{{35, 5, 53.75F, 30}, {17.75F, 2.5F, 36.5F, 27.5F}}};
+        return {{{37, 5, 55.75F, 30}, {16.75F, 2.5F, 35.5F, 27.5F}}};
+    }
     if (nominal) {
         // Original authored hmtx widths are 500 at em 31.25 / UPM 1000.
         // The no-ink middle glyph consumes 15.625, independently of offsets.
@@ -49,7 +71,8 @@ template<class Require>
 void record_prepared_pixel_case(compat::factory* factory, compat::render_target* target,
     const std::shared_ptr<prepared_original_font>& font, compat::rendering_parameters* parameters,
     std::uint32_t variant, prepared_pixel_path path, Require require, compat::geometry* prepared_geometry = nullptr,
-    std::uint32_t origins = 0U, bool nominal = false, const float* original_design_advances = nullptr)
+    std::uint32_t origins = 0U, bool nominal = false, const float* original_design_advances = nullptr,
+    bool right_to_left = false)
 {
     require(variant < 4U, "prepared glyph pixel inventory");
     const bool grayscale = (variant & 1U) != 0U;
@@ -78,7 +101,7 @@ void record_prepared_pixel_case(compat::factory* factory, compat::render_target*
         require(factory->CreatePathGeometry(geometry.put()) == com::ok && geometry->Open(sink.put()) == com::ok,
             "independent prepared glyph geometry");
         sink->SetFillMode(compat::fill_mode::winding);
-        for (const auto& rectangle : prepared_pixel_rectangles(origins, nominal)) {
+        for (const auto& rectangle : prepared_pixel_rectangles(origins, nominal, right_to_left)) {
             sink->BeginFigure({rectangle.left, rectangle.bottom}, compat::figure_begin::filled);
             sink->AddLine({rectangle.right, rectangle.bottom});
             sink->AddLine({rectangle.right, rectangle.top});
@@ -89,16 +112,15 @@ void record_prepared_pixel_case(compat::factory* factory, compat::render_target*
         target->FillGeometry(geometry.get(), brush.get(), nullptr);
     } else {
         const std::uint16_t indices[]{1U, 0U, 2U};
-        const float advances[]{24, -3, 9};
+        const float advances[]{24, -3, right_to_left ? 24.0F : 9.0F};
         const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
         const bool design_reference = path == prepared_pixel_path::original_design_advances;
         require(!design_reference || (nominal && original_design_advances != nullptr),
             "original nominal comparison requires actual design-metric query");
         const auto* selected_advances = design_reference ? original_design_advances : nominal ? nullptr : advances;
         const compat::glyph_run run{font->source()->face.get(), nominal ? 31.25F : 62.5F,
-            3U, indices, selected_advances, offsets, 0, 2U};
-        const compat::point_2f baseline = nominal ? compat::point_2f{3.59375F, 17.90625F}
-            : compat::point_2f{3.1875F, 30.8125F};
+            3U, indices, selected_advances, offsets, 0, right_to_left ? 3U : 2U};
+        const auto baseline = prepared_pixel_baseline(nominal, right_to_left);
         if (path == prepared_pixel_path::original || design_reference) {
             target->DrawGlyphRun(baseline, &run, brush.get(), compat::measuring_mode::natural);
         } else {
@@ -134,20 +156,21 @@ void verify_prepared_glyph_pixels(Render render, Require require)
     com::pointer<compat::scene_factory_native> scene_factory;
     require(compat::create_factory(factory.put()) == com::ok &&
         factory.as(compat::scene_factory_native_interface_id, scene_factory) == com::ok, "prepared pixel factory");
+    for (const bool right_to_left : {false, true}) {
     for (const bool nominal : {false, true}) {
     for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
         std::array<std::vector<std::byte>, 2U> scenes;
         std::array<progpu_native_scene_header, 2U> headers{};
         for (std::uint32_t reference = 0U; reference < 2U; ++reference) {
             const compat::scene_render_target_properties properties{64U, 64U, 96, 96, 0x95D1U,
-                1U + (nominal ? 24U : 0U) + origins * 8U + variant * 2U + reference};
+                1U + (right_to_left ? 48U : 0U) + (nominal ? 24U : 0U) + origins * 8U + variant * 2U + reference};
             com::pointer<compat::render_target> target;
             com::pointer<compat::scene_render_target_native> scene;
             require(scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
                 target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "prepared pixel target");
             record_prepared_pixel_case(factory.get(), target.get(), font, &parameters, variant,
                 reference == 0U ? prepared_pixel_path::prepared : prepared_pixel_path::independent_geometry,
-                require, nullptr, origins, nominal);
+                require, nullptr, origins, nominal, nullptr, right_to_left);
             require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                 "prepared glyph immutable scene export");
         } // Source targets and brushes end before native replay.
@@ -156,20 +179,29 @@ void verify_prepared_glyph_pixels(Render render, Require require)
         const auto independent = render(true, scenes[1], headers[1]);
         require(cold.size() == 64U * 64U * 4U && cold == warm && cold == independent,
             "prepared glyph full-byte original-coordinate/cold/warm/independent comparison");
-        if (variant == 0U && origins == 0U && !nominal) {
+        if (variant == 0U && origins == 0U && !nominal && !right_to_left) {
             constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
             require(std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 10U) * 4U) &&
                 std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 30U) * 4U) &&
                 std::equal(black.begin(), black.end(), cold.data() + (10U * 64U + 23U) * 4U) &&
                 std::equal(black.begin(), black.end(), cold.data()), "prepared absolute ink/no-ink-advance/background pixels");
         }
-        if (variant == 0U && origins == 0U && nominal) {
+        if (variant == 0U && origins == 0U && nominal && !right_to_left) {
             constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
             require(std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 10U) * 4U) &&
                 std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 40U) * 4U) &&
                 std::equal(black.begin(), black.end(), cold.data() + (10U * 64U + 25U) * 4U) &&
                 std::equal(black.begin(), black.end(), cold.data()), "nominal absolute ink/no-ink-advance/background pixels");
         }
+        if (variant == 0U && origins == 0U && right_to_left) {
+            constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
+            const std::uint32_t first = nominal ? 50U : 40U, gap = nominal ? 35U : 36U;
+            require(std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + first) * 4U) &&
+                std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 20U) * 4U) &&
+                std::equal(black.begin(), black.end(), cold.data() + (10U * 64U + gap) * 4U) &&
+                std::equal(black.begin(), black.end(), cold.data()), "RTL absolute logical-glyph/no-ink-advance/background pixels");
+        }
+    }
     }
     }
     require(stream.reads == reads && face.outline_calls == 0U && face.table_calls == 0U && font->cached_glyph_count() == 3U,

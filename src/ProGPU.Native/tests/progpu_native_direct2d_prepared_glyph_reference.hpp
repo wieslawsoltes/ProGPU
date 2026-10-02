@@ -99,16 +99,17 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
             (31.25F / static_cast<float>(metrics.designUnitsPerEm));
         require(nominal_advances[index] == 15.625F, "original nominal DIP advance");
     }
+    for (const bool right_to_left : {false, true}) {
     for (const bool nominal : {false, true}) {
     for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
-        const float advances[]{24, -3, 9};
+        const float advances[]{24, -3, right_to_left ? 24.0F : 9.0F};
         const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
         const compat::glyph_run run{typed_face.get(), nominal ? 31.25F : 62.5F,
-            3U, indices, nominal ? nullptr : advances, offsets, 0, 2U};
+            3U, indices, nominal ? nullptr : advances, offsets, 0, right_to_left ? 3U : 2U};
         original_glyph_target frame;
         frame.identity = com::pointer<com::unknown>(typed_target.get());
-        frame.generation = (nominal ? 12U : 0U) + origins * 4U + variant + 1U; // Test-owned observation, not a native renderer generation.
-        frame.baseline = nominal ? compat::point_2f{3.59375F, 17.90625F} : compat::point_2f{3.1875F, 30.8125F};
+        frame.generation = (right_to_left ? 24U : 0U) + (nominal ? 12U : 0U) + origins * 4U + variant + 1U; // Test-owned observation, not a native renderer generation.
+        frame.baseline = prepared_pixel_baseline(nominal, right_to_left);
         frame.pixels = {64U, 64U}; frame.dpi_x = 96; frame.dpi_y = 96;
         frame.transform = prepared_pixel_transform(variant); frame.format = {87U, compat::alpha_mode::premultiplied};
         frame.antialias = (variant & 1U) != 0U ? compat::text_antialias_mode::grayscale : compat::text_antialias_mode::aliased;
@@ -142,13 +143,14 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
         for (std::size_t index = 0U; index < path_count; ++index) {
             context->SetTarget(target.Get());
             record_prepared_pixel_case(typed_factory.get(), typed_target.get(), prepared, typed_parameters.get(),
-                variant, paths[index], require, geometry.get(), origins, nominal, nominal_advances.data());
+                variant, paths[index], require, geometry.get(), origins, nominal, nominal_advances.data(), right_to_left);
             pixels[index] = copy_pixels();
         }
         require(pixels[0] == pixels[1] && pixels[0] == pixels[2],
             "original DrawGlyphRun differs from independent or prepared full-byte placement");
         if (nominal) require(pixels[0] == pixels[3],
             "original null advances differ from original explicit horizontal design advances");
+    }
     }
     }
     }
