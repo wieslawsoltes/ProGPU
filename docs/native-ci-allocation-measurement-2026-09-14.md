@@ -14,6 +14,47 @@ This excludes assertion execution from measurement; it does not establish the
 source of the observed delta or attribute it to the independent runtime report.
 Fresh whole exact-head CI is required; the failed producer is not qualified.
 
+## Boolean vector-mask isolated measurement, 2026-10-02
+
+Build `37007183412`, macOS job `110838113585`, at
+`b044a8cee25ea32be4842253e013381882c3d023` reported 3,536 bytes for sample grid
+4; grids 1 and 8 passed. The managed suite finished with 5,538 passes, one
+failure and nine existing skips. The counter already preceded both assertions.
+The origin of the measured allocation is not established, and this result is
+not attributed to dotnet/runtime issue 134724.
+
+The Boolean fixture now uses the same dedicated-worker and non-inlined
+measurement boundary as `SemanticImageEffectBuildsWithoutAllocation` below.
+Each worker owns the original stack buffers, six segments, three Boolean nodes,
+transform, mask and serialized payload. All three sample grids retain the
+original single warmup, payload assertions, 10,000 builder calls and malformed
+payload rejection checks. Thread/delegate creation, assertions and exception
+propagation stay outside the measured helper. GC stays enabled; the threshold
+is exactly zero, with no retries, runtime switches, skips or allowances. The
+worker has the existing bounded 30-second join and retains no caller buffers.
+
+Three positive controls, one per original grid, use that identical helper and
+payload while publishing a new object through a volatile reference on every
+iteration. Each must report at least `10_000 * IntPtr.Size` bytes. They verify
+that the measurement still detects escaping allocations, not their provenance
+in the failed run. This is test-boundary isolation only: no product builder or
+native code changes. Fresh whole exact-head CI remains required.
+
+After implementation commit `fb7e1fd2e`, a bounded macOS ARM64 managed-only
+check compiled the five actual fixture members directly from the test source
+in Release mode, using the existing signed test-assembly identity, real xUnit
+assertions and cached ProGPU managed assemblies. All six cases passed: three
+exact-zero measurements and three positive controls, including the unchanged
+payload and invalid-input assertions in each. The selected builder and record
+sources are byte-identical to cached source commit
+`60347a5f1026b8f95582535e6b7cfc8431a04499`; the reused
+`ProGPU.Backend.Native.dll` SHA-256 is
+`8289bd47098c888c8d34c8b30111940d0034e19d05c9b5fcf59e2da044b3cc89`.
+The direct invocation used a 30-second process bound and no native library or
+provider. Whole-file C# syntax and exact original payload/warmup/validation
+text comparisons also passed. This is not a full test-project build, hosted
+runner result, native execution or qualification of the failed Build.
+
 Build run `34786219474`, Linux job `103802076430`, at `45147156` reports
 4,576 passing tests, seven skips and one failure:
 `SemanticImageEffectBuildsWithoutAllocation` measured 720 bytes against its

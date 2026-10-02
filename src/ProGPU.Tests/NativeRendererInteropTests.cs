@@ -4581,6 +4581,33 @@ public class NativeRendererInteropTests
     [InlineData(4U)]
     [InlineData(8U)]
     public void SemanticSceneBuilderWritesBooleanVectorMaskWithoutAllocation(uint sampleGrid)
+        => ValidateBooleanVectorMaskBuildsOnWorker(sampleGrid, allocateControl: false);
+
+    [Theory]
+    [InlineData(1U)]
+    [InlineData(4U)]
+    [InlineData(8U)]
+    public void SemanticBooleanVectorMaskAllocationMeasurementDetectsEscapingObjects(uint sampleGrid)
+        => ValidateBooleanVectorMaskBuildsOnWorker(sampleGrid, allocateControl: true);
+
+    private static object? s_booleanVectorMaskAllocationControl;
+
+    private static void ValidateBooleanVectorMaskBuildsOnWorker(uint sampleGrid, bool allocateControl)
+    {
+        ExceptionDispatchInfo? failure = null;
+        // Match the image-effect measurement isolation. The worker owns every
+        // stack span; no caller buffer can outlive a timed-out join.
+        var worker = new Thread(() =>
+        {
+            try { ValidateBooleanVectorMaskBuilds(sampleGrid, allocateControl); }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        }) { IsBackground = true };
+        worker.Start();
+        Assert.True(worker.Join(TimeSpan.FromSeconds(30)), "The Boolean vector-mask allocation measurement did not finish.");
+        failure?.Throw();
+    }
+
+    private static void ValidateBooleanVectorMaskBuilds(uint sampleGrid, bool allocateControl)
     {
         Span<byte> destination = stackalloc byte[4096];
         Span<NativeSceneClipPath> paths = stackalloc NativeSceneClipPath[1];
@@ -4693,15 +4720,31 @@ public class NativeRendererInteropTests
         Assert.Equal(6U, stored.SegmentCount);
         Assert.Equal(3U, stored.BooleanNodeCount);
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        bool success = true;
-        for (int iteration = 0; iteration < 10_000; ++iteration)
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static (bool Success, long Allocated) Measure(
+            Span<byte> bytes, ReadOnlySpan<byte> payload,
+            in NativeSceneLayerVectorMask descriptor, bool allocateControl)
         {
-            success &= Build(destination, auxiliary, in mask, out _);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            bool success = true;
+            for (int iteration = 0; iteration < 10_000; ++iteration)
+            {
+                if (allocateControl)
+                    Volatile.Write(ref s_booleanVectorMaskAllocationControl, new object());
+                success &= Build(bytes, payload, in descriptor, out _);
+            }
+            return (success, GC.GetAllocatedBytesForCurrentThread() - before);
         }
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // Retain the original single warmup and all 10,000 builder calls. Keep
+        // assertions outside the non-inlined measurement, with GC enabled.
+        (bool success, long allocated) = Measure(destination, auxiliary, in mask, allocateControl);
         Assert.True(success);
-        Assert.Equal(0L, allocated);
+        if (allocateControl)
+            Assert.True(allocated >= 10_000 * IntPtr.Size,
+                "The measurement must detect every deliberately escaping allocation.");
+        else
+            Assert.Equal(0L, allocated);
 
         Span<byte> invalidAuxiliary = stackalloc byte[auxiliary.Length];
         auxiliary.CopyTo(invalidAuxiliary);
