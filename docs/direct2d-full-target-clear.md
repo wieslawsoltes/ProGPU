@@ -178,3 +178,24 @@ managed writes *before* one-shot finalization, verifies unchanged storage and
 then successfully consumes the same command ID. Its syntax check passed too.
 Whitespace checks passed. No native library/renderer build, native execution,
 GPU/VM execution or runtime staging was performed locally.
+
+## WebScene fixture link dependency
+
+At exact `d9f2be242e04a50af94e332e3f5f593d86e04350`,
+[Build 37009525872, macOS ARM64 job 110845654484](https://github.com/wieslawsoltes/ProGPU/actions/runs/37009525872/job/110845654484)
+compiled the WebScene provider fixture but failed its final executable link in
+`Verify exact WebScene provider on Metal`. The failed command's library section
+contained:
+
+```text
+libprogpu_native_dawn.dylib  libprogpu_native_direct2d_core.a  -lprogpu_native_direct2d_compat  libprogpu_native_scene_builder.a  -framework IOSurface
+```
+
+The linker reported `library 'progpu_native_direct2d_compat' not found` before
+the provider test executed. There is no CMake target by that name: the actual
+`progpu_native_direct2d_core` target already compiles
+`src/Direct2D/progpu_native_direct2d_compat.cpp`, and both the WebScene fixture and
+the standalone compatibility fixture link that core target. Removing only the
+nonexistent extra library preserves the real compatibility implementation,
+all provider fixture sources, pixel assertions and the original 60-second test
+deadline. This is a link correction, not provider execution or pixel qualification.
