@@ -17,6 +17,7 @@
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
+#include "progpu_native_rgb_glyph_scene_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_shader_final_sample_fixture.hpp"
 #include "progpu_native_shader_source_mask_fixture.hpp"
@@ -3768,6 +3769,33 @@ int main(int argc, char** argv) {
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_retained_scene(reference, stream, generation, submissions, 0x95C3U, 1U, 1U);
         }, require);
+    {
+        std::array<progpu_native_engine*, 5U> rgb_engines{};
+        const auto rgb_engine = [&](unsigned route) {
+            auto*& selected = rgb_engines[route];
+            if (selected == nullptr) {
+                auto options = engine_options;
+                options.flags = progpu::native::tests::rgb_scene_engine_flags(route);
+                options.target_format = route == 4U ? PROGPU_NATIVE_TEXTURE_FORMAT_BGRA8_UNORM_SRGB
+                    : PROGPU_NATIVE_TEXTURE_FORMAT_BGRA8_UNORM;
+                require(progpu_native_dawn_engine_create(&options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+                    "RGB retained-scene Dawn engine creation failed");
+            }
+            return selected;
+        };
+        progpu::native::tests::verify_rgb_glyph_scene_pixels(
+            [&](unsigned route, const auto& stream, const progpu_native_scene_header& header,
+                const progpu::native::tests::rgb_scene_case& test, progpu_native_scene_frame_metrics& metrics) {
+                // The existing completion-owned IOSurface reader returns RGBA
+                // after its exact BGRA channel permutation, with no color repair.
+                return render_retained_scene(false, stream, header.generation, 1U, header.scene_id,
+                    4U, header.command_count, nullptr, &metrics, test.dpi,
+                    test.mapped ? &test.presentation : nullptr,
+                    test.accepted ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    false, 64U, nullptr, rgb_engine(route));
+            }, require);
+        for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
+    }
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::direct2d::tests::verify_owned_bitmap_scene_copy_pixels(d2d_factory.get(),
         [&](d2d::scene_render_target_native* scene, std::uint32_t draws,
