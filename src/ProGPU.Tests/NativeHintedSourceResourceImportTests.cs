@@ -31,7 +31,7 @@ public sealed unsafe class NativeHintedSourceResourceImportTests
         Assert.Equal(24, sizeof(NativeHintedSourceFittingSlice));
         Assert.Equal(24, sizeof(NativeHintedSourceFittedLine));
         Assert.Equal(16 + 2 * IntPtr.Size, sizeof(NativeMethods.HintedGlyphResourceInput));
-        Assert.Equal(48 + sizeof(NativeMethods.HintedSourceParagraphView) + 7 * IntPtr.Size,
+        Assert.Equal(48 + sizeof(NativeMethods.HintedSourceParagraphView) + 8 * IntPtr.Size,
             sizeof(NativeMethods.HintedSourceGlyphResourceView));
         Assert.Equal(16, Marshal.OffsetOf<NativeMethods.HintedGlyphResourceInput>(nameof(NativeMethods.HintedGlyphResourceInput.Raster)).ToInt32());
         Assert.Equal(16, Marshal.OffsetOf<NativeMethods.HintedSourceGlyphResourceView>(nameof(NativeMethods.HintedSourceGlyphResourceView.Source)).ToInt32());
