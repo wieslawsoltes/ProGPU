@@ -10,8 +10,8 @@ namespace progpu::native::direct2d::tests {
 
 // Only original Direct2D vtable calls: Windows also runs this sequence on a
 // genuine system factory/WIC target, not on the portable implementation.
-template<class Require>
-void record_scoped_memory_copy(compat::render_target* parent, std::uint32_t variant, Require require) {
+template<class Copy, class Require>
+void record_scoped_bitmap_copy(compat::render_target* parent, std::uint32_t variant, Copy copy, Require require) {
     namespace d2d = compat;
     require(variant < 4U, "scoped copy variant invalid");
     const float scale = variant >= 2U ? 2.0F : 1.0F;
@@ -61,10 +61,10 @@ void record_scoped_memory_copy(compat::render_target* parent, std::uint32_t vari
         }
     std::fill_n(upload.data() + pitch + 4U, 4U, std::uint8_t{0}); // transparent SRC replacement
     const d2d::rectangle_u destination{2U, 2U, 6U, 6U};
-    const auto copied = bitmap->CopyFromMemory(full ? nullptr : &destination, upload.data(), pitch);
-    if (copied != com::ok) std::fprintf(stderr, "Scoped CopyFromMemory variant=%u HRESULT=0x%08x\n",
+    const auto copied = copy(child.get(), bitmap.get(), full ? nullptr : &destination, upload, pitch);
+    if (copied != com::ok) std::fprintf(stderr, "Scoped bitmap copy variant=%u HRESULT=0x%08x\n",
         variant, static_cast<unsigned>(copied));
-    require(copied == com::ok, "active aliased CopyFromMemory failed");
+    require(copied == com::ok, "active aliased bitmap copy failed");
     std::fill(upload.begin(), upload.end(), 0xffU); // source storage is borrowed only during the call
     d2d::matrix_3x2_f observed{};
     child->GetTransform(&observed);
@@ -88,6 +88,15 @@ void record_scoped_memory_copy(compat::render_target* parent, std::uint32_t vari
     parent->DrawBitmap(bitmap.get(), &output, 1.0F, d2d::bitmap_interpolation_mode::nearest_neighbor, nullptr);
     require(parent->EndDraw(nullptr, nullptr) == com::ok, "scoped copy final retained source recording");
     // Child, bitmap, brushes and upload bytes retire before parent replay.
+}
+
+template<class Require>
+void record_scoped_memory_copy(compat::render_target* parent, std::uint32_t variant, Require require) {
+    record_scoped_bitmap_copy(parent, variant,
+        [](compat::render_target*, compat::bitmap* destination, const compat::rectangle_u* rectangle,
+            const auto& upload, std::uint32_t pitch) {
+            return destination->CopyFromMemory(rectangle, upload.data(), pitch);
+        }, require);
 }
 
 inline std::array<std::uint8_t, 4U> scoped_copy_expected_pixel(

@@ -210,6 +210,16 @@ int main() {
         after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
     progpu::native::semantic_scene_builder canonical_copy(9006U);
     image.flags = 0U;
+    auto clip_state = progpu::native::semantic_scene_builder::identity_state();
+    clip_state.flags = progpu::native::PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    clip_state.clip_rect = {4, 4, 8, 8};
+    unsigned int clip_index{};
+    progpu::native::semantic_scene_builder scoped_source(9010U);
+    progpu::native::semantic_scene_builder scoped_destination(9011U);
+    if (!scoped_source.add_r8_image(2U, 2U, 2U, coverage, staged_index) ||
+        !scoped_destination.add_state(clip_state, clip_index) || !scoped_destination.save(clip_index) ||
+        !scoped_destination.copy_image_from_builder_outside_clips(std::move(scoped_source), staged_index, image) ||
+        !scoped_destination.restore()) return 1;
     if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage)) return 1;
     progpu::native::scene_full_image_copy full_image{};
     if (!canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||

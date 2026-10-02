@@ -193,6 +193,13 @@ public:
         std::uint32_t source_resource_index,
         const progpu_native_scene_image_draw& image,
         const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Same owned-resource move outside clip-only SAVE frames, sharing the
+    // memory-copy transaction and exclusions. Source is consumed on failure.
+    bool copy_image_from_builder_outside_clips(
+        semantic_scene_builder source,
+        std::uint32_t source_resource_index,
+        const progpu_native_scene_image_draw& image,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
     // Recognize exactly one root SRC-layer/full-image/pop covering bounds with
     // 1:1 pixel sampling and integral source origin (including exact crops).
     // No allocations or serialization. The caller must also
@@ -508,6 +515,8 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    template<class Copy>
+    bool copy_image_outside_clips(Copy&& copy) noexcept;
     bool append_image_copy_commands(
         std::uint32_t resource_index,
         const progpu_native_scene_image_draw& image,
