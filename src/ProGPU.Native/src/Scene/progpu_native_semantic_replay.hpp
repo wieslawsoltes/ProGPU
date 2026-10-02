@@ -8,6 +8,7 @@
 #include "progpu_native_semantic_draw_merge.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_shader_effect_execution.hpp"
+#include "progpu_native_rgb_glyph_execution.hpp"
 
 #include <array>
 #include <cstdint>
@@ -278,7 +279,16 @@ struct semantic_3d_page {
 enum class semantic_replay_kind : std::uint8_t {
     bundle,
     push_layer,
-    pop_layer
+    pop_layer,
+    rgb_glyphs
+};
+
+// Owned CPU originals survive immutable-scene replacement and bundle reuse.
+// GPU storage belongs to the encoder's existing submission retirement lease.
+struct semantic_rgb_glyph_packet {
+    progpu::native::execution::rgb_glyph_policy policy{};
+    std::vector<progpu::native::execution::rgb_glyph_tile> tiles;
+    std::vector<progpu_native_path_segment> segments;
 };
 
 struct semantic_effect_dispatch {
@@ -294,6 +304,7 @@ struct semantic_effect_dispatch {
 
 struct semantic_render_bundle_span {
     std::shared_ptr<semantic_shader_binding> shader_effect;
+    std::shared_ptr<const semantic_rgb_glyph_packet> rgb_glyphs;
     semantic_replay_kind kind = semantic_replay_kind::bundle;
     WGPURenderBundle bundle = nullptr;
     std::uint32_t clip_x = 0U;

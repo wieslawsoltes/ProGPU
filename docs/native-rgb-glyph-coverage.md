@@ -70,10 +70,53 @@ importing an external implementation:
   research is not a normative formula for all Direct2D versions or parameters.
 
 General rendering-parameter correction, actual modern hint/filter policy,
-retained source command transport, source scope/clip integration and managed
-renderer wiring remain required. Existing legacy `INITIALIZE_FOR_CLEARTYPE`
+original Direct2D source producer integration, nonrectangular source masks and
+managed renderer wiring remain required. Existing legacy `INITIALIZE_FOR_CLEARTYPE`
 rejection must not be removed on the strength of this private renderer alone.
 Independent original Windows captures and both-provider full-byte comparisons
 are the final numeric authority. Authored source guards are **unexecuted**;
 all build, shader, GPU, image, performance and package validation is deferred to
 the final integrated stack tip. No compatibility or performance result is claimed.
+
+## Retained physical command transport
+
+`DRAW_RGB_GLYPH_RUN` is a separate required command over an existing original
+outline/segment resource. It carries a 40-byte explicit policy and one 56-byte
+physical tile per source occurrence, including repeated indices, original sample
+origin/scale/phase, target position and straight foreground. The descriptor's
+filter identifier is not a DirectWrite enum. It retains the positive original
+DPI generation; it cannot declare its destination opaque or silently reproject
+physical tiles at another DPI. No ordinary glyph record/layout changes.
+
+Native and managed builders preflight bounded counts, indices, actual sample
+arithmetic, normalized colors, known policy and reserved fields before copying
+the packet. The managed writer rejects overlap with its output arena. Native
+wire validation checks owned outline/segment ranges and every occurrence,
+without retaining caller pointers. The glyph-family identity includes exact
+policy/position/paint bytes, active scopes and original resource ownership.
+
+The shared native replay now retains an owned packet and emits the private RGB
+pass between surrounding source-order bundles. Preflight requires the actual
+innermost materialized target's `IGNORE_ALPHA` contract: neither a white root
+clear nor an opaque ancestor proves the current target opaque. Replay rechecks
+the live target slot, dimensions and opaque state before encoding. Target-local
+scissors preserve source rectangle clips; scope opacity multiplies each original
+foreground alpha. Existing isolated-layer masks/opacity are still applied once
+by their ordinary composite, not silently dropped from the source stack.
+
+The original DPI must equal both current presentation axes. Unit source bases
+may translate by exact integral physical pixels; viewport and actual layer
+origin are accounted for without a divide/multiply round trip. Sampling origin,
+scale and phase stay unchanged. Nonunit/fractional mappings, per-draw masks,
+unproven root opacity, sRGB targets and CPU preferences fail before publication.
+Fully clipped draws retain validation but publish no RGB operation. Bounded
+packing accounts for the actual shelf rectangle and aligned staging, not ink
+area alone. No test export or borrowed opaque-engine reinterpretation is added.
+
+CPU originals survive bundle reuse; GPU batches still use the original real
+submission retirement lease. Cold and warm replay both report their actual
+buffer uploads and compute/fragment draw counts. This is not retained coverage
+or performance qualification. Independent full-pixel controls and original
+source producer integration remain required before ordinary ClearType admission.
+The native and managed ownership/atomicity/layout controls are authored only;
+no generation verifier, build, test, GPU or CI execution has run for this change.

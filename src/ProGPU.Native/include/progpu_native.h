@@ -237,7 +237,9 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH = 23,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH = 24,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH = 25,
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN = 26
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN = 26,
+    /* Explicit physical RGB coverage, not an implicit DirectWrite mode. */
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN = 27
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -1702,6 +1704,51 @@ typedef struct progpu_native_scene_glyph_draw {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_glyph_draw;
+
+/* Independent outline integration model. This enum is not interchangeable with
+ * DWRITE_RENDERING_MODE or the ordinary semantic text rendering mode. */
+typedef enum progpu_native_rgb_glyph_filter {
+    PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8 = 1
+} progpu_native_rgb_glyph_filter;
+
+/* DRAW_RGB_GLYPH_RUN prefix followed by glyph_count scene_rgb_glyph_tile records.
+ * The command's existing GLYPH_RUN resource owns original outline/segment bytes.
+ * Fixed physical tiles retain their original DPI generation. The renderer must
+ * prove the actual target is opaque; this descriptor cannot assert that fact.
+ * Initial explicit policy: gamma=1, contrast=0, level=1, flat/RGB/BGR geometry.
+ * Reserved values and unknown models reject, never select a scalar fallback. */
+typedef struct progpu_native_scene_rgb_glyph_draw {
+    uint32_t struct_size;
+    uint32_t glyph_count;
+    uint32_t filter_model;
+    uint32_t pixel_geometry;
+    float gamma;
+    float enhanced_contrast;
+    float cleartype_level;
+    float dpi_scale;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_rgb_glyph_draw;
+
+/* Target origin and extent are physical pixels, sampling coordinates are the
+ * original outline raster frame. Source order and straight foreground RGBA are
+ * independent for every occurrence, including repeated outline indices. The
+ * source unit-basis state may add integral physical translation at exactly this
+ * DPI; target viewport/layer origin and source opacity/rectangle clip still apply.
+ * Per-draw masks, nonunit/fractional mappings and unknown target opacity reject. */
+typedef struct progpu_native_scene_rgb_glyph_tile {
+    uint32_t outline_index;
+    uint32_t width;
+    uint32_t height;
+    uint32_t reserved;
+    float x_start;
+    float y_start;
+    float scale;
+    float subpixel_x;
+    int32_t target_x;
+    int32_t target_y;
+    progpu_native_color foreground;
+} progpu_native_scene_rgb_glyph_tile;
 
 /* Dedicated direct glyph-paint GPU ABI. Legacy glyph/style records do not
  * consume this record. Texture mode is the original managed texture enum

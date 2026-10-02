@@ -1004,6 +1004,8 @@ scissor semantic_layer_target_cursor::advance(
                 extents_[materialized_depth_] =
                     intersect_semantic_scissors(parent, declared);
             }
+            ignores_alpha_[materialized_depth_] =
+                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
             presentations_[materialized_depth_++] = presentation;
         }
     } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
@@ -1024,6 +1026,10 @@ progpu_native_scene_presentation semantic_layer_target_cursor::current_presentat
     return materialized_depth_ == 0U
         ? frame_presentation_
         : presentations_[materialized_depth_ - 1U];
+}
+
+bool semantic_layer_target_cursor::current_ignores_alpha() const noexcept {
+    return materialized_depth_ != 0U && ignores_alpha_[materialized_depth_ - 1U];
 }
 
 } // namespace progpu::native::semantic

@@ -347,6 +347,10 @@ public:
 
     progpu_native_scene_presentation current_presentation() const noexcept;
 
+    // Descriptor of the actual materialized target, never an elided ancestor
+    // or a claim made by a draw payload. Root opacity is not inferred.
+    bool current_ignores_alpha() const noexcept;
+
 private:
     const std::byte* bytes_;
     scissor frame_extent_{};
@@ -359,6 +363,8 @@ private:
         PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> extents_{};
     std::array<progpu_native_scene_presentation,
         PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> presentations_{};
+    std::array<bool,
+        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> ignores_alpha_{};
     std::uint32_t scope_depth_ = 0U;
     std::uint32_t materialized_depth_ = 0U;
 };

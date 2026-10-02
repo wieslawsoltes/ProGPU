@@ -689,6 +689,9 @@ void api_contract_is_versioned() {
     PROGPU_REQUIRE(sizeof(progpu_native_scene_text_style) == 32U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_color_glyph_bitmap) == 48U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_glyph_draw) == 24U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_rgb_glyph_draw) == 40U);
+    PROGPU_REQUIRE(sizeof(progpu_native_scene_rgb_glyph_tile) == 56U);
+    PROGPU_REQUIRE(offsetof(progpu_native_scene_rgb_glyph_tile, foreground) == 40U);
     PROGPU_REQUIRE(sizeof(progpu_native_scene_frame_metrics) == 152U);
     PROGPU_REQUIRE(offsetof(
         progpu_native_scene_frame_metrics,

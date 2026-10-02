@@ -2,6 +2,7 @@
 #include "progpu_native_semantic_draw_execution.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "progpu_native_semantic_rgb_glyph.hpp"
 #include "progpu_native_shader_effect_resource.hpp"
 #include "progpu_native_glyph_coverage_frame.hpp"
 #include "progpu_native_3d_execution.hpp"
@@ -782,8 +783,9 @@ progpu_native_status render_scene(
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
         const auto target_extent = preflight_target_cursor.advance(command);
+        const auto source_state = preflight_state_cursor.advance(command);
         const auto state = localize_semantic_state(
-            preflight_state_cursor.advance(command),
+            source_state,
             target_extent,
             preflight_target_cursor.current_presentation(),
             frame->dpi_scale);
@@ -797,7 +799,7 @@ progpu_native_status render_scene(
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind >
-                PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
             continue;
         }
         const bool per_point_guidelines =
@@ -1348,6 +1350,69 @@ progpu_native_status render_scene(
                         compiled_coverage_bytes += path_coverage_bytes;
                     }
                 }
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN: {
+                std::uint32_t error_offset = 0U;
+                valid = semantic::validate_rgb_glyph_draw(bytes, header, command, error_offset);
+                if (!valid) break;
+                progpu_native_scene_rgb_glyph_draw draw{};
+                std::memcpy(&draw, bytes + command.payload_offset, sizeof(draw));
+                std::int32_t offset_x{}, offset_y{};
+                if (!semantic::try_resolve_rgb_glyph_translation(draw, source_state,
+                        target_extent, preflight_target_cursor.current_presentation(),
+                        preflight_target_cursor.current_ignores_alpha(), offset_x, offset_y) ||
+                    target_extent.width > native_max_atlas_size || target_extent.height > native_max_atlas_size ||
+                    (engine->target_format != WGPUTextureFormat_RGBA8Unorm &&
+                        engine->target_format != WGPUTextureFormat_BGRA8Unorm) ||
+                    (engine->engine_flags & (PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+                        PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U) {
+                    return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                        "RGB glyph replay requires an actual opaque linear target, exact original DPI, integral translation and unmasked GPU scope.");
+                }
+                compiled_vertex_bytes = resource.auxiliary_size + std::uint64_t{draw.glyph_count} *
+                    (sizeof(rgb_glyph_tile) + sizeof(gpu_glyph_record) + 256U + 48U);
+                std::uint64_t rgb_area = 0U;
+                std::uint32_t rgb_atlas_width = 64U;
+                for (std::uint32_t glyph = 0U; glyph < draw.glyph_count; ++glyph) {
+                    progpu_native_scene_rgb_glyph_tile tile{};
+                    std::memcpy(&tile, bytes + command.payload_offset + sizeof(draw) +
+                        std::size_t{glyph} * sizeof(tile), sizeof(tile));
+                    const auto x = std::int64_t{tile.target_x} + offset_x;
+                    const auto y = std::int64_t{tile.target_y} + offset_y;
+                    if (x < -4096 || x > 4096 || y < -4096 || y > 4096) {
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "An RGB glyph occurrence exceeds its physical target placement domain.");
+                    }
+                    rgb_area += std::uint64_t{tile.width} * tile.height;
+                    while (rgb_atlas_width < tile.width) rgb_atlas_width *= 2U;
+                    compiled_coverage_bytes = (compiled_coverage_bytes + 511U) & ~std::uint64_t{511U};
+                    compiled_coverage_bytes += std::uint64_t{(tile.width * 4U + 255U) & ~255U} * tile.height;
+                }
+                while (std::uint64_t{rgb_atlas_width} * rgb_atlas_width < rgb_area && rgb_atlas_width < 4096U)
+                    rgb_atlas_width *= 2U;
+                std::uint32_t shelf_x = 0U, shelf_y = 0U, shelf_height = 0U;
+                for (std::uint32_t glyph = 0U; glyph < draw.glyph_count; ++glyph) {
+                    progpu_native_scene_rgb_glyph_tile tile{};
+                    std::memcpy(&tile, bytes + command.payload_offset + sizeof(draw) +
+                        std::size_t{glyph} * sizeof(tile), sizeof(tile));
+                    if (tile.width > rgb_atlas_width - shelf_x) {
+                        shelf_x = 0U;
+                        shelf_y += shelf_height;
+                        shelf_height = 0U;
+                    }
+                    if (shelf_y > 4096U || tile.height > 4096U - shelf_y)
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "The original RGB glyph batch exceeds its bounded shelf extent.");
+                    shelf_x += tile.width;
+                    shelf_height = std::max(shelf_height, tile.height);
+                }
+                compiled_texture_bytes = std::uint64_t{rgb_atlas_width} * (shelf_y + shelf_height) * 4U;
+                // Budget the actual RGBA allocation and aligned staging, not
+                // just the sum of ink rectangles. Fragment mode retains the
+                // same admission budget without allocating staging storage.
+                budget_valid = compiled_coverage_bytes <= std::min({semantic_max_coverage_bytes,
+                    engine->max_buffer_size, std::uint64_t{128U * 1024U * 1024U}});
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN:
@@ -5107,7 +5172,7 @@ progpu_native_status render_scene(
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind >
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
                 continue;
             }
             auto scissor = resolve_semantic_target_scissor(
@@ -5121,6 +5186,67 @@ progpu_native_status render_scene(
                 scissor = intersect_semantic_scissors(
                     scissor,
                     semantic_frame_damage);
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
+                const auto finish_status = finish_active_bundle();
+                if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) return fail_bundle(finish_status);
+                // A direct pass separates surrounding bundles even when this
+                // occurrence clips out. Never append later draws to a closed
+                // encoder merely because its cached scissor still matches.
+                has_active_scissor = false;
+                if (!scissor.drawable) continue;
+                progpu_native_scene_rgb_glyph_draw draw{};
+                std::memcpy(&draw, bytes + command.payload_offset, sizeof(draw));
+                std::int32_t offset_x{}, offset_y{};
+                if (!semantic::try_resolve_rgb_glyph_translation(draw, state, target_extent,
+                        target_cursor.current_presentation(), target_cursor.current_ignores_alpha(),
+                        offset_x, offset_y) || current_target_layer >= engine->semantic_layer_slots.size())
+                    return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "A preflighted RGB glyph scope lost its physical target identity."));
+                try {
+                    auto packet = std::make_shared<semantic_rgb_glyph_packet>();
+                    packet->policy = {draw.gamma, draw.enhanced_contrast, draw.cleartype_level,
+                        draw.pixel_geometry, rgb_glyph_filter_model::full_pixel_box_8x8};
+                    const auto resource = read_resource(command.resource_index);
+                    packet->segments.resize(resource.auxiliary_size / sizeof(progpu_native_path_segment));
+                    std::memcpy(packet->segments.data(), bytes + resource.auxiliary_offset, resource.auxiliary_size);
+                    packet->tiles.reserve(draw.glyph_count);
+                    for (std::uint32_t glyph = 0U; glyph < draw.glyph_count; ++glyph) {
+                        progpu_native_scene_rgb_glyph_tile tile{};
+                        progpu_native_scene_glyph_outline outline{};
+                        std::memcpy(&tile, bytes + command.payload_offset + sizeof(draw) +
+                            std::size_t{glyph} * sizeof(tile), sizeof(tile));
+                        std::memcpy(&outline, bytes + resource.payload_offset +
+                            std::size_t{tile.outline_index} * sizeof(outline), sizeof(outline));
+                        auto color = tile.foreground;
+                        color.a *= state.opacity;
+                        packet->tiles.push_back({
+                            {static_cast<std::uint32_t>(outline.segment_offset),
+                                static_cast<std::uint32_t>(outline.segment_count),
+                                outline.min_x, outline.min_y, outline.max_x, outline.max_y, 0U, 0U},
+                            tile.x_start, tile.y_start, tile.scale, tile.subpixel_x, tile.width, tile.height,
+                            tile.target_x + offset_x, tile.target_y + offset_y, color});
+                    }
+                    semantic_render_bundle_span operation{};
+                    operation.kind = semantic_replay_kind::rgb_glyphs;
+                    operation.rgb_glyphs = std::move(packet);
+                    operation.target_layer = current_target_layer;
+                    const auto& target_slot = engine->semantic_layer_slots[current_target_layer];
+                    operation.target_width = target_slot.width;
+                    operation.target_height = target_slot.height;
+                    operation.target_ignores_alpha = true;
+                    operation.clip_x = scissor.x;
+                    operation.clip_y = scissor.y;
+                    operation.clip_width = scissor.width;
+                    operation.clip_height = scissor.height;
+                    operation.draw_call_count = 3U;
+                    compiled_spans.push_back(std::move(operation));
+                    note_family(command.kind);
+                } catch (const std::bad_alloc&) {
+                    return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "The immutable RGB glyph replay packet could not be retained."));
+                }
+                continue;
             }
             const std::uint32_t mask_resource_index =
                 (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U
@@ -5992,6 +6118,31 @@ progpu_native_status render_scene(
                 executed_draw_calls += operation.composite_drawable
                     ? (advanced_blend ? 3U : 1U)
                     : 0U;
+                continue;
+            }
+            if (operation.kind == semantic_replay_kind::rgb_glyphs) {
+                finish_pass();
+                if (operation.rgb_glyphs == nullptr ||
+                    operation.target_layer >= engine->semantic_layer_slots.size() ||
+                    !layer_opaque_replay[operation.target_layer] ||
+                    engine->semantic_layer_slots[operation.target_layer].width != operation.target_width ||
+                    engine->semantic_layer_slots[operation.target_layer].height != operation.target_height)
+                    return fail_replay("An RGB glyph replay packet lost its actual opaque target.");
+                const auto& packet = *operation.rgb_glyphs;
+                rgb_glyph_metrics rgb_metrics{};
+                const auto rgb_status = encode_linear_rgb_glyphs(*engine, target_view(operation.target_layer),
+                    operation.target_width, operation.target_height, true, packet.policy,
+                    {operation.clip_x, operation.clip_y, operation.clip_width, operation.clip_height},
+                    packet.tiles, packet.segments, rgb_metrics);
+                if (rgb_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    discard_encoder();
+                    return rgb_status;
+                }
+                executed_draw_calls += rgb_metrics.draw_calls;
+                vertex_upload_bytes += rgb_metrics.vertex_upload_bytes;
+                uniform_upload_bytes += rgb_metrics.uniform_upload_bytes;
+                if (!begin_pass(operation.target_layer, WGPULoadOp_Load, false))
+                    return fail_replay("The RGB glyph source-order continuation pass could not be created.");
                 continue;
             }
             if (operation.target_layer != active_target_layer ||
