@@ -27,6 +27,8 @@ internal sealed class CocoaPopupWindow : IWindow
     private ulong _geometryVersion;
     private double _lastUpdate, _lastRender;
     private bool _vsync, _eventDriven, _topMost, _applyingOptions;
+    private bool _modalInputRegistered, _modalInputWakePending;
+    private ulong _modalInputRevision;
 
     internal CocoaPopupWindow(IWindowHost parent, NativeWindowHandle owner, WindowOptions options,
         Action wakeOwner, Func<NativeWindowBounds, bool, CocoaOwnedPopupSurface> create)
@@ -86,7 +88,7 @@ internal sealed class CocoaPopupWindow : IWindow
         _inputContext = context;
         try
         {
-            if (!RequireSurface().SetInputAllowed(_inputAllowed && !_inputTransparent && Owner.IsValid))
+            if (!RequireSurface().SetInputAllowed(_inputAllowed && !_inputTransparent && NativeWindowModalSession.AllowsPopupInput(Owner)))
                 throw new InvalidOperationException("The owned popup rejected input context admission.");
             context.ObservePolicyChange();
             return context;
@@ -205,8 +207,37 @@ internal sealed class CocoaPopupWindow : IWindow
 
     private bool ApplyInputPolicy()
     {
-        try { return RequireSurface().SetInputAllowed(_inputAllowed && !_inputTransparent && Owner.IsValid && _inputContext is { AcceptsInput: true }); }
+        try { return RequireSurface().SetInputAllowed(_inputAllowed && !_inputTransparent && NativeWindowModalSession.AllowsPopupInput(Owner) && _inputContext is { AcceptsInput: true }); }
         finally { _inputContext?.ObservePolicyChange(); }
+    }
+
+    internal void SynchronizeModalInputPolicy(ulong revision)
+    {
+        CheckThread();
+        if (!_modalInputRegistered || revision < _modalInputRevision) return;
+        _modalInputRevision = revision;
+        // Without a context, hidden creation/detach already blocks the queue.
+        // A later context must consult the current session, not this snapshot.
+        if (_inputContext == null && !_disposeRequested) return;
+        _modalInputWakePending = true;
+        if (_closing || _disposeRequested || !_initialized) return;
+        ++_dispatchDepth;
+        try
+        {
+            if (!ApplyInputPolicy())
+                throw new InvalidOperationException("The owned popup rejected its native modal input policy.");
+        }
+        finally { EndDispatch(); }
+    }
+
+    internal void WakeModalInputConsumer()
+    {
+        CheckThread();
+        if (!_modalInputRegistered || !_modalInputWakePending) return;
+        _modalInputWakePending = false;
+        // Retirement may still need a creating-thread drain after Dispose.
+        // This callback belongs to the original source dispatcher, not a poll.
+        _wakeHost();
     }
 
     internal bool BindOwner(NativeWindowHandle owner)
@@ -228,7 +259,7 @@ internal sealed class CocoaPopupWindow : IWindow
         {
             var surface = RequireSurface();
             accepted = surface.BindOwner(owner) && !_closing && !_disposeRequested &&
-                surface.SetInputAllowed(owner.IsValid && _inputAllowed && !_inputTransparent && _inputContext is { AcceptsInput: true });
+                surface.SetInputAllowed(NativeWindowModalSession.AllowsPopupInput(owner) && _inputAllowed && !_inputTransparent && _inputContext is { AcceptsInput: true });
             if (accepted && !_closing && !_disposeRequested) Owner = owner;
         }
         catch (Exception failure) { bindingFailure = failure; throw; }
@@ -318,6 +349,8 @@ internal sealed class CocoaPopupWindow : IWindow
             if (value && !Owner.IsValid)
                 throw new InvalidOperationException("Bind a live source owner before showing this popup.");
             var surface = RequireSurface();
+            if (value && _inputContext != null && !ApplyInputPolicy())
+                throw new InvalidOperationException("The owned popup rejected its current input policy before display.");
             bool accepted = value ? surface.Show() : surface.Hide();
             if (!accepted || _closing || _disposeRequested)
                 throw new InvalidOperationException("The owned Cocoa popup rejected visibility.");
@@ -428,6 +461,8 @@ internal sealed class CocoaPopupWindow : IWindow
             CheckUsable();
             PublishGeometry(ReadGeometry(), notify: false);
             _initialized = true;
+            _modalInputRegistered = true;
+            NativeWindowModalSession.RegisterPopupInput(this);
             _lastUpdate = _lastRender = Time;
             ++_dispatchDepth;
             try { Load?.Invoke(); }
@@ -526,7 +561,7 @@ internal sealed class CocoaPopupWindow : IWindow
     internal bool TryCompleteDispose()
     {
         CheckThread();
-        if (!_disposeRequested || _initializing || _dispatchDepth != 0 || _retiring || IsInNativeInputCallback) return false;
+        if (!_disposeRequested || _initializing || _dispatchDepth != 0 || _retiring || IsInNativeInputCallback || NativeWindowModalSession.IsInputPolicyTransitioning) return false;
         _retiring = true;
         try
         {
@@ -538,6 +573,8 @@ internal sealed class CocoaPopupWindow : IWindow
                 if (!_surface.IsReleased) return false;
             }
             _initialized = false;
+            NativeWindowModalSession.UnregisterPopupInput(this);
+            _modalInputRegistered = false;
             Load = Closing = InputPending = null;
             Update = Render = null;
             Move = Resize = FramebufferResize = null;

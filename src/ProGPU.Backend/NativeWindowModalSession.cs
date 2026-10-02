@@ -5,7 +5,7 @@ namespace ProGPU.Backend;
 /// All native event polling on the owning thread must call TryPumpEvents before
 /// its ordinary platform poll. Rendering and dispatcher work remain host-owned.
 /// </summary>
-public sealed class NativeWindowModalSession : IDisposable
+public sealed partial class NativeWindowModalSession : IDisposable
 {
     [ThreadStatic] private static NativeWindowModalSession? s_current;
     [ThreadStatic] private static bool s_transitioning;
@@ -96,6 +96,7 @@ public sealed class NativeWindowModalSession : IDisposable
         session = null;
         bool ownsTransition = false;
         NativeWindowModalSession? candidate = null;
+        Exception? failure = null;
         try
         {
             EnsureNotTransitioning();
@@ -106,11 +107,13 @@ public sealed class NativeWindowModalSession : IDisposable
             // host lifetime before entering AppKit, not after it returns.
             candidate._previous = s_current;
             s_current = candidate;
+            PublishPopupInputPolicy();
             candidate._session = operations.Begin();
             if (candidate._session == 0) return false;
             session = candidate;
             return true;
         }
+        catch (Exception error) { failure = error; throw; }
         finally
         {
             try
@@ -123,10 +126,31 @@ public sealed class NativeWindowModalSession : IDisposable
                         candidate._previous = null;
                         candidate._operations = null;
                     }
-                    operations.Dispose();
+                    try { operations.Dispose(); }
+                    catch (Exception error)
+                    {
+                        if (ownsTransition) FailPopupInputPolicy(error);
+                        throw;
+                    }
+                    if (ownsTransition) PublishPopupInputPolicy();
                 }
             }
-            finally { if (ownsTransition) s_transitioning = false; }
+            catch (Exception cleanup) when (failure != null)
+            {
+                CocoaPopupFailure.AttachCleanup(failure, "ModalBeginRetirement", cleanup);
+            }
+            finally
+            {
+                if (ownsTransition)
+                {
+                    s_transitioning = false;
+                    try { WakePopupInputConsumers(); }
+                    catch (Exception cleanup) when (failure != null)
+                    {
+                        CocoaPopupFailure.AttachCleanup(failure, "ModalInputWake", cleanup);
+                    }
+                }
+            }
         }
     }
 
@@ -139,6 +163,7 @@ public sealed class NativeWindowModalSession : IDisposable
     public static bool TryPumpEvents()
     {
         if (s_transitioning) return true; // Native begin/end already owns dispatch.
+        s_popupInputFailure?.Throw();
         var current = s_current;
         if (current == null) return false;
         current._endFailure?.Throw();
@@ -194,6 +219,7 @@ public sealed class NativeWindowModalSession : IDisposable
                 // repeating it could use an already-freed native session token.
                 current._endFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
                 current._releasedCallbacks = null;
+                FailPopupInputPolicy(error);
                 s_transitioning = false;
                 (failures ??= []).Add(error);
                 break;
@@ -203,13 +229,19 @@ public sealed class NativeWindowModalSession : IDisposable
             current._releasedCallbacks = null;
             bool released = false;
             try { operations.Dispose(); released = true; }
-            catch (Exception error) { (failures ??= []).Add(error); }
+            catch (Exception error)
+            {
+                FailPopupInputPolicy(error);
+                (failures ??= []).Add(error);
+            }
             finally
             {
                 s_current = current._previous;
                 current._previous = null;
                 current._session = 0;
                 current._operations = null;
+                try { PublishPopupInputPolicy(); }
+                catch (Exception error) { (failures ??= []).Add(error); }
                 s_transitioning = false;
             }
             // Invoke outside native transitions, after restoring the parent.
@@ -222,7 +254,10 @@ public sealed class NativeWindowModalSession : IDisposable
                     catch (Exception error) { (failures ??= []).Add(error); }
                 }
             }
+            if (s_popupInputFailure != null) break;
         }
+        try { WakePopupInputConsumers(); }
+        catch (Exception error) { (failures ??= []).Add(error); }
         if (failures is { Count: 1 })
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
         if (failures != null) throw new AggregateException("Native modal-session release failed.", failures);
@@ -232,6 +267,7 @@ public sealed class NativeWindowModalSession : IDisposable
     {
         if (s_transitioning)
             throw new InvalidOperationException("Native modal-session lifetime cannot reenter during begin/end.");
+        s_popupInputFailure?.Throw();
         s_current?._endFailure?.Throw();
     }
 }
