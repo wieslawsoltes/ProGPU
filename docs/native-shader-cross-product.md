@@ -39,3 +39,42 @@ performed. Both provider GPU runs, Windows, package/NativeAOT and application
 qualification remain required; passing a translator control is not rendering parity. General
 matrix operations, predicate/control flow and the separately documented numeric
 domain gaps are not admitted by this addition.
+
+## Dawn Metal scalar-source emission
+
+Exact PR263 head `be0c699587ba83967af432b1ff935e907acbaba6`, Build
+`37007183954`, macOS ARM job `110838116571` rejected creation of the owned
+bytecode pipeline with Tint's `swizzle view instruction still has usages after
+lowering`. The new CRS expression used scalar loads through redundant nested
+reference swizzles, such as `(r[0].xyzw).y`. The
+[pinned Dawn lowering pass](https://dawn.googlesource.com/dawn/+/710c33013c53ab2700d332c25ff51430251a8cc4/src/tint/lang/core/ir/transform/lower_swizzle_view.cc)
+collects view Load/Store instructions and fails on remaining view usages;
+that compiler failure occurred before the new pixel comparisons.
+
+CRS now emits direct scalar reads from the validated original registers. NEG,
+ABS and ABSNEG are applied componentwise in their original order; required source
+lanes, partial masks, right-handed multiplication/subtraction order, SAT and
+preserved destination W are unchanged. No whole-register snapshot reads an
+unwritten lane. Other opcodes retain their existing generated expressions, and
+original bytecode, pipeline/cache identity, resource budgets and provider choices
+are unchanged. No upstream compiler code or flags are patched.
+
+The original 110 translation, 367 arithmetic and 406 CRS controls remain, with
+an additional 232 scalar-source programs spanning both models, every XYZ mask and
+all pairs of admitted source modifiers, plus exact original signed-zero DEF bits
+and their modifier operations. This is emission/bit-retention coverage, not a new
+claim about WGSL floating-point propagation. All ten original paired GPU programs,
+pixels, cold/warm/independent counts and deadlines are unchanged. The emission
+fix must still pass the exact hosted Dawn/Metal lane; no local renderer/GPU run
+or pixel qualification is inferred from these source controls.
+
+Implementation `4ae370677` was committed before checks, with signed-zero
+controls added at `4b172b90b`. Apple Clang 21 strict C++20 compilation
+(`-Wall -Wextra -Wpedantic -Werror`) passed the changed translator and fixture.
+A bounded two-translation-unit CPU-only executable passed **110 translation +
+367 arithmetic + 406 original CRS + 232 scalar-source controls**, exit zero,
+under a ten-second execution limit (30-second compile limit). The executable
+is `/private/tmp/progpu-crs-signed-zero-controls.904e793e/controls` for this local
+receipt. No native library, renderer, GPU, VM or dependency graph was built or
+executed. `git diff --check` passed. The original paired pixel fixture has no
+diff; successful replacement hosted execution is still required.
