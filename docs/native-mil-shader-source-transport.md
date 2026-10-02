@@ -47,7 +47,8 @@ package/application execution are required; transport success is not UI parity.
 
 After the implementation and test commits, an isolated cached C# harness compiled
 the complete current packet builder/types, source DTO and the unchanged real
-xUnit test bodies. All 55 cases passed (44 packet controls and 11 DTO controls).
+xUnit test bodies. All 57 cases passed (44 packet controls and 13 DTO controls,
+including original bitmap metrics without pixel copies).
 The harness used existing managed reference assemblies only for unrelated types,
 suppressed its duplicate-type/framework-reference warnings 0436/1701 and treated
 other warnings as errors. No native library, GPU, VM or source graph was built or
