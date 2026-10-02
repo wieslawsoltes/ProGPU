@@ -1,0 +1,70 @@
+name: WPF shader effect reference
+
+on:
+  pull_request:
+    paths:
+      - 'eng/WpfShaderEffectReference/**'
+      - '.github/workflows/wpf-shader-effect-reference.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    name: Original WPF shaders (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            arch: X64
+          - os: windows-11-arm
+            arch: Arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    env:
+      REFERENCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REFERENCE_COMMIT }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Compile original Microsoft WPF reference
+        shell: pwsh
+        run: |
+          dotnet build eng/WpfShaderEffectReference/WpfShaderEffectReference.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Capture original software shader pixels
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/wpf-shader-reference'
+          if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory already exists.' }
+          New-Item -ItemType Directory -Path $evidence | Out-Null
+          $dll = Join-Path $env:GITHUB_WORKSPACE 'eng/WpfShaderEffectReference/bin/Release/net10.0-windows/WpfShaderEffectReference.dll'
+          $receipt = Join-Path $evidence 'reference.json'
+          $stdout = Join-Path $evidence 'stdout.log'
+          $stderr = Join-Path $evidence 'stderr.log'
+          $arguments = @($dll, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT) | ForEach-Object { '"' + $_ + '"' }
+          $child = Start-Process (Get-Command dotnet).Source -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            if (!$child.WaitForExit(90000)) { throw 'Original shader reference exceeded 90 seconds.' }
+            if ($child.ExitCode -ne 0) { throw "Original shader reference exited $($child.ExitCode)." }
+            if ((Get-Item -LiteralPath $receipt).Length -gt 2MB) { throw 'Original receipt exceeds its bound.' }
+            $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+            if ($value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne 25 -or $value.Cases.Count -ne 25 -or $value.Architecture -ne '${{ matrix.arch }}' -or $value.InvalidShaders -ne 0 -or $value.ShaderModel -ne 'ps_2_0' -or $value.ShaderRenderMode -ne 'SoftwareOnly') { throw 'Incomplete or wrong-identity reference.' }
+            Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
+          } finally {
+            if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
+            $child.Dispose()
+            Get-Content -LiteralPath $stdout
+            Get-Content -LiteralPath $stderr
+          }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: wpf-shader-reference-${{ matrix.arch }}-${{ env.REFERENCE_COMMIT }}
+          path: artifacts/wpf-shader-reference/
+          if-no-files-found: error
