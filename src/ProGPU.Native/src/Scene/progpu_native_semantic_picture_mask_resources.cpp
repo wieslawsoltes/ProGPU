@@ -568,13 +568,21 @@ static bool create_semantic_picture_binding(
         if (bind_status != PROGPU_NATIVE_STATUS_SUCCESS ||
             update_status != PROGPU_NATIVE_STATUS_SUCCESS) {
             child->semantic_resource_scope = previous_resource_scope;
-            if (trace_picture) {
-                std::fprintf(stderr,
-                    "ProGPU native picture mask child update failed: bind=%u, update=%u, error=%s\n",
-                    static_cast<unsigned>(bind_status),
-                    static_cast<unsigned>(update_status),
-                    child->last_error.c_str());
-            }
+            std::fprintf(stderr,
+                "ProGPU native retained picture child update failed: kind=%s, "
+                "scene=%llu/%llu, scope=%llu, size=%ux%u, dpi=(%g,%g), "
+                "seed=%u, firstCommand=%u, bind=%u, update=%u, error=%s\n",
+                image_output == nullptr ? "mask" : "image",
+                static_cast<unsigned long long>(nested_header.scene_id),
+                static_cast<unsigned long long>(nested_header.generation),
+                static_cast<unsigned long long>(previous_resource_scope),
+                child_frame.width, child_frame.height,
+                static_cast<double>(child_frame.presentation.dpi_scale_x),
+                static_cast<double>(child_frame.presentation.dpi_scale_y),
+                seed_texture != nullptr ? 1U : 0U, first_command,
+                static_cast<unsigned>(bind_status),
+                static_cast<unsigned>(update_status),
+                child->last_error.c_str());
             cleanup();
             return false;
         }
@@ -600,12 +608,23 @@ static bool create_semantic_picture_binding(
         const auto child_render_status = progpu_native_engine_render_scene(
             child, &child_frame, &child_metrics);
         if (child_render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
-            if (trace_picture) {
-                std::fprintf(stderr,
-                    "ProGPU native picture mask child render failed: status=%u, error=%s\n",
-                    static_cast<unsigned>(child_render_status),
-                    child->last_error.c_str());
-            }
+            std::fprintf(stderr,
+                "ProGPU native retained picture child render failed: kind=%s, "
+                "scene=%llu/%llu, installed=%llu/%llu, scope=%llu, "
+                "size=%ux%u, dpi=(%g,%g), seed=%u, firstCommand=%u, "
+                "status=%u, error=%s\n",
+                image_output == nullptr ? "mask" : "image",
+                static_cast<unsigned long long>(child_frame.scene_id),
+                static_cast<unsigned long long>(child_frame.generation),
+                static_cast<unsigned long long>(child->semantic_scene_id),
+                static_cast<unsigned long long>(child->semantic_scene_generation),
+                static_cast<unsigned long long>(child->semantic_resource_scope),
+                child_frame.width, child_frame.height,
+                static_cast<double>(child_frame.presentation.dpi_scale_x),
+                static_cast<double>(child_frame.presentation.dpi_scale_y),
+                seed_texture != nullptr ? 1U : 0U, first_command,
+                static_cast<unsigned>(child_render_status),
+                child->last_error.c_str());
             cleanup();
             return false;
         }

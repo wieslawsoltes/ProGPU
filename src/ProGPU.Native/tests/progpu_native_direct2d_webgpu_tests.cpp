@@ -795,17 +795,21 @@ struct portable_scene final {
         return {};
     }
     if (render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        d2d::scene_render_target_summary target_summary{};
+        if (scene_target != nullptr) scene_target->GetSummary(&target_summary);
         std::array<char, 512U> error{};
         (void)progpu_native_engine_get_last_error(
             engine, error.data(), error.size());
         std::fprintf(
             stderr,
             "Direct2D scene failure: status=%u stage=%u validation=%u "
-            "offset=%u error=%s\n",
+            "offset=%u scene=%llu/%llu error=%s\n",
             static_cast<unsigned>(render_status),
             static_cast<unsigned>(diagnostics.stage),
             scene_metrics.validation_error,
             scene_metrics.error_offset,
+            static_cast<unsigned long long>(scene_target != nullptr ? target_summary.scene_id : mil_scene_id),
+            static_cast<unsigned long long>(scene_target != nullptr ? target_summary.generation : mil_generation),
             error.data());
     }
     const bool render_matches = render_status ==
