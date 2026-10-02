@@ -166,3 +166,15 @@ Managed raw-builder controls match valid wire identity and atomic rejections.
 The original eight cold/warm GPU variants and original Windows differential,
 all binary/exterior pixels, nonbinary one-byte allowance and counters remain
 unchanged. This implementation still requires successful hosted execution.
+
+Postcommit checks on `ebc9e1042` passed strict Apple Clang C++20
+`-Wall -Wextra -Wpedantic -Werror` syntax for the shared state/validator,
+scene-builder fixture, portable target, full portable COM fixture and
+instantiated shared GPU fixture. The full native contract verifier passed,
+including the newly generated constant and both literal-inline-array controls.
+Four changed C# files parsed without syntax errors; this is not type compilation
+or test execution. The subsequent fixture correction `5113bb108` checks rejected
+managed writes *before* one-shot finalization, verifies unchanged storage and
+then successfully consumes the same command ID. Its syntax check passed too.
+Whitespace checks passed. No native library/renderer build, native execution,
+GPU/VM execution or runtime staging was performed locally.
