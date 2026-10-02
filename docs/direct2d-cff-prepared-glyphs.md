@@ -56,3 +56,27 @@ FD frames, cubic handles, fixed versus varied CFF2 advances and original axes.
 No local build, CPU/native/GPU test, VM run or workflow dispatch accompanies this
 implementation checkpoint. Ordinary source/UI admission and full exact-tip CI
 remain pending.
+
+## Authored controls (not executed)
+
+The shared provider fixture selects seven independently authored font families:
+default/affine CFF1, two-FD CID CFF1 with explicit/inherited matrices, static CFF2,
+and varying CFF2 outlines with fixed or varying HVAR advances. Eleven font
+instances exercise explicit and null advances: 22 source configurations, each
+with cold, warm and separately compiled independent line/cubic geometry images.
+Both native providers keep exact full-frame bytes, one source geometry draw,
+actual scene command counts, one submission, nonempty ink and untouched channel/
+alpha/background assertions. Source files and axis-query producers are mutated
+after capture; retained replay must not call them again.
+
+Raw controls retain literal contour/advance tables, source collection offsets,
+top/FD noncommuting order, static SDK descriptors beside real fvar axes, old raw
+decoder coordinates, transformed-output tails and unsupported dictionary forms.
+Fourteen source-family/axis/table faults preserve the earlier prepared owner.
+A later malformed Type2 glyph must preserve an earlier valid output and its one
+cached glyph without publishing the intervening uncached empty glyph. Distinct
+owners with identical bytes cannot consume one another's request.
+
+Original Windows fixture execution is a separate mandatory gate. The controls
+are authored assertions, not a successful runtime receipt or DirectWrite matrix,
+outline, metric, pixel or application qualification.
