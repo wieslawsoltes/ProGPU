@@ -78,7 +78,7 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
             std::memcmp(&source, &unchanged_source, sizeof(source)) == 0 &&
             std::memcmp(&raster, &unchanged_raster, sizeof(raster)) == 0);
     };
-    for (unsigned invalid = 0U; invalid < 17U; ++invalid) {
+    for (unsigned invalid = 0U; invalid < 19U; ++invalid) {
         auto bad = source;
         switch (invalid) {
         case 0U: ++bad.abi_version; break;
@@ -97,7 +97,10 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
         case 13U: bad.raw_logical_glyphs = nullptr; break;
         case 14U: bad.source.logical_metrics = reinterpret_cast<const progpu_native_hinted_source_logical_metrics*>(1U); break;
         case 15U: bad.fitted_lines = nullptr; break;
-        default: bad.breaks_after = nullptr; break;
+        case 16U: bad.breaks_after = nullptr; break;
+        case 17U: bad.raw_logical_glyphs = reinterpret_cast<const progpu_native_text_shaping_glyph*>(
+            std::numeric_limits<std::uintptr_t>::max() & ~(std::uintptr_t{alignof(progpu_native_text_shaping_glyph)} - 1U)); break;
+        default: bad.source.caret_count = UINT32_MAX; break;
         }
         reject(raster, bad);
     }

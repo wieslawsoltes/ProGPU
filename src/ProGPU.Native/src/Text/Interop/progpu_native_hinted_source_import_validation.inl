@@ -49,7 +49,7 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
     // or allocating it. This additive lane has a 256 MiB per-import work budget;
     // the unchanged base resource/font limits remain independently enforced.
     constexpr std::uint64_t byte_limit = 256U * 1024U * 1024U;
-    std::uint64_t bytes = 0U;
+    std::uint64_t bytes = sizeof(owned_hinted_source_import);
     const auto span = [&]<class T>(const T* data, std::uint32_t count) {
         const auto amount = std::uint64_t{count} * sizeof(T);
         if (!readable(data, count) || amount > byte_limit - bytes) return false;
@@ -66,7 +66,10 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
         sizeof(text_source_item_metrics) + sizeof(positioned_text_glyph) + sizeof(positioned_text_line) +
         sizeof(text_source_glyph_position) + sizeof(text_source_line_metrics) + sizeof(text_visual_cluster_group) +
         sizeof(text_line_break_kind) + sizeof(std::uint32_t) + sizeof(std::int8_t) + sizeof(float);
-    if (std::uint64_t{p.logical_count} * scratch_per_glyph > byte_limit - bytes) return false;
+    const auto extra_scratch = std::uint64_t{p.logical_count} * scratch_per_glyph +
+        std::uint64_t{p.style_count} * sizeof(hinted_source_style) +
+        std::uint64_t{p.line_count} * (sizeof(text_source_fitted_line) + sizeof(double));
+    if (extra_scratch > byte_limit - bytes) return false;
 
     std::vector<hinted_source_style> policies(p.style_count);
     for (std::uint32_t i = 0U; i < p.style_count; ++i) {
