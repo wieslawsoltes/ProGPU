@@ -9,16 +9,23 @@ extern "C" {
 /* Optional source geometry version 1. Existing hinting records and entrypoints
  * are unchanged. This is an explicit capture policy, NOT Display admission.
  * All unknown versions, flags, policies and reserved fields reject atomically.
- * Offset policy 0 retains raw device offsets; no other policy is admitted yet. */
+ * Source ideal-unit policies are explicit producer choices, not automatic WPF
+ * admission. Original em/DPI doubles remain identity under every policy. */
 typedef enum progpu_native_source_em_policy {
     PROGPU_NATIVE_SOURCE_EM_EXACT_26_6 = 0,
     PROGPU_NATIVE_SOURCE_EM_NEAREST_HALF_UP = 1,
-    PROGPU_NATIVE_SOURCE_EM_NEAREST_TIES_TO_EVEN = 2
+    PROGPU_NATIVE_SOURCE_EM_NEAREST_TIES_TO_EVEN = 2,
+    PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP = 3
 } progpu_native_source_em_policy;
 typedef enum progpu_native_source_advance_policy {
     PROGPU_NATIVE_SOURCE_ADVANCE_UNCHANGED = 0,
-    PROGPU_NATIVE_SOURCE_ADVANCE_PHYSICAL_TIES_TO_EVEN = 1
+    PROGPU_NATIVE_SOURCE_ADVANCE_PHYSICAL_TIES_TO_EVEN = 1,
+    PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS = 2
 } progpu_native_source_advance_policy;
+typedef enum progpu_native_source_offset_policy {
+    PROGPU_NATIVE_SOURCE_OFFSET_UNCHANGED = 0,
+    PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS = 1
+} progpu_native_source_offset_policy;
 
 typedef enum progpu_native_source_options_flags {
     PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS = 1

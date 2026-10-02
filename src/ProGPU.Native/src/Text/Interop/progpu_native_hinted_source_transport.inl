@@ -36,8 +36,8 @@ bool cache_hinted_source_paragraph(progpu_native_hinted_paragraph& handle,
 bool source_options_valid(const progpu_native_hinted_source_options& o) noexcept {
     return o.abi_version == PROGPU_NATIVE_ABI_VERSION && o.struct_size == sizeof(o) && o.version == 1U &&
         (o.flags & ~static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS)) == 0U &&
-        o.em_policy <= PROGPU_NATIVE_SOURCE_EM_NEAREST_TIES_TO_EVEN &&
-        o.advance_policy <= PROGPU_NATIVE_SOURCE_ADVANCE_PHYSICAL_TIES_TO_EVEN && o.offset_policy == 0U &&
+        o.em_policy <= PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP &&
+        o.advance_policy <= PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS && o.offset_policy <= PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS &&
         o.allow_emergency_break <= 1U && std::isfinite(o.em_size) && o.em_size > 0.0 &&
         std::isfinite(o.pixels_per_dip) && o.pixels_per_dip > 0.0 &&
         std::isfinite(o.maximum_width) && o.maximum_width >= 0.0 &&
@@ -95,7 +95,8 @@ progpu_native_status progpu_native_text_context_layout_hinted_source_paragraph(
                     d.x_phase_26_6, d.y_phase_26_6, {axes, d.variation_count}}, d.logical_units_per_physical_pixel});
             source.push_back({source_styles[i].em_size, options.pixels_per_dip,
                 static_cast<hinted_source_em_policy>(options.em_policy),
-                static_cast<hinted_source_advance_policy>(options.advance_policy)});
+                static_cast<hinted_source_advance_policy>(options.advance_policy),
+                static_cast<hinted_source_offset_policy>(options.offset_policy)});
             metrics.push_back({source_styles[i].ascent, source_styles[i].descent});
         }
         const hinted_source_paragraph_layout source_layout{options.maximum_width, options.line_height,

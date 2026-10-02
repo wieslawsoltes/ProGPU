@@ -10,7 +10,8 @@ alias preflight and private staging preserve every output and unused tail on fai
 
 Source-run binding requires one original run, font, full bidi level and line,
 exact original em/DPI, captured hmtx metrics and an exactly representable raster
-translation. This does not establish the outstanding WPF offset policy. Authored
+translation. Explicit native source-offset policy is transported unchanged; this
+does not establish original DirectWrite placement parity. Authored
 transport/source-run controls are wired into CTest; execution and hosted package
 qualification remain pending. No provider advertises Display. Explicit option flag
 1 requests producer-owned double intrinsic widths through an additive getter; an
@@ -25,6 +26,13 @@ and `ValidateSourceRun` operations; they do not impersonate the old float nomina
 metric borrow. The original raster DPI projection is checked exactly, never rounded.
 The four managed schema/gate controls are authored but have not been executed
 against a freshly built native producer. No WPF capability is advertised here.
+
+Typed C and managed choices include float-captured physical em, source ideal-unit
+advances and source ideal-unit offsets with their original numeric enum values.
+They remain independent opt-ins; defaults retain the old raw policies. Unknown
+choices reject before either output is published. The transport fixture retains
+non-float-exact original em/DPI through creation and reflow while selecting these
+policies; actual execution remains a hosted qualification requirement.
 
 Postcommit checks for this transport batch: strict C++20 syntax-only checks passed
 for the full shaping adapter, source-run helper and both new fixtures; the C
@@ -101,8 +109,8 @@ This first lane deliberately admits no tabs, objects, justification or trimming.
 Raw offset projection remains the default; the explicit source conversion below
 is a separate policy, not a changed raw result. Original unsafe shaping flags remain immutable;
 the bounded placement family below can fit proven original prepared boundaries.
-Required next work is the original offset policy and paired optional
-source binding/transport. No source-local division,
+Required next work includes the versioned foreign-resource import, complete RTL
+occurrence identity and original source qualification. No source-local division,
 snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
 ## Placement recomposition ownership

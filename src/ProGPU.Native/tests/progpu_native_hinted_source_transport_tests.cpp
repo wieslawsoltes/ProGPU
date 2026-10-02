@@ -2,6 +2,7 @@
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "../src/Text/Interop/progpu_native_hinted_paragraph_transport_internal.hpp"
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <source_location>
@@ -53,10 +54,16 @@ void controls() {
     const auto create = [&] { return progpu_native_text_context_layout_hinted_source_paragraph(context.value, &shape, &layout,
         &style, 1U, &metrics, &device, 1U, nullptr, 0U, &options, &source, 1U, &paragraph.value, &diagnostic); };
     const auto saved_diagnostic = diagnostic;
-    options.offset_policy = 1U;
+    options.offset_policy = 2U;
     require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
         std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
-    options.offset_policy = 0U; options.flags = 2U;
+    options.offset_policy = 0U; options.em_policy = 4U;
+    require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
+        std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
+    options.em_policy = 0U; options.advance_policy = 3U;
+    require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
+        std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
+    options.advance_policy = 0U; options.flags = 2U;
     require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
         std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
     options.flags = PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS;
@@ -108,6 +115,29 @@ void controls() {
     const auto saved_widths = widths;
     require(progpu_native_hinted_source_paragraph_get_intrinsic_widths(unmeasured.value, &widths) == PROGPU_NATIVE_STATUS_UNSUPPORTED &&
         std::memcmp(&widths, &saved_widths, sizeof(widths)) == 0);
+    paragraph_owner source_policy;
+    auto policy_options = options;
+    policy_options.em_size = std::nextafter(10.0, 11.0);
+    policy_options.pixels_per_dip = std::nextafter(1.5, 2.0);
+    policy_options.em_policy = PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP;
+    policy_options.advance_policy = PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS;
+    policy_options.offset_policy = PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS;
+    auto policy_style = source; policy_style.em_size = policy_options.em_size;
+    require(progpu_native_text_context_layout_hinted_source_paragraph(context.value, &shape, &layout, &style, 1U,
+        &metrics, &device, 1U, nullptr, 0U, &policy_options, &policy_style, 1U, &source_policy.value, &diagnostic) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    progpu_native_hinted_source_paragraph_view policy_view{};
+    require(progpu_native_hinted_source_paragraph_borrow(source_policy.value, &policy_view) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        std::memcmp(&policy_view.options, &policy_options, sizeof(policy_options)) == 0 &&
+        policy_view.styles[0].em_size == policy_style.em_size && policy_view.glyph_count == view.glyph_count);
+    paragraph_owner policy_reflow;
+    require(progpu_native_hinted_source_paragraph_reflow(source_policy.value, 0, 100.0 / 1.5, &policy_reflow.value) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    progpu_native_hinted_source_paragraph_view policy_continued{};
+    auto continued_policy_options = policy_options; continued_policy_options.maximum_width = 100.0 / 1.5;
+    require(progpu_native_hinted_source_paragraph_borrow(policy_reflow.value, &policy_continued) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        std::memcmp(&policy_continued.options, &continued_policy_options, sizeof(continued_policy_options)) == 0 &&
+        policy_continued.styles[0].em_size == policy_style.em_size);
     paragraph_owner wrapped;
     require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 0, 1.0, &wrapped.value) == PROGPU_NATIVE_STATUS_SUCCESS);
     progpu_native_hinted_source_paragraph_view wrapped_view{};

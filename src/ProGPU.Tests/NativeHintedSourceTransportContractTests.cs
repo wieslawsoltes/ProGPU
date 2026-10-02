@@ -42,6 +42,11 @@ public sealed class NativeHintedSourceTransportContractTests
         var measured = NativeHintedSourceOptions.Create(em, dpi, width, 12.0, 7.0,
             NativeSourceEmPolicy.Exact26Dot6, NativeSourceAdvancePolicy.Unchanged, true, measureIntrinsicWidths: true);
         Assert.Equal(1U, measured.Flags); Assert.Equal(em, measured.EmSize); Assert.Equal(width, measured.MaximumWidth);
+        var sourcePolicy = NativeHintedSourceOptions.Create(em, dpi, width, 12.0, 7.0,
+            NativeSourceEmPolicy.FloatCaptureNearestHalfUp, NativeSourceAdvancePolicy.SourceIdealUnits, true,
+            offsetPolicy: NativeSourceOffsetPolicy.SourceIdealUnits);
+        Assert.Equal(3U, sourcePolicy.EmPolicy); Assert.Equal(2U, sourcePolicy.AdvancePolicy); Assert.Equal(1U, sourcePolicy.OffsetPolicy);
+        Assert.Equal(em, sourcePolicy.EmSize); Assert.Equal(dpi, sourcePolicy.PixelsPerDip);
     }
 
     [Fact]
