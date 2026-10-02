@@ -1649,7 +1649,14 @@ public sealed partial class NativeMilBatchBuilder
     public void SetTransformGroup(uint handle, ReadOnlySpan<uint> children)
     {
         ValidateHandle(handle);
+        if (children.Length > (1 << 20))
+            throw new ArgumentOutOfRangeException(nameof(children));
         int childrenSize = checked(children.Length * sizeof(uint));
+        // A late invalid child must not append a partial packet to this writer.
+        // Preserve duplicates and original ordering; graph cycles are channel
+        // validation, not grounds for silently rewriting this list.
+        foreach (uint child in children)
+            ValidateHandle(child);
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer,
             NativeMilCommand.TransformGroup,
@@ -1658,7 +1665,6 @@ public sealed partial class NativeMilBatchBuilder
         WriteUInt32(packet, 8, (uint)childrenSize);
         for (int index = 0; index < children.Length; ++index)
         {
-            ValidateHandle(children[index]);
             WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
         }
     }
