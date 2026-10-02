@@ -4,6 +4,15 @@ This implementation extends the explicit original-font prepared-outline route;
 it does not select that route automatically or qualify DirectWrite raster parity.
 The authored product and reference controls have not been executed.
 
+The owned DICT real parser also corrects a bounded decimal conversion defect:
+negative scales through22 divide by an exactly constructed integer power of ten,
+instead of multiplying an already-rounded reciprocal. Positive powers through22
+use the same exact integer sequence. This retains the existing digit grammar,
+significand accumulation, signed zero, overflow rejection and longer-exponent
+policy; it does not claim fully correctly rounded arbitrary-decimal conversion.
+Literal controls require exact binary results for1/2048,1/1000 and the other
+authored matrix values, with no matrix tolerance.
+
 ## Source and outline ownership
 
 One retained original CFF face (source type CFF or OpenType collection) selects
@@ -56,3 +65,27 @@ FD frames, cubic handles, fixed versus varied CFF2 advances and original axes.
 No local build, CPU/native/GPU test, VM run or workflow dispatch accompanies this
 implementation checkpoint. Ordinary source/UI admission and full exact-tip CI
 remain pending.
+
+## Authored controls (not executed)
+
+The shared provider fixture selects seven independently authored font families:
+default/affine CFF1, two-FD CID CFF1 with explicit/inherited matrices, static CFF2,
+and varying CFF2 outlines with fixed or varying HVAR advances. Eleven font
+instances exercise explicit and null advances: 22 source configurations, each
+with cold, warm and separately compiled independent line/cubic geometry images.
+Both native providers keep exact full-frame bytes, one source geometry draw,
+actual scene command counts, one submission, nonempty ink and untouched channel/
+alpha/background assertions. Source files and axis-query producers are mutated
+after capture; retained replay must not call them again.
+
+Raw controls retain literal contour/advance tables, source collection offsets,
+top/FD noncommuting order, static SDK descriptors beside real fvar axes, old raw
+decoder coordinates, transformed-output tails and unsupported dictionary forms.
+Fourteen source-family/axis/table faults preserve the earlier prepared owner.
+A later malformed Type2 glyph must preserve an earlier valid output and its one
+cached glyph without publishing the intervening uncached empty glyph. Distinct
+owners with identical bytes cannot consume one another's request.
+
+Original Windows fixture execution is a separate mandatory gate. The controls
+are authored assertions, not a successful runtime receipt or DirectWrite matrix,
+outline, metric, pixel or application qualification.
