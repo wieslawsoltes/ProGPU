@@ -62,3 +62,19 @@ parity claims. No native/renderer/full graph build, GPU/VM execution or runtime
 staging has occurred. Generated C# structure verification and bounded source
 syntax checks follow the commit; exact hosted whole-Build/package/provider and
 original Windows gates remain mandatory.
+
+Post-commit checks: Apple Clang 21 strict C++20 syntax-only compilation passed
+the portable target, shared brush builder, semantic brush validator, complete
+portable compatibility test TU and explicitly instantiated pixel fixtures, with
+`-Wall -Wextra -Wpedantic -Wshadow -Werror` and 45-second process bounds. LLVM
+Clang 22.1.8 also precompiled the actual module and syntax-checked its unchanged
+import path plus the new public constant control under those flags and the
+actual Xcode SDK. The repository generator (identical cached tool source) verified
+the generated C# structures against the changed header: no structure regeneration
+was needed. The separate public C/managed spread enums were updated together.
+The three changed/new C# files passed Roslyn syntax parsing only, not type
+compilation or test execution. The memory guard passed 93 owned fields/seven
+excluded identities and `git diff --check` passed. No native object/library,
+provider, shader pipeline or GPU work was built or executed. The eight original
+Windows direct/streamed linear/radial clamp/mirror cases explicitly require the
+new/unchanged serialized mode as well as every original stop.
