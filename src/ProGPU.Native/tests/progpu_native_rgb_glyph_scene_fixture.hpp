@@ -49,7 +49,9 @@ inline rgb_scene_case rgb_scene_case_for(unsigned variant) {
     if (variant == 13U) test.right = 3.71875F;
     // Variant 14 restores exactly variant 1 after all mutations on the same
     // retained engine, including the mapped and changed-DPI generations.
-    test.accepted = variant < 15U;
+    // The mask implementation child admits the original valid full-coverage
+    // rounded-mask input. The independent parent PR retains its rejection.
+    test.accepted = variant < 15U || variant == 21U;
     test.mapped = variant == 12U || variant == 18U;
     test.presentation = {sizeof(test.presentation), variant == 12U ? 4U : 0U,
         variant == 12U ? 8U : 0U, variant == 12U ? 60U : 64U,
@@ -80,8 +82,9 @@ inline std::array<progpu_native_scene_rgb_glyph_tile, 4U> rgb_scene_tiles(const 
     return tiles;
 }
 
-inline bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t generation,
-    std::vector<std::byte>& stream, progpu_native_scene_header& header) {
+template<class ConfigureMask>
+bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t generation,
+    std::vector<std::byte>& stream, progpu_native_scene_header& header, ConfigureMask configure_mask) {
     semantic_scene_builder builder(0x9682U, generation);
     const auto fail = [&](const char* stage) {
         std::fprintf(stderr, "RGB scene fixture variant=%u stage=%s builder-error=%u\n",
@@ -127,6 +130,7 @@ inline bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t ge
             return fail("per-point guidelines");
         state.flags |= PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
     }
+    if (!configure_mask(builder, state)) return fail("source mask");
     std::uint32_t state_resource{};
     if (!builder.add_state(state, state_resource)) return fail("state");
     progpu_native_scene_layer layer{};
@@ -174,6 +178,12 @@ inline bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t ge
         header.command_count == (test.variant == 15U ? 4U : test.variant == 17U ? 8U : 6U);
 }
 
+inline bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t generation,
+    std::vector<std::byte>& stream, progpu_native_scene_header& header) {
+    return build_rgb_scene_fixture(test, generation, stream, header,
+        [](semantic_scene_builder&, progpu_native_scene_state&) { return true; });
+}
+
 inline std::uint8_t rgb_scene_sample_coverage(const rgb_scene_case& test,
     const progpu_native_scene_rgb_glyph_tile& tile, unsigned x, unsigned y, unsigned channel) {
     double stripe = 0.0;
@@ -197,8 +207,8 @@ inline std::uint8_t rgb_scene_sample_coverage(const rgb_scene_case& test,
     return static_cast<std::uint8_t>((count * 255U + 32U) / 64U);
 }
 
-template<class Require>
-std::vector<std::uint8_t> rgb_scene_expected(const rgb_scene_case& test, Require require) {
+template<class Require, class MaskAlpha>
+std::vector<std::uint8_t> rgb_scene_expected(const rgb_scene_case& test, Require require, MaskAlpha mask_alpha) {
     std::vector<std::uint8_t> pixels(64U * 64U * 4U, 0U);
     for (std::size_t i = 3U; i < pixels.size(); i += 4U) pixels[i] = 255U;
     const auto viewport_x = static_cast<int>(test.presentation.viewport_x);
@@ -233,7 +243,7 @@ std::vector<std::uint8_t> rgb_scene_expected(const rgb_scene_case& test, Require
             const auto offset = (static_cast<std::size_t>(py) * 64U + static_cast<unsigned>(px)) * 4U;
             for (unsigned channel = 0U; channel < 3U; ++channel) {
                 const auto coverage = rgb_scene_sample_coverage(test, tile, x, y, channel);
-                const double amount = coverage / 255.0 * alpha;
+                const double amount = coverage / 255.0 * alpha * mask_alpha(px, py);
                 const double value = color[channel] * 255.0 * amount + pixels[offset + channel] * (1.0 - amount);
                 // These authored colors avoid half-byte blend ties. A future
                 // edit must keep that property, not hide device quantization in
@@ -249,6 +259,11 @@ std::vector<std::uint8_t> rgb_scene_expected(const rgb_scene_case& test, Require
         static_cast<int>(20.0F * test.dpi) + viewport_x, bottom, {0U, 0U, 255U});
     paint(tiles[3]);
     return pixels;
+}
+
+template<class Require>
+std::vector<std::uint8_t> rgb_scene_expected(const rgb_scene_case& test, Require require) {
+    return rgb_scene_expected(test, require, [](int, int) { return 1.0; });
 }
 
 // Render selects an actual provider engine by immutable route, updates this

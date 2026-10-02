@@ -14,6 +14,7 @@
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_rgb_glyph_scene_fixture.hpp"
+#include "progpu_native_rgb_glyph_mask_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
@@ -2383,14 +2384,17 @@ int main(int argc, char** argv)
             }
             return selected;
         };
-        progpu::native::tests::verify_rgb_glyph_scene_pixels(
+        const auto render_rgb =
             [&](unsigned route, const auto& stream, const progpu_native_scene_header& header,
-                const progpu::native::tests::rgb_scene_case& test, progpu_native_scene_frame_metrics& metrics) {
-                return render_scene(gpu, rgb_engine(route), nullptr, 4U, header.command_count, 1U,
+                const progpu::native::tests::rgb_scene_case& test, progpu_native_scene_frame_metrics& metrics,
+                std::uint64_t submissions = 1U) {
+                return render_scene(gpu, rgb_engine(route), nullptr, 4U, header.command_count, submissions,
                     stream, header.scene_id, header.generation, &metrics, test.dpi,
                     test.mapped ? &test.presentation : nullptr,
                     test.accepted ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_UNSUPPORTED);
-            }, require);
+            };
+        progpu::native::tests::verify_rgb_glyph_scene_pixels(render_rgb, require);
+        progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
         for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
     }
     phase("explicit RGB retained scene compute/fragment pixels passed");
