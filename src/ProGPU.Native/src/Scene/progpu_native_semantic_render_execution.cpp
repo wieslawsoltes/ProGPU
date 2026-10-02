@@ -3228,11 +3228,11 @@ progpu_native_status render_scene(
                         progpu::native::webgpu::texture_view_add_ref(draw.view);
                     } else {
                         progpu_native_scene_picture_image picture{};
-                        progpu_native_scene_presentation presentation{};
+                        progpu_native_scene_presentation picture_presentation{};
                         progpu_native_scene_frame_metrics child_metrics{};
                         if (!semantic::read_semantic_picture_image(bytes + resource.payload_offset,
-                                resource.payload_size, picture, presentation) ||
-                            !create_semantic_picture_image(*engine, picture, presentation,
+                                resource.payload_size, picture, picture_presentation) ||
+                            !create_semantic_picture_image(*engine, picture, picture_presentation,
                                 bytes + resource.auxiliary_offset, resource.auxiliary_size, draw, child_metrics)) {
                             release_compiled();
                             return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
