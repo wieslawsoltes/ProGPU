@@ -112,6 +112,42 @@ bool run_shader_effect_uniform_tests() {
     sampled.frame.clip_right = 42; sampled.frame.clip_bottom = 33;
     UV_REQUIRE(shader_effect::complete_sample_frame(sampled.frame));
     UV_REQUIRE(shader_effect::validate_sample_frame(sampled.frame));
+    progpu_native_scene_shader_effect_affine affine_source{};
+    affine_source.struct_size=sizeof(affine_source); affine_source.version=6U;
+    affine_source.input_resource_index=0U;
+    affine_source.sampler_resource_index=affine_source.derivative_register=PROGPU_NATIVE_SCENE_NO_INDEX;
+    affine_source.program=program; affine_source.frame.placement=sampled.frame;
+    affine_source.frame.source_m12=.75F;
+    UV_REQUIRE(shader_effect::complete_affine_frame(affine_source.frame));
+    for(std::uint32_t variant=0;variant<12U;++variant) {
+        auto wire=affine_source;
+        if(variant==1U) wire.struct_size-=4U;
+        if(variant==2U) wire.version=5U;
+        if(variant==3U) wire.flags=1U;
+        if(variant==4U) wire.reserved[0]=1U;
+        if(variant==5U) wire.input_resource_index=PROGPU_NATIVE_SCENE_NO_INDEX;
+        if(variant==6U) wire.derivative_register=32U;
+        if(variant==7U) wire.frame.source_m21=std::numeric_limits<float>::quiet_NaN();
+        if(variant==8U) wire.frame.quad_m12=std::nextafter(wire.frame.quad_m12,100.0F);
+        if(variant==9U) wire.frame.placement.capture_width++;
+        if(variant==10U) wire.frame.placement.clip_antialias=2U;
+        if(variant==11U) wire.frame.placement.clip_left+=.25F;
+        auto actual=original;
+        progpu_native_scene_shader_capture_frame capture{};
+        progpu_native_scene_shader_sample_frame placement{};
+        progpu_native_scene_shader_affine_frame frame{};
+        std::uint32_t sampler=91U,derivative=92U,input=93U;
+        UV_REQUIRE(!shader_effect::read_resource(std::as_bytes(std::span(&wire,1U)),bytecode,
+            actual,sampler,derivative,capture,input,placement));
+        UV_REQUIRE(sampler==91U && derivative==92U && input==93U);
+        const bool accepted=shader_effect::read_resource(std::as_bytes(std::span(&wire,1U)),bytecode,
+            actual,sampler,derivative,capture,input,placement,frame);
+        UV_REQUIRE(accepted==(variant==0U));
+        if(!accepted) {
+            UV_REQUIRE(sampler==91U && derivative==92U && input==93U);
+            UV_REQUIRE(std::memcmp(&actual,&original,sizeof(original))==0);
+        }
+    }
     for (std::uint32_t variant = 0U; variant < 20U; ++variant) {
         auto wire = sampled;
         if (variant == 1U) wire.struct_size -= 4U;

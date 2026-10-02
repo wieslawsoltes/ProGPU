@@ -20,6 +20,7 @@
 #include "progpu_native_rgb_glyph_scene_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_shader_final_sample_fixture.hpp"
+#include "progpu_native_shader_affine_fixture.hpp"
 #include "progpu_native_shader_source_mask_fixture.hpp"
 #include "progpu_native_shader_input_opacity_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
@@ -3739,6 +3740,13 @@ int main(int argc, char** argv) {
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
             return render_retained_scene(reference, stream, header.generation, submissions, header.scene_id,
                 0U, header.command_count, &layers, &metrics, test.dpi, nullptr, PROGPU_NATIVE_STATUS_SUCCESS,
+                false, 128U, nullptr, nullptr, 64U);
+        }, require);
+    progpu::native::tests::verify_shader_affine_frames(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t submissions, progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            return render_retained_scene(reference, stream, header.generation, submissions, header.scene_id,
+                0U, header.command_count, &layers, &metrics, 1.0F, nullptr, PROGPU_NATIVE_STATUS_SUCCESS,
                 false, 128U, nullptr, nullptr, 64U);
         }, require);
     progpu::native::tests::verify_shader_source_masks(

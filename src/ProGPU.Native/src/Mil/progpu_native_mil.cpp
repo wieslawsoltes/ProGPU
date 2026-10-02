@@ -10,6 +10,7 @@
 #include "../Scene/progpu_native_shader_effect.hpp"
 #include "../Scene/progpu_native_shader_capture_frame.hpp"
 #include "../Scene/progpu_native_shader_sample_frame.hpp"
+#include "../Scene/progpu_native_shader_affine_frame.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -639,6 +640,18 @@ affine_2d_double compose_shader_source_affine(const affine_2d_double& local,
             static_cast<float>(parent.m31)),
         source_sum(source_product(static_cast<float>(local.m32), static_cast<float>(parent.m22)),
             static_cast<float>(parent.m32))};
+}
+
+native::shader_effect::axis_matrix shader_affine_matrix(const affine_2d_double& value) noexcept {
+    return {static_cast<float>(value.m11), static_cast<float>(value.m22), 1.0F, 1.0F,
+        static_cast<float>(value.m31), static_cast<float>(value.m32),
+        static_cast<float>(value.m12), static_cast<float>(value.m21)};
+}
+
+affine_2d_double compose_shader_source_full_affine(const affine_2d_double& local,
+    const affine_2d_double& parent) noexcept {
+    const auto value = native::shader_effect::multiply_affine_matrix(shader_affine_matrix(local), shader_affine_matrix(parent));
+    return {value.x, value.xy, value.yx, value.y, value.tx, value.ty};
 }
 
 bool try_transform_bounds(
@@ -2832,6 +2845,7 @@ struct channel::implementation {
         float shader_source_offset_x{};
         float shader_source_offset_y{};
         bool shader_source_transform_proven{};
+        bool shader_source_affine_frame{};
         // Original physical rectangle-clip history is separate from the
         // generic logical float clip used by legacy rendering.
         std::array<float, 4U> shader_source_clip{};
@@ -3884,6 +3898,44 @@ struct channel::implementation {
         }
         return matrix.m12 == 0.0 && matrix.m21 == 0.0 && matrix.m11 > 0.0 && matrix.m22 > 0.0 &&
             finite_double_as_float(matrix.m11) && finite_double_as_float(matrix.m22) &&
+            finite_double_as_float(matrix.m31) && finite_double_as_float(matrix.m32);
+    }
+
+    bool resolve_shader_source_full_transform(std::uint32_t handle, affine_2d_double& matrix,
+        std::uint32_t depth = 0U) const noexcept {
+        matrix = {};
+        if (handle == 0U) return true;
+        if (depth >= maximum_visual_depth) return false;
+        const auto found = transforms.find(handle);
+        if (found == transforms.end()) return false;
+        const auto& source = found->second;
+        if (source.type == transform_state::kind::group) {
+            for (const auto child : source.children) {
+                affine_2d_double next{};
+                if (!resolve_shader_source_full_transform(child, next, depth + 1U)) return false;
+                matrix = compose_shader_source_full_affine(matrix, next);
+            }
+        } else if (source.type == transform_state::kind::matrix || source.type == transform_state::kind::translate) {
+            if (resolve_leaf_transform(source, matrix) != status::success || !try_quantize_wpf_affine(matrix)) return false;
+        } else if (source.type == transform_state::kind::scale) {
+            std::array<double,4U> values{};
+            for (std::size_t index = 0U; index < values.size(); ++index) {
+                if (resolve_animated_double(source.values[index], source.animations[index], values[index]) != status::success ||
+                    !finite_double_as_float(values[index])) return false;
+            }
+            // Original center translation -> narrowed scale -> center restore.
+            // Do not reuse the generic multiply's possible fused arithmetic.
+            const affine_2d_double before{1,0,0,1,-static_cast<float>(values[2]),-static_cast<float>(values[3])};
+            const affine_2d_double scale{static_cast<float>(values[0]),0,0,static_cast<float>(values[1]),0,0};
+            const affine_2d_double after{1,0,0,1,static_cast<float>(values[2]),static_cast<float>(values[3])};
+            matrix = compose_shader_source_full_affine(compose_shader_source_full_affine(before,scale),after);
+        } else {
+            // Named Rotate/Skew constructors still need their independent
+            // original primitive arithmetic, not host libm substitution.
+            return false;
+        }
+        return finite_double_as_float(matrix.m11) && finite_double_as_float(matrix.m12) &&
+            finite_double_as_float(matrix.m21) && finite_double_as_float(matrix.m22) &&
             finite_double_as_float(matrix.m31) && finite_double_as_float(matrix.m32);
     }
 
@@ -19899,20 +19951,33 @@ struct channel::implementation {
         const bool prior_clip_proven = state.shader_source_clip_proven;
         intersect_scope_clip(state, clip);
         affine_2d_double source_local{};
-        if (prior_clip_proven && state.shader_source_transform_proven &&
-            resolve_shader_source_transform(resolved_geometry.transform_handle, source_local) &&
-            source_local.m12 == 0.0 && source_local.m21 == 0.0 && source_local.m11 > 0.0 && source_local.m22 > 0.0) {
-            const auto source_transform = compose_shader_source_affine(source_local, state.shader_source_transform);
+        const bool source_local_proven = state.shader_source_affine_frame
+            ? resolve_shader_source_full_transform(resolved_geometry.transform_handle,source_local)
+            : resolve_shader_source_transform(resolved_geometry.transform_handle, source_local) &&
+              source_local.m12 == 0.0 && source_local.m21 == 0.0 && source_local.m11 > 0.0 && source_local.m22 > 0.0;
+        if (prior_clip_proven && state.shader_source_transform_proven && source_local_proven) {
+            const auto source_transform = state.shader_source_affine_frame
+                ? compose_shader_source_full_affine(source_local,state.shader_source_transform)
+                : compose_shader_source_affine(source_local, state.shader_source_transform);
             using native::shader_effect::source_product;
             using native::shader_effect::source_sum;
             const auto edge = [](float value, double scale, double offset) {
                 return source_sum(source_product(value, static_cast<float>(scale)), static_cast<float>(offset));
             };
-            const std::array<float, 4U> physical{
+            std::array<float, 4U> physical{
                 edge(static_cast<float>(resolved_geometry.first), source_transform.m11, source_transform.m31),
                 edge(static_cast<float>(resolved_geometry.second), source_transform.m22, source_transform.m32),
                 edge(static_cast<float>(resolved_geometry.first + resolved_geometry.third), source_transform.m11, source_transform.m31),
                 edge(static_cast<float>(resolved_geometry.second + resolved_geometry.fourth), source_transform.m22, source_transform.m32)};
+            if (state.shader_source_affine_frame) {
+                // This route is only a true axis-aligned transformed rectangle.
+                // General rotated/skewed source clips use their typed polygon.
+                if (!affine_preserves_axis_alignment(source_transform)) return status::unsupported_command;
+                physical = native::shader_effect::affine_bounds(shader_affine_matrix(source_transform),
+                    {static_cast<float>(resolved_geometry.first),static_cast<float>(resolved_geometry.second),
+                     static_cast<float>(resolved_geometry.first+resolved_geometry.third),
+                     static_cast<float>(resolved_geometry.second+resolved_geometry.fourth)});
+            }
             if (std::all_of(physical.begin(), physical.end(), [](float value) { return std::isfinite(value); })) {
                 if (!state.shader_source_has_clip) state.shader_source_clip = physical;
                 else {
@@ -21166,6 +21231,7 @@ struct channel::implementation {
         // source scale and exact integer origin, not from the generic aggregate.
         content.shader_source_transform = content.transform;
         content.shader_source_transform_proven = true;
+        content.shader_source_affine_frame = false;
         content.has_clip = false; content.shader_source_has_clip = false;
         content.shader_source_clip_proven = true;
         content.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -21252,7 +21318,8 @@ struct channel::implementation {
             (state.has_clip && (!state.shader_source_clip_proven || !state.shader_source_has_clip)))
             return status::unsupported_command;
         const auto& original = state.shader_source_transform;
-        if (original.m12 != 0.0 || original.m21 != 0.0 || original.m11 <= 0.0 || original.m22 <= 0.0)
+        const bool affine = state.shader_source_affine_frame;
+        if (!affine && (original.m12 != 0.0 || original.m21 != 0.0 || original.m11 <= 0.0 || original.m22 <= 0.0))
             return status::unsupported_command;
         // Spatial source opacity belongs to the owned input picture below.
         // Existing typed brush realization retains its mapping and ownership;
@@ -21274,8 +21341,16 @@ struct channel::implementation {
         f.source_offset_x = static_cast<float>(original.m31); f.source_offset_y = static_cast<float>(original.m32);
         f.source_dpi_x = context.frame->request.dpi_scale_x; f.source_dpi_y = context.frame->request.dpi_scale_y;
         native::shader_effect::sample_frame sample{};
-        if (!native::shader_effect::create_sample_frame(native::shader_effect::sample_request(f), sample) ||
-            !native::shader_effect::complete_sample_frame(f)) return status::unsupported_command;
+        progpu_native_scene_shader_affine_frame affine_frame{};
+        if (affine) {
+            affine_frame.placement = f;
+            affine_frame.source_m12 = static_cast<float>(original.m12);
+            affine_frame.source_m21 = static_cast<float>(original.m21);
+            if (!native::shader_effect::create_affine_sample_frame(native::shader_effect::sample_request(affine_frame), sample) ||
+                !native::shader_effect::complete_affine_frame(affine_frame)) return status::unsupported_command;
+            f = affine_frame.placement;
+        } else if (!native::shader_effect::create_sample_frame(native::shader_effect::sample_request(f), sample) ||
+                   !native::shader_effect::complete_sample_frame(f)) return status::unsupported_command;
         // Precomputed output bounds have a distinct own-local -> offset ->
         // ancestor history. Do not replace it with total-matrix multiplication.
         const auto edge = [](float value, double local_scale, double local_offset,
@@ -21292,6 +21367,19 @@ struct channel::implementation {
             edge(f.local_top, local.m22, local.m32, state.shader_source_offset_y, parent.m22, parent.m32),
             edge(f.local_right, local.m11, local.m31, state.shader_source_offset_x, parent.m11, parent.m31),
             edge(f.local_bottom, local.m22, local.m32, state.shader_source_offset_y, parent.m22, parent.m32)};
+        if (affine) {
+            // Original PreCompute forms own-local bounds, then adds the visual
+            // offset, before the ancestor transforms that AABB. A single total
+            // matrix on original corners is not the same rounding or bounds.
+            clip = native::shader_effect::affine_bounds(shader_affine_matrix(local),
+                {f.local_left,f.local_top,f.local_right,f.local_bottom});
+            using native::shader_effect::source_sum;
+            clip[0] = source_sum(clip[0],state.shader_source_offset_x);
+            clip[2] = source_sum(clip[2],state.shader_source_offset_x);
+            clip[1] = source_sum(clip[1],state.shader_source_offset_y);
+            clip[3] = source_sum(clip[3],state.shader_source_offset_y);
+            clip = native::shader_effect::affine_bounds(shader_affine_matrix(parent),clip);
+        }
         if (!state.edge_aliased) {
             // Original output AA expands the conservative clip by one pixel
             // and integralizes it. The final shader quad itself remains an
@@ -21333,7 +21421,16 @@ struct channel::implementation {
             if (sampler != status::success) return sampler;
         }
         std::uint32_t effect_index{};
-        if (!builder.add_shader_effect(wire, bytecode, effect_index)) return status::invalid_graph;
+        if (affine) {
+            progpu_native_scene_shader_effect_affine descriptor{};
+            descriptor.struct_size=sizeof(descriptor); descriptor.version=6U;
+            descriptor.input_resource_index=wire.input_resource_index;
+            descriptor.sampler_resource_index=wire.sampler_resource_index;
+            descriptor.derivative_register=wire.derivative_register;
+            descriptor.frame=affine_frame; descriptor.frame.placement=f;
+            descriptor.program=wire.program;
+            if (!builder.add_shader_effect(descriptor,bytecode,effect_index)) return status::invalid_graph;
+        } else if (!builder.add_shader_effect(wire, bytecode, effect_index)) return status::invalid_graph;
         progpu_native_scene_layer layer{};
         layer.struct_size = sizeof(layer); layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
         layer.opacity = 1.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
@@ -22171,13 +22268,18 @@ struct channel::implementation {
             visual->second.cache_mode_handle == 0U;
         if (current.shader_source_transform_proven) {
             affine_2d_double source_local{};
-            current.shader_source_transform_proven = resolve_shader_source_transform(
-                visual->second.transform_handle, source_local);
+            const bool old_source = !parent_state.shader_source_affine_frame &&
+                resolve_shader_source_transform(visual->second.transform_handle, source_local);
+            current.shader_source_affine_frame = !old_source;
+            current.shader_source_transform_proven = old_source ||
+                resolve_shader_source_full_transform(visual->second.transform_handle, source_local);
             if (current.shader_source_transform_proven) {
                 // Original traversal pushes the visual offset onto its parent
                 // first, then the local transform onto that float result.
-                const auto source_offset = compose_shader_source_affine(offset_transform, parent_state.shader_source_transform);
-                current.shader_source_transform = compose_shader_source_affine(source_local, source_offset);
+                const auto compose = current.shader_source_affine_frame
+                    ? compose_shader_source_full_affine : compose_shader_source_affine;
+                const auto source_offset = compose(offset_transform, parent_state.shader_source_transform);
+                current.shader_source_transform = compose(source_local, source_offset);
                 current.shader_source_parent_transform = parent_state.shader_source_transform;
                 current.shader_source_local_transform = source_local;
                 current.shader_source_offset_x = static_cast<float>(offset_x);
@@ -22273,7 +22375,10 @@ struct channel::implementation {
                 // without that provenance do not acquire source admission.
                 const bool source_mask_frame = compile_context != nullptr && current.shader_source_transform_proven &&
                     current.transform.m11 * compile_context->request.dpi_scale_x == current.shader_source_transform.m11 &&
-                    current.transform.m12 == 0.0 && current.transform.m21 == 0.0 &&
+                    (current.shader_source_affine_frame
+                        ? current.transform.m12 * compile_context->request.dpi_scale_y == current.shader_source_transform.m12 &&
+                          current.transform.m21 * compile_context->request.dpi_scale_x == current.shader_source_transform.m21
+                        : current.transform.m12 == 0.0 && current.transform.m21 == 0.0) &&
                     current.transform.m22 * compile_context->request.dpi_scale_y == current.shader_source_transform.m22 &&
                     current.transform.m31 * compile_context->request.dpi_scale_x == current.shader_source_transform.m31 &&
                     current.transform.m32 * compile_context->request.dpi_scale_y == current.shader_source_transform.m32;
@@ -22392,7 +22497,7 @@ struct channel::implementation {
         const bool source_shader = source_effect != effects.end() && source_effect->second.type == effect_state::kind::shader;
         const auto fractional = [](double value) { return value != std::floor(value); };
         const bool requires_final_samples = source_shader && current.shader_source_transform_proven &&
-            (current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            (current.shader_source_affine_frame || current.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
              !native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m11)) ||
              !native::shader_effect::exact_capture_scale(static_cast<float>(current.shader_source_transform.m22)) ||
              fractional(current.shader_source_transform.m31) || fractional(current.shader_source_transform.m32) ||

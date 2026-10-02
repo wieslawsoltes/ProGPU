@@ -20,10 +20,32 @@ legacy 528/592-byte uniforms and v1–v5 resource layouts remain unchanged. Exis
 shader bytecode translation, GPU sampler policy and premultiplied blending are
 reused by both providers.
 
-This first checkpoint authors resource validation, shared renderer transport,
-and exact quarter-turn/mirror/atomic-rejection arithmetic controls. Actual source
-traversal, independent installed-SDK matrices and paired source pixels are being
-connected in the same child. RotateTransform/SkewTransform primitive constructors
-are not proven by arbitrary MatrixTransform support and remain an explicit next
-contract. No tests, builds, verifier or CI runs were executed; validation is
-reserved for the final integrated tip. This is not numeric Windows qualification.
+Actual MatrixTransform, ScaleTransform, TranslateTransform and TransformGroup
+source resources now create a six-component float witness at each traversal push.
+Old positive-axis histories keep their old helper and version selection. New
+affine histories retain their own provenance even if later transforms cancel
+their off-diagonal terms. Captured descendants start from the real scale-space
+target, then continue witnessed pushes there. Unknown leaf constructors, cache
+input and other previously unproven histories do not invent a witness.
+
+Original output bounds use the own-local transformed AABB, visual offset, then
+the ancestor bound transform in that order; physical output clipping does not
+shrink allocation or UVs. A genuinely axis-aligned transformed rectangle can
+retain the original rectangle clip. Other transformed source clips use the
+existing typed polygon/curve mask, with all six logical/device coefficients
+proved against source history before admission.
+
+Seven paired-provider source cases are authored: quarter-turn constant/nonlinear
+UV, mirror UV, swapped-axis image/derivatives, nested mirrored matrices and a
+sheared constant-output quad. All use actual C source packets and retire the
+channel before cold/warm/independent-engine replay. Assertions retain every
+pixel, exact command/submission/draw/pass/upload counts and full v6 source
+identity. Separate raw controls cover old-reader rejection and malformed-frame
+atomicity. The optional affine parameters on the existing source fixture do not
+change any older invocation or expected result.
+
+Independent installed-SDK matrices are being connected in this child.
+RotateTransform/SkewTransform primitive constructors are not proven by arbitrary
+MatrixTransform support and remain an explicit next contract. No tests, builds,
+verifier or CI runs were executed; validation is reserved for the final integrated
+tip. This is not numeric Windows qualification.
