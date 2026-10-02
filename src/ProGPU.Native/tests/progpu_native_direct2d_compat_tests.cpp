@@ -8786,11 +8786,14 @@ int run_tests()
         upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::per_primitive);
         if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != compat::wrong_state) return 288;
         upload_target->PopAxisAlignedClip();
-        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok ||
-            upload_target->EndDraw(nullptr, nullptr) != com::ok) return 288;
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok) return 288;
+        upload_target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        if (upload_bitmap->CopyFromMemory(&destination, upload_bytes.data(), pitch) != com::ok) return 288;
+        upload_target->PopAxisAlignedClip();
+        if (upload_target->EndDraw(nullptr, nullptr) != com::ok) return 288;
         compat::scene_render_target_summary after_copy{};
         upload_scene->GetSummary(&after_copy);
-        if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 2U) return 288;
+        if (after_copy.generation <= before_copy.generation || after_copy.draw_count != 3U) return 288;
         std::vector<std::byte> full_upload(8U * 8U * pixel_bytes, std::byte{0});
         if (upload_bitmap->CopyFromMemory(nullptr, full_upload.data(), 8U * pixel_bytes) != com::ok) return 288;
         const auto full_copy_size = upload_scene->GetRequiredSceneSize();

@@ -21,14 +21,21 @@ or failed target state and unsupported mixed-DPI histories keep their original
 failure behavior. Ordinary owned bitmap storage is not reimplemented here.
 
 The work starts from qualified shader foundation `627148d3de0b79aa83bbd3eed6b48f1e0cf098a2`.
-The later owned bitmap work from PR259 must be preserved when integrating this
-independent compatible-target change.
+Qualified PR259 merge `9994c19a73fb032bdb093702dfa212c1c35e271f` is now merged,
+preserving its ordinary owned-bitmap storage and source-copy behavior.
 
 Raw controls author late upload failure rollback, transform/opacity/input-scope
 rejection, unchanged old API admission, unclipped replacement, restored nested
-clips and materialized-layer rejection. Paired provider pixels and the actual
-original Windows/WIC active-copy sequence are still being authored; no local
-native renderer build, GPU/VM execution, original success or parity is claimed.
+clips and materialized-layer rejection. Four shared source sequences cover
+partial/full replacement at 96/192 DPI, two captured nested clips, a changed
+drawing transform during the upload, padded caller storage, transparent SRC
+replacement, caller mutation after the call, and drawing after each clip pop.
+Both providers require exact independent binary-color pixels and cold/warm/
+independent replay with 2/1/2 submissions. The same public-vtable sequence runs
+on actual system Windows Direct2D/WIC, comparing original HRESULT/state/pixels
+and the independent expected pixels against native Dawn replay. These are
+authored gates, not observed results; no local native renderer build, GPU/VM
+execution, original success or parity is claimed.
 
 Microsoft's [CopyFromMemory contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1bitmap-copyfrommemory)
 defines storage coordinates, matching formats and batch-flush failure behavior.

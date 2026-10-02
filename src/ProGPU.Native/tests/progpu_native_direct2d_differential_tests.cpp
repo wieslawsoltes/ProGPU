@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_scoped_copy_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -465,7 +466,8 @@ std::vector<std::uint8_t> render_progpu(
     const gpu_context& gpu,
     d2d::scene_render_target_native* scene_target,
     std::uint64_t expected_draws = 9U,
-    std::uint64_t expected_commands = 9U)
+    std::uint64_t expected_commands = 9U,
+    std::uint64_t expected_submissions = 1U)
 {
     progpu_native_dawn_engine_options options{};
     options.struct_size = sizeof(options);
@@ -522,7 +524,7 @@ std::vector<std::uint8_t> render_progpu(
         diagnostics.stage == d2d::scene_submission_stage::none &&
         scene_metrics.draw_count == expected_draws &&
         frame_metrics.command_count == expected_commands &&
-        frame_metrics.submission_count == 1U,
+        frame_metrics.submission_count == expected_submissions,
         "ProGPU D3D12 Direct2D render failed");
 
     WGPUBufferDescriptor buffer_descriptor = WGPU_BUFFER_DESCRIPTOR_INIT;
@@ -748,7 +750,8 @@ void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
     require(SUCCEEDED(target->EndDraw()), "finite affine oracle recording failed");
 }
 
-std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false)
+std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false,
+    int scoped_copy_variant = -1)
 {
     IWICImagingFactory* raw_wic_factory = nullptr;
     require(SUCCEEDED(CoCreateInstance(
@@ -946,6 +949,10 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
+    if (scoped_copy_variant >= 0)
+        progpu::native::direct2d::tests::record_scoped_memory_copy(
+            reinterpret_cast<d2d::render_target*>(target.get()),
+            static_cast<std::uint32_t>(scoped_copy_variant), require);
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1079,6 +1086,21 @@ int wmain(int argc, wchar_t** argv)
         require(affine_system[center + 3U] >= 158U && affine_system[center + 3U] <= 161U &&
             affine_progpu[center + 3U] >= 158U && affine_progpu[center + 3U] <= 161U,
             "finite affine layer opacity or visible coverage is missing");
+    }
+    for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
+        // The first call here executes real Windows D2D/WIC, including the
+        // active-scope CopyFromMemory HRESULT and retained subsequent draws.
+        const auto original = render_system_direct2d(false, false, static_cast<int>(variant));
+        progpu::native::direct2d::tests::record_scoped_memory_copy(scene.target.get(), variant, require);
+        const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U, 2U);
+        require(original.size() == width * height * 4U && original == actual,
+            "scoped memory copy differs from original Windows D2D/WIC");
+        for (std::uint32_t y = 0U; y < height; ++y) for (std::uint32_t x = 0U; x < width; ++x) {
+            auto expected = progpu::native::direct2d::tests::scoped_copy_expected_pixel(variant, x, y);
+            std::swap(expected[0], expected[2]); // both readbacks are original BGRA8
+            require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
+                "original scoped storage-copy ordering/DPI/clip expectation differs");
+        }
     }
     scene = {};
     release_gpu(api, gpu);
