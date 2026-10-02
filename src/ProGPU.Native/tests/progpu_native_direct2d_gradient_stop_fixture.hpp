@@ -93,6 +93,47 @@ inline std::array<std::uint8_t, 4U> gradient_stop_expected(unsigned variant, uns
         : std::array<std::uint8_t, 4U>{0, 0, level, 255};
 }
 
+// One real gamma-1.0 gradient with five constant eight-pixel bands. Inputs are
+// exact dyadic sRGB values, independent of either renderer's conversion helper.
+// Duplicate offsets keep every center away from a transition. The near-endpoint
+// bands distinguish exact endpoint preservation from a broader snap/clamp.
+template<class Require>
+void record_gradient_endpoint_bands(compat::render_target* target, Require require) {
+    namespace d2d = compat;
+    constexpr std::array<float, 5U> channels{0, 1.0F / 128.0F, 0.5F, 127.0F / 128.0F, 1};
+    std::array<d2d::gradient_stop, 10U> stops{};
+    for (std::size_t i = 0; i < channels.size(); ++i) {
+        const auto value = channels[i];
+        stops[i * 2U] = {static_cast<float>(i) / 8.0F, {value, value, value, 1}};
+        stops[i * 2U + 1U] = {static_cast<float>(i + 1U) / 8.0F, {value, value, value, 1}};
+    }
+    com::pointer<d2d::gradient_stop_collection> collection;
+    com::pointer<d2d::linear_gradient_brush> brush;
+    const d2d::linear_gradient_brush_properties axis{{0, 0}, {64, 0}};
+    const d2d::brush_properties properties{0.5F, {1, 0, 0, 1, 0, 0}};
+    require(target->CreateGradientStopCollection(stops.data(), static_cast<std::uint32_t>(stops.size()),
+        d2d::gamma::gamma_1_0, d2d::extend_mode::clamp, collection.put()) == com::ok &&
+        target->CreateLinearGradientBrush(&axis, &properties, collection.get(), brush.put()) == com::ok,
+        "gradient endpoint-band brush");
+    target->BeginDraw();
+    const d2d::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
+    const d2d::color_f black{0, 0, 0, 1};
+    const d2d::rectangle_f rectangle{0, 0, 40, 64};
+    target->SetTransform(&identity);
+    target->SetAntialiasMode(d2d::antialias_mode::aliased);
+    target->Clear(&black);
+    target->FillRectangle(&rectangle, brush.get());
+    require(target->EndDraw(nullptr, nullptr) == com::ok, "gradient endpoint-band draw");
+}
+
+inline std::array<std::uint8_t, 4U> gradient_endpoint_expected(unsigned x) {
+    // Original straight channel * one-half opacity over opaque black, then
+    // nearest UNORM8: 0, 255/256, 255/4, 32385/256, 255/2.
+    constexpr std::array<std::uint8_t, 5U> levels{0, 1, 64, 127, 128};
+    const std::uint8_t value = x < 40U ? levels[x / 8U] : 0U;
+    return {value, value, value, 255};
+}
+
 inline void report_gradient_pixel_mismatch(const char* comparison, unsigned variant, bool ordered,
     unsigned x, unsigned y, const std::uint8_t* expected, const std::uint8_t* actual) {
     std::fprintf(stderr,
@@ -376,6 +417,27 @@ void verify_gradient_stop_pixels(Render render, Require require) {
             if (!ordered) unordered = pixels;
             else require(unordered == pixels, "unordered versus explicit stable input pixels");
         }
+    }
+    const compat::scene_render_target_properties properties{64, 64, 96, 96, 0x95C5U,
+        static_cast<std::uint64_t>(gradient_stop_variant_count) * 2U + 1U};
+    com::pointer<compat::render_target> target;
+    com::pointer<compat::scene_render_target_native> scene;
+    require(factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
+        target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "gradient endpoint-band target");
+    record_gradient_endpoint_bands(target.get(), require);
+    std::vector<std::byte> stream;
+    require(export_copy_scene(scene.get(), stream), "gradient endpoint-band snapshot");
+    scene.reset(); target.reset();
+    const auto pixels = render(false, stream, properties.generation);
+    require(pixels.size() == 64U * 64U * 4U && pixels == render(false, stream, properties.generation) &&
+        pixels == render(true, stream, properties.generation), "gradient endpoint cold/warm/independent pixels");
+    for (unsigned y = 0; y < 64U; ++y) for (unsigned x = 0; x < 64U; ++x) {
+        const auto expected = gradient_endpoint_expected(x);
+        const auto* actual = pixels.data() + (y * 64U + x) * 4U;
+        const bool equal = std::equal(expected.begin(), expected.end(), actual);
+        if (!equal) report_gradient_pixel_mismatch("endpoint bands RGBA", gradient_stop_variant_count + 1U,
+            false, x, y, expected.data(), actual);
+        require(equal, "gradient exact endpoint and near-endpoint pixels");
     }
 }
 

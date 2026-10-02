@@ -269,12 +269,12 @@ void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
                 linear_brush.GetAddressOf()) == S_OK, "gradient order linear source");
             brush = linear_brush.Get();
         }
-        D2D1_MATRIX_3X2_F draw_transform{1, 0, 0, 1, 0, 0};
+        D2D1_MATRIX_3X2_F draw_transform = D2D1::Matrix3x2F(1, 0, 0, 1, 0, 0);
         if (coordinate_case != 0U) {
-            const D2D1_MATRIX_3X2_F brush_transform{1, 0, 0, 1, 4, 0};
+            const D2D1_MATRIX_3X2_F brush_transform = D2D1::Matrix3x2F(1, 0, 0, 1, 4, 0);
             brush->SetTransform(&brush_transform);
             const auto& input = fixture::gradient_coordinate_cases[coordinate_case - 1U].draw;
-            draw_transform = {input.m11, input.m12, input.m21, input.m22, input.m31, input.m32};
+            draw_transform = D2D1::Matrix3x2F(input.m11, input.m12, input.m21, input.m22, input.m31, input.m32);
         }
         progpu_native_direct2d_scene_recorder* recorder{};
         int32_t hr = E_FAIL;

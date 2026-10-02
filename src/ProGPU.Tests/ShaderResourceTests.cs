@@ -14,6 +14,29 @@ namespace ProGPU.Tests;
 
 public class ShaderResourceTests
 {
+    [Theory]
+    [InlineData("RegisteredMaterialCommon.wgsl", "linear_to_srgb_component", false)]
+    [InlineData("Hatch.wgsl", "linear_to_srgb_component", true)]
+    [InlineData("Native3D.wgsl", "material_linear_to_srgb_component", true)]
+    [InlineData("Mesh3DSolid.wgsl", "LinearToSrgbMaterialComponent", true)]
+    public void GradientConversionPreservesOnlyExactNormalizedEndpoints(string resource, string function, bool scene)
+    {
+        string source = ShaderResource.Load(scene ? typeof(Mesh3DExtensionPipeline) : typeof(Shaders), resource);
+        var match = Regex.Match(source, $@"fn {Regex.Escape(function)}\(value: f32\) -> f32 \{{(?<body>.*?)\n\}}",
+            RegexOptions.Singleline);
+        Assert.True(match.Success);
+        string body = Regex.Replace(match.Groups["body"].Value, @"//[^\r\n]*", "");
+        body = Regex.Replace(body, @"\s+", " ").Trim();
+        string expression = resource is "RegisteredMaterialCommon.wgsl" or "Hatch.wgsl"
+            ? "(1.055 * pow(clamped, 1.0 / 2.4)) - 0.055"
+            : "1.055 * pow(clamped, 1.0 / 2.4) - 0.055";
+        // Exact equality is the whole added admission: no near-endpoint snap,
+        // upper clamp, altered HDR expression or changed old negative policy.
+        Assert.Equal("if (value == 0.0 || value == 1.0) { return value; } " +
+            "let clamped = max(value, 0.0); if (clamped <= 0.0031308) { return clamped * 12.92; } " +
+            $"return {expression};", body);
+    }
+
     [Fact]
     public void RegisteredGradientConsumersIncludeUnitIntervalPad()
     {

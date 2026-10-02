@@ -128,3 +128,37 @@ fixtures (`-Wall -Wextra -Wpedantic -Wshadow -Werror`, 45-second bounds). The ne
 managed embedded-resource guard passed Roslyn syntax parsing only. Windows-only
 source, actual embedded-resource test execution and all native/GPU behavior remain
 hosted gates. No local object/library, renderer build or GPU execution occurred.
+
+## Exact gamma endpoints
+
+Build 37042541888 at `a0296c4f3` passed the earlier coordinate case, then its
+MSVC native GPU job 110955930140 reported variant 6, unordered input, (4,4):
+expected (128,0,0,255), observed (127,0,0,255). This is the original gamma-1.0
+half-opacity constant-red interval. The f32 expression `1.055f - .055f`
+produces `0x3f7fffff` (0.9999999403953552), not exact one; half opacity then
+produces 0.4999999701976776 and an UNORM product of 127.49999237060547.
+Opaque output masked this endpoint loss by still rounding to 255.
+
+The four actual gradient linear-to-sRGB helpers now return only exact input
+zero/one unchanged before their original formula. There is no interval snapping,
+new clamp, HDR change, gamma policy change or revised expected pixel. This
+preserves the mathematical endpoints of the existing
+[linear-gamma interpolation](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_gamma)
+contract. Every other input retains the original conversion, including the old
+negative-value policy. Embedded-resource controls require that exact equality
+guard and the unchanged remainder in all four consumers.
+
+All thirteen original source variants remain unchanged. An added single-frame
+five-band original gradient uses exact sRGB channels 0, 1/128, 1/2, 127/128 and 1
+at half opacity over black. Its independent absolute bytes are 0, 1, 64, 127 and
+128: near-endpoint bands must not be snapped to the endpoints. Both native
+providers require full-frame cold/warm/independent equality with unchanged
+submission counters; original Windows D2D/WIC executes the same public source
+operations and must match the independent bytes and ProGPU in full. Existing
+engines are reused by the provider fixture, with no new timeout or tolerance.
+
+The separate Windows ARM job 110955930834 stopped at three ClangCL `/WX`
+SDK-union aggregate-initializer warnings. Those matrix values now use the
+already-established `D2D1::Matrix3x2F` constructor, preserving every coefficient
+and strict snapshot assertion. Windows compilation and all new pixel controls
+remain hosted gates; this checkpoint precedes bounded source checks.

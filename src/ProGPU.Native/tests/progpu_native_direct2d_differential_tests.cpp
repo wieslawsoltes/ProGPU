@@ -950,6 +950,8 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
     if (gradient_variant == static_cast<int>(progpu::native::direct2d::tests::gradient_stop_variant_count)) progpu::native::direct2d::tests::record_gradient_interval_pad(
         reinterpret_cast<d2d::render_target*>(target.get()), require);
+    else if (gradient_variant == static_cast<int>(progpu::native::direct2d::tests::gradient_stop_variant_count + 1U)) progpu::native::direct2d::tests::record_gradient_endpoint_bands(
+        reinterpret_cast<d2d::render_target*>(target.get()), require);
     else if (gradient_variant >= 0) progpu::native::direct2d::tests::record_gradient_stop_order(
         reinterpret_cast<d2d::render_target*>(target.get()), static_cast<unsigned>(gradient_variant), ordered, require);
 
@@ -1133,6 +1135,28 @@ int wmain(int argc, wchar_t** argv)
             require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
                 "original gradient [-1,1] inside/edge/outside absolute bytes");
         }
+    }
+    {
+        namespace fixture = progpu::native::direct2d::tests;
+        const auto original = render_system_direct2d(false, false,
+            static_cast<int>(fixture::gradient_stop_variant_count + 1U));
+        fixture::record_gradient_endpoint_bands(scene.target.get(), require);
+        const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
+        require(original.size() == width * height * 4U && actual.size() == original.size(),
+            "gradient endpoint-band complete pixel frames");
+        for (unsigned y = 0; y < height; ++y) for (unsigned x = 0; x < width; ++x) {
+            const auto expected = fixture::gradient_endpoint_expected(x); // Gray is unchanged in BGRA.
+            const auto offset = (y * width + x) * 4U;
+            for (const auto* frame : {&original, &actual}) {
+                const auto* pixel = frame->data() + offset;
+                const bool equal = std::equal(expected.begin(), expected.end(), pixel);
+                if (!equal) fixture::report_gradient_pixel_mismatch(
+                    frame == &original ? "Windows endpoint BGRA" : "ProGPU endpoint BGRA",
+                    fixture::gradient_stop_variant_count + 1U, false, x, y, expected.data(), pixel);
+                require(equal, "original Windows/ProGPU endpoint and near-endpoint absolute pixels");
+            }
+        }
+        require(actual == original, "gradient endpoint conversion differs from original Windows");
     }
     scene = {};
     release_gpu(api, gpu);
