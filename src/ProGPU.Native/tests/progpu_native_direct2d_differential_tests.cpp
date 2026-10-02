@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -748,7 +749,8 @@ void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
     require(SUCCEEDED(target->EndDraw()), "finite affine oracle recording failed");
 }
 
-std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false)
+std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false,
+    int bitmap_destination_variant = -1)
 {
     IWICImagingFactory* raw_wic_factory = nullptr;
     require(SUCCEEDED(CoCreateInstance(
@@ -946,6 +948,28 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
+    if (bitmap_destination_variant >= 0) {
+        if (bitmap_destination_variant == 0) {
+            // Real independent factory ownership, never an invalid pointer or a
+            // portable object passed to system Direct2D. Only metadata is used.
+            native_com::pointer<ID2D1Factory> foreign_factory;
+            native_com::pointer<ID2D1RenderTarget> foreign_target;
+            native_com::pointer<ID2D1Bitmap> foreign_bitmap;
+            require(SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, foreign_factory.put())) &&
+                SUCCEEDED(foreign_factory->CreateWicBitmapRenderTarget(bitmap.get(), &target_properties, foreign_target.put())),
+                "original bitmap precedence foreign factory");
+            const auto foreign_properties = D2D1::BitmapProperties(D2D1::PixelFormat(
+                DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+            require(SUCCEEDED(foreign_target->CreateBitmap({8U, 8U}, nullptr, 0U, &foreign_properties, foreign_bitmap.put())),
+                "original bitmap precedence foreign resource");
+            progpu::native::direct2d::tests::verify_bitmap_destination_error_precedence(
+                reinterpret_cast<d2d::render_target*>(target.get()),
+                reinterpret_cast<d2d::bitmap*>(foreign_bitmap.get()), require);
+        }
+        progpu::native::direct2d::tests::record_bitmap_destinations(
+            reinterpret_cast<d2d::render_target*>(target.get()),
+            static_cast<std::uint32_t>(bitmap_destination_variant), require);
+    }
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1079,6 +1103,19 @@ int wmain(int argc, wchar_t** argv)
         require(affine_system[center + 3U] >= 158U && affine_system[center + 3U] <= 161U &&
             affine_progpu[center + 3U] >= 158U && affine_progpu[center + 3U] <= 161U,
             "finite affine layer opacity or visible coverage is missing");
+    }
+    for (std::uint32_t variant = 0U; variant < 8U; ++variant) {
+        const auto original = render_system_direct2d(false, false, static_cast<int>(variant));
+        progpu::native::direct2d::tests::record_bitmap_destinations(scene.target.get(), variant, require);
+        const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U, 2U);
+        require(original.size() == width * height * 4U && original == actual,
+            "bitmap destination differs from original Windows D2D/WIC");
+        for (std::uint32_t y = 0U; y < height; ++y) for (std::uint32_t x = 0U; x < width; ++x) {
+            auto expected = progpu::native::direct2d::tests::bitmap_destination_expected(variant, x, y);
+            std::swap(expected[0], expected[2]);
+            require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
+                "original bitmap destination origin, extent or no-op pixels differ");
+        }
     }
     scene = {};
     release_gpu(api, gpu);
