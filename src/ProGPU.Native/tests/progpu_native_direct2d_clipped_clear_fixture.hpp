@@ -3,6 +3,7 @@
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_compat.hpp"
 
+#include <cstdio>
 #include <vector>
 
 namespace progpu::native::direct2d::tests {
@@ -118,7 +119,14 @@ inline bool clipped_clear_pixels(std::span<const std::uint8_t> pixels, std::uint
                 // Only nonintegral normalized-color conversion may differ by
                 // one byte; history, clip coverage and binary alpha stay exact.
                 const int tolerance = expected[channel] == 0 || expected[channel] == 255 ? 0 : 1;
-                if (std::abs(static_cast<int>(pixels[index]) - expected[channel]) > tolerance) return false;
+                if (std::abs(static_cast<int>(pixels[index]) - expected[channel]) > tolerance) {
+                    std::fprintf(stderr, "clipped Clear mismatch x=%u y=%u channel=%zu actual=%u expected=%d "
+                        "null=%u ignore=%u bgra=%u fractional=%u\n", x, y, channel,
+                        static_cast<unsigned>(pixels[index]), expected[channel],
+                        static_cast<unsigned>(null_clear), static_cast<unsigned>(ignore_alpha),
+                        static_cast<unsigned>(bgra), static_cast<unsigned>(fractional));
+                    return false;
+                }
             }
         }
     }
@@ -151,7 +159,13 @@ void verify_clipped_clear(Render render, Require require)
             clipped_clear_contract(bytes, null_clear, ignore_alpha, false, fractional), "clipped Clear retained structure changed");
         const auto cold = render(scene.get());
         const auto warm = render(scene.get());
-        require(cold == warm && clipped_clear_pixels(cold, 64U, null_clear, ignore_alpha, false, fractional),
+        if (cold != warm) {
+            const auto mismatch = std::mismatch(cold.begin(), cold.end(), warm.begin(), warm.end());
+            std::fprintf(stderr, "clipped Clear cold/warm mismatch variant=%u offset=%zu cold-size=%zu warm-size=%zu\n",
+                variant, static_cast<std::size_t>(mismatch.first - cold.begin()), cold.size(), warm.size());
+        }
+        const bool expected_pixels = clipped_clear_pixels(cold, 64U, null_clear, ignore_alpha, false, fractional);
+        require(cold == warm && expected_pixels,
             "clipped Clear cold/warm pixels lost history, transparent replacement, alpha or captured clip frame");
     }
 }

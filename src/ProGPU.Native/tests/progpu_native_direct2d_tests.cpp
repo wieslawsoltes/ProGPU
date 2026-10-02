@@ -214,8 +214,10 @@ void full_target_clear_regressions(
                 require(context->CreateSolidColorBrush(&red, nullptr, before.GetAddressOf()) == S_OK &&
                     context->CreateSolidColorBrush(&blue, nullptr, after.GetAddressOf()) == S_OK,
                     "clipped Clear callback brushes failed");
-                const D2D1_MATRIX_3X2_F identity{1, 0, 0, 1, 0, 0}, capture{2, 0, 0, 2, 4, 6};
-                const D2D1_MATRIX_3X2_F singular{0, 0, 0, 0, 99, 88}, suffix{1, 0, 0, 1, 2, 3};
+                const D2D1_MATRIX_3X2_F identity = D2D1::Matrix3x2F(1, 0, 0, 1, 0, 0);
+                const D2D1_MATRIX_3X2_F capture = D2D1::Matrix3x2F(2, 0, 0, 2, 4, 6);
+                const D2D1_MATRIX_3X2_F singular = D2D1::Matrix3x2F(0, 0, 0, 0, 99, 88);
+                const D2D1_MATRIX_3X2_F suffix = D2D1::Matrix3x2F(1, 0, 0, 1, 2, 3);
                 const D2D1_RECT_F whole{0, 0, 64, 64}, first{2, 3, 14, 15}, last{0, 0, 3, 4};
                 const D2D1_RECT_F second = fractional ? D2D1_RECT_F{12.75F, 14.75F, 23.75F, 25.75F}
                                                     : D2D1_RECT_F{12, 14, 24, 26};
@@ -236,9 +238,10 @@ void full_target_clear_regressions(
                 PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER && result.translated_draw_count == 2U &&
                 result.clear_color.alpha == 0 && result.failure_callback_index == 0U,
                 "clipped Clear changed leading clear or original draw callback counts");
-            std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(result.required_bytes));
             require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
-                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::clipped_clear_contract(bytes, null_clear, false, false, fractional),
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::clipped_clear_contract(
+                    std::as_bytes(std::span(bytes)), null_clear, false, false, fractional),
                 "clipped Clear lost original commands or captured clip frame");
             sink.Reset();
             progpu_native_direct2d_scene_recorder_destroy(recorder);
