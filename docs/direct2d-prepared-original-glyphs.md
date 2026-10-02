@@ -40,7 +40,16 @@ occurs in design units before em scaling, for both point pairs and quadratic
 tails. It neither substitutes nominal advances for caller advances nor changes
 ascender offsets. The context retains the origin alongside the decoded outline;
 repeated draws make no source font callbacks or metric crossings. Empty glyphs
-have no fabricated bounds and still consume their exact supplied advance.
+have no fabricated bounds and still consume their supplied or nominal advance.
+
+Absent advances use the original unsigned 16-bit horizontal `hmtx` width cached
+alongside that origin: `width * (em / unitsPerEm)`, in the same float placement
+arithmetic as explicit advances. This is an unhinted design metric, not a device
+width or a new source array. The retained request keeps its original null pointer;
+explicit zero and negative advances continue to take precedence. The no-ink
+glyph participates, including the repeated-width compact metric tail. The
+original [GetDesignGlyphAdvances](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_1/nf-dwrite_1-idwritefontface1-getdesignglyphadvances)
+contract distinguishes these horizontal design widths from sideways advances.
 
 The capability preflights the complete original horizontal metric inventory,
 including every bearing in the compact repeated-advance tail, before publishing
@@ -53,10 +62,10 @@ which explicitly distinguishes the stored outline bounds from the left bearing.
 
 The connected family is one original non-variable TrueType file/collection face,
 no simulations, caller-supplied rendering mode **OUTLINE**, natural measurement,
-horizontal left-to-right placement and explicit original advances. Null offsets
+horizontal left-to-right placement and explicit or absent original advances. Null offsets
 mean the documented absence of a position adjustment. Original even bidi levels
 are retained, not normalized to zero. Unknown/default and modern raster modes,
-RTL, sideways/vertical metrics, absent advances, CFF/type1/multi-file faces,
+RTL, sideways/vertical metrics, CFF/type1/multi-file faces,
 simulations and variable coordinates remain explicit unimplemented contracts.
 These are real remaining tasks, not a claim of full DirectWrite or ClearType
 support. In particular no TT35/40 interpreter is selected to impersonate a modern
@@ -119,6 +128,18 @@ hide ignored bearing metadata. Source controls additionally reject zero/excess
 metric counts and one-/two-byte truncated final bearings atomically while
 preserving an already-owned context/cache. The authored font builder's default
 arguments preserve all earlier fault-font bytes and hint programs.
+
+A separate twelve-case nominal family retains those same three fonts and four
+coverage/transform/scope variants without changing the twelve explicit-advance
+cases. At em 31.25 and UPM 1000, each original width 500 consumes exactly 15.625
+DIPs, including the empty middle glyph. Independently specified rectangle
+coordinates and absolute ink/gap pixels do not query the product metrics. Both
+native providers retain every cold/warm byte comparison and the no-font-callback
+checks. Original Windows queries the actual face's `GetDesignGlyphAdvances`,
+asserts the authored design metrics and compares genuine null-advance
+`DrawGlyphRun` against explicit original design advances, independent rectangles
+and prepared outlines through the original rasterizer. This is authored
+acceptance coverage, not an executed Windows result or modern-mode admission.
 
 No validation is executed at this checkpoint: all compile, source, original
 Windows, GPU, package and platform gates remain deferred to the final integrated

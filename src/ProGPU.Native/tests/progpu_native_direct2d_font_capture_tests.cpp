@@ -261,19 +261,27 @@ using namespace progpu::native::direct2d::tests;
             "independent original design/offset/advance coordinates")) return false;
     }
     const auto retained = prepared;
-    for (unsigned unsupported = 0U; unsupported < 10U; ++unsupported) {
+    for (unsigned unsupported = 0U; unsupported < 9U; ++unsupported) {
         auto candidate_run = run;
         if (unsupported < 6U) parameters.mode = static_cast<compat::rendering_mode>(unsupported);
         if (unsupported == 6U) candidate_run.is_sideways = 1;
         if (unsupported == 7U) candidate_run.bidi_level = 1U;
-        if (unsupported == 8U) candidate_run.glyph_advances = nullptr;
-        const auto measuring = unsupported == 9U ? compat::measuring_mode::gdi_natural : compat::measuring_mode::natural;
+        const auto measuring = unsupported == 8U ? compat::measuring_mode::gdi_natural : compat::measuring_mode::natural;
         if (capture::capture_original_glyph_request(font, candidate_run, measuring,
             &parameters, frame, request) != com::ok) return false;
         if (!check(prepared_font->prepare(request, prepared) == compat::not_implemented && prepared == retained &&
             prepared_font->cached_glyph_count() == 3U, "unimplemented original mode/placement remains atomic")) return false;
         parameters.mode = compat::rendering_mode::outline;
     }
+    auto nominal_run = run;
+    nominal_run.glyph_advances = nullptr;
+    if (!check(capture::capture_original_glyph_request(font, nominal_run, compat::measuring_mode::natural,
+        &parameters, frame, request) == com::ok && prepared_font->prepare(request, prepared) == com::ok &&
+        prepared != retained && prepared->request().glyphs.advances() == nullptr &&
+        retained->request().glyphs.advances() != nullptr && retained->request().glyphs.advances()[1] == -7 &&
+        prepared_font->cached_glyph_count() == 3U && stream.reads == original_reads &&
+        face.outline_calls == 0U && face.table_calls == 0U,
+        "nominal advances reuse cached metrics without replacing explicit source identity")) return false;
     for (const bool replace_parameters : {false, true}) {
         parameters.context = target.get();
         parameters.callback = replace_parameters

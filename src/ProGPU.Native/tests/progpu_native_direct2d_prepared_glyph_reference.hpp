@@ -81,15 +81,35 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
         require(readback->Unmap() == S_OK, "original prepared pixel unmap");
         return pixels;
     };
+    // Query the genuine original face, not the product parser or prepared cache.
+    // All three authored horizontal advances, including the no-ink glyph, are
+    // independently known to be 500 design units at UPM 1000.
+    ComPtr<IDWriteFontFace1> metric_face;
+    require(face.As(&metric_face) == S_OK, "original nominal design-metric interface");
+    const std::uint16_t indices[]{1U, 0U, 2U};
+    std::array<INT32, 3U> design_advances{};
+    DWRITE_FONT_METRICS metrics{};
+    face->GetMetrics(&metrics);
+    require(metric_face->GetDesignGlyphAdvances(3U, indices, design_advances.data(), FALSE) == S_OK &&
+        metrics.designUnitsPerEm == 1000U && design_advances == std::array<INT32, 3U>{500, 500, 500},
+        "original nominal horizontal design metrics");
+    std::array<float, 3U> nominal_advances{};
+    for (std::size_t index = 0U; index < nominal_advances.size(); ++index) {
+        nominal_advances[index] = static_cast<float>(design_advances[index]) *
+            (31.25F / static_cast<float>(metrics.designUnitsPerEm));
+        require(nominal_advances[index] == 15.625F, "original nominal DIP advance");
+    }
+    for (const bool nominal : {false, true}) {
     for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
-        const std::uint16_t indices[]{1U, 0U, 2U};
         const float advances[]{24, -3, 9};
         const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
-        const compat::glyph_run run{typed_face.get(), 62.5F, 3U, indices, advances, offsets, 0, 2U};
+        const compat::glyph_run run{typed_face.get(), nominal ? 31.25F : 62.5F,
+            3U, indices, nominal ? nullptr : advances, offsets, 0, 2U};
         original_glyph_target frame;
         frame.identity = com::pointer<com::unknown>(typed_target.get());
-        frame.generation = origins * 4U + variant + 1U; // Test-owned observation, not a native renderer generation.
-        frame.baseline = {3.1875F, 30.8125F}; frame.pixels = {64U, 64U}; frame.dpi_x = 96; frame.dpi_y = 96;
+        frame.generation = (nominal ? 12U : 0U) + origins * 4U + variant + 1U; // Test-owned observation, not a native renderer generation.
+        frame.baseline = nominal ? compat::point_2f{3.59375F, 17.90625F} : compat::point_2f{3.1875F, 30.8125F};
+        frame.pixels = {64U, 64U}; frame.dpi_x = 96; frame.dpi_y = 96;
         frame.transform = prepared_pixel_transform(variant); frame.format = {87U, compat::alpha_mode::premultiplied};
         frame.antialias = (variant & 1U) != 0U ? compat::text_antialias_mode::grayscale : compat::text_antialias_mode::aliased;
         typed_target->SetTransform(&frame.transform);
@@ -100,6 +120,8 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
         require(capture_original_glyph_request(captured, run, compat::measuring_mode::natural,
             typed_parameters.get(), frame, request) == S_OK && prepared->prepare(request, glyphs) == S_OK,
             "original prepared source occurrence geometry");
+        require((glyphs->request().glyphs.advances() == nullptr) == nominal,
+            "nominal source absence retained without materializing a replacement array");
         com::pointer<compat::path_geometry> geometry;
         com::pointer<compat::geometry_sink> sink;
         require(typed_factory->CreatePathGeometry(geometry.put()) == S_OK && geometry->Open(sink.put()) == S_OK &&
@@ -113,17 +135,21 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
             if (index % 4U == 3U) sink->EndFigure(compat::figure_end::closed);
         }
         require(sink->Close() == S_OK, "original prepared outline close");
-        std::array<std::vector<std::uint8_t>, 3U> pixels;
+        std::array<std::vector<std::uint8_t>, 4U> pixels;
         const std::array paths{prepared_pixel_path::original, prepared_pixel_path::independent_geometry,
-            prepared_pixel_path::prepared_geometry};
-        for (std::size_t index = 0U; index < paths.size(); ++index) {
+            prepared_pixel_path::prepared_geometry, prepared_pixel_path::original_design_advances};
+        const std::size_t path_count = nominal ? 4U : 3U;
+        for (std::size_t index = 0U; index < path_count; ++index) {
             context->SetTarget(target.Get());
             record_prepared_pixel_case(typed_factory.get(), typed_target.get(), prepared, typed_parameters.get(),
-                variant, paths[index], require, geometry.get(), origins);
+                variant, paths[index], require, geometry.get(), origins, nominal, nominal_advances.data());
             pixels[index] = copy_pixels();
         }
         require(pixels[0] == pixels[1] && pixels[0] == pixels[2],
             "original DrawGlyphRun differs from independent or prepared full-byte placement");
+        if (nominal) require(pixels[0] == pixels[3],
+            "original null advances differ from original explicit horizontal design advances");
+    }
     }
     }
 }
