@@ -36,3 +36,11 @@ This implementation reuses the original MIL renderer's
 without changing shader compilation, capture, GPU batching or cache ownership.
 Authored transport/source controls and exact-head hosted producer plus WPF
 package/application execution are required; transport success is not UI parity.
+
+After the implementation and test commits, an isolated cached C# harness compiled
+the complete current packet builder/types, source DTO and the unchanged real
+xUnit test bodies. All 55 cases passed (44 packet controls and 11 DTO controls).
+The harness used existing managed reference assemblies only for unrelated types,
+suppressed its duplicate-type/framework-reference warnings 0436/1701 and treated
+other warnings as errors. No native library, GPU, VM or source graph was built or
+loaded. Full project/package builds and native/source execution remain outstanding.

@@ -5,6 +5,9 @@ The native MIL decoder connects `pixel_shader`, `implicit_input_brush` and
 not complete WPF ShaderEffect or application qualification. The existing managed
 `WpfShaderEffectExtensionPipeline` consumes explicitly supplied WGSL and remains
 separate; its registry is not a translator for original WPF bytecode.
+The [typed source transport](native-mil-shader-source-transport.md) supplies
+canonical packet writers and complete sampler/source metadata for LibreWPF's
+native compiler; source wiring and package/application qualification remain required.
 
 ## Original source and scene contract
 
