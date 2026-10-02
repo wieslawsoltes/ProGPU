@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Typed source transforms retain each original resource's double parameters and
+ordered child identities. Never replace primitive/group history with a flattened
+matrix witness. Capture once per source identity, reject cycles/depth/counts
+before channel publication and validate all group handles before writer mutation.
+Matrix-only providers remain distinct. Rotation/skew construction requires the
+original primitive arithmetic, not host trig relabeled as proof. See
+docs/source-transform-resources.md.
+
 Affine ShaderEffect frames retain all original float XY coefficients and the
 independent scale-space input lattice. Keep full homogeneous residual/projection,
 mirrored orientation, actual parent target and all derivative components; never

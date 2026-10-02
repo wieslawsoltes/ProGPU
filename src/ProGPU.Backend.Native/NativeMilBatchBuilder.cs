@@ -1650,6 +1650,11 @@ public sealed partial class NativeMilBatchBuilder
     {
         ValidateHandle(handle);
         int childrenSize = checked(children.Length * sizeof(uint));
+        // A late invalid child must not append a partial packet to this writer.
+        // Preserve duplicates and original ordering; graph cycles are channel
+        // validation, not grounds for silently rewriting this list.
+        foreach (uint child in children)
+            ValidateHandle(child);
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer,
             NativeMilCommand.TransformGroup,
@@ -1658,7 +1663,6 @@ public sealed partial class NativeMilBatchBuilder
         WriteUInt32(packet, 8, (uint)childrenSize);
         for (int index = 0; index < children.Length; ++index)
         {
-            ValidateHandle(children[index]);
             WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
         }
     }
