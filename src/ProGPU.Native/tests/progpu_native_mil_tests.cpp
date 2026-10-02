@@ -21939,9 +21939,9 @@ bool original_shader_sampler_inherits_actual_visual_options() {
                         image.transform.m31 == -50.0F && image.transform.m32 == 30.0F);
                 }
                 if (variant >= 13U && variant <= 19U) {
-                    const auto expected_u = variant == 16U || variant == 18U || variant == 19U
+                    const std::uint32_t expected_u = variant == 16U || variant == 18U || variant == 19U
                         ? PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT : PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
-                    const auto expected_v = variant == 17U || variant == 18U
+                    const std::uint32_t expected_v = variant == 17U || variant == 18U
                         ? PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT : PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT;
                     PROGPU_REQUIRE(image.flags == (PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT |
                         (expected_u << PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) |
