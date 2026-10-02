@@ -139,8 +139,9 @@ struct original_font_capture final {
     static constexpr std::uint32_t maximum_files = 16U;
     static constexpr std::uint32_t maximum_key_bytes = 65536U;
     static constexpr std::uint64_t maximum_total_bytes = 64U * 1024U * 1024U;
-    // Native fvar has a uint16 axis domain. Face5 can additionally expose the
-    // five standard static design attributes; never equate these two counts.
+    // Bounded capture storage: native fvar has a uint16 axis domain and Face5
+    // can additionally expose five standard static design attributes. This is
+    // not a fabricated fvar inventory; never equate these two counts.
     static constexpr std::uint32_t maximum_axes = 65535U + 5U;
 
     // This retained original face is also the instance identity. File/index
@@ -159,7 +160,8 @@ struct original_font_capture final {
 
 // Explicit generation preparation, not a draw-time read/cache keyed by a COM
 // address. Owns complete original files in returned order; never reconstructs a
-// font from table reads. O(B + F) time/storage, B <= 64 MiB, F <= 16.
+// font from table reads. O(B + F + A) expected time/storage for original bytes,
+// files and axis values; B <= 64 MiB, F <= 16, A <= 65535 + 5.
 // On any failure output is unchanged, including original source HRESULTs.
 [[nodiscard]] com::result capture_original_font(
     compat::font_face* face,
