@@ -13,6 +13,8 @@
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
+#include "progpu_native_rgb_glyph_scene_fixture.hpp"
+#include "progpu_native_rgb_glyph_mask_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
@@ -2361,6 +2363,41 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(padding_reference_engine);
     phase("original shader padded captures passed");
+    {
+        // Explicit policies are isolated from the ordinary engine and adapter
+        // defaults. Both routes retain the real owned scene/layer/readback path.
+        std::array<progpu_native_engine*, 5U> rgb_engines{};
+        const auto rgb_engine = [&](unsigned route) {
+            auto*& selected = rgb_engines[route];
+            if (selected == nullptr) {
+                progpu_native_engine_options options{};
+                options.struct_size = sizeof(options);
+                options.abi_version = PROGPU_NATIVE_ABI_VERSION;
+                options.backend_abi = PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05;
+                options.target_format = route == 4U ? PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM_SRGB
+                    : PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM;
+                options.device = reinterpret_cast<std::uintptr_t>(gpu.device);
+                options.queue = reinterpret_cast<std::uintptr_t>(gpu.queue);
+                options.flags = progpu::native::tests::rgb_scene_engine_flags(route);
+                require(progpu_native_engine_create(&options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+                    "RGB retained-scene wgpu engine creation failed");
+            }
+            return selected;
+        };
+        const auto render_rgb =
+            [&](unsigned route, const auto& stream, const progpu_native_scene_header& header,
+                const progpu::native::tests::rgb_scene_case& test, progpu_native_scene_frame_metrics& metrics,
+                std::uint64_t submissions = 1U) {
+                return render_scene(gpu, rgb_engine(route), nullptr, 4U, header.command_count, submissions,
+                    stream, header.scene_id, header.generation, &metrics, test.dpi,
+                    test.mapped ? &test.presentation : nullptr,
+                    test.accepted ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_UNSUPPORTED);
+            };
+        progpu::native::tests::verify_rgb_glyph_scene_pixels(render_rgb, require);
+        progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
+        for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
+    }
+    phase("explicit RGB retained scene compute/fragment pixels passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(
         [&](bool reference, const auto& stream, std::uint64_t generation,
