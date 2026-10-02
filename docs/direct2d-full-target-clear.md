@@ -114,3 +114,9 @@ nonbinary conversion allowance, cold/warm equality, structural counters and
 deadlines remain unchanged. Hosted execution of this merged head must still
 establish fractional clipping, both native providers and the original Windows
 differential; the diagnosed first failure does not prove later variants pass.
+
+After the dependency merge, strict syntax checks again passed the portable target,
+complete COM fixture and instantiated shared pixel fixture. The full native
+contract verifier passed, including all generated schemas and its two inline-array
+controls; whitespace checks passed. No native linking, GPU or VM execution was
+performed locally, and no runtime was staged from either failed Build.
