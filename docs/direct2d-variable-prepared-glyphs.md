@@ -64,3 +64,32 @@ decoder under test. CFF/CFF2, simulations, multiple files, sideways/odd-bidi
 placement, GDI measuring, hinting and unsupported raster policies stay closed.
 Neither a prepared object nor an authored fixture proves those contracts or
 qualifies arbitrary variable-font application rendering.
+
+## Authored controls (not executed)
+
+The independent tiny-font fixture retains its own constant expectation table:
+five default/positive/negative axis cases across four font alternatives (gvar,
+compact gvar, HVAR advance, compact HVAR with both bearing maps). Its glyphs
+exercise nonzero left/right phantoms, changed rectangular contours and an empty
+glyph with a real changed advance. No old fixture bytes or expectations changed.
+
+Both native providers register forty source configurations: each instance uses
+explicit and null/nominal advances, with aliased, fractional grayscale, or
+transformed clip/layer scope. Every configuration compares all RGBA bytes across
+cold, warm and independent geometry, retains exact caller draw/command/submission
+counts, and requires nonempty ink, untouched background and opaque target alpha.
+Original mutable font callbacks are disabled and their input storage changed after
+capture; retained replay must not query them. Existing static controls remain.
+
+The CPU source harness adds sixteen failed source/table preparation controls,
+standard non-fvar attributes, static Face5 descriptors, independently known
+normalization coordinates, a narrow axis that distinguishes original float from
+premature 16.16 conversion, paired phantom/HVAR outputs, untouched failure outputs,
+late malformed-glyph whole-run cache rollback and exact-owner rejection. Source
+gvar admission explicitly rejects unknown versions/reserved flags without changing
+the shared legacy parser. All are authored only; no build or test was executed.
+
+The separate stacked Windows companion creates actual original SDK variable
+instances from the same authored bytes and compares original metrics, outlines
+and complete images. That companion is an independent required qualification
+gate, not a claim implied by these provider fixtures.
