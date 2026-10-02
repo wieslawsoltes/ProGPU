@@ -139,8 +139,8 @@ void verify_picture_layer_presentation(Render render, Require require) {
         const auto make_parent = [&](bool physical_reference) {
             const float sx = physical_reference ? static_cast<float>(axes[0]) : 1.0F;
             const float sy = physical_reference ? static_cast<float>(axes[1]) : 1.0F;
-            const auto scaled = [&](float x, float y, float width, float height) {
-                return progpu_native_image_rect{x * sx, y * sy, width * sx, height * sy};
+            const auto scaled = [&](float x, float y, float rectangle_width, float rectangle_height) {
+                return progpu_native_image_rect{x * sx, y * sy, rectangle_width * sx, rectangle_height * sy};
             };
             semantic_scene_builder middle(physical_reference ? 0x94B1U : 0x94B0U, generation);
             std::uint32_t white{};
