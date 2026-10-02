@@ -35,6 +35,7 @@
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native_direct2d_prepared_glyph_fixture.hpp"
+#include "progpu_native_direct2d_variable_glyph_fixture.hpp"
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_webscene_advanced_blend_fixture.hpp"
@@ -3858,6 +3859,10 @@ int main(int argc, char** argv) {
         for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
     }
     progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+            return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);
+        }, require);
+    progpu::native::direct2d::tests::verify_variable_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);
         }, require);
