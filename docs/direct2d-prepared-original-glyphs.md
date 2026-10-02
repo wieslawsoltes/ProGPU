@@ -78,8 +78,22 @@ that OUTLINE must never execute. They exercise the actual target under captured
 clip/layer/transform/DPI state, confirm zero additional source-font reads or
 outline callbacks, inspect exact independently calculated source coordinates,
 and retain explicit unsupported-family and reentrant invalidation controls.
-Independent original Windows and paired native-provider full-byte rendering
-controls are required alongside these source cases before qualification.
+Four authored pixel cases cover aliased/grayscale coverage, fractional placement,
+affine transforms, capture-time clips and half-opacity layers. Both native
+providers compare every cold/warm output byte against independently specified
+rectangle geometry; absolute ink, no-ink-advance gap and background pixels remain
+separate assertions. Source target/brush owners end before native replay, and
+repeated runs assert no additional font callbacks and exactly three cached glyphs.
+
+The paired original Windows controls register a genuine in-memory font loader,
+create a real original face from the same complete authored bytes, and capture
+that face through the source API. Real `DrawGlyphRun` pixels are compared with
+both independent rectangle coordinates and prepared contours using the original
+rasterizer. This isolates source decoding/placement from coverage differences;
+it is not a replacement for the separate native-provider full-byte gate. The
+original loader registration outlives all file/face/context owners. The earlier
+54-case modern RGB corpus is unchanged. All these controls are authored only;
+no original or native pixel result is claimed at this checkpoint.
 
 No validation is executed at this checkpoint: all compile, source, original
 Windows, GPU, package and platform gates remain deferred to the final integrated
