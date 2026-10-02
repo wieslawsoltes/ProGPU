@@ -65,11 +65,17 @@ standalone run passed all **728 matrix controls** alongside the same original
 renderer, native library or GPU.
 
 The existing paired-provider GPU fixture retains its original ten cases and
-every byte/counter assertion, then adds ten original matrix programs. Actual
+every byte/counter assertion, then adds forty original matrix programs. Actual
 white input texels feed the vector; independently selected matrix constants
 produce exact magenta with full alpha. Contrasting W coefficients distinguish
 three- from four-component products. The shorter products must retain original
-Z/W; model-three cases additionally exercise vector negation and saturation.
+Z/W. Both models cover identity/swapped vector components and positive/negated
+inputs, with saturation on the negated family. The model-two original words and
+first five constant registers match the independently authored
+`eng/WpfShaderEffectReference` cases, whose actual x64 Microsoft WPF software
+capture at `71de49f23` passed all 25 cases and 75 replays in workflow
+`37002069190` (job `110821807073`). That run's native ARM64 original reference
+did not execute even the half-intensity control; it is not ARM64 shader parity.
 Cold, warm and independent-engine replay still checks every RGBA pixel, the
 final clip, exact pass/cache/uniform-upload counts and one queue submission.
 No deadline or assertion is relaxed. GPU, Windows original references, complete
