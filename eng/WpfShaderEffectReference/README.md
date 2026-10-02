@@ -58,3 +58,132 @@ Windows-targeted project compiled from the existing cached reference pack in
 1.42 seconds, with zero warnings/errors and no ProGPU renderer dependency.
 Windows execution is delegated to the hosted reference workflow; this local
 compile does not constitute a reference capture or pixel qualification.
+
+## Original ImageBrush sampler frames
+
+An additive, separate `image-samplers.json` receipt keeps every original arithmetic
+case unchanged and captures 24 original ImageBrush cases, each cold, warm and with
+an independently recreated visual and bitmap. Eight inputs set actual protected
+visual options, including two same-visual resets to inherited options after the
+first capture. Four of those inputs match the original ProGPU-owned sampler
+fixture at `b044a8cee25ea32be4842253e013381882c3d023`,
+`src/ProGPU.Native/tests/progpu_native_shader_sampler_pixel_fixture.hpp`.
+Six earlier inputs deliberately retain attached properties on bare visuals;
+those do not set the actual visual options and keep their linear expectations.
+Source bitmap DPI (144,192), brush opacity, addressing, translation, independent
+shader sampling and final source clip all remain observable. Every output byte
+in these fourteen small inputs has an independent nearest or linear expectation;
+the source bitmap and complete original brush input are saved too.
+
+The other ten inputs use a 400x200 bitmap with independent source DPI axes,
+absolute/relative equivalent viewboxes, Stretch=None in a 100x100 effect input,
+nearest/bilinear shader sampling, and translated FlipX tiles. The integral
+(192,384)-DPI viewbox retains a 100x20-DIP mapping within a full 200x50-DIP
+source image. Its four plain cases must preserve all 50 source rows after mapping,
+with quarter-opacity red/green pixels rather than clipping to the viewbox.
+Fractional DPI (123.456789012345,183.456789012345) and mirrored cases retain
+every original pixel without inventing an idealized float-to-DIP oracle. Five
+absolute/relative pairs must match completely, preserve final clipping/opaque
+alpha, and have actual opacity-bearing output rather than blank or unchanged
+white. Those pairs are not labeled independent color-oracle cases.
+
+Inputs use public original `BitmapSource.Width/Height` for absolute viewboxes,
+not a replacement double DPI formula. PixelShader sampler registration and actual
+ImageBrush realization remain Microsoft WPF. This adds no production renderer,
+native shader, CPU fallback or source admission. ARM64 executes all inputs as
+the existing explicit unavailable-software control, reporting zero qualified
+sampler shader cases. All previous deadlines, color assertions and native/package
+gates remain; a reference mismatch fails rather than removing its case.
+
+After the implementation commit, the small original-only Windows-targeted project
+compiled against cached reference assemblies in 1.51 seconds with zero warnings
+or errors. This host used installed SDK 11 preview with target `net10.0-windows`;
+it installed no SDK and loaded no WPF renderer or ProGPU native runtime. Actual
+Windows source capture remains the hosted workflow's responsibility. The new
+sampler phase shares the original process-wide 60-second stopwatch rather than
+resetting the capture deadline.
+
+The first hosted original x64 run `37010052606` (job `110847365474`) passed the
+25 arithmetic inputs but contradicted the existing native fixture's hard stripe
+expectation. `sampler-native-0` returned a linear red/green ramp at x=16..31:
+BGRA `(0,4,124,255)` through `(0,124,4,255)`, despite nearest options on the effect
+visual and its ImageBrush. These failed original PNG/raw/input artifacts are
+retained; no native parity claim or passing sampler receipt follows from them.
+
+Two additive parent-Nearest controls isolate incoming render-state inheritance
+from options on the effect visual itself, bringing the inventory to 16 inputs,
+48 replays and 10 independent color controls. Pixel failures now accumulate so
+all original inputs and equivalence pairs are observed in one bounded run. Any
+failure writes only `image-samplers.failed.json`, reports zero qualified cases
+and fails the workflow after capture. None of the pixel assertions, original
+cases or capability checks is weakened. The producer behavior being investigated
+is documented in the original WPF `ShaderEffect.cpp` secondary-input capture:
+its fresh capture context inherits the incoming render state. This observation
+does not establish the effective render-option ordering by itself.
+
+The complete native ARM64 original capture `37010911430`, job `110850135785`,
+established a distinct unavailable-software outcome for all 16 ImageBrush inputs:
+their shader contributes no color, leaving every BGRA pixel `(0,0,0,255)` over
+the original black background. The old 25 implicit-input controls still produce
+their required clipped white input. Their checks stay unchanged; the new sampler
+negative control checks every byte against the observed empty contribution and
+continues to report zero qualified shader cases. All input/PNG/raw artifacts and
+the failed initial white-input assumption remain recorded. This architecture's
+negative outcome must never become a product pixel expectation or replace the
+positive x64 or native ARM64 GPU gates.
+
+The completed x64 diagnostic receipt from the same run has SHA256
+`17f013af6e4936e2f36bbc753635712a5bbc088e41d9cfcf8ed43bdc98d6a356`.
+Both parent-Nearest cases are byte-identical to their effect-visual counterparts;
+the evidence therefore does **not** support an incoming-options-only product fix.
+The original software pixel expectation now uses an independent two-texel linear
+interpolation formula, pixel centers, clamp/repeat addressing and exact UNORM
+rounding. It does not replace original inputs, embed captured pixel arrays or
+introduce a tolerance. Whether hardware capture has the same realization policy
+remains a distinct requirement before changing native/GPU defaults.
+
+The integral source viewbox also selects a mapping, not an image crop for
+TileMode.None. Its Stretch=None mapping places the 100x20 viewbox at (0,40) in
+the 100x100 input, subtracting source origin (50,10). The complete 200x50-DIP
+image thus occupies input y=30..80, or final y=40..90 after the visual origin;
+every observed colored row is 40..89, not the initially predicted50..69.
+The independent expected frame now preserves that full source overflow and
+checks every pixel. All original input cases, failed receipts and exact
+absolute/relative comparisons are retained. These observations expose missing
+source/native qualification rather than establish product parity.
+
+## Actual visual options versus attached properties
+
+Original `RenderOptions.cs` registers the BitmapScalingMode attached property
+without a changed callback for bare visuals. Original `UIElement.cs` overrides
+its metadata and propagates into `Visual.VisualBitmapScalingMode`; `Visual.cs`
+serializes that separate protected state into MIL. DrawingGroup has its own
+property serialization. Consequently, the earlier bare DrawingVisual/ContainerVisual
+inputs never emitted nearest options. Their linear output does not imply that
+the native renderer must ignore valid nearest options or change its default.
+
+The additional eight controls use small derived DrawingVisual/ContainerVisual
+types to set and read the original protected property directly, without private
+reflection or foreign implementation. Four set nearest on the receiving effect
+visual; two inherit from a nearest parent; two capture that same nearest parent
+and receiving visual, then reset the already-captured receiving visual to
+Unspecified before its next capture. Independent visual replay uses the final
+inherited state too. The nearest oracle remains the original strict stripe
+formula. The first sixteen inputs, their actual unspecified visual fields,
+independent linear/viewbox formulas, and historical failures remain intact.
+This gives 24 sampler cases, 72 replays, 18 independent color cases and five
+complete-pixel equivalence pairs, still within the shared 60-second deadline.
+
+The exact source `5e13e5863053f9e5836fda323fdd52be6fe8a70b` completed hosted
+workflow `37013264907` successfully on both Windows architectures. The x64 job
+`110857864291` qualified all 24 sampler inputs and 72 replays, with all eighteen
+independent color controls and five complete-pixel pairs passing. Its sampler
+receipt SHA256 is
+`d90dbd21d70869d1b42da5145e89e976c365d0134d015d38335f7efc151821b0`.
+The ARM64 job `110857864140` passed the unavailable-software controls with zero
+qualified sampler shaders; its receipt SHA256 is
+`14bf8daed4e49f07f8734976287a22c2184d4a05026d1424265ba297c559517c`.
+Both receipts retain the original PresentationCore identity, actual visual-field
+state, all pixels and independent replays. The unchanged 25 arithmetic inputs
+also passed their architecture-specific controls. This establishes the original
+reference, not a native renderer, source-host or package qualification.
