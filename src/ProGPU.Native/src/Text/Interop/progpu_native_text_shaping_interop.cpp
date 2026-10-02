@@ -3577,15 +3577,15 @@ static progpu_native_status paragraph_layout_core(
                 retained.source_fitting = fitted.generation;
                 retained.source_logical_metrics = fitted.generation->metrics;
                 if (retained.has_source_intrinsic_widths) {
-                    hinted_source_intrinsic_widths widths{};
-                    const auto measured = measure_hinted_source_intrinsic_widths(retained, widths);
+                    hinted_source_intrinsic_widths source_intrinsic{};
+                    const auto measured = measure_hinted_source_intrinsic_widths(retained, source_intrinsic);
                     if (measured != PROGPU_NATIVE_STATUS_SUCCESS) {
                         result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
                         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
                         return measured;
                     }
-                    retained.source_minimum_intrinsic_width = widths.minimum;
-                    retained.source_maximum_intrinsic_width = widths.maximum;
+                    retained.source_minimum_intrinsic_width = source_intrinsic.minimum;
+                    retained.source_maximum_intrinsic_width = source_intrinsic.maximum;
                 }
             }
         }
