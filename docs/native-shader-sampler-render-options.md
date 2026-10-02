@@ -79,3 +79,28 @@ question: rasterizing a clamped enlarged page and repeating it is not generally
 equivalent to filtering a repeated original bitmap. This change neither selects
 that policy nor rewrites the original four pixel expectations. Full ShaderEffect,
 source application and platform parity remain unqualified by this change.
+
+## Post-commit checks
+
+Implementation checkpoint `9f10c4c10865aea75649514d17801acc2587083a` passed
+strict AppleClang C++20 `-Wall -Wextra -Wpedantic -Werror -fsyntax-only` for
+the complete MIL compiler, the complete MIL test translation unit and an
+instantiated thirteen-case shared GPU fixture. Each compiler process had an
+explicit 45-second or shorter limit. The full native contract verifier passed:
+143 command definitions, 141 packet layouts, unchanged 109/25/7 dispatch ledger,
+93 owned memory fields, three inline-array generator controls, all generated
+wire contracts and Unicode tables. Its first invocation stopped at an omitted
+sparse-checkout Unicode source; after adding that unchanged tracked directory,
+the complete verifier passed. `git diff --check` also passed.
+
+Original reference workflow `37013264907` subsequently completed successfully at
+`5e13e5863053f9e5836fda323fdd52be6fe8a70b`. The x64 job `110857864291` adds
+actual protected-visual-field own Nearest, inherited Nearest and already-rendered
+own-Nearest-to-Unspecified reset controls, retaining the original sixteen
+inputs: 24 cases and 72 replays. ARM64 job `110857864140` remains explicitly an
+unsupported-software negative control. This independently supports the corrected
+inheritance contract; it is not execution of ProGPU's new fixture.
+
+No native renderer link/build, GPU or VM execution, runtime staging or full
+managed source build was performed locally. Provider pixel execution remains a
+required hosted gate, not a result inferred from syntax or original references.
