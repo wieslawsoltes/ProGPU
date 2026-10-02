@@ -19,7 +19,7 @@ inline bool try_resolve_rgb_glyph_translation(const progpu_native_scene_rgb_glyp
     const progpu_native_scene_state& state, const scissor& target,
     const progpu_native_scene_presentation& presentation, bool ignores_alpha,
     std::int32_t& offset_x, std::int32_t& offset_y) noexcept {
-    if (!ignores_alpha || (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U ||
+    if (!ignores_alpha || !std::isfinite(draw.dpi_scale) || draw.dpi_scale <= 0.0F ||
         state.transform.m11 != 1.0F || state.transform.m12 != 0.0F ||
         state.transform.m21 != 0.0F || state.transform.m22 != 1.0F ||
         draw.dpi_scale != presentation.dpi_scale_x || draw.dpi_scale != presentation.dpi_scale_y)

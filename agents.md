@@ -3,8 +3,11 @@
 Retained RGB glyph replay keeps the explicit box model separate from original
 DirectWrite modes. Prove opacity from the actual materialized target, never a
 root clear or ancestor. Preserve original sampling phase, exact two-axis DPI,
-integral physical translation, target-local scissor and source opacity; reject
-unproven frames/masks rather than selecting scalar coverage. Retain source order
+integral physical translation, target-local scissor and source opacity. Per-draw
+masks reuse the original retained mask builders and shared text-mask shader;
+multiply each channel's coverage once, retaining picture and analytic-chain
+ownership, never an envelope. Reject unproven frames rather than selecting
+scalar coverage. Retain source order
 between ordinary bundles and submission-owned GPU resources. Report actual cold
 and warm uploads/draws; packet retention is not coverage retention or modern
 ClearType qualification. See docs/native-rgb-glyph-coverage.md.

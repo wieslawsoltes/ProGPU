@@ -1735,7 +1735,8 @@ typedef struct progpu_native_scene_rgb_glyph_draw {
  * independent for every occurrence, including repeated outline indices. The
  * source unit-basis state may add integral physical translation at exactly this
  * DPI; target viewport/layer origin and source opacity/rectangle clip still apply.
- * Per-draw masks, nonunit/fractional mappings and unknown target opacity reject. */
+ * Original retained per-draw masks multiply each channel's coverage independently.
+ * Nonunit/fractional mappings and unknown target opacity reject. */
 typedef struct progpu_native_scene_rgb_glyph_tile {
     uint32_t outline_index;
     uint32_t width;

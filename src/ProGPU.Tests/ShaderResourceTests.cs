@@ -39,7 +39,9 @@ public class ShaderResourceTests
     [Fact]
     public void RgbGlyphCompositionKeepsEachCoverageChannelAndTargetAlphaIndependent()
     {
-        string source = Shaders.GlyphRgbCompositeShader;
+        string source = ShaderResource.Load(typeof(Shaders), "GlyphRgbComposite.wgsl");
+        string sharedMasks = ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl");
+        Assert.Equal(string.Concat(sharedMasks, "\n", source), Shaders.GlyphRgbCompositeShader);
         Assert.Contains("coverage[channel] * glyph.foreground.a", source, StringComparison.Ordinal);
         Assert.Contains("textureLoad(rgbCoverage, pixel, 0).rgb", source, StringComparison.Ordinal);
         Assert.Contains("rgb_channel_output(input, 0u)", source, StringComparison.Ordinal);
@@ -48,6 +50,14 @@ public class ShaderResourceTests
         Assert.DoesNotContain("textureSample", source, StringComparison.Ordinal);
         Assert.DoesNotContain("pow(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("max(", source, StringComparison.Ordinal);
+        Assert.Contains("source.a * sample_mask_alpha(input.position.xy)", source, StringComparison.Ordinal);
+        Assert.Contains("source.a * sample_mask_chain_alpha(input.position.xy)", source, StringComparison.Ordinal);
+        Assert.Contains("renderOrigin: vec2<f32>", source, StringComparison.Ordinal);
+        foreach (string channel in new[] { "red", "green", "blue" })
+        {
+            Assert.Contains($"fn fs_rgb_{channel}_masked(", source, StringComparison.Ordinal);
+            Assert.Contains($"fn fs_rgb_{channel}_chain(", source, StringComparison.Ordinal);
+        }
 
         string root = FindRepositoryRoot().FullName;
         string execution = File.ReadAllText(Path.Combine(root, "src", "ProGPU.Native", "src", "Backend",
