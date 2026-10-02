@@ -668,6 +668,9 @@ fn transform_material_coordinate(
 }
 
 fn apply_material_spread(value: f32, method: u32) -> f32 {
+    if (method == 4u) {
+        return clamp(value, 0.0, 1.0);
+    }
     if (method == 1u) {
         let period = fract(value * 0.5) * 2.0;
         return select(period, 2.0 - period, period > 1.0);

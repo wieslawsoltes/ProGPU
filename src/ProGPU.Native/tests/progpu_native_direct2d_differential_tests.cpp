@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -748,7 +749,8 @@ void record_finite_affine_layer(ID2D1RenderTarget* target, bool opacity_mask)
     require(SUCCEEDED(target->EndDraw()), "finite affine oracle recording failed");
 }
 
-std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false)
+std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool opacity_mask = false,
+    int gradient_variant = -1, bool ordered = false)
 {
     IWICImagingFactory* raw_wic_factory = nullptr;
     require(SUCCEEDED(CoCreateInstance(
@@ -946,6 +948,10 @@ std::vector<std::uint8_t> render_system_direct2d(bool finite_layer = false, bool
     require(SUCCEEDED(target->EndDraw()), "system Direct2D draw failed");
 
     if (finite_layer) record_finite_affine_layer(target.get(), opacity_mask);
+    if (gradient_variant == 12) progpu::native::direct2d::tests::record_gradient_interval_pad(
+        reinterpret_cast<d2d::render_target*>(target.get()), require);
+    else if (gradient_variant >= 0) progpu::native::direct2d::tests::record_gradient_stop_order(
+        reinterpret_cast<d2d::render_target*>(target.get()), static_cast<unsigned>(gradient_variant), ordered, require);
 
     WICRect lock_rectangle{0, 0, static_cast<INT>(width),
         static_cast<INT>(height)};
@@ -1079,6 +1085,37 @@ int wmain(int argc, wchar_t** argv)
         require(affine_system[center + 3U] >= 158U && affine_system[center + 3U] <= 161U &&
             affine_progpu[center + 3U] >= 158U && affine_progpu[center + 3U] <= 161U,
             "finite affine layer opacity or visible coverage is missing");
+    }
+    for (unsigned variant = 0U; variant < 12U; ++variant) {
+        std::vector<std::uint8_t> unordered_original;
+        for (const bool ordered : {false, true}) {
+            const auto original = render_system_direct2d(false, false, static_cast<int>(variant), ordered);
+            progpu::native::direct2d::tests::record_gradient_stop_order(scene.target.get(), variant, ordered, require);
+            const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
+            require(original.size() == width * height * 4U && actual == original,
+                "gradient stop order/range differs from original Windows D2D/WIC");
+            for (unsigned y = 0U; y < height; ++y) for (unsigned x = 0U; x < width; ++x) {
+                auto expected = progpu::native::direct2d::tests::gradient_stop_expected(variant, x, y);
+                std::swap(expected[0], expected[2]);
+                require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
+                    "original gradient absolute hard-edge pixels");
+            }
+            if (!ordered) unordered_original = original;
+            else require(unordered_original == original, "original unordered and stable-order pixels differ");
+        }
+    }
+    {
+        const auto original = render_system_direct2d(false, false, 12);
+        progpu::native::direct2d::tests::record_gradient_interval_pad(scene.target.get(), require);
+        const auto actual = render_progpu(api, gpu, scene.scene_target.get(), 1U, 1U);
+        require(original.size() == width * height * 4U && actual == original,
+            "Direct2D gradient interval clamp differs from original Windows pixels");
+        for (unsigned y = 0; y < height; ++y) for (unsigned x = 0; x < width; ++x) {
+            const auto grey = progpu::native::direct2d::tests::gradient_interval_expected(x);
+            const std::array<std::uint8_t, 4U> expected{grey, grey, grey, 255};
+            require(std::equal(expected.begin(), expected.end(), original.data() + (y * width + x) * 4U),
+                "original gradient [-1,1] inside/edge/outside absolute bytes");
+        }
     }
     scene = {};
     release_gpu(api, gpu);

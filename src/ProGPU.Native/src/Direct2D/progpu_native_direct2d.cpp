@@ -7238,14 +7238,10 @@ private:
             collection->GetGradientStops1(direct_stops.data(), stop_count);
             native_stops.clear();
             native_stops.reserve(stop_count);
-            float previous_offset =
-                -std::numeric_limits<float>::infinity();
             float common_alpha = direct_stops.front().color.a;
             bool uniform_alpha = true;
             for (const auto& stop : direct_stops) {
-                if (!std::isfinite(stop.position) ||
-                    stop.position < previous_offset ||
-                    !finite_color(stop.color)) {
+                if (!std::isfinite(stop.position) || !finite_color(stop.color)) {
                     return fail_invalid_value();
                 }
                 uniform_alpha = uniform_alpha &&
@@ -7256,7 +7252,14 @@ private:
                     0U,
                     0U,
                     0U});
-                previous_offset = stop.position;
+            }
+            // GetGradientStops1 belongs to the original resource; canonicalize
+            // only this owned render snapshot, preserving duplicate order.
+            std::stable_sort(native_stops.begin(), native_stops.end(),
+                [](const auto& left, const auto& right) { return left.offset < right.offset; });
+            if (brush.spread_method == PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
+                (native_stops.front().offset < 0.0F || native_stops.back().offset > 1.0F)) {
+                brush.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL;
             }
             const D2D1_COLOR_INTERPOLATION_MODE interpolation =
                 collection->GetColorInterpolationMode();

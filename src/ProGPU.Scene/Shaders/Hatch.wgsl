@@ -90,6 +90,9 @@ struct VertexOutput {
 };
 
 fn apply_gradient_spread(t: f32, spreadMethod: u32) -> f32 {
+    if (spreadMethod == 4u) {
+        return clamp(t, 0.0, 1.0);
+    }
     if (spreadMethod == 1u) {
         let period = fract(t * 0.5) * 2.0;
         return select(period, 2.0 - period, period > 1.0);

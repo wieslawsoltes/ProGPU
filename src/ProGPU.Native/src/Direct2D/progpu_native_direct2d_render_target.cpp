@@ -4205,17 +4205,13 @@ public:
                 extend_mode_value != extend_mode::mirror)) {
             return com::invalid_argument;
         }
-        float previous = -std::numeric_limits<float>::infinity();
         for (std::uint32_t index = 0U;
              index < gradient_stop_count;
              ++index) {
             const gradient_stop& stop = gradient_stops[index];
-            if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                stop.position > 1.0F || stop.position < previous ||
-                !valid_color(stop.color)) {
+            if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                 return com::invalid_argument;
             }
-            previous = stop.position;
         }
         try {
             std::vector<gradient_stop> stops(
@@ -8364,11 +8360,8 @@ private:
             collection->GetGradientStops(stops.data(), stop_count);
             native_stops.clear();
             native_stops.reserve(stop_count);
-            float previous = -std::numeric_limits<float>::infinity();
             for (const gradient_stop& stop : stops) {
-                if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                    stop.position > 1.0F || stop.position < previous ||
-                    !valid_color(stop.color)) {
+                if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                     latch(com::invalid_argument);
                     return false;
                 }
@@ -8379,7 +8372,15 @@ private:
                     0U,
                     0U,
                     0U});
-                previous = stop.position;
+            }
+            // The public collection retains original order/values. Only its
+            // owned rendering snapshot is sorted: equal-position stops must
+            // retain caller order, including the low/high sides of a hard edge.
+            std::stable_sort(native_stops.begin(), native_stops.end(),
+                [](const auto& left, const auto& right) { return left.offset < right.offset; });
+            if (native.spread_method == PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
+                (native_stops.front().offset < 0.0F || native_stops.back().offset > 1.0F)) {
+                native.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL;
             }
             native.stop_count = stop_count;
             const std::size_t inline_count = std::min<std::size_t>(
