@@ -124,6 +124,25 @@ PROGPU_WGPU_BACKEND=vulkan dotnet run --project tests/ProGPU.Hmi.DcsSmoke -c Rel
 
 The DCS native probe exercises real display-tab/object clicks, local review/cancel/confirm, selected acknowledgement, export preview, linked aspects, engineering switching, unsaved design synchronization and reattachment. It renders all three palettes through actual ProGPU native WebGPU. It is additional to the existing complete HMI renderer/pointer probes, not a substitute. Test artifacts must identify source revision, SDK and software/physical adapter. Software-Vulkan results are not Apple Metal/Retina, hardware-touch, accessibility or production-PLC qualification.
 
+The setup extension adds injected-pointer routes for Tags, Connections,
+Components, Bind selected and Setup guide at both 1600×1000 and 640×1000. It
+captures every revealed page/pane in every existing palette. Hidden/small data
+panels must expand; larger panels stay unchanged. Wide inline neighbors remain
+open, while compact side overlays dismiss the opposite pane. The exact selected
+control, unsaved document, undo/redo availability and offline runtime/transport
+state must survive every click. These routes use the visible toolbar arrows to
+reveal overflow, never direct scroll-offset mutation or direct button callbacks.
+The existing operator-compact, source tests, captures and 180-second per-palette
+deadline remain unchanged. Compact widths other than 640, shorter engineering
+heights, OS-delivered touch/keyboard and actual desktop DPI remain separate
+qualification; an authored route or syntax check is not a passing native capture.
+
+The setup toolbar shares the existing 40-pixel command row, preserving the
+original 84-pixel header and button sizes. A prior extra auto-height setup row
+failed the unchanged header-height test with 122 pixels. Removing that extra
+row and making real overflow navigation explicit corrects the layout, rather
+than relaxing the original assertion or hiding commands outside the viewport.
+
 Public primary sources reviewed for workflow and presentation intent:
 
 - [ABB System 800xA Operator Workplace](https://new.abb.com/control-systems/system-800xa/800xa-dcs/operator-interfaces-hmi/workplace-process-graphics): configurable operator workplaces, graphics and embedded trends.

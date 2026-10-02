@@ -12,11 +12,10 @@ public sealed partial class HmiDesignerHost
 
     private FrameworkElement BuildSetupNavigation()
     {
-        // Visible text and wrapping make the authoring entry points discoverable
-        // without requiring a tooltip, hidden data tab or wide desktop window.
+        // The horizontal parent measures this group at its natural width. Real
+        // scroll buttons reveal overflow without growing the fixed studio header.
         var row = Toolbar();
         row.Name = "HmiSetupNavigation";
-        row.Margin = new Thickness(8, 0, 8, 4);
         row.AddChild(StudioText("PROJECT SETUP", 10));
         Add("HmiSetupTags", "1. Tags", () => ShowSetupData(_tagPage,
             "Add tag, then edit its name, type, initial value and unit. Bindings use the exact tag name."));
@@ -49,6 +48,47 @@ public sealed partial class HmiDesignerHost
             var button = Command(title, action);
             button.Name = name;
             row.AddChild(button);
+        }
+    }
+
+    private FrameworkElement BuildStudioToolStrip(FrameworkElement tools)
+    {
+        var scroll = new ScrollViewer
+        {
+            Name = "HmiStudioTools", Content = tools,
+            HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+        var previous = Command("‹", () => Move(-1));
+        var next = Command("›", () => Move(1));
+        previous.Name = "HmiStudioScrollLeft";
+        next.Name = "HmiStudioScrollRight";
+        previous.Width = next.Width = 32;
+        ToolTipService.SetToolTip(previous, "Earlier setup and studio commands");
+        ToolTipService.SetToolTip(next, "More setup and studio commands");
+        var strip = new Grid();
+        strip.ColumnDefinitions.Add(GridLength.Auto);
+        strip.ColumnDefinitions.Add(GridLength.Star(1));
+        strip.ColumnDefinitions.Add(GridLength.Auto);
+        strip.AddChild(previous);
+        strip.AddChild(scroll); SetColumn(scroll, 1);
+        strip.AddChild(next); SetColumn(next, 2);
+        scroll.RegisterPropertyChangedCallback(ScrollViewer.ScrollableWidthProperty, (_, _) => UpdateButtons());
+        scroll.RegisterPropertyChangedCallback(ScrollViewer.HorizontalOffsetProperty, (_, _) => UpdateButtons());
+        UpdateButtons();
+        return strip;
+
+        void Move(int direction)
+        {
+            scroll.ChangeView(scroll.HorizontalOffset + direction * Math.Max(120f, scroll.ViewportWidth * 0.75f),
+                null, null);
+            UpdateButtons();
+        }
+        void UpdateButtons()
+        {
+            previous.IsEnabled = scroll.HorizontalOffset > 0;
+            next.IsEnabled = scroll.HorizontalOffset < scroll.ScrollableWidth;
         }
     }
 

@@ -61,7 +61,6 @@ public sealed partial class HmiDesignerHost
         header.RowDefinitions.Add(new GridLength(44));
         header.RowDefinitions.Add(new GridLength(40));
         header.RowDefinitions.Add(GridLength.Auto);
-        header.RowDefinitions.Add(GridLength.Auto);
         _studioSurfaces.Add((header, HmiBrushRole.Surface));
         var identity = new Grid { Margin = new Thickness(12, 0, 12, 0) };
         identity.ColumnDefinitions.Add(new GridLength(144));
@@ -81,6 +80,8 @@ public sealed partial class HmiDesignerHost
         header.AddChild(identity);
 
         var tools = new StackPanel { Orientation = Orientation.Horizontal, Padding = new Thickness(8, 3) };
+        tools.AddChild(BuildSetupNavigation());
+        tools.AddChild(StudioSeparator());
         tools.AddChild(StudioMenu("File", [
             ("New project", () => ConfirmReplace("new", () => Session.Open(new HmiProject { Screens = [new HmiScreen { Id = "overview", Name = "Overview" }] }))),
             ("Water treatment sample", () => ConfirmReplace("demo", () => Session.Open(HmiDemoProject.Create()))),
@@ -185,9 +186,8 @@ public sealed partial class HmiDesignerHost
         tools.AddChild(_runButton);
         tools.AddChild(StudioButton("Pause", "Pause / resume simulation", TogglePause, () => IsPreviewing && _acquisition == null));
         tools.AddChild(StudioButton("Step", "Advance simulation 100 ms", () => AdvancePreview(TimeSpan.FromMilliseconds(100)), () => IsPreviewing && _acquisition == null));
-        var toolScroll = new ScrollViewer { Content = tools, HorizontalScrollMode = ScrollMode.Enabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        header.AddChild(toolScroll); SetRow(toolScroll, 1);
+        var toolStrip = BuildStudioToolStrip(tools);
+        header.AddChild(toolStrip); SetRow(toolStrip, 1);
 
         _fileLocationRow = new Grid { Visibility = Visibility.Collapsed, Height = 38, Margin = new Thickness(12, 0) };
         _fileLocationRow.ColumnDefinitions.Add(GridLength.Star(1));
@@ -198,8 +198,6 @@ public sealed partial class HmiDesignerHost
         var save = Command("Save", () => _ = SaveFileAsync(_filePath.Text));
         _fileLocationRow.AddChild(open); SetColumn(open, 1); _fileLocationRow.AddChild(save); SetColumn(save, 2);
         header.AddChild(_fileLocationRow); SetRow(_fileLocationRow, 2);
-        var setup = BuildSetupNavigation();
-        header.AddChild(setup); SetRow(setup, 3);
         return header;
     }
 

@@ -17,7 +17,9 @@ Use the display tabs or Plant Explorer, then select equipment to open its facepl
 
 ## Set up a project
 
-Open **Engineering Workplace**, then use its wrapping **PROJECT SETUP** row:
+Open **Engineering Workplace**, then use **PROJECT SETUP** at the start of the
+studio toolbar. The visible **‹ / ›** buttons reveal earlier/later commands when
+the window is narrow; the header stays the same height and buttons keep their size.
 
 1. **1. Tags** opens the existing Tags table, even if the data panel was hidden. Choose **Add tag**, then edit the row's name and type (`Number`, `Boolean` or `Text`), initial value and engineering unit. Changing type resets the initial value and simulation mode; set those after choosing the type. Components and I/O mappings refer to the exact tag name.
 2. **2. PLC / connections** opens Connections. Add the actual protocol profile with **+ Modbus TCP**, **+ MQTT / TLS** or **+ OPC UA**; edit its host, port and security settings. Select its connection ID, enter an existing project tag under **Tag to map / remove**, and choose **+ Mapping**. Configure the real zero-based Modbus area/address/encoding, MQTT topic, or OPC UA namespace/identifier/type. A profile or a writable mapping does not connect equipment or authorize a command.

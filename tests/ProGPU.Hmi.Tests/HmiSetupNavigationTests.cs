@@ -38,7 +38,7 @@ public sealed class HmiSetupNavigationTests : IDisposable
     [Theory]
     [InlineData(640f)]
     [InlineData(1600f)]
-    public void SetupCommandsAreVisibleInTheExistingWrappingHeader(float width)
+    public void SetupCommandsRemainAvailableInTheFixedHeightScrollingHeader(float width)
     {
         using var host = CreateHost(width);
         var row = Find<WrapPanel>(host, "HmiSetupNavigation");
@@ -46,6 +46,7 @@ public sealed class HmiSetupNavigationTests : IDisposable
         Assert.Equal(Visibility.Visible, row.Visibility);
         Assert.True(row.Size.X > 0);
         Assert.True(row.Size.Y > 0);
+        Assert.InRange(Find<Grid>(host, "HmiStudioHeader").Size.Y, 83, 85);
         Assert.All(SetupButtons, name =>
         {
             var button = Find<Button>(host, name);
@@ -59,6 +60,20 @@ public sealed class HmiSetupNavigationTests : IDisposable
         Assert.Null(host.Runtime);
         Assert.Null(host.ConnectionFactory);
         Assert.Null(host.WriteAuthorizer);
+        var scroll = Find<ScrollViewer>(host, "HmiStudioTools");
+        var previous = Find<Button>(host, "HmiStudioScrollLeft");
+        var next = Find<Button>(host, "HmiStudioScrollRight");
+        Assert.False(previous.IsEnabled);
+        if (width == 640f) Assert.True(scroll.ScrollableWidth > 0);
+        Assert.Equal(scroll.ScrollableWidth > 0, next.IsEnabled);
+        if (scroll.ScrollableWidth > 0)
+        {
+            Press(next);
+            Assert.True(scroll.HorizontalOffset > 0);
+            Press(previous);
+            Assert.Equal(0f, scroll.HorizontalOffset);
+            Assert.False(previous.IsEnabled);
+        }
     }
 
     [Theory]
