@@ -210,19 +210,53 @@ bool sfnt_font_view::try_get_glyph_vertical_phantom_deltas(
     float& bottom_result,
     sfnt_glyph_phantom_variation_scratch scratch,
     font_error* error) const noexcept {
+    // The additive source query cannot interpret a malformed directory entry
+    // as an absent variation table. Keep the legacy reader policy unchanged.
+    constexpr auto glyf_tag = open_type_tag::from_chars('g', 'l', 'y', 'f');
+    constexpr auto loca_tag = open_type_tag::from_chars('l', 'o', 'c', 'a');
+    constexpr auto gvar_tag = open_type_tag::from_chars('g', 'v', 'a', 'r');
+    unsigned glyf_count = 0U, loca_count = 0U, gvar_count = 0U;
+    for (std::uint16_t index = 0U; index < table_count_; ++index) {
+        const auto record = static_cast<std::size_t>(directory_offset_) + static_cast<std::size_t>(index) * 16U;
+        const auto tag = detail::read_u32(data_, record);
+        unsigned* count = tag == glyf_tag.value ? &glyf_count : tag == loca_tag.value ? &loca_count
+            : tag == gvar_tag.value ? &gvar_count : nullptr;
+        if (count == nullptr) continue;
+        ++*count;
+        if (*count != 1U || !detail::can_read(data_, detail::read_u32(data_, record + 8U),
+                detail::read_u32(data_, record + 12U))) {
+            set_error(error, font_error::invalid_face);
+            return false;
+        }
+    }
     sfnt_table_view glyf{}, loca{}, gvar{};
     std::uint32_t actual_items = 0U;
-    if (!try_get_table(open_type_tag::from_chars('g', 'l', 'y', 'f'), glyf) ||
-        !try_get_table(open_type_tag::from_chars('l', 'o', 'c', 'a'), loca)) {
+    if (!try_get_table(glyf_tag, glyf) || !try_get_table(loca_tag, loca)) {
         set_error(error, font_error::invalid_face);
         return false;
+    }
+    std::uint16_t axis_count = 0U, glyph_count = 0U;
+    if (!try_get_glyph_count(glyph_count) || glyph_index >= glyph_count ||
+        !try_get_variation_axis_count(axis_count, error)) {
+        set_error(error, font_error::invalid_face);
+        return false;
+    }
+    if (normalized_coordinates.size() != axis_count) {
+        set_error(error, font_error::invalid_argument);
+        return false;
+    }
+    for (const auto coordinate : normalized_coordinates) {
+        if (coordinate < -16384 || coordinate > 16384) {
+            set_error(error, font_error::invalid_argument);
+            return false;
+        }
     }
     if (!try_get_glyph_variation_item_count(glyph_index, actual_items, error)) return false;
     if (actual_items != item_count) {
         set_error(error, font_error::invalid_argument);
         return false;
     }
-    if (try_get_table(open_type_tag::from_chars('g', 'v', 'a', 'r'), gvar) &&
+    if (try_get_table(gvar_tag, gvar) &&
         (gvar.bytes.size() < 20U || detail::read_u32(gvar.bytes, 0U) != 0x00010000U ||
          (detail::read_u16(gvar.bytes, 14U) & ~1U) != 0U)) {
         set_error(error, font_error::invalid_face);

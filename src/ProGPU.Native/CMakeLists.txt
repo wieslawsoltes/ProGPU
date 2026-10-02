@@ -961,6 +961,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_gvar_tuples.cpp
     src/Text/progpu_native_item_variation_store.cpp
     src/Text/progpu_native_hvar.cpp
+    src/Text/progpu_native_vvar.cpp
     src/Text/progpu_native_mvar.cpp
     src/Text/progpu_native_gdef_variations.cpp
     src/Text/progpu_native_cff_index.cpp
@@ -1775,6 +1776,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         tests/progpu_native_direct2d_font_capture_tests.cpp
         tests/progpu_native_direct2d_variable_glyph_tests.cpp
         tests/progpu_native_direct2d_cff_glyph_tests.cpp
+        tests/progpu_native_direct2d_vertical_metrics_tests.cpp
         tests/progpu_native_direct2d_sideways_glyph_tests.cpp)
     target_compile_features(
         progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
@@ -2061,6 +2063,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         COMMAND progpu_native_motion_mark_tests)
     set_tests_properties(
         progpu_native_motion_mark_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_vvar_tests tests/progpu_native_vvar_tests.cpp)
+    target_compile_features(progpu_native_vvar_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_vvar_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_vvar_tests)
+    progpu_native_enable_sanitizers(progpu_native_vvar_tests)
+    add_test(NAME progpu_native_vvar_tests COMMAND progpu_native_vvar_tests)
+    set_tests_properties(progpu_native_vvar_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_font_device_metrics_tests
         tests/progpu_native_font_device_metrics_tests.cpp)
