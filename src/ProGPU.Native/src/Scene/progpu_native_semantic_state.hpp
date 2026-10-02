@@ -312,6 +312,11 @@ bool try_resolve_semantic_picture_frame(const progpu_native_scene_layer_picture_
     const progpu_native_scene_presentation* parent,
     progpu_native_scene_frame& frame) noexcept;
 
+// Admission after wire validation: transient source replacement/source-over
+// layers use physical extents in the existing raster basis. Cache/composite,
+// backdrop, effects and layer masks require their own mapped contracts.
+bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noexcept;
+
 progpu_native_scene_state localize_semantic_state(
     progpu_native_scene_state state,
     const scissor& target,

@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Mapped retained pictures admit transient SRC/SRC_OVER 2D layers through original
+per-axis physical bounds and clips. Composite quads consume those physical
+extents in the shader's unchanged raster basis; never apply presentation DPI
+twice or flatten transparent replacement into source-over. Keep nested captures,
+format conversion and immutable ownership. Cache/composite-state/backdrop/effect/
+layer-mask and 3D mapped contracts remain explicitly unadmitted. Preserve paired
+uniform-physical reference pixels and cold/warm submissions; see the bounded
+mapped picture-layer section in docs/DIRECT2D_WIN2D_COMPATIBILITY.md.
+
 Compiled semantic family identities include the exact scene owner as well as
 resource IDs/generations; unrelated same-sized resource1/version1 is not shared
 content. Private picture capture replacement advances only its own resource scope

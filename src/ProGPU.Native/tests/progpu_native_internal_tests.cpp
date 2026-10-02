@@ -2242,6 +2242,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_content_hashes_preserve_scene_ownership());
     require(progpu::native::tests::
+        semantic_mapped_layers_preserve_bounded_copy_contract());
+    require(progpu::native::tests::
         semantic_scene_builder_shares_glyph_segments_across_raster_sizes());
     require(progpu::native::tests::
         semantic_scene_builder_records_native_shaped_runs());
