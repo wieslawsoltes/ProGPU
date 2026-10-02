@@ -65,6 +65,18 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
         (!paragraph.justification_classes.empty() && paragraph.justification_classes.size() != logical_count) ||
         paragraph.positioned_owners.size() != positioned_count || paragraph.bidi_levels.size() != positioned_count ||
         paragraph.cluster_ends.size() != positioned_count || paragraph.lines.size() != paragraph.line_origins.size()) return false;
+    if (paragraph.has_source_geometry) {
+        if (paragraph.source_styles.size() != paragraph.styles.size() ||
+            paragraph.source_style_metrics.size() != paragraph.styles.size() ||
+            paragraph.source_item_metrics.size() != logical_count || paragraph.source_logical_metrics.size() != logical_count ||
+            paragraph.source_glyphs.size() != positioned_count || paragraph.source_lines.size() != paragraph.lines.size() ||
+            !std::isfinite(paragraph.source_maximum_width) || paragraph.source_maximum_width < 0.0 ||
+            !std::isfinite(paragraph.source_line_height) || paragraph.source_line_height < 0.0 ||
+            static_cast<float>(paragraph.source_maximum_width) != paragraph.layout.maximum_width ||
+            static_cast<float>(paragraph.source_line_height) != paragraph.layout.line_height ||
+            paragraph.layout.alignment == PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY) return false;
+    } else if (!paragraph.source_style_metrics.empty() || !paragraph.source_item_metrics.empty() ||
+        !paragraph.source_logical_metrics.empty() || !paragraph.source_glyphs.empty() || !paragraph.source_lines.empty()) return false;
     std::uint64_t source_end = 0U;
     for (std::size_t i = 0U; i < scalar_count; ++i) {
         const auto& source = paragraph.source_input[i];
@@ -101,6 +113,12 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
                 device.x_pixels_per_em_26_6 != selected.pixels_per_em_26_6 ||
                 device.y_pixels_per_em_26_6 != selected.pixels_per_em_26_6 ||
                 device.logical_units_per_physical_pixel != selected.logical_units_per_physical_pixel) return false;
+        }
+        if (paragraph.has_source_geometry) {
+            const auto source = paragraph.source_style_metrics[i];
+            if (!std::isfinite(source.ascent) || source.ascent < 0.0 ||
+                !std::isfinite(source.descent) || source.descent < 0.0 ||
+                static_cast<float>(source.ascent) != metric.ascent || static_cast<float>(source.descent) != metric.descent) return false;
         }
         style_end += style.scalar_count;
     }
@@ -156,6 +174,17 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
                     static_cast<std::uint8_t>(paragraph.breaks_after[logical]) > static_cast<std::uint8_t>(text_line_break_kind::mandatory) ||
                     (!paragraph.justification_classes.empty() && static_cast<std::uint8_t>(paragraph.justification_classes[logical]) >
                         static_cast<std::uint8_t>(text_justification_class::word_space))) return false;
+                if (paragraph.has_source_geometry) {
+                    const auto projected = paragraph.source_logical_metrics[logical];
+                    const auto source_item = paragraph.source_item_metrics[logical];
+                    const auto source_style = paragraph.source_style_metrics[run.style_index];
+                    const double dpi = paragraph.source_styles[run.style_index].pixels_per_dip;
+                    if (projected.advance_x != (static_cast<double>(glyph.advance_x) / 64.0) / dpi ||
+                        projected.advance_y != (static_cast<double>(glyph.advance_y) / 64.0) / dpi ||
+                        projected.offset_x != (static_cast<double>(glyph.offset_x) / 64.0) / dpi ||
+                        projected.offset_y != (static_cast<double>(glyph.offset_y) / 64.0) / dpi ||
+                        source_item.ascent != source_style.ascent || source_item.descent != source_style.descent) return false;
+                }
             }
             return true;
         };
@@ -186,6 +215,15 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             !std::isfinite(glyph.x) || !std::isfinite(glyph.y) || !std::isfinite(glyph.advance_x) || !std::isfinite(glyph.advance_y) ||
             !finite(progpu_native_point{glyph.x + glyph.advance_x, glyph.y + glyph.advance_y}) ||
             !finite(progpu_native_point{glyph.x + logical_origin.x, glyph.y + logical_origin.y})) return false;
+        if (paragraph.has_source_geometry) {
+            const auto source = paragraph.source_glyphs[i];
+            const auto original = paragraph.source_logical_metrics[logical];
+            if (!std::isfinite(source.x) || !std::isfinite(source.y) ||
+                source.advance_x != original.advance_x || source.advance_y != original.advance_y ||
+                static_cast<float>(source.x) != glyph.x || static_cast<float>(source.y) != glyph.y ||
+                static_cast<float>(source.advance_x) != glyph.advance_x || static_cast<float>(source.advance_y) != glyph.advance_y)
+                return false;
+        }
     }
     std::size_t covered = 0U;
     for (std::size_t i = 0U; i < paragraph.lines.size(); ++i) {
@@ -195,6 +233,14 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             !std::isfinite(line.height) || line.height < 0.0F || !std::isfinite(paragraph.line_origins[i]) ||
             (line.flags & ~static_cast<std::uint8_t>(positioned_text_line_flags::right_to_left_justified)) != 0U ||
             line.reserved1 != 0U || line.reserved2 != 0U) return false;
+        if (paragraph.has_source_geometry) {
+            const auto source = paragraph.source_lines[i];
+            if (!std::isfinite(source.width) || source.width < 0.0 || !std::isfinite(source.top) || source.top < 0.0 ||
+                !std::isfinite(source.height) || source.height < 0.0 || !std::isfinite(source.baseline_offset) || source.baseline_offset < 0.0 ||
+                source.baseline_y != source.top + source.baseline_offset || !std::isfinite(source.origin_x) ||
+                static_cast<float>(source.width) != line.width || static_cast<float>(source.baseline_y) != line.baseline_y ||
+                static_cast<float>(source.height) != line.height || static_cast<float>(source.origin_x) != paragraph.line_origins[i]) return false;
+        }
         covered += line.glyph_count;
     }
     return covered == positioned_count;

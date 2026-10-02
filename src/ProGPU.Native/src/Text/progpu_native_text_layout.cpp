@@ -1,6 +1,7 @@
 #include "progpu_native_text.hpp"
 #include "progpu_native_text_layout_origin_internal.hpp"
 #include "progpu_native_text_layout_retained_internal.hpp"
+#include "progpu_native_text_layout_source_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <type_traits>
 #if defined(__aarch64__) || defined(_M_ARM64)
 #include <arm_neon.h>
 #elif defined(__SSE2__) || defined(_M_X64)
@@ -124,6 +126,43 @@ float line_alignment_shift(
     return detail::text_line_alignment_shift(options, line_width);
 }
 
+bool metric_envelope(std::span<const text_source_item_metrics> metrics,
+    text_source_item_metrics& maximum) noexcept {
+    maximum = {};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    auto peak = vdupq_n_f64(0.0);
+    const auto limit = vdupq_n_f64(std::numeric_limits<float>::max());
+    for (const auto& metric : metrics) {
+        const double pair[2]{metric.ascent, metric.descent};
+        const auto value = vld1q_f64(pair);
+        const auto valid = vandq_u64(vcgeq_f64(value, vdupq_n_f64(0.0)), vcleq_f64(value, limit));
+        if (vgetq_lane_u64(valid, 0) == 0U || vgetq_lane_u64(valid, 1) == 0U) return false;
+        peak = vmaxq_f64(peak, value);
+    }
+    maximum = {vgetq_lane_f64(peak, 0), vgetq_lane_f64(peak, 1)};
+#elif defined(__SSE2__) || defined(_M_X64)
+    auto peak = _mm_setzero_pd();
+    const auto limit = _mm_set1_pd(std::numeric_limits<float>::max());
+    for (const auto& metric : metrics) {
+        const auto value = _mm_set_pd(metric.descent, metric.ascent);
+        if (_mm_movemask_pd(_mm_and_pd(_mm_cmpge_pd(value, _mm_setzero_pd()), _mm_cmple_pd(value, limit))) != 3)
+            return false;
+        peak = _mm_max_pd(peak, value);
+    }
+    double pair[2]{};
+    _mm_storeu_pd(pair, peak);
+    maximum = {pair[0], pair[1]};
+#else
+    for (const auto& metric : metrics) {
+        if (!std::isfinite(metric.ascent) || metric.ascent < 0.0 || metric.ascent > std::numeric_limits<float>::max() ||
+            !std::isfinite(metric.descent) || metric.descent < 0.0 || metric.descent > std::numeric_limits<float>::max()) return false;
+        maximum.ascent = std::max(maximum.ascent, metric.ascent);
+        maximum.descent = std::max(maximum.descent, metric.descent);
+    }
+#endif
+    return true;
+}
+
 float horizontal_advance(
     const shaping_glyph& glyph,
     float scale) noexcept {
@@ -224,16 +263,20 @@ bool can_break_after(
             glyphs[index].cluster != glyphs[index + 1U].cluster);
 }
 
-struct line_scan final {
+template<class Number>
+struct measured_line_scan final {
     std::size_t end = 0U;
-    float width = 0.0F;
+    Number width = Number{0};
     bool clipped = false;
 };
+using line_scan = measured_line_scan<float>;
 
-struct trimmed_line final {
+template<class Number>
+struct measured_trimmed_line final {
     std::size_t end = 0U;
-    float content_width = 0.0F;
+    Number content_width = Number{0};
 };
+using trimmed_line = measured_trimmed_line<float>;
 
 trimmed_line trim_line(
     std::span<const shaping_glyph> glyphs,
@@ -269,27 +312,28 @@ trimmed_line trim_line(
         ? word : character;
 }
 
-line_scan scan_line(
+template<class Number, class Advance>
+measured_line_scan<Number> scan_line_metrics(
     std::span<const shaping_glyph> glyphs,
     std::span<const text_line_break_kind> breaks_after,
-    const text_layout_options& options,
+    Number maximum_width,
     std::size_t start,
     bool final_allowed_line,
-    std::span<const float> scales = {}, text_tab_options tabs = {}) noexcept {
-    float width = 0.0F;
-    float visible_width = 0.0F;
-    float break_width = 0.0F;
+    bool allow_emergency_break, const Advance& advance) noexcept {
+    using scan = measured_line_scan<Number>;
+    Number width = Number{0};
+    Number visible_width = Number{0};
+    Number break_width = Number{0};
     std::size_t last_break = start;
-    float cluster_width = 0.0F;
+    Number cluster_width = Number{0};
     std::size_t last_cluster_break = start;
     for (std::size_t index = start; index < glyphs.size(); ++index) {
         if (index > start && is_safe_break_before(glyphs, index)) {
             last_cluster_break = index;
             cluster_width = width;
         }
-        const float next_width = width + layout_advance(
-            glyphs[index], scale_at(scales, index, options), width, tabs);
-        if (!std::isfinite(next_width)) return line_scan{index + 1U, next_width, false};
+        const Number next_width = width + advance(index, width);
+        if (!std::isfinite(next_width)) return scan{index + 1U, next_width, false};
         const bool break_here = can_break_after(glyphs, breaks_after, index);
         const bool mandatory = break_here &&
             breaks_after[index] == text_line_break_kind::mandatory;
@@ -300,39 +344,37 @@ line_scan scan_line(
         // distinguish Width from WidthIncludingTrailingWhitespace.
         const bool fitting_trailing_whitespace = break_here &&
             trailing_space(glyphs[index].code_point) &&
-            (options.maximum_width <= 0.0F ||
-                visible_width <= options.maximum_width);
-        if (options.maximum_width > 0.0F &&
-            next_width > options.maximum_width && index > start &&
+            (maximum_width <= Number{0} || visible_width <= maximum_width);
+        if (maximum_width > Number{0} &&
+            next_width > maximum_width && index > start &&
             !fitting_trailing_whitespace) {
             if (last_break > start) {
-                return line_scan{
+                return scan{
                     last_break, break_width, final_allowed_line};
             }
-            if (!tabs.allow_emergency_break) {
-                if (break_here) return line_scan{index + 1U, next_width, final_allowed_line};
+            if (!allow_emergency_break) {
+                if (break_here) return scan{index + 1U, next_width, final_allowed_line};
                 width = next_width;
                 continue;
             }
             if (last_cluster_break > start) {
-                return line_scan{
+                return scan{
                     last_cluster_break, cluster_width, final_allowed_line};
             }
             std::size_t hard_end = index + 1U;
-            float hard_width = next_width;
+            Number hard_width = next_width;
             while (hard_end < glyphs.size() &&
                 !is_safe_break_before(glyphs, hard_end)) {
-                hard_width += layout_advance(
-                    glyphs[hard_end], scale_at(scales, hard_end, options), hard_width, tabs);
+                hard_width += advance(hard_end, hard_width);
                 ++hard_end;
             }
-            return line_scan{
+            return scan{
                 hard_end, hard_width, final_allowed_line};
         }
         // A paragraph-end mandatory break does not exempt its final glyph from
         // wrapping. Resolve an earlier safe boundary before consuming it.
         if (mandatory) {
-            return line_scan{index + 1U, next_width, false};
+            return scan{index + 1U, next_width, false};
         }
         if (break_here) {
             last_break = index + 1U;
@@ -340,7 +382,17 @@ line_scan scan_line(
         }
         width = next_width;
     }
-    return line_scan{glyphs.size(), width, false};
+    return scan{glyphs.size(), width, false};
+}
+
+line_scan scan_line(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks_after, const text_layout_options& options,
+    std::size_t start, bool final_allowed_line,
+    std::span<const float> scales = {}, text_tab_options tabs = {}) noexcept {
+    return scan_line_metrics(glyphs, breaks_after, options.maximum_width, start, final_allowed_line,
+        tabs.allow_emergency_break, [&](std::size_t index, float width) noexcept {
+            return layout_advance(glyphs[index], scale_at(scales, index, options), width, tabs);
+        });
 }
 
 bool count_lines(
@@ -365,6 +417,48 @@ bool count_lines(
             break;
         }
     }
+    return true;
+}
+
+bool source_layout_requirements(std::span<const shaping_glyph> glyphs,
+    std::span<const text_line_break_kind> breaks, std::span<const float> scales,
+    const text_layout_options& options, text_tab_options tabs, const text_source_layout& source,
+    text_layout_requirements& result) noexcept {
+    if (glyphs.size() > UINT32_MAX || breaks.size() != glyphs.size() || !valid_options(options) ||
+        !valid_scales(glyphs, scales) || options.trimming != text_trimming::none ||
+        options.alignment == text_alignment::justify || tabs.interval != 0.0F || !std::isfinite(tabs.origin) ||
+        !std::isfinite(source.maximum_width) || source.maximum_width < 0.0 ||
+        !std::isfinite(source.line_height) || source.line_height < 0.0 ||
+        source.logical_metrics.size() != glyphs.size() || source.item_metrics.size() != glyphs.size() ||
+        !valid_retained_metadata_span(source.logical_metrics) || !valid_retained_metadata_span(source.item_metrics) ||
+        !valid_retained_metadata_span(source.positioned_metrics) || !valid_retained_metadata_span(source.line_metrics)) return false;
+    text_source_item_metrics envelope{};
+    if (!metric_envelope(source.item_metrics, envelope) ||
+        std::max(source.line_height, envelope.ascent + envelope.descent) * static_cast<double>(glyphs.size()) >
+            std::numeric_limits<float>::max()) return false;
+    for (std::size_t i = 0U; i < glyphs.size(); ++i) {
+        const auto metric = source.logical_metrics[i];
+        if (glyphs[i].glyph_id == text_tab_glyph_id || glyphs[i].glyph_id == text_tab_glyph_id - 1U ||
+            static_cast<std::uint8_t>(breaks[i]) > static_cast<std::uint8_t>(text_line_break_kind::mandatory) ||
+            !std::isfinite(metric.advance_x) || metric.advance_y != 0.0 ||
+            !std::isfinite(metric.offset_x) || !std::isfinite(metric.offset_y) ||
+            std::abs(metric.advance_x) > std::numeric_limits<float>::max() ||
+            std::abs(metric.offset_x) > std::numeric_limits<float>::max() ||
+            std::abs(metric.offset_y) > std::numeric_limits<float>::max()) return false;
+    }
+    std::uint32_t line_count = 0U;
+    std::size_t start = 0U;
+    while (start < glyphs.size()) {
+        const bool final = options.maximum_lines != 0U && line_count + 1U >= options.maximum_lines;
+        const auto line = scan_line_metrics(glyphs, breaks, source.maximum_width, start, final,
+            tabs.allow_emergency_break, [&](std::size_t index, double) noexcept { return source.logical_metrics[index].advance_x; });
+        if (line.end <= start || line.end > glyphs.size() || !std::isfinite(line.width) ||
+            std::abs(line.width) > std::numeric_limits<float>::max()) return false;
+        ++line_count;
+        start = line.end;
+        if (final) break;
+    }
+    result = {static_cast<std::uint32_t>(glyphs.size()), line_count};
     return true;
 }
 
@@ -923,6 +1017,7 @@ bool try_layout_justified_logical_shaped_text(
         positioned_glyphs, lines, glyph_count, line_count, classes, {}, error);
 }
 
+template<class Number>
 static bool layout_measured_core(
     std::span<const shaping_glyph> logical_glyphs, std::span<const text_line_break_kind> breaks_after,
     std::span<const std::int8_t> bidi_levels, std::span<const float> glyph_scales,
@@ -932,7 +1027,9 @@ static bool layout_measured_core(
     std::uint32_t& glyph_count, std::uint32_t& line_count,
     std::span<const text_justification_class> classes,
     std::span<const text_item_metrics> item_metrics, bool continues, font_error* error,
-    const text_layout_retained_metadata* retained = nullptr) noexcept {
+    const text_layout_retained_metadata* retained = nullptr,
+    const text_source_layout* source = nullptr) noexcept {
+    static_assert(std::is_same_v<Number, float> || std::is_same_v<Number, double>);
     glyph_count = 0U;
     line_count = 0U;
     if (retained != nullptr && (options.trimming != text_trimming::none ||
@@ -961,14 +1058,18 @@ static bool layout_measured_core(
         return false;
     }
     text_layout_requirements requirements{};
-    if (!try_get_tabbed_text_layout_requirements(
-            logical_glyphs,
-            breaks_after,
-            glyph_scales,
-            options,
-            tabs,
-            requirements,
-            error) ||
+    const bool valid_requirements = [&]() noexcept {
+        if constexpr (std::is_same_v<Number, double>) {
+            if (source != nullptr && source_layout_requirements(logical_glyphs, breaks_after, glyph_scales,
+                options, tabs, *source, requirements)) return true;
+            set_error(error, font_error::invalid_argument);
+            return false;
+        } else {
+            return try_get_tabbed_text_layout_requirements(logical_glyphs, breaks_after, glyph_scales,
+                options, tabs, requirements, error);
+        }
+    }();
+    if (!valid_requirements ||
         bidi_levels.size() != logical_glyphs.size() ||
         (paragraph_level != 0 && paragraph_level != 1) ||
         !std::all_of(
@@ -991,6 +1092,8 @@ static bool layout_measured_core(
             (retained->positioned_bidi_levels.size() < requirements.glyph_capacity ||
              retained->line_origins.size() < requirements.line_capacity ||
              (!retained->line_frames.empty() && retained->line_frames.size() < requirements.line_capacity))) ||
+        (source != nullptr && (source->positioned_metrics.size() < requirements.glyph_capacity ||
+            source->line_metrics.size() < requirements.line_capacity)) ||
         (tabs.interval > 0.0F && advance_scratch.size() < requirements.glyph_capacity) ||
         scratch.visual_groups.size() < requirements.glyph_capacity ||
         scratch.visual_indices.size() < requirements.glyph_capacity ||
@@ -1003,31 +1106,35 @@ static bool layout_measured_core(
     std::size_t input_start_index = 0U;
     std::size_t output_cursor = 0U;
     double measured_top = 0.0;
+    const Number maximum_width = [&]() noexcept -> Number {
+        if constexpr (std::is_same_v<Number, double>) return source->maximum_width;
+        else return options.maximum_width;
+    }();
+    const Number minimum_line_height = [&]() noexcept -> Number {
+        if constexpr (std::is_same_v<Number, double>) return source->line_height;
+        else return options.line_height;
+    }();
+    const auto source_advance = [&](std::size_t index, Number width) noexcept -> Number {
+        if constexpr (std::is_same_v<Number, double>) return source->logical_metrics[index].advance_x;
+        else return layout_advance(logical_glyphs[index], scale_at(glyph_scales, index, options), width, tabs);
+    };
     while (input_start_index < logical_glyphs.size() &&
         line_count < requirements.line_capacity) {
         const bool final_allowed = options.maximum_lines != 0U &&
             line_count + 1U >= options.maximum_lines;
-        const line_scan line = scan_line(
-            logical_glyphs,
-            breaks_after,
-            options,
-            input_start_index,
-            final_allowed,
-            glyph_scales, tabs);
+        const auto line = scan_line_metrics(logical_glyphs, breaks_after, maximum_width,
+            input_start_index, final_allowed, tabs.allow_emergency_break, source_advance);
         const bool should_trim = options.trimming != text_trimming::none &&
             (line.clipped ||
                 (final_allowed && options.collapse_width >= 0.0F && line.width > options.collapse_width) ||
                 (final_allowed && line.end < logical_glyphs.size()));
-        const trimmed_line visible = should_trim
-            ? trim_line(
-                logical_glyphs,
-                breaks_after,
-                options,
-                input_start_index,
-                line.end,
-                line.width,
-                glyph_scales, tabs)
-            : trimmed_line{line.end, line.width};
+        const measured_trimmed_line<Number> visible = [&]() noexcept {
+            if constexpr (std::is_same_v<Number, float>) {
+                if (should_trim) return trim_line(logical_glyphs, breaks_after, options,
+                    input_start_index, line.end, line.width, glyph_scales, tabs);
+            }
+            return measured_trimmed_line<Number>{line.end, line.width};
+        }();
 
         const auto line_logical = logical_glyphs.subspan(
             input_start_index, visible.end - input_start_index);
@@ -1057,7 +1164,7 @@ static bool layout_measured_core(
         }
         std::size_t justify_start = input_start_index, justify_end = visible.end;
         std::size_t opportunities = 0U;
-        float expansion = 0.0F, trailing_width = 0.0F;
+        Number expansion = Number{0}, trailing_width = Number{0};
         const auto opportunity = [&](std::size_t i) noexcept {
             return i >= justify_start && i < justify_end &&
                 classes[i] == text_justification_class::word_space &&
@@ -1066,7 +1173,7 @@ static bool layout_measured_core(
         };
         if (options.alignment == text_alignment::justify && !classes.empty() &&
             !should_trim && !line.clipped && (line.end < logical_glyphs.size() || continues) &&
-            breaks_after[line.end - 1U] != text_line_break_kind::mandatory && options.maximum_width > 0.0F) {
+            breaks_after[line.end - 1U] != text_line_break_kind::mandatory && maximum_width > Number{0}) {
             while (justify_start < justify_end && classes[justify_start] != text_justification_class::content) ++justify_start;
             while (justify_end > justify_start && classes[justify_end - 1U] != text_justification_class::content) --justify_end;
             for (std::size_t i = input_start_index; i < visible.end; ++i) {
@@ -1077,14 +1184,21 @@ static bool layout_measured_core(
             }
             while (justify_start < justify_end && classes[justify_start] != text_justification_class::content) ++justify_start;
             for (std::size_t i = justify_start; i < justify_end; ++i) opportunities += opportunity(i) ? 1U : 0U;
-            const float available = options.maximum_width - (visible.content_width - trailing_width);
+            const Number available = maximum_width - (visible.content_width - trailing_width);
             if (opportunities != 0U && available > 0.0F && std::isfinite(visible.content_width + available))
                 expansion = available;
         }
-        float line_height = options.line_height;
-        float baseline = static_cast<float>(line_count) * options.line_height;
-        float baseline_offset = 0.0F;
-        if (!item_metrics.empty()) {
+        Number line_height = minimum_line_height;
+        Number baseline = static_cast<Number>(line_count) * minimum_line_height;
+        Number baseline_offset = Number{0};
+        if constexpr (std::is_same_v<Number, double>) {
+            text_source_item_metrics envelope{};
+            (void)metric_envelope(source->item_metrics.subspan(input_start_index,
+                visible.end - input_start_index), envelope);
+            line_height = std::max(line_height, envelope.ascent + envelope.descent);
+            baseline = measured_top + envelope.ascent;
+            baseline_offset = envelope.ascent;
+        } else if (!item_metrics.empty()) {
             text_item_metrics envelope{};
             // Entire input was validated before publishing any output.
             (void)metric_envelope(item_metrics.subspan(input_start_index,
@@ -1093,13 +1207,13 @@ static bool layout_measured_core(
             baseline = static_cast<float>(measured_top + envelope.ascent);
             baseline_offset = envelope.ascent;
         }
-        const float sign_width = should_trim ? options.ellipsis_advance * options.scale : 0.0F;
+        const Number sign_width = should_trim ? options.ellipsis_advance * options.scale : Number{0};
         const bool leading_sign = should_trim && options.collapse_width >= 0.0F && (paragraph_level & 1) != 0;
-        float cursor_x = detail::text_line_pen_origin(leading_sign, sign_width,
-            expansion > 0.0F && (paragraph_level & 1) != 0, trailing_width);
-        const float initial_cursor_x = cursor_x;
-        float cursor_y = baseline;
-        float distributed = 0.0F;
+        Number cursor_x = leading_sign ? sign_width :
+            expansion > Number{0} && (paragraph_level & 1) != 0 ? -trailing_width : Number{0};
+        const Number initial_cursor_x = cursor_x;
+        Number cursor_y = baseline;
+        Number distributed = Number{0};
         std::size_t remaining_opportunities = opportunities;
         const std::int32_t sign_cluster = options.collapse_width >= 0.0F && visible.end < logical_glyphs.size()
             ? logical_glyphs[visible.end].cluster
@@ -1108,7 +1222,7 @@ static bool layout_measured_core(
         if (leading_sign) {
             positioned_glyphs[output_cursor++] = positioned_text_glyph{
                 std::numeric_limits<std::uint32_t>::max(), options.ellipsis_glyph_id,
-                sign_cluster, 0.0F, baseline, sign_width, 0.0F};
+                sign_cluster, 0.0F, static_cast<float>(baseline), static_cast<float>(sign_width), 0.0F};
         }
         std::size_t retained_group = 0U;
         std::uint32_t retained_group_end = retained != nullptr && visual_count != 0U
@@ -1119,12 +1233,18 @@ static bool layout_measured_core(
             const std::size_t source_index = input_start_index +
                 scratch.visual_indices[visual_index];
             const shaping_glyph& glyph = logical_glyphs[source_index];
-            const float scale = scale_at(glyph_scales, source_index, options);
-            auto metrics = scale_metrics(glyph, scale);
+            auto metrics = [&]() noexcept -> std::array<Number, 4U> {
+                if constexpr (std::is_same_v<Number, double>) {
+                    const auto value = source->logical_metrics[source_index];
+                    return {value.advance_x, value.advance_y, value.offset_x, value.offset_y};
+                } else {
+                    return scale_metrics(glyph, scale_at(glyph_scales, source_index, options));
+                }
+            }();
             if (tabs.interval > 0.0F) metrics[0] = advance_scratch[source_index];
             if (expansion > 0.0F && opportunity(source_index)) {
-                const float extra = --remaining_opportunities == 0U ? expansion - distributed :
-                    expansion / static_cast<float>(opportunities);
+                const Number extra = --remaining_opportunities == 0U ? expansion - distributed :
+                    expansion / static_cast<Number>(opportunities);
                 metrics[0] += extra;
                 distributed += extra;
             }
@@ -1138,11 +1258,22 @@ static bool layout_measured_core(
                 }
                 retained->positioned_bidi_levels[output_cursor] = scratch.visual_groups[retained_group].bidi_level;
             }
+            if constexpr (std::is_same_v<Number, double>) {
+                const text_source_glyph_position position{cursor_x + metrics[2], cursor_y + metrics[3], metrics[0], metrics[1]};
+                if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+                    std::abs(position.x) > std::numeric_limits<float>::max() || std::abs(position.y) > std::numeric_limits<float>::max()) {
+                    glyph_count = 0U; line_count = 0U;
+                    set_error(error, font_error::invalid_argument);
+                    return false;
+                }
+                source->positioned_metrics[output_cursor] = position;
+            }
             positioned_glyphs[output_cursor++] = positioned_text_glyph{
                 static_cast<std::uint32_t>(source_index),
                 glyph.glyph_id,
                 glyph.cluster,
-                cursor_x + metrics[2], cursor_y + metrics[3], metrics[0], metrics[1]};
+                static_cast<float>(cursor_x + metrics[2]), static_cast<float>(cursor_y + metrics[3]),
+                static_cast<float>(metrics[0]), static_cast<float>(metrics[1])};
             cursor_x += metrics[0];
             cursor_y += metrics[1];
         }
@@ -1151,23 +1282,35 @@ static bool layout_measured_core(
                 std::numeric_limits<std::uint32_t>::max(),
                 options.ellipsis_glyph_id,
                 sign_cluster,
-                cursor_x,
-                cursor_y,
+                static_cast<float>(cursor_x),
+                static_cast<float>(cursor_y),
                 options.ellipsis_advance * options.scale,
                 0.0F};
         }
 
-        const float output_width = visible.content_width + expansion + (should_trim
+        const Number output_width = visible.content_width + expansion + (should_trim
             ? options.ellipsis_advance * options.scale
             : 0.0F);
-        const float alignment_shift = line_alignment_shift(
-            options, output_width);
+        const Number alignment_shift = maximum_width <= output_width ? Number{0} :
+            options.alignment == text_alignment::center ? (maximum_width - output_width) * Number{0.5} :
+            options.alignment == text_alignment::right ? maximum_width - output_width : Number{0};
         if (retained != nullptr) retained->line_origins[line_count] = alignment_shift > 0.0F
-            ? initial_cursor_x + alignment_shift : initial_cursor_x;
+            ? static_cast<float>(initial_cursor_x + alignment_shift) : static_cast<float>(initial_cursor_x);
         for (std::size_t index = output_start;
             alignment_shift > 0.0F && index < output_cursor;
             ++index) {
-            positioned_glyphs[index].x += alignment_shift;
+            if constexpr (std::is_same_v<Number, double>) {
+                source->positioned_metrics[index].x += alignment_shift;
+                const double x = source->positioned_metrics[index].x;
+                if (!std::isfinite(x) || std::abs(x) > std::numeric_limits<float>::max()) {
+                    glyph_count = 0U; line_count = 0U;
+                    set_error(error, font_error::invalid_argument);
+                    return false;
+                }
+                positioned_glyphs[index].x = static_cast<float>(x);
+            } else {
+                positioned_glyphs[index].x += alignment_shift;
+            }
         }
 
         const std::int32_t input_start =
@@ -1180,9 +1323,9 @@ static bool layout_measured_core(
             static_cast<std::uint32_t>(output_cursor - output_start),
             input_start,
             input_end,
-            output_width,
-            baseline,
-            line_height,
+            static_cast<float>(output_width),
+            static_cast<float>(baseline),
+            static_cast<float>(line_height),
             should_trim || line.clipped ||
                 (final_allowed && line.end < logical_glyphs.size()),
             expansion > 0.0F && (paragraph_level & 1) != 0
@@ -1190,7 +1333,12 @@ static bool layout_measured_core(
                 : static_cast<std::uint8_t>(positioned_text_line_flags::none)};
         if (retained != nullptr && !retained->line_frames.empty())
             retained->line_frames[line_count] = {item_metrics.empty() ? static_cast<double>(baseline) : measured_top,
-                baseline_offset, !item_metrics.empty()};
+                static_cast<float>(baseline_offset), !item_metrics.empty() || std::is_same_v<Number, double>};
+        if constexpr (std::is_same_v<Number, double>) {
+            source->line_metrics[line_count] = {output_width, measured_top, line_height, baseline_offset, baseline,
+                alignment_shift > 0.0 ? initial_cursor_x + alignment_shift : initial_cursor_x};
+            if (retained != nullptr && !retained->line_frames.empty()) retained->line_frames[line_count].top = measured_top;
+        }
         ++line_count;
         measured_top += line_height;
         input_start_index = line.end;
@@ -1210,7 +1358,7 @@ bool try_layout_measured_logical_shaped_text(
     std::uint32_t& glyph_count, std::uint32_t& line_count,
     std::span<const text_justification_class> classes,
     std::span<const text_item_metrics> metrics, font_error* error) noexcept {
-    return layout_measured_core(glyphs, breaks, levels, scales, paragraph_level, options,
+    return layout_measured_core<float>(glyphs, breaks, levels, scales, paragraph_level, options,
         tabs, advances, scratch, positioned, lines, glyph_count, line_count, classes, metrics, false, error);
 }
 
@@ -1224,8 +1372,20 @@ bool try_layout_measured_logical_shaped_text_retained(
     std::span<const text_justification_class> classes,
     std::span<const text_item_metrics> metrics, text_layout_retained_metadata retained,
     font_error* error) noexcept {
-    return layout_measured_core(glyphs, breaks, levels, scales, paragraph_level, options,
+    return layout_measured_core<float>(glyphs, breaks, levels, scales, paragraph_level, options,
         tabs, advances, scratch, positioned, lines, glyph_count, line_count, classes, metrics, false, error, &retained);
+}
+
+bool try_layout_source_measured_logical_shaped_text_retained(
+    std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks,
+    std::span<const std::int8_t> levels, std::span<const float> scales,
+    std::int8_t paragraph_level, const text_layout_options& options, text_tab_options tabs,
+    text_logical_layout_scratch scratch,
+    std::span<positioned_text_glyph> positioned, std::span<positioned_text_line> lines,
+    std::uint32_t& glyph_count, std::uint32_t& line_count,
+    text_layout_retained_metadata retained, text_source_layout source, font_error* error) noexcept {
+    return layout_measured_core<double>(glyphs, breaks, levels, scales, paragraph_level, options,
+        tabs, {}, scratch, positioned, lines, glyph_count, line_count, {}, {}, false, error, &retained, &source);
 }
 
 static bool layout_exclusion_band_core(std::span<const shaping_glyph> glyphs,
@@ -1281,7 +1441,7 @@ static bool layout_exclusion_band_core(std::span<const shaping_glyph> glyphs,
         const bool continues = begin + length < glyphs.size() &&
             breaks[begin + length - 1U] != text_line_break_kind::mandatory;
         std::uint32_t emitted{}, emitted_lines{};
-        if (!layout_measured_core(glyphs.subspan(begin, length), breaks.subspan(begin, length),
+        if (!layout_measured_core<float>(glyphs.subspan(begin, length), breaks.subspan(begin, length),
             levels.subspan(begin, length), scales.empty() ? scales : scales.subspan(begin, length),
             paragraph_level, local, local_tabs, advance_scratch, scratch, positioned.subspan(written),
             lines.subspan(i, 1), emitted, emitted_lines, classes.empty() ? classes : classes.subspan(begin, length),

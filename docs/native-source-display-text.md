@@ -30,13 +30,32 @@ policy; it does not discard raw identity checks. Signed integer arithmetic retai
 negative half ties and rejects overflowing rounded values atomically. Original
 raw calls select no additional policy and retain their old results.
 
-The existing writer still uses float metric projection at this checkpoint. This
-is not sufficient for source Display: at DPI 1.5, for example, a seven-pixel
-advance has original logical value `7 / 1.5`, not a float promoted to double.
-Required next work connects precise generation-owned source metrics, original
-offset conversion, shaping-boundary fitting/recomposition, double line/interaction
-frames and the paired optional source binding. No source-local division, snapping,
-prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
+An additional private source-geometry opt-in connects the actual original
+paragraph producer to a double lane of the **same** logical scanner and measured
+writer. For each owned logical occurrence it computes `(device26.6 / 64) / dpi`
+directly using original double DPI, rather than multiplying a rounded reciprocal
+or promoting a float position. Original double width, minimum height and per-style
+ascent/descent remain authoritative; matching old float records are raster shadows.
+The original L1/L2 visual-order writer publishes double positions/advances and
+line width/top/height/baseline offset/baseline Y/origin at its actual emit sites.
+Float projection happens there once, not in source readers. Original raw calls
+continue through the existing float arithmetic lane.
+
+Source reflow retains the whole original generation, source doubles, raw run/font
+owners and logical metrics, then invokes this same writer at a proven existing
+cluster boundary. It accepts a double width without a float round-trip. The old
+float reflow and nominal-Ideal source-binding entrypoints reject these precise
+generations instead of silently narrowing them. Publication and complete output
+alias guards cover all new retained buffers; frame validation compares raw shaping,
+selected fitting policy, precise source metrics and raster shadows separately.
+
+This first lane deliberately admits no tabs, objects, justification or trimming.
+Raw device offsets are projected unchanged; this is not yet the original WPF
+offset-conversion contract. Original unsafe shaping flags remain authoritative,
+so the known emergency-fit blocker is still explicit. Required next work is the
+original offset policy, shaping-boundary fitting/recomposition, double interaction
+geometry and paired optional source binding/transport. No source-local division,
+snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
 ## Revalidated diagnostic evidence
 
