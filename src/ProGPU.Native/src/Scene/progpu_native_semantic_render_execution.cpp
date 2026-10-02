@@ -383,6 +383,11 @@ progpu_native_status render_scene(
             }
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
+            if (mapped_presentation && materialized &&
+                !semantic::supports_mapped_semantic_layer(layer)) {
+                return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Mapped semantic layers require transient SRC or SRC_OVER composition without cache, backdrop, effects or layer masks.");
+            }
             const bool cached =
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
@@ -1386,7 +1391,9 @@ progpu_native_status render_scene(
                     (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
                 const bool picture_image = (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
                 progpu_native_scene_picture_image picture{};
-                if (picture_image) std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                progpu_native_scene_presentation picture_presentation{};
+                const bool valid_picture = !picture_image || semantic::read_semantic_picture_image(
+                    bytes + resource.payload_offset, resource.payload_size, picture, picture_presentation);
                 const std::uint64_t validation_bytes = (external_image || picture_image)
                     ? static_cast<std::uint64_t>(image.row_bytes) *
                             (image.image_height - 1U) +
@@ -1409,7 +1416,7 @@ progpu_native_status render_scene(
                         resource.generation,
                         PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE_MASK)
                     : nullptr;
-                valid = (picture_image || resource.auxiliary_size == 0U) &&
+                valid = valid_picture && (picture_image || resource.auxiliary_size == 0U) &&
                     (!picture_image || (picture.width == image.image_width && picture.height == image.image_height &&
                         image.row_bytes == picture.width * 4U &&
                         (image.flags & PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED) != 0U)) &&
@@ -1600,13 +1607,13 @@ progpu_native_status render_scene(
         ++semantic_draw_count;
     }
 
-    // Flat retained 2D families have complete presentation projection. Keep
-    // the still-unqualified depth and offscreen-composite combinations
-    // explicit until their independent-axis GPU oracles are connected.
-    if (mapped_presentation &&
-        (semantic_3d_draw_count != 0U || semantic_has_materialized_layers)) {
+    // Transient 2D layer extents and draw clips are projected by their own
+    // presentation axes. Composition consumes those physical extents in the
+    // unchanged raster basis, not a second application of either DPI axis.
+    // Other layer families fail in preflight above; depth remains separate.
+    if (mapped_presentation && semantic_3d_draw_count != 0U) {
         return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-            "Mapped semantic presentation currently requires a flat 2D scene.");
+            "Mapped semantic presentation does not support retained 3D draws.");
     }
 
     const std::uint64_t semantic_effect_uniform_bytes =
@@ -3221,9 +3228,11 @@ progpu_native_status render_scene(
                         progpu::native::webgpu::texture_view_add_ref(draw.view);
                     } else {
                         progpu_native_scene_picture_image picture{};
-                        std::memcpy(&picture, bytes + resource.payload_offset, sizeof(picture));
+                        progpu_native_scene_presentation picture_presentation{};
                         progpu_native_scene_frame_metrics child_metrics{};
-                        if (!create_semantic_picture_image(*engine, picture,
+                        if (!semantic::read_semantic_picture_image(bytes + resource.payload_offset,
+                                resource.payload_size, picture, picture_presentation) ||
+                            !create_semantic_picture_image(*engine, picture, picture_presentation,
                                 bytes + resource.auxiliary_offset, resource.auxiliary_size, draw, child_metrics)) {
                             release_compiled();
                             return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,

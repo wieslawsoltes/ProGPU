@@ -18,6 +18,8 @@ bool semantic_scene_builder_serializes_external_images_pointer_free();
 bool semantic_scene_builder_updates_retained_images_transactionally();
 bool semantic_scene_builder_records_styled_glyph_runs();
 bool semantic_scene_content_hashes_normalize_resource_ordinals();
+bool semantic_scene_content_hashes_preserve_scene_ownership();
+bool semantic_mapped_layers_preserve_bounded_copy_contract();
 bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes();
 bool semantic_scene_builder_records_native_shaped_runs();
 bool semantic_scene_builder_records_color_bitmap_glyphs();

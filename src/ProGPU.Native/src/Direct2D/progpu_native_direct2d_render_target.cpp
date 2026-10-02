@@ -343,6 +343,7 @@ struct bitmap_snapshot final {
     std::uint32_t copy_image_height = 0U;
     std::uint32_t copy_source_x = 0U;
     std::uint32_t copy_source_y = 0U;
+    float picture_raster_dpi_scale_y = 1.0F;
 };
 
 struct scene_bitmap_native : com::unknown {
@@ -5948,7 +5949,6 @@ public:
         // Scoped recording needs a future suspend/resume transport; never apply
         // its current clip or opacity to a bitmap storage operation.
         if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
-        if (dpi_x_ != dpi_y_) return not_implemented;
         const rectangle_u rectangle = destination == nullptr
             ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
         if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
@@ -5975,9 +5975,10 @@ public:
         image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
         image.max_anisotropy = 1U;
         image.source_rect = {0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height)};
-        const float dips_per_pixel = 96.0F / dpi_x_;
-        image.destination_rect = {rectangle.left * dips_per_pixel, rectangle.top * dips_per_pixel,
-            width * dips_per_pixel, height * dips_per_pixel};
+        const float dips_per_pixel_x = 96.0F / dpi_x_;
+        const float dips_per_pixel_y = 96.0F / dpi_y_;
+        image.destination_rect = {rectangle.left * dips_per_pixel_x, rectangle.top * dips_per_pixel_y,
+            width * dips_per_pixel_x, height * dips_per_pixel_y};
         image.transform = {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
         image.opacity = 1.0F;
         const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
@@ -6121,7 +6122,6 @@ private:
             if (!compatible_) return not_implemented;
             if (com::failed(failure_)) return failure_;
             if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
-            if (dpi_x_ != dpi_y_) return not_implemented;
             const auto source_rect = rectangle == nullptr
                 ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
             const auto point = destination == nullptr ? point_2u{0U, 0U} : *destination;
@@ -6139,7 +6139,8 @@ private:
             if (!compatible_history_dpi_valid_ && !replace_contents) return not_implemented;
             if (generation_ == std::numeric_limits<std::uint64_t>::max() ||
                 (!replace_contents && draw_count_ == std::numeric_limits<std::uint32_t>::max())) return failure;
-            const float dips_per_pixel = 96.0F / dpi_x_;
+            const float dips_per_pixel_x = 96.0F / dpi_x_;
+            const float dips_per_pixel_y = 96.0F / dpi_y_;
             progpu_native_scene_image_draw image{};
             image.image_width = snapshot.copy_image_width == 0U ? snapshot.width : snapshot.copy_image_width;
             image.image_height = snapshot.copy_image_height == 0U ? snapshot.height : snapshot.copy_image_height;
@@ -6150,8 +6151,8 @@ private:
             image.source_rect = {static_cast<float>(snapshot.copy_source_x) + static_cast<float>(source_rect.left),
                 static_cast<float>(snapshot.copy_source_y) + static_cast<float>(source_rect.top),
                 static_cast<float>(source_rect.right - source_rect.left), static_cast<float>(source_rect.bottom - source_rect.top)};
-            image.destination_rect = {point.x * dips_per_pixel, point.y * dips_per_pixel,
-                image.source_rect.width * dips_per_pixel, image.source_rect.height * dips_per_pixel};
+            image.destination_rect = {point.x * dips_per_pixel_x, point.y * dips_per_pixel_y,
+                image.source_rect.width * dips_per_pixel_x, image.source_rect.height * dips_per_pixel_y};
             image.transform = semantic_scene_builder::identity_transform();
             image.opacity = 1.0F;
             const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
@@ -6180,10 +6181,10 @@ private:
         if (com::failed(result)) return result;
         if (for_copy) {
             scene_full_image_copy copy{};
-            const float dips_per_pixel = 96.0F / dpi_x_;
+            progpu_native_scene_presentation copy_presentation{};
             const progpu_native_image_rect bounds{0.0F, 0.0F,
-                pixel_width_ * dips_per_pixel, pixel_height_ * dips_per_pixel};
-            if (builder_.try_get_full_image_copy(bounds, pixel_width_, pixel_height_, copy)) {
+                pixel_width_ * (96.0F / dpi_x_), pixel_height_ * (96.0F / dpi_y_)};
+            if (builder_.try_get_full_image_copy(bounds, pixel_width_, pixel_height_, copy, copy_presentation)) {
                 const bool picture = (copy.resource_flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U;
                 const bool alpha_only = pixel_format_.format == dxgi_format_a8_unorm;
                 const auto expected_matrix = bitmap_alpha_matrix(picture);
@@ -6203,7 +6204,8 @@ private:
                         return destination.last_error() == scene_build_error::out_of_memory ? com::out_of_memory : failure;
                     snapshot.row_bytes = copy.image.row_bytes;
                     snapshot.picture_image = picture;
-                    snapshot.picture_raster_dpi_scale = picture ? copy.picture.dpi_scale : 1.0F;
+                    snapshot.picture_raster_dpi_scale = picture ? copy_presentation.dpi_scale_x : 1.0F;
+                    snapshot.picture_raster_dpi_scale_y = picture ? copy_presentation.dpi_scale_y : 1.0F;
                     snapshot.copy_image_width = copy.image.image_width;
                     snapshot.copy_image_height = copy.image.image_height;
                     snapshot.copy_source_x = static_cast<std::uint32_t>(copy.image.source_rect.x);
@@ -6231,7 +6233,11 @@ private:
         picture.dpi_scale = snapshot.picture_raster_dpi_scale;
         picture.clear_color = {clear_color_.red, clear_color_.green, clear_color_.blue, clear_color_.alpha};
         if (pixel_format_.alpha == alpha_mode::ignore) picture.clear_color.a = 1.0F;
-        return destination.add_picture_image(picture, bytes, resource_index)
+        const progpu_native_scene_presentation presentation{sizeof(presentation), 0U, 0U,
+            pixel_width_, pixel_height_, snapshot.picture_raster_dpi_scale, snapshot.picture_raster_dpi_scale_y, 0U};
+        const bool independent_axes = presentation.dpi_scale_x != presentation.dpi_scale_y;
+        if (independent_axes) picture.flags = PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION;
+        return destination.add_picture_image(picture, independent_axes ? &presentation : nullptr, bytes, resource_index)
             ? com::ok : destination.last_error() == scene_build_error::out_of_memory ? com::out_of_memory : failure;
     }
 
@@ -6239,10 +6245,10 @@ private:
     {
         snapshot = {};
         if (pixel_format_.format == 0U) return not_implemented;
-        if (dpi_x_ != dpi_y_) return not_implemented;
         if (!begun_ || (!ended_ && !allow_active) || com::failed(failure_) || !compatible_history_dpi_valid_) return wrong_state;
         snapshot = {pixel_width_, pixel_height_, pixel_width_ * 4U, pixel_format_,
             bitmap_dpi_x_, bitmap_dpi_y_, generation_, scene_id_, true, dpi_x_ / 96.0F};
+        snapshot.picture_raster_dpi_scale_y = dpi_y_ / 96.0F;
         return com::ok;
     }
 

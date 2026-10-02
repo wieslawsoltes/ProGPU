@@ -1,5 +1,33 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Mapped retained pictures admit transient SRC/SRC_OVER 2D layers through original
+per-axis physical bounds and clips. Composite quads consume those physical
+extents in the shader's unchanged raster basis; never apply presentation DPI
+twice or flatten transparent replacement into source-over. Keep nested captures,
+format conversion and immutable ownership. Cache/composite-state/backdrop/effect/
+layer-mask and 3D mapped contracts remain explicitly unadmitted. Preserve paired
+uniform-physical reference pixels and cold/warm submissions; see the bounded
+mapped picture-layer section in docs/DIRECT2D_WIN2D_COMPATIBILITY.md.
+
+Compiled semantic family identities include the exact scene owner as well as
+resource IDs/generations; unrelated same-sized resource1/version1 is not shared
+content. Private picture capture replacement advances only its own resource scope
+when exact retained ownership/bytes reveal an identity collision. Preserve
+byte-identical warm captures, ordinary generation-independent family retention,
+queued resource leases and separate intrinsic glyph raster identity. Never repair
+cross-owner reuse by isolating fixtures or weakening original pixel/counter gates.
+See docs/DIRECT2D_WIN2D_COMPATIBILITY.md, retained picture resource ownership.
+
+Retained picture-image copies own original per-axis presentation in an explicit
+validated suffix, never a DPI ratio or inferred logical extent. Keep the original
+48-byte uniform descriptor and COM slots, exact suffix sizes/flags, whole pixel
+viewport, cache identity and immutable import/full-copy ownership paired in both
+providers. Pixel copy destinations use separate axes; changed-DPI history still
+requires a whole replacement. Managed Scene does not interpret this wire kind;
+its builder rejects it while raw NativeCompositor replay uses the shared native
+validator. Source/package/Windows qualification remains separate. See
+docs/DIRECT2D_WIN2D_COMPATIBILITY.md, independent-axis picture copies.
+
 The isolated drawing package group includes the real Native and Dawn backend
 dependencies in source-reference order. Preserve exact version closure and native
 runtime validation; consumers stage real payloads only from the exact successful

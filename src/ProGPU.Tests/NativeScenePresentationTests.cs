@@ -7,6 +7,21 @@ namespace ProGPU.Tests;
 public sealed class NativeScenePresentationTests
 {
     [Fact]
+    public void ManagedBuilderRejectsNativeOnlyPicturePayloadWithoutPublishingResource()
+    {
+        // Managed Scene is a producer, not an IMAGE_PICTURE wire interpreter.
+        // Raw streams are validated/replayed by NativeCompositor's C++ provider.
+        Span<byte> bytes = stackalloc byte[512];
+        Span<byte> payload = stackalloc byte[80]; // 48-byte descriptor + 32-byte presentation.
+        var builder = new NativeSceneStreamBuilder(bytes, 1, 1, 0, 1);
+        Assert.False(builder.TryAddResource(NativeSceneResourceKind.Image, 1, 1,
+            payload, out uint resource, flags: (NativeSceneRecordFlags)(1U | (1U << 6))));
+        Assert.Equal(uint.MaxValue, resource);
+        Assert.Equal(0, builder.ResourceCount);
+        Assert.Equal(0, builder.CommandCount);
+    }
+
+    [Fact]
     public void CpuStageCaptureExposesMappedPresentationWithoutASecondRender()
     {
         Func<NativeCompositor, NativeSceneExternalTarget,

@@ -252,6 +252,7 @@ bool same_generation_independent_picture_scene(
 std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
     progpu_native_engine& engine,
     const progpu_native_scene_picture_image& descriptor,
+    const progpu_native_scene_presentation& presentation,
     const std::byte* nested_scene,
     const progpu_native_scene_header& header) noexcept {
     for (const auto& entry : engine.semantic_picture_mask_cache) {
@@ -260,7 +261,10 @@ std::shared_ptr<semantic_picture_backing> find_retained_picture_raster(
             entry->engine_flags != engine.engine_flags ||
             !semantic::scene_bytes_equal(
                 std::as_bytes(std::span(&entry->descriptor, 1U)),
-                std::as_bytes(std::span(&descriptor, 1U)))) {
+                std::as_bytes(std::span(&descriptor, 1U))) ||
+            !semantic::scene_bytes_equal(
+                std::as_bytes(std::span(&entry->presentation, 1U)),
+                std::as_bytes(std::span(&presentation, 1U)))) {
             continue;
         }
         progpu_native_scene_header prior{};
@@ -395,7 +399,7 @@ static bool create_semantic_picture_binding(
     if (image_output == nullptr && seed_texture == nullptr &&
         raster_cache_eligible) {
         mask_picture_backing = find_retained_picture_raster(
-            engine, raster_descriptor, nested_scene, nested_header);
+            engine, raster_descriptor, child_frame.presentation, nested_scene, nested_header);
         if (mask_picture_backing) {
             source_view = mask_picture_backing->view;
             webgpu::texture_view_add_ref(source_view);
@@ -534,7 +538,23 @@ static bool create_semantic_picture_binding(
             child->semantic_scene_snapshot.size() == picture.stream_size &&
             std::memcmp(child->semantic_scene_snapshot.data(), nested_scene,
                 picture.stream_size) == 0;
+        const auto previous_resource_scope = child->semantic_resource_scope;
         if (!exact_child_snapshot) {
+            progpu_native_scene_header capture_header{};
+            std::memcpy(&capture_header, nested_scene, sizeof(capture_header));
+            if (!child->semantic_scene_snapshot.empty() &&
+                semantic::picture_capture_changes_resource_scope(child->semantic_scene_snapshot.data(),
+                    child->semantic_scene_header, nested_scene, capture_header)) {
+                if (previous_resource_scope == std::numeric_limits<std::uint64_t>::max()) {
+                    cleanup();
+                    return false;
+                }
+                // Replacing an independent capture can legally reuse public
+                // resource ids/versions with different bytes. Retire only this
+                // child's compiled-family identity, through normal page rebuild
+                // and upload paths; do not clear shared/intrinsic raster caches.
+                child->semantic_resource_scope = previous_resource_scope + 1U;
+            }
             child->semantic_scene_id = 0U;
             child->semantic_scene_generation = 0U;
         }
@@ -547,13 +567,22 @@ static bool create_semantic_picture_binding(
             : bind_status;
         if (bind_status != PROGPU_NATIVE_STATUS_SUCCESS ||
             update_status != PROGPU_NATIVE_STATUS_SUCCESS) {
-            if (trace_picture) {
-                std::fprintf(stderr,
-                    "ProGPU native picture mask child update failed: bind=%u, update=%u, error=%s\n",
-                    static_cast<unsigned>(bind_status),
-                    static_cast<unsigned>(update_status),
-                    child->last_error.c_str());
-            }
+            child->semantic_resource_scope = previous_resource_scope;
+            std::fprintf(stderr,
+                "ProGPU native retained picture child update failed: kind=%s, "
+                "scene=%llu/%llu, scope=%llu, size=%ux%u, dpi=(%g,%g), "
+                "seed=%u, firstCommand=%u, bind=%u, update=%u, error=%s\n",
+                image_output == nullptr ? "mask" : "image",
+                static_cast<unsigned long long>(nested_header.scene_id),
+                static_cast<unsigned long long>(nested_header.generation),
+                static_cast<unsigned long long>(previous_resource_scope),
+                child_frame.width, child_frame.height,
+                static_cast<double>(child_frame.presentation.dpi_scale_x),
+                static_cast<double>(child_frame.presentation.dpi_scale_y),
+                seed_texture != nullptr ? 1U : 0U, first_command,
+                static_cast<unsigned>(bind_status),
+                static_cast<unsigned>(update_status),
+                child->last_error.c_str());
             cleanup();
             return false;
         }
@@ -579,12 +608,23 @@ static bool create_semantic_picture_binding(
         const auto child_render_status = progpu_native_engine_render_scene(
             child, &child_frame, &child_metrics);
         if (child_render_status != PROGPU_NATIVE_STATUS_SUCCESS) {
-            if (trace_picture) {
-                std::fprintf(stderr,
-                    "ProGPU native picture mask child render failed: status=%u, error=%s\n",
-                    static_cast<unsigned>(child_render_status),
-                    child->last_error.c_str());
-            }
+            std::fprintf(stderr,
+                "ProGPU native retained picture child render failed: kind=%s, "
+                "scene=%llu/%llu, installed=%llu/%llu, scope=%llu, "
+                "size=%ux%u, dpi=(%g,%g), seed=%u, firstCommand=%u, "
+                "status=%u, error=%s\n",
+                image_output == nullptr ? "mask" : "image",
+                static_cast<unsigned long long>(child_frame.scene_id),
+                static_cast<unsigned long long>(child_frame.generation),
+                static_cast<unsigned long long>(child->semantic_scene_id),
+                static_cast<unsigned long long>(child->semantic_scene_generation),
+                static_cast<unsigned long long>(child->semantic_resource_scope),
+                child_frame.width, child_frame.height,
+                static_cast<double>(child_frame.presentation.dpi_scale_x),
+                static_cast<double>(child_frame.presentation.dpi_scale_y),
+                seed_texture != nullptr ? 1U : 0U, first_command,
+                static_cast<unsigned>(child_render_status),
+                child->last_error.c_str());
             cleanup();
             return false;
         }
@@ -646,6 +686,7 @@ static bool create_semantic_picture_binding(
         try {
             auto backing = std::make_shared<semantic_picture_backing>();
             backing->descriptor = raster_descriptor;
+            backing->presentation = child_frame.presentation;
             backing->engine_flags = engine.engine_flags;
             backing->scene.assign(
                 nested_scene, nested_scene + picture.stream_size);
@@ -802,6 +843,7 @@ bool create_semantic_picture_mask_binding(
 bool create_semantic_picture_image(
     progpu_native_engine& engine,
     const progpu_native_scene_picture_image& source,
+    const progpu_native_scene_presentation& presentation,
     const std::byte* nested_scene, std::uint32_t scene_size,
     semantic_image_draw& draw,
     progpu_native_scene_frame_metrics& child_metrics) {
@@ -823,6 +865,8 @@ bool create_semantic_picture_image(
                 same_external_image_identity(*entry, engine) &&
                 semantic::scene_bytes_equal(std::as_bytes(std::span(&entry->descriptor, 1U)),
                     std::as_bytes(std::span(&source, 1U))) &&
+                semantic::scene_bytes_equal(std::as_bytes(std::span(&entry->presentation, 1U)),
+                    std::as_bytes(std::span(&presentation, 1U))) &&
                 semantic::find_append_only_scene_suffix(entry->scene.data(), prior, nested_scene, header, first_command)) {
                 previous = entry;
                 break;
@@ -841,6 +885,7 @@ bool create_semantic_picture_image(
     try {
         backing = std::make_shared<semantic_picture_backing>();
         backing->descriptor = source;
+        backing->presentation = presentation;
         backing->engine_flags = engine.engine_flags;
         backing->copy_source_compatible = true;
         if (retain_history) backing->scene.assign(nested_scene, nested_scene + scene_size);
@@ -859,7 +904,7 @@ bool create_semantic_picture_image(
     if (!create_semantic_picture_binding(engine, picture, nested_scene,
         {0U, 0U, source.width, source.height, true}, source.dpi_scale,
         nullptr, nullptr, unused_mask, &draw, &child_metrics, &source.clear_color,
-        previous ? previous->texture : nullptr, first_command)) return false;
+        previous ? previous->texture : nullptr, first_command, &presentation)) return false;
     backing->texture = draw.texture;
     backing->view = draw.view;
     draw.texture = nullptr;

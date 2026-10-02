@@ -117,6 +117,8 @@ enum {
     PROGPU_NATIVE_SCENE_IMAGE_R8 = 1U << 5U,
     /* Image payload is a picture descriptor, auxiliary bytes a nested scene. */
     PROGPU_NATIVE_SCENE_IMAGE_PICTURE = 1U << 6U,
+    /* Exact full-viewport per-axis presentation suffix on a picture payload. */
+    PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION = 1U << 0U,
     /* Picture-mask stream renders at the source extent carried in reserved0/1. */
     PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT = 1U << 0U,
     PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED = 1U << 0U
@@ -1402,9 +1404,15 @@ typedef struct progpu_native_scene_image_patch {
  * IMAGE_PICTURE resource payload; auxiliary bytes own a complete nested scene.
  * Width/height are physical pixels, dpi_scale is uniform, clear_color is straight
  * RGBA. Rasterization produces a premultiplied image without CPU pixel readback.
- * Flags and reserved words must be zero. Image draws must match these dimensions
+ * With PRESENTATION, exactly one progpu_native_scene_presentation follows this
+ * unchanged descriptor. It owns both original DPI scales and the complete pixel
+ * viewport (origin zero, extent equal to width/height); neither axis is inferred
+ * from dpi_scale. Without it the original uniform payload is unchanged. Unknown
+ * flags, extra/missing bytes and nonzero reserved words are invalid.
+ * Image draws must match these dimensions
  * and use width * 4 row bytes and premultiplied-alpha sampling.
  */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.ScenePictureImage */
 typedef struct progpu_native_scene_picture_image {
     uint32_t struct_size;
     uint32_t flags;

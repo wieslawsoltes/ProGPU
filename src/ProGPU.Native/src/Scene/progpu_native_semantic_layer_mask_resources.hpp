@@ -68,6 +68,7 @@ bool create_semantic_picture_mask_binding(
 bool create_semantic_picture_image(
     progpu_native_engine& engine,
     const progpu_native_scene_picture_image& picture,
+    const progpu_native_scene_presentation& presentation,
     const std::byte* nested_scene,
     std::uint32_t scene_size,
     semantic_image_draw& draw,
