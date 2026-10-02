@@ -25,3 +25,9 @@ treated as an omitted unsupported case. The bounded workflow runs x64 and ARM64,
 uses 60-second internal/90-second process/8-minute job limits and never loads or
 stages an unqualified ProGPU producer. Native provider, package/NativeAOT and
 actual application gates remain separate.
+
+Implementation `f34c29c43` preceded the bounded postcommit check. The source-only
+Windows-targeted project compiled from the existing cached reference pack in
+1.42 seconds, with zero warnings/errors and no ProGPU renderer dependency.
+Windows execution is delegated to the hosted reference workflow; this local
+compile does not constitute a reference capture or pixel qualification.

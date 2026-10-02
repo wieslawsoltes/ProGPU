@@ -192,12 +192,14 @@ internal static class Program
 
     private sealed class OriginalEffect : ShaderEffect
     {
+        private readonly OriginalCase input;
         private static readonly DependencyProperty InputProperty = RegisterPixelShaderSamplerProperty(
             "Input", typeof(OriginalEffect), 0, SamplingMode.NearestNeighbor);
         private static readonly DependencyProperty[] ConstantProperties = RegisterConstants();
 
         public OriginalEffect(OriginalCase input)
         {
+            this.input = input;
             var bytes = new byte[input.Words.Length * 4];
             for (int i = 0; i < input.Words.Length; ++i)
                 BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i * 4, 4), input.Words[i]);
@@ -214,6 +216,8 @@ internal static class Program
                 UpdateShaderValue(ConstantProperties[i]);
             }
         }
+
+        protected override Freezable CreateInstanceCore() => new OriginalEffect(input);
 
         private static DependencyProperty[] RegisterConstants()
         {
