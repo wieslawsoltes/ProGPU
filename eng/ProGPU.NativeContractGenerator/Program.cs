@@ -100,16 +100,18 @@ static string Generate(string header, string sourceName)
                     $"Unsupported field declaration in {target}: {value}.");
             }
 
-            // Explicit literal uint32_t arrays flatten to sequential fields.
-            // This preserves inline native layout without a managed array or
-            // changing the original C descriptor's reserved-word declaration.
+            // Literal primitive arrays flatten to sequential unmanaged fields;
+            // no managed reference or independently maintained wire layout.
             if (field.Groups["count"].Success)
             {
-                if (field.Groups["type"].Value != "uint32_t" || field.Groups["pointer"].Success || typeOverride.Success ||
-                    !int.TryParse(field.Groups["count"].Value, out int count) || count is < 1 or > 64)
+                string elementType = field.Groups["type"].Value;
+                if ((elementType != "uint32_t" && elementType != "float") ||
+                    field.Groups["pointer"].Success || typeOverride.Success ||
+                    !int.TryParse(field.Groups["count"].Value, out int count) || count < 1 ||
+                    count > (elementType == "float" ? 128 : 64))
                     throw new InvalidDataException($"Unsupported inline array in {target}: {value}.");
                 for (int index = 0; index < count; ++index)
-                    fields.Add(new ContractField("uint", ToPascalCase(field.Groups["name"].Value) + index));
+                    fields.Add(new ContractField(MapType(elementType), ToPascalCase(field.Groups["name"].Value) + index));
                 continue;
             }
             fields.Add(new ContractField(

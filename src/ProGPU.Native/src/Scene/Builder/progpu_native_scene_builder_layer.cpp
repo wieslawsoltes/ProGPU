@@ -4,6 +4,7 @@
 #include "progpu_native_geometry_base.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_shader_effect_resource.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -524,6 +525,106 @@ bool semantic_scene_builder::add_composite_mask(
     }
 }
 
+bool semantic_scene_builder::add_shader_effect(
+    const progpu_native_scene_shader_effect& effect,
+    std::span<const std::byte> bytecode,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!shader_effect::validate(effect, bytecode) ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        scene_builder_detail::reserve_append(implementation_->resources, 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(std::span(&effect, 1U));
+        resource.auxiliary = copy_bytes(bytecode);
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_shader_effect(
+    const progpu_native_scene_shader_effect& effect,
+    std::span<const std::byte> bytecode,
+    std::uint32_t sampler_picture,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!shader_effect::validate(effect, bytecode) ||
+        sampler_picture >= implementation_->resources.size() ||
+        implementation_->resources[sampler_picture].record.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+        (implementation_->resources[sampler_picture].record.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        const progpu_native_scene_shader_effect_picture descriptor{
+            sizeof(descriptor), 2U, sampler_picture, 0U, effect};
+        scene_builder_detail::reserve_append(implementation_->resources, 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(std::span(&descriptor, 1U));
+        resource.auxiliary = copy_bytes(bytecode);
+        implementation_->resources.push_back(std::move(resource));
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size() - 1U);
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::add_shader_effect(
+    const progpu_native_scene_shader_effect_derivatives& effect,
+    std::span<const std::byte> bytecode,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    progpu_native_scene_shader_effect program{};
+    std::uint32_t picture{}, derivatives{};
+    if (!shader_effect::read_resource(std::as_bytes(std::span(&effect, 1U)), bytecode,
+            program, picture, derivatives) ||
+        (picture != PROGPU_NATIVE_SCENE_NO_INDEX &&
+            (picture >= implementation_->resources.size() ||
+             implementation_->resources[picture].record.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+             (implementation_->resources[picture].record.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U)) ||
+        implementation_->resources.size() >= PROGPU_NATIVE_SCENE_MAX_RESOURCES)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    try {
+        scene_builder_detail::reserve_append(implementation_->resources, 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(std::span(&effect, 1U));
+        resource.auxiliary = copy_bytes(bytecode);
+        implementation_->resources.push_back(std::move(resource));
+        resource_index = static_cast<std::uint32_t>(implementation_->resources.size() - 1U);
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_effect_chain(
     std::span<const progpu_native_group_effect> sources,
     std::uint32_t revision,
@@ -725,12 +826,21 @@ bool semantic_scene_builder::push_layer(
         !valid_resource(
             layer.mask_resource_index,
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
-        !valid_resource(
+        (!valid_resource(
             layer.effect_resource_index,
-            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
+            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) &&
+         !valid_resource(layer.effect_resource_index,
+             PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT)) ||
         !valid_composite_state()) {
         return implementation_->fail(scene_build_error::invalid_argument);
     }
+    if (layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+        implementation_->resources[layer.effect_resource_index].record.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT &&
+        (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U) ||
+         (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+             PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U))
+        return implementation_->fail(scene_build_error::invalid_argument);
     if (source_mask && layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
         implementation_->resources[layer.mask_resource_index].source_geometry_clip) {
         return implementation_->fail(scene_build_error::invalid_argument);
@@ -740,6 +850,9 @@ bool semantic_scene_builder::push_layer(
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     if (source_effect && layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+        if (implementation_->resources[layer.effect_resource_index].record.kind !=
+            PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN)
+            return implementation_->fail(scene_build_error::invalid_argument);
         const auto& effects = implementation_->resources[layer.effect_resource_index].auxiliary;
         for (std::size_t offset = 0U; offset < effects.size(); offset += sizeof(progpu_native_group_effect)) {
             progpu_native_group_effect effect{};

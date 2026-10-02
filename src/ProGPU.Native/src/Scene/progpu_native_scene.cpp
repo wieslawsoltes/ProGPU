@@ -5,6 +5,7 @@
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_shader_effect_resource.hpp"
 
 #include <algorithm>
 #include <array>
@@ -87,7 +88,7 @@ bool span_lives_in_arena(
 
 bool is_known_resource(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH &&
-        kind <= PROGPU_NATIVE_SCENE_RESOURCE_TILE_COMPOSITE;
+        kind <= PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT;
 }
 
 bool is_known_command(std::uint32_t kind) noexcept {
@@ -747,6 +748,24 @@ validation_result validate(
                             resource.auxiliary_offset);
                     }
                 }
+            }
+        }
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
+            progpu_native_scene_shader_effect program{};
+            std::uint32_t sampler{}, derivative_register{};
+            if (!shader_effect::read_resource(
+                    std::span(bytes + resource.payload_offset, resource.payload_size),
+                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), program, sampler, derivative_register))
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
+            if (sampler != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                // Earlier resources only: a finite owned dependency DAG, never
+                // self/forward cycles or an index in another scene's table.
+                if (sampler >= index) return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+                const auto source = read_record<progpu_native_scene_resource>(bytes,
+                    header.resource_offset + static_cast<std::size_t>(sampler) * header.resource_stride);
+                if (source.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                    (source.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U)
+                    return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
             }
         }
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) {
@@ -1436,9 +1455,11 @@ validation_result validate(
             if (!valid_layer_resource(
                     layer.mask_resource_index,
                     PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) ||
-                !valid_layer_resource(
+                (!valid_layer_resource(
                     layer.effect_resource_index,
-                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) ||
+                    PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN) &&
+                 !valid_layer_resource(layer.effect_resource_index,
+                     PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT)) ||
                 (((layer.flags &
                         (PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE |
                             PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE)) !=
@@ -1452,6 +1473,13 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
                     offset);
             }
+            if (layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
+                valid_layer_resource(layer.effect_resource_index,
+                    PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) &&
+                (((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U) ||
+                 (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                     PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U))
+                return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
             const bool local_cache = (layer.flags &
                 PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
             const bool tile_cache = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U;

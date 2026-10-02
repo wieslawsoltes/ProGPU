@@ -338,6 +338,7 @@ struct progpu_native_engine {
     std::uint32_t clip_final_index = 0U;
     bool clip_cache_valid = false;
     WGPUShaderModule effect_blur_horizontal_shader = nullptr;
+    std::vector<std::shared_ptr<semantic_shader_program>> semantic_shader_programs;
     WGPUShaderModule effect_blur_vertical_shader = nullptr;
     WGPUComputePipeline effect_blur_horizontal_pipeline = nullptr;
     WGPUComputePipeline effect_blur_vertical_pipeline = nullptr;
@@ -813,6 +814,7 @@ struct progpu_native_engine {
     }
 
     void release_effect_resources() noexcept {
+        semantic_shader_programs.clear();
         for (auto& slot : semantic_layer_slots) {
             for (auto& bind_group : slot.effect_drop_shadow_bind_groups) {
                 if (bind_group != nullptr) {

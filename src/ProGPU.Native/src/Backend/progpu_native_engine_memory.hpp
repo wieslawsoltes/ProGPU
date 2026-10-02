@@ -4,6 +4,11 @@
 
 namespace progpu::native {
 
+inline void collect_memory(gpu_memory_inventory& inventory, const semantic_shader_binding& value) {
+    if (value.sampler_picture) inventory.texture(value.sampler_picture->texture);
+    inventory.buffer(value.uniforms);
+}
+
 inline void collect_memory(gpu_memory_inventory& inventory, const path_raster_resources& value) {
     inventory.buffer(value.uniforms);
     for (auto buffer : value.split_leaf_uniforms) inventory.buffer(buffer);
@@ -124,6 +129,7 @@ inline void collect_engine_memory(
     collect_memory(inventory, engine.semantic_advanced_source_slot);
     collect_memory(inventory, engine.semantic_advanced_output_slot);
     for (const auto& span : engine.semantic_render_bundle_spans) {
+        if (span.shader_effect) collect_memory(inventory, *span.shader_effect);
         inventory.buffer(span.mask_uniform_buffer);
         inventory.buffer(span.mask_chain_uniform_buffer);
         inventory.texture(span.mask_picture_backing

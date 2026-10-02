@@ -1,5 +1,32 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+ShaderEffect UV derivative registers use explicit version-3 metadata while
+preserving v1/v2 layouts. The native binding writes the selected register after
+original constants from the proven complete positive-axis physical capture
+basis, including actual DPI and excluding allocation padding. Keep translation
+separate from vector steps, exact register validation and existing mapping gates.
+Never patch source constants, invent identity inverses or admit singular/fractional
+frames by epsilon. See docs/native-shader-uv-derivatives.md; uniform transport is
+not pixel or application qualification.
+
+Original MIL ImageBrush shader samplers retain an earlier same-scene full-RGBA
+picture through explicit version-2 metadata; version 1 stays unchanged. Capture
+over the complete physical implicit-input extent at zero origin, preserving the
+actual brush opacity, tile addressing, transform and source sampling. Never use
+alpha-mask semantics, intrinsic image extent, managed textures or device handles
+as a substitute. Keep same-channel bitmap ownership, graph/deletion/revision
+checks, exact engine leases and submission retirement. Unsupported animated or
+external sources and fractional captures stay closed; see
+docs/native-shader-image-samplers.md. Source/ABI checks are not GPU or UI parity.
+
+Native WPF shader effects retain original validated bytecode and constant values,
+not WGSL registry substitutions. Bounded ps_2_0/ps_3_0 families use an owned fragment
+pipeline in both native providers; reject unsupported tokens, resources and
+capture frames before publication. Preserve exact-byte program identity, live
+binding ownership, budgets and final source clipping. No CPU shader fallback or
+identity hit-test annotation is admitted. See docs/native-mil-shader-effects.md;
+the first family is not complete ShaderEffect or application qualification.
+
 Mapped retained pictures admit transient SRC/SRC_OVER 2D layers through original
 per-axis physical bounds and clips. Composite quads consume those physical
 extents in the shader's unchanged raster basis; never apply presentation DPI

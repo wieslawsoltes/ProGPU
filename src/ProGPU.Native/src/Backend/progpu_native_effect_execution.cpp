@@ -727,7 +727,7 @@ bool ensure_semantic_effect_textures(
     descriptor.label = ::progpu::native::webgpu::string_view(
         "ProGPU semantic depth-indexed effect intermediate");
     descriptor.usage = WGPUTextureUsage_TextureBinding |
-        WGPUTextureUsage_StorageBinding;
+        WGPUTextureUsage_StorageBinding | WGPUTextureUsage_RenderAttachment;
     descriptor.dimension = WGPUTextureDimension_2D;
     descriptor.size = {width, height, 1U};
     descriptor.format = WGPUTextureFormat_RGBA8Unorm;

@@ -7,6 +7,7 @@
 #include "../Scene/progpu_native_semantic_brush.hpp"
 #include "../Scene/progpu_native_semantic_validation.hpp"
 #include "../Scene/progpu_native_semantic_budget.hpp"
+#include "../Scene/progpu_native_shader_effect.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../Direct2D/progpu_native_direct2d_path.hpp"
 
@@ -73,6 +74,9 @@ constexpr std::uint32_t type_point3d_resource = 55U;
 constexpr std::uint32_t type_vector3d_resource = 56U;
 constexpr std::uint32_t type_quaternion_resource = 57U;
 constexpr std::uint32_t type_blur_effect = 36U;
+constexpr std::uint32_t type_pixel_shader = 33U;
+constexpr std::uint32_t type_implicit_input_brush = 34U;
+constexpr std::uint32_t type_shader_effect = 38U;
 constexpr std::uint32_t type_drop_shadow_effect = 37U;
 constexpr std::uint32_t type_drawing_image = 59U;
 constexpr std::uint32_t type_transform3d_group = 27U;
@@ -224,7 +228,7 @@ bool is_drawing_type(std::uint32_t type) noexcept {
 }
 
 bool is_effect_type(std::uint32_t type) noexcept {
-    return type == type_blur_effect || type == type_drop_shadow_effect;
+    return type == type_blur_effect || type == type_drop_shadow_effect || type == type_shader_effect;
 }
 
 bool finite_double_as_float(double value) noexcept {
@@ -2423,7 +2427,8 @@ struct channel::implementation {
     struct effect_state {
         enum class kind : std::uint32_t {
             blur,
-            drop_shadow
+            drop_shadow,
+            shader
         } type{kind::blur};
         double radius{};
         double shadow_depth{};
@@ -2432,6 +2437,15 @@ struct channel::implementation {
         progpu_native_color color{};
         std::array<std::uint32_t, 5U> animations{};
         bool box_blur{};
+        std::uint32_t pixel_shader_handle{};
+        std::uint32_t input_brush_handle{};
+        std::uint32_t derivative_register{PROGPU_NATIVE_SCENE_NO_INDEX};
+        progpu_native_scene_shader_effect shader{};
+    };
+
+    struct pixel_shader_state {
+        std::vector<std::byte> bytecode;
+        std::uint32_t source_sampler{};
     };
 
     struct target_state {
@@ -3024,6 +3038,8 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, guideline_set_state> guideline_sets;
     std::unordered_map<std::uint32_t, bitmap_cache_state> bitmap_caches;
     std::unordered_map<std::uint32_t, effect_state> effects;
+    std::unordered_map<std::uint32_t, pixel_shader_state> pixel_shaders;
+    std::unordered_set<std::uint32_t> implicit_input_brushes;
 
     bool require_resource(
         std::uint32_t handle,
@@ -3416,6 +3432,42 @@ struct channel::implementation {
         return status::success;
     }
 
+    status validate_static_sampler_transform(std::uint32_t handle, std::uint32_t depth = 0U) const noexcept {
+        if (handle == 0U) return status::success;
+        if (depth >= 64U) return status::invalid_graph;
+        const auto found = transforms.find(handle);
+        const auto resource = resources.find(handle);
+        if (found == transforms.end() || resource == resources.end() ||
+            !is_transform_type(resource->second.type)) return status::invalid_handle;
+        if (std::ranges::any_of(found->second.animations, [](auto value) { return value != 0U; }))
+            return status::unsupported_command;
+        for (const auto child : found->second.children) {
+            const auto result = validate_static_sampler_transform(child, depth + 1U);
+            if (result != status::success) return result;
+        }
+        return status::success;
+    }
+
+    status validate_shader_sampler(std::uint32_t handle, bool require_pixels) const noexcept {
+        if (require_resource(handle, type_implicit_input_brush))
+            return implicit_input_brushes.contains(handle) ? status::success : status::invalid_handle;
+        if (!require_resource(handle, type_image_brush)) return status::invalid_handle;
+        const auto found = tile_brushes.find(handle);
+        if (found == tile_brushes.end()) return status::invalid_handle;
+        const auto& brush = found->second;
+        if (brush.opacity_animation != 0U || brush.viewport_animation != 0U || brush.viewbox_animation != 0U)
+            return status::unsupported_command;
+        for (const auto transform : {brush.transform_handle, brush.relative_transform_handle}) {
+            const auto result = validate_static_sampler_transform(transform);
+            if (result != status::success) return result;
+        }
+        if (!require_resource(brush.source_handle, type_bitmap_source)) return status::unsupported_command;
+        const auto bitmap = bitmap_sources.find(brush.source_handle);
+        if (bitmap == bitmap_sources.end()) return require_pixels ? status::invalid_handle : status::success;
+        if (bitmap->second.external_image || bitmap->second.pixels.empty()) return status::unsupported_command;
+        return status::success;
+    }
+
     status resolve_effect(
         std::uint32_t handle,
         effect_state& value) const noexcept {
@@ -3424,6 +3476,14 @@ struct channel::implementation {
             return status::invalid_handle;
         }
         value = effect->second;
+        if (value.type == effect_state::kind::shader) {
+            const auto shader = pixel_shaders.find(value.pixel_shader_handle);
+            if (shader == pixel_shaders.end()) return status::invalid_handle;
+            const auto sampler_status = validate_shader_sampler(value.input_brush_handle, true);
+            if (sampler_status != status::success) return sampler_status;
+            return shader->second.source_sampler == value.shader.source_sampler
+                ? status::success : status::unsupported_command;
+        }
         if (value.type == effect_state::kind::blur) {
             const status radius_status = resolve_animated_double(
                 value.radius, value.animations[0], value.radius);
@@ -5454,8 +5514,8 @@ struct channel::implementation {
             }
             for (const auto& [effect_handle, effect] : effects) {
                 if (effect_handle != handle &&
-                    std::ranges::find(effect.animations, handle) !=
-                        effect.animations.end()) {
+                    (effect.pixel_shader_handle == handle || effect.input_brush_handle == handle ||
+                     std::ranges::find(effect.animations, handle) != effect.animations.end())) {
                     return status::invalid_graph;
                 }
             }
@@ -5572,6 +5632,8 @@ struct channel::implementation {
             guideline_sets.erase(handle);
             bitmap_caches.erase(handle);
             effects.erase(handle);
+            pixel_shaders.erase(handle);
+            implicit_input_brushes.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
             return status::success;
@@ -9153,6 +9215,107 @@ struct channel::implementation {
                     color_animations});
             increment_generation(handle);
             ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::pixel_shader: {
+            using layout = command_layouts::pixel_shader;
+            std::uint32_t mode = 0U, length = 0U, software = 0U;
+            if (!read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::shader_render_mode_offset, mode) ||
+                !read_at(view.packet, layout::pixel_shader_bytecode_size_offset, length) ||
+                !read_at(view.packet, layout::compile_software_shader_offset, software) ||
+                length > 65536U || view.packet.size() != layout::fixed_size + static_cast<std::size_t>(length))
+                return status::malformed_batch;
+            if (!require_resource(handle, type_pixel_shader)) return status::invalid_handle;
+            if ((mode != 0U && mode != 2U) || software > 1U) return status::unsupported_command;
+            // Software compilation intent never selects a CPU renderer. Auto
+            // and HardwareOnly use the same owned GPU program; SoftwareOnly rejects.
+            const auto bytecode = view.packet.subspan(layout::fixed_size, length);
+            std::uint32_t sampler = 0U;
+            for (; sampler < 16U; ++sampler)
+                if (shader_effect::translate(bytecode, sampler)) break;
+            if (sampler == 16U) return status::unsupported_command;
+            pixel_shader_state shader{};
+            shader.bytecode.assign(bytecode.begin(), bytecode.end());
+            shader.source_sampler = sampler;
+            pixel_shaders.insert_or_assign(handle, std::move(shader));
+            increment_generation(handle); ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::implicit_input_brush: {
+            using layout = command_layouts::implicit_input_brush;
+            double opacity = 0.0;
+            std::uint32_t animation = 0U, transform = 0U, relative = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::opacity_offset, opacity) ||
+                !read_at(view.packet, layout::h_opacity_animations_offset, animation) ||
+                !read_at(view.packet, layout::h_transform_offset, transform) ||
+                !read_at(view.packet, layout::h_relative_transform_offset, relative)) return status::malformed_batch;
+            if (!require_resource(handle, type_implicit_input_brush)) return status::invalid_handle;
+            if (opacity != 1.0 || animation != 0U || transform != 0U || relative != 0U)
+                return status::unsupported_command;
+            implicit_input_brushes.insert(handle);
+            increment_generation(handle); ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::shader_effect: {
+            using layout = command_layouts::shader_effect;
+            effect_state effect{};
+            effect.type = effect_state::kind::shader;
+            std::array<double, 4U> padding{};
+            std::array<std::uint32_t, 8U> sizes{};
+            if (!read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::top_padding_offset, padding) ||
+                !read_at(view.packet, layout::h_pixel_shader_offset, effect.pixel_shader_handle) ||
+                !read_at(view.packet, layout::ddx_uv_ddy_uv_register_index_offset, effect.derivative_register) ||
+                !read_at(view.packet, layout::shader_constant_float_registers_size_offset, sizes))
+                return status::malformed_batch;
+            std::size_t total = layout::fixed_size;
+            for (const auto size : sizes) {
+                if (size > view.packet.size() || total > view.packet.size() - size) return status::malformed_batch;
+                total += size;
+            }
+            // A single Int16 register index leaves two framing bytes. They
+            // are outside all original array sizes, never additional values.
+            if (((total + 3U) & ~std::size_t{3U}) != view.packet.size() ||
+                std::ranges::any_of(view.packet.subspan(total),
+                    [](std::byte value) { return value != std::byte{}; }) ||
+                sizes[0] % 2U != 0U || sizes[0] > 64U ||
+                sizes[1] != sizes[0] * 8U) return status::malformed_batch;
+            if (!require_resource(handle, type_shader_effect) ||
+                !require_resource(effect.pixel_shader_handle, type_pixel_shader) ||
+                !pixel_shaders.contains(effect.pixel_shader_handle)) return status::invalid_handle;
+            if ((effect.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX && effect.derivative_register >= 32U) ||
+                sizes[2] != 0U || sizes[3] != 0U ||
+                sizes[4] != 0U || sizes[5] != 0U || sizes[6] != 8U || sizes[7] != 4U ||
+                std::ranges::any_of(padding, [](double value) { return value != 0.0; })) return status::unsupported_command;
+            auto& descriptor = effect.shader;
+            descriptor.struct_size = sizeof(descriptor); descriptor.version = 1U; descriptor.revision = 1U;
+            const auto& pixel_shader = pixel_shaders.at(effect.pixel_shader_handle);
+            descriptor.bytecode_size = static_cast<std::uint32_t>(pixel_shader.bytecode.size());
+            std::uint32_t previous = 0U;
+            for (std::uint32_t index = 0U; index < sizes[0] / 2U; ++index) {
+                std::uint16_t reg = 0U;
+                if (!read_at(view.packet, layout::fixed_size + index * 2U, reg) || reg >= 32U ||
+                    (index != 0U && reg <= previous)) return status::malformed_batch;
+                previous = reg;
+                std::array<float, 4U> values{};
+                if (!read_at(view.packet, layout::fixed_size + sizes[0] + index * 16U, values)) return status::malformed_batch;
+                std::copy(values.begin(), values.end(), descriptor.constants + reg * 4U);
+            }
+            const auto sampler_offset = layout::fixed_size + sizes[0] + sizes[1];
+            std::uint32_t sampling_mode = 0U;
+            if (!read_at(view.packet, sampler_offset, descriptor.source_sampler) ||
+                !read_at(view.packet, sampler_offset + 4U, sampling_mode) ||
+                !read_at(view.packet, sampler_offset + 8U, effect.input_brush_handle)) return status::malformed_batch;
+            const auto sampler_status = validate_shader_sampler(effect.input_brush_handle, false);
+            if (sampler_status != status::success) return sampler_status;
+            if (sampling_mode > 2U) return status::unsupported_command;
+            descriptor.sampling_mode = sampling_mode == 1U ? 0U : 1U;
+            if (!shader_effect::validate(descriptor, pixel_shader.bytecode)) return status::unsupported_command;
+            effects.insert_or_assign(handle, effect);
+            increment_generation(handle); ++metrics.updated_resource_count;
             return status::success;
         }
         case command::blur_effect: {
@@ -19665,7 +19828,8 @@ struct channel::implementation {
         // declared geometric masks separately from opacity masks, admitting
         // proven rectangular intersections during complete input capture.
         // Spatial opacity masks remain unqualified at either boundary.
-        const bool source_effect_input = record_hit_owner && !has_spatial_visual_mask;
+        const bool source_effect_input = record_hit_owner && !has_spatial_visual_mask &&
+            resolved_effect.type != effect_state::kind::shader;
         const auto effect_hit_mode = source_effect_input
             ? native::scene_layer_hit_test_mode::source_identity_effect
             : native::scene_layer_hit_test_mode::unspecified;
@@ -19720,6 +19884,55 @@ struct channel::implementation {
             ++pushed_count;
             return status::success;
         };
+        if (resolved_effect.type == effect_state::kind::shader) {
+            // Keep custom EffectMapping/input closed. The ordinary isolated
+            // layer preserves final clipping and source opacity/mask order.
+            if (!visual->second.has_cache_bounds || state.transform.m12 != 0.0 ||
+                state.transform.m21 != 0.0 || state.transform.m11 <= 0.0 || state.transform.m22 <= 0.0)
+                return status::unsupported_command;
+            auto descriptor = resolved_effect.shader;
+            descriptor.revision = static_cast<std::uint32_t>(effect_revision ^ (effect_revision >> 32U));
+            if (descriptor.revision == 0U) descriptor.revision = 1U;
+            const auto& bytecode = pixel_shaders.at(resolved_effect.pixel_shader_handle).bytecode;
+            descriptor.bytecode_size = static_cast<std::uint32_t>(bytecode.size());
+            progpu_native_scene_layer layer{};
+            layer.struct_size = sizeof(layer);
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+            layer.opacity = 1.0F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+            layer.content_revision = effect_revision; layer.composite_revision = effect_revision;
+            const auto clip_status = attach_final_clip(layer);
+            if (clip_status != status::success) return clip_status;
+            if (!try_transform_bounds(visual->second.cache_bounds_x, visual->second.cache_bounds_y,
+                    visual->second.cache_bounds_width, visual->second.cache_bounds_height,
+                    state.transform, layer.bounds) || layer.bounds.width <= 0.0F || layer.bounds.height <= 0.0F)
+                return status::unsupported_command;
+            std::uint32_t effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (require_resource(resolved_effect.input_brush_handle, type_image_brush)) {
+                if (mask_context.frame == nullptr) return status::unsupported_command;
+                const auto& request = mask_context.frame->request;
+                const double width = static_cast<double>(layer.bounds.width) * request.dpi_scale_x;
+                const double height = static_cast<double>(layer.bounds.height) * request.dpi_scale_y;
+                if (!std::isfinite(width) || !std::isfinite(height) || width <= 0.0 || height <= 0.0 ||
+                    width > 16'384.0 || height > 16'384.0 || width != std::floor(width) || height != std::floor(height))
+                    return status::unsupported_command;
+                const auto captured = add_shader_sampler_picture(resolved_effect.input_brush_handle,
+                    static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), state,
+                    builder, picture_index, mask_context);
+                if (captured != status::success) return captured;
+            }
+            if (resolved_effect.derivative_register != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                const progpu_native_scene_shader_effect_derivatives versioned{
+                    sizeof(versioned), 3U, picture_index, resolved_effect.derivative_register, 0U, {0U, 0U, 0U}, descriptor};
+                if (!builder.add_shader_effect(versioned, bytecode, effect_index)) return status::invalid_graph;
+            } else if (picture_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                if (!builder.add_shader_effect(descriptor, bytecode, picture_index, effect_index)) return status::invalid_graph;
+            } else if (!builder.add_shader_effect(descriptor, bytecode, effect_index)) return status::invalid_graph;
+            layer.effect_resource_index = effect_index;
+            if (!builder.push_layer(layer)) return status::invalid_graph;
+            ++pushed_count;
+            return push_source_composite_layer();
+        }
         const double scale_x = std::hypot(
             state.transform.m11, state.transform.m12);
         const double scale_y = std::hypot(
@@ -20099,6 +20312,8 @@ struct channel::implementation {
             if (effect == effects.end()) {
                 result = status::invalid_handle;
             } else {
+                append_if_success(effect->second.pixel_shader_handle);
+                append_if_success(effect->second.input_brush_handle);
                 for (const std::uint32_t animation :
                      effect->second.animations) {
                     append_if_success(animation);
@@ -20586,24 +20801,17 @@ struct channel::implementation {
             : status::invalid_graph;
     }
 
-    status add_spatial_opacity_mask(
+    status capture_brush_rectangle(
         std::uint32_t brush_handle, double x, double y, double width, double height,
-        const render_scope_state& source_state, native::semantic_scene_builder& builder,
-        std::uint32_t& mask_index, const mask_replay_context& context,
-        std::span<const progpu_native_scene_clip_path> clip_paths = {},
-        std::span<const progpu_native_path_segment> clip_segments = {},
-        std::span<const progpu_native_scene_path_boolean_node> clip_nodes = {}) const {
-        if (!is_sampled_brush(brush_handle)) return add_gradient_opacity_mask(
-            brush_handle, x, y, width, height, source_state.transform, builder, mask_index,
-            clip_paths, clip_segments, clip_nodes);
-        mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        const render_scope_state& source_state, native::semantic_scene_builder& coverage,
+        const mask_replay_context& context, std::vector<std::byte>& scene) const {
         if (width <= 0.0 || height <= 0.0) return status::unsupported_command;
         auto state = source_state;
         // Algorithm: compile one original MIL rectangle through the shared
-        // tile-source path in an owned child scene, then consume its alpha.
+        // tile-source path in an owned child scene. Consumers choose full RGBA
+        // or mask alpha; capture never discards color or substitutes a CPU raster.
         // Time/space: O(C + R) for captured source commands C/resources R;
         // framing adds O(1) stack storage. No CPU pixels or per-tile replay.
-        native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
         state.opacity = 1.0;
         state.has_clip = false;
         state.mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -20639,10 +20847,63 @@ struct channel::implementation {
             paths, segments, nodes, context.metrics);
         if (drawn != status::success) return drawn;
         if (!coverage.restore()) return status::invalid_graph;
+        return coverage.build(scene) ? status::success : status::invalid_graph;
+    }
+
+    status add_shader_sampler_picture(std::uint32_t brush_handle, std::uint32_t width,
+        std::uint32_t height, const render_scope_state& source_state,
+        native::semantic_scene_builder& builder, std::uint32_t& picture_index,
+        const mask_replay_context& context) const {
+        picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (context.frame == nullptr) return status::unsupported_command;
+        const auto admitted = validate_shader_sampler(brush_handle, true);
+        if (admitted != status::success) return admitted;
+        // Original source samplers realize a brush over the physical implicit-
+        // input extent, at zero origin and identity mapping. Brush transforms,
+        // opacity, viewbox/viewport and tile addressing remain in the real tile
+        // replay; final source clipping/opacity belong to the outer effect.
+        auto request = context.frame->request;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        request.flags = scene_build_request_flags::visual_brush;
+        scene_compile_context frame{request, context.frame->current_time_milliseconds,
+            false, context.frame->visual_brush_depth + 1U};
+        std::uint64_t identity = builder.scene_id();
+        append_fnv1a64(identity, brush_handle);
+        append_fnv1a64(identity, width); append_fnv1a64(identity, height);
+        frame.scene_id = finish_nonzero_hash(identity);
+        frame.cache_brush_scope = context.frame->cache_brush_scope;
+        native::semantic_scene_builder capture(frame.scene_id, builder.generation());
+        auto state = source_state;
+        state.transform = {};
+        const mask_replay_context child{&frame, context.active_resources, context.metrics, context.depth};
         std::vector<std::byte> scene;
-        if (!coverage.build(scene)) return status::invalid_graph;
+        const auto result = capture_brush_rectangle(brush_handle, 0.0, 0.0, width, height,
+            state, capture, child, scene);
+        if (result != status::success) return result;
+        progpu_native_scene_picture_image picture{};
+        picture.struct_size = sizeof(picture);
+        picture.width = width; picture.height = height; picture.dpi_scale = 1.0F;
+        return builder.add_picture_image(picture, scene, picture_index) ? status::success : status::invalid_graph;
+    }
+
+    status add_spatial_opacity_mask(
+        std::uint32_t brush_handle, double x, double y, double width, double height,
+        const render_scope_state& source_state, native::semantic_scene_builder& builder,
+        std::uint32_t& mask_index, const mask_replay_context& context,
+        std::span<const progpu_native_scene_clip_path> clip_paths = {},
+        std::span<const progpu_native_path_segment> clip_segments = {},
+        std::span<const progpu_native_scene_path_boolean_node> clip_nodes = {}) const {
+        if (!is_sampled_brush(brush_handle)) return add_gradient_opacity_mask(
+            brush_handle, x, y, width, height, source_state.transform, builder, mask_index,
+            clip_paths, clip_segments, clip_nodes);
+        mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        native::semantic_scene_builder coverage(builder.scene_id(), builder.generation());
+        std::vector<std::byte> scene;
+        const auto captured = capture_brush_rectangle(brush_handle, x, y, width, height,
+            source_state, coverage, context, scene);
+        if (captured != status::success) return captured;
         progpu_native_scene_layer_picture_mask mask{};
-        if (!try_transform_bounds(x, y, width, height, state.transform, mask.bounds)) return status::invalid_graph;
+        if (!try_transform_bounds(x, y, width, height, source_state.transform, mask.bounds)) return status::invalid_graph;
         mask.transform = native::semantic_scene_builder::identity_transform();
         mask.opacity = 1.0F;
         if (!clip_paths.empty()) {

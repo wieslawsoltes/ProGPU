@@ -379,6 +379,19 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU ImageEffect.wgsl shader"
     VERBATIM)
+set(generated_wpf_bytecode_effect_shader
+    "${generated_directory}/WpfBytecodeEffectWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_wpf_bytecode_effect_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl"
+        "-DOUTPUT=${generated_wpf_bytecode_effect_shader}"
+        "-DSYMBOL=wpf_bytecode_effect_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the original WPF bytecode effect capture template"
+    VERBATIM)
 set(generated_texture_gaussian_blur_shader
     "${generated_directory}/TextureGaussianBlurWgsl.generated.hpp")
 add_custom_command(
@@ -613,6 +626,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_hinted_glyph_paint_shader}"
         "${generated_texture_shader}"
         "${generated_image_effect_shader}"
+        "${generated_wpf_bytecode_effect_shader}"
         "${generated_texture_gaussian_blur_shader}"
         "${generated_texture_gaussian_blur_unfilterable_shader}"
         "${generated_clip_compose_shader}"
@@ -682,6 +696,8 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_brush_mask_pipeline.cpp
     src/Scene/progpu_native_semantic_mask_chain_pipeline.cpp
     src/Scene/progpu_native_scene.cpp
+    src/Scene/progpu_native_shader_effect.cpp
+    src/Scene/progpu_native_shader_effect.hpp
     src/Scene/progpu_native_scene.hpp
     src/Scene/progpu_native_semantic_budget.hpp
     src/Scene/progpu_native_semantic_brush.cpp
@@ -693,6 +709,10 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_image.hpp
     src/Scene/progpu_native_semantic_image_resources.cpp
     src/Scene/progpu_native_semantic_image_effect_resources.cpp
+    src/Scene/progpu_native_shader_effect_execution.cpp
+    src/Scene/progpu_native_shader_effect_execution.hpp
+    src/Scene/progpu_native_shader_effect_resource.hpp
+    src/Scene/progpu_native_shader_effect_uniforms.hpp
     src/Scene/progpu_native_semantic_image_blur_resources.cpp
     src/Scene/progpu_native_semantic_image_resources.hpp
     src/Scene/progpu_native_semantic_identity.cpp
@@ -1010,6 +1030,8 @@ function(progpu_native_enable_hinted_glyph_fixture target)
 endfunction()
 
 add_library(progpu_native_scene_builder STATIC
+    src/Scene/progpu_native_shader_effect.cpp
+    src/Scene/progpu_native_shader_effect.hpp
     src/Scene/Builder/progpu_native_scene_builder.cpp
     src/Scene/Builder/progpu_native_scene_builder_serialization.cpp
     src/Scene/Builder/progpu_native_scene_builder_3d.cpp
@@ -1727,7 +1749,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
+        src/Scene/progpu_native_scene.cpp
+        src/Scene/progpu_native_semantic_brush.cpp
+        src/Scene/progpu_native_semantic_color_glyph.cpp
         src/Scene/progpu_native_semantic_state.cpp
+        src/Scene/progpu_native_semantic_text_style.cpp
         src/Mil/progpu_native_mil_interop.cpp)
     target_compile_features(progpu_native_mil_tests PRIVATE cxx_std_20)
     target_include_directories(progpu_native_mil_tests PRIVATE
@@ -1910,6 +1936,9 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_internal_tests
         tests/progpu_native_internal_tests.cpp
+        tests/progpu_native_shader_effect_translation_tests.cpp
+        tests/progpu_native_shader_effect_arithmetic_tests.cpp
+        tests/progpu_native_shader_effect_uniform_tests.cpp
         tests/progpu_native_scene_builder_tests.cpp
         tests/progpu_native_scene_builder_tests.hpp
         tests/progpu_native_semantic_brush_tests.cpp
@@ -1931,6 +1960,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Backend/progpu_native_geometry_stroke.hpp
         src/Backend/progpu_native_gpu_records.hpp
         src/Scene/progpu_native_scene.cpp
+        src/Scene/progpu_native_shader_effect.cpp
+        src/Scene/progpu_native_shader_effect.hpp
         src/Scene/progpu_native_scene.hpp
         src/Scene/progpu_native_semantic_budget.hpp
         src/Scene/progpu_native_semantic_brush.cpp
@@ -2260,6 +2291,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_executable(progpu_native_tests
         tests/progpu_native_tests.cpp
         src/Scene/progpu_native_scene.cpp
+        src/Scene/progpu_native_shader_effect.cpp
         src/Scene/progpu_native_scene.hpp
         src/Scene/progpu_native_semantic_brush.cpp
         src/Scene/progpu_native_semantic_brush.hpp

@@ -685,6 +685,7 @@ static bool create_semantic_picture_binding(
     if (!mask_picture_backing && raster_cache_eligible) {
         try {
             auto backing = std::make_shared<semantic_picture_backing>();
+            backing->owner = &engine;
             backing->descriptor = raster_descriptor;
             backing->presentation = child_frame.presentation;
             backing->engine_flags = engine.engine_flags;
@@ -884,6 +885,7 @@ bool create_semantic_picture_image(
     const bool retain_history = cache_eligible && cost <= cache_budget;
     try {
         backing = std::make_shared<semantic_picture_backing>();
+        backing->owner = &engine;
         backing->descriptor = source;
         backing->presentation = presentation;
         backing->engine_flags = engine.engine_flags;
