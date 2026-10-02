@@ -32,8 +32,9 @@ The data shortcuts expand a small panel without shrinking an already larger one.
 Use **File → Open / save location…** and **Save project** to save the project.
 Simulation is local and explicit; it never automatically connects a PLC. For
 equipment commissioning, review the profile, mappings and transport permissions,
-then choose **Connect read-only** separately. The embedding host must supply the
-appropriate connection adapter; this sample does not silently install one.
+then choose **Connect read-only** separately. This sample supplies Modbus TCP,
+MQTT and OPC UA adapters, but starts offline and does not connect until that
+explicit action. Embedders supply their own connection factory.
 External writes still require a host-supplied authorization policy and separate
 review/confirmation. Desktop visual validation of this setup workflow remains
 pending under issue [#260](https://github.com/wieslawsoltes/ProGPU/issues/260).

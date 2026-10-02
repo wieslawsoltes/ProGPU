@@ -12,14 +12,28 @@ using Xunit;
 
 namespace ProGPU.Hmi.Tests;
 
-public sealed class HmiSetupNavigationTests
+public sealed class HmiSetupNavigationTests : IDisposable
 {
+    private readonly WindowInputState _previous = InputSystem.Current;
+
     private static readonly string[] SetupButtons =
     [
         "HmiSetupTags", "HmiSetupConnections", "HmiSetupComponents", "HmiSetupBindings", "HmiSetupHelp"
     ];
 
     public HmiSetupNavigationTests() => InputSystem.Current = new WindowInputState();
+
+    public void Dispose()
+    {
+        try
+        {
+            InputSystem.SetFocus(null);
+        }
+        finally
+        {
+            InputSystem.Current = _previous;
+        }
+    }
 
     [Theory]
     [InlineData(640f)]
