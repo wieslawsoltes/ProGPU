@@ -120,6 +120,19 @@ original float transform. Unproven history stays unsupported rather than being
 reconstructed from rounded final bounds. Raw v5 accepts only the complete typed
 vector clip chain at opacity one; coverage-bitmap, analytic, brush, picture and
 composite masks retain their separate contracts. Legacy effect wires are unchanged.
+Geometry operands retain the existing typed path compiler's admission and
+rasterization contracts; connecting this mask is not new numeric Windows parity
+evidence for the curve approximation or every source geometry-transform history.
+
+The paired provider fixture authors seven actual source clip generations:
+self ellipse, ancestor ellipse, Boolean difference/hole, two-curve intersection,
+nested-opacity target, DPI2, and mutation of the same ellipse resource. Every
+effect replay is compared byte-for-byte to the corresponding ordinary original
+drawing without an effect, including nontrivial fractional curve coverage.
+Cold/warm/independent replays retire the C source channel first. Structured
+controls require retained curve and Boolean records, while source-float mismatch
+and raw non-unit vector-mask opacity remain rejected before GPU submission.
+These are unexecuted authored controls, not qualification results.
 
 Remaining implementation in this branch: spatial source opacity masks, vector
 clips with unproven source-float mapping, and final source/SDK/package qualification.
