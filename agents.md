@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit axis-clip area masks retain identity source mapping, zero radii and unit
+opacity. Project original four edges through actual per-axis DPI/viewport and
+localize physical target origin before pixel overlap; never divide by DPI and
+multiply back or replace rectangular corner area with rounded-distance AA.
+Ordinary flags-zero rounded masks stay unchanged. Preserve wire rejection,
+analytic-chain flags, all shared shader consumers and independent original
+Windows/source pixels; authored math is not qualification. See
+docs/native-axis-clip-coverage.md.
+
 Target-storage Clear is an explicit retained operator, not an analytic rectangle
 or source-over transparent draw. Preserve actual attachment identity, straight
 color, source order and exact pixel-center binary clips; source transforms and

@@ -82,7 +82,7 @@ fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUn
         dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
     if (sampling.options.x == 5.0) {
         // Explicit target-axis source clip only: exact rectangular pixel area.
-        // The CPU proves a positive diagonal inverse in physical-pixel units.
+        // The CPU retains projected physical edges and the unit-pixel frame.
         // O(1), no derivatives, samples, epsilon or rounded-distance corner.
         let pixel = vec2<f32>(sampling.coordinate0.x, sampling.coordinate1.y);
         let overlap = max(min(local + 0.5 * pixel, sampling.bounds.zw) -
