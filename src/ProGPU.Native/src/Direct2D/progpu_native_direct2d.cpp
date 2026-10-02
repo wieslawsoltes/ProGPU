@@ -6,6 +6,7 @@
 #include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_rectangle.hpp"
 #include "progpu_native_direct2d_render_target.hpp"
+#include "progpu_native_direct2d_text_capture.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
@@ -5275,8 +5276,11 @@ public:
     {
         HRESULT result = record_state();
         if (SUCCEEDED(result) && text_rendering_params != nullptr) {
-            mark_unsupported(
-                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS);
+            summary_.flags |= PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS;
+            // Explicit outline mode bypasses the font rasterizer. Other modes
+            // still require the paired RGB/hinted source producer.
+            if (text_rendering_params->GetRenderingMode() != DWRITE_RENDERING_MODE_OUTLINE)
+                mark_unsupported(0U);
         }
         return result;
     }
@@ -6203,6 +6207,7 @@ public:
         if (mode > D2D1_TEXT_ANTIALIAS_MODE_ALIASED) {
             return fail_invalid_value();
         }
+        text_antialias_mode_ = mode;
         return S_OK;
     }
 
@@ -6213,9 +6218,15 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        return parameters == nullptr
-            ? S_OK
-            : fail_unsupported_state();
+        ComPtr<IDWriteRenderingParams> retained(parameters);
+        progpu::native::direct2d::text_rendering_values values{};
+        const auto status = progpu::native::direct2d::capture_text_rendering_values(retained.Get(), values);
+        if (FAILED(status)) return fail_invalid_value();
+        if (values.supplied && values.rendering_mode != DWRITE_RENDERING_MODE_OUTLINE)
+            return fail_unsupported_state();
+        text_rendering_parameters_ = std::move(retained);
+        text_rendering_values_ = values;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE SetTransform(
@@ -6275,13 +6286,25 @@ public:
             return fail_invalid_value();
         }
         if (scope_depth_ != 0U) {
-            if (clip_depth_ != scope_depth_ ||
-                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
-                    [](uint8_t scope) { return scope == scope_axis_aligned_clip; }))
+            if (!std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](uint8_t scope) { return scope == scope_axis_aligned_clip || scope == scope_opacity_layer; }))
                 return fail_unsupported_operation();
+            progpu_native_image_rect clear_bounds = clip_depth_ == 0U
+                ? progpu_native_image_rect{} : clip_stack_[clip_depth_ - 1U];
+            bool opaque = false;
+            for (std::uint32_t index = scope_depth_; index != 0U; --index) {
+                if (scope_stack_[index - 1U] != scope_opacity_layer) continue;
+                const auto initialization = layer_initialization_[index - 1U];
+                if (initialization == 0U || !layer_clear_bounds_known_[index - 1U])
+                    return fail_unsupported_operation();
+                clear_bounds = layer_clear_bounds_[index - 1U];
+                if (clip_depth_ != 0U) clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U]);
+                opaque = (initialization & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                break;
+            }
             bool recorded = false;
-            if (!progpu::native::direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
-                    {value.r, value.g, value.b, value.a}, recorded)) return fail_builder();
+            if (!progpu::native::direct2d::append_clipped_clear(builder_, clear_bounds,
+                    {value.r, value.g, value.b, opaque ? 1.0F : value.a}, recorded)) return fail_builder();
             has_aliased_primitives_ |= recorded;
             has_opacity_layers_ |= recorded;
             // Original stream Clear is not a draw callback: keep its existing
@@ -6314,13 +6337,72 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE DrawGlyphRun(
-        D2D1_POINT_2F,
-        const DWRITE_GLYPH_RUN*,
+        D2D1_POINT_2F baseline_origin,
+        const DWRITE_GLYPH_RUN* glyphs,
         const DWRITE_GLYPH_RUN_DESCRIPTION*,
-        ID2D1Brush*,
-        DWRITE_MEASURING_MODE) noexcept override
+        ID2D1Brush* foreground,
+        DWRITE_MEASURING_MODE measuring) noexcept override
     {
-        return unsupported_resource_callback();
+        begin_callback();
+        if (!can_record()) return fail_drawing_state();
+        if (!finite_point(baseline_origin) || glyphs == nullptr || foreground == nullptr ||
+            glyphs->fontFace == nullptr || !std::isfinite(glyphs->fontEmSize) ||
+            glyphs->fontEmSize <= 0.0F ||
+            (glyphs->isSideways != FALSE && glyphs->isSideways != TRUE) ||
+            (measuring != DWRITE_MEASURING_MODE_NATURAL &&
+                measuring != DWRITE_MEASURING_MODE_GDI_CLASSIC &&
+                measuring != DWRITE_MEASURING_MODE_GDI_NATURAL)) return fail_invalid_value();
+
+        progpu::native::direct2d::glyph_run_capture<DWRITE_GLYPH_OFFSET> captured;
+        const auto captured_status = captured.capture(glyphs->glyphIndices,
+            glyphs->glyphAdvances, glyphs->glyphOffsets, glyphs->glyphCount,
+            [](const DWRITE_GLYPH_OFFSET& offset) noexcept {
+                return std::isfinite(offset.advanceOffset) && std::isfinite(offset.ascenderOffset);
+            });
+        if (FAILED(captured_status)) {
+            return captured_status == E_OUTOFMEMORY
+                ? fail(PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER, captured_status)
+                : fail_invalid_value();
+        }
+        if (captured.count() == 0U) { record_draw(); return S_OK; }
+        // Do not infer that grayscale, a large em, or an ordinary design outline
+        // proves the original hinted/default rasterizer contract.
+        if (!text_rendering_values_.supplied ||
+            text_rendering_values_.rendering_mode != DWRITE_RENDERING_MODE_OUTLINE)
+            return fail_unsupported_resource();
+
+        const float em = glyphs->fontEmSize;
+        const BOOL sideways = glyphs->isSideways;
+        const BOOL right_to_left = (glyphs->bidiLevel & 1U) != 0U;
+        const ComPtr<IDWriteFontFace> face(glyphs->fontFace);
+        const ComPtr<ID2D1Brush> brush(foreground);
+        const auto text_grid = text_antialias_mode_ == D2D1_TEXT_ANTIALIAS_MODE_ALIASED ? 1U : 8U;
+        ComPtr<ID2D1Factory> factory;
+        brush->GetFactory(factory.GetAddressOf());
+        if (!factory) return fail_unsupported_resource();
+        ComPtr<ID2D1PathGeometry> path;
+        HRESULT status = factory->CreatePathGeometry(path.GetAddressOf());
+        ComPtr<ID2D1GeometrySink> sink;
+        if (SUCCEEDED(status) && !path) status = E_FAIL;
+        if (SUCCEEDED(status)) status = path->Open(sink.GetAddressOf());
+        if (SUCCEEDED(status) && !sink) status = E_FAIL;
+        if (SUCCEEDED(status)) {
+            status = face->GetGlyphRunOutline(em, captured.indices(), captured.advances(),
+                captured.offsets(), captured.count(), sideways, right_to_left, sink.Get());
+            const HRESULT closed = sink->Close();
+            if (SUCCEEDED(status)) status = closed;
+        }
+        ComPtr<ID2D1TransformedGeometry> positioned;
+        const D2D1_MATRIX_3X2_F baseline{1.0F, 0.0F, 0.0F, 1.0F, baseline_origin.x, baseline_origin.y};
+        if (SUCCEEDED(status))
+            status = factory->CreateTransformedGeometry(path.Get(), &baseline, positioned.GetAddressOf());
+        if (SUCCEEDED(status) && !positioned) status = E_FAIL;
+        if (FAILED(status))
+            return fail(status == E_OUTOFMEMORY
+                ? PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER
+                : PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_RESOURCE, status);
+        if (!can_record()) return fail_drawing_state();
+        return draw_filled_geometry(positioned.Get(), brush.Get(), text_grid);
     }
 
     HRESULT STDMETHODCALLTYPE DrawLine(
@@ -6606,8 +6688,9 @@ public:
             parameters->maskAntialiasMode != D2D1_ANTIALIAS_MODE_ALIASED) {
             return fail_invalid_value();
         }
-        if (parameters->layerOptions != D2D1_LAYER_OPTIONS1_NONE) {
-            return fail_unsupported_state();
+        const auto options = static_cast<std::uint32_t>(parameters->layerOptions);
+        if ((options & ~3U) != 0U) {
+            return fail_invalid_value();
         }
         if (scope_depth_ == scope_stack_.size()) {
             return fail_capacity_exceeded();
@@ -6671,7 +6754,11 @@ public:
             parameters->geometricMask != nullptr;
         const progpu_native_scene_layer layer{
             sizeof(progpu_native_scene_layer),
-            has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U,
+            (has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U) |
+                ((options & D2D1_LAYER_OPTIONS1_INITIALIZE_FROM_BACKGROUND) != 0U
+                    ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U) |
+                ((options & D2D1_LAYER_OPTIONS1_IGNORE_ALPHA) != 0U
+                    ? PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA : 0U),
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,
@@ -6684,6 +6771,13 @@ public:
         if (!builder_.push_layer(layer)) {
             return fail_builder();
         }
+        layer_clear_bounds_known_[scope_depth_] = has_bounds ||
+            (target_width_ > 0.0 && target_height_ > 0.0 &&
+                target_width_ <= std::numeric_limits<float>::max() && target_height_ <= std::numeric_limits<float>::max());
+        layer_clear_bounds_[scope_depth_] = has_bounds ? bounds : progpu_native_image_rect{
+            0, 0, static_cast<float>(target_width_), static_cast<float>(target_height_)};
+        layer_initialization_[scope_depth_] = layer.flags &
+            (PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND | PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA);
         scope_stack_[scope_depth_] = scope_opacity_layer;
         ++scope_depth_;
         has_opacity_layers_ = true;
@@ -7540,7 +7634,8 @@ private:
 
     HRESULT draw_filled_geometry(
         ID2D1Geometry* geometry,
-        ID2D1Brush* brush) noexcept
+        ID2D1Brush* brush,
+        std::uint32_t sample_grid = 0U) noexcept
     {
         CommandScenePathSink* raw_sink = new (std::nothrow)
             CommandScenePathSink();
@@ -7581,7 +7676,8 @@ private:
             local_bounds,
             target_bounds,
             native_transform(),
-            false);
+            false,
+            sample_grid);
     }
 
     HRESULT add_geometric_layer_mask(
@@ -8506,7 +8602,8 @@ private:
         const D2D1_RECT_F& local_bounds,
         const D2D1_RECT_F& target_bounds,
         const progpu_native_affine_2d& path_transform,
-        bool stroked) noexcept
+        bool stroked,
+        std::uint32_t sample_grid = 0U) noexcept
     {
         const auto segments = path_sink->segments();
         if (segments.empty()) {
@@ -8542,7 +8639,8 @@ private:
             {1.0F, 1.0F, 1.0F, 1.0F},
             path_transform,
             path_sink->fill_rule(),
-            antialias_mode_ == D2D1_ANTIALIAS_MODE_ALIASED ? 1U : 8U};
+            sample_grid != 0U ? sample_grid :
+                (antialias_mode_ == D2D1_ANTIALIAS_MODE_ALIASED ? 1U : 8U)};
         const progpu_native_image_rect bounds{
             target_bounds.left,
             target_bounds.top,
@@ -8584,9 +8682,15 @@ private:
     static constexpr uint8_t scope_opacity_layer = 2U;
     static constexpr uint8_t scope_antialiased_axis_clip = 3U;
     std::array<uint8_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_{};
+    std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_initialization_{};
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_known_{};
     std::vector<brush_cache_entry> brush_cache_;
     D2D1_ANTIALIAS_MODE antialias_mode_ =
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
+    D2D1_TEXT_ANTIALIAS_MODE text_antialias_mode_ = D2D1_TEXT_ANTIALIAS_MODE_DEFAULT;
+    ComPtr<IDWriteRenderingParams> text_rendering_parameters_;
+    progpu::native::direct2d::text_rendering_values text_rendering_values_{};
     uint32_t callback_index_ = 0U;
     uint32_t failure_callback_index_ = 0U;
     uint32_t failure_reason_ =

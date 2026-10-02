@@ -5,6 +5,7 @@
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
+#include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
@@ -12,6 +13,7 @@
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
+#include "../src/Direct2D/progpu_native_direct2d_text_capture.hpp"
 
 #if defined(_WIN32)
 #  include <dwrite.h>
@@ -981,6 +983,11 @@ public:
         last_glyph_count = glyph_count;
         last_is_sideways = is_sideways;
         last_is_right_to_left = is_right_to_left;
+        if (on_outline != nullptr) {
+            auto callback = std::exchange(on_outline, nullptr);
+            callback(outline_context);
+        }
+        if (com::failed(outline_result)) return outline_result;
         if (!std::isfinite(em_size) || em_size <= 0.0F ||
             (glyph_count != 0U && glyph_indices == nullptr) || sink == nullptr) {
             return com::invalid_argument;
@@ -1018,6 +1025,9 @@ public:
     std::uint32_t last_glyph_count = 0U;
     std::int32_t last_is_sideways = 0;
     std::int32_t last_is_right_to_left = 0;
+    void (*on_outline)(void*) noexcept = nullptr;
+    void* outline_context = nullptr;
+    com::result outline_result = com::ok;
 
 private:
     friend class com::atomic_reference_count<fake_font_face>;
@@ -1067,30 +1077,42 @@ public:
 
     float PROGPU_NATIVE_COM_CALL GetGamma() noexcept override
     {
-        return 2.2F;
+        if (on_query != nullptr) {
+            auto callback = std::exchange(on_query, nullptr);
+            callback(query_context);
+        }
+        return gamma;
     }
 
     float PROGPU_NATIVE_COM_CALL GetEnhancedContrast() noexcept override
     {
-        return 0.75F;
+        return contrast;
     }
 
     float PROGPU_NATIVE_COM_CALL GetClearTypeLevel() noexcept override
     {
-        return 0.5F;
+        return level;
     }
 
     compat::pixel_geometry PROGPU_NATIVE_COM_CALL GetPixelGeometry()
         noexcept override
     {
-        return compat::pixel_geometry::rgb;
+        return geometry;
     }
 
     compat::rendering_mode PROGPU_NATIVE_COM_CALL GetRenderingMode()
         noexcept override
     {
-        return compat::rendering_mode::natural_symmetric;
+        return mode;
     }
+
+    float gamma = 2.2F;
+    float contrast = 0.75F;
+    float level = 0.5F;
+    compat::pixel_geometry geometry = compat::pixel_geometry::rgb;
+    compat::rendering_mode mode = compat::rendering_mode::natural_symmetric;
+    void (*on_query)(void*) noexcept = nullptr;
+    void* query_context = nullptr;
 
 private:
     friend class com::atomic_reference_count<fake_rendering_parameters>;
@@ -1371,6 +1393,221 @@ private:
 
 static_assert(
     offsetof(fake_text_layout_vtable, draw) == 58U * sizeof(void*));
+
+bool retained_text_source_contract(compat::scene_factory_native* scene_factory)
+{
+    namespace source = progpu::native::direct2d;
+    const compat::scene_render_target_properties properties{64U, 48U, 96.0F, 96.0F, 7115U, 1U};
+    com::pointer<compat::render_target> target;
+    if (scene_factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok) return false;
+    com::pointer<compat::scene_render_target_native> scene;
+    if (target.as(compat::scene_render_target_native_interface_id, scene) != com::ok) return false;
+    const compat::color_f color{0.25F, 0.5F, 0.75F, 0.875F};
+    com::pointer<compat::solid_color_brush> brush;
+    if (target->CreateSolidColorBrush(&color, nullptr, brush.put()) != com::ok) return false;
+    com::pointer<fake_font_face> face;
+    face.attach(new fake_font_face());
+    std::uint32_t destroyed = 0U;
+    com::pointer<fake_rendering_parameters> parameters;
+    parameters.attach(new fake_rendering_parameters(&destroyed));
+    parameters->mode = compat::rendering_mode::outline;
+    parameters->geometry = compat::pixel_geometry::bgr;
+    std::uint16_t indices[]{7U, 9U};
+    float advances[]{9.0F, 10.0F};
+    compat::glyph_offset offsets[]{{0.25F, -0.5F}, {-0.25F, 1.0F}};
+    compat::glyph_run run{face.get(), 12.0F, 2U, indices, advances, offsets, 0, 1U};
+    const auto record = [&](std::vector<std::byte>& bytes) {
+        target->SetTextRenderingParams(parameters.get());
+        target->SetTextAntialiasMode(compat::text_antialias_mode::aliased);
+        target->BeginDraw();
+        target->DrawGlyphRun({30.0F, 24.0F}, &run, brush.get(), compat::measuring_mode::natural);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return false;
+        bytes.resize(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
+        std::uint64_t written = 0U;
+        return scene->BuildScene(bytes.data(), bytes.size(), &written) == com::ok && written == bytes.size();
+    };
+    std::vector<std::byte> original, reentrant;
+    if (!record(original)) return false;
+    struct mutation final {
+        compat::render_target* target;
+        compat::glyph_run* run;
+        float* advances;
+        compat::glyph_offset* offsets;
+    } context{target.get(), &run, advances, offsets};
+    parameters->query_context = &context;
+    parameters->on_query = [](void* raw) noexcept {
+        auto& value = *static_cast<mutation*>(raw);
+        value.target->SetTextRenderingParams(nullptr);
+        value.target->SetTextAntialiasMode(compat::text_antialias_mode::grayscale);
+        value.advances[0] = 99.0F;
+        value.offsets[1] = {20.0F, 30.0F};
+        value.run->font_em_size = 48.0F;
+        value.run->glyph_count = 1U;
+        value.run->bidi_level = 0U;
+    };
+    if (!record(reentrant) || !same_scene_after_generation_advance(original, reentrant) ||
+        face->outline_call_count != 2U || face->last_em_size != 12.0F ||
+        face->last_glyph_count != 2U || face->last_is_right_to_left != 1) return false;
+
+    source::text_rendering_values values{};
+    if (source::capture_text_rendering_values(parameters.get(), values) != com::ok ||
+        !values.supplied || values.gamma != 2.2F || values.enhanced_contrast != 0.75F ||
+        values.cleartype_level != 0.5F || values.pixel_geometry != 2U || values.rendering_mode != 6U)
+        return false;
+    parameters->gamma = std::numeric_limits<float>::quiet_NaN();
+    if (source::capture_text_rendering_values(parameters.get(), values) != com::invalid_argument ||
+        values.gamma != 2.2F || values.pixel_geometry != 2U) return false;
+    target->SetTextRenderingParams(parameters.get());
+    target->BeginDraw();
+    target->DrawGlyphRun({30.0F, 24.0F}, &run, brush.get(), compat::measuring_mode::natural);
+    if (target->EndDraw(nullptr, nullptr) != com::invalid_argument || face->outline_call_count != 2U)
+        return false;
+    target->SetTextRenderingParams(nullptr);
+    parameters.reset();
+    if (destroyed != 1U) return false;
+    if (source::capture_text_rendering_values<compat::rendering_parameters>(nullptr, values) != com::ok ||
+        values.supplied || values.gamma != 0.0F) return false;
+
+    source::glyph_run_capture<compat::glyph_offset> captured;
+    const auto valid_offset = [](const compat::glyph_offset& value) noexcept {
+        return std::isfinite(value.advance_offset) && std::isfinite(value.ascender_offset);
+    };
+    if (captured.capture(indices, nullptr, nullptr, 2U, valid_offset) != com::ok ||
+        captured.count() != 2U || captured.advances() != nullptr || captured.offsets() != nullptr) return false;
+    advances[1] = std::numeric_limits<float>::infinity();
+    if (captured.capture(indices, advances, offsets, 2U, valid_offset) != com::invalid_argument ||
+        captured.count() != 2U || captured.indices()[1] != 9U || captured.advances() != nullptr) return false;
+    return captured.capture(nullptr, nullptr, nullptr, 1U, valid_offset) == com::invalid_argument &&
+        captured.capture(indices, nullptr, nullptr, captured.maximum_glyph_count + 1U, valid_offset) ==
+            com::invalid_argument && captured.count() == 2U;
+}
+
+bool glyph_capture_reentry_contract(compat::scene_factory_native* scene_factory)
+{
+    constexpr compat::scene_render_target_properties properties{64U, 48U, 96.0F, 96.0F, 7117U, 1U};
+    constexpr compat::color_f color{0.25F, 0.5F, 0.75F, 1.0F};
+    constexpr compat::rectangle_f rectangle{1, 2, 20, 22};
+    constexpr compat::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
+    for (const bool from_font : {false, true}) for (unsigned mutation = 0U; mutation < 12U; ++mutation) {
+        com::pointer<compat::render_target> target;
+        if (scene_factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok) return false;
+        com::pointer<compat::scene_render_target_native> scene;
+        if (target.as(compat::scene_render_target_native_interface_id, scene) != com::ok) return false;
+        com::pointer<compat::solid_color_brush> brush;
+        if (target->CreateSolidColorBrush(&color, nullptr, brush.put()) != com::ok) return false;
+        com::pointer<fake_font_face> face;
+        face.attach(new fake_font_face());
+        std::uint32_t destroyed = 0U;
+        com::pointer<fake_rendering_parameters> parameters;
+        parameters.attach(new fake_rendering_parameters(&destroyed));
+        const std::uint16_t index = 7U;
+        const float advance = 9.0F;
+        const compat::glyph_run run{face.get(), 12.0F, 1U, &index, &advance, nullptr, 0, 0U};
+        struct mutation_context final {
+            compat::render_target* target;
+            compat::brush* brush;
+            const compat::glyph_run* run;
+            unsigned mutation;
+            com::result end_result = com::ok;
+        } context{target.get(), brush.get(), &run, mutation};
+        const auto mutate = [](void* raw) noexcept {
+            auto& value = *static_cast<mutation_context*>(raw);
+            const compat::matrix_3x2_f changed{2, 0, 0, 3, 40, 50};
+            const compat::rectangle_f bounds{3, 4, 12, 14};
+            const compat::layer_parameters layer{bounds, nullptr, compat::antialias_mode::aliased,
+                {1, 0, 0, 1, 0, 0}, 0.5F, nullptr, compat::layer_options::none};
+            switch (value.mutation) {
+            case 0U: value.target->SetTransform(&changed); break;
+            case 1U: value.target->SetDpi(120, 144); break;
+            case 2U: value.target->Clear(nullptr); break;
+            case 3U:
+                value.end_result = value.target->EndDraw(nullptr, nullptr);
+                value.target->BeginDraw();
+                break;
+            case 4U: value.target->PushAxisAlignedClip(&bounds, compat::antialias_mode::aliased); break;
+            case 5U: value.target->PopAxisAlignedClip(); break;
+            case 6U: value.target->PushLayer(&layer, nullptr); break;
+            case 7U: value.target->PopLayer(); break;
+            case 8U: value.target->SetTags(99U, 100U); break;
+            case 9U: value.target->RestoreDrawingState(nullptr); break;
+            case 10U: value.target->DrawGlyphRun({4, 20}, value.run, value.brush, compat::measuring_mode::natural); break;
+            case 11U: value.target->FillRectangle(&bounds, value.brush); break;
+            default: break;
+            }
+        };
+        target->SetTextRenderingParams(parameters.get());
+        target->SetTags(11U, 22U);
+        target->BeginDraw();
+        target->Clear(&color);
+        target->FillRectangle(&rectangle, brush.get());
+        if (mutation == 5U) target->PushAxisAlignedClip(&rectangle, compat::antialias_mode::aliased);
+        if (mutation == 7U) {
+            const compat::layer_parameters layer{rectangle, nullptr, compat::antialias_mode::aliased,
+                identity, 0.5F, nullptr, compat::layer_options::none};
+            target->PushLayer(&layer, nullptr);
+        }
+        compat::scene_render_target_summary before{}, after{};
+        scene->GetSummary(&before);
+        if (from_font) {
+            face->on_outline = mutate;
+            face->outline_context = &context;
+        } else {
+            parameters->on_query = mutate;
+            parameters->query_context = &context;
+        }
+        target->DrawGlyphRun({4, 20}, &run, brush.get(), compat::measuring_mode::natural);
+        scene->GetSummary(&after);
+        compat::matrix_3x2_f actual{};
+        target->GetTransform(&actual);
+        float dpi_x = 0, dpi_y = 0;
+        target->GetDpi(&dpi_x, &dpi_y);
+        std::uint64_t tag1 = 0U, tag2 = 0U;
+        if (target->EndDraw(&tag1, &tag2) != compat::wrong_state || tag1 != 11U || tag2 != 22U ||
+            dpi_x != 96.0F || dpi_y != 96.0F || std::memcmp(&identity, &actual, sizeof(identity)) != 0 ||
+            after.generation != before.generation || after.draw_count != before.draw_count ||
+            after.has_clear != before.has_clear || std::memcmp(&after.clear_color, &before.clear_color, sizeof(color)) != 0 ||
+            face->outline_call_count != (from_font ? 1U : 0U) ||
+            (mutation == 3U && context.end_result != compat::wrong_state)) return false;
+        // The failed original draw cannot poison the next explicitly begun
+        // generation, and its capture lease cannot leak into the next run.
+        target->BeginDraw();
+        target->DrawGlyphRun({4, 20}, &run, brush.get(), compat::measuring_mode::natural);
+        if (target->EndDraw(nullptr, nullptr) != com::ok) return false;
+        face->outline_result = com::invalid_argument;
+        target->BeginDraw();
+        target->DrawGlyphRun({4, 20}, &run, brush.get(), compat::measuring_mode::natural);
+        if (target->EndDraw(nullptr, nullptr) != com::invalid_argument) return false;
+        target->SetTextRenderingParams(nullptr);
+    }
+    // The only caller-owned target reference can disappear inside either real
+    // callback boundary. The original method still owns its target until return.
+    for (const bool from_font : {false, true}) {
+        com::pointer<compat::render_target> target;
+        if (scene_factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok) return false;
+        com::pointer<compat::solid_color_brush> brush;
+        if (target->CreateSolidColorBrush(&color, nullptr, brush.put()) != com::ok) return false;
+        com::pointer<fake_font_face> face;
+        face.attach(new fake_font_face());
+        std::uint32_t destroyed = 0U;
+        com::pointer<fake_rendering_parameters> parameters;
+        parameters.attach(new fake_rendering_parameters(&destroyed));
+        const auto release = [](void* raw) noexcept { static_cast<com::pointer<compat::render_target>*>(raw)->reset(); };
+        if (from_font) {
+            face->on_outline = release;
+            face->outline_context = &target;
+        } else {
+            parameters->on_query = release;
+            parameters->query_context = &target;
+        }
+        const std::uint16_t index = 7U;
+        const compat::glyph_run run{face.get(), 12.0F, 1U, &index, nullptr, nullptr, 0, 0U};
+        target->SetTextRenderingParams(parameters.get());
+        target->BeginDraw();
+        target->DrawGlyphRun({4, 20}, &run, brush.get(), compat::measuring_mode::natural);
+        if (target || face->outline_call_count != 1U) return false;
+    }
+    return true;
+}
 
 bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
 {
@@ -6431,10 +6668,13 @@ int run_tests()
         return 118;
     }
     if (!mutable_brush_regressions(scene_factory.get())) return 401;
+    if (!retained_text_source_contract(scene_factory.get())) return 407;
+    if (!glyph_capture_reentry_contract(scene_factory.get())) return 419;
     if (!full_target_clear_regressions(scene_factory.get())) return 402;
     if (!progpu::native::direct2d::tests::formatted_scene_copy_contract(factory.get(), second_factory.get())) return 403;
     if (!progpu::native::direct2d::tests::owned_bitmap_scene_copy_contract(factory.get(), second_factory.get())) return 404;
     if (!progpu::native::direct2d::tests::scoped_source_copy_contract(factory.get())) return 405;
+    if (!progpu::native::direct2d::tests::layer_background_source_contract(factory.get())) return 406;
     if (!owned_bitmap_wic_read_boundary(factory.get())) return 405;
     if (!progpu::native::direct2d::tests::bitmap_destination_contract(factory.get(), second_factory.get())) return 406;
     if (!progpu::native::direct2d::tests::gradient_stop_contract(scene_factory.get())) return 406;

@@ -253,6 +253,16 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     }
 
 
+    if (sampling.operationKind == 2u) {
+        // A background-initialized layer already owns the destination pixels.
+        // Coverage is independent of its alpha, including transparent Clear.
+        if (!sourceIsInside) {
+            return destination;
+        }
+        let coverage = textureLoad(patternTexture, vec2<i32>(sourceCoordinate), 0).r;
+        return mix(destination, source, coverage);
+    }
+
     if (sampling.operationKind == 1u) {
         if (!sourceIsInside || source.a <= 0.0) {
             return destination;

@@ -365,6 +365,7 @@ progpu_native_status render_scene(
     std::uint32_t semantic_backdrop_layer_count = 0U;
     std::uint32_t semantic_effected_backdrop_layer_count = 0U;
     std::uint32_t semantic_advanced_layer_count = 0U;
+    bool semantic_needs_layer_coverage = false;
     std::uint32_t semantic_advanced_source_width = 0U;
     std::uint32_t semantic_advanced_source_height = 0U;
     std::uint32_t semantic_effect_node_count = 0U;
@@ -640,13 +641,17 @@ progpu_native_status render_scene(
                     "The semantic isolated-layer pass count exceeds its bounded compilation budget.");
             }
             semantic_materialized_layer_count += materialized ? 1U : 0U;
+            semantic_needs_layer_coverage |=
+                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U;
             const bool backdrop = materialized &&
-                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                    PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
             semantic_backdrop_layer_count += backdrop ? 1U : 0U;
             semantic_effected_backdrop_layer_count +=
-                backdrop && effected ? 1U : 0U;
+                backdrop && (effected || (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U) ? 1U : 0U;
             if (materialized &&
-                is_advanced_group_blend(layer.blend_mode)) {
+                (is_advanced_group_blend(layer.blend_mode) ||
+                    (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U)) {
                 ++semantic_advanced_layer_count;
                 semantic_advanced_source_width = std::max(
                     semantic_advanced_source_width,
@@ -1783,7 +1788,7 @@ progpu_native_status render_scene(
             !texture_bytes(
                 std::max(semantic_advanced_source_width, 1U),
                 std::max(semantic_advanced_source_height, 1U),
-                1U,
+                semantic_needs_layer_coverage ? 2U : 1U,
                 semantic_advanced_source_bytes)) ||
         semantic_destination_frame_bytes >
             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES ||
@@ -4081,6 +4086,7 @@ progpu_native_status render_scene(
                 std::max(semantic_advanced_source_width, 1U),
                 std::max(semantic_advanced_source_height, 1U),
                 semantic_advanced_layer_count,
+                semantic_needs_layer_coverage,
                 frame->dpi_scale,
                 advanced_uniform_upload_bytes)) {
             discard_encoder();
@@ -4668,6 +4674,7 @@ progpu_native_status render_scene(
                     operation.target_layer = slot;
                     operation.source_layer = slot;
                     operation.parent_layer = parent_layer;
+                    operation.ignore_alpha = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
                     operation.operation_id = command.command_id;
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
@@ -4675,7 +4682,8 @@ progpu_native_status render_scene(
                         semantic::presentation_content_hash(layer.content_revision, *frame, presentation);
                     operation.backdrop =
                         (layer.flags &
-                            PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                            (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                                PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
                     if (operation.backdrop) {
                         operation.source_width = target_extent.width;
                         operation.source_height = target_extent.height;
@@ -4687,7 +4695,7 @@ progpu_native_status render_scene(
                             layer.effect_resource_index,
                             operation, target_extent))
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
-                        if (operation.effect_count != 0U) {
+                        if (operation.effect_count != 0U || operation.ignore_alpha) {
                             operation.first_backdrop_resolve_vertex =
                                 static_cast<std::uint32_t>(
                                     semantic_layer_vertices.size());
@@ -4700,7 +4708,7 @@ progpu_native_status render_scene(
                                 frame->dpi_scale,
                                 1.0F);
                         }
-                        draw_calls += operation.effect_count == 0U
+                        draw_calls += operation.effect_count == 0U && !operation.ignore_alpha
                             ? 0U
                             : 1U;
                     }
@@ -4896,12 +4904,16 @@ progpu_native_status render_scene(
                     operation.target_layer = materialized_depth == 0U
                         ? PROGPU_NATIVE_SCENE_NO_INDEX
                         : materialized_slots[materialized_depth - 1U];
+                    operation.target_ignores_alpha = materialized_depth != 0U &&
+                        (materialized_layers[materialized_depth - 1U].flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
                     operation.source_layer = source_layer;
                     operation.first_composite_vertex = first_vertex;
                     operation.blend_mode = layer.blend_mode;
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                    operation.initialized_background =
+                        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U;
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =
@@ -4919,7 +4931,8 @@ progpu_native_status render_scene(
                         operation.clip_height = composite_scissor.height;
                     }
                     const bool advanced_blend =
-                        is_advanced_group_blend(layer.blend_mode);
+                        is_advanced_group_blend(layer.blend_mode) ||
+                        operation.initialized_background;
                     if (!operation.backdrop) {
                         if (!append_effect_program(
                             layer.effect_resource_index,
@@ -4964,7 +4977,9 @@ progpu_native_status render_scene(
                                 *engine,
                                 bytes,
                                 resource,
-                                target_extent,
+                                // New coverage resolves into source-local scratch,
+                                // not directly into the parent attachment.
+                                operation.initialized_background ? source_extent : target_extent,
                                 frame->dpi_scale,
                                 deform_mask_with_composite_guidelines
                                     ? &state_cursor
@@ -5052,6 +5067,7 @@ progpu_native_status render_scene(
                         sampling.source_extent[1] =
                             static_cast<float>(source_extent.height);
                         sampling.blend_mode = layer.blend_mode;
+                        sampling.operation_kind = operation.initialized_background ? 2U : 0U;
                         WGPUTextureView destination_view =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
@@ -5667,6 +5683,8 @@ progpu_native_status render_scene(
         // including those cache slots, and is reset for each cold content pass.
         std::array<bool, semantic::layer_slot_count>
             layer_depth_initialized{};
+        std::array<bool, semantic::layer_slot_count>
+            layer_opaque_replay{};
         std::uint32_t skipped_cached_depth = 0U;
         std::array<bool, semantic::layer_slot_count>
             cached_layer_replay{};
@@ -5743,7 +5761,7 @@ progpu_native_status render_scene(
                     frame->clear_color.g,
                     frame->clear_color.b,
                     frame->clear_color.a}
-                : WGPUColor{0.0, 0.0, 0.0, 0.0};
+                : WGPUColor{0.0, 0.0, 0.0, layer_opaque_replay[target_layer] ? 1.0 : 0.0};
             WGPURenderPassDescriptor pass_descriptor{};
             pass_descriptor.label = progpu::native::webgpu::string_view(
                 "ProGPU retained semantic isolated-layer replay pass");
@@ -5841,6 +5859,7 @@ progpu_native_status render_scene(
                 if (operation.target_layer <
                     layer_depth_initialized.size()) {
                     layer_depth_initialized[operation.target_layer] = false;
+                    layer_opaque_replay[operation.target_layer] = operation.ignore_alpha;
                 }
                 if (operation.backdrop) {
                     if (operation.effect_count != 0U) {
@@ -5855,7 +5874,7 @@ progpu_native_status render_scene(
                             "A semantic backdrop capture could not be encoded.");
                     }
                     executed_draw_calls +=
-                        operation.effect_count == 0U ? 0U : 1U;
+                        operation.effect_count == 0U && !operation.ignore_alpha ? 0U : 1U;
                 }
                 if (!begin_pass(
                         operation.target_layer,
@@ -5877,7 +5896,8 @@ progpu_native_status render_scene(
                     cached_layer_replay[operation.source_layer] = false;
                 }
                 const bool advanced_blend =
-                    is_advanced_group_blend(operation.blend_mode);
+                    is_advanced_group_blend(operation.blend_mode) ||
+                    operation.initialized_background;
                 if (!content_cached || advanced_blend ||
                     active_pass_uses_depth) {
                     finish_pass();

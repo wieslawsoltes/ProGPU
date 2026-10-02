@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d_render_target.hpp"
 #include "progpu_native_direct2d_clear.hpp"
+#include "progpu_native_direct2d_text_capture.hpp"
 
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
@@ -3649,6 +3650,7 @@ private:
 class portable_scene_render_target final :
     public bitmap_render_target,
     public scene_render_target_native,
+    public scene_layer_options_native,
     public scene_bitmap_native {
 public:
     portable_scene_render_target(
@@ -3692,6 +3694,9 @@ public:
         } else if (com::guid_equal(
                 interface_id, scene_render_target_native_interface_id)) {
             *value = static_cast<scene_render_target_native*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_layer_options_native_interface_id)) {
+            *value = static_cast<scene_layer_options_native*>(this);
         } else {
             return com::no_interface;
         }
@@ -5325,6 +5330,15 @@ public:
         brush* foreground,
         measuring_mode measuring) noexcept override
     {
+        // An external font/parameter callback may release the caller's last
+        // target reference. Keep this exact recorder alive until the capture
+        // lease ends; a returned callback is not target-lifetime ownership.
+        const com::pointer<render_target> retained_target(static_cast<render_target*>(this));
+        glyph_run retained_run{};
+        direct2d::glyph_run_capture<glyph_offset> captured;
+        com::pointer<rendering_parameters> parameters;
+        std::uint32_t text_sample_grid = 8U;
+        std::uint64_t capture_id = 0U;
         {
             const std::lock_guard lock(mutex_);
             if (!can_draw()) {
@@ -5344,27 +5358,55 @@ public:
                 latch(com::invalid_argument);
                 return;
             }
-            if (glyphs->glyph_count > maximum_glyph_count) {
-                latch(com::invalid_argument);
+            const auto capture_result = captured.capture(
+                glyphs->glyph_indices, glyphs->glyph_advances,
+                glyphs->glyph_offsets, glyphs->glyph_count,
+                [](const glyph_offset& offset) noexcept {
+                    return std::isfinite(offset.advance_offset) &&
+                        std::isfinite(offset.ascender_offset);
+                });
+            if (com::failed(capture_result)) {
+                latch(capture_result);
                 return;
             }
-            for (std::uint32_t index = 0U;
-                 index < glyphs->glyph_count;
-                 ++index) {
-                if ((glyphs->glyph_advances != nullptr &&
-                        !std::isfinite(glyphs->glyph_advances[index])) ||
-                    (glyphs->glyph_offsets != nullptr &&
-                        (!std::isfinite(
-                            glyphs->glyph_offsets[index].advance_offset) ||
-                            !std::isfinite(glyphs->glyph_offsets[index]
-                                .ascender_offset)))) {
-                    latch(com::invalid_argument);
-                    return;
-                }
-            }
-            if (glyphs->glyph_count == 0U) {
+            if (glyphs->glyph_count == 0U) return;
+            if (glyph_capture_id_ == std::numeric_limits<std::uint64_t>::max()) {
+                latch(com::out_of_memory);
                 return;
             }
+            retained_run = *glyphs;
+            retained_run.glyph_indices = captured.indices();
+            retained_run.glyph_advances = captured.advances();
+            retained_run.glyph_offsets = captured.offsets();
+            parameters = text_rendering_parameters_;
+            text_sample_grid = text_antialias_mode_ == text_antialias_mode::aliased ? 1U : 8U;
+            glyph_capture_active_ = true;
+            capture_id = ++glyph_capture_id_;
+        }
+        struct capture_release final {
+            portable_scene_render_target& target;
+            const std::uint64_t id;
+            ~capture_release() {
+                const std::lock_guard lock(target.mutex_);
+                if (target.glyph_capture_id_ == id) target.glyph_capture_active_ = false;
+            }
+        } release_capture{*this, capture_id};
+
+        // Retain original source identities before calling any source getter or
+        // outline callback. Array/scalar ownership above is independent of those
+        // callbacks, including a callback replacing caller-owned run storage.
+        const com::pointer<font_face> retained_face(retained_run.font_face_value);
+        const com::pointer<brush> retained_foreground(foreground);
+        direct2d::text_rendering_values rendering_values{};
+        const auto parameters_result = direct2d::capture_text_rendering_values(
+            parameters.get(), rendering_values);
+        if (com::failed(parameters_result)) {
+            latch_external_draw_failure(parameters_result, true);
+            return;
+        }
+        {
+            const std::lock_guard lock(mutex_);
+            if (com::failed(failure_)) return;
         }
 
         path_geometry* raw_path = nullptr;
@@ -5373,7 +5415,7 @@ public:
         path.attach(raw_path);
         if (com::failed(result) || !path) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
         geometry_sink* raw_sink = nullptr;
@@ -5382,24 +5424,24 @@ public:
         sink.attach(raw_sink);
         if (com::failed(result) || !sink) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
-        result = glyphs->font_face_value->GetGlyphRunOutline(
-            glyphs->font_em_size,
-            glyphs->glyph_indices,
-            glyphs->glyph_advances,
-            glyphs->glyph_offsets,
-            glyphs->glyph_count,
-            glyphs->is_sideways,
-            (glyphs->bidi_level & 1U) != 0U ? 1 : 0,
+        result = retained_face->GetGlyphRunOutline(
+            retained_run.font_em_size,
+            retained_run.glyph_indices,
+            retained_run.glyph_advances,
+            retained_run.glyph_offsets,
+            retained_run.glyph_count,
+            retained_run.is_sideways,
+            (retained_run.bidi_level & 1U) != 0U ? 1 : 0,
             static_cast<simplified_geometry_sink*>(sink.get()));
         const com::result close_result = sink->Close();
         if (com::succeeded(result)) {
             result = close_result;
         }
         if (com::failed(result)) {
-            latch_external_draw_failure(result);
+            latch_external_draw_failure(result, true);
             return;
         }
 
@@ -5417,25 +5459,18 @@ public:
         transformed.attach(raw_transformed);
         if (com::failed(result) || !transformed) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
-        std::uint32_t text_sample_grid = 8U;
-        {
-            const std::lock_guard lock(mutex_);
-            text_sample_grid =
-                text_antialias_mode_ == text_antialias_mode::aliased
-                ? 1U
-                : 8U;
-        }
         draw_filled_geometry(
-            transformed.get(), foreground, nullptr, text_sample_grid);
+            transformed.get(), retained_foreground.get(), nullptr, text_sample_grid, capture_id);
     }
 
     void PROGPU_NATIVE_COM_CALL SetTransform(
         const matrix_3x2_f* transform) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (transform == nullptr || !core::valid_transform(transform)) {
             latch(com::invalid_argument);
             return;
@@ -5516,6 +5551,7 @@ public:
         std::uint64_t tag2) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         tag1_ = tag1;
         tag2_ = tag2;
     }
@@ -5536,6 +5572,28 @@ public:
     void PROGPU_NATIVE_COM_CALL PushLayer(
         const layer_parameters* parameters,
         layer* layer_value) noexcept override
+    {
+        push_layer(parameters, layer_value, 0U, false);
+    }
+
+    void PROGPU_NATIVE_COM_CALL PushLayer1(
+        const layer_parameters1* parameters,
+        layer* layer_value) noexcept override
+    {
+        if (parameters == nullptr) {
+            push_layer(nullptr, layer_value, 0U, true);
+            return;
+        }
+        const layer_parameters legacy{
+            parameters->content_bounds, parameters->geometric_mask,
+            parameters->mask_antialias_mode, parameters->mask_transform,
+            parameters->opacity, parameters->opacity_brush, layer_options::none};
+        push_layer(&legacy, layer_value,
+            static_cast<std::uint32_t>(parameters->options), true);
+    }
+
+    void push_layer(const layer_parameters* parameters, layer* layer_value,
+        std::uint32_t options1, bool uses_options1) noexcept
     {
         const std::lock_guard lock(mutex_);
         if (!can_draw()) {
@@ -5563,6 +5621,13 @@ public:
             latch(not_implemented);
             return;
         }
+        if (uses_options1 && (options1 & ~3U) != 0U) {
+            latch(com::invalid_argument);
+            return;
+        }
+        const std::uint32_t initialization_flags =
+            ((options1 & 1U) != 0U ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U) |
+            ((options1 & 2U) != 0U ? PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA : 0U);
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
         rectangle_f mask_content_bounds = parameters->content_bounds;
@@ -5670,10 +5735,10 @@ public:
         }
         const progpu_native_scene_layer native_layer{
             sizeof(progpu_native_scene_layer),
-            has_bounds
+            (has_bounds
                 ? static_cast<std::uint32_t>(
                     PROGPU_NATIVE_SCENE_LAYER_BOUNDS)
-                : 0U,
+                : 0U) | initialization_flags,
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,
@@ -5689,6 +5754,10 @@ public:
             return;
         }
         layer_stack_[scope_depth_] = layer_native;
+        layer_clear_bounds_[scope_depth_] = has_bounds ? bounds : progpu_native_image_rect{
+            0, 0, static_cast<float>(pixel_width_) * 96.0F / dpi_x_,
+            static_cast<float>(pixel_height_) * 96.0F / dpi_y_};
+        layer_initialization_[scope_depth_] = initialization_flags;
         scope_stack_[scope_depth_] = scope_opacity_layer;
         ++scope_depth_;
     }
@@ -5744,6 +5813,7 @@ public:
         drawing_state_block* state) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (state == nullptr) {
             latch(com::invalid_argument);
             return;
@@ -5895,19 +5965,33 @@ public:
             return;
         }
         if (scope_depth_ != 0U) {
-            if (clip_depth_ != scope_depth_ ||
-                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
-                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip; })) {
+            if (!std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip || scope == scope_opacity_layer; })) {
                 latch(not_implemented);
                 return;
+            }
+            progpu_native_image_rect clear_bounds = clip_depth_ == 0U
+                ? progpu_native_image_rect{} : clip_stack_[clip_depth_ - 1U];
+            bool opaque = pixel_format_.alpha == alpha_mode::ignore;
+            for (std::size_t index = scope_depth_; index != 0U; --index) {
+                if (scope_stack_[index - 1U] != scope_opacity_layer) continue;
+                const auto initialization = layer_initialization_[index - 1U];
+                if (initialization == 0U) {
+                    latch(not_implemented);
+                    return;
+                }
+                clear_bounds = layer_clear_bounds_[index - 1U];
+                if (clip_depth_ != 0U) clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U]);
+                opaque = (initialization & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                break;
             }
             if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
                 latch(com::out_of_memory);
                 return;
             }
-            const float alpha = pixel_format_.alpha == alpha_mode::ignore ? 1.0F : value.alpha;
+            const float alpha = opaque ? 1.0F : value.alpha;
             bool recorded = false;
-            if (!direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
+            if (!direct2d::append_clipped_clear(builder_, clear_bounds,
                     {value.red, value.green, value.blue, alpha}, recorded)) {
                 latch(builder_failure());
                 return;
@@ -5941,6 +6025,7 @@ public:
     void PROGPU_NATIVE_COM_CALL BeginDraw() noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (begun_ && !ended_) {
             latch(wrong_state);
             return;
@@ -5986,6 +6071,10 @@ public:
         std::uint64_t* tag2) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) {
+            publish_tags(tag1, tag2);
+            return failure_;
+        }
         if (!begun_ || ended_) {
             publish_tags(tag1, tag2);
             return wrong_state;
@@ -6048,6 +6137,7 @@ public:
         float dpi_y) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (dpi_x == 0.0F && dpi_y == 0.0F) {
             dpi_x = 96.0F;
             dpi_y = 96.0F;
@@ -6263,7 +6353,7 @@ public:
 private:
     bool can_copy_outside_clips_locked() const noexcept
     {
-        return scope_depth_ == clip_depth_ &&
+        return !glyph_capture_active_ && scope_depth_ == clip_depth_ &&
             std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
                 [](auto scope) { return scope == scope_axis_aligned_clip; });
     }
@@ -6514,11 +6604,19 @@ private:
 
     [[nodiscard]] bool can_draw() noexcept
     {
+        if (reject_glyph_capture_mutation()) return false;
         if (!begun_ || ended_) {
             latch(wrong_state);
             return false;
         }
         return com::succeeded(failure_);
+    }
+
+    [[nodiscard]] bool reject_glyph_capture_mutation() noexcept
+    {
+        if (!glyph_capture_active_) return false;
+        latch(wrong_state);
+        return true;
     }
 
     void latch(com::result value) noexcept
@@ -6536,10 +6634,10 @@ private:
         }
     }
 
-    void latch_external_draw_failure(com::result value) noexcept
+    void latch_external_draw_failure(com::result value, bool captured_glyph = false) noexcept
     {
         const std::lock_guard lock(mutex_);
-        if (can_draw()) {
+        if ((captured_glyph && glyph_capture_active_) || can_draw()) {
             latch(value);
         }
     }
@@ -6716,7 +6814,6 @@ private:
         failed
     };
 
-    static constexpr std::uint32_t maximum_glyph_count = 1U << 20U;
     static constexpr std::uint32_t maximum_text_length = 1U << 24U;
 
     [[nodiscard]] static std::uint32_t image_address_flags(
@@ -7494,9 +7591,19 @@ private:
         geometry* geometry_value,
         brush* brush_value,
         brush* opacity_brush,
-        std::uint32_t sample_grid = 0U) noexcept
+        std::uint32_t sample_grid = 0U,
+        std::uint64_t glyph_capture_id = 0U) noexcept
     {
         const std::lock_guard lock(mutex_);
+        if (glyph_capture_id != 0U) {
+            if (!glyph_capture_active_ || glyph_capture_id_ != glyph_capture_id) {
+                latch(wrong_state);
+                return;
+            }
+            // Consume the original generation/scope lease under this same lock.
+            // No mutation can slip between callback completion and publication.
+            glyph_capture_active_ = false;
+        }
         if (!can_draw()) {
             return;
         }
@@ -9071,6 +9178,8 @@ private:
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
     std::array<com::pointer<scene_layer_native>,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_{};
+    std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_initialization_{};
     std::size_t clip_depth_ = 0U;
     std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;
@@ -9090,6 +9199,8 @@ private:
     bool has_clear_ = false;
     bool compatible_ = false;
     bool compatible_history_dpi_valid_ = true;
+    bool glyph_capture_active_ = false;
+    std::uint64_t glyph_capture_id_ = 0U;
 };
 
 } // namespace

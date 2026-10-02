@@ -22,7 +22,9 @@ inline bool layer_requires_materialization(
     const progpu_native_scene_layer& layer) noexcept {
     return (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
                PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
-               PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
+               PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT |
+               PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND |
+               PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA)) != 0U ||
         layer.opacity != 1.0F ||
         layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
         layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||

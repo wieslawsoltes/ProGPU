@@ -18,6 +18,10 @@ inline void collect_memory(gpu_memory_inventory& inventory, const path_raster_re
     inventory.buffer(value.coverage);
     inventory.buffer(value.coverage_combine_uniforms);
     inventory.buffer(value.signed_coverage_combine_uniforms);
+    inventory.buffer(value.rgb_policy);
+    inventory.buffer(value.rgb_instances);
+    inventory.buffer(value.rgb_frame);
+    inventory.texture(value.rgb_coverage);
 }
 
 inline void collect_memory(gpu_memory_inventory& inventory, const semantic_layer_slot& value) {
@@ -127,6 +131,7 @@ inline void collect_engine_memory(
     for (const auto& slot : engine.semantic_layer_slots) collect_memory(inventory, slot);
     collect_memory(inventory, engine.semantic_root_slot);
     collect_memory(inventory, engine.semantic_advanced_source_slot);
+    collect_memory(inventory, engine.semantic_layer_coverage_slot);
     collect_memory(inventory, engine.semantic_advanced_output_slot);
     for (const auto& span : engine.semantic_render_bundle_spans) {
         if (span.shader_effect) collect_memory(inventory, *span.shader_effect);

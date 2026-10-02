@@ -3447,7 +3447,10 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheNearest |
             NativeSceneLayerFlags.CacheFant |
             NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile |
-            NativeSceneLayerFlags.CacheShared | NativeSceneLayerFlags.AliasedCompositeBounds;
+            NativeSceneLayerFlags.CacheShared | NativeSceneLayerFlags.AliasedCompositeBounds |
+            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha;
+        bool initializedBackground =
+            (layer.Flags & (NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) != 0;
         bool aliasedComposite =
             (layer.Flags & NativeSceneLayerFlags.AliasedCompositeBounds) != 0;
         bool localCache =
@@ -3469,6 +3472,13 @@ public ref struct NativeSceneStreamBuilder
                 (layer.Flags == (NativeSceneLayerFlags.Bounds | NativeSceneLayerFlags.AliasedCompositeBounds) &&
                     layer.BlendMode == GpuBlendMode.Src && layer.Opacity == 1f &&
                     layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&
+            (!initializedBackground ||
+                ((layer.Flags & ~(NativeSceneLayerFlags.Bounds |
+                        NativeSceneLayerFlags.ForceIsolation |
+                        NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) == 0 &&
+                    layer.BlendMode == GpuBlendMode.SrcOver &&
                     layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
                     layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&
             (!explicitCompositeState ||
@@ -3947,7 +3957,8 @@ public ref struct NativeSceneStreamBuilder
     private static bool RequiresMaterialization(in NativeSceneLayer layer) =>
         (layer.Flags & (NativeSceneLayerFlags.Backdrop |
             NativeSceneLayerFlags.ForceIsolation |
-            NativeSceneLayerFlags.CacheContent)) != 0 ||
+            NativeSceneLayerFlags.CacheContent |
+            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) != 0 ||
         layer.Opacity != 1f ||
         layer.BlendMode != GpuBlendMode.SrcOver ||
         layer.MaskResourceIndex != NativeMethods.SceneNoIndex ||

@@ -5,6 +5,7 @@
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
+#include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native.h"
@@ -28,6 +29,7 @@
 #include <iostream>
 #include <limits>
 #include <vector>
+#include "progpu_native_direct2d_rgb_reference.hpp"
 
 using Microsoft::WRL::ComPtr;
 using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
@@ -99,10 +101,97 @@ void require(bool condition, const char* message)
     }
 }
 
+void layer_background_regressions(progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "layer background original context failed");
+    context->SetDpi(96, 96);
+    ComPtr<ID2D1Factory> factory;
+    context->GetFactory(factory.GetAddressOf());
+    const auto target_properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96, 96);
+    const auto read_properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        target_properties.pixelFormat, 96, 96);
+    ComPtr<ID2D1Bitmap1> target, readback;
+    require(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &target_properties, target.GetAddressOf()) == S_OK &&
+        context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &read_properties, readback.GetAddressOf()) == S_OK,
+        "layer background original target/readback failed");
+    for (const bool clear_layer : {false, true}) for (std::uint32_t variant = 0U; variant < 24U; ++variant) {
+        const auto record = [&] {
+            return fixture::record_layer_background(reinterpret_cast<compat::render_target*>(context.Get()),
+                reinterpret_cast<compat::factory*>(factory.Get()), variant,
+                [&](const compat::layer_parameters1& parameters) {
+                    const D2D1_LAYER_PARAMETERS1 original{
+                        {parameters.content_bounds.left, parameters.content_bounds.top,
+                            parameters.content_bounds.right, parameters.content_bounds.bottom},
+                        reinterpret_cast<ID2D1Geometry*>(parameters.geometric_mask), D2D1_ANTIALIAS_MODE_ALIASED,
+                        D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr,
+                        static_cast<D2D1_LAYER_OPTIONS1>(fixture::layer_background_options(variant))};
+                    context->PushLayer(&original, nullptr);
+                }, clear_layer);
+        };
+        context->SetTarget(target.Get());
+        require(record() == S_OK, "layer background original Windows draw failed");
+        context->SetTarget(nullptr);
+        require(readback->CopyFromBitmap(nullptr, target.Get(), nullptr) == S_OK,
+            "layer background original pixel copy failed");
+        D2D1_MAPPED_RECT mapped{};
+        require(readback->Map(D2D1_MAP_OPTIONS_READ, &mapped) == S_OK,
+            "layer background original pixel map failed");
+        std::vector<std::uint8_t> pixels(64U * 256U);
+        for (std::size_t row = 0U; row < 64U; ++row)
+            std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
+        require(readback->Unmap() == S_OK && fixture::layer_background_pixels(pixels, 64U, variant, true, clear_layer),
+            "layer background original Windows full bytes differ from independent expected pixels");
+
+        ComPtr<ID2D1CommandList> list;
+        require(context->CreateCommandList(list.GetAddressOf()) == S_OK,
+            "layer background original command list failed");
+        context->SetTarget(list.Get());
+        require(record() == S_OK && list->Close() == S_OK, "layer background original list recording failed");
+        context->SetTarget(nullptr);
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        std::int32_t hr = E_FAIL;
+        // Original command lists can discard overwritten draws. Count their
+        // real callbacks independently; do not make source-call count an oracle.
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        require(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "layer background independent original callback inventory failed");
+        require(progpu_native_direct2d_scene_recorder_create(0xBC00U + variant, 1U, nullptr, &recorder, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "layer background recorder failed");
+        void* raw_sink = nullptr;
+        require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "layer background sink failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        require(list->Stream(sink.Get()) == S_OK, "layer background original stream translation failed");
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "layer background stream measurement failed");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes, variant, clear_layer,
+                summary.draw_count + summary.fill_count),
+            "layer background original stream lost typed initialization metadata");
+        sink.Reset();
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
 void full_target_clear_regressions(
     progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
+    layer_background_regressions(surface, source_context);
     ComPtr<ID2D1Device> device;
     source_context->GetDevice(device.GetAddressOf());
     ComPtr<ID2D1DeviceContext> context;
@@ -6888,13 +6977,10 @@ int main()
             0U,
             &background_layer_scene,
             &native_hresult) ==
-                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
-            native_hresult == E_NOTIMPL &&
-            background_layer_scene.failure_reason ==
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
-            background_layer_scene.failure_callback_index != 0U &&
-            background_layer_scene.written_bytes == 0U,
-        "Direct2D background-initialized layer did not fail closed");
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            background_layer_scene.failure_callback_index == 0U &&
+            background_layer_scene.written_bytes == 0U && background_layer_scene.required_bytes != 0U,
+        "Direct2D background-initialized layer translation failed");
 
     for (const bool with_opacity : {false, true}) {
         void* aliased_mask_layer_list_value = nullptr;
@@ -7876,6 +7962,79 @@ int main()
         {0.0F, 0.0F},
         {0.5F, 0.0F}
     };
+
+    progpu::native::direct2d::tests::capture_original_rgb_parameters(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), font_face.Get(), glyph_indices[0], require);
+
+    // Original Windows command lists retain the actual face, offsets and
+    // caller-selected outline rendering parameters. This tests the real
+    // DrawGlyphRun callback, not a synthetic FillGeometry replacement.
+    ComPtr<IDWriteRenderingParams> outline_parameters;
+    require(SUCCEEDED(static_cast<IDWriteFactory*>(dwrite_factory.Get())->CreateCustomRenderingParams(
+            2.2F, 0.75F, 0.5F, DWRITE_PIXEL_GEOMETRY_BGR,
+            DWRITE_RENDERING_MODE_OUTLINE, outline_parameters.GetAddressOf())),
+        "original outline rendering parameters failed");
+    for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
+        void* raw_list = nullptr;
+        require(progpu_native_direct2d_surface_create_command_list(surface, &raw_list, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK,
+            "outline glyph command-list creation failed");
+        ComPtr<ID2D1CommandList> list;
+        list.Attach(static_cast<ID2D1CommandList*>(raw_list));
+        require(progpu_native_direct2d_surface_begin_command_list_draw(surface, list.Get()) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+            "outline glyph command-list begin failed");
+        const bool aliased = (variant & 1U) != 0U;
+        const DWRITE_GLYPH_OFFSET original_offsets[]{{0.25F, -0.5F}, {-0.25F, 1.0F}};
+        const DWRITE_GLYPH_RUN original_run{font_face.Get(), 24.0F, 2U, glyph_indices,
+            glyph_advances, original_offsets, FALSE, (variant >> 1U)};
+        context->SetTransform(D2D1::Matrix3x2F::Identity());
+        context->SetTextAntialiasMode(aliased ? D2D1_TEXT_ANTIALIAS_MODE_ALIASED : D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+        context->SetTextRenderingParams(outline_parameters.Get());
+        context->DrawGlyphRun({32.0F, 28.0F}, &original_run, solid_brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
+        require(progpu_native_direct2d_surface_end_command_list_draw(surface, &command_tag1,
+                &command_tag2, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK,
+            "original outline glyph command-list end failed");
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        require(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                native_hresult == S_OK && summary.text_draw_count == 1U &&
+                summary.unsupported_operation_count == 0U &&
+                (summary.flags & PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS) != 0U,
+            "original outline glyph source inventory changed");
+        progpu_native_direct2d_scene_stream_result translated{};
+        translated.struct_size = sizeof(translated);
+        require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                7116U + variant, 1U, nullptr, 0U, &translated, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                translated.failure_reason == PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+                translated.translated_draw_count == 1U && translated.written_bytes == 0U,
+            "original outline glyph source measure failed");
+        std::vector<std::uint8_t> stream(static_cast<std::size_t>(translated.required_bytes));
+        require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                7116U + variant, 1U, stream.data(), stream.size(), &translated, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK &&
+                translated.written_bytes == stream.size(),
+            "original outline glyph source write failed");
+        progpu_native_scene_header header{};
+        std::memcpy(&header, stream.data(), sizeof(header));
+        bool saw_path = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            progpu_native_scene_resource resource{};
+            std::memcpy(&resource, stream.data() + header.resource_offset + index * header.resource_stride, sizeof(resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) continue;
+            progpu_native_scene_path_fill path{};
+            std::memcpy(&path, stream.data() + resource.payload_offset, sizeof(path));
+            require(path.sample_grid == (aliased ? 1U : 8U) && path.segment_count != 0U,
+                "outline glyph text AA or actual contour capture changed");
+            saw_path = true;
+        }
+        require(saw_path, "outline glyph source published no contour resource");
+    }
+    context->SetTextRenderingParams(nullptr);
+    context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
 
     constexpr char svg_xml[] =
         "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'>"
