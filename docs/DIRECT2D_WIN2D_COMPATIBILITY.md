@@ -5218,3 +5218,12 @@ either two exact patches or separate alpha/matrix commands. These tests were
 authored before the substantive commit and have not been run locally. Actual
 provider/Windows/package/application qualification remains pending; no native
 binary was built, executed or staged for this change.
+
+Post-commit source checks passed with Apple Clang C++20 and
+`-Wall -Wextra -Wpedantic -Werror -fsyntax-only` for the complete shared target and
+portable compatibility test translation units, plus instantiation of the shared
+owned-bitmap pixel fixture. The memory inventory guard passed (92 owned fields,
+seven non-owning identities excluded), and the branch includes the exact published
+`5fc73a8b` ownership-fix foundation. These checks produce no native binary and do
+not execute the tests; provider GPU translation units, Windows SDK and runtime
+behavior remain explicitly pending hosted qualification.
