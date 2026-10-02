@@ -47,8 +47,11 @@ inline bool scoped_source_copy_contract(compat::factory* owner) {
         const auto expected = kind == 0U || kind == 3U ? d2d::render_target_has_layer_or_cliprect
             : kind == 5U ? com::invalid_argument : d2d::wrong_state;
         scene->GetSummary(&after);
-        if (result != expected || before.generation != after.generation || before.draw_count != after.draw_count)
+        if (result != expected || before.generation != after.generation || before.draw_count != after.draw_count) {
+            std::fprintf(stderr, "Scoped source rejection api=%u kind=%u HRESULT=0x%08x expected=0x%08x\n",
+                api, kind, static_cast<unsigned>(result), static_cast<unsigned>(expected));
             return false;
+        }
         if (kind == 2U) target->PopLayer(); else target->PopAxisAlignedClip();
         if (target->EndDraw(nullptr, nullptr) != com::ok) return false;
         std::vector<std::byte> bytes;
@@ -106,10 +109,11 @@ void record_scoped_source_copy(compat::render_target* parent, std::uint32_t vari
             source->SetAntialiasMode(d2d::antialias_mode::aliased);
             // Actual source DIP geometry leaves one transparent physical pixel
             // at (2,3), becoming (1,1) after the original integer source crop.
+            const float right = static_cast<float>(extent + 1U) / 2.0F;
             const std::array<d2d::rectangle_f, 4U> fills{{
-                {0.5F, 2, (extent + 1U) / 2.0F, 3},
-                {0.5F, 3, 1, 4}, {1.5F, 3, (extent + 1U) / 2.0F, 4},
-                {0.5F, 4, (extent + 1U) / 2.0F, static_cast<float>(extent + 2U)}}};
+                {0.5F, 2, right, 3},
+                {0.5F, 3, 1, 4}, {1.5F, 3, right, 4},
+                {0.5F, 4, right, static_cast<float>(extent + 2U)}}};
             for (const auto& fill : fills) source->FillRectangle(&fill, brush.get());
             require(source->EndDraw(nullptr, nullptr) == com::ok, "scoped source retained drawing");
             const auto result = destination->CopyFromRenderTarget(&point, source.get(), &crop);

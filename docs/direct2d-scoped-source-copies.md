@@ -67,3 +67,14 @@ layouts remain unchanged; no generated declarations are edited.
 
 Implementation and fixtures are committed before focused checks. No local native
 binary, GPU, VM, runtime staging or original Windows execution is claimed.
+
+Post-commit source checks: strict Apple Clang C++20 syntax-only compilation
+(`-Wall -Wextra -Wpedantic -Werror`, 45-second process bounds) passed the complete
+shared image-builder and Direct2D-target implementations plus builder/portable
+compatibility test translation units. The old and new pixel templates were
+explicitly instantiated under those flags plus `-Wshadow`; syntax passed without
+executing either fixture. The memory ownership source guard covers 93 owned
+fields and excludes seven non-owning identities. No object/library was produced.
+The named-module consumer, Windows-only translation unit, native behavior and
+GPU pixel/submission assertions still require hosted execution; source syntax
+checks do not establish their result.
