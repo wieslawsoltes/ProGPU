@@ -19,6 +19,7 @@
 #include "progpu_native_shader_final_sample_fixture.hpp"
 #include "progpu_native_shader_source_mask_fixture.hpp"
 #include "progpu_native_shader_input_opacity_fixture.hpp"
+#include "progpu_native_target_clear_fixture.hpp"
 #include "progpu_native_picture_layer_fixture.hpp"
 #include "progpu_native_picture_ownership_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
@@ -2319,6 +2320,19 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(scoped_copy_reference_engine);
     phase("scoped bitmap memory copies passed");
+    {
+        auto* clear_engine = create_engine(gpu);
+        progpu::native::tests::verify_native_target_clear(
+            [&](const auto& stream, const progpu_native_scene_header& header,
+                std::uint32_t draws, std::uint32_t submissions,
+                const progpu_native_scene_presentation* presentation,
+                progpu_native_status expected, progpu_native_scene_frame_metrics& metrics) {
+                return render_scene(gpu, clear_engine, nullptr, draws, header.command_count, submissions,
+                    stream, header.scene_id, header.generation, &metrics, 1.0F, presentation, expected);
+            }, require);
+        progpu_native_engine_destroy(clear_engine);
+    }
+    phase("explicit target-storage Clear passed");
     auto* derivative_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_original_shader_derivative_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,

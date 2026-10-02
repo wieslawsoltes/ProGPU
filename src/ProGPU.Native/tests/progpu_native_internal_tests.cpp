@@ -2221,6 +2221,10 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_rgb_transport_is_owned_and_atomic());
     require(progpu::native::tests::
+        semantic_scene_builder_target_clear_is_owned_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_target_clear_preserves_input_owners());
+    require(progpu::native::tests::
         semantic_scene_builder_append_capacity_is_amortized_and_atomic());
     require(progpu::native::tests::
         semantic_scene_builder_isolation_rejects_missing_layer_atomically());
