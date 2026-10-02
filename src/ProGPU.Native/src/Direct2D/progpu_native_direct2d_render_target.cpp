@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_render_target.hpp"
+#include "progpu_native_direct2d_clear.hpp"
 
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
@@ -5677,7 +5678,26 @@ public:
             return;
         }
         if (scope_depth_ != 0U) {
-            latch(not_implemented);
+            if (clip_depth_ != scope_depth_ ||
+                !std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip; })) {
+                latch(not_implemented);
+                return;
+            }
+            if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
+                latch(com::out_of_memory);
+                return;
+            }
+            const float alpha = pixel_format_.alpha == alpha_mode::ignore ? 1.0F : value.alpha;
+            bool recorded = false;
+            if (!direct2d::append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U],
+                    {value.red, value.green, value.blue, alpha}, recorded)) {
+                latch(builder_failure());
+                return;
+            }
+            // Retained draw content participates in the existing DPI-history
+            // guard, without changing leading-clear metadata or prior resources.
+            if (recorded) ++draw_count_;
             return;
         }
         // Full-target Clear replaces the recorded scene for ordinary targets

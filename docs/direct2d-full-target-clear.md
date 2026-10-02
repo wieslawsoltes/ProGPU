@@ -19,9 +19,28 @@ ordinary scene submission premultiplies RGB once before the engine attachment
 clear. Compatible picture submission retains its existing conversion. Recordings
 without Clear preserve the target attachment.
 
-Clear inside an active clip or layer remains explicitly unsupported. Invalid
-colors and earlier recording failures cannot be revived by a later clear, and
-failed recordings publish no scene bytes.
+Clear inside an all-aliased axis-aligned clip stack appends a bounded replacement
+through the shared semantic builder's ordinary SRC layer. The already-intersected
+clip belongs to the target frame captured at each push. A later source transform,
+including a singular finite transform, cannot move that clear. Pixels outside the
+clip, preceding commands/resources, leading-clear metadata and source drawing
+state survive. A null color replaces the clipped pixels with transparent black;
+IGNORE targets instead retain alpha one. An empty intersection appends no draw.
+
+This is retained drawing, not a history reset: the portable retained draw count
+includes its primitive and preserves the existing mixed-DPI-history rejection.
+Windows translated draw counts still describe original draw callbacks, not the
+new internal clear primitive. There is no new public ABI, readback, CPU compositor
+or transfer of resource ownership. Both native providers use their existing shared
+layer execution. Ordinary uniform-DPI picture capture uses that same execution;
+this admission does not enable mapped/nonuniform picture-layer combinations.
+
+Antialiased clips (including an aliased child beneath one) and source layers remain
+explicitly unsupported for Clear. Invalid colors and earlier recording failures
+cannot be revived by a later clear; failed recordings publish no scene bytes.
+This change applies to the native portable COM recorder and Windows command-list
+translator. It does not change the separate managed CanvasDrawingSession or
+CanvasCommandList Clear contracts, nor admit automatic source-host routing.
 
 Focused portable and Windows fixtures cover replacement, repeated/null clear,
 resource reuse, retained state, first-failure identity and immutable exports.
@@ -29,5 +48,12 @@ Windows command-list counts use an independent native stream summary. The existi
 Direct2D GPU fixture exercises actual scene submission/readback, checking every
 pixel of translucent and null clears followed by transformed drawing. Existing
 provider gates and deadlines are unchanged. These cases are authored; no local
-compilation, tests, GPU or VM execution was performed. Hosted CI must qualify the
-change before merge.
+GPU or VM execution was performed. Additional aliased clipped-clear cases cover
+the captured nested clip, singular later transform, retained prefix/suffix,
+immutable export, empty intersection, null/straight/IGNORE alpha and mixed-DPI
+history. The same four physical reference variants run cold and warm on both
+native providers, with exactly three semantic draws, nine commands and one
+submission. Windows additionally compares every pixel against the original
+Microsoft WIC render target and exercises original command-list streaming plus
+direct sink callbacks. These are authored acceptance gates, not successful
+execution evidence; hosted CI must qualify the change before merge.

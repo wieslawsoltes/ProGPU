@@ -1313,6 +1313,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             target_link_libraries(progpu_native_webscene_provider_tests PRIVATE
                 progpu_native_dawn
                 progpu_native_direct2d_core
+                progpu_native_direct2d_compat
                 progpu_native_scene_builder
                 "${PROGPU_NATIVE_IOSURFACE_FRAMEWORK}"
                 "${CMAKE_DL_LIBS}")
