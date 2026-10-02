@@ -408,7 +408,15 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
             (candidate->source->face_type == 1U && !has_glyf)) return com::invalid_argument;
         candidate->units_per_em = header.units_per_em;
         if (has_cff1 || has_cff2) {
-            text::sfnt_table_view maxp{};
+            text::sfnt_table_view maxp{}, hvar{}, avar{};
+            const bool has_fvar = candidate->font.try_get_table(text::open_type_tag::from_chars('f', 'v', 'a', 'r'), fvar);
+            const bool has_hvar = candidate->font.try_get_table(text::open_type_tag::from_chars('H', 'V', 'A', 'R'), hvar);
+            const bool has_avar = candidate->font.try_get_table(text::open_type_tag::from_chars('a', 'v', 'a', 'r'), avar);
+            if ((!has_fvar && (has_hvar || has_avar)) ||
+                (has_hvar && (hvar.bytes.size() < 20U ||
+                    (hvar.bytes[4] == std::byte{0} && hvar.bytes[5] == std::byte{0} &&
+                     hvar.bytes[6] == std::byte{0} && hvar.bytes[7] == std::byte{0}))))
+                return com::invalid_argument;
             if (!detail::validate_cff_source_directory(candidate->source->files[0],
                     candidate->source->face_index, has_cff2) ||
                 !candidate->font.try_get_table(text::open_type_tag::from_chars('m', 'a', 'x', 'p'), maxp) ||
@@ -419,8 +427,7 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
             if (has_cff1) {
                 // CFF1's legacy multiple-master/synthetic operators are not the
                 // OpenType CFF2 variation contract. Do not reinterpret fvar.
-                if (candidate->source->has_variations ||
-                    candidate->font.try_get_table(text::open_type_tag::from_chars('f', 'v', 'a', 'r'), fvar))
+                if (candidate->source->has_variations || has_fvar)
                     return compat::not_implemented;
                 candidate->family = original_outline_family::cff1;
                 if (!candidate->font.try_get_cff1_font(glyphs, candidate->cff1)) return com::invalid_argument;
