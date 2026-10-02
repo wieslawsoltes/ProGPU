@@ -307,6 +307,17 @@ set(generated_text_shader
     "${generated_directory}/TextWgsl.generated.hpp")
 set(generated_rgb_glyph_rasterizer_shader "${generated_directory}/GlyphRgbRasterizerWgsl.generated.hpp")
 set(generated_rgb_glyph_composite_shader "${generated_directory}/GlyphRgbCompositeWgsl.generated.hpp")
+set(generated_target_clear_shader "${generated_directory}/TargetClearWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_target_clear_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TargetClear.wgsl"
+        "-DOUTPUT=${generated_target_clear_shader}"
+        "-DSYMBOL=target_clear_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TargetClear.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    VERBATIM)
 add_custom_command(
     OUTPUT "${generated_rgb_glyph_rasterizer_shader}"
     COMMAND "${CMAKE_COMMAND}"
@@ -663,6 +674,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_glyph_rasterizer_shader}"
         "${generated_rgb_glyph_rasterizer_shader}"
         "${generated_rgb_glyph_composite_shader}"
+        "${generated_target_clear_shader}"
         "${generated_text_shader}"
         "${generated_hinted_glyph_paint_shader}"
         "${generated_texture_shader}"
@@ -683,6 +695,7 @@ add_custom_target(progpu_native_generated_shaders
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_rgb_glyph_execution.cpp
+    src/Backend/progpu_native_target_clear.cpp
     src/Backend/progpu_native_geometry_utility.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp

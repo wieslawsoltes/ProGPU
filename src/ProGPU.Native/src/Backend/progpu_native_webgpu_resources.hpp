@@ -7,6 +7,27 @@
 // header has declared WGPUBuffer and WGPUBindGroup.
 namespace progpu::native {
 
+struct target_clear_pipeline_resources final {
+    WGPUShaderModule shader = nullptr;
+    WGPUBindGroupLayout binding_layout = nullptr;
+    WGPUPipelineLayout pipeline_layout = nullptr;
+    WGPURenderPipeline pipeline = nullptr;
+    target_clear_pipeline_resources() = default;
+    target_clear_pipeline_resources(const target_clear_pipeline_resources&) = delete;
+    target_clear_pipeline_resources& operator=(const target_clear_pipeline_resources&) = delete;
+    ~target_clear_pipeline_resources() { reset(); }
+    void reset() noexcept {
+        if (pipeline != nullptr) wgpuRenderPipelineRelease(pipeline);
+        if (pipeline_layout != nullptr) wgpuPipelineLayoutRelease(pipeline_layout);
+        if (binding_layout != nullptr) wgpuBindGroupLayoutRelease(binding_layout);
+        if (shader != nullptr) wgpuShaderModuleRelease(shader);
+        pipeline = nullptr;
+        pipeline_layout = nullptr;
+        binding_layout = nullptr;
+        shader = nullptr;
+    }
+};
+
 struct rgb_glyph_pipeline_resources final {
     WGPUShaderModule raster_shader = nullptr;
     WGPUShaderModule composite_shader = nullptr;
