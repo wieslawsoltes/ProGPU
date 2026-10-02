@@ -387,6 +387,11 @@ progpu_native_status render_scene(
             }
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
+            if (mapped_presentation && materialized &&
+                !semantic::supports_mapped_semantic_layer(layer)) {
+                return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Mapped semantic layers require transient SRC or SRC_OVER composition without cache, backdrop, effects or layer masks.");
+            }
             const bool cached =
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT) != 0U;
@@ -1656,13 +1661,13 @@ progpu_native_status render_scene(
         ++semantic_draw_count;
     }
 
-    // Flat retained 2D families have complete presentation projection. Keep
-    // the still-unqualified depth and offscreen-composite combinations
-    // explicit until their independent-axis GPU oracles are connected.
-    if (mapped_presentation &&
-        (semantic_3d_draw_count != 0U || semantic_has_materialized_layers)) {
+    // Transient 2D layer extents and draw clips are projected by their own
+    // presentation axes. Composition consumes those physical extents in the
+    // unchanged raster basis, not a second application of either DPI axis.
+    // Other layer families fail in preflight above; depth remains separate.
+    if (mapped_presentation && semantic_3d_draw_count != 0U) {
         return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-            "Mapped semantic presentation currently requires a flat 2D scene.");
+            "Mapped semantic presentation does not support retained 3D draws.");
     }
 
     const std::uint64_t semantic_effect_uniform_bytes =

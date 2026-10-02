@@ -5170,3 +5170,47 @@ presentation, copy seed and original child error. The existing target failure
 also reports its actual scene identity. These diagnostics change no rendering,
 status, assertion, pixel tolerance or submission expectation and are not a fix
 or successful qualification of that failed producer.
+
+### Bounded mapped picture layers
+
+The diagnostic Build `36989970734`, GCC job `110783643793`, identified the
+next failure precisely: formatted-copy target `9303/7` reached a valid installed
+16-by-16 child at DPI `(2,1)`, but its SRC copy layer hit the old flat-2D-only
+presentation gate. This is separate from the corrected resource-owner collision.
+
+The shared renderer now admits transient mapped SRC/SRC_OVER isolation and
+replacement layers with ordinary bounds and opacity. Existing target cursors
+project bounds independently on X/Y, preserve intersection with parent extents
+and map source clips into the same physical frame. Draw localization retains
+each nested picture's own presentation. Layer composition consumes physical
+extents divided by the unchanged scalar shader raster basis; it must not apply
+either presentation axis again. The original SRC operation remains intact so
+transparent/clipped source pixels replace destination content, not source-over
+it. There is no flattening, readback, format inference or new public ABI.
+
+Admission is deliberately bounded: mapped cache/local-cache, composite-state,
+backdrop, effects, layer masks and retained 3D remain unsupported. Their source
+metadata and bounds are never ignored or replaced by ordinary isolation. The
+old uniform rendering path is unchanged, including all format and mixed-DPI
+history restrictions. This does not claim general mapped-layer compatibility.
+
+Authored controls cover policy rejection, nested physical extents with a nonzero
+viewport, and both native providers' exact all-pixel comparison against an
+independently recorded uniform-DPI physical scene. The GPU fixture keeps both
+materialized layers, nested texture capture, source clip, transparent SRC holes,
+zero opacity, full/cropped placements and separate presentation axes. Cold
+capture requires three submissions initially, two with its unchanged nested
+leaf retained; each warm replay requires one. The original formatted Direct2D
+copy assertions remain unchanged. No local native/GPU execution or runtime
+staging was performed; hosted exact-head qualification is still required.
+
+Both provider fixtures also author eight actual render-rejection cases: cache,
+local cache, composite state, backdrop, effect, layer mask, advanced blend and
+3D. Each nested stream must pass transactional wire validation first, then fail
+picture rendering with no encoded command or submission and an unchanged engine
+submission timeline. These controls do not treat an invalid test stream as proof
+of the renderer's admission gate. Strict post-commit C++20 syntax checks passed
+the shared state implementation, complete builder-test unit and the fully
+instantiated positive/negative fixture template. The memory inventory guard
+still covers 92 owned fields and excludes seven non-owning identities; no
+provider GPU test has been run locally.
