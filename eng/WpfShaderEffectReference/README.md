@@ -41,7 +41,7 @@ The source contract was read at immutable LibreWPF `381194e1`:
 to local float edges; `WpfGfx/core/uce/drawingcontext.cpp:4912–4923` expands the
 original inner effect frame before isolation. The test retains each original
 double's exact bits, including `2 + 2^-25`, without rewriting it to its float
-projection. Its device-free expected-frame/color file has 31 independently
+projection. Its device-free expected-frame/color file has 38 independently
 authored controls, not copied original/native renderer implementation.
 This reference-only addition changes no rendering architecture; both native
 providers retain their separately authored strict fixture and admission gates.
@@ -65,6 +65,37 @@ driver is `/private/tmp/progpu-padding-oracle-check.z33L0NDS/Program.cs`; compil
 had a 30-second process bound and its pure arithmetic execution a 10-second bound.
 Actual original x64/ARM64 capture and eventual exact-head whole-Build checks remain
 required; no native producer is staged by this reference companion.
+
+### Original software UV phase evidence
+
+Reference run `37036089882` at `30d13f64554dcf38445b90a5338f7e69c48a3493`
+captured all 13 inputs / 39 replays on both architectures. The ARM64 negative
+control passed with zero qualified shaders. X64 failed only the three UV replays:
+the original software shader emitted red 16 / green 0 at (14,14), whereas the
+initial oracle incorrectly expected red 20 / green 8 from a half-pixel phase.
+The immutable failed receipt is SHA-256
+`e478aa6a6094c6be4a4c10bce3fd1ae8f1cf00beba53348797008b1a10a711fa`;
+all three UV raw images are independently identical at SHA-256
+`4253e64e4503710269fd0ae1017d12d5ffb5ad1b7d9cfa36cf57969df0585073`.
+Downloaded evidence is preserved under
+`/private/tmp/progpu-padding-original-evidence.xQ32Rpy0`.
+
+This distinction follows the original software contract, not fitted capture
+bounds: immutable `381194e1` `ShaderEffect.cpp:1136–1174` starts the inverse
+normalized-frame evaluation at device (0,0), and
+`fxjit/PixelShader/pshader.cpp:286–306` advances integer scan X/Y with integer lane
+positions. Independently applying `(x - frame.Left) / frame.Width` and
+`(y - frame.Top) / frame.Height` matches every BGRA byte in each saved 64×64 UV
+image; a half-pixel offset mismatches 896 channels in each. Frame, source bounds,
+clip, original doubles and shader input bytes are unchanged. Seven added pure
+controls require integer-origin first/adjacent/middle/last values, retain clip
+rejection and explicitly reject the half-pixel hypothesis.
+
+Only the explicitly `SoftwareOnly` reference oracle uses this phase. The native
+GPU pixel-center fixture is unchanged, and a successful software UV receipt does
+not establish hardware/native UV equivalence or complete padding parity. A fresh
+hosted original reference is still required after this correction; the prior
+failed receipt remains failed.
 
 This Windows-only, source-only executable references original Microsoft WPF,
 never LibreWPF or a ProGPU runtime. It captures the committed matrix/cross-product

@@ -52,8 +52,10 @@ internal static class ShaderPaddingOracle
             PaddingOutput.Constant => bgraChannel switch { 0 => 191, 1 => 128, _ => 64 },
             PaddingOutput.Uv => bgraChannel switch
             {
-                2 => Quantize((x - input.Frame.Left + .5) / input.Frame.Width),
-                1 => Quantize((y - input.Frame.Top + .5) / input.Frame.Height),
+                // Original WPF SOFTWARE evaluates t0 from integer device scan
+                // positions. This oracle does not select a native GPU phase.
+                2 => Quantize((double)(x - input.Frame.Left) / input.Frame.Width),
+                1 => Quantize((double)(y - input.Frame.Top) / input.Frame.Height),
                 _ => 0
             },
             PaddingOutput.Derivatives => bgraChannel switch
@@ -100,8 +102,16 @@ internal static class ShaderPaddingOracle
         Require(Expected(inputs[2], 13, 14, 2, false) == 0);
         Require(Expected(inputs[2], 41, 29, 0, false) == 191);
         Require(Expected(inputs[2], 42, 29, 0, false) == 0);
-        Require(Expected(inputs[3], 14, 14, 2, false) == 20);
-        Require(Expected(inputs[3], 14, 14, 1, false) == 8);
+        Require(Expected(inputs[3], 14, 14, 2, false) == 16);
+        Require(Expected(inputs[3], 14, 14, 1, false) == 0);
+        Require(Expected(inputs[3], 14, 15, 1, false) == 16);
+        Require(Expected(inputs[3], 15, 14, 2, false) == 24);
+        Require(Expected(inputs[3], 28, 22, 2, false) == 128 && Expected(inputs[3], 28, 22, 1, false) == 128);
+        Require(Expected(inputs[3], 41, 29, 2, false) == 231 && Expected(inputs[3], 41, 29, 1, false) == 239);
+        Require(Expected(inputs[3], 16, 16, 2, false) == 32 && Expected(inputs[3], 16, 16, 1, false) == 32);
+        Require(Expected(inputs[3], 14, 14, 2, false) != Quantize(2.5 / 32) &&
+            Expected(inputs[3], 14, 14, 1, false) != Quantize(.5 / 16));
+        Require(Expected(inputs[3], 13, 14, 2, false) == 0 && Expected(inputs[3], 14, 30, 1, false) == 0);
         Require(Expected(inputs[4], 16, 16, 2, false) == 8 && Expected(inputs[4], 16, 16, 1, false) == 16);
         Require(Expected(inputs[5], 16, 16, 2, false) == 8 && Expected(inputs[5], 16, 16, 1, false) == 16);
         Require(Expected(inputs[6], 27, 16, 2, false) == 255 && Expected(inputs[6], 28, 16, 1, false) == 255);

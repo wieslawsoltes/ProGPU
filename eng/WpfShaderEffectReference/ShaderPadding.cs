@@ -96,7 +96,7 @@ internal static partial class Program
             }
             observations.Add(new { Input = description, Replays = 3, Pixels = first, PixelSha256 = replayHashes[0], ReplaySha256 = replayHashes });
         }
-        if (observations.Count != 13 || mutationChecks != 4 || arithmeticControls != 31)
+        if (observations.Count != 13 || mutationChecks != 4 || arithmeticControls != 38)
             throw new InvalidOperationException("Original padding inventory or generation controls are incomplete.");
         var modules = Process.GetCurrentProcess().Modules.Cast<ProcessModule>()
             .Where(module => string.Equals(module.ModuleName, "wpfgfx_cor3.dll", StringComparison.OrdinalIgnoreCase))

@@ -72,7 +72,7 @@ jobs:
             if ((Get-Item -LiteralPath $paddingReceipt).Length -gt 2MB) { throw 'Original padding receipt exceeds its bound.' }
             $padding = Get-Content -LiteralPath $paddingReceipt -Raw | ConvertFrom-Json
             $qualifiedPadding = if ('${{ matrix.mode }}' -eq 'shader-pixels') { 13 } else { 0 }
-            if ($padding.SourceCommit -ne $env:REFERENCE_COMMIT -or $padding.Architecture -ne '${{ matrix.arch }}' -or $padding.CaseCount -ne 13 -or $padding.Cases.Count -ne 13 -or $padding.Replays -ne 39 -or $padding.NativeAdmittedCases -ne 10 -or $padding.ArithmeticControls -ne 31 -or $padding.MutationChecks -ne 4 -or $padding.InvalidShaders -ne 0 -or $padding.Failures.Count -ne 0 -or $padding.CaptureMode -ne '${{ matrix.mode }}' -or $padding.QualifiedShaderCases -ne $qualifiedPadding) { throw 'Incomplete or wrong-identity original padding reference.' }
+            if ($padding.SourceCommit -ne $env:REFERENCE_COMMIT -or $padding.Architecture -ne '${{ matrix.arch }}' -or $padding.CaseCount -ne 13 -or $padding.Cases.Count -ne 13 -or $padding.Replays -ne 39 -or $padding.NativeAdmittedCases -ne 10 -or $padding.ArithmeticControls -ne 38 -or $padding.MutationChecks -ne 4 -or $padding.InvalidShaders -ne 0 -or $padding.Failures.Count -ne 0 -or $padding.CaptureMode -ne '${{ matrix.mode }}' -or $padding.QualifiedShaderCases -ne $qualifiedPadding) { throw 'Incomplete or wrong-identity original padding reference.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
