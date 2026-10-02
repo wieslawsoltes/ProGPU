@@ -3574,9 +3574,8 @@ static progpu_native_status paragraph_layout_core(
                 retained.source_lines.resize(glyph_limit);
                 for (std::size_t i = 0U; i < logical_count; ++i) {
                     const auto style_index = retained.runs[retained.logical_owners[i].run_index].style_index;
-                    const double dpi = retained.source_styles[style_index].pixels_per_dip;
                     const auto& glyph = logical[i];
-                    if (!project_hinted_source_geometry(glyph, dpi, retained.source_logical_metrics[i])) {
+                    if (!project_hinted_source_geometry(glyph, retained.source_styles[style_index], retained.source_logical_metrics[i])) {
                         result->error_code = static_cast<std::uint32_t>(font_error::invalid_argument);
                         result->error_stage = PROGPU_NATIVE_TEXT_PARAGRAPH_STAGE_LAYOUT;
                         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
