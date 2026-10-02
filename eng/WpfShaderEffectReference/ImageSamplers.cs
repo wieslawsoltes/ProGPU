@@ -233,15 +233,18 @@ internal static partial class Program
                 if (inside && actual != 0 && actual != 255) ++changed;
                 byte expected = 0;
                 bool exact = unavailable || !inside || input.NativeVariant >= 0 || input.ExactCenteredCrop;
-                if (inside && unavailable) expected = 255;
-                else if (inside && input.NativeVariant >= 0)
+                // On native ARM64 the unavailable software ImageBrush shader
+                // contributes no color, unlike the separate implicit-input
+                // controls that retain their original white input. Neither
+                // behavior qualifies shader execution on that architecture.
+                if (!unavailable && inside && input.NativeVariant >= 0)
                 {
                     int variant = input.NativeVariant;
                     int stripe = ((x - 8 + 32 - (variant == 2 ? 8 : 0)) / (variant == 0 ? 16 : 8)) & 1;
                     int color = stripe == 1 ? 1 : variant == 3 ? 0 : 2;
                     if (channel == color) expected = variant == 3 ? (byte)255 : (byte)128;
                 }
-                else if (inside && input.ExactCenteredCrop && y >= 50 && y < 70)
+                else if (!unavailable && inside && input.ExactCenteredCrop && y >= 50 && y < 70)
                     expected = channel == (x < 58 ? 2 : 1) ? (byte)64 : (byte)0;
                 if (exact && actual != expected)
                     throw new InvalidOperationException($"{input.Name}: ({x},{y}) BGRA[{channel}]={actual}, expected {expected}.");

@@ -114,3 +114,14 @@ cases or capability checks is weakened. The producer behavior being investigated
 is documented in the original WPF `ShaderEffect.cpp` secondary-input capture:
 its fresh capture context inherits the incoming render state. This observation
 does not establish the effective render-option ordering by itself.
+
+The complete native ARM64 original capture `37010911430`, job `110850135785`,
+established a distinct unavailable-software outcome for all 16 ImageBrush inputs:
+their shader contributes no color, leaving every BGRA pixel `(0,0,0,255)` over
+the original black background. The old 25 implicit-input controls still produce
+their required clipped white input. Their checks stay unchanged; the new sampler
+negative control checks every byte against the observed empty contribution and
+continues to report zero qualified shader cases. All input/PNG/raw artifacts and
+the failed initial white-input assumption remain recorded. This architecture's
+negative outcome must never become a product pixel expectation or replace the
+positive x64 or native ARM64 GPU gates.
