@@ -84,6 +84,17 @@ native build was needed. The independent integer reference matched every one of
 the 16,384 original BGRA bytes in each of `sampler-native-1/2/3` from the successful
 x64 receipt above. This is an offline reference check, not execution of the new
 native implementation or its GPU fixture.
+Hosted Build `37016865292` at `ed61c2802` exposed a genuine ARM admission defect:
+the first repeated Linear case retained the old clamped page, failing both its
+exact scene flags and all-pixel checks. For the full-Fill 144-DPI source,
+contracted multiply/subtract retains a `2^-50` extent residual and `2^-51`
+centered origin; isolated AArch64 source-expression LLVM lowering confirmed the
+fused operations without linking or execution. Semantic Fill admission corrects
+that predicate, while the original GPU assertions remain unchanged. The same
+Build exposed an MSVC signed/unsigned fixture comparison, now explicitly typed.
+Post-fix strict compiler/test/instantiated-fixture syntax, complete cached native
+contract checks and whitespace checks passed. Actual post-fix ARM/provider
+execution is still a separate hosted gate.
 Hosted native/provider execution, Windows hardware, package closure and actual
 source application qualification remain pending. No local native/GPU build,
 runtime staging or VM is part of this change.
