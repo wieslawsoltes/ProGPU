@@ -16894,16 +16894,14 @@ CompilePathStroke:
         }
         else if (effect is WpfShaderEffect shaderEffect)
         {
-            float padding = MathF.Ceiling(MathF.Max(0f, shaderEffect.Padding));
+            float padding = EffectCaptureFrame.ResolveShaderPadding(shaderEffect.Padding);
             paddingX = padding;
             paddingY = padding;
         }
 
         if (fe.EffectRasterPadding is { } requestedPadding)
         {
-            float padding = float.IsFinite(requestedPadding)
-                ? MathF.Max(0f, requestedPadding)
-                : 0f;
+            float padding = EffectCaptureFrame.ResolveRasterPadding(requestedPadding);
             paddingX = padding;
             paddingY = padding;
         }
@@ -16913,18 +16911,16 @@ CompilePathStroke:
         if (contentBounds.IsEmpty)
             return;
 
-        var paddedRect = new Rect(
-            contentBounds.X - paddingX,
-            contentBounds.Y - paddingY,
-            contentBounds.Width + paddingX * 2f,
-            contentBounds.Height + paddingY * 2f);
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
-        float logicalWidth = MathF.Max(1f, paddedRect.Width);
-        float logicalHeight = MathF.Max(1f, paddedRect.Height);
-        uint logicalRenderWidth = (uint)MathF.Ceiling(logicalWidth);
-        uint logicalRenderHeight = (uint)MathF.Ceiling(logicalHeight);
-        uint w = (uint)MathF.Ceiling(logicalWidth * dpiScale);
-        uint h = (uint)MathF.Ceiling(logicalHeight * dpiScale);
+        if (!EffectCaptureFrame.TryCreateResolved(contentBounds, paddingX, paddingY, dpiScale, out var captureFrame))
+            throw new InvalidOperationException("Effect input capture has nonfinite or unrepresentable bounds or dimensions.");
+        Rect paddedRect = captureFrame.PaddedBounds;
+        float logicalWidth = captureFrame.LogicalWidth;
+        float logicalHeight = captureFrame.LogicalHeight;
+        uint logicalRenderWidth = captureFrame.LogicalRenderWidth;
+        uint logicalRenderHeight = captureFrame.LogicalRenderHeight;
+        uint w = captureFrame.PixelWidth;
+        uint h = captureFrame.PixelHeight;
 
         bool hasCached = _effectTextures.TryGetValue(fe, out var textures);
         int effectCacheKey = effect.GetRenderCacheKey();

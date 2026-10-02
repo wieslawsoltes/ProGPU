@@ -9,6 +9,13 @@ reference inputs and paired cold/warm ownership controls. See
 docs/native-shader-sampler-render-options.md; SoftwareOnly reference evidence does
 not qualify hardware filtering or repeated-source addressing.
 
+Effect input sizing shares the pure Scene EffectCaptureFrame with source sampler
+adapters. Preserve original float padded bounds separately from minimum-one
+logical extent, float multiplication before physical ceiling, and fractional
+raster-padding overrides. Keep actual DPI explicit and invalid/overflow output
+atomic; no texture/device ownership or native capture admission belongs here.
+See docs/effect-capture-frame.md; arithmetic checks are not shader pixel parity.
+
 ShaderEffect UV derivative registers use explicit version-3 metadata while
 preserving v1/v2 layouts. The native binding writes the selected register after
 original constants from the proven complete positive-axis physical capture
