@@ -103,6 +103,15 @@ jobs:
               }
             }
             if ($axis.SdkCompanion.Build.SourceCommit -cne $env:REFERENCE_COMMIT -or $axis.SdkCompanion.Build.Architecture -cne '${{ matrix.arch }}' -or $axis.SdkCompanion.Binary.Sha256 -cne $axis.SdkCompanion.Build.Binary.Sha256 -or $axis.SdkCompanion.Build.DirectXHeaders.Count -lt 3 -or $axis.SdkCompanion.Build.CompilerBackends.Count -ne 2) { throw 'Original SDK companion provenance is incomplete.' }
+            $affinePath = Join-Path $evidence 'shader-affine-math.json'
+            if ((Get-Item -LiteralPath $affinePath).Length -gt 1MB) { throw 'Original affine math receipt exceeds its bound.' }
+            $affine = Get-Content -LiteralPath $affinePath -Raw | ConvertFrom-Json
+            if ($affine.Schema -ne 1 -or $affine.SourceCommit -cne $env:REFERENCE_COMMIT -or $affine.Architecture -cne '${{ matrix.arch }}' -or $affine.CaseCount -ne 8 -or $affine.Cases.Count -ne 8 -or $affine.AtomicControls -ne 4 -or $affine.Failures.Count -ne 0 -or $affine.QualifiedSdkCases -ne 8 -or $affine.QualifiedNativeCases -ne 0 -or $affine.QualifiedHardwareCases -ne 0) { throw 'Incomplete or misqualified original affine SDK inventory.' }
+            foreach ($name in @('quarter', 'mirror', 'swap', 'shear', 'oblique', 'mixed-dpi', 'noncommuting', 'canceled-history')) {
+              $cases = @($affine.Cases | Where-Object { $_.Name -ceq $name })
+              if ($cases.Count -ne 1 -or $cases[0].OriginalDoubleBits.Count -ne 24 -or $cases[0].Values.Count -ne 156 -or $cases[0].FloatBits.Count -ne 156 -or $cases[0].Traits.Count -ne 5) { throw "Missing or incomplete original affine SDK case: $name" }
+            }
+            if ($affine.SdkCompanion.Build.SourceCommit -cne $env:REFERENCE_COMMIT -or $affine.SdkCompanion.Binary.Sha256 -cne $axis.SdkCompanion.Binary.Sha256) { throw 'Affine SDK companion identity differs from the original companion.' }
             Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
           } finally {
             if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }

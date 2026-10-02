@@ -142,6 +142,7 @@ internal static partial class Program
         private delegate int Probe(IntPtr input,uint inputs,IntPtr output,uint outputs,IntPtr traits,uint traitCount);
         private readonly IntPtr library;
         private readonly Probe probe;
+        private readonly Probe affineProbe;
         internal object Identity {get;}
         internal OriginalAxisSdk(string commit)
         {
@@ -173,10 +174,14 @@ internal static partial class Program
             }
             Identity=new {Binary=FileIdentity(path),Build=provenance.RootElement.Clone()};
             library=NativeLibrary.Load(path);
-            try { probe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAxisMath")); }
+            try
+            {
+                probe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAxisMath"));
+                affineProbe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAffineMath"));
+            }
             catch { NativeLibrary.Free(library); throw; }
         }
-        private int Invoke(double[] input,uint inputCount,float[] output,uint outputCount,uint[] traits)
+        private int Invoke(double[] input,uint inputCount,float[] output,uint outputCount,uint[] traits,Probe? selected=null)
         {
             var a=GCHandle.Alloc(input,GCHandleType.Pinned);
             try
@@ -185,7 +190,7 @@ internal static partial class Program
                 try
                 {
                     var c=GCHandle.Alloc(traits,GCHandleType.Pinned);
-                    try { return probe(a.AddrOfPinnedObject(),inputCount,b.AddrOfPinnedObject(),outputCount,c.AddrOfPinnedObject(),5); }
+                    try { return (selected??probe)(a.AddrOfPinnedObject(),inputCount,b.AddrOfPinnedObject(),outputCount,c.AddrOfPinnedObject(),5); }
                     finally {c.Free();}
                 }
                 finally {b.Free();}
@@ -210,6 +215,27 @@ internal static partial class Program
                     throw new InvalidOperationException("SDK companion rejection was not atomic.");
             }
             return 3;
+        }
+        internal (float[] Values,uint[] Traits) CaptureAffine(double[] input)
+        {
+            if(input.Length!=24) throw new InvalidOperationException("Wrong affine original input count.");
+            var values=new float[156]; var traits=new uint[5];
+            if(Invoke(input,24,values,156,traits,affineProbe)!=1) throw new InvalidOperationException("Original affine SDK capture failed.");
+            return(values,traits);
+        }
+        internal int VerifyAffineAtomicControls(double[] original)
+        {
+            for(int mode=0;mode<4;++mode)
+            {
+                var input=(double[])original.Clone();
+                var values=Enumerable.Repeat(3.25f,156).ToArray(); var traits=Enumerable.Repeat(777U,5).ToArray();
+                if(mode==0) input[0]=double.NaN;
+                if(mode==3) input[22]=0;
+                if(Invoke(input,mode==1?23U:24U,values,mode==2?155U:156U,traits,affineProbe)!=0 ||
+                    values.Any(x=>x!=3.25f) || traits.Any(x=>x!=777U))
+                    throw new InvalidOperationException("Affine SDK companion rejection was not atomic.");
+            }
+            return 4;
         }
         public void Dispose()=>NativeLibrary.Free(library);
     }

@@ -972,7 +972,7 @@ scissor semantic_layer_target_cursor::advance(
         if (materialized) {
             auto presentation = current_presentation();
             progpu_native_scene_shader_sample_frame sample_frame{};
-            const bool sampled = shader_effect::layer_sample_frame(bytes_, layer, sample_frame);
+            const bool sampled = shader_effect::layer_output_frame(bytes_, layer, sample_frame);
             const bool local_cache =
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;

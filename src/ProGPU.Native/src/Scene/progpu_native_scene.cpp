@@ -756,11 +756,12 @@ validation_result validate(
             progpu_native_scene_shader_effect program{};
             progpu_native_scene_shader_capture_frame capture_frame{};
             progpu_native_scene_shader_sample_frame sample_frame{};
+            progpu_native_scene_shader_affine_frame affine_frame{};
             std::uint32_t sampler{}, derivative_register{}, input{};
             if (!shader_effect::read_resource(
                     std::span(bytes + resource.payload_offset, resource.payload_size),
                     std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), program, sampler, derivative_register,
-                    capture_frame, input, sample_frame))
+                    capture_frame, input, sample_frame, affine_frame))
                 return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);
             for (const auto dependency : {sampler, input}) {
                 if (dependency == PROGPU_NATIVE_SCENE_NO_INDEX) continue;

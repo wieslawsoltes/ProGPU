@@ -392,7 +392,7 @@ progpu_native_status render_scene(
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
             progpu_native_scene_shader_sample_frame physical_sample_frame{};
-            const bool final_sample_layer = shader_effect::layer_sample_frame(bytes, layer, physical_sample_frame);
+            const bool final_sample_layer = shader_effect::layer_output_frame(bytes, layer, physical_sample_frame);
             if (mapped_presentation && materialized &&
                 !final_sample_layer && !semantic::supports_mapped_semantic_layer(layer)) {
                 return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
@@ -501,13 +501,14 @@ progpu_native_status render_scene(
                     progpu_native_scene_shader_effect shader{};
                     progpu_native_scene_shader_capture_frame capture_frame{};
                     progpu_native_scene_shader_sample_frame sample_frame{};
+                    progpu_native_scene_shader_affine_frame affine_frame{};
                     std::uint32_t input_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
                     std::uint32_t sampler_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
                     std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                     if (!shader_effect::read_resource(
                             std::span(bytes + effect_resource.payload_offset, effect_resource.payload_size),
                             std::span(bytes + effect_resource.auxiliary_offset, effect_resource.auxiliary_size),
-                            shader, sampler_picture, derivative_register, capture_frame, input_picture, sample_frame))
+                            shader, sampler_picture, derivative_register, capture_frame, input_picture, sample_frame, affine_frame))
                         return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A retained WPF shader descriptor is invalid.");
                     // Old versions keep their exact integral-domain gate. V4
@@ -4528,13 +4529,14 @@ progpu_native_status render_scene(
                 progpu_native_scene_shader_effect shader{};
                 progpu_native_scene_shader_capture_frame capture_frame{};
                 progpu_native_scene_shader_sample_frame sample_frame{};
+                progpu_native_scene_shader_affine_frame affine_frame{};
                 std::uint32_t input_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 std::uint32_t sampler_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                 if (!shader_effect::read_resource(
                         std::span(bytes + resource.payload_offset, resource.payload_size),
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                        shader, sampler_index, derivative_register, capture_frame, input_index, sample_frame)) return false;
+                        shader, sampler_index, derivative_register, capture_frame, input_index, sample_frame, affine_frame)) return false;
                 if (capture_frame.capture_width != 0U &&
                     (capture_frame.capture_width != source_extent.width ||
                      capture_frame.capture_height != source_extent.height)) return false;
@@ -4581,7 +4583,9 @@ progpu_native_status render_scene(
                 else if (!capture_picture(sampler_index, sampler_picture)) return false;
                 if (input_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
                     shader_effect::sample_frame actual_frame{};
-                    if (!shader_effect::create_sample_frame(shader_effect::sample_request(sample_frame), actual_frame))
+                    const bool affine = affine_frame.placement.capture_width != 0U;
+                    if (!(affine ? shader_effect::create_affine_sample_frame(shader_effect::sample_request(affine_frame), actual_frame)
+                                 : shader_effect::create_sample_frame(shader_effect::sample_request(sample_frame), actual_frame)))
                         return false;
                     const shader_effect::sample_lattice actual_target{
                         static_cast<std::int32_t>(parent_extent.x) - static_cast<std::int32_t>(presentation.viewport_x),
@@ -4591,7 +4595,7 @@ progpu_native_status render_scene(
                     operation.shader_effect = create_semantic_sample_shader_binding(*engine, shader,
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), actual_frame, actual_target,
                         std::move(sampler_picture), sample_frame, std::move(input_picture), derivative_register,
-                        source_vector_mask);
+                        source_vector_mask, affine ? &affine_frame : nullptr);
                 } else {
                     operation.shader_effect = create_semantic_shader_binding(*engine, shader,
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
@@ -4601,7 +4605,8 @@ progpu_native_status render_scene(
                 if (!operation.shader_effect) return false;
                 operation.effect_count = 1U;
                 operation.final_effect_texture = 0U;
-                const std::uint32_t uniform_bytes = input_index != PROGPU_NATIVE_SCENE_NO_INDEX ? 592U : 528U;
+                const std::uint32_t uniform_bytes = affine_frame.placement.capture_width != 0U ? 608U :
+                    input_index != PROGPU_NATIVE_SCENE_NO_INDEX ? 592U : 528U;
                 semantic_layer_uniform_upload_bytes += uniform_bytes;
                 semantic_layer_effect_uniform_upload_bytes += uniform_bytes;
                 return true;
