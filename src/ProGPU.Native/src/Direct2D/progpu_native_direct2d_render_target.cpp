@@ -5102,13 +5102,21 @@ public:
             0.0F,
             static_cast<float>(snapshot.width) * 96.0F / snapshot.dpi_x,
             static_cast<float>(snapshot.height) * 96.0F / snapshot.dpi_y};
-        const rectangle_f destination_rectangle = destination == nullptr
-            ? bitmap_dips
-            : *destination;
         const rectangle_f source_rectangle = source == nullptr
             ? bitmap_dips
             : *source;
-        if (!valid_rectangle(destination_rectangle) ||
+        const rectangle_f destination_rectangle = destination == nullptr
+            ? rectangle_f{0.0F, 0.0F,
+                source_rectangle.right - source_rectangle.left,
+                source_rectangle.bottom - source_rectangle.top}
+            : *destination;
+        // A missing destination retains the selected source's DIP extent at
+        // the target origin, not the complete bitmap size. Validate original
+        // resource/source/nonfinite errors before the finite inverted no-op.
+        if (!std::isfinite(destination_rectangle.left) ||
+            !std::isfinite(destination_rectangle.top) ||
+            !std::isfinite(destination_rectangle.right) ||
+            !std::isfinite(destination_rectangle.bottom) ||
             !valid_rectangle(source_rectangle) ||
             source_rectangle.left < 0.0F || source_rectangle.top < 0.0F ||
             source_rectangle.right > bitmap_dips.right ||
@@ -5116,6 +5124,10 @@ public:
             latch(com::invalid_argument);
             return;
         }
+        // Direct2D explicitly leaves the target usable for a destination whose
+        // finite edges are not well-ordered. This is not a mirrored image draw.
+        if (destination_rectangle.left > destination_rectangle.right ||
+            destination_rectangle.top > destination_rectangle.bottom) return;
         progpu_native_scene_image_draw image{};
         image.image_width = snapshot.width;
         image.image_height = snapshot.height;

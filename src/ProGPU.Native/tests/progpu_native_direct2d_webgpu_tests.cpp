@@ -17,6 +17,7 @@
 #include "progpu_native_direct2d_owned_bitmap_pixels.hpp"
 #include "progpu_native_direct2d_scoped_copy_fixture.hpp"
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
+#include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "progpu_native_hinted_glyph_rendering_fixture.hpp"
 #include "progpu_native_hinted_paragraph_rendering_fixture.hpp"
@@ -2200,6 +2201,11 @@ int main(int argc, char** argv)
     progpu::native::tests::verify_picture_axis_presentation(render_picture, require);
     progpu::native::tests::verify_picture_resource_ownership(render_picture, require);
     progpu::native::tests::verify_picture_layer_presentation(render_picture, require);
+    progpu::native::direct2d::tests::verify_bitmap_destination_pixels(
+        [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
+            return render_scene(gpu, reference ? picture_reference_engine : engine, nullptr,
+                1U, 1U, submissions, stream, 0x95C3U, generation);
+        }, require);
     progpu_native_engine_destroy(picture_reference_engine);
     phase("per-axis picture pixels passed");
     auto* shader_reference_engine = create_engine(gpu);
