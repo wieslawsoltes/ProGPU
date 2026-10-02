@@ -5330,10 +5330,15 @@ public:
         brush* foreground,
         measuring_mode measuring) noexcept override
     {
+        // An external font/parameter callback may release the caller's last
+        // target reference. Keep this exact recorder alive until the capture
+        // lease ends; a returned callback is not target-lifetime ownership.
+        const com::pointer<render_target> retained_target(static_cast<render_target*>(this));
         glyph_run retained_run{};
         direct2d::glyph_run_capture<glyph_offset> captured;
         com::pointer<rendering_parameters> parameters;
         std::uint32_t text_sample_grid = 8U;
+        std::uint64_t capture_id = 0U;
         {
             const std::lock_guard lock(mutex_);
             if (!can_draw()) {
@@ -5365,13 +5370,27 @@ public:
                 return;
             }
             if (glyphs->glyph_count == 0U) return;
+            if (glyph_capture_id_ == std::numeric_limits<std::uint64_t>::max()) {
+                latch(com::out_of_memory);
+                return;
+            }
             retained_run = *glyphs;
             retained_run.glyph_indices = captured.indices();
             retained_run.glyph_advances = captured.advances();
             retained_run.glyph_offsets = captured.offsets();
             parameters = text_rendering_parameters_;
             text_sample_grid = text_antialias_mode_ == text_antialias_mode::aliased ? 1U : 8U;
+            glyph_capture_active_ = true;
+            capture_id = ++glyph_capture_id_;
         }
+        struct capture_release final {
+            portable_scene_render_target& target;
+            const std::uint64_t id;
+            ~capture_release() {
+                const std::lock_guard lock(target.mutex_);
+                if (target.glyph_capture_id_ == id) target.glyph_capture_active_ = false;
+            }
+        } release_capture{*this, capture_id};
 
         // Retain original source identities before calling any source getter or
         // outline callback. Array/scalar ownership above is independent of those
@@ -5382,8 +5401,12 @@ public:
         const auto parameters_result = direct2d::capture_text_rendering_values(
             parameters.get(), rendering_values);
         if (com::failed(parameters_result)) {
-            latch_external_draw_failure(parameters_result);
+            latch_external_draw_failure(parameters_result, true);
             return;
+        }
+        {
+            const std::lock_guard lock(mutex_);
+            if (com::failed(failure_)) return;
         }
 
         path_geometry* raw_path = nullptr;
@@ -5392,7 +5415,7 @@ public:
         path.attach(raw_path);
         if (com::failed(result) || !path) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
         geometry_sink* raw_sink = nullptr;
@@ -5401,7 +5424,7 @@ public:
         sink.attach(raw_sink);
         if (com::failed(result) || !sink) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
         result = retained_face->GetGlyphRunOutline(
@@ -5418,7 +5441,7 @@ public:
             result = close_result;
         }
         if (com::failed(result)) {
-            latch_external_draw_failure(result);
+            latch_external_draw_failure(result, true);
             return;
         }
 
@@ -5436,17 +5459,18 @@ public:
         transformed.attach(raw_transformed);
         if (com::failed(result) || !transformed) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
         draw_filled_geometry(
-            transformed.get(), retained_foreground.get(), nullptr, text_sample_grid);
+            transformed.get(), retained_foreground.get(), nullptr, text_sample_grid, capture_id);
     }
 
     void PROGPU_NATIVE_COM_CALL SetTransform(
         const matrix_3x2_f* transform) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (transform == nullptr || !core::valid_transform(transform)) {
             latch(com::invalid_argument);
             return;
@@ -5527,6 +5551,7 @@ public:
         std::uint64_t tag2) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         tag1_ = tag1;
         tag2_ = tag2;
     }
@@ -5788,6 +5813,7 @@ public:
         drawing_state_block* state) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (state == nullptr) {
             latch(com::invalid_argument);
             return;
@@ -6000,6 +6026,7 @@ public:
     void PROGPU_NATIVE_COM_CALL BeginDraw() noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (begun_ && !ended_) {
             latch(wrong_state);
             return;
@@ -6045,6 +6072,10 @@ public:
         std::uint64_t* tag2) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) {
+            publish_tags(tag1, tag2);
+            return failure_;
+        }
         if (!begun_ || ended_) {
             publish_tags(tag1, tag2);
             return wrong_state;
@@ -6107,6 +6138,7 @@ public:
         float dpi_y) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (dpi_x == 0.0F && dpi_y == 0.0F) {
             dpi_x = 96.0F;
             dpi_y = 96.0F;
@@ -6322,7 +6354,7 @@ public:
 private:
     bool can_copy_outside_clips_locked() const noexcept
     {
-        return scope_depth_ == clip_depth_ &&
+        return !glyph_capture_active_ && scope_depth_ == clip_depth_ &&
             std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
                 [](auto scope) { return scope == scope_axis_aligned_clip; });
     }
@@ -6573,11 +6605,19 @@ private:
 
     [[nodiscard]] bool can_draw() noexcept
     {
+        if (reject_glyph_capture_mutation()) return false;
         if (!begun_ || ended_) {
             latch(wrong_state);
             return false;
         }
         return com::succeeded(failure_);
+    }
+
+    [[nodiscard]] bool reject_glyph_capture_mutation() noexcept
+    {
+        if (!glyph_capture_active_) return false;
+        latch(wrong_state);
+        return true;
     }
 
     void latch(com::result value) noexcept
@@ -6595,10 +6635,10 @@ private:
         }
     }
 
-    void latch_external_draw_failure(com::result value) noexcept
+    void latch_external_draw_failure(com::result value, bool captured_glyph = false) noexcept
     {
         const std::lock_guard lock(mutex_);
-        if (can_draw()) {
+        if ((captured_glyph && glyph_capture_active_) || can_draw()) {
             latch(value);
         }
     }
@@ -7552,9 +7592,19 @@ private:
         geometry* geometry_value,
         brush* brush_value,
         brush* opacity_brush,
-        std::uint32_t sample_grid = 0U) noexcept
+        std::uint32_t sample_grid = 0U,
+        std::uint64_t glyph_capture_id = 0U) noexcept
     {
         const std::lock_guard lock(mutex_);
+        if (glyph_capture_id != 0U) {
+            if (!glyph_capture_active_ || glyph_capture_id_ != glyph_capture_id) {
+                latch(wrong_state);
+                return;
+            }
+            // Consume the original generation/scope lease under this same lock.
+            // No mutation can slip between callback completion and publication.
+            glyph_capture_active_ = false;
+        }
         if (!can_draw()) {
             return;
         }
@@ -9150,6 +9200,8 @@ private:
     bool has_clear_ = false;
     bool compatible_ = false;
     bool compatible_history_dpi_valid_ = true;
+    bool glyph_capture_active_ = false;
+    std::uint64_t glyph_capture_id_ = 0U;
 };
 
 } // namespace
