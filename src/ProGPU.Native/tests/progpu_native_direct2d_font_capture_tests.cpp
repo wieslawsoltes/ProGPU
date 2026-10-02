@@ -1,4 +1,7 @@
 #include "../src/Direct2D/progpu_native_direct2d_font_capture.hpp"
+#include "../src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp"
+#include "progpu_native_hint_fault_fixture.hpp"
+#include "progpu_native_direct2d_font_source_fixture.hpp"
 
 #include <array>
 #include <cstdio>
@@ -14,154 +17,7 @@ namespace capture = progpu::native::direct2d;
 namespace compat = capture::compat;
 namespace com = progpu::native::com;
 
-// Stack-owned source objects keep observable reference/fragment balances; no
-// renderer, native font parser or device is involved in these source contracts.
-template<typename Interface>
-class source_object : public Interface {
-public:
-    com::result PROGPU_NATIVE_COM_CALL QueryInterface(com::guid_ref id, void** output) noexcept override
-    {
-        if (output == nullptr) return com::pointer_error;
-        *output = nullptr;
-        if (com::failed(query_result)) return query_result;
-        if (!com::guid_equal(id, com::unknown_interface_id()) &&
-            (interface_id == nullptr || !com::guid_equal(id, *interface_id))) return com::no_interface;
-        *output = static_cast<Interface*>(this);
-        AddRef();
-        return com::ok;
-    }
-    com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef() noexcept override { return ++references; }
-    com::reference_count_value PROGPU_NATIVE_COM_CALL Release() noexcept override { return --references; }
-    std::uint32_t references = 1U;
-    const com::guid* interface_id = nullptr;
-    com::result query_result = com::ok;
-};
-
-class font_stream final : public source_object<capture::original_font_stream> {
-public:
-    com::result PROGPU_NATIVE_COM_CALL ReadFileFragment(const void** data, std::uint64_t offset,
-        std::uint64_t size, void** context) noexcept override
-    {
-        ++reads;
-        if (com::failed(read_result)) return read_result;
-        if (offset != 0U || size != bytes.size()) return com::invalid_argument;
-        *data = null_data ? nullptr : bytes.data();
-        *context = null_context ? nullptr : this;
-        return com::ok;
-    }
-    void PROGPU_NATIVE_COM_CALL ReleaseFileFragment(void* context) noexcept override
-    {
-        ++releases;
-        bad_release = bad_release || context != (null_context ? nullptr : this);
-    }
-    com::result PROGPU_NATIVE_COM_CALL GetFileSize(std::uint64_t* size) noexcept override
-    {
-        *size = declared_size;
-        return size_result;
-    }
-    std::array<std::byte, 8U> bytes{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
-        std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
-    std::uint64_t declared_size = bytes.size();
-    std::uint32_t reads = 0U, releases = 0U;
-    com::result size_result = com::ok, read_result = com::ok;
-    bool null_data = false, null_context = false, bad_release = false;
-};
-
-class font_loader final : public source_object<capture::original_font_loader> {
-public:
-    com::result PROGPU_NATIVE_COM_CALL CreateStreamFromKey(const void* key, std::uint32_t size,
-        capture::original_font_stream** output) noexcept override
-    {
-        *output = nullptr;
-        if (com::failed(create_result)) return create_result;
-        if (key == nullptr || size != sizeof(expected_key) ||
-            std::memcmp(key, &expected_key, size) != 0) return com::invalid_argument;
-        if (stream != nullptr) { stream->AddRef(); *output = stream; }
-        return com::ok;
-    }
-    font_stream* stream = nullptr;
-    std::uint32_t expected_key = 0xEA132456U;
-    com::result create_result = com::ok;
-};
-
-class font_file final : public source_object<capture::original_font_file> {
-public:
-    font_file() { interface_id = &capture::original_font_file_id; }
-    com::result PROGPU_NATIVE_COM_CALL GetReferenceKey(const void** value, std::uint32_t* size) noexcept override
-    {
-        *value = null_key ? nullptr : &key;
-        *size = key_size;
-        return key_result;
-    }
-    com::result PROGPU_NATIVE_COM_CALL GetLoader(capture::original_font_loader** output) noexcept override
-    {
-        // Prove the opaque key was copied before this source callback.
-        if (change_key) key = 0U;
-        *output = nullptr;
-        if (com::failed(loader_result)) return loader_result;
-        if (loader != nullptr) { loader->AddRef(); *output = loader; }
-        return com::ok;
-    }
-    font_loader* loader = nullptr;
-    std::uint32_t key = 0xEA132456U, key_size = sizeof(key);
-    com::result key_result = com::ok, loader_result = com::ok;
-    bool null_key = false, change_key = false;
-};
-
-class font_face final : public source_object<compat::font_face> {
-public:
-    font_face() { interface_id = &compat::font_face_interface_id; }
-    std::uint32_t PROGPU_NATIVE_COM_CALL GetType() noexcept override { return 3U; }
-    std::uint32_t PROGPU_NATIVE_COM_CALL GetIndex() noexcept override { return 2U; }
-    std::uint32_t PROGPU_NATIVE_COM_CALL GetSimulations() noexcept override { return 3U; }
-    std::int32_t PROGPU_NATIVE_COM_CALL IsSymbolFont() noexcept override { return 1; }
-    std::uint16_t PROGPU_NATIVE_COM_CALL GetGlyphCount() noexcept override { return 400U; }
-    com::result PROGPU_NATIVE_COM_CALL GetFiles(std::uint32_t* count, com::unknown** output) noexcept override
-    {
-        if (output == nullptr) { *count = declared_count; return count_result; }
-        for (std::uint32_t i = 0; i < *count && i < files.size(); ++i) {
-            output[i] = files[i];
-            if (output[i] != nullptr) output[i]->AddRef();
-        }
-        if (change_count) *count = 1U;
-        return files_result;
-    }
-    void PROGPU_NATIVE_COM_CALL GetMetrics(void*) noexcept override {}
-    com::result PROGPU_NATIVE_COM_CALL GetDesignGlyphMetrics(const std::uint16_t*, std::uint32_t,
-        void*, std::int32_t) noexcept override { return compat::not_implemented; }
-    com::result PROGPU_NATIVE_COM_CALL GetGlyphIndices(const std::uint32_t*, std::uint32_t,
-        std::uint16_t*) noexcept override { return compat::not_implemented; }
-    com::result PROGPU_NATIVE_COM_CALL TryGetFontTable(std::uint32_t, const void**, std::uint32_t*,
-        void**, std::int32_t*) noexcept override { ++table_calls; return compat::not_implemented; }
-    void PROGPU_NATIVE_COM_CALL ReleaseFontTable(void*) noexcept override {}
-    com::result PROGPU_NATIVE_COM_CALL GetGlyphRunOutline(float, const std::uint16_t*, const float*,
-        const compat::glyph_offset*, std::uint32_t, std::int32_t, std::int32_t,
-        compat::simplified_geometry_sink*) noexcept override { ++outline_calls; return compat::not_implemented; }
-    std::array<com::unknown*, 2U> files{};
-    std::uint32_t declared_count = 2U, table_calls = 0U, outline_calls = 0U;
-    com::result count_result = com::ok, files_result = com::ok;
-    bool change_count = false;
-};
-
-class rendering_parameters final : public source_object<compat::rendering_parameters> {
-public:
-    float PROGPU_NATIVE_COM_CALL GetGamma() noexcept override
-    {
-        ++reads;
-        if (callback != nullptr) callback(context);
-        return gamma;
-    }
-    float PROGPU_NATIVE_COM_CALL GetEnhancedContrast() noexcept override { return 0.5F; }
-    float PROGPU_NATIVE_COM_CALL GetClearTypeLevel() noexcept override { return 0.25F; }
-    compat::pixel_geometry PROGPU_NATIVE_COM_CALL GetPixelGeometry() noexcept override
-    { return compat::pixel_geometry::bgr; }
-    compat::rendering_mode PROGPU_NATIVE_COM_CALL GetRenderingMode() noexcept override
-    { return compat::rendering_mode::natural_symmetric; }
-    float gamma = 1.8F;
-    std::uint32_t reads = 0U;
-    void (*callback)(void*) noexcept = nullptr;
-    void* context = nullptr;
-};
+using namespace progpu::native::direct2d::tests;
 
 [[nodiscard]] bool check(bool value, const char* message)
 {
@@ -317,6 +173,127 @@ public:
     return balanced() && parameters.references == 1U;
 }
 
+[[nodiscard]] bool prepared_source_contracts()
+{
+    font_stream stream;
+    stream.bytes = progpu::native::tests::make_hint_fault_font();
+    stream.declared_size = stream.bytes.size();
+    font_loader loader; loader.stream = &stream;
+    font_file file; file.loader = &loader;
+    font_face face; face.files[0] = &file; face.declared_count = 1U;
+    face.type = 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+    std::shared_ptr<const capture::original_font_capture> font;
+    if (!check(capture::capture_original_font(&face, font) == com::ok, "prepared original source acquisition")) return false;
+    const auto original_reads = stream.reads;
+    face.count_result = compat::not_implemented; // Any further font acquisition must fail.
+    std::shared_ptr<capture::prepared_original_font> prepared_font;
+    if (!check(capture::prepared_original_font::create(font, prepared_font) == com::ok &&
+        prepared_font->cached_glyph_count() == 0U, "prepared parsed face/lazy glyph cache")) return false;
+
+    com::pointer<compat::factory> factory;
+    com::pointer<compat::scene_factory_native> scene_factory;
+    com::pointer<compat::render_target> target;
+    com::pointer<compat::scene_render_target_native> scene;
+    com::pointer<capture::prepared_glyph_target> prepared_target;
+    constexpr compat::scene_render_target_properties properties{128U, 128U, 144, 120, 8441U, 1U};
+    if (!check(compat::create_factory(factory.put()) == com::ok &&
+        factory.as(compat::scene_factory_native_interface_id, scene_factory) == com::ok &&
+        scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
+        target.as(compat::scene_render_target_native_interface_id, scene) == com::ok &&
+        target.as(capture::prepared_glyph_target_id, prepared_target) == com::ok,
+        "actual prepared target capability")) return false;
+    com::pointer<compat::solid_color_brush> brush;
+    constexpr compat::color_f ink{0.25F, 0.5F, 0.75F, 0.5F};
+    if (target->CreateSolidColorBrush(&ink, nullptr, brush.put()) != com::ok) return false;
+    rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+    struct release_parameters final {
+        compat::render_target* target;
+        ~release_parameters() { target->SetTextRenderingParams(nullptr); }
+    } release{target.get()};
+    target->SetTextRenderingParams(&parameters);
+    target->SetTextAntialiasMode(compat::text_antialias_mode::grayscale);
+    constexpr compat::matrix_3x2_f transform{1, 0.25F, -0.5F, 1, 7, 11};
+    constexpr compat::rectangle_f clip{0, 0, 90, 90};
+    constexpr compat::layer_parameters layer{clip, nullptr, compat::antialias_mode::aliased,
+        {1, 0, 0, 1, 0, 0}, 0.5F, nullptr, compat::layer_options::none};
+    const std::uint16_t indices[]{1U, 0U, 2U};
+    const float advances[]{40, -7, 12};
+    const compat::glyph_offset offsets[]{{0.5F, 0.25F}, {0, 0}, {-2, 3}};
+    compat::glyph_run run{&face, 125, 3U, indices, advances, offsets, 0, 2U};
+    for (unsigned repeat = 0U; repeat < 2U; ++repeat) {
+        target->BeginDraw(); target->SetTransform(&transform);
+        target->SetTags(17U, 29U);
+        target->PushAxisAlignedClip(&clip, compat::antialias_mode::aliased);
+        target->PushLayer(&layer, nullptr);
+        if (!check(prepared_target->DrawOwnedGlyphRun(prepared_font, {8, 50}, &run, brush.get(),
+            compat::measuring_mode::natural) == com::ok, "actual prepared draw under captured scopes")) return false;
+        target->PopLayer(); target->PopAxisAlignedClip();
+        if (!check(target->EndDraw(nullptr, nullptr) == com::ok && prepared_font->cached_glyph_count() == 3U &&
+            face.outline_calls == 0U && face.table_calls == 0U && stream.reads == original_reads,
+            "retained draw avoids font callbacks/decode replacement")) return false;
+        compat::scene_render_target_summary summary{}; scene->GetSummary(&summary);
+        if (!check(summary.draw_count == 1U, "one native retained glyph geometry draw")) return false;
+        std::vector<std::byte> scene_bytes(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
+        std::uint64_t written = 0U;
+        if (!check(scene->BuildScene(scene_bytes.data(), scene_bytes.size(), &written) == com::ok &&
+            written == scene_bytes.size() && written > sizeof(progpu_native_scene_header),
+            "prepared geometry retained in actual scene")) return false;
+    }
+    // Immutable original occurrence geometry includes a no-ink advance and a
+    // glyph with intentionally faulty hint bytecode. OUTLINE never executes it.
+    capture::original_glyph_target frame{com::pointer<com::unknown>(target.get()), 1U,
+        transform, {8, 50}, {128U, 128U}, 144, 120, {}, compat::text_antialias_mode::grayscale};
+    std::shared_ptr<const capture::original_glyph_request> request;
+    std::shared_ptr<const capture::prepared_original_glyph_run> prepared;
+    if (capture::capture_original_glyph_request(font, run, compat::measuring_mode::natural,
+        &parameters, frame, request) != com::ok || prepared_font->prepare(request, prepared) != com::ok) return false;
+    if (!check(prepared->segments().size() == 8U && prepared->request().font == font &&
+        prepared->request().target.transform.m21 == -0.5F && prepared->request().target.dpi_x == 144,
+        "owned contours and complete source frame")) return false;
+    for (std::size_t index = 0U; index < 8U; ++index) {
+        const auto& segment = prepared->segments()[index];
+        const float left = index < 4U ? 10.125F : 40.625F, right = index < 4U ? 47.625F : 78.125F;
+        const float top = index < 4U ? -1.875F : -4.625F, bottom = index < 4U ? 48.125F : 45.375F;
+        const auto corner = [&](progpu_native_point point) {
+            return (point.x == left || point.x == right) && (point.y == top || point.y == bottom);
+        };
+        if (!check(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE && corner(segment.p0) && corner(segment.p1),
+            "independent original design/offset/advance coordinates")) return false;
+    }
+    const auto retained = prepared;
+    for (unsigned unsupported = 0U; unsupported < 10U; ++unsupported) {
+        auto candidate_run = run;
+        if (unsupported < 6U) parameters.mode = static_cast<compat::rendering_mode>(unsupported);
+        if (unsupported == 6U) candidate_run.is_sideways = 1;
+        if (unsupported == 7U) candidate_run.bidi_level = 1U;
+        if (unsupported == 8U) candidate_run.glyph_advances = nullptr;
+        const auto measuring = unsupported == 9U ? compat::measuring_mode::gdi_natural : compat::measuring_mode::natural;
+        if (capture::capture_original_glyph_request(font, candidate_run, measuring,
+            &parameters, frame, request) != com::ok) return false;
+        if (!check(prepared_font->prepare(request, prepared) == compat::not_implemented && prepared == retained &&
+            prepared_font->cached_glyph_count() == 3U, "unimplemented original mode/placement remains atomic")) return false;
+        parameters.mode = compat::rendering_mode::outline;
+    }
+    for (const bool replace_parameters : {false, true}) {
+        parameters.context = target.get();
+        parameters.callback = replace_parameters
+            ? +[](void* context) noexcept { static_cast<compat::render_target*>(context)->SetTextRenderingParams(nullptr); }
+            : +[](void* context) noexcept { const compat::matrix_3x2_f changed{2, 0, 0, 2, 90, 91};
+                static_cast<compat::render_target*>(context)->SetTransform(&changed); };
+        target->BeginDraw();
+        if (!check(prepared_target->DrawOwnedGlyphRun(prepared_font, {8, 50}, &run, brush.get(),
+            compat::measuring_mode::natural) == compat::wrong_state &&
+            target->EndDraw(nullptr, nullptr) == compat::wrong_state,
+            "source callback invalidation rejects prepared publication")) return false;
+        parameters.callback = nullptr;
+        compat::scene_render_target_summary summary{}; scene->GetSummary(&summary);
+        if (!check(summary.draw_count == 0U, "invalidated request publishes no native draw")) return false;
+    }
+    // Release retained stack-owned parameter before that source object ends.
+    target->SetTextRenderingParams(nullptr);
+    return true;
+}
+
 #if defined(_WIN32)
 [[nodiscard]] bool original_windows_contract()
 {
@@ -373,6 +350,7 @@ public:
 bool progpu_native_direct2d_font_capture_tests()
 {
     if (!source_contracts()) return false;
+    if (!prepared_source_contracts()) return false;
 #if defined(_WIN32)
     if (!original_windows_contract()) return false;
 #endif
