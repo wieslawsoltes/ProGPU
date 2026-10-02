@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <mutex>
 #include <unordered_map>
@@ -142,6 +143,10 @@ struct varied_outline_storage final {
     }
     text::sfnt_table_view gvar_table{};
     if (font.try_get_table(text::open_type_tag::from_chars('g', 'v', 'a', 'r'), gvar_table)) {
+        if (gvar_table.bytes.size() < 20U || gvar_table.bytes[0] != std::byte{0} ||
+            gvar_table.bytes[1] != std::byte{1} || gvar_table.bytes[2] != std::byte{0} ||
+            gvar_table.bytes[3] != std::byte{0} || gvar_table.bytes[14] != std::byte{0} ||
+            (std::to_integer<unsigned>(gvar_table.bytes[15]) & ~1U) != 0U) return com::invalid_argument;
         text::sfnt_gvar_header gvar{};
         if (!font.try_get_gvar_header(gvar) || gvar.axis_count != count || gvar.glyph_count != source.glyph_count)
             return com::invalid_argument;
