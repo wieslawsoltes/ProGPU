@@ -201,3 +201,9 @@ browser wrapper is not a replacement for the pinned wgpu-native header (its
 external `webgpu/webgpu.h` dependency is absent), so no old-ABI or full provider
 translation-unit compilation is claimed. Those and all GPU/Windows/package
 execution remain hosted gates. No local native build or GPU execution occurred.
+
+Build `37028870374` compiled the provider translation units, but its pinned
+Naga rejected dynamic indexing of the reference vertex shader's value array
+before any pixel comparison. Explicit vertex-index branches now select the same
+three fullscreen-triangle vertices. Sampling, blend state, expectations and
+policies are unchanged; the failed build provides no pixel qualification.

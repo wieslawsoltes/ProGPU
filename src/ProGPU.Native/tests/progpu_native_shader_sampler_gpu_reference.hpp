@@ -161,8 +161,9 @@ private:
 @group(0) @binding(1) var image_sampler: sampler;
 @group(0) @binding(2) var<uniform> parameters: vec4<f32>;
 @vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
-    let positions = array<vec2<f32>, 3>(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
-    return vec4(positions[index], 0.0, 1.0);
+    if (index == 1u) { return vec4(3.0, -1.0, 0.0, 1.0); }
+    if (index == 2u) { return vec4(-1.0, 3.0, 0.0, 1.0); }
+    return vec4(-1.0, -1.0, 0.0, 1.0);
 }
 @fragment fn fs(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let uv = (position.xy - vec2(parameters.x, 0.0)) / vec2(16.0, 24.0);
