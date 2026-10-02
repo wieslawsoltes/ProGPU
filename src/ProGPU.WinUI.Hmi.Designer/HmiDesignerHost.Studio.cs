@@ -61,6 +61,7 @@ public sealed partial class HmiDesignerHost
         header.RowDefinitions.Add(new GridLength(44));
         header.RowDefinitions.Add(new GridLength(40));
         header.RowDefinitions.Add(GridLength.Auto);
+        header.RowDefinitions.Add(GridLength.Auto);
         _studioSurfaces.Add((header, HmiBrushRole.Surface));
         var identity = new Grid { Margin = new Thickness(12, 0, 12, 0) };
         identity.ColumnDefinitions.Add(new GridLength(144));
@@ -197,6 +198,8 @@ public sealed partial class HmiDesignerHost
         var save = Command("Save", () => _ = SaveFileAsync(_filePath.Text));
         _fileLocationRow.AddChild(open); SetColumn(open, 1); _fileLocationRow.AddChild(save); SetColumn(save, 2);
         header.AddChild(_fileLocationRow); SetRow(_fileLocationRow, 2);
+        var setup = BuildSetupNavigation();
+        header.AddChild(setup); SetRow(setup, 3);
         return header;
     }
 

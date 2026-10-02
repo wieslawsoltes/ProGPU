@@ -14,7 +14,7 @@ public sealed partial class HmiDesignerHost
     private Grid BuildDataArea()
     {
         var area = new Grid();
-        var tabs = new Pivot { Font = _font };
+        var tabs = _dataTabs = new Pivot { Name = "HmiProjectDataTabs", Font = _font };
         area.AddChild(tabs);
         _tags = Table(("Tag", "160", "Name"), ("Type", "80", "Type"), ("Initial", "95", "Initial"), ("Live", "95", "Live"), ("Quality", "75", "Quality"),
             ("Unit", "60", "Unit"), ("Writable", "70", "Writable"), ("Min", "65", "Minimum"), ("Max", "65", "Maximum"), ("Stale ms", "75", "Stale"), ("Simulation", "90", "Simulation"), ("Period s", "75", "Period"));
@@ -26,7 +26,7 @@ public sealed partial class HmiDesignerHost
         }))));
         tagTools.AddChild(Command("Refresh live values", RefreshTables));
         tagTools.AddChild(Text("Edit cells directly. Removing referenced tags is rejected.", 10));
-        tabs.Items.Add(new PivotItem("Tags", TablePane(tagTools, _tags)));
+        tabs.Items.Add(_tagPage = new PivotItem("Tags", TablePane(tagTools, _tags)));
 
         _alarms = Table(("ID", "130", "Id"), ("Tag", "145", "Tag"), ("Message", "*", "Message"), ("Condition", "95", "Condition"),
             ("Limit", "65", "Limit"), ("Deadband", "75", "Deadband"), ("Delay ms", "75", "Delay"), ("Severity", "90", "Severity"));
@@ -80,12 +80,13 @@ public sealed partial class HmiDesignerHost
         }));
         tabs.Items.Add(new PivotItem("Runtime / audit", TablePane(monitorTools, _monitor)));
         tabs.Items.Add(new PivotItem("Diagram", BuildDiagramPane()));
-        tabs.Items.Add(new PivotItem("Connections", BuildConnectionsPane()));
+        tabs.Items.Add(_connectionPage = new PivotItem("Connections", BuildConnectionsPane()));
         tabs.Items.Add(new PivotItem("Faceplates", BuildFaceplatesPane()));
         tabs.Items.Add(new PivotItem("States", BuildStateRulesPane()));
         tabs.Items.Add(new PivotItem("Engineering", BuildEngineeringPane()));
         tabs.Items.Add(new PivotItem("Alarm console", BuildAlarmConsolePane()));
-        tabs.Items.Add(new PivotItem("Help", new ScrollViewer { Content = Text(
+        tabs.Items.Add(_helpPage = new PivotItem("Help", new ScrollViewer { Content = Text(
+            "PROJECT SETUP\n1. Tags: Add tag, then edit its name, type, initial value and unit in the table.\n2. PLC / connections: choose + Modbus TCP, + MQTT / TLS or + OPC UA. Edit the host/port and protocol settings. Enter an existing tag in Tag to map / remove, click + Mapping and configure its address/topic/node. Modbus addresses are zero-based. Adding a profile or mapping never connects equipment.\n3. Components: search the library, then drag, draw or insert a symbol.\n4. Bind selected: select a component and set Value tag to an existing tag. Graphic convention selects Process, HighPerformance or Schematic appearance.\nSave from File. Simulate uses local data only; Connect read-only is a separate explicit action. External writes still require authenticated host authorization and review/confirmation. These samples are not a safety controller.\n\n" +
             "GRAPHICS AND DIRECT EDITING\nF2 or double-click a caption edits text in place. Enter commits one undo transaction; Tab/Shift+Tab apply and edit the next/previous visible unlocked caption. Escape or focus loss cancels. Native text input and IME composition are retained.\n\n" +
             "GRAPHIC CONVENTIONS\nFormat and the HMI inspector select Process, HighPerformance or Schematic graphics. HighPerformance uses neutral normal-state signals while faults, maintenance and unknown quality stay distinct. Display bands (low;high) are visual references, not alarm setpoints. Instrument function/loop/location fields are explicit annotations, not derived I/O mappings. Copy/Paste style excludes those engineering identities, ranges and bindings.\nThe 48 original symbols are not a certified ISA/ISO/IEC database. File > Graphics convention sample demonstrates the presentation modes. See docs/hmi-graphic-conventions.md for the standards scope and commissioning boundaries.\n\n" +
             "GETTING STARTED\nChoose Components and drag a symbol to the canvas, or press its + button. Select components to edit HMI properties and tag bindings.\n\n" +
