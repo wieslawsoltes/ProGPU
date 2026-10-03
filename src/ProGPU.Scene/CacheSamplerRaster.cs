@@ -17,7 +17,6 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
     internal static void EnsureContextAcceptsCapture(WgpuContext context) =>
         s_retirements.GetValue(context, static _ => new()).EnsureAcceptsCapture();
     private GpuPicture? _picture;
-    private GpuPicture? _failedPicture;
     private readonly ContextRetirement _retirementOwner;
     private int _ownerReleased;
     private int _references = 1;
@@ -126,8 +125,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
             catch (Exception error) { _retirementFailure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
             if (_retirementFailure is not null)
             {
-                _failedPicture = picture;
-                _retirementOwner.RetainFailure(this);
+                _retirementOwner.RetainFailure(this, picture);
                 _retirementFailure.Throw();
             }
             _retirementOwner.Remove(this);
@@ -147,7 +145,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
         private readonly List<WeakReference<CacheSamplerRaster>> _rasters = [];
         // An uncertain release is not ordinary abandoned history. Its exact
         // owner stays strongly pending so GC cannot turn failure into success.
-        private readonly HashSet<CacheSamplerRaster> _failed = [];
+        private readonly Dictionary<CacheSamplerRaster, GpuPicture?> _failed = [];
         private bool _retiring;
         internal void EnsureAcceptsCapture()
         {
@@ -163,7 +161,13 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
                 _rasters.Add(new(raster, trackResurrection: true));
             }
         }
-        internal void RetainFailure(CacheSamplerRaster raster) { lock (_sync) _failed.Add(raster); }
+        internal void RetainFailure(CacheSamplerRaster raster, GpuPicture? picture = null)
+        {
+            lock (_sync)
+            {
+                if (picture is not null || !_failed.ContainsKey(raster)) _failed[raster] = picture;
+            }
+        }
         internal void Remove(CacheSamplerRaster raster)
         {
             lock (_sync)
@@ -187,7 +191,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
             lock (_sync)
             {
                 _retiring = true;
-                snapshot = new HashSet<CacheSamplerRaster>(_failed);
+                snapshot = new HashSet<CacheSamplerRaster>(_failed.Keys);
                 foreach (var entry in _rasters)
                     if (entry.TryGetTarget(out var raster)) snapshot.Add(raster);
             }
