@@ -5803,6 +5803,7 @@ public partial class DrawingContext :
     {
         ArgumentNullException.ThrowIfNull(extension);
         ArgumentNullException.ThrowIfNull(data);
+        RetainOwnedShaderSamplers(data);
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawExtension,
@@ -5824,6 +5825,7 @@ public partial class DrawingContext :
         int floatCount = 0,
         Matrix4x4 transform = default)
     {
+        RetainOwnedShaderSamplers(dataParam);
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawExtension,
@@ -5837,6 +5839,14 @@ public partial class DrawingContext :
             FloatBufferCount = floatCount,
             Transform = transform
         });
+    }
+
+    private void RetainOwnedShaderSamplers(object? data)
+    {
+        if (data is not WpfShaderEffectParams effect) return;
+        foreach (var sampler in effect.Samplers)
+            if (sampler.RetainedTextureSource is { } source && !TryRetainTexture(source, out _))
+                throw new ObjectDisposedException(nameof(WpfShaderEffectSampler));
     }
 
     // --- Backward Compatible Overloads (Forward to Spans) ---

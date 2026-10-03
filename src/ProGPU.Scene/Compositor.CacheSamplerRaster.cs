@@ -7,6 +7,18 @@ namespace ProGPU.Scene;
 
 public unsafe partial class Compositor
 {
+    internal void RetainOwnedShaderSamplers(WpfShaderEffectParams effect)
+    {
+        foreach (var sampler in effect.Samplers)
+        {
+            if (sampler.RetainedTextureSource is not { } source) continue;
+            if (!source.TryAcquireGpuTextureLease(out IProGpuTextureLease lease))
+                throw new ObjectDisposedException(nameof(WpfShaderEffectSampler));
+            try { _frameRetainedResources.Add(RetainedResourceLease.Create(lease, lease.Texture)); }
+            catch { lease.Dispose(); throw; }
+        }
+    }
+
     /// <summary>
     /// Captures an original owned cache recording into its independent physical
     /// raster. The caller has already validated complete source ownership, even
