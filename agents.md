@@ -5,9 +5,11 @@ not TileBrush fitting or borrowed textures. Follow selected explicit/target/defa
 cache identity, natural source bounds and consumer mapping. Exclude the target
 root's six ignored outer properties from painted ownership/revision while keeping
 all descendant dependencies and mixed-resource cycle guards. Null target and
-zero scale are distinct from missing or known-empty nonnull source bounds; the
-latter remain unsupported. Ordinary cache policies and source qualification are
-separate. See docs/native-shader-bitmap-cache-samplers.md.
+zero scale are distinct from missing or explicitly known-empty nonnull bounds.
+Only an exact sampler capture that completed ownership/current-policy preflight
+may omit an explicitly empty source's page; generic cache admission stays closed.
+Ordinary cache policies and source qualification are separate. See
+docs/native-shader-bitmap-cache-samplers.md and docs/native-empty-cache-samplers.md.
 
 Portable shared-bitmap queries use HRESULT as the capability decision, not a
 nonnull output left by a failed private-interface query. Retain failure-owned

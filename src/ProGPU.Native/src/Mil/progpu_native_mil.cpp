@@ -2429,6 +2429,7 @@ struct scene_compile_context {
     std::uint64_t scene_id{};
     std::uint64_t cache_brush_scope{};
     bool shader_sample_capture{};
+    std::uint32_t validated_empty_sampler_brush{};
 
     bool is_visual_brush() const noexcept {
         return visual_brush_depth != 0U ||
@@ -3578,7 +3579,8 @@ struct channel::implementation {
                 if (!require_resource(brush.target_handle, type_visual)) return status::unsupported_command;
                 const auto visual = visuals.find(brush.target_handle);
                 if (visual == visuals.end()) return require_pixels ? status::invalid_handle : status::success;
-                if (require_pixels && (visual->second.has_scroll_clip || !visual->second.has_cache_bounds))
+                if (require_pixels && (visual->second.has_scroll_clip ||
+                    (!visual->second.has_cache_bounds && !visual->second.has_empty_source_bounds)))
                     return status::unsupported_command;
                 if (cache_handle == 0U) cache_handle = visual->second.cache_mode_handle;
             }
@@ -21683,6 +21685,16 @@ struct channel::implementation {
         frame.scene_id = finish_nonzero_hash(identity);
         frame.cache_brush_scope = context.frame->cache_brush_scope;
         native::semantic_scene_builder capture(frame.scene_id, builder.generation());
+        if (cache_sampler) {
+            const auto target = bitmap_cache_brushes.at(brush_handle).target_handle;
+            if (target != 0U && visuals.at(target).has_empty_source_bounds) {
+                // This exact brush has passed selected-policy/current-value
+                // validation and complete root-aware ownership above. Authorize
+                // only this private sampler capture, never a generic cache or
+                // another nested brush. Its real target identity stays intact.
+                frame.validated_empty_sampler_brush = brush_handle;
+            }
+        }
         auto state = source_state;
         state.transform = {};
         const mask_replay_context child{&frame, context.active_resources, context.metrics, context.depth};
@@ -21934,7 +21946,11 @@ struct channel::implementation {
         const auto& root = target->second;
         // ScrollableAreaClip still needs an explicit capture-space contract.
         if (root.has_scroll_clip) return status::unsupported_command;
-        if (!root.has_cache_bounds) return status::unsupported_command;
+        if (!root.has_cache_bounds) {
+            if (root.has_empty_source_bounds && frame->validated_empty_sampler_brush == brush_handle)
+                return status::success;
+            return status::unsupported_command;
+        }
         if (root.cache_bounds_width <= 0.0 || root.cache_bounds_height <= 0.0 ||
             use.width <= 0.0 || use.height <= 0.0) return status::success;
         double opacity{};

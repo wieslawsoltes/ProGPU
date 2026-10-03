@@ -26,8 +26,9 @@ contract as other sampler families, without broadening named-angle admission.
 A genuine null target paints nothing. A nonnull target must be an initialized,
 owned 2D Visual with actual positive source bounds. Missing/deleted/uninitialized
 targets and unknown bounds are not null. An explicitly known-empty nonnull target
-is still unsupported for this family; the VisualBrush-only empty-source contract
-does not silently widen ordinary cache semantics. ScrollableAreaClip, 3D targets,
+uses the shader-only owned-empty path documented in
+[Explicitly empty cache samplers](native-empty-cache-samplers.md); ordinary cache
+semantics are not widened. ScrollableAreaClip, 3D targets,
 media/external images and DrawingBrush sources remain unsupported. Cycles and the
 original recursion budget fail before scene publication, including nonpainting
 branches. Root properties explicitly excluded by BitmapCacheBrush are not
