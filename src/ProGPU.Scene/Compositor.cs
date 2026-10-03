@@ -3629,6 +3629,7 @@ DynamicBufferUploadComplete:
         // have no parent chain. Retire entries that were not reached by this
         // compilation before deciding whether the new scene is cacheable.
         SweepUnusedEffectTextures(root, externalLayers, activeToolTip);
+        SweepOwnedShaderTargets();
         CaptureCompiledScene(
             root,
             width,
@@ -4891,6 +4892,9 @@ SceneStateUploadComplete:
                 while (effectTextureEnumerator.MoveNext())
                 {
                     var fe = effectTextureEnumerator.Current.Key;
+                    // Owned target generations retire through their independent
+                    // cache/draw leases, never this borrowed-visual sweep.
+                    if (fe is PreparedOwnedShaderVisual) continue;
                     if (!IsAttachedToAnyActiveRoot(fe, mainRoot, externalLayers, activeToolTip))
                     {
                         AddRemovalItem(ref detached, ref detachedCount, _effectTextures.Count, fe);
@@ -6544,6 +6548,11 @@ SceneStateUploadComplete:
              visualIndex++)
         {
             Visual visual = embeddedVisuals[visualIndex];
+            if (visual is OwnedShaderEffectRecording ownedShader)
+            {
+                PrepareOwnedShaderEffect(ownedShader);
+                continue;
+            }
             if (visual.Effect != null &&
                 !_elementsRenderingEffects.Contains(visual))
             {
@@ -6574,6 +6583,12 @@ SceneStateUploadComplete:
 
         try
         {
+            if (visual is OwnedShaderEffectRecording ownedShader)
+            {
+                TrackEmbeddedVisual(visual);
+                CompileOwnedShaderEffect(ownedShader, parentTransform);
+                return;
+            }
             // Live cached sources can replace their recording here. Track the
             // resulting version, not the pre-capture version, so the next stable
             // frame does not incur a synthetic embedded-visual cache miss.
@@ -15531,6 +15546,7 @@ CompilePathStroke:
             _atlas.Dispose();
             _pathAtlas.Dispose();
             ReleaseAllRetainedResources();
+            DisposeOwnedShaderTargets();
 
             lock (_registeredExtensions)
             {
@@ -18057,7 +18073,11 @@ CompilePathStroke:
                 _offscreenRenderDepth--;
                 if (ownsOffscreenFrame)
                 {
-                    ReleaseFrameRetainedResourcesPreserving(offscreenFailure);
+                    try
+                    {
+                        if (offscreenFailure is null) SweepOwnedShaderTargets();
+                    }
+                    finally { ReleaseFrameRetainedResourcesPreserving(offscreenFailure); }
                     _frameNumber++;
                     EvictUnusedBindGroups();
                 }
