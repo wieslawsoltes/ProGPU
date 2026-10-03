@@ -115,7 +115,7 @@ public unsafe partial class Compositor
         failure?.Throw();
     }
 
-    private sealed class PreparedOwnedShaderVisual : DrawingVisual;
+    private sealed class PreparedOwnedShaderVisual : DrawingVisual { }
 
     private sealed class OwnedShaderTarget : IDisposable
     {
@@ -140,8 +140,17 @@ public unsafe partial class Compositor
                     CaptureSourceVisualOpacity = true
                 }
             };
-            Visual.Context.DrawPicture(recording.Picture);
-            _lifetime = RetainedResourceLease.Create(new TargetResources(compositor, Visual, parameters, sourceLease));
+            try
+            {
+                Visual.Context.DrawPicture(recording.Picture);
+                _lifetime = RetainedResourceLease.Create(new TargetResources(compositor, Visual, parameters, sourceLease));
+            }
+            catch (Exception failure)
+            {
+                try { Visual.Context.Clear(); }
+                catch (Exception cleanup) { failure.Data["OwnedShaderRecordingCleanup"] = cleanup; }
+                throw;
+            }
         }
 
         internal RetainedResourceLease Acquire() => _lifetime.AddRef();

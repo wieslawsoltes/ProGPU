@@ -9,7 +9,8 @@ namespace ProGPU.Scene;
 /// <summary>
 /// An owned immutable source recipe. Preparation may realize its previously
 /// recorded sampler pictures for the supplied actual target. It must not read
-/// mutable source UI, encode a draw, or substitute an outer target frame.
+/// mutable source UI, encode the consumer draw, or substitute an outer target
+/// frame. Required sampler-picture offscreen realization is preparation work.
 /// </summary>
 public interface IShaderEffectPreparation : IDisposable
 {
@@ -138,13 +139,22 @@ internal sealed class OwnedShaderEffectRecording : Visual, IDisposable
     internal OwnedShaderEffectRecording(GpuPicture content, OwnedShaderEffectSource source)
     {
         var sourceLease = source.Acquire();
+        GpuPicture? candidate = null;
         try
         {
-            Picture = content.Clone();
+            candidate = content.Clone();
+            Picture = candidate;
             Source = source;
             _lifetime = RetainedResourceLease.Create(new Payload(Picture, sourceLease), this);
         }
-        catch { sourceLease.Dispose(); throw; }
+        catch (Exception failure)
+        {
+            try { candidate?.Dispose(); }
+            catch (Exception cleanup) { failure.Data["OwnedShaderPictureCleanup"] = cleanup; }
+            try { sourceLease.Dispose(); }
+            catch (Exception cleanup) { failure.Data["OwnedShaderSourceCleanup"] = cleanup; }
+            throw;
+        }
     }
 
     internal RetainedResourceLease Acquire() =>
