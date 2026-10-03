@@ -61,8 +61,8 @@ previous unexecuted natural-placement and consumer-opacity expectations; those
 expectations were not observed original behavior.
 
 Schema 3 adds the three scroll-clip mutations without changing any prior input.
-Two small ContainerVisual subclasses expose only the original protected scroll
-clip property; they do not alter painting or bounds. The root cache entrypoint
+The two retained containers expose the original protected scroll clip property
+through one small subclass; it does not alter painting or bounds. The root cache entrypoint
 captures its content and children without the root's outer properties, while
 [ordinary descendant traversal retains the scroll clip](https://github.com/dotnet/wpf/blob/381194e1ffe4d64fb747556fcaf76e1c34fe9df8/src/Microsoft.DotNet.Wpf/src/WpfGfx/core/uce/drawingcontext.cpp#L4816),
 including when scroll acceleration is unavailable. The outside descendant clip
