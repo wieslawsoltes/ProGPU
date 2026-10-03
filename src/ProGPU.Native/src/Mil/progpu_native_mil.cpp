@@ -3501,18 +3501,52 @@ struct channel::implementation {
         return status::success;
     }
 
-    status validate_static_sampler_transform(std::uint32_t handle, std::uint32_t depth = 0U) const noexcept {
+    status inspect_sampler_transform(std::uint32_t handle, std::array<std::uint32_t, 64U>& active,
+        std::size_t depth, bool& animated, bool& named_angle) const noexcept {
         if (handle == 0U) return status::success;
-        if (depth >= 64U) return status::invalid_graph;
+        if (depth >= active.size() ||
+            std::find(active.begin(), active.begin() + depth, handle) != active.begin() + depth)
+            return status::invalid_graph;
         const auto found = transforms.find(handle);
         const auto resource = resources.find(handle);
         if (found == transforms.end() || resource == resources.end() ||
             !is_transform_type(resource->second.type)) return status::invalid_handle;
-        if (std::ranges::any_of(found->second.animations, [](auto value) { return value != 0U; }))
-            return status::unsupported_command;
-        for (const auto child : found->second.children) {
-            const auto result = validate_static_sampler_transform(child, depth + 1U);
+        const auto& source = found->second;
+        named_angle |= source.type == transform_state::kind::rotate || source.type == transform_state::kind::skew;
+        for (const auto animation : source.animations) {
+            if (animation == 0U) continue;
+            animated = true;
+            if (!require_resource(animation, source.type == transform_state::kind::matrix
+                    ? type_matrix_resource : type_double_resource)) return status::invalid_handle;
+        }
+        active[depth] = handle;
+        for (const auto child : source.children) {
+            const auto result = inspect_sampler_transform(child, active, depth + 1U, animated, named_angle);
             if (result != status::success) return result;
+        }
+        return status::success;
+    }
+
+    status validate_sampler_transforms(const tile_brush_state& brush, bool require_current) const noexcept {
+        std::array<std::uint32_t, 64U> active{};
+        bool animated = false, named_angle = false;
+        for (const auto handle : {brush.transform_handle, brush.relative_transform_handle}) {
+            const auto inspected = inspect_sampler_transform(handle, active, 0U, animated, named_angle);
+            if (inspected != status::success) return inspected;
+        }
+        // Wholly-static legacy graphs keep their existing arithmetic. New
+        // animated source graphs cannot obtain a named rotation/skew through
+        // host libm, even when that named leaf itself happens to be static.
+        if (animated && named_angle) return status::unsupported_command;
+        if (require_current && animated) {
+            for (const auto handle : {brush.transform_handle, brush.relative_transform_handle}) {
+                if (handle == 0U) continue;
+                affine_2d_double current{};
+                const auto resolved = resolve_transform(handle, current);
+                if (resolved != status::success) return resolved;
+                progpu_native_affine_2d narrowed{};
+                if (!try_to_native_affine(current, narrowed)) return status::invalid_graph;
+            }
         }
         return status::success;
     }
@@ -3542,10 +3576,8 @@ struct channel::implementation {
             for (const auto animation : {brush.viewport_animation, brush.viewbox_animation})
                 if (animation != 0U && !rect_resources.contains(animation)) return status::invalid_handle;
         }
-        for (const auto transform : {brush.transform_handle, brush.relative_transform_handle}) {
-            const auto result = validate_static_sampler_transform(transform);
-            if (result != status::success) return result;
-        }
+        const auto transforms_status = validate_sampler_transforms(brush, require_pixels);
+        if (transforms_status != status::success) return transforms_status;
         if (!require_resource(brush.source_handle, type_bitmap_source)) return status::unsupported_command;
         const auto bitmap = bitmap_sources.find(brush.source_handle);
         if (bitmap == bitmap_sources.end()) return require_pixels ? status::invalid_handle : status::success;

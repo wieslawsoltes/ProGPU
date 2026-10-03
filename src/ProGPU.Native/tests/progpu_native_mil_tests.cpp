@@ -9,6 +9,7 @@
 #include "progpu_native_mil_image_brush_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_animation_fixture.hpp"
+#include "progpu_native_shader_sampler_transform_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
@@ -22006,11 +22007,154 @@ bool original_shader_sampler_animation_owns_current_resources() {
     packet(batch, command::matrix_transform, 9U, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 50U);
     append_shader_sampler_animation_brush(batch, false, true, 30U, 31U, 32U, 9U);
     PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
-    PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    // Matrix current values now use the same retained transform resolver as
+    // ordinary tile replay; the old blanket animation gate is intentionally gone.
+    PROGPU_REQUIRE(build_shader_sampler_animation(raw, false, 103U, current));
+    PROGPU_REQUIRE(progpu::native::scene::validate(current.data(), current.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
     // Detach before deletion/recreation; old immutable scene remains valid.
     PROGPU_REQUIRE(update_shader_sampler_animation(raw, false, 8U));
     PROGPU_REQUIRE(build_shader_sampler_animation(raw, false, 102U, current));
     PROGPU_REQUIRE(progpu::native::scene::validate(original.data(), original.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+    return true;
+}
+
+bool original_shader_sampler_transform_animation_owns_graph() {
+    using namespace progpu::native::tests;
+    using mil_clip_fixture_detail::packet;
+    const auto revision = [](const std::vector<std::byte>& scene) {
+        const auto header = read_value<progpu_native_scene_header>(scene,0U);
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(scene,header.resource_offset + i * header.resource_stride);
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) continue;
+            if (resource.payload_size != sizeof(progpu_native_scene_shader_effect_picture)) return 0U;
+            const auto shader = read_value<progpu_native_scene_shader_effect_picture>(scene,resource.payload_offset);
+            return shader.version == 2U ? shader.program.revision : 0U;
+        }
+        return 0U;
+    };
+    for (const bool relative : {false,true}) {
+        progpu_native_mil_channel* raw{};
+        PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        mil_clip_channel owner(raw);
+        PROGPU_REQUIRE(initialize_sampler_transform_animation(raw));
+        std::vector<std::byte> scene, first, batch;
+        std::uint32_t previous_revision{};
+        for (std::uint32_t i = 0U; i < sampler_transform_cases.size(); ++i) {
+            const auto brush_generation = progpu_native_mil_channel_get_resource_generation(raw,5U);
+            const auto shader_generation = progpu_native_mil_channel_get_resource_generation(raw,7U);
+            const auto bitmap_generation = progpu_native_mil_channel_get_resource_generation(raw,3U);
+            const auto group_generation = progpu_native_mil_channel_get_resource_generation(raw,63U);
+            PROGPU_REQUIRE(update_sampler_transform_animation(raw,relative,i));
+            PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,i,scene));
+            PROGPU_REQUIRE(progpu::native::scene::validate(scene.data(),scene.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+            PROGPU_REQUIRE(revision(scene) != 0U && revision(scene) != previous_revision);
+            previous_revision = revision(scene);
+            PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,7U) == shader_generation);
+            PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,3U) == bitmap_generation);
+            if (i == 1U || i == 2U || i == 4U || i == 6U || i == 8U || i == 9U || i == 10U)
+                PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,5U) == brush_generation);
+            if (i == 8U) PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,63U) == group_generation);
+            if (i == 0U) first = scene;
+        }
+        // Detachment deleted the old animation, but its earlier capture is owned.
+        PROGPU_REQUIRE(progpu::native::scene::validate(first.data(),first.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+        packet(batch,command::channel_create_resource,50U,54U);
+        packet(batch,command::matrix_resource,50U,1.0,0.0,0.0,1.0,0.0,0.0);
+        packet(batch,command::matrix_transform,60U,1.0,0.0,0.0,1.0,0.0,0.0,50U);
+        append_sampler_transform_brush(batch,relative,60U);
+        const auto apply = [&]() { return progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr); };
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,0U,scene));
+        const auto stable = scene;
+        const auto generation = progpu_native_mil_channel_get_resource_generation(raw,51U);
+        for (std::uint32_t invalid = 0U; invalid < 5U; ++invalid) {
+            batch.clear();
+            packet(batch,command::double_resource,51U,2.0);
+            if (invalid == 0U) packet(batch,command::channel_delete_resource,50U,54U);
+            else if (invalid <= 2U)
+                packet(batch,command::matrix_transform,60U,1.0,0.0,0.0,1.0,0.0,0.0,invalid == 1U ? 999U : 51U);
+            else if (invalid == 3U) append_sampler_transform_group(batch,{61U,63U});
+            else packet(batch,command::matrix_resource,50U,1.0,0.0,0.0,1.0,std::numeric_limits<double>::infinity(),0.0);
+            const auto expected = invalid == 0U || invalid == 3U ? PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH :
+                invalid == 4U ? PROGPU_NATIVE_MIL_STATUS_MALFORMED_BATCH : PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE;
+            PROGPU_REQUIRE(apply() == expected);
+            PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,51U) == generation);
+            PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,0U,scene) && scene == stable);
+        }
+        const auto rejected_capture = [&](progpu_native_mil_status expected) {
+            const progpu_native_mil_scene_build_request request{sizeof(request),0U,4U,0U,0x94B1U,100U,1.0,1.0,0U,100U};
+            std::array<std::byte,128U> destination; destination.fill(std::byte{0xA5});
+            const auto untouched = destination;
+            std::size_t written = 123U;
+            progpu_native_mil_scene_build_result result{}; result.struct_size = sizeof(result);
+            return progpu_native_mil_channel_build_scene_with_request(raw,&request,destination.data(),destination.size(),
+                &written,nullptr,&result) == expected && written == 0U && destination == untouched;
+        };
+        // Declaration before initialization stays legal, but even empty paints
+        // require the original current value before capture publication.
+        batch.clear();
+        packet(batch,command::channel_create_resource,70U,54U);
+        packet(batch,command::matrix_transform,60U,1.0,0.0,0.0,1.0,0.0,0.0,70U);
+        append_sampler_transform_brush(batch,relative,60U,true);
+        packet(batch,command::shader_effect,7U,0.0,0.0,0.0,0.0,6U,0xFFFFFFFFU,
+            std::array<std::uint32_t,8U>{0U,0U,0U,0U,0U,0U,8U,4U},0U,1U,5U);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE));
+        batch.clear();
+        packet(batch,command::matrix_resource,70U,1.0,0.0,0.0,1.0,0.0,0.0);
+        append_sampler_transform_brush(batch,relative,60U);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,0U,scene));
+        // A finite leaf does not prove that its complete repeated/grouped
+        // matrix remains representable. The empty paint cannot hide overflow.
+        batch.clear();
+        packet(batch,command::matrix_resource,70U,static_cast<double>(std::numeric_limits<float>::max()),
+            0.0,0.0,1.0,0.0,0.0);
+        append_sampler_transform_group(batch,{60U,60U});
+        append_sampler_transform_brush(batch,relative,63U,true);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH));
+        batch.clear();
+        packet(batch,command::matrix_resource,70U,1.0,0.0,0.0,1.0,0.0,0.0);
+        append_sampler_transform_brush(batch,relative,60U);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,0U,scene));
+        // The new family cannot acquire named libm construction through another
+        // static child or the other brush transform slot. Wholly-static named
+        // behavior is preserved as legacy, not newly qualified here.
+        for (const bool skew : {false,true}) {
+            batch.clear();
+            packet(batch,command::channel_create_resource,skew ? 72U : 71U,skew ? 64U : 65U);
+            if (skew) packet(batch,command::skew_transform,72U,0.0,0.0,0.0,0.0,0U,0U,0U,0U);
+            else packet(batch,command::rotate_transform,71U,0.0,0.0,0.0,0U,0U,0U);
+            append_sampler_transform_group(batch,{60U,skew ? 72U : 71U});
+            append_sampler_transform_brush(batch,relative,63U);
+            PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+            PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+            batch.clear();
+            packet(batch,command::image_brush,5U,.5,std::array{0.0,0.0,1.0,1.0},std::array{0.0,0.0,1.0,1.0},
+                .707,1.414,0U,60U,skew ? 72U : 71U,1U,1U,0U,0U,1U,0U,1U,1U,0U,3U);
+            PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+            PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+            batch.clear();
+            append_sampler_transform_brush(batch,relative,skew ? 72U : 71U);
+            PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+            PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,0U,scene));
+        }
+        // Retain the old 64-level sampler bound, independently of the generic
+        // transform resolver's larger traversal stack. Build bottom-up so every
+        // child already exists and the source graph is acyclic.
+        batch.clear();
+        std::uint32_t child = 60U;
+        for (std::uint32_t id = 100U; id < 164U; ++id) {
+            packet(batch,command::channel_create_resource,id,61U);
+            packet(batch,command::transform_group,id,4U,child);
+            child = id;
+        }
+        append_sampler_transform_brush(batch,relative,child);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH));
+    }
     return true;
 }
 
@@ -22609,6 +22753,7 @@ bool c_abi_is_typed_and_size_versioned() {
 int main() {
     PROGPU_REQUIRE(original_shader_effect_resources_compile_and_reject_atomically());
     PROGPU_REQUIRE(original_shader_sampler_animation_owns_current_resources());
+    PROGPU_REQUIRE(original_shader_sampler_transform_animation_owns_graph());
     PROGPU_REQUIRE(original_shader_sampler_inherits_actual_visual_options());
     PROGPU_REQUIRE(original_shader_padding_retains_local_bounds_and_atomic_updates());
     PROGPU_REQUIRE(original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire());
