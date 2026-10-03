@@ -3,7 +3,7 @@
 `PortableShaderEffect` retains the four original padding doubles without
 normalization. Previously its transport constructor converted negative values,
 NaN, infinity and negative zero to positive zero. That could make an invalid
-source effect appear to be a valid zero-padding effect before native admission.
+portable source effect appear to be a valid zero-padding effect before native admission.
 The neutral DTO now preserves every source bit; it does not declare the effect
 renderable or turn invalid input into an exception at this transport boundary.
 
@@ -27,8 +27,11 @@ This is a source-metadata correction, not a new rendering algorithm. It changes
 the ProGPU-owned transport at `dd2f1415ac1ee2551ea83321b6581cc52e6fb145` and reuses
 the existing `NativeMilBatchBuilder.SetShaderEffect` overload. LibreWPF source
 snapshot `bae8f10ede7b0a166e470fad59d722748f85f381` exports all four protected
-source properties; the source setter's negative-value check does not reject
-NaN or positive infinity. No foreign implementation is copied or translated.
+source properties after its own finite/nonnegative preflight. That preflight
+already rejects NaN and infinity accepted by the protected setter, and must be
+retained: this correction does not claim it was bypassed. Other portable sources
+can construct the DTO directly; native packet admission must still see their
+original metadata. No foreign implementation is copied or translated.
 The DTO and packet boundary remain O(1) for padding, with no new allocation,
 crossing, callback, shader, GPU resource, submission or dependency.
 
