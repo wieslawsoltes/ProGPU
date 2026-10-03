@@ -5,6 +5,7 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_text.hpp"
 #include "../Geometry/progpu_native_arc.hpp"
+#include "../Backend/progpu_native_geometry_stroke.hpp"
 #include "../Scene/progpu_native_semantic_brush.hpp"
 #include "../Scene/progpu_native_semantic_validation.hpp"
 #include "../Scene/progpu_native_semantic_budget.hpp"
@@ -12532,6 +12533,7 @@ struct channel::implementation {
             const float tolerance = static_cast<float>(0.25 / std::max(1.0, scale));
             if (!(tolerance > 0.0F)) return status::unsupported_command;
             std::vector<float> dashes;
+            std::span<const double> source_dashes;
             double dash_offset = 0.0;
             if (pen.dash_style_handle != 0U) {
                 const auto found = dash_styles.find(pen.dash_style_handle);
@@ -12539,6 +12541,7 @@ struct channel::implementation {
                 const status resolved = resolve_dash_offset(pen.dash_style_handle, dash_offset);
                 if (resolved != status::success) return resolved;
                 const auto& intervals = found->second.intervals;
+                source_dashes = intervals;
                 dashes.resize(intervals.size());
                 std::size_t index = 0U;
 #if defined(PROGPU_NATIVE_MIL_INTRINSICS_NEON)
@@ -12561,8 +12564,54 @@ struct channel::implementation {
             if (com::failed(hr)) return convert(hr);
             bool has_bounds = false;
             double left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
+            const auto include_bounds = [&](double x0, double y0, double x1, double y1) {
+                left = has_bounds ? std::min(left, x0) : x0;
+                top = has_bounds ? std::min(top, y0) : y0;
+                right = has_bounds ? std::max(right, x1) : x1;
+                bottom = has_bounds ? std::max(bottom, y1) : y1;
+                has_bounds = true;
+            };
+            curve_dash::run_buffer join_dash_scratch;
+            std::vector<progpu_native_geometry_primitive> join_primitives;
+            std::vector<std::uint32_t> join_brushes;
             for (const auto& contour : stroke_spine->stroke_contours) {
                 if (contour.segments.empty()) continue;
+                if (pen.thickness > 0.0 && (contour.closed || contour.segments.size() > 1U) &&
+                    std::ranges::any_of(contour.segments, [](const auto& segment) {
+                        progpu_native_point tangent{};
+                        return native::semantic_path_stroke::try_tangent(segment, true, tangent) ||
+                            native::semantic_path_stroke::try_tangent(segment, false, tangent);
+                    })) {
+                    // D2D widening retains legitimate body/cap bounds below,
+                    // but does not own MIL's WPF reversal extension. Measure
+                    // only the actual joins emitted by the same source stroke
+                    // compiler, with original double dash inputs and no joins
+                    // across unstroked gaps or invisible dash boundaries.
+                    const native::semantic_path_stroke::style join_style{
+                        native_world, static_cast<float>(pen.thickness),
+                        static_cast<float>(std::max(1.0, pen.miter_limit)), dash_offset,
+                        contour.start_uses_dash_cap ? pen.dash_cap : pen.start_line_cap,
+                        contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap,
+                        pen.dash_cap, pen.line_join, 0U, false, true};
+                    join_primitives.clear();
+                    join_brushes.clear();
+                    const auto compiled = native::semantic_path_stroke::compile(
+                        contour.segments, contour.smooth_joins, contour.closed,
+                        source_dashes, join_style, 0U, join_dash_scratch, join_primitives, join_brushes);
+                    if (compiled != native::semantic_path_stroke::result::success)
+                        return compiled == native::semantic_path_stroke::result::capacity_exceeded
+                            ? status::capacity_exceeded : status::unsupported_command;
+                    for (const auto& primitive : join_primitives) {
+                        if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN) continue;
+                        native::path_join_bounds join_bounds{};
+                        bool has_join_coverage = false;
+                        if (!native::try_get_path_join_bounds(primitive, join_bounds, has_join_coverage))
+                            return status::unsupported_command;
+                        if (has_join_coverage)
+                            include_bounds(join_bounds.left, join_bounds.top,
+                                join_bounds.right, join_bounds.bottom);
+                    }
+                }
                 com::pointer<d2d::path_geometry> path;
                 hr = d2d::detail::create_native_stroke_geometry(factory.get(), contour.segments,
                     contour.smooth_joins, contour.closed, path.put());
@@ -12641,11 +12690,7 @@ struct channel::implementation {
                     bounds = {cap_bounds.x, cap_bounds.y,
                         cap_bounds.x + cap_bounds.width, cap_bounds.y + cap_bounds.height};
                 }
-                left = has_bounds ? std::min(left, double{bounds.left}) : bounds.left;
-                top = has_bounds ? std::min(top, double{bounds.top}) : bounds.top;
-                right = has_bounds ? std::max(right, double{bounds.right}) : bounds.right;
-                bottom = has_bounds ? std::max(bottom, double{bounds.bottom}) : bounds.bottom;
-                has_bounds = true;
+                include_bounds(bounds.left, bounds.top, bounds.right, bounds.bottom);
             }
             if (has_bounds) {
                 if (!finite_double_as_float(right - left) || !finite_double_as_float(bottom - top))
