@@ -174,8 +174,82 @@ internal static partial class Program
         }
     }
 
+    private static void CaptureOrdinaryDrawingImageBrushes(string directory, string commit, Stopwatch timer)
+    {
+        var observations = new List<object>();
+        var failures = new List<string>();
+        OriginalDrawingImageSamplerScene? retained = null;
+        foreach (DrawingImageSamplerState state in DrawingImageSamplerStates())
+        {
+            if (state.Index > 7) break;
+            CheckSamplerAnimationDeadline(timer);
+            if (retained == null) retained = new(state, ordinary: true);
+            else retained.Advance(state);
+            if (state.Index is not (0 or 2 or 7)) continue;
+            string name = "ordinary-" + state.Name;
+            var input = new
+            {
+                Name = name, State = state, Original = retained.Describe(state), ShaderEffectAttached = false,
+                LocalPaint = new Rect(0, 0, 32, 24), VisualOffset = new Vector(8, 10),
+                FinalClip = new Rect(8, 10, 32, 24), TargetDpi = 96,
+                SourceKind = "DrawingImage containing original retained geometry; not a bitmap replacement"
+            };
+            using (var file = new FileStream(Path.Combine(directory, name + ".input.json"), FileMode.CreateNew))
+                JsonSerializer.Serialize(file, input, new JsonSerializerOptions { WriteIndented = true });
+            byte[]? first = null;
+            var replays = new List<object>();
+            for (int replay = 0; replay < 3; ++replay)
+            {
+                CheckSamplerAnimationDeadline(timer);
+                object retainedBefore = retained.Describe(state);
+                OriginalDrawingImageSamplerScene current = replay < 2 ? retained : new(state, ordinary: true);
+                object before = current.Describe(state);
+                var bitmap = new RenderTargetBitmap(64, 64, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(current.Root);
+                Dispatcher.CurrentDispatcher.Invoke(static () => { }, DispatcherPriority.ApplicationIdle);
+                object after = current.Describe(state);
+                object retainedAfter = retained.Describe(state);
+                var pixels = new byte[64 * 64 * 4];
+                bitmap.CopyPixels(pixels, 64 * 4, 0);
+                SaveSamplerBitmap(directory, name + $".replay-{replay}", bitmap, pixels);
+                // This ordinary source has no PixelShader and is a positive
+                // drawing control on both architectures, including native ARM64.
+                try { AssertDrawingImageSamplerPixels(state, pixels, unavailable: false); }
+                catch (InvalidOperationException error) { failures.Add($"{name}, replay {replay}: {error.Message}"); }
+                if (first != null && !first.AsSpan().SequenceEqual(pixels))
+                    failures.Add($"{name}: ordinary retained/warm/independent-literal pixels differ.");
+                first ??= pixels;
+                replays.Add(new
+                {
+                    Replay = replay, SameSourceObjects = replay < 2, IndependentLiteralInstance = replay == 2,
+                    Before = before, After = after, RetainedBefore = retainedBefore, RetainedAfter = retainedAfter,
+                    Pixels = pixels, PixelSha256 = Convert.ToHexString(SHA256.HashData(pixels))
+                });
+            }
+            observations.Add(new { Name = name, Input = input, Replays = replays });
+        }
+        if (observations.Count != 3) throw new InvalidOperationException("Original ordinary DrawingImage inventory changed.");
+        CheckSamplerAnimationDeadline(timer);
+        var receipt = new
+        {
+            Schema = 1, SourceCommit = commit, CaseFamily = "ordinary-drawing-image-brush",
+            Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+            PresentationCore = FileIdentity(typeof(DrawingImage).Assembly.Location),
+            Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
+            CaseCount = observations.Count, Replays = 9, Cases = observations, Failures = failures,
+            QualifiedDrawingCases = failures.Count == 0 ? observations.Count : 0,
+            Qualification = "Original ordinary Microsoft WPF drawing only; no ShaderEffect, native provider, package or source-host parity."
+        };
+        using (var file = new FileStream(Path.Combine(directory, failures.Count == 0 ?
+            "ordinary-drawing-image-brushes.json" : "ordinary-drawing-image-brushes.failed.json"), FileMode.CreateNew))
+            JsonSerializer.Serialize(file, receipt, new JsonSerializerOptions { WriteIndented = true });
+        if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
+        Console.WriteLine("Original ordinary DrawingImage brushes: 3 states / 9 replays; no ShaderEffect attached.");
+    }
+
     private sealed class OriginalDrawingImageSamplerScene
     {
+        private readonly bool ordinary;
         private readonly SolidColorBrush firstBrush;
         private readonly SolidColorBrush secondBrush;
         private readonly RectangleGeometry firstGeometry;
@@ -185,16 +259,17 @@ internal static partial class Program
         private readonly DrawingGroup group;
         private readonly DrawingImage image;
         private readonly ImageBrush brush;
-        private readonly AnimatedSamplerEffect effect;
-        private readonly PixelShader shader;
+        private readonly AnimatedSamplerEffect? effect;
+        private readonly PixelShader? shader;
         private readonly SamplerDrawingVisual source;
         private readonly SamplerContainerVisual clip;
         private readonly RectangleGeometry clipGeometry = new(new(8, 10, 32, 24));
         private int index;
         public ContainerVisual Root { get; }
 
-        public OriginalDrawingImageSamplerScene(DrawingImageSamplerState state)
+        public OriginalDrawingImageSamplerScene(DrawingImageSamplerState state, bool ordinary = false)
         {
+            this.ordinary = ordinary;
             index = state.Index;
             firstBrush = new(state.Blue ? Colors.Blue : Colors.Red);
             secondBrush = new(Colors.Lime);
@@ -211,15 +286,17 @@ internal static partial class Program
                 Viewport = state.Viewport, Viewbox = state.Viewbox, TileMode = state.Tile,
                 Stretch = Stretch.Fill, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Center
             };
-            effect = new(brush);
-            shader = effect.Shader;
+            effect = ordinary ? null : new(brush);
+            shader = effect?.Shader;
             Root = new();
             var background = new DrawingVisual();
             using (var drawing = background.RenderOpen()) drawing.DrawRectangle(Brushes.Black, null, new(0, 0, 64, 64));
             Root.Children.Add(background);
             clip = new(nearest: true) { Clip = clipGeometry };
-            source = new(nearest: true) { Effect = effect };
-            using (var drawing = source.RenderOpen()) drawing.DrawRectangle(Brushes.White, null, new(8, 10, 32, 24));
+            source = new(nearest: true) { Effect = effect, Offset = ordinary ? new Vector(8, 10) : default };
+            using (var drawing = source.RenderOpen())
+                drawing.DrawRectangle(ordinary ? brush : Brushes.White, null,
+                    ordinary ? new Rect(0, 0, 32, 24) : new Rect(8, 10, 32, 24));
             clip.Children.Add(source);
             Root.Children.Add(clip);
         }
@@ -286,11 +363,14 @@ internal static partial class Program
             bool attached = ReferenceEquals(image.Drawing, group);
             bool children = group.Children.Count == 2 && ReferenceEquals(group.Children[0], firstDrawing) &&
                 ReferenceEquals(group.Children[1], secondDrawing);
+            bool effectIdentity = ordinary ? effect == null && shader == null :
+                effect != null && shader != null && ReferenceEquals(effect.InputBrush, brush) &&
+                ReferenceEquals(effect.Shader, shader) && shader.ShaderRenderMode == ShaderRenderMode.SoftwareOnly;
             Rect expectedBounds = state.HasChildren ? state.Index == 7 ? new(-6, 9, 8, 6) : new(10, 20, 8, 6) : Rect.Empty;
             if (index != state.Index || attached != state.Attached || (!attached && image.Drawing != null) ||
                 children != state.HasChildren || (!children && group.Children.Count != 0) ||
                 !ReferenceEquals(brush.ImageSource, image) || !ReferenceEquals(source.Effect, effect) ||
-                !ReferenceEquals(effect.InputBrush, brush) || !ReferenceEquals(effect.Shader, shader) ||
+                !effectIdentity || source.Offset != (ordinary ? new Vector(8, 10) : default) ||
                 !ReferenceEquals(firstDrawing.Brush, firstBrush) || !ReferenceEquals(secondDrawing.Brush, secondBrush) ||
                 !ReferenceEquals(firstDrawing.Geometry, firstGeometry) || !ReferenceEquals(secondDrawing.Geometry, secondGeometry) ||
                 firstDrawing.Pen != null || secondDrawing.Pen != null ||
@@ -306,13 +386,13 @@ internal static partial class Program
                 image.Width != (state.Attached && state.HasChildren ? 8 : 0) ||
                 image.Height != (state.Attached && state.HasChildren ? 6 : 0) ||
                 !ReferenceEquals(clip.Clip, clipGeometry) || clipGeometry.Rect != new Rect(8, 10, 32, 24) ||
-                shader.ShaderRenderMode != ShaderRenderMode.SoftwareOnly ||
                 source.EmittedScalingMode != BitmapScalingMode.NearestNeighbor ||
                 brush.HasAnimatedProperties || group.HasAnimatedProperties || image.HasAnimatedProperties)
                 throw new InvalidOperationException($"{state.Name}: original DrawingImage identity, bounds, source order or mapping changed.");
             return new
             {
-                CurrentState = index, AttachedOriginalGroup = attached, OriginalOrderedChildren = children,
+                CurrentState = index, OrdinaryBrush = ordinary, ShaderEffectAttached = source.Effect != null,
+                source.Offset, AttachedOriginalGroup = attached, OriginalOrderedChildren = children,
                 ChildCount = group.Children.Count, GroupBounds = RectDescription(group.Bounds),
                 ImageDrawingBounds = RectDescription(image.Drawing?.Bounds ?? Rect.Empty), image.Width, image.Height,
                 FirstRectangle = firstGeometry.Rect, SecondRectangle = secondGeometry.Rect,
