@@ -36,7 +36,10 @@ without querying their brush or bounds. It retains its strict actual-clip path,
 local picture/visual scope ownership and faulted-index publication on imbalance.
 The existing direct managed command path already preserves enclosed geometry and
 does not need a raster change. Visual-level `OpacityMask`/`OpacityMaskPicture`
-admission, including combined cache/effect boundaries, remains separate and open.
+admission is a separate contract: the later
+[typed visual-mask connection](source-visual-mask-hit-geometry.md) explicitly
+opts source producers in while keeping generic masks, required cache sources
+and nonidentity effect mappings rejected. Its final runtime gates remain open.
 
 The added work is O(C) structural command dispatch with an O(1) mask-depth counter
 per managed traversal and existing sparse native layer metadata. It does not

@@ -231,7 +231,10 @@ existing version tracking through one cached observer, preventing an unchanged
 parent from reusing stale input after an embedded child changes. The observer is
 borrowed only during capture. Logical image scopes retain their source
 rectangle, including empty contents, and suppress only internal render commands.
-Unknown draw commands, effects, caches and masks outside logical images reject.
+Unknown draw commands, effects and required cache sources outside logical images
+reject. Visual masks require the later default-false
+[`SourceOpacityMaskPreservesHitGeometry` contract](source-visual-mask-hit-geometry.md);
+an arbitrary mask does not acquire that source promise automatically.
 Glyphs require nonempty declared ink bounds rather than falling through to the
 legacy position estimate; authoritative-empty glyph metadata needs a distinct
 future representation. Command scopes cannot pop enclosing visual state or
