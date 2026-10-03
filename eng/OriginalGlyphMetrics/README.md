@@ -9,9 +9,10 @@ Direct2D geometry APIs. It creates no rendering target, GPU device, window or UI
 and links no ProGPU library. Its only product-repository dependency is the owned
 font-byte fixture chain; it never invokes expected-value or font-decoder helpers.
 
-The fixed inventory has twelve separately identified font families: static TT,
+The fixed inventory has fourteen separately identified font families: static TT,
 TT without the vhea/vmtx pair, rectangular CFF with/without VORG, original cubic
-CFF with/without the vertical pair (both without VORG), variable TT with gvar,
+CFF with/without the vertical pair (both without VORG), two additional cubic
+vertical-origin discriminators with integer/fractional true extrema, variable TT with gvar,
 implicit VVAR, mapped VVAR and deliberately conflicting VVAR/gvar, plus CFF2
 with fixed metrics and with a vertical-origin map. Existing fixture bytes stay
 unchanged; omissions use their original table assembler in separate artifacts.
@@ -43,8 +44,33 @@ terminates without a successful receipt and is never promoted to font policy.
 Bounds before/after bits and all metric/advance sentinel words remain available
 to evaluate whether an actual failed operation preserved its outputs.
 
+Seven named run protocols per face cover the specified combinations without a
+Cartesian sweep. The maximum inventory is 40 face attempts, 280 outline calls and
+280 CPU run-analysis calls; failed prerequisites can leave fewer actual calls and
+are retained explicitly. The two cubic-origin discriminator fonts use only their
+single original default face. No sampled coefficient or pixel table is involved.
+
 The observer is bounded to 60 seconds, 128 callback records per outline, 16 axes,
 1 MiB per authored font, and 16 MiB JSON. The future launcher additionally caps
 the owned child process at 128 MiB and records compiler/header/PE, operating-system,
 loaded module and original font hashes. `qualified:false` is unconditional: these
 numeric observations do not qualify rendering or unsupported font families.
+
+## Future authorized use
+
+`PrepareOriginalGlyphMetrics.ps1` requires the exact source commit, matching native
+Windows architecture and a nonexistent output directory. Its default is build-only;
+`-Observe` separately enables the owned CPU child after a successful build. Do not
+invoke either mode without the separately requested permission. It uses exact
+selected native `cl.exe`/`link.exe` paths, the reviewed launcher-selection contract
+from `cb9096b11`, actual `/sourceDependencies`, and explicit selected SDK import
+libraries. The output PE is checked directly; all consumed headers and original
+tool files are hashed, not copied or patched. Loaded DirectWrite and geometry
+modules must come from the native Windows system directory and are hashed with
+their file versions and actual PE machine. Build-only and executed receipts have
+different names and explicit execution flags, with every destination CreateNew.
+
+Font fixture dependencies are normal-merged owned commits `b11367789` (competing
+VVAR/gvar rows) and `63934fc57` (true cubic-origin discriminators). The latter merge
+also retains its source helper ancestry but no product library is linked by this
+observer. Existing source/provider expected outputs are neither changed nor used.

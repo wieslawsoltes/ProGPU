@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 
 #include "progpu_native_direct2d_vertical_font_fixture.hpp"
+#include "progpu_native_direct2d_cff_vertical_fixture.hpp"
 
 #include <atomic>
 #include <bit>
@@ -199,6 +200,8 @@ std::vector<family> families() {
         {"cff-no-vorg", omit(fixture::make_vertical_font(cff), {0x564F5247U}), false, false},
         {"cff-cubic-no-vorg", std::move(cubic_vertical), false, false},
         {"cff-cubic-no-vertical-pair", std::move(cubic), false, false},
+        {"cff-origin-integer-extremum", fixture::make_cff_vertical_font(false), false, false},
+        {"cff-origin-fractional-extremum", fixture::make_cff_vertical_font(true), false, false},
         {"tt-variable-gvar", fixture::make_vertical_font(tt_variable), true, false},
         {"tt-variable-vvar", fixture::make_vertical_font(tt_vvar), true, false},
         {"tt-variable-maps", fixture::make_vertical_font(tt_maps), true, true},
@@ -241,6 +244,17 @@ void observe_face(std::ostream& output, IDWriteFactory5* factory, ID2D1Factory* 
             if (path == 1U && !has_actual) continue; // Explicitly recorded unavailable actual-advance source, no guessed substitute.
             const auto selected_advances = path == 0U ? nullptr : path == 1U ? actual_advances.data() : signed_advances.data();
             for (const bool positioned : {false, true}) {
+                // Seven named protocols per face, not a Cartesian sweep. All
+                // raw flags and bidi levels remain explicit original inputs.
+                const bool selected_protocol = sideways == 0 ?
+                    (path == 0U && !positioned) || (path == 2U && positioned) : sideways == 1 ?
+                    (path == 0U && !positioned) || (path == 1U && positioned) || (path == 2U && positioned) :
+                    (path == 0U && positioned) || (path == 2U && !positioned);
+                if (!selected_protocol) continue;
+                const BOOL selected_rtl = sideways == 0 ? (path == 2U ? 1 : 0) :
+                    sideways == 1 ? (path == 2U ? 1 : 0) : (path == 0U ? -1 : 0);
+                const UINT32 selected_bidi = sideways == 0 ? (path == 2U ? 1U : 0U) :
+                    sideways == 1 ? (path == 2U ? 1U : path == 1U ? 2U : 0U) : (path == 0U ? 3U : 2U);
                 if (!first_run) output << ','; first_run = false;
                 output << "{\"advance_source\":" << quoted(path == 0U ? "null" : path == 1U ? "actual-design-api" : "signed-literal")
                     << ",\"actual_advance_source_available\":" << (has_actual ? "true" : "false") << ",\"advance_bits\":[";
@@ -249,7 +263,7 @@ void observe_face(std::ostream& output, IDWriteFactory5* factory, ID2D1Factory* 
                 if (positioned) for (std::size_t i = 0; i < 3U; ++i) output << (i == 0 ? "" : ",") << '[' << bits(offsets[i].advanceOffset) << ',' << bits(offsets[i].ascenderOffset) << ']';
                 output << "],\"outline_observations\":[";
                 bool first_outline = true;
-                for (const BOOL rtl : {0, 1, -1}) {
+                for (const BOOL rtl : {selected_rtl}) {
                     budget(); ++outline_count;
                     ComPtr<ID2D1PathGeometry> geometry; ComPtr<ID2D1GeometrySink> geometry_sink;
                     required(geometry_factory->CreatePathGeometry(geometry.GetAddressOf()), "CPU path geometry");
@@ -270,7 +284,7 @@ void observe_face(std::ostream& output, IDWriteFactory5* factory, ID2D1Factory* 
                         << "],\"bounds_after_bits\":[" << bits(bounds.left) << ',' << bits(bounds.top) << ',' << bits(bounds.right) << ',' << bits(bounds.bottom) << "]}";
                 }
                 output << "],\"run_analysis\":[";
-                for (UINT32 bidi = 0U; bidi < 4U; ++bidi) {
+                for (const UINT32 bidi : {selected_bidi}) {
                     budget(); ++analysis_count;
                     const DWRITE_GLYPH_RUN run{face, em, 3U, indices.data(), selected_advances,
                         positioned ? offsets.data() : nullptr, sideways, bidi};
@@ -281,7 +295,7 @@ void observe_face(std::ostream& output, IDWriteFactory5* factory, ID2D1Factory* 
                     RECT bounds{}; std::memset(&bounds, 0xA5, sizeof(bounds));
                     const auto before = bounds;
                     const auto bounds_status = analysis != nullptr ? analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_ALIASED_1x1, &bounds) : E_POINTER;
-                    output << (bidi == 0U ? "" : ",") << "{\"bidi_level\":" << bidi << ",\"hresult\":" << hr(status)
+                    output << "{\"bidi_level\":" << bidi << ",\"hresult\":" << hr(status)
                         << ",\"output_before_null\":true,\"output_after_null\":" << (analysis == nullptr ? "true" : "false")
                         << ",\"bounds_called\":" << (analysis != nullptr ? "true" : "false") << ",\"bounds_hresult\":" << hr(bounds_status)
                         << ",\"bounds_before_words\":" << raw_words(std::array{before}) << ",\"bounds_after_words\":" << raw_words(std::array{bounds}) << '}';
@@ -318,7 +332,7 @@ void observe(std::ostream& output, const std::filesystem::path& directory) {
         ComPtr<IDWriteFontFile> file;
         const auto file_status = loader->CreateInMemoryFontFileReference(factory.Get(), item.data.data(),
             static_cast<UINT32>(item.data.size()), nullptr, file.GetAddressOf());
-        BOOL supported = static_cast<BOOL>(0xA5A5A5A5U); UINT32 face_count = 0xA5A5A5A5U;
+        BOOL supported = std::bit_cast<BOOL>(std::uint32_t{0xA5A5A5A5U}); UINT32 face_count = 0xA5A5A5A5U;
         DWRITE_FONT_FILE_TYPE file_type = DWRITE_FONT_FILE_TYPE_UNKNOWN;
         DWRITE_FONT_FACE_TYPE face_type = DWRITE_FONT_FACE_TYPE_UNKNOWN;
         const auto analyze_status = file != nullptr ? file->Analyze(&supported, &file_type, &face_type, &face_count) : E_POINTER;
@@ -332,7 +346,13 @@ void observe(std::ostream& output, const std::filesystem::path& directory) {
             << ",\"file_hresult\":" << hr(file_status) << ",\"analyze_called\":" << (file != nullptr ? "true" : "false")
             << ",\"analyze_hresult\":" << hr(analyze_status) << ",\"supported_raw\":" << supported << ",\"face_count\":" << face_count
             << ",\"file_type\":" << file_type << ",\"face_type\":" << face_type << ",\"create_called\":" << (create_called ? "true" : "false")
-            << ",\"create_hresult\":" << hr(create_status) << ",\"instances\":[";
+            << ",\"create_hresult\":" << hr(create_status) << ",\"requested_weight_bits\":[";
+        if (item.variable) {
+            for (std::size_t i = 0; i < fixture::vertical_font_weights.size(); ++i)
+                output << (i == 0U ? "" : ",") << bits(fixture::vertical_font_weights[i]);
+            if (item.precision) output << ',' << bits(650.125F);
+        } else output << bits(400.0F);
+        output << "],\"instances\":[";
         if (face != nullptr) {
             ComPtr<IDWriteFontFace5> face5; ComPtr<IDWriteFontResource> resource;
             const auto face5_status = face.As(&face5);
@@ -359,7 +379,9 @@ void observe(std::ostream& output, const std::filesystem::path& directory) {
                     << ",\"instance_hresult\":" << hr(instance_status) << ",\"actual_axis_values\":[";
                 ComPtr<IDWriteFontFace5> selected5;
                 HRESULT axis_status = E_NOINTERFACE;
+                BOOL has_variations = FALSE;
                 if (selected != nullptr && SUCCEEDED(selected.As(&selected5))) {
+                    has_variations = selected5->HasVariations();
                     const auto count = selected5->GetFontAxisValueCount();
                     if (count > 16U) throw std::runtime_error("actual axis count bound");
                     std::vector<DWRITE_FONT_AXIS_VALUE> axes(count);
@@ -367,7 +389,8 @@ void observe(std::ostream& output, const std::filesystem::path& directory) {
                     for (std::size_t axis = 0; axis < axes.size(); ++axis) output << (axis == 0 ? "" : ",")
                         << "{\"tag\":" << hex32(static_cast<std::uint32_t>(axes[axis].axisTag)) << ",\"value_bits\":" << bits(axes[axis].value) << '}';
                 }
-                output << "],\"axis_hresult\":" << hr(axis_status) << ",\"metrics_called\":" << (selected != nullptr ? "true" : "false");
+                output << "],\"axis_hresult\":" << hr(axis_status) << ",\"has_variations_raw\":" << has_variations
+                    << ",\"metrics_called\":" << (selected != nullptr ? "true" : "false");
                 if (selected != nullptr) { output << ','; observe_face(output, factory.Get(), geometry_factory.Get(), selected.Get()); }
                 output << '}';
             }
