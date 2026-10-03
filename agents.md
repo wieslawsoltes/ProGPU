@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+CFF origins without VORG use the retained matrix-transformed/varied contour
+maximum and original vmtx bearing, never a control envelope or int16 clamp.
+Keep derivative degree exact, source rounding unclaimed, VORG precedence and
+whole-run vertical cache publication. CFF2 vOrg variation requires its VORG base,
+not an already-varied contour origin. Preserve original Windows/full-provider
+controls and the separate missing-table contract; see
+docs/direct2d-cff-contour-origins.md.
+
 Prepared sideways source glyphs retain raw BOOL and logical order. Use the same
 owned static vertical metrics and rotate each contour about its real vertical
 origin before run offsets; never rotate the pen, substitute horizontal advance,

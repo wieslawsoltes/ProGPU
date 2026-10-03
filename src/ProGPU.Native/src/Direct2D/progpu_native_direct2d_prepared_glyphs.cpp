@@ -29,6 +29,23 @@ struct decoded_original_glyph final {
     std::vector<progpu_native_path_segment> segments;
     float horizontal_origin = 0.0F;
     float horizontal_advance = 0.0F;
+    // Retained during the same TrueType variable outline decode. This is the
+    // actual point-domain yMax used by vmtx, not a CFF control-point envelope.
+    float varied_true_type_y_max = 0.0F;
+    bool has_varied_true_type_bounds = false;
+};
+
+struct decoded_original_vertical_glyph final {
+    float advance_height = 0.0F;
+    float top_origin = 0.0F;
+    bool has_origin = false;
+};
+
+struct prepared_vertical_metrics_state final {
+    std::shared_ptr<const retained_original_vertical_metrics> source;
+    std::vector<float> region_scalars;
+    text::sfnt_vertical_metrics_variation_instance variation;
+    std::unordered_map<std::uint16_t, decoded_original_vertical_glyph> cache;
 };
 
 // Each scratch array is bounded by the existing point-domain budget, including
@@ -180,6 +197,15 @@ struct varied_outline_storage final {
             candidate->segments, points_written, segments_written) ||
         points_written != requirements.outline.point_count || segments_written != requirements.outline.path_segment_count)
         return com::invalid_argument;
+    if (points_written != 0U) {
+        float maximum_y = -std::numeric_limits<float>::infinity();
+        for (const auto& point : std::span(scratch.points).first(points_written)) {
+            if (!std::isfinite(point.x) || !std::isfinite(point.y)) return com::invalid_argument;
+            maximum_y = std::max(maximum_y, point.y);
+        }
+        candidate->varied_true_type_y_max = maximum_y;
+        candidate->has_varied_true_type_bounds = true;
+    }
     text::sfnt_horizontal_glyph_metrics base{};
     text::sfnt_glyph_data_view original{};
     if (!font.try_get_horizontal_glyph_metrics(glyph, base) || !font.try_get_glyph_data(glyph, original))
@@ -218,6 +244,67 @@ struct varied_outline_storage final {
     if (!std::isfinite(candidate->horizontal_advance) || !std::isfinite(candidate->horizontal_origin))
         return com::invalid_argument;
     output = std::move(candidate);
+    return com::ok;
+}
+
+[[nodiscard]] com::result resolve_vertical_glyph(const text::sfnt_font_view& font,
+    original_outline_family family, std::span<const std::int16_t> normalized,
+    const prepared_vertical_metrics_state& vertical, const decoded_original_glyph& decoded,
+    varied_outline_storage& scratch, std::uint16_t glyph, decoded_original_vertical_glyph& output)
+{
+    original_vertical_glyph_metrics base{};
+    const auto status = vertical.source->read_base(glyph, base);
+    if (com::failed(status)) return status;
+    decoded_original_vertical_glyph candidate{static_cast<float>(base.advance_height),
+        static_cast<float>(base.top_origin), base.has_origin};
+    if (!candidate.has_origin && family != original_outline_family::true_type) {
+        // CFF has no stored glyf box. Reuse this exact decoded/matrix-transformed
+        // outline once, not a control envelope, a second decode or a source
+        // callback. The cached source float is narrowed only after double
+        // Bezier extrema and the original top bearing have been combined.
+        original_vertical_outline_metrics contour_metrics{};
+        const auto contour_status = vertical.source->read_outline(glyph, decoded.segments, contour_metrics);
+        if (com::failed(contour_status)) return contour_status;
+        candidate.top_origin = static_cast<float>(contour_metrics.top_origin);
+        candidate.has_origin = contour_metrics.has_origin;
+    }
+    text::sfnt_vertical_metrics_variation delta{};
+    if (!font.try_get_vertical_metrics_variation(glyph, vertical.variation, delta)) return com::invalid_argument;
+    if (!normalized.empty() && family == original_outline_family::true_type) {
+        // One lazy pair query per unique glyph. Contours and their actual varied
+        // yMax already belong to the horizontal/vertical shared outline cache.
+        std::uint32_t item_count = 0U;
+        text::sfnt_glyph_phantom_variation_requirements requirements{};
+        if (!font.try_get_glyph_variation_item_count(glyph, item_count) ||
+            !font.try_get_glyph_phantom_variation_requirements(glyph, item_count, requirements))
+            return com::invalid_argument;
+        if (!scratch.resize_phantoms(requirements)) return com::out_of_memory;
+        float top = 0.0F, bottom = 0.0F;
+        if (!font.try_get_glyph_vertical_phantom_deltas(glyph, normalized, item_count, top, bottom,
+                scratch.borrow_phantoms())) return com::invalid_argument;
+        candidate.advance_height += delta.uses_vvar ? delta.advance_height : top - bottom;
+        if (candidate.has_origin) {
+            if (delta.has_top_side_bearing) {
+                if (!decoded.has_varied_true_type_bounds) return com::invalid_argument;
+                candidate.top_origin = decoded.varied_true_type_y_max +
+                    (static_cast<float>(base.top_side_bearing) + delta.top_side_bearing);
+            } else candidate.top_origin += top;
+        }
+        // The OpenType VVAR origin map does not apply to TrueType. It cannot
+        // override a real gvar phantom or mapped top side bearing.
+    } else if (family == original_outline_family::cff2) {
+        if (delta.uses_vvar) candidate.advance_height += delta.advance_height;
+        // VVAR vOrg is a delta from an original VORG value, not from the current
+        // varied contour maximum. Without that base it would vary an already
+        // varied origin a second time; the required source data is missing.
+        if (delta.has_vertical_origin_y && !base.has_origin) return com::invalid_argument;
+        if (candidate.has_origin && delta.has_vertical_origin_y) candidate.top_origin += delta.vertical_origin_y;
+        // CFF2 has no gvar phantoms. Without VORG, the current contour maximum
+        // already reflects outline variation; vmtx bearing remains separate.
+    }
+    if (!std::isfinite(candidate.advance_height) || !std::isfinite(candidate.top_origin)) return com::invalid_argument;
+    if (!decoded.segments.empty() && !candidate.has_origin) return compat::not_implemented;
+    output = candidate;
     return com::ok;
 }
 
@@ -385,7 +472,7 @@ struct prepared_original_font::state final {
     std::vector<std::int16_t> normalized_coordinates;
     std::vector<float> region_scalars;
     text::sfnt_horizontal_metrics_variation_instance variation{};
-    std::shared_ptr<const retained_original_vertical_metrics> vertical_metrics;
+    std::shared_ptr<prepared_vertical_metrics_state> vertical_metrics;
     varied_outline_storage varied_scratch;
     std::mutex mutex;
     std::unordered_map<std::uint16_t, std::shared_ptr<const decoded_original_glyph>> cache;
@@ -507,10 +594,10 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
         request->measuring != compat::measuring_mode::natural)
         return compat::not_implemented;
     const bool sideways = request->sideways != 0;
-    // The combined sideways/RTL source contract and variable vertical origin
-    // rounding are separate work; never borrow the horizontal RTL placement or
-    // apply unvaried vertical values to a variable outline.
-    if (sideways && ((request->bidi_level & 1U) != 0U || !state_->normalized_coordinates.empty()))
+    // Combined sideways/RTL remains separate. Natural outlines retain exact
+    // unrounded design values; this does not select a fractional INT32 source
+    // metric-rounding policy or any hinted/GDI measurement contract.
+    if (sideways && (request->bidi_level & 1U) != 0U)
         return compat::not_implemented;
     try {
         const std::lock_guard lock(state_->mutex);
@@ -522,14 +609,25 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
         auto vertical_metrics = state_->vertical_metrics;
         if (sideways) {
             if (!vertical_metrics) {
-                const auto status = retained_original_vertical_metrics::create(state_->source, vertical_metrics);
+                vertical_metrics = std::make_shared<prepared_vertical_metrics_state>();
+                const auto status = retained_original_vertical_metrics::create(state_->source, vertical_metrics->source);
                 if (com::failed(status)) return status;
+                std::uint16_t regions = 0U;
+                bool uses_vvar = false;
+                if (!state_->font.try_get_vertical_metrics_variation_region_count(state_->normalized_coordinates,
+                        regions, uses_vvar)) return com::invalid_argument;
+                vertical_metrics->region_scalars.resize(regions);
+                if (!state_->font.try_prepare_vertical_metrics_variation(state_->normalized_coordinates,
+                        vertical_metrics->region_scalars, vertical_metrics->variation)) return com::invalid_argument;
             }
-            if (!vertical_metrics->has_metrics()) return compat::not_implemented;
+            if (!vertical_metrics->source->has_metrics()) return compat::not_implemented;
         }
         std::unordered_map<std::uint16_t, std::shared_ptr<const decoded_original_glyph>> additions;
+        std::unordered_map<std::uint16_t, decoded_original_vertical_glyph> vertical_additions;
         std::vector<std::shared_ptr<const decoded_original_glyph>> occurrences;
+        std::vector<decoded_original_vertical_glyph> vertical_occurrences;
         occurrences.reserve(original.glyphs.count());
+        if (sideways) vertical_occurrences.reserve(original.glyphs.count());
         std::size_t added_segments = 0U, output_segments = 0U;
         for (std::uint32_t index = 0U; index < original.glyphs.count(); ++index) {
             const auto glyph = original.glyphs.indices()[index];
@@ -552,6 +650,19 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             }
             if (decoded->segments.size() > maximum_segments - output_segments) return com::out_of_memory;
             output_segments += decoded->segments.size();
+            if (sideways) {
+                decoded_original_vertical_glyph metrics{};
+                if (const auto existing = vertical_metrics->cache.find(glyph); existing != vertical_metrics->cache.end())
+                    metrics = existing->second;
+                else if (const auto added = vertical_additions.find(glyph); added != vertical_additions.end()) metrics = added->second;
+                else {
+                    const auto status = resolve_vertical_glyph(state_->font, state_->family, state_->normalized_coordinates,
+                        *vertical_metrics, *decoded, state_->varied_scratch, glyph, metrics);
+                    if (com::failed(status)) return status;
+                    vertical_additions.emplace(glyph, metrics);
+                }
+                vertical_occurrences.push_back(metrics);
+            }
             occurrences.push_back(std::move(decoded));
         }
         candidate->segments_.reserve(output_segments);
@@ -560,14 +671,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
         for (std::uint32_t index = 0U; index < original.glyphs.count(); ++index) {
             // Keep logical source order and captured null-pointer identity.
             // Explicit advances, including zero/negative values, always win.
-            original_vertical_glyph_metrics vertical{};
-            if (sideways) {
-                const auto status = vertical_metrics->read_base(original.glyphs.indices()[index], vertical);
-                if (com::failed(status)) return status;
-                if (!occurrences[index]->segments.empty() && !vertical.has_origin)
-                    return compat::not_implemented;
-            }
-            const float design_advance = sideways ? static_cast<float>(vertical.advance_height)
+            const float design_advance = sideways ? vertical_occurrences[index].advance_height
                 : occurrences[index]->horizontal_advance;
             const float advance = original.glyphs.advances() != nullptr
                 ? original.glyphs.advances()[index]
@@ -589,7 +693,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             for (auto segment : occurrences[index]->segments) {
                 const bool placed = sideways
                     ? place_sideways_segment(segment, scale, x, y, vertical_origin_x,
-                        static_cast<float>(vertical.top_origin))
+                        vertical_occurrences[index].top_origin)
                     : place_segment(segment, scale, x, y, occurrences[index]->horizontal_origin);
                 if (!placed)
                     return com::invalid_argument;
@@ -601,9 +705,13 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
         // reserve may allocate but does not remove earlier cache entries. merge
         // transfers already-owned nodes without per-glyph allocations/redecodes.
         state_->cache.reserve(state_->cache.size() + additions.size());
+        if (sideways) vertical_metrics->cache.reserve(vertical_metrics->cache.size() + vertical_additions.size());
         state_->cache.merge(additions);
         state_->cached_segments += added_segments;
-        if (sideways) state_->vertical_metrics = std::move(vertical_metrics);
+        if (sideways) {
+            vertical_metrics->cache.merge(vertical_additions);
+            state_->vertical_metrics = std::move(vertical_metrics);
+        }
         output = std::move(candidate);
         return com::ok;
     } catch (const std::bad_alloc&) { return com::out_of_memory; }
