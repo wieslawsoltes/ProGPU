@@ -50,11 +50,17 @@ contract and independent clipped-miter source policy remain unchanged.
 
 ## Authored controls and remaining gates
 
-Focused controls cover actual MIL curved and tiled source routes, solid and
-dashed joins, smooth Round selection, reversal, complete source ownership and
-atomic rejected input. Native primitive controls distinguish the WPF flag from
-independent clipping and reject unsupported wire combinations. These controls
-are authored, not executed.
+The new `NativeWpfPathJoinTransportTests` file authors ten managed constructor
+configurations: three admitted source join values, three rejected primitive
+kinds, three rejected join/width combinations, and independent clip-only versus
+WPF versus legacy policy. Rejected construction leaves no published candidate;
+these controls do not load a native library or exercise a GPU.
+
+Separate focused controls cover actual MIL curved and tiled source routes,
+solid and dashed joins, smooth Round selection, reversal, complete source
+ownership and atomic rejected input. Native primitive controls distinguish the
+WPF flag from independent clipping and reject unsupported wire combinations.
+All controls in this slice are authored, not executed.
 
 No build, test, syntax verifier, GPU/UI run, original probe, CI or package
 qualification was performed for this slice. Exact-head provider rendering and
