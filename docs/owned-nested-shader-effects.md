@@ -88,7 +88,24 @@ target preparation is lazy and reused only for identical immutable input and
 actual target. No startup, latency, allocation, residency or throughput benefit
 is claimed without final binary measurements.
 
-All authored ownership, ordering, target, failure and full-pixel controls remain
-unexecuted. No build, syntax check, verifier, probe, GPU/UI run, VM or CI request
-was performed. Full provider/package/source and original application gates,
-including numeric/affine comparison and performance qualification, remain open.
+## Authored controls
+
+`OwnedShaderEffectTextureTests` contains nineteen authored configurations for
+metadata snapshots, partial-candidate cleanup, picture-clone ownership, off-thread
+drains, actual context shutdown and queue-only abandoned owner/parameter release.
+The real-device configurations use both existing owned providers; pure controls
+do not claim GPU behavior.
+
+`OwnedShaderEffectRecordingTests` adds eight configurations: four pure lifetime,
+stream-order and atomic-failure facts, plus four actual-provider configurations
+covering successful two-target use and deliberately reused parameter ownership.
+One retained command is drawn directly at XY(2,1) and in a legacy offscreen target
+at XY(1,1), with unchanged semantic DPI and independently specified complete
+128-by-64 pixels. Cold/warm replay requires exactly two preparations. The invalid
+reuse case retries the earlier target after rejection to detect destructive
+rollback. Existing source, sampler and scalar controls remain unchanged.
+
+All controls remain unexecuted. No build, syntax check, verifier, probe, GPU/UI
+run, VM or CI request was performed. Full provider/package/source and original
+application gates, including numeric/affine comparison and performance
+qualification, remain open.
