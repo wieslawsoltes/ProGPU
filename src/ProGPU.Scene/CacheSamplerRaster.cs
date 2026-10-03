@@ -13,8 +13,12 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable,
 {
     private static readonly ConditionalWeakTable<WgpuContext, CacheSamplerRetirement> s_retirements = new();
     static CacheSamplerRaster() => WgpuContext.Disposing += RetireContext;
+    // Ordinary owned shader-input textures share this exact context shutdown
+    // snapshot and failure coordinator; do not register a competing drain.
+    internal static CacheSamplerRetirement GetRetirementOwner(WgpuContext context) =>
+        s_retirements.GetValue(context, static owner => new(owner.QueueExternalTextureOwnerDisposal));
     internal static void EnsureContextAcceptsCapture(WgpuContext context) =>
-        s_retirements.GetValue(context, static owner => new(owner.QueueExternalTextureOwnerDisposal)).EnsureAcceptsCapture();
+        GetRetirementOwner(context).EnsureAcceptsCapture();
     private GpuPicture? _picture;
     private readonly CacheSamplerRetirement _retirementOwner;
     private int _ownerReleased;
@@ -34,7 +38,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable,
         DeviceIdentity = deviceIdentity; EnableClearType = enableClearType;
         // The owning context retires surviving parameter/recording generations
         // before its final resource drain. Shutdown never relies on a later GC.
-        _retirementOwner = s_retirements.GetValue(texture.Context, static owner => new(owner.QueueExternalTextureOwnerDisposal));
+        _retirementOwner = GetRetirementOwner(texture.Context);
         _retirementOwner.Add(this);
         _registered = true;
     }
