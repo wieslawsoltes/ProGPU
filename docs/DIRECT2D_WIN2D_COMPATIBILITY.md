@@ -659,6 +659,15 @@ likewise preserves failures and releases any returned interface before returning
 No IID, vtable, bitmap alias, format, DPI, pixel-copy or scene-generation contract
 changes.
 
+Portable drawing and brush-family probes likewise fall through only for
+`E_NOINTERFACE` with null. `DrawBitmap`, nested bitmap-brush sources, ordinary
+and opacity-mask brush classification, and `FillOpacityMask` preserve genuine
+failures and release failed nonnull outputs; their successful-null queries fail
+with `E_FAIL`. Existing terminal absent-family errors and the first latched draw
+error remain intact. See [draw resource query ownership](direct2d-draw-resource-query.md)
+for the authored failure, reference-balance, recovery and genuine-resource
+controls. This does not change the bitmap-sharing error contract above.
+
 Thirteen authored raw fault controls exercise both queries, exact HRESULTs,
 null publication, no downstream bitmap metadata/copy access, no first-query
 fallback after malformed responses, balanced actual owned source/scene/factory
