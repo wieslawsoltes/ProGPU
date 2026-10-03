@@ -31,6 +31,9 @@ internal static partial class Program
         public Rect? InnerClip => Index == 4 ? new Rect(12, 6, 8, 12) : null;
         public Rect? RootScrollClip => Index is 12 or 13 ? new Rect(1000, 1000, 1, 1) : null;
         public Rect? InnerScrollClip => Index == 13 ? new Rect(1000, 1000, 1, 1) : null;
+        public bool HasNestedImage => Index >= 15;
+        public bool HasNestedSourceLeaf => Index >= 16;
+        public bool HasNestedImageGeometry => Index is 17 or 19;
         public double RelativeX => Index == 5 ? .25 : 0;
         public double AbsoluteY => Index == 5 ? 2 : 0;
     }
@@ -52,6 +55,11 @@ internal static partial class Program
         yield return new(12, "cache-sampler-ignored-root-scroll-clip");
         yield return new(13, "cache-sampler-descendant-scroll-clip");
         yield return new(14, "cache-sampler-restored-scroll-clips");
+        yield return new(15, "cache-sampler-empty-drawing-image-empty-cache-source");
+        yield return new(16, "cache-sampler-empty-drawing-image-refilled-cache-source");
+        yield return new(17, "cache-sampler-refilled-drawing-image");
+        yield return new(18, "cache-sampler-reemptied-drawing-image");
+        yield return new(19, "cache-sampler-restored-drawing-image");
     }
 
     private static void CaptureBitmapCacheBrushSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
@@ -66,6 +74,7 @@ internal static partial class Program
         byte[]? zeroScalePixels = null;
         byte[]? nullTargetPixels = null;
         byte[]? filledPixels = null;
+        byte[]? nestedFilledPixels = null;
         foreach (BitmapCacheSamplerState state in BitmapCacheSamplerStates())
         {
             CheckSamplerAnimationDeadline(timer);
@@ -77,6 +86,10 @@ internal static partial class Program
                 ShaderRenderMode = "SoftwareOnly", SamplerRegister = 0, SamplingMode = "NearestNeighbor",
                 SourceTree = "unparented ContainerVisual / inner ContainerVisual / two retained DrawingVisual leaves",
                 SourceFrameworkElements = false, SourceReplacedByBitmap = false,
+                NestedSourceTree = state.HasNestedImage
+                    ? "third DrawingVisual / ImageBrush / DrawingImage / DrawingGroup / GeometryDrawing / BitmapCacheBrush / retained ContainerVisual"
+                    : "not attached to the sampled source",
+                NestedOverlayArgb = "FFFF0000",
                 ReceivingLocalBounds = new Rect(0, 0, 32, 24), ReceivingOffset = new Vector(8, 10),
                 OutputClip = new Rect(8, 10, 32, 24), TargetDpi = 96,
                 SamplerRealization = "selected raw cache texture sampled over normalized shader coordinates",
@@ -135,18 +148,23 @@ internal static partial class Program
                 failures.Add($"{state.Name}: root scroll clipping or restored descendant clipping changed the raw source frame.");
             if (state.Index == 13 && (nullTargetPixels == null || !nullTargetPixels.AsSpan().SequenceEqual(first)))
                 failures.Add("The descendant outside scroll clip did not preserve the independent transparent-sampler frame.");
+            if (state.Index is 15 or 16 or 18 && (filledPixels == null || !filledPixels.AsSpan().SequenceEqual(first)))
+                failures.Add($"{state.Name}: a genuinely empty nested DrawingImage changed the retained outer source frame.");
+            if (state.Index == 17) nestedFilledPixels = first;
+            if (state.Index == 19 && (nestedFilledPixels == null || !nestedFilledPixels.AsSpan().SequenceEqual(first)))
+                failures.Add("Refilling the same nested DrawingImage owners did not restore their nonempty frame.");
             observations.Add(new { state.Name, Input = input, Replays = replays });
         }
-        if (observations.Count != 15) throw new InvalidOperationException("Original BitmapCacheBrush sampler inventory changed.");
+        if (observations.Count != 20) throw new InvalidOperationException("Original BitmapCacheBrush sampler inventory changed.");
         CheckSamplerAnimationDeadline(timer);
         var receipt = new
         {
-            Schema = 3, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
+            Schema = 4, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
             OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             PresentationCore = FileIdentity(typeof(BitmapCacheBrush).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
-            CaseCount = observations.Count, Replays = 45, Cases = observations, Failures = failures,
+            CaseCount = observations.Count, Replays = 60, Cases = observations, Failures = failures,
             SystemDpiObservation = systemDpiObservation,
             SamplerContract = "raw selected cache texture; consumer brush opacity and transforms excluded",
             RasterProfile = "literal integral-cache corpus; no fractional/near-integer, device-clamp or historical primary-DPI qualification",
@@ -158,7 +176,7 @@ internal static partial class Program
             "bitmap-cache-brush-samplers.json" : "bitmap-cache-brush-samplers.failed.json"), FileMode.CreateNew))
             JsonSerializer.Serialize(file, receipt, new JsonSerializerOptions { WriteIndented = true });
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine($"Original BitmapCacheBrush samplers: 15 states / 45 replays; {(unavailable ? 0 : 15)} shader cases qualified.");
+        Console.WriteLine($"Original BitmapCacheBrush samplers: 20 states / 60 replays; {(unavailable ? 0 : 20)} shader cases qualified.");
     }
 
     private static void AssertBitmapCacheSamplerPixels(BitmapCacheSamplerState state, byte[] pixels, bool unavailable)
@@ -176,9 +194,9 @@ internal static partial class Program
                 int column = x - 8;
                 selected = state.Index switch
                 {
-                    0 or 1 or 2 or 3 or 5 => column < 16 ? 2 : 1,
+                    0 or 1 or 2 or 3 or 5 or 17 or 19 => column < 16 ? 2 : 1,
                     4 => 1,
-                    8 or 11 or 12 or 14 => column < 16 ? 0 : 1,
+                    8 or 11 or 12 or 14 or 15 or 16 or 18 => column < 16 ? 0 : 1,
                     6 or 7 or 9 or 10 or 13 => -1,
                     _ => throw new InvalidOperationException("Unknown independent BitmapCacheBrush sampler oracle.")
                 };
@@ -213,6 +231,19 @@ internal static partial class Program
         private readonly BlurEffect rootEffect = new() { Radius = 3 };
         private readonly SolidColorBrush rootMask = new(Colors.Transparent);
         private readonly RectangleGeometry groupClip = new();
+        private readonly ContainerVisual nestedTarget = new();
+        private readonly VisualSamplerDrawingVisual nestedSourceLeaf = new();
+        private readonly RectangleGeometry nestedSourceGeometry = new(new Rect(0, 0, 8, 12));
+        private readonly SolidColorBrush nestedSourceBrush = new(Colors.Red);
+        private readonly BitmapCache nestedCache = new(1);
+        private readonly BitmapCacheBrush nestedCacheBrush = new();
+        private readonly GeometryGroup nestedImageGeometry = new();
+        private readonly RectangleGeometry nestedImageRectangle = new(new Rect(0, 0, 8, 12));
+        private readonly GeometryDrawing nestedDrawing;
+        private readonly DrawingGroup nestedDrawingGroup = new();
+        private readonly DrawingImage nestedImage = new();
+        private readonly ImageBrush nestedImageBrush = new();
+        private readonly VisualSamplerDrawingVisual nestedReceiver = new();
         private readonly OriginalBitmapCacheSamplerEffect effect;
         private readonly PixelShader shader;
         private readonly VisualSamplerDrawingVisual receiver = new() { Offset = new(8, 10) };
@@ -228,6 +259,16 @@ internal static partial class Program
             group.Children.Add(first);
             group.Children.Add(second);
             sampledRoot.Children.Add(group);
+            using (DrawingContext drawing = nestedSourceLeaf.RenderOpen())
+                drawing.DrawGeometry(nestedSourceBrush, null, nestedSourceGeometry);
+            nestedCacheBrush.Target = nestedTarget;
+            nestedCacheBrush.BitmapCache = nestedCache;
+            nestedDrawing = new(nestedCacheBrush, null, nestedImageGeometry);
+            nestedDrawingGroup.Children.Add(nestedDrawing);
+            nestedImage.Drawing = nestedDrawingGroup;
+            nestedImageBrush.ImageSource = nestedImage;
+            using (DrawingContext drawing = nestedReceiver.RenderOpen())
+                drawing.DrawRectangle(nestedImageBrush, null, new Rect(-4, 4, 8, 12));
             brush.RelativeTransform = relativeTransform;
             brush.Transform = absoluteTransform;
             Apply(state);
@@ -263,6 +304,14 @@ internal static partial class Program
             }
             if (!state.HasGroup && sampledRoot.Children.Count != 0) sampledRoot.Children.Clear();
             else if (state.HasGroup && sampledRoot.Children.Count == 0) sampledRoot.Children.Add(group);
+            if (state.HasNestedImage && group.Children.Count == 2) group.Children.Add(nestedReceiver);
+            else if (!state.HasNestedImage && group.Children.Count == 3) group.Children.RemoveAt(2);
+            if (state.HasNestedSourceLeaf && nestedTarget.Children.Count == 0) nestedTarget.Children.Add(nestedSourceLeaf);
+            else if (!state.HasNestedSourceLeaf && nestedTarget.Children.Count != 0) nestedTarget.Children.Clear();
+            if (state.HasNestedImageGeometry && nestedImageGeometry.Children.Count == 0)
+                nestedImageGeometry.Children.Add(nestedImageRectangle);
+            else if (!state.HasNestedImageGeometry && nestedImageGeometry.Children.Count != 0)
+                nestedImageGeometry.Children.Clear();
             firstGeometry.Rect = state.FirstRectangle;
             secondGeometry.Rect = state.SecondRectangle;
             firstBrush.Color = state.Blue ? Colors.Blue : Colors.Red;
@@ -297,8 +346,10 @@ internal static partial class Program
                 VisualTreeHelper.GetParent(sampledRoot) != null || sampledRoot.Children.Count != (state.HasGroup ? 1 : 0) ||
                 (state.HasGroup && !ReferenceEquals(sampledRoot.Children[0], group)) ||
                 !ReferenceEquals(VisualTreeHelper.GetParent(group), state.HasGroup ? sampledRoot : null) ||
-                group.Children.Count != (state.HasLeaves ? 2 : 0) ||
+                group.Children.Count != (state.HasLeaves ? state.HasNestedImage ? 3 : 2 : 0) ||
                 (state.HasLeaves && (!ReferenceEquals(group.Children[0], first) || !ReferenceEquals(group.Children[1], second))) ||
+                (state.HasNestedImage && !ReferenceEquals(group.Children[2], nestedReceiver)) ||
+                !ReferenceEquals(VisualTreeHelper.GetParent(nestedReceiver), state.HasNestedImage ? group : null) ||
                 !ReferenceEquals(VisualTreeHelper.GetParent(first), state.HasLeaves ? group : null) ||
                 !ReferenceEquals(VisualTreeHelper.GetParent(second), state.HasLeaves ? group : null) ||
                 (state.EmptyTarget && !observedBounds.IsEmpty) ||
@@ -332,11 +383,52 @@ internal static partial class Program
                 receiver.EmittedScalingMode != BitmapScalingMode.NearestNeighbor ||
                 first.EmittedEdgeMode != EdgeMode.Aliased || second.EmittedEdgeMode != EdgeMode.Aliased)
                 throw new InvalidOperationException($"{state.Name}: original cache/source identity or selected state changed.");
+            Rect nestedBounds = nestedDrawingGroup.Bounds;
+            Rect expectedNestedBounds = state.HasNestedImageGeometry ? new Rect(0, 0, 8, 12) : Rect.Empty;
+            if (!ReferenceEquals(nestedImageBrush.ImageSource, nestedImage) ||
+                !ReferenceEquals(nestedImage.Drawing, nestedDrawingGroup) ||
+                nestedDrawingGroup.Children.Count != 1 || !ReferenceEquals(nestedDrawingGroup.Children[0], nestedDrawing) ||
+                !ReferenceEquals(nestedDrawing.Geometry, nestedImageGeometry) ||
+                !ReferenceEquals(nestedDrawing.Brush, nestedCacheBrush) || nestedDrawing.Pen != null ||
+                nestedImageGeometry.Children.Count != (state.HasNestedImageGeometry ? 1 : 0) ||
+                (state.HasNestedImageGeometry && !ReferenceEquals(nestedImageGeometry.Children[0], nestedImageRectangle)) ||
+                nestedImageRectangle.Rect != new Rect(0, 0, 8, 12) || nestedSourceGeometry.Rect != new Rect(0, 0, 8, 12) ||
+                nestedSourceBrush.Color != Colors.Red || nestedSourceBrush.Opacity != 1 ||
+                !ReferenceEquals(nestedCacheBrush.Target, nestedTarget) || !ReferenceEquals(nestedCacheBrush.BitmapCache, nestedCache) ||
+                nestedCache.RenderAtScale != 1 || nestedCache.EnableClearType || nestedCache.SnapsToDevicePixels ||
+                nestedCacheBrush.Opacity != 1 || !nestedCacheBrush.Transform.Value.IsIdentity ||
+                !nestedCacheBrush.RelativeTransform.Value.IsIdentity || nestedCacheBrush.HasAnimatedProperties ||
+                VisualTreeHelper.GetParent(nestedTarget) != null ||
+                nestedTarget.Children.Count != (state.HasNestedSourceLeaf ? 1 : 0) ||
+                (state.HasNestedSourceLeaf && !ReferenceEquals(nestedTarget.Children[0], nestedSourceLeaf)) ||
+                !ReferenceEquals(VisualTreeHelper.GetParent(nestedSourceLeaf), state.HasNestedSourceLeaf ? nestedTarget : null) ||
+                VisualTreeHelper.GetDescendantBounds(nestedTarget).IsEmpty != !state.HasNestedSourceLeaf ||
+                nestedBounds != expectedNestedBounds || nestedImage.Width != (state.HasNestedImageGeometry ? 8 : 0) ||
+                nestedImage.Height != (state.HasNestedImageGeometry ? 12 : 0) ||
+                nestedImageBrush.Opacity != 1 || nestedImageBrush.Stretch != Stretch.Fill ||
+                nestedImageBrush.ViewportUnits != BrushMappingMode.RelativeToBoundingBox ||
+                nestedImageBrush.ViewboxUnits != BrushMappingMode.RelativeToBoundingBox ||
+                nestedImageBrush.Viewport != new Rect(0, 0, 1, 1) || nestedImageBrush.Viewbox != new Rect(0, 0, 1, 1) ||
+                nestedImageBrush.TileMode != TileMode.None || !nestedImageBrush.Transform.Value.IsIdentity ||
+                !nestedImageBrush.RelativeTransform.Value.IsIdentity || nestedDrawingGroup.Opacity != 1 ||
+                nestedDrawingGroup.ClipGeometry != null || nestedDrawingGroup.OpacityMask != null ||
+                !nestedDrawingGroup.Transform.Value.IsIdentity || nestedImage.HasAnimatedProperties ||
+                nestedDrawingGroup.HasAnimatedProperties || nestedImageBrush.HasAnimatedProperties ||
+                nestedSourceLeaf.EmittedEdgeMode != EdgeMode.Aliased ||
+                nestedReceiver.EmittedScalingMode != BitmapScalingMode.NearestNeighbor)
+                throw new InvalidOperationException($"{state.Name}: nested DrawingImage/cache source identity or empty/refill state changed.");
             return new
             {
                 CurrentState = index, AttachedOriginalTarget = state.Attached, SourceRootChildCount = sampledRoot.Children.Count,
-                InnerChildOrder = state.HasLeaves ? new[] { "first", "second" } : Array.Empty<string>(),
+                InnerChildOrder = state.HasLeaves ? state.HasNestedImage
+                    ? new[] { "first", "second", "nested-image" } : new[] { "first", "second" } : Array.Empty<string>(),
                 state.HasGroup, state.HasLeaves, state.EmptyTarget,
+                state.HasNestedImage, state.HasNestedSourceLeaf, state.HasNestedImageGeometry,
+                NestedImageBounds = VisualSamplerBoundsDescription(nestedBounds),
+                NestedTargetBounds = VisualSamplerBoundsDescription(VisualTreeHelper.GetDescendantBounds(nestedTarget)),
+                NestedImageWidth = nestedImage.Width, NestedImageHeight = nestedImage.Height,
+                NestedTargetChildren = nestedTarget.Children.Count, NestedImageChildren = nestedImageGeometry.Children.Count,
+                NestedImageMapping = "ordinary ImageBrush over (-4,4,8,12); original DrawingImage and cache source retained",
                 // Observations, not inputs to the literal pixel oracle. In
                 // particular, outer root effects are excluded from cache paint.
                 ObservedDescendantBounds = VisualSamplerBoundsDescription(observedBounds),
