@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using ProGPU.Backend.Native;
+using ProGPU.Wpf.Interop;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -220,6 +221,38 @@ public sealed class NativeMilShaderTransportTests
         Assert.Throws<ArgumentOutOfRangeException>(() => late.SetShaderEffect(2, 3, [0], [new(float.NaN)],
             0, NativeMilShaderSamplingMode.Auto, 4, new NativeMilShaderPadding(2, 6, 4, 12)));
         Assert.Equal(original, late.ToArray());
+    }
+
+    [Theory]
+    [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)]
+    public void SourcePaddingTransportCannotRepairInvalidMetadataBeforeNativePacketAdmission(int axis)
+    {
+        foreach (double invalid in new[] { -1.0, double.NaN, double.PositiveInfinity, double.NegativeInfinity, double.MaxValue })
+        {
+            double[] source = [2, 6, 4, 12]; source[axis] = invalid;
+            var effect = new PortableShaderEffect(null, null, null, null, null,
+                0, 0, source[0], source[1], source[2], source[3], -1);
+            var padding = new NativeMilShaderPadding(effect.PaddingTop, effect.PaddingBottom,
+                effect.PaddingLeft, effect.PaddingRight);
+            var writer = Seed(); byte[] before = writer.ToArray();
+            Assert.Throws<ArgumentOutOfRangeException>(() => writer.SetShaderEffect(2, 3, [], [],
+                0, NativeMilShaderSamplingMode.Auto, 4, padding));
+            Assert.Equal(before, writer.ToArray());
+        }
+    }
+
+    [Fact]
+    public void SourcePaddingTransportPreservesSignedZeroAndSubFloatPrecisionInNativePacket()
+    {
+        double[] source = [-0.0, Math.BitIncrement(2.0), double.Epsilon, Math.BitDecrement(12.0)];
+        var effect = new PortableShaderEffect(null, null, null, null, null,
+            0, 0, source[0], source[1], source[2], source[3], -1);
+        var writer = new NativeMilBatchBuilder();
+        writer.SetShaderEffect(2, 3, [], [], 0, NativeMilShaderSamplingMode.Auto, 4,
+            new NativeMilShaderPadding(effect.PaddingTop, effect.PaddingBottom, effect.PaddingLeft, effect.PaddingRight));
+        byte[] packet = writer.ToArray();
+        for (int i = 0; i < source.Length; i++)
+            Assert.Equal(BitConverter.DoubleToInt64Bits(source[i]), BitConverter.DoubleToInt64Bits(F64(packet, 12 + i * 8)));
     }
 
     private static void CheckVector(byte[] bytes, int offset, Vector4 value)
