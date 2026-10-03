@@ -14,6 +14,7 @@ namespace progpu::native::direct2d::compat::detail {
     rectangle_f* bounds) noexcept;
 
 [[nodiscard]] com::result rectangle_stroke_contains_point(
+    factory* owner,
     const rectangle_f& rectangle,
     point_2f point,
     float stroke_width,
@@ -46,11 +47,25 @@ namespace progpu::native::direct2d::compat::detail {
     simplified_geometry_sink* sink) noexcept;
 
 [[nodiscard]] com::result widen_rectangle(
+    factory* owner,
     const rectangle_f& rectangle,
     float stroke_width,
     stroke_style* style,
     const matrix_3x2_f* world_transform,
     float flattening_tolerance,
     simplified_geometry_sink* sink) noexcept;
+
+// Success with a null output preserves the caller's legacy route. A non-null
+// result owns the closed ordered centerline after intrinsic transforms, before
+// stroke expansion or the caller's world transform. No target/DPI policy is inferred.
+[[nodiscard]] com::result create_transformed_rectangle_stroke_path(
+    factory* owner,
+    geometry* source,
+    const matrix_3x2_f& intrinsic,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    path_geometry** value) noexcept;
 
 } // namespace progpu::native::direct2d::compat::detail

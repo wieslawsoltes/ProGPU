@@ -723,6 +723,7 @@ public:
         std::int32_t result = 0;
         const HRESULT status =
             direct2d_compat::detail::rectangle_stroke_contains_point(
+                reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
                 compat_core_rectangle(rectangle_),
                 {point.x, point.y},
                 stroke_width,
@@ -957,6 +958,7 @@ public:
     {
         progpu_native_direct2d_matrix_3x2_f transform{};
         return direct2d_compat::detail::widen_rectangle(
+            reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
             compat_core_rectangle(rectangle_),
             stroke_width,
             reinterpret_cast<direct2d_compat::stroke_style*>(style),
@@ -3617,6 +3619,28 @@ public:
             return E_POINTER;
         }
         *bounds = {};
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT path_status = get_solid_rectangle_stroke_path(
+            stroke_width, stroke_style, world_transform,
+            flattening_tolerance, &raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(path_status)) {
+            return path_status;
+        }
+        if (path) {
+            progpu_native_direct2d_matrix_3x2_f transform{};
+            direct2d_compat::rectangle_f result{};
+            const HRESULT status = path->GetWidenedBounds(
+                stroke_width,
+                reinterpret_cast<direct2d_compat::stroke_style*>(stroke_style),
+                compat_core_transform(world_transform, transform),
+                flattening_tolerance, &result);
+            if (SUCCEEDED(status)) {
+                *bounds = {result.left, result.top, result.right, result.bottom};
+            }
+            return status;
+        }
         D2D1_MATRIX_3X2_F composed{};
         if (!compose(world_transform, composed)) {
             return E_INVALIDARG;
@@ -3641,6 +3665,28 @@ public:
             return E_POINTER;
         }
         *contains = FALSE;
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT path_status = get_solid_rectangle_stroke_path(
+            stroke_width, stroke_style, world_transform,
+            flattening_tolerance, &raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(path_status)) {
+            return path_status;
+        }
+        if (path) {
+            progpu_native_direct2d_matrix_3x2_f transform{};
+            std::int32_t result = 0;
+            const HRESULT status = path->StrokeContainsPoint(
+                {point.x, point.y}, stroke_width,
+                reinterpret_cast<direct2d_compat::stroke_style*>(stroke_style),
+                compat_core_transform(world_transform, transform),
+                flattening_tolerance, &result);
+            if (SUCCEEDED(status)) {
+                *contains = result == 0 ? FALSE : TRUE;
+            }
+            return status;
+        }
         D2D1_MATRIX_3X2_F composed{};
         if (!compose(world_transform, composed)) {
             return E_INVALIDARG;
@@ -3860,6 +3906,25 @@ public:
         if (geometry_sink == nullptr) {
             return E_POINTER;
         }
+        direct2d_compat::path_geometry* raw_path = nullptr;
+        const HRESULT path_status = get_solid_rectangle_stroke_path(
+            stroke_width, stroke_style, world_transform,
+            flattening_tolerance, &raw_path);
+        progpu::native::com::pointer<direct2d_compat::path_geometry> path;
+        path.attach(raw_path);
+        if (FAILED(path_status)) {
+            return path_status;
+        }
+        if (path) {
+            progpu_native_direct2d_matrix_3x2_f transform{};
+            return path->Widen(
+                stroke_width,
+                reinterpret_cast<direct2d_compat::stroke_style*>(stroke_style),
+                compat_core_transform(world_transform, transform),
+                flattening_tolerance,
+                reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                    geometry_sink));
+        }
         D2D1_MATRIX_3X2_F composed{};
         if (!compose(world_transform, composed)) {
             return E_INVALIDARG;
@@ -3893,6 +3958,28 @@ public:
     }
 
 private:
+    HRESULT get_solid_rectangle_stroke_path(
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        direct2d_compat::path_geometry** path) const noexcept
+    {
+        // The intrinsic transform belongs to the centerline. Only the caller's
+        // world transform applies after widening; composing both would also
+        // apply the source geometry's transform to the stroke width.
+        progpu_native_direct2d_matrix_3x2_f intrinsic{};
+        progpu_native_direct2d_matrix_3x2_f world{};
+        return direct2d_compat::detail::create_transformed_rectangle_stroke_path(
+            reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
+            reinterpret_cast<direct2d_compat::geometry*>(source_.Get()),
+            *compat_core_transform(&transform_, intrinsic),
+            stroke_width,
+            reinterpret_cast<direct2d_compat::stroke_style*>(stroke_style),
+            compat_core_transform(world_transform, world),
+            flattening_tolerance, path);
+    }
+
     HRESULT get_portable_path(
         direct2d_compat::path_geometry** path) const noexcept
     {
