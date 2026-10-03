@@ -230,6 +230,11 @@ public:
         double width,
         double height) noexcept;
 
+    // Retains a source-known empty Drawing behind the canonical zero paint
+    // handle. Requires initialized owners; canonical image updates clear it.
+    status set_drawing_image_empty_source(std::uint32_t image_handle,
+        std::uint32_t drawing_handle) noexcept;
+
     // Binds exact source-built DrawingGroup content bounds used for retained
     // spatial opacity-mask mapping and bounded group composition.
     status set_drawing_group_bounds(

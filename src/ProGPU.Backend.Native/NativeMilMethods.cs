@@ -207,6 +207,10 @@ internal static unsafe partial class NativeMilMethods
         double width,
         double height);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_image_empty_source")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetDrawingImageEmptySource(nint channel, uint imageHandle, uint drawingHandle);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_group_bounds")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetDrawingGroupBounds(
@@ -475,6 +479,10 @@ internal static unsafe partial class NativeMilDawnMethods
         double y,
         double width,
         double height);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_image_empty_source")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetDrawingImageEmptySource(nint channel, uint imageHandle, uint drawingHandle);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_group_bounds")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
