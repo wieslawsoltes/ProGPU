@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Owned nested shader scopes remain ordered picture commands with independent
+source/recording leases. Prepare immutable parameter/sampler generations only at
+the actual target boundary, before encoding the consumer draw; nested sampler
+realization uses its own physical target, never an eager outer frame. Keep
+per-target private capture textures and parameters so a later target cannot alter
+earlier drawcalls. Publish candidates atomically, retain frame leases through
+eviction and use existing context retirement; borrowed constructors stay borrowed.
+No AddChild reorder, source-UI callback during drawing or per-pixel CPU effect.
+See docs/owned-nested-shader-effects.md; authored controls are not qualification.
+
 Managed source ShaderEffect captures share one immutable original-bounds and
 four-padding descriptor between implicit input and framed samplers. Narrow the
 original far endpoints separately, inflate each edge independently and apply the

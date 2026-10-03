@@ -118,6 +118,14 @@ public sealed class OwnedShaderEffectParameters : IDisposable
         return Snapshot;
     }
 
+    internal void ValidateDevice(WgpuContext context)
+    {
+        foreach (var sampler in GetSnapshot().Samplers)
+            if (sampler.Texture is { } texture &&
+                (texture.IsDisposed || !texture.Context.SharesDeviceWith(context)))
+                throw new InvalidOperationException("An owned shader sampler does not belong to the actual target device.");
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
