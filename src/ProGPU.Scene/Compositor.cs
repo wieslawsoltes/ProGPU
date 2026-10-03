@@ -10509,10 +10509,11 @@ CompilePathStroke:
         var index = (uint)currentVertexCount;
         var resolvedJoin = lineJoin switch
         {
+            PenLineJoin.Miter => PenLineJoin.Miter,
             PenLineJoin.Bevel => PenLineJoin.Bevel,
             PenLineJoin.Round => PenLineJoin.Round,
             PenLineJoin.MiterOrBevel => PenLineJoin.MiterOrBevel,
-            _ => PenLineJoin.Miter
+            _ => throw new ArgumentOutOfRangeException(nameof(lineJoin))
         };
         var resolvedMiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1f
             ? miterLimit
