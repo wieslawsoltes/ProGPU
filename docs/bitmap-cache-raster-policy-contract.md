@@ -14,6 +14,15 @@ managed consumers must preserve selected cache/source ownership, resolve their
 own actual cache realization, and reject unavailable policy before publication.
 The value validator is not proof that a limit came from a live owned device.
 
+`WgpuContext.TryGetCacheRasterLimits` supplies actual device texture limits through
+the optional `IWebGpuTextureLimitsSource` provider capability. Silk and Dawn query
+their exact initialized device, not its adapter or requested limits. The context
+holds its existing render lock and checks usability and identity before and after
+the query. Failure leaves both outputs zero. No queue work, replacement device,
+fallback dimensions, new external-initialization parameters or global limit cache
+are introduced; an unknown external provider remains explicitly unavailable.
+Actual browser-device ownership uses its separate provider implementation.
+
 The optional `IPortablePrimaryDisplayRasterScaleSource` capability supplies a
 separate primary-display observation. Its snapshot retains raw per-axis float
 bits, an explicit Windows system-DPI or primary-monitor-content-scale policy,
@@ -34,7 +43,8 @@ only to identify behavior and data boundaries. No foreign implementation is
 copied. All operations are O(1), with no numerical whole-buffer loop, GPU work,
 global DPI cache or per-command native crossing introduced by these DTOs.
 
-Authored value/identity controls are unexecuted. The source provider, actual
-device-limit queries, paired native transport, dedicated cache texture producer,
+Authored value/identity, unavailable/lost/serialized-query and both-owned-provider
+limit controls are unexecuted. The source provider, paired native transport,
+dedicated cache texture producer,
 corrected original/provider pixels, package and source-host gates remain required.
 No builds, tests, probes, VM/GPU/UI runs, verifiers or CI were performed here.

@@ -111,6 +111,32 @@ public unsafe class WgpuContext : IDisposable
     /// The token itself never extends native device lifetime.
     /// </summary>
     public WgpuDeviceIdentity DeviceIdentity => DeviceResourceDomain.Identity;
+
+    /// <summary>
+    /// Queries the exact live device's cache-raster texture limits. The existing
+    /// device identity and lifetime remain authoritative; no guessed adapter,
+    /// requested-device or external-host defaults are returned. Unknown external
+    /// providers return false without changing their initialization contract.
+    /// </summary>
+    public bool TryGetCacheRasterLimits(out uint maximumTextureWidth, out uint maximumTextureHeight)
+    {
+        maximumTextureWidth = maximumTextureHeight = 0;
+        lock (RenderLock)
+        {
+            if (!IsInitialized || Api is not IWebGpuTextureLimitsSource source)
+                return false;
+            Device* selectedDevice = Device;
+            var selectedDomain = _deviceResourceDomain;
+            if (!source.TryGetTextureLimits(selectedDevice, out uint width, out uint height) ||
+                width == 0 || height == 0 || !IsInitialized || Device != selectedDevice ||
+                !ReferenceEquals(selectedDomain, _deviceResourceDomain))
+                return false;
+            maximumTextureWidth = width;
+            maximumTextureHeight = height;
+            return true;
+        }
+    }
+
     public int CachedDeviceShaderModuleCount =>
         _deviceResourceDomain?.ShaderModuleCount ?? 0;
     public int CachedDeviceBindGroupLayoutCount =>
