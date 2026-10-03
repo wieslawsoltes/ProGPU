@@ -1,5 +1,6 @@
 #include "progpu_native_dawn.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_hairline_dpi_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_layer_clear_fixture.hpp"
@@ -3862,6 +3863,11 @@ int main(int argc, char** argv) {
         progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
         for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
     }
+    progpu::native::direct2d::tests::verify_hairline_dpi_pixels(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header, float dpi) {
+            return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id,
+                1U, 4U, nullptr, nullptr, dpi);
+        }, require);
     progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);

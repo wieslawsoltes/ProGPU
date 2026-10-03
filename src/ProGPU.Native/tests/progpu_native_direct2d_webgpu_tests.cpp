@@ -1,5 +1,6 @@
 #include "progpu_native.h"
 #include "progpu_native_direct2d_scene_submission.hpp"
+#include "progpu_native_direct2d_hairline_dpi_fixture.hpp"
 #include "progpu_native_direct2d_clipped_clear_fixture.hpp"
 #include "progpu_native_direct2d_layer_background_fixture.hpp"
 #include "progpu_native_direct2d_layer_clear_fixture.hpp"
@@ -2243,6 +2244,11 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(picture_reference_engine);
     auto* prepared_reference_engine = create_engine(gpu);
+    progpu::native::direct2d::tests::verify_hairline_dpi_pixels(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header, float dpi) {
+            return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
+                1U, 4U, 1U, stream, header.scene_id, header.generation, nullptr, dpi);
+        }, require);
     progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
