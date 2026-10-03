@@ -36,5 +36,13 @@ owns the DIP/pixel mapping. The existing cross-engine architectural comparison
 in `DIRECT2D_WIN2D_COMPATIBILITY.md`, “Portable stroke-transform parity”, remains
 applicable: retained source geometry, no per-dash submission, no text/cache change.
 
+Authored Windows source controls cover 18 explicit-target combinations
+(96/192/384 DPI, normal/fixed/hairline, line/cubic), two targetless normal/fixed
+controls, three failed-frame atomicity controls, full-target Clear accounting,
+and two actual command-list/surface-DPI generations. They read literal scene
+bounds and every odd dash interval/phase, mutate the caller descriptor after
+creation, and read back unchanged original SDK style values. Prior positive
+hairline tests now supply explicit 96-DPI metadata; their assertions remain.
+
 All new controls are authored only. No compilation, source verifier, original
 SDK execution or native/provider pixel qualification has run for this stack.
