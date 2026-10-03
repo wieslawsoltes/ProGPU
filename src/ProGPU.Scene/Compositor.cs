@@ -6800,8 +6800,8 @@ SceneStateUploadComplete:
 
         bool hasFill = cmd.Brush != null;
         var stroke = ResolveStrokeCompileState(cmd, transform);
-        bool hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
-        bool hasStroke = stroke.IsValid && !hasDashedStroke;
+        bool hasPathStroke = stroke.IsValid && (cmd.Pen!.HasDashPattern || cmd.Pen.UseWpfJoinSemantics);
+        bool hasStroke = stroke.IsValid && !hasPathStroke;
         bool useSolidRectPipeline = ActiveCompilationContext == null &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
             (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
@@ -6906,7 +6906,7 @@ SceneStateUploadComplete:
             }
         }
 
-        if (hasDashedStroke)
+        if (hasPathStroke)
         {
             var strokePath = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
@@ -11274,7 +11274,7 @@ CompilePathStroke:
         return float.IsFinite(value.X) && float.IsFinite(value.Y);
     }
 
-    private static bool TryGetPathSegmentEndPoint(PathSegment segment, out Vector2 endPoint)
+    internal static bool TryGetPathSegmentEndPoint(PathSegment segment, out Vector2 endPoint)
     {
         switch (segment)
         {
@@ -12574,7 +12574,7 @@ CompilePathStroke:
     {
         SwitchBatch(BatchType.Vector);
         var stroke = ResolveStrokeCompileState(cmd, transform);
-        var hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
+        var hasPathStroke = stroke.IsValid && (cmd.Pen!.HasDashPattern || cmd.Pen.UseWpfJoinSemantics);
         int startIndex = _vectorVerticesList.Count;
         var center = cmd.Position2;
         var rx = cmd.RadiusX;
@@ -12617,7 +12617,7 @@ CompilePathStroke:
             indexSpan[5] = idxStart + 3;
         }
 
-        if (stroke.IsValid && !hasDashedStroke)
+        if (stroke.IsValid && !hasPathStroke)
         {
             var pen = cmd.Pen!;
             float pad = stroke.LocalBoundsThickness / 2f + antialiasPadding;
@@ -12666,7 +12666,7 @@ CompilePathStroke:
             }
         }
 
-        if (hasDashedStroke)
+        if (hasPathStroke)
         {
             var strokePath = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
@@ -12721,8 +12721,8 @@ CompilePathStroke:
         }
 
         bool hasFill = cmd.Brush != null;
-        bool hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
-        bool hasStroke = stroke.IsValid && !hasDashedStroke;
+        bool hasPathStroke = stroke.IsValid && (cmd.Pen!.HasDashPattern || cmd.Pen.UseWpfJoinSemantics);
+        bool hasStroke = stroke.IsValid && !hasPathStroke;
         bool isSolidRoundedCandidate = ActiveCompilationContext == null &&
             (hasFill || hasStroke) &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
@@ -12835,7 +12835,7 @@ CompilePathStroke:
             }
         }
 
-        if (hasDashedStroke)
+        if (hasPathStroke)
         {
             var strokePath = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
