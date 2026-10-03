@@ -779,7 +779,8 @@ validation_result validate(
                     progpu_native_scene_presentation presentation{};
                     if (!semantic::read_semantic_picture_image(bytes + source.payload_offset,
                             source.payload_size, picture, presentation) ||
-                        picture.width != sample_frame.capture_width || picture.height != sample_frame.capture_height ||
+                        (dependency == input && (picture.width != sample_frame.capture_width ||
+                            picture.height != sample_frame.capture_height)) ||
                         presentation.dpi_scale_x != 1.0F || presentation.dpi_scale_y != 1.0F ||
                         presentation.viewport_x != 0U || presentation.viewport_y != 0U)
                         return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, offset);

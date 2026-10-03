@@ -1,6 +1,7 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil_curve_dash.hpp"
 #include "progpu_native_mil_hinted_glyphs.hpp"
+#include "progpu_native_cache_raster_frame.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_text.hpp"
 #include "../Geometry/progpu_native_arc.hpp"
@@ -2429,7 +2430,6 @@ struct scene_compile_context {
     std::uint64_t scene_id{};
     std::uint64_t cache_brush_scope{};
     bool shader_sample_capture{};
-    std::uint32_t validated_empty_sampler_brush{};
 
     bool is_visual_brush() const noexcept {
         return visual_brush_depth != 0U ||
@@ -2662,6 +2662,8 @@ struct channel::implementation {
 
     struct cache_brush_capture_policy {
         std::uint32_t brush_handle{};
+        const cache_raster_frame* raw_raster{};
+        const bitmap_cache_raster_policy* raster_policy{};
     };
 
     struct gradient_brush_state {
@@ -3563,17 +3565,9 @@ struct channel::implementation {
             const auto found = bitmap_cache_brushes.find(handle);
             if (found == bitmap_cache_brushes.end()) return status::invalid_handle;
             const auto& brush = found->second;
-            if (brush.opacity_animation != 0U && !require_resource(brush.opacity_animation, type_double_resource))
-                return status::invalid_handle;
-            const auto transforms_status = validate_sampler_transforms(
-                brush.transform_handle, brush.relative_transform_handle, require_pixels);
-            if (transforms_status != status::success) return transforms_status;
-            if (require_pixels) {
-                double opacity{};
-                const auto resolved = resolve_animated_double(brush.opacity, brush.opacity_animation, opacity);
-                if (resolved != status::success) return resolved;
-                if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0) return status::invalid_graph;
-            }
+            // Cache samplers consume the selected raw cache texture, not the
+            // brush's ordinary paint (opacity/absolute/relative transforms).
+            if (require_pixels && !brush.has_raster_policy) return status::unsupported_command;
             // Null is an original property value. A nonnull source is never
             // replaced with an empty target or an invented positive cache box.
             std::uint32_t cache_handle = brush.cache_handle;
@@ -3581,8 +3575,7 @@ struct channel::implementation {
                 if (!require_resource(brush.target_handle, type_visual)) return status::unsupported_command;
                 const auto visual = visuals.find(brush.target_handle);
                 if (visual == visuals.end()) return require_pixels ? status::invalid_handle : status::success;
-                if (require_pixels && (visual->second.has_scroll_clip ||
-                    (!visual->second.has_cache_bounds && !visual->second.has_empty_source_bounds)))
+                if (require_pixels && !visual->second.has_cache_bounds && !visual->second.has_empty_source_bounds)
                     return status::unsupported_command;
                 if (cache_handle == 0U) cache_handle = visual->second.cache_mode_handle;
             }
@@ -20624,7 +20617,8 @@ struct channel::implementation {
         std::unordered_set<std::uint32_t>& active_resources,
         std::uint64_t& hash,
         shader_sampler_ownership sampler_ownership = shader_sampler_ownership::ordinary,
-        bool cache_target_root = false) const {
+        bool cache_target_root = false,
+        bool raw_cache_sampler = false) const {
         append_fnv1a64(hash, handle);
         if (handle == 0U) {
             return status::success;
@@ -20853,13 +20847,24 @@ struct channel::implementation {
                         else cache_handle = target->second.cache_mode_handle;
                     }
                     append_if_success(cache_handle);
+                    if (raw_cache_sampler) {
+                        append_fnv1a64(hash, brush->second.has_raster_policy);
+                        const auto& policy = brush->second.raster_policy;
+                        append_fnv1a64(hash, policy.primary_dpi_scale_x);
+                        append_fnv1a64(hash, policy.primary_dpi_scale_y);
+                        append_fnv1a64(hash, policy.maximum_texture_width);
+                        append_fnv1a64(hash, policy.maximum_texture_height);
+                        append_fnv1a64(hash, policy.source_revision);
+                    }
                 } else {
                     append_if_success(brush->second.target_handle);
                     append_if_success(brush->second.cache_handle);
                 }
-                append_if_success(brush->second.opacity_animation);
-                append_if_success(brush->second.transform_handle);
-                append_if_success(brush->second.relative_transform_handle);
+                if (!raw_cache_sampler) {
+                    append_if_success(brush->second.opacity_animation);
+                    append_if_success(brush->second.transform_handle);
+                    append_if_success(brush->second.relative_transform_handle);
+                }
             }
         } else if (is_effect_type(resource->second.type)) {
             const auto effect = effects.find(handle);
@@ -20871,7 +20876,7 @@ struct channel::implementation {
                     effect->second.type == effect_state::kind::shader &&
                     require_resource(effect->second.input_brush_handle, type_bitmap_cache_brush)) {
                     result = append_cache_resource_revision(effect->second.input_brush_handle,
-                        active_resources, hash, shader_sampler_ownership::bitmap_cache);
+                        active_resources, hash, shader_sampler_ownership::bitmap_cache, false, true);
                 } else append_if_success(effect->second.input_brush_handle);
                 for (const std::uint32_t animation :
                      effect->second.animations) {
@@ -21658,6 +21663,68 @@ struct channel::implementation {
         return status::success;
     }
 
+    status add_cache_sampler_picture(std::uint32_t brush_handle,
+        native::semantic_scene_builder& builder, std::uint32_t& picture_index,
+        const mask_replay_context& context) const {
+        const auto& brush = bitmap_cache_brushes.at(brush_handle);
+        const auto& policy = brush.raster_policy;
+        cache_raster_frame raster{};
+        if (brush.target_handle != 0U) {
+            const auto& target = visuals.at(brush.target_handle);
+            const auto selected = brush.cache_handle != 0U ? brush.cache_handle : target.cache_mode_handle;
+            double scale = 1.0;
+            if (selected != 0U) {
+                const auto& cache = bitmap_caches.at(selected);
+                const auto resolved = resolve_animated_double(cache.render_at_scale,
+                    cache.render_at_scale_animation_handle, scale);
+                if (resolved != status::success) return resolved;
+            }
+            if (!target.has_empty_source_bounds && !make_cache_raster_frame(
+                    target.cache_bounds_x, target.cache_bounds_y, target.cache_bounds_width,
+                    target.cache_bounds_height, scale, policy.primary_dpi_scale_x,
+                    policy.primary_dpi_scale_y, policy.maximum_texture_width,
+                    policy.maximum_texture_height, raster)) return status::unsupported_command;
+        }
+        // Missing original RT (null, known empty, zero scale or collapsed
+        // float extent) supplies a real owned transparent texel. Ownership and
+        // selected-policy validation already completed before this branch.
+        const bool absent = raster.width == 0U || raster.height == 0U;
+        const std::uint32_t width = absent ? 1U : raster.width;
+        const std::uint32_t height = absent ? 1U : raster.height;
+        auto request = context.frame->request;
+        request.dpi_scale_x = request.dpi_scale_y = 1.0;
+        request.flags = scene_build_request_flags::visual_brush;
+        scene_compile_context frame{request, context.frame->current_time_milliseconds,
+            false, context.frame->visual_brush_depth + 1U};
+        std::uint64_t identity = builder.scene_id();
+        append_fnv1a64(identity, std::uint32_t{0x52434143U}); // raw-cache domain
+        append_fnv1a64(identity, brush_handle);
+        append_fnv1a64(identity, policy.source_revision);
+        frame.scene_id = finish_nonzero_hash(identity);
+        frame.cache_brush_scope = context.frame->cache_brush_scope;
+        native::semantic_scene_builder capture(frame.scene_id, builder.generation());
+        if (!absent) {
+            render_scope_state state{};
+            brush_use_state use{};
+            use.width = width; use.height = height;
+            std::unordered_map<std::uint32_t, std::uint32_t> brushes, images;
+            std::unordered_map<std::uint64_t, glyph_scene_resource> glyphs;
+            std::vector<progpu_native_scene_clip_path> paths;
+            std::vector<progpu_native_path_segment> segments;
+            std::vector<progpu_native_scene_path_boolean_node> nodes;
+            const auto rendered = append_bitmap_cache_brush(brush_handle, use, state,
+                capture, brushes, images, glyphs, &frame, context.active_resources,
+                paths, segments, nodes, context.metrics, &raster);
+            if (rendered != status::success) return rendered;
+        }
+        std::vector<std::byte> scene;
+        if (!capture.build(scene)) return status::invalid_graph;
+        progpu_native_scene_picture_image picture{};
+        picture.struct_size = sizeof(picture);
+        picture.width = width; picture.height = height; picture.dpi_scale = 1.0F;
+        return builder.add_picture_image(picture, scene, picture_index) ? status::success : status::invalid_graph;
+    }
+
     status add_shader_sampler_picture(std::uint32_t brush_handle, std::uint32_t width,
         std::uint32_t height, const render_scope_state& source_state,
         native::semantic_scene_builder& builder, std::uint32_t& picture_index,
@@ -21676,9 +21743,10 @@ struct channel::implementation {
             std::uint64_t revision = 14695981039346656037ULL;
             const auto owned = append_cache_resource_revision(brush_handle, active, revision, cache_sampler
                 ? shader_sampler_ownership::bitmap_cache : visual_sampler
-                ? shader_sampler_ownership::visual : shader_sampler_ownership::drawing_image);
+                ? shader_sampler_ownership::visual : shader_sampler_ownership::drawing_image, false, cache_sampler);
             if (owned != status::success) return owned;
         }
+        if (cache_sampler) return add_cache_sampler_picture(brush_handle, builder, picture_index, context);
         // Original source samplers realize a brush over the physical implicit-
         // input extent, at zero origin and identity mapping. Brush transforms,
         // opacity, viewbox/viewport and tile addressing remain in the real tile
@@ -21694,16 +21762,6 @@ struct channel::implementation {
         frame.scene_id = finish_nonzero_hash(identity);
         frame.cache_brush_scope = context.frame->cache_brush_scope;
         native::semantic_scene_builder capture(frame.scene_id, builder.generation());
-        if (cache_sampler) {
-            const auto target = bitmap_cache_brushes.at(brush_handle).target_handle;
-            if (target != 0U && visuals.at(target).has_empty_source_bounds) {
-                // This exact brush has passed selected-policy/current-value
-                // validation and complete root-aware ownership above. Authorize
-                // only this private sampler capture, never a generic cache or
-                // another nested brush. Its real target identity stays intact.
-                frame.validated_empty_sampler_brush = brush_handle;
-            }
-        }
         auto state = source_state;
         state.transform = {};
         const mask_replay_context child{&frame, context.active_resources, context.metrics, context.depth};
@@ -21939,7 +21997,8 @@ struct channel::implementation {
         std::vector<progpu_native_scene_clip_path>& clip_paths,
         std::vector<progpu_native_path_segment>& clip_segments,
         std::vector<progpu_native_scene_path_boolean_node>& clip_nodes,
-        scene_metrics& metrics) const {
+        scene_metrics& metrics,
+        const cache_raster_frame* raw_raster = nullptr) const {
         const auto found = bitmap_cache_brushes.find(brush_handle);
         if (found == bitmap_cache_brushes.end()) return status::invalid_handle;
         const auto& brush = found->second;
@@ -21953,24 +22012,24 @@ struct channel::implementation {
         if (!is_viewport3d && !require_resource(brush.target_handle, type_visual))
             return status::unsupported_command;
         const auto& root = target->second;
-        // ScrollableAreaClip still needs an explicit capture-space contract.
-        if (root.has_scroll_clip) return status::unsupported_command;
+        // Raw cache pages bypass the root's outer traversal, including scroll
+        // clip. Descendants retain their own clips. Ordinary brush policy is
+        // intentionally unchanged by this shader-specific source connection.
+        if (raw_raster == nullptr && root.has_scroll_clip) return status::unsupported_command;
         if (!root.has_cache_bounds) {
-            if (root.has_empty_source_bounds && frame->validated_empty_sampler_brush == brush_handle)
-                return status::success;
             return status::unsupported_command;
         }
         if (root.cache_bounds_width <= 0.0 || root.cache_bounds_height <= 0.0 ||
             use.width <= 0.0 || use.height <= 0.0) return status::success;
-        double opacity{};
-        const status opacity_status = resolve_animated_double(
+        double opacity = 1.0;
+        const status opacity_status = raw_raster != nullptr ? status::success : resolve_animated_double(
             brush.opacity, brush.opacity_animation, opacity);
         if (opacity_status != status::success) return opacity_status;
         if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0)
             return status::invalid_graph;
         if (opacity == 0.0) return status::success;
         affine_2d_double mapping{};
-        if (brush.relative_transform_handle != 0U) {
+        if (raw_raster == nullptr && brush.relative_transform_handle != 0U) {
             affine_2d_double relative{};
             const status resolved = resolve_transform(brush.relative_transform_handle, relative);
             if (resolved != status::success) return resolved;
@@ -21980,7 +22039,7 @@ struct channel::implementation {
                 use.height, use.x, use.y};
             mapping = compose_affine(compose_affine(to_relative, relative), from_relative);
         }
-        if (brush.transform_handle != 0U) {
+        if (raw_raster == nullptr && brush.transform_handle != 0U) {
             affine_2d_double absolute{};
             const status resolved = resolve_transform(brush.transform_handle, absolute);
             if (resolved != status::success) return resolved;
@@ -22001,7 +22060,8 @@ struct channel::implementation {
         // An explicit brush cache owns its page. Otherwise all cache brushes
         // targeting this source share the target/default-policy page. Draw
         // opacity, transforms and coverage do not define captured content.
-        const cache_brush_capture_policy capture{brush.cache_handle != 0U ? brush_handle : 0U};
+        const cache_brush_capture_policy capture{brush.cache_handle != 0U ? brush_handle : 0U,
+            raw_raster, raw_raster != nullptr ? &brush.raster_policy : nullptr};
         const std::uint32_t cache_handle = brush.cache_handle != 0U
             ? brush.cache_handle : root.cache_mode_handle;
         bool pushed{}, skip{}, saved{};
@@ -22146,10 +22206,11 @@ struct channel::implementation {
             state.clip_path_count == 0U) {
             return status::unsupported_command;
         }
-        const double raster_width =
-            cache_visual.cache_bounds_width * render_at_scale;
-        const double raster_height =
-            cache_visual.cache_bounds_height * render_at_scale;
+        const auto* raw = capture == nullptr ? nullptr : capture->raw_raster;
+        const double raster_width = raw == nullptr
+            ? cache_visual.cache_bounds_width * render_at_scale : raw->width;
+        const double raster_height = raw == nullptr
+            ? cache_visual.cache_bounds_height * render_at_scale : raw->height;
         if (!finite_double_as_float(raster_width) ||
             !finite_double_as_float(raster_height) ||
             raster_width <= 0.0 || raster_height <= 0.0) {
@@ -22164,6 +22225,18 @@ struct channel::implementation {
         append_fnv1a64(content_revision, cache_visual.cache_bounds_y);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_width);
         append_fnv1a64(content_revision, cache_visual.cache_bounds_height);
+        if (raw != nullptr) {
+            const auto& policy = *capture->raster_policy;
+            append_fnv1a64(content_revision, std::uint32_t{0x52434143U});
+            append_fnv1a64(content_revision, policy.primary_dpi_scale_x);
+            append_fnv1a64(content_revision, policy.primary_dpi_scale_y);
+            append_fnv1a64(content_revision, policy.maximum_texture_width);
+            append_fnv1a64(content_revision, policy.maximum_texture_height);
+            append_fnv1a64(content_revision, policy.source_revision);
+            append_fnv1a64(content_revision, raw->width); append_fnv1a64(content_revision, raw->height);
+            append_fnv1a64(content_revision, raw->scale_x); append_fnv1a64(content_revision, raw->scale_y);
+            append_fnv1a64(content_revision, raw->offset_x); append_fnv1a64(content_revision, raw->offset_y);
+        }
         if (cache_state.render_at_scale_animation_handle != 0U) {
             const auto animation = resources.find(
                 cache_state.render_at_scale_animation_handle);
@@ -22200,6 +22273,7 @@ struct channel::implementation {
             append_fnv1a64(owner_identity, std::uint32_t{0x43425253U});
             append_fnv1a64(owner_identity, capture->brush_handle);
         }
+        if (raw != nullptr) append_fnv1a64(owner_identity, std::uint32_t{0x52434143U});
         const affine_2d_double raster_to_local{
             1.0 / render_at_scale,
             0.0,
@@ -22208,8 +22282,8 @@ struct channel::implementation {
             cache_visual.cache_bounds_x,
             cache_visual.cache_bounds_y};
         affine_2d_double mask_transform = state.transform;
-        affine_2d_double composite_transform = compose_affine(
-            raster_to_local, state.transform);
+        affine_2d_double composite_transform = raw == nullptr ? compose_affine(
+            raster_to_local, state.transform) : affine_2d_double{};
         progpu_native_affine_2d source_content_to_parent{};
         if (record_hit_input && !try_to_native_affine(composite_transform, source_content_to_parent))
             return status::invalid_graph;
@@ -22291,6 +22365,8 @@ struct channel::implementation {
             render_at_scale,
             -cache_visual.cache_bounds_x * render_at_scale,
             -cache_visual.cache_bounds_y * render_at_scale};
+        if (raw != nullptr) content_state.transform = {
+            raw->scale_x, 0.0, 0.0, raw->scale_y, raw->offset_x, raw->offset_y};
         content_state.shader_source_transform_proven = false;
         content_state.opacity = 1.0;
         content_state.has_clip = false;
