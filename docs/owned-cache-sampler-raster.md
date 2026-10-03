@@ -51,6 +51,9 @@ Uncertain failed retirement is the deliberate exception to weak tracking: its
 exact owner remains strongly pending, so GC cannot erase a latched source failure
 or make a subsequent shutdown appear successful. Wrong-thread rejection retains
 the owner for an explicit creating-thread retry; successful retirement removes it.
+Finalizer transfer uses a short dedicated queue/shutdown handshake, not RenderLock.
+No source callback runs under that handshake; a source callback waiting for
+finalizers while it owns RenderLock cannot form a lock cycle with this path.
 
 Managed shader applicability: `WpfShaderEffectExtensionPipeline` generates one
 typed texture binding per sampler and samples normalized UVs independently. It
