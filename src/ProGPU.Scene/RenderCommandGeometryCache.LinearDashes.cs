@@ -40,7 +40,7 @@ public sealed partial class RenderCommandGeometryCache
         coverage = default;
         if (!SupportsLinearDashCoverage(pen)) return false;
         var key = new LinearDashKey(localThickness, pen.LineJoin, pen.MiterLimit,
-            pen.StartLineCap, pen.EndLineCap, pen.DashCap, pen.DashOffset, pen.DashArrayStorage);
+            pen.ClipMiterAtLimit, pen.StartLineCap, pen.EndLineCap, pen.DashCap, pen.DashOffset, pen.DashArrayStorage);
         if (!_linearDashPrepared || !_linearDashKey.Matches(key))
         {
             _linearDashPrepared = true;
@@ -65,12 +65,13 @@ public sealed partial class RenderCommandGeometryCache
         return true;
     }
 
-    private readonly record struct LinearDashKey(float Width, PenLineJoin Join, float Miter,
+    private readonly record struct LinearDashKey(float Width, PenLineJoin Join, float Miter, bool ClipMiterAtLimit,
         PenLineCap Start, PenLineCap End, PenLineCap Dash, double Offset, double[]? Intervals)
     {
         // Equal NaN-valued invalid keys must retain their cached failure too.
         public bool Matches(LinearDashKey other) => Width.Equals(other.Width) && Join == other.Join
-            && Miter.Equals(other.Miter) && Start == other.Start && End == other.End && Dash == other.Dash
+            && Miter.Equals(other.Miter) && ClipMiterAtLimit == other.ClipMiterAtLimit
+            && Start == other.Start && End == other.End && Dash == other.Dash
             && Offset.Equals(other.Offset) && (ReferenceEquals(Intervals, other.Intervals)
                 || Intervals.AsSpan().SequenceEqual(other.Intervals));
     }

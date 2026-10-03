@@ -228,7 +228,10 @@ public sealed class CanvasStrokeStyle : IDisposable
             MapCap(_dashCap),
             ResolveDashArray(),
             _dashOffset,
-            transformMode);
+            transformMode)
+        {
+            ClipMiterAtLimit = _lineJoin == CanvasLineJoin.Miter
+        };
         _cachedBrush = brush;
         _cachedWidthBits = widthBits;
         _cachedVersion = _version;

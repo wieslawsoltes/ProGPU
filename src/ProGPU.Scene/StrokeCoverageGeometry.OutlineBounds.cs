@@ -81,7 +81,8 @@ public static partial class StrokeCoverageGeometry
                 }
                 if (i == 0) firstDirection = direction;
                 else if (!IncludeEmittedLinearJoin(ref state, start, previousDirection, direction, radius,
-                    segment.IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, Math.Max(1, pen.MiterLimit), outline)) return false;
+                    segment.IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, Math.Max(1, pen.MiterLimit), outline,
+                    pen.ClipMiterAtLimit)) return false;
                 previousDirection = direction;
                 start = end;
             }
@@ -89,7 +90,7 @@ public static partial class StrokeCoverageGeometry
             {
                 if (!IncludeEmittedLinearJoin(ref state, Wide(figure.StartPoint), previousDirection,
                     firstDirection, radius, figure.Segments[0].IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
-                    Math.Max(1, pen.MiterLimit), outline)) return false;
+                    Math.Max(1, pen.MiterLimit), outline, pen.ClipMiterAtLimit)) return false;
             }
             else if (!IncludeEmittedLinearCap(ref state, Wide(figure.StartPoint), -firstDirection, radius,
                          figure.StrokeStartLineCap ?? pen.StartLineCap, outline)
@@ -171,7 +172,7 @@ public static partial class StrokeCoverageGeometry
 
     private static bool IncludeEmittedLinearJoin(ref LineBounds state, Vector128<double> center,
         Vector128<double> incoming, Vector128<double> outgoing, double radius, PenLineJoin join, double limit,
-        PathGeometry? outline = null)
+        PathGeometry? outline = null, bool clipMiterAtLimit = false)
     {
         double turn = Cross(incoming, outgoing);
         if (Math.Abs(turn) <= 1e-6)
@@ -204,7 +205,7 @@ public static partial class StrokeCoverageGeometry
         {
             state.Include(intersection); wedge?.Segments.Add(OutlineLine(intersection));
         }
-        else if (join != PenLineJoin.MiterOrBevel)
+        else if (join == PenLineJoin.Miter && clipMiterAtLimit)
         {
             var bisector = delta / Vector128.Create(length);
             if (!IncludeEmittedClippedMiter(ref state, center, turn > 0 ? a : b, intersection,

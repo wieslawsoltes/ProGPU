@@ -86,7 +86,25 @@ public static class StrokeJoinGeometry
             nextPoint,
             isSmoothJoin,
             maxRoundSegments,
-            useWpfJoinSemantics: false);
+            useWpfJoinSemantics: false,
+            clipMiterAtLimit: false);
+    }
+
+    /// <summary>Writes a join using the pen's retained miter policy without changing reversal semantics.</summary>
+    public static int WriteLineJoin(
+        Span<StrokeJoinTriangle> destination,
+        Pen pen,
+        float thickness,
+        Vector2 previousPoint,
+        Vector2 joinPoint,
+        Vector2 nextPoint,
+        bool isSmoothJoin = false,
+        int maxRoundSegments = MaxTrianglesPerJoin)
+    {
+        ArgumentNullException.ThrowIfNull(pen);
+        return WriteLineJoinCore(destination, pen.LineJoin, thickness, pen.MiterLimit,
+            previousPoint, joinPoint, nextPoint, isSmoothJoin, maxRoundSegments,
+            useWpfJoinSemantics: false, clipMiterAtLimit: pen.ClipMiterAtLimit);
     }
 
     public static int WriteWpfLineJoin(
@@ -110,7 +128,8 @@ public static class StrokeJoinGeometry
             nextPoint,
             isSmoothJoin,
             maxRoundSegments,
-            useWpfJoinSemantics: true);
+            useWpfJoinSemantics: true,
+            clipMiterAtLimit: true);
     }
 
     private static int WriteLineJoinCore(
@@ -123,9 +142,11 @@ public static class StrokeJoinGeometry
         Vector2 nextPoint,
         bool isSmoothJoin,
         int maxRoundSegments,
-        bool useWpfJoinSemantics)
+        bool useWpfJoinSemantics,
+        bool clipMiterAtLimit)
     {
         ValidateLineJoin(lineJoin);
+        clipMiterAtLimit &= lineJoin == PenLineJoin.Miter;
         useWpfJoinSemantics &= lineJoin != PenLineJoin.MiterOrBevel;
         if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon ||
             !TryNormalize(joinPoint - previousPoint, out var incomingDirection) ||
@@ -178,7 +199,7 @@ public static class StrokeJoinGeometry
                 return 2;
             }
 
-            if (!useWpfJoinSemantics)
+            if (!clipMiterAtLimit)
             {
                 EnsureDestination(destination, 1);
                 destination[0] = new StrokeJoinTriangle(
