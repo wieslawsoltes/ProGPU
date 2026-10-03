@@ -115,7 +115,10 @@ public class SKNWayCanvas : SKNoDrawCanvas
                 command.Pen.DashCap,
                 command.Pen.DashArray,
                 command.Pen.DashOffset,
-                command.Pen.StrokeTransformMode);
+                command.Pen.StrokeTransformMode)
+            {
+                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+            };
         }
 
         destination.AppendCommand(DrawingContext, commandIndex, command);

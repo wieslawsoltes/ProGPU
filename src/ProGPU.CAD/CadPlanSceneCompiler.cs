@@ -3732,7 +3732,10 @@ public sealed class CadPlanSceneCompiler
                 miterLimit: basePen.MiterLimit,
                 startLineCap: basePen.StartLineCap,
                 endLineCap: basePen.EndLineCap,
-                strokeTransformMode: basePen.StrokeTransformMode);
+                strokeTransformMode: basePen.StrokeTransformMode)
+            {
+                ClipMiterAtLimit = basePen.ClipMiterAtLimit
+            };
             CadPoint3D pathXAxis = text.XAxis * run.ScaleX;
             CadPoint3D pathYAxis =
                 (text.XAxis * (run.ScaleY * run.SkewX)) +
