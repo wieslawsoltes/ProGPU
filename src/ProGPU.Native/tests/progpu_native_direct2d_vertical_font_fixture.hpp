@@ -12,6 +12,9 @@ struct vertical_font_options final {
     bool side_bearing_maps = false;
     bool origin_map = false;
     bool vorg = false;
+    // Deliberately disagreeing metric sources: raw reader/SDK observation
+    // only. Never silently include this family in the positive pixel oracle.
+    bool vvar_precedence_discriminator = false;
 };
 inline constexpr std::array<float,5U> vertical_font_weights{400,650,900,250,100};
 inline std::size_t vertical_font_case_count(vertical_font_options options)
@@ -39,6 +42,8 @@ struct vertical_glyph_expectation final {
 inline vertical_glyph_expectation expected_vertical_glyph(vertical_font_options options,
     std::size_t instance, std::uint16_t glyph)
 {
+    if (options.vvar_precedence_discriminator)
+        throw std::invalid_argument("conflicting vertical metric sources require original observations");
     const bool cff2 = options.kind == vertical_font_kind::cff2_variable;
     const bool cff = options.kind == vertical_font_kind::cff || cff2;
     const bool variable = options.kind == vertical_font_kind::truetype_variable;
@@ -273,12 +278,14 @@ inline bytes glyph_variations(unsigned glyph)
     return result;
 }
 
-inline bytes vertical_variations(bool maps, bool origin_map)
+inline bytes vertical_variations(bool maps, bool origin_map, bool precedence_discriminator = false)
 {
     // Two independent regions and advance / optional TSB / optional BSB rows.
     // With explicit maps, advance rows are deliberately permuted (2,0,1).
     // This makes accidentally using implicit glyph indices observable.
-    constexpr std::array<std::int16_t,12U> deltas{64,96,128,24,20,-12,40,28,76,24,80,32};
+    const std::array<std::int16_t,12U> deltas = precedence_discriminator
+        ? std::array<std::int16_t,12U>{96,160,96,40,44,-28,56,68,60,24,80,32}
+        : std::array<std::int16_t,12U>{64,96,128,24,20,-12,40,28,76,24,80,32};
     const std::uint16_t rows = origin_map ? 12U : maps ? 9U : 3U;
     bytes result(24U+28U+10U+static_cast<std::size_t>(rows)*4U);
     put16(result,0U,1U); put32(result,4U,24U);
@@ -322,6 +329,8 @@ inline std::vector<std::byte> make_vertical_font(vertical_font_options options =
         (options.side_bearing_maps && (!options.vvar || cff2)) ||
         (options.origin_map && (!cff2 || !options.vvar)) || options.vorg != cff)
         throw std::invalid_argument("vertical fixture family not yet authored");
+    if (options.vvar_precedence_discriminator && (!variable || !options.vvar || !options.side_bearing_maps))
+        throw std::invalid_argument("vertical precedence observation requires explicit TrueType VVAR maps");
     auto tables = original_tables(cff ? make_cff_font(cff2 ? cff_font_kind::cff2_variable_fixed : cff_font_kind::cff1_default) : make_variable_font());
     std::erase_if(tables,[&](const table& entry) {
         return (!variable && !cff2 && (entry.tag == 0x66766172U || entry.tag == 0x53544154U)) ||
@@ -362,7 +371,8 @@ inline std::vector<std::byte> make_vertical_font(vertical_font_options options =
         }
         put32(gvar,32U,static_cast<std::uint32_t>(gvar.size()-36U)); set(tables,0x67766172U,std::move(gvar));
     }
-    if (options.vvar) set(tables,0x56564152U,vertical_variations(options.side_bearing_maps,options.origin_map));
+    if (options.vvar) set(tables,0x56564152U,vertical_variations(options.side_bearing_maps,options.origin_map,
+        options.vvar_precedence_discriminator));
     return assemble(std::move(tables),cff ? 0x4F54544FU : 0x00010000U);
 }
 } // namespace progpu::native::direct2d::tests
