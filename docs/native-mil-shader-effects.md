@@ -50,13 +50,15 @@ per-dot read-port checks. It preserves the original bytecode and register limits
 
 Version 1 admits one untransformed implicit-input brush at opacity one. An
 explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)
-adds static, same-channel owned-bitmap capture without changing version 1.
+adds same-channel owned-bitmap capture without changing version 1. Original
+[ImageBrush opacity/rectangle animation](native-shader-sampler-animation.md)
+uses the same owned capture and current-value resource dependencies.
 [Version-3 UV derivatives](native-shader-uv-derivatives.md) retain the original
 selected float register and populate it from the actual native capture basis.
 An additive [source-padding contract](native-shader-capture-padding.md) expands
 asymmetric local bounds while retaining the integral-capture gate.
 Integer and Boolean registers, additional/external samplers,
-software-only mode, brush animation and transformed input remain
+software-only mode, animated brush transforms and transformed input remain
 unsupported. The effect requires explicit positive source bounds, a positive
 axis-aligned source basis and a complete integral physical capture. Clipped,
 fractional, backdrop and cache-content captures fail preflight. These gates need

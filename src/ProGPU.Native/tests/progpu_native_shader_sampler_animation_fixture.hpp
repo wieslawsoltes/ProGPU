@@ -28,7 +28,7 @@ inline constexpr std::array shader_sampler_animation_cases{
     shader_sampler_animation_case{0.5, {.25, 0, .5, 1}, {.5, 0, .5, 1}, false, false, false, 0, 32, 16, 64},
     shader_sampler_animation_case{0.5, {0, 0, 1, 1}, {0, 0, 1, 1}, true, false, false, 0, 32, 16, 128},
     shader_sampler_animation_case{1.0, {0, 0, 1, 1}, {0, 0, 1, 1}, true, true, false, 0, 32, 16, 255},
-    shader_sampler_animation_case{1.0, {0, 0, 1, 1}, {0, 0, 1, 1}, true, true, true, 0, 32, 16, 255}};
+    shader_sampler_animation_case{0.25, {.25, 0, .5, 1}, {0, 0, 1, 1}, true, true, true, 8, 24, 16, 64}};
 
 inline void append_shader_sampler_animation_brush(std::vector<std::byte>& batch,
     bool absolute, bool animated, std::uint32_t opacity = 30U,
