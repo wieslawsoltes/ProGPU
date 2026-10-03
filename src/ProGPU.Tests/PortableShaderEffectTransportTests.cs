@@ -51,6 +51,39 @@ public sealed class PortableShaderEffectTransportTests
         Assert.Equal(31, effect.DdxUvDdyUvRegisterIndex);
     }
 
+    [Theory]
+    [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)]
+    public void PaddingRetainsOriginalBitsWithoutAdmittingOrRepairingTheSource(int axis)
+    {
+        long[] bitPatterns =
+        [
+            0, long.MinValue, 1, 0x3ff0000000000001,
+            0x7fefffffffffffff, unchecked((long)0xbff0000000000000),
+            0x7ff0000000000000, unchecked((long)0xfff0000000000000),
+            0x7ff8000000000042, unchecked((long)0xfff8000000000087)
+        ];
+        foreach (long bits in bitPatterns)
+        {
+            double[] original = [2.25, 6.5, 4.75, 12.125];
+            original[axis] = BitConverter.Int64BitsToDouble(bits);
+            var effect = new PortableShaderEffect(null, null, null, null, null,
+                0, 0, original[0], original[1], original[2], original[3], -1);
+            double[] captured = [effect.PaddingTop, effect.PaddingBottom, effect.PaddingLeft, effect.PaddingRight];
+            for (int i = 0; i < original.Length; i++)
+                Assert.Equal(BitConverter.DoubleToInt64Bits(original[i]), BitConverter.DoubleToInt64Bits(captured[i]));
+        }
+    }
+
+    [Fact]
+    public void ValidPaddingMaximumDoesNotReplaceItsFourSourceAxes()
+    {
+        var effect = new PortableShaderEffect(null, null, null, null, null,
+            0, 0, 2.25, 6.5, 4.75, 12.125, -1);
+        Assert.Equal(12.125, effect.MaxPadding);
+        Assert.Equal(2.25, effect.PaddingTop); Assert.Equal(6.5, effect.PaddingBottom);
+        Assert.Equal(4.75, effect.PaddingLeft); Assert.Equal(12.125, effect.PaddingRight);
+    }
+
     [Fact]
     public void ImageSamplerRetainsActualSourceBrushAndImageSeparately()
     {

@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+ShaderEffect padding transport preserves all four original double values,
+including invalid metadata and signed zero. Consumers validate before source
+dependency callbacks or packet publication; never sanitize invalid padding to
+zero, clamp it into admission or replace asymmetric axes with their maximum.
+The existing native padding packet/capture contract owns numeric and render-frame
+admission. Neutral transport is not managed/native image qualification.
+See docs/source-shader-padding-transport.md.
+
 Known-empty DrawingImage shader-source closures retain the actual initialized
 drawing through a typed ownership-only edge while canonical paint stays drawing
 zero. Empty-source publication clears stale positive bounds; canonical updates
