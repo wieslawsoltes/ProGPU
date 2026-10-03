@@ -190,7 +190,8 @@ void verify_command_hairline_dpi(progpu_native_direct2d_surface* surface,
         "hairline original command-list BeginDraw");
     context->SetTransform(transform); context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
     context->DrawLine({2,8},{20,8},brush.Get(),0,styles[2].Get());
-    require(progpu_native_direct2d_surface_end_command_list_draw(surface,nullptr,nullptr,&hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+    std::uint64_t tag1{},tag2{};
+    require(progpu_native_direct2d_surface_end_command_list_draw(surface,&tag1,&tag2,&hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
         "hairline original command-list EndDraw");
     for (const float dpi : {96.0F,192.0F}) {
         context->SetDpi(dpi,dpi);
