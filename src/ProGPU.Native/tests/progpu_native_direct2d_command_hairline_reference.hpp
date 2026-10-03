@@ -44,7 +44,7 @@ void verify_command_hairline_dpi(progpu_native_direct2d_surface* surface,
     require(factory->CreatePathGeometry(curve.GetAddressOf()) == S_OK &&
         curve->Open(geometry_sink.GetAddressOf()) == S_OK, "hairline original curve");
     geometry_sink->BeginFigure({2,8},D2D1_FIGURE_BEGIN_HOLLOW);
-    geometry_sink->AddBezier(D2D1::BezierSegment({5,8},{12,8},{20,8}));
+    geometry_sink->AddBezier(D2D1::BezierSegment({5,12},{12,12},{20,8}));
     geometry_sink->EndFigure(D2D1_FIGURE_END_OPEN);
     require(geometry_sink->Close() == S_OK, "hairline original curve close");
     geometry_sink.Reset();
@@ -91,12 +91,13 @@ void verify_command_hairline_dpi(progpu_native_direct2d_surface* surface,
             "hairline dependency and original draw accounting");
         const auto header=command_hairline_read<progpu_native_scene_header>(bytes,0U,require);
         const auto command=command_hairline_read<progpu_native_scene_command>(bytes,header.command_offset,require);
-        // Literal geometry is [4,8.25]-[40,8.25] after the original transform.
+        // Literal line is [4,8.25]-[40,8.25] after the original transform;
+        // the genuinely curved arch adds exactly 3 DIPs at its midpoint.
         // Independent 96/192/384 physical one-pixel half extents: .5/.25/.125.
         const float padding=hairline ? (dpi == 96 ? 0.5F : dpi == 192 ? 0.25F : 0.125F) : 1.0F;
         const float pad_x=mode == 0U ? 2.0F : padding;
         require(command.bounds_x == 4.0F-pad_x && command.bounds_y == 8.25F-padding &&
-            command.bounds_width == 36.0F+2.0F*pad_x && command.bounds_height == 2.0F*padding,
+            command.bounds_width == 36.0F+2.0F*pad_x && command.bounds_height == (curved ? 3.0F : 0.0F)+2.0F*padding,
             "hairline literal target-DIP bounds");
         const auto resource=command_hairline_read<progpu_native_scene_resource>(bytes,
             header.resource_offset+command.resource_index*header.resource_stride,require);
