@@ -885,13 +885,15 @@ Default-stroke nondegenerate rectangles now also implement `Widen` into a
 caller-owned simplified geometry sink. Base rectangles reproduce Direct2D's
 alternate-fill pair of closed outer and inner miter contours. Positive
 axis-aligned intrinsic transformed rectangles reproduce Direct2D's single
-winding-fill, force-unstroked open contour, including its explicit bridge
+winding-fill open contour, including its explicit bridge
 segments; the caller transform is applied only after widening. The Windows
 oracle compares fill mode, segment flags, figure kinds, closure, and every
 emitted point against system Direct2D. The existing zero-width base rectangle
 still emits its two closed contours; the existing transformed default zero-width
 path emits winding fill with no figures. Degenerate rectangles and unsupported
 default transformed cases retain their existing gates.
+Neither transformed default case emits `SetSegmentFlags`; the old test sink's
+initial force-unstroked value is retained caller state, not an emitted flag.
 
 Explicit same-factory **solid, normal-transform, positive-width** rectangle
 strokes now reuse owned path `GetWidenedBounds`, `StrokeContainsPoint`, and `Widen`
@@ -902,8 +904,11 @@ geometry and Windows compatibility wrappers use the same implementation. Newly
 authored CPU and original-Windows controls are not executed or qualified. Dashed
 rectangle phase, new fixed/hairline behavior, explicit zero-width hit/widening,
 and degenerate admission remain excluded. The Windows transformed **null/default**
-wrapper's older intrinsic/world composition remains a known separate implementation
-gap; preservation of the portable default sink receipts does not resolve it.
+wrapper now shares the existing materialized-rectangle bounds/hit and specialized
+Widen helpers for direct rectangles with positive diagonal intrinsic transforms.
+It no longer applies that intrinsic scale to the pen in this lane. Other default
+source/transform families retain their older fallback and remain outside this
+correction; see [default transformed strokes](direct2d-default-transformed-strokes.md).
 See [solid rectangle strokes](direct2d-rectangle-solid-strokes.md).
 
 Nondegenerate rectangles now implement `CompareWithGeometry` against

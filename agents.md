@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Direct2D rectangle strokes apply intrinsic geometry transforms before expanding
+the pen, and caller world transforms afterward. Explicit solid normal styles
+reuse the ordered path stroker; null/default positive-diagonal direct rectangles
+reuse their original materialized-rectangle helpers in both compatibility paths.
+Preserve the default transformed Widen transcript: one winding/open figure and
+26 lines, no segment-flags callback, and winding-only zero width. Caller sink
+flags are not emitted state. Do not substitute generic closed contours or infer
+new dashed, reflected/sheared default, nested-source or device-DPI admission.
+See docs/direct2d-default-transformed-strokes.md; authored controls are not parity.
+
 Owned nested shader scopes remain ordered picture commands with independent
 source/recording leases. Prepare immutable parameter/sampler generations only at
 the actual target boundary, before encoding the consumer draw; nested sampler

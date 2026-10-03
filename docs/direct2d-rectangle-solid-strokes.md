@@ -35,17 +35,19 @@ are initialized and receive a candidate only after success. The shared path
 
 Null/default rectangle code is not routed through the new path. Its existing
 base alternate-fill two-contour representation, including zero width, and the
-portable transformed winding/force-unstroked representation remain intact.
+portable transformed winding/open representation remain intact. The latter emits
+no segment-flags callback and leaves caller flag state unchanged.
 Explicit solid zero-width bounds retain their old result; explicit zero-width
 hit/widening stay unsupported. Degenerate source rectangles and exact collapsed
 intrinsic centerlines are not new admission; no epsilon test is used.
 
 Existing fixed/hairline bounds behavior is preserved, not newly qualified or
 expanded. Dashed rectangles remain unsupported in these operations. The Windows
-transformed null/default wrapper still has an older intrinsic/world composition
-path that can scale stroke width; that is a remaining implementation gap, not a
-claim that this explicit-style slice completes transformed strokes. Generic
-non-rectangle fallbacks are unchanged.
+transformed null/default wrapper's positive-diagonal direct-rectangle lane is
+corrected by the [paired default helper](direct2d-default-transformed-strokes.md).
+Other default source/transform families retain the older intrinsic/world
+composition fallback and remain a separate gap. This explicit-style slice does
+not complete transformed strokes or generic non-rectangle behavior.
 
 ## Authored controls, not execution
 
