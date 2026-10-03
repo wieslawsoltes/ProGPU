@@ -19,6 +19,32 @@ namespace progpu::native::tests {
 inline bool wpf_path_join_triangles_and_flags()
 {
     static_assert(PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS == (1U << 8U));
+    const auto matches_coverage_vertices = [](const progpu_native_geometry_primitive& primitive,
+        std::span<const vector_vertex> vertices) {
+        path_join_bounds actual{91, 92, 93, 94};
+        bool has_coverage = true;
+        if (!try_get_path_join_bounds(primitive, actual, has_coverage) ||
+            has_coverage != !vertices.empty()) return false;
+        if (vertices.empty()) return actual.left == 0 && actual.top == 0 &&
+            actual.right == 0 && actual.bottom == 0;
+        path_join_bounds expected{std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+            -std::numeric_limits<float>::infinity()};
+        // The payload carries each exact coverage triangle. position is the
+        // expanded raster quad and must NOT become a source allocation bound.
+        for (const auto& vertex : vertices) {
+            for (const auto point : {progpu_native_point{vertex.color[0], vertex.color[1]},
+                    progpu_native_point{vertex.color[2], vertex.color[3]},
+                    progpu_native_point{vertex.shape_size[0], vertex.shape_size[1]}}) {
+                expected.left = std::min(expected.left, point.x);
+                expected.top = std::min(expected.top, point.y);
+                expected.right = std::max(expected.right, point.x);
+                expected.bottom = std::max(expected.bottom, point.y);
+            }
+        }
+        return actual.left == expected.left && actual.top == expected.top &&
+            actual.right == expected.right && actual.bottom == expected.bottom;
+    };
     constexpr std::array<progpu_native_affine_2d, 2U> transforms{{
         {1, 0, 0, 1, 0, 0}, {2, 0, .5F, 1, 3, 5}}};
     for (const auto& transform : transforms) {
@@ -49,6 +75,7 @@ inline bool wpf_path_join_triangles_and_flags()
                         if (!is_valid_geometry_primitive(primitive) ||
                             !append_geometry_primitive(primitive, 7, vertices, indices) ||
                             vertices.size() != expected * 4U || indices.size() != expected * 6U) return false;
+                        if (!matches_coverage_vertices(primitive, vertices)) return false;
                         for (std::size_t index = 0U; index < expected; ++index) {
                             const auto p0 = transformed_point(transform, triangles[index].p0);
                             const auto p1 = transformed_point(transform, triangles[index].p1);
@@ -84,7 +111,30 @@ inline bool wpf_path_join_triangles_and_flags()
     std::vector<vector_vertex> empty_vertices;
     std::vector<std::uint32_t> empty_indices;
     if (!append_geometry_primitive(clip_only, 7, empty_vertices, empty_indices) ||
-        !empty_vertices.empty() || !empty_indices.empty()) return false;
+        !empty_vertices.empty() || !empty_indices.empty() ||
+        !matches_coverage_vertices(clip_only, empty_vertices)) return false;
+
+    // Independent square-overhang bounds for radius one at (10,10), including
+    // both local-affine and world-uniform routes. No AA inflation is included.
+    constexpr std::array<progpu_native_affine_2d, 3U> bound_transforms{{
+        {1, 0, 0, 1, 0, 0}, {2, 0, .5F, 1, 3, 5}, {2, 0, 0, 2, 3, 5}}};
+    constexpr std::array<path_join_bounds, 3U> literal_bounds{{
+        {10, 9, 11, 11}, {27.5F, 14, 30.5F, 16}, {23, 23, 25, 27}}};
+    for (std::size_t index = 0U; index < bound_transforms.size(); ++index) {
+        for (const bool aliased : {false, true}) {
+            auto reversal = valid;
+            reversal.p0 = {10, 10}; reversal.transform = bound_transforms[index];
+            if (aliased) reversal.flags |= PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED;
+            path_join_bounds actual{91, 92, 93, 94}; bool has_coverage = false;
+            const auto expected = literal_bounds[index];
+            if (!try_get_path_join_bounds(reversal, actual, has_coverage) || !has_coverage ||
+                actual.left != expected.left || actual.top != expected.top ||
+                actual.right != expected.right || actual.bottom != expected.bottom) return false;
+            std::vector<vector_vertex> vertices; std::vector<std::uint32_t> indices;
+            if (!append_geometry_primitive(reversal, 7, vertices, indices) ||
+                !matches_coverage_vertices(reversal, vertices)) return false;
+        }
+    }
 
     vector_vertex sentinel{};
     sentinel.position[0] = 91; sentinel.color[3] = 92;
@@ -104,6 +154,13 @@ inline bool wpf_path_join_triangles_and_flags()
         }
         auto vertices = before_vertices;
         auto indices = before_indices;
+        for (const bool prior_coverage : {false, true}) {
+            const path_join_bounds before{91, 92, 93, 94};
+            auto bounds = before; bool has_coverage = prior_coverage;
+            if (try_get_path_join_bounds(invalid, bounds, has_coverage) ||
+                std::memcmp(&bounds, &before, sizeof(bounds)) != 0 || has_coverage != prior_coverage)
+                return false;
+        }
         std::size_t vertex_capacity = 94U, index_capacity = 95U;
         if (is_valid_geometry_primitive(invalid) ||
             geometry_primitive_capacity(invalid, vertex_capacity, index_capacity) ||
