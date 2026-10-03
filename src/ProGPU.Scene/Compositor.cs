@@ -17177,7 +17177,7 @@ CompilePathStroke:
             else if (fe.Effect is WpfShaderEffect shaderEffect)
             {
                 DrawWpfShaderEffectOnMain(fe, shaderEffect, cachedTextures.Source, paddedRect, compositeTransform,
-                    captureFrame.TextureUvBounds);
+                    captureFrame.TextureUvBounds, captureFrame.HasPhysicalOrigin ? captureFrame.OutputEdges : null);
             }
             else if (fe.Effect is ColorMatrixEffect colorMatrixEffect)
             {
@@ -17743,7 +17743,8 @@ CompilePathStroke:
         Matrix4x4 parentTransform,
         int hitTestId = 0,
         GpuBlendMode? blendMode = null,
-        Rect? sourceRect = null)
+        Rect? sourceRect = null,
+        Vector4? outputEdges = null)
     {
         var cmd = new RenderCommand
         {
@@ -17752,6 +17753,15 @@ CompilePathStroke:
             Rect = localRect,
             SrcRect = sourceRect ?? default
         };
+        if (outputEdges is { } edges)
+        {
+            cmd.HasTextureDestinationQuad = true;
+            cmd.TextureDestination0 = new Vector2(edges.X, edges.Y);
+            cmd.TextureDestination1 = new Vector2(edges.Z, edges.Y);
+            cmd.TextureDestination2 = new Vector2(edges.Z, edges.W);
+            cmd.TextureDestination3 = new Vector2(edges.X, edges.W);
+            cmd.TextureDestinationProjectiveWeights = Vector4.One;
+        }
         if (hitTestId != 0)
         {
             AddHitTestCommand(cmd, parentTransform, hitTestId);
@@ -17782,7 +17792,8 @@ CompilePathStroke:
         GpuTexture sourceTexture,
         Rect localRect,
         Matrix4x4 parentTransform,
-        Vector4 textureUvBounds)
+        Vector4 textureUvBounds,
+        Vector4? outputEdges)
     {
         var pipeline = GetExtension(CompositorBuiltInExtensions.WpfShaderEffect);
         if (pipeline == null)
@@ -17791,7 +17802,8 @@ CompilePathStroke:
                 new Rect(textureUvBounds.X * sourceTexture.Width, textureUvBounds.Y * sourceTexture.Height,
                     (textureUvBounds.Z - textureUvBounds.X) * sourceTexture.Width,
                     (textureUvBounds.W - textureUvBounds.Y) * sourceTexture.Height);
-            DrawTextureOnMain(sourceTexture, localRect, parentTransform, visual.HitTestId, sourceRect: sourceRect);
+            DrawTextureOnMain(sourceTexture, localRect, parentTransform, visual.HitTestId,
+                sourceRect: sourceRect, outputEdges: outputEdges);
             return;
         }
 
@@ -17817,6 +17829,7 @@ CompilePathStroke:
 
         effect.UpdateDrawParameters(parameters, sourceTexture, localRect);
         parameters.TextureUvBounds = textureUvBounds;
+        parameters.OutputEdges = outputEdges;
 
         var cmd = new RenderCommand
         {

@@ -1572,6 +1572,7 @@ public sealed class WpfShaderEffect : EffectBase
         // Reused parameters must not retain a prior source-lattice UV subset
         // when this visual returns to the legacy full-texture route.
         target.TextureUvBounds = new Vector4(0, 0, 1, 1);
+        target.OutputEdges = null;
         target.ShaderSource = Parameters.ShaderSource;
         target.ShaderKey = Parameters.ShaderKey;
         target.Constants = Parameters.Constants;

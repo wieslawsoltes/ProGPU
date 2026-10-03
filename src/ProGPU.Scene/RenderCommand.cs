@@ -6406,6 +6406,8 @@ public partial class DrawingContext :
                 Texture = wpfShaderEffect.Texture,
                 Rect = TranslateRect(wpfShaderEffect.Rect, translation),
                 TextureUvBounds = wpfShaderEffect.TextureUvBounds,
+                OutputEdges = wpfShaderEffect.OutputEdges is { } edges
+                    ? edges + new Vector4(translation.X, translation.Y, translation.X, translation.Y) : null,
                 ShaderSource = wpfShaderEffect.ShaderSource,
                 ShaderKey = wpfShaderEffect.ShaderKey,
                 Constants = wpfShaderEffect.Constants,

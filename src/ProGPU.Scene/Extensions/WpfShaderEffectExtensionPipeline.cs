@@ -299,10 +299,11 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
         var r = p.Rect;
         var color = new Vector4(1f, 1f, 1f, compositor.ActiveOpacity);
 
-        var v0 = Vector2.Transform(new Vector2(r.X, r.Y), transform);
-        var v1 = Vector2.Transform(new Vector2(r.X + r.Width, r.Y), transform);
-        var v2 = Vector2.Transform(new Vector2(r.X + r.Width, r.Y + r.Height), transform);
-        var v3 = Vector2.Transform(new Vector2(r.X, r.Y + r.Height), transform);
+        var edges = p.OutputEdges ?? new Vector4(r.X, r.Y, r.X + r.Width, r.Y + r.Height);
+        var v0 = Vector2.Transform(new Vector2(edges.X, edges.Y), transform);
+        var v1 = Vector2.Transform(new Vector2(edges.Z, edges.Y), transform);
+        var v2 = Vector2.Transform(new Vector2(edges.Z, edges.W), transform);
+        var v3 = Vector2.Transform(new Vector2(edges.X, edges.W), transform);
 
         // The output remains the original padded quad; its UVs select that
         // coverage within the complete outward-rounded input texture. Shader

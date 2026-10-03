@@ -22,6 +22,7 @@ public readonly struct EffectCaptureFrame
         DpiScale = dpiScale;
         PixelsPerUnit = new Vector2(dpiScale);
         RasterBounds = paddedBounds;
+        OutputEdges = new Vector4(paddedBounds.X, paddedBounds.Y, paddedBounds.Right, paddedBounds.Bottom);
         TextureUvBounds = new Vector4(0, 0, 1, 1);
         SourceToRaster = Matrix4x4.Identity;
     }
@@ -45,6 +46,8 @@ public readonly struct EffectCaptureFrame
     public Vector2 PhysicalOrigin { get; private init; }
     /// <summary>Complete texture rectangle in rebased local coordinates, distinct from output coverage.</summary>
     public Rect RasterBounds { get; private init; }
+    /// <summary>Independent rebased left/top/right/bottom output edges; do not reconstruct far edges from a rounded width.</summary>
+    public Vector4 OutputEdges { get; private init; }
     /// <summary>Independent left/top/right/bottom UVs for the original output coverage in the complete texture.</summary>
     public Vector4 TextureUvBounds { get; private init; }
     /// <summary>Rebased source-local to physical capture coordinates; not a replacement for semantic DPI.</summary>
@@ -118,23 +121,29 @@ public readonly struct EffectCaptureFrame
         float x = MathF.Floor(physicalLeft), y = MathF.Floor(physicalTop);
         float farX = MathF.Ceiling(physicalRight), farY = MathF.Ceiling(physicalBottom);
         const float exactIntegerLimit = 1 << 24;
-        float pixelWidth = farX - x, pixelHeight = farY - y;
+        // Endpoints are float integers, but their difference can require one
+        // more bit. Reject that exact integer span before narrowing it again.
+        double pixelWidthExact = (double)farX - x, pixelHeightExact = (double)farY - y;
         if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(farX) || !float.IsFinite(farY) ||
             x < -exactIntegerLimit || y < -exactIntegerLimit || farX > exactIntegerLimit || farY > exactIntegerLimit ||
-            pixelWidth <= 0 || pixelHeight <= 0 || pixelWidth > exactIntegerLimit || pixelHeight > exactIntegerLimit)
+            pixelWidthExact <= 0 || pixelHeightExact <= 0 ||
+            pixelWidthExact > exactIntegerLimit || pixelHeightExact > exactIntegerLimit)
             return false;
 
+        float pixelWidth = (float)pixelWidthExact, pixelHeight = (float)pixelHeightExact;
         float logicalWidth = pixelWidth / pixelsPerUnit.X, logicalHeight = pixelHeight / pixelsPerUnit.Y;
         var raster = new Rect(x / pixelsPerUnit.X + sourceTranslation.X,
             y / pixelsPerUnit.Y + sourceTranslation.Y, logicalWidth, logicalHeight);
         var padded = new Rect(left + sourceTranslation.X, top + sourceTranslation.Y, width, height);
+        var outputEdges = new Vector4(padded.X, padded.Y, right + sourceTranslation.X, bottom + sourceTranslation.Y);
         float translatedX = sourceTranslation.X * pixelsPerUnit.X, translatedY = sourceTranslation.Y * pixelsPerUnit.Y;
         var sourceToRaster = new Matrix4x4(
             pixelsPerUnit.X, 0, 0, 0,
             0, pixelsPerUnit.Y, 0, 0,
             0, 0, 1, 0,
             -x - translatedX, -y - translatedY, 0, 1);
-        if (!IsFinite(raster) || !IsFinite(padded) || !float.IsFinite(sourceToRaster.M41) ||
+        if (!IsFinite(raster) || !IsFinite(padded) || !float.IsFinite(outputEdges.Z) || !float.IsFinite(outputEdges.W) ||
+            !float.IsFinite(sourceToRaster.M41) ||
             !float.IsFinite(sourceToRaster.M42) ||
             !float.IsFinite(2f / logicalWidth) || !float.IsFinite(-2f / logicalHeight) ||
             !TryCeilingDimension(logicalWidth, out uint logicalRenderWidth) ||
@@ -148,6 +157,7 @@ public readonly struct EffectCaptureFrame
             PixelsPerUnit = pixelsPerUnit,
             PhysicalOrigin = new Vector2(x, y),
             RasterBounds = raster,
+            OutputEdges = outputEdges,
             TextureUvBounds = new Vector4((physicalLeft - x) / pixelWidth, (physicalTop - y) / pixelHeight,
                 (physicalRight - x) / pixelWidth, (physicalBottom - y) / pixelHeight),
             SourceToRaster = sourceToRaster
@@ -167,6 +177,8 @@ public readonly struct EffectCaptureFrame
         Same(PaddedBounds.Width, other.PaddedBounds.Width) && Same(PaddedBounds.Height, other.PaddedBounds.Height) &&
         Same(RasterBounds.X, other.RasterBounds.X) && Same(RasterBounds.Y, other.RasterBounds.Y) &&
         Same(RasterBounds.Width, other.RasterBounds.Width) && Same(RasterBounds.Height, other.RasterBounds.Height) &&
+        Same(OutputEdges.X, other.OutputEdges.X) && Same(OutputEdges.Y, other.OutputEdges.Y) &&
+        Same(OutputEdges.Z, other.OutputEdges.Z) && Same(OutputEdges.W, other.OutputEdges.W) &&
         Same(PixelsPerUnit.X, other.PixelsPerUnit.X) && Same(PixelsPerUnit.Y, other.PixelsPerUnit.Y) &&
         Same(PhysicalOrigin.X, other.PhysicalOrigin.X) && Same(PhysicalOrigin.Y, other.PhysicalOrigin.Y) &&
         Same(TextureUvBounds.X, other.TextureUvBounds.X) && Same(TextureUvBounds.Y, other.TextureUvBounds.Y) &&
