@@ -107,7 +107,7 @@ public sealed class OwnedShaderEffectParameters : IDisposable
         {
             foreach (var sampler in samplers)
                 try { sampler?.Dispose(); }
-                catch (Exception cleanup) { failure.Data["OwnedShaderSamplerCleanup"] = cleanup; }
+                catch (Exception cleanup) { try { failure.Data["OwnedShaderSamplerCleanup"] = cleanup; } catch { } }
             throw;
         }
     }
@@ -150,9 +150,9 @@ internal sealed class OwnedShaderEffectRecording : Visual, IDisposable
         catch (Exception failure)
         {
             try { candidate?.Dispose(); }
-            catch (Exception cleanup) { failure.Data["OwnedShaderPictureCleanup"] = cleanup; }
+            catch (Exception cleanup) { try { failure.Data["OwnedShaderPictureCleanup"] = cleanup; } catch { } }
             try { sourceLease.Dispose(); }
-            catch (Exception cleanup) { failure.Data["OwnedShaderSourceCleanup"] = cleanup; }
+            catch (Exception cleanup) { try { failure.Data["OwnedShaderSourceCleanup"] = cleanup; } catch { } }
             throw;
         }
     }

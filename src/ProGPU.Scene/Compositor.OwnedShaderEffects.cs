@@ -45,6 +45,7 @@ public unsafe partial class Compositor
         RetainedResourceLease? sourceLease = null;
         OwnedShaderEffectParameters? parameters = null;
         OwnedShaderTarget? candidate = null;
+        int priorTargetCount = _ownedShaderTargets.Count;
         try
         {
             sourceLease = recording.Acquire();
@@ -66,15 +67,33 @@ public unsafe partial class Compositor
         }
         catch (Exception failure)
         {
+            // Nested sampler realizations may have completed during this
+            // candidate. Roll back only those new variants, never an earlier
+            // generation that was reused by the failed source.
+            try
+            {
+                var nested = _ownedShaderTargets.GetRange(priorTargetCount, _ownedShaderTargets.Count - priorTargetCount);
+                _ownedShaderTargets.RemoveRange(priorTargetCount, nested.Count);
+                foreach (var target in nested)
+                    try { target.Dispose(); }
+                    catch (Exception cleanup) { NoteOwnedShaderCleanup(failure, "OwnedShaderNestedCleanup", cleanup); }
+            }
+            catch (Exception cleanup) { NoteOwnedShaderCleanup(failure, "OwnedShaderRollbackCleanup", cleanup); }
             try { candidate?.Dispose(); }
-            catch (Exception cleanup) { failure.Data["OwnedShaderCandidateCleanup"] = cleanup; }
+            catch (Exception cleanup) { NoteOwnedShaderCleanup(failure, "OwnedShaderCandidateCleanup", cleanup); }
             try { parameters?.Dispose(); }
-            catch (Exception cleanup) { failure.Data["OwnedShaderParameterCleanup"] = cleanup; }
+            catch (Exception cleanup) { NoteOwnedShaderCleanup(failure, "OwnedShaderParameterCleanup", cleanup); }
             try { sourceLease?.Dispose(); }
-            catch (Exception cleanup) { failure.Data["OwnedShaderSourceCleanup"] = cleanup; }
+            catch (Exception cleanup) { NoteOwnedShaderCleanup(failure, "OwnedShaderSourceCleanup", cleanup); }
             throw;
         }
         finally { _ownedShaderSourcesPreparing.Remove(recording.Source); }
+    }
+
+    private static void NoteOwnedShaderCleanup(Exception failure, string key, Exception cleanup)
+    {
+        try { failure.Data[key] = cleanup; }
+        catch { }
     }
 
     private void CompileOwnedShaderEffect(OwnedShaderEffectRecording recording, Matrix4x4 transform)
@@ -148,7 +167,7 @@ public unsafe partial class Compositor
             catch (Exception failure)
             {
                 try { Visual.Context.Clear(); }
-                catch (Exception cleanup) { failure.Data["OwnedShaderRecordingCleanup"] = cleanup; }
+                catch (Exception cleanup) { NoteOwnedShaderCleanup(failure, "OwnedShaderRecordingCleanup", cleanup); }
                 throw;
             }
         }
