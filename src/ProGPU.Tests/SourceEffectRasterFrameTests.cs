@@ -76,6 +76,7 @@ public sealed class SourceEffectRasterFrameTests
         Assert.Equal(9U, frame.PixelWidth);
         Assert.Equal(5U, frame.PixelHeight);
         Assert.Equal(new Rect(0, 0, 1.125f, 1.25f), frame.RasterBounds);
+        Assert.Equal(new Vector2(1.125f, 1.25f), frame.ProjectionExtent);
         Assert.Equal(new Vector2(9, 5), Vector2.Transform(new Vector2(1.125f, 1.25f), frame.SourceToRaster));
         Assert.Equal(new Vector2(8, 4), Vector2.Transform(Vector2.One, frame.SourceToRaster));
     }
@@ -157,6 +158,61 @@ public sealed class SourceEffectRasterFrameTests
         Reject(new ShaderEffectSourceCapture(0, 0, 1, 1, 0, 0, double.NaN, 0), Vector2.Zero, Vector2.One);
         Reject(new ShaderEffectSourceCapture(0, 0, 1, 1, 0, 0, -1, 0), Vector2.Zero, Vector2.One);
         Reject(new ShaderEffectSourceCapture(16777216, 0, .25, 1, 0, 0, 0, 0), Vector2.Zero, Vector2.One);
+        // Finite frame dimensions are insufficient if the actual offscreen
+        // projection coefficient (2 / logicalExtent) would overflow.
+        Reject(new ShaderEffectSourceCapture(0, 0, float.Epsilon, 1, 0, 0, 0, 0),
+            Vector2.Zero, new Vector2(float.MaxValue, 1));
+        Reject(new ShaderEffectSourceCapture(0, 0, 1, float.Epsilon, 0, 0, 0, 0),
+            Vector2.Zero, new Vector2(1, float.MaxValue));
+    }
+
+    [Fact]
+    public void TargetMappingUsesActualNormalizedViewportAndKeepsAxesIndependent()
+    {
+        Assert.True(EffectCaptureFrame.TryResolveSourcePixelsPerUnit(64, 32, 256, 128,
+            new RenderTargetViewport(16, 8, 128, 32), out var scale));
+        Assert.Equal(new Vector2(2, 1), scale);
+        Assert.True(EffectCaptureFrame.TryResolveSourcePixelsPerUnit(64, 32, 256, 128,
+            new RenderTargetViewport(24, 12, 128, 32), out var moved));
+        Assert.Equal(scale, moved);
+
+        // Target clamping is exactly the ordinary compositor's viewport clamp:
+        // the requested 256-wide viewport only has 128 pixels left from x=128.
+        Assert.True(EffectCaptureFrame.TryResolveSourcePixelsPerUnit(64, 32, 256, 128,
+            new RenderTargetViewport(128, 8, 256, 32), out var clamped));
+        Assert.Equal(scale, clamped);
+        Assert.True(EffectCaptureFrame.TryResolveSourcePixelsPerUnit(64, 32, 256, 128,
+            RenderTargetViewport.Full(256, 128), out var full));
+        Assert.Equal(new Vector2(4, 4), full);
+    }
+
+    [Fact]
+    public void InvalidTargetMappingPublishesNoPartialAxes()
+    {
+        foreach (var dimensions in new (uint Width, uint Height, uint TargetWidth, uint TargetHeight)[]
+        {
+            (0, 32, 256, 128), (64, 0, 256, 128),
+            (64, 32, 0, 128), (64, 32, 256, 0)
+        })
+        {
+            Vector2 scale = new(7, 11);
+            Assert.False(EffectCaptureFrame.TryResolveSourcePixelsPerUnit(dimensions.Width, dimensions.Height,
+                dimensions.TargetWidth, dimensions.TargetHeight, new RenderTargetViewport(0, 0, 128, 32), out scale));
+            Assert.Equal(Vector2.Zero, scale);
+        }
+
+        foreach (var viewport in new[]
+        {
+            new RenderTargetViewport(float.NaN, 0, 128, 32),
+            new RenderTargetViewport(0, float.PositiveInfinity, 128, 32),
+            new RenderTargetViewport(0, 0, 0, 32),
+            new RenderTargetViewport(0, 0, 128, -1)
+        })
+        {
+            Vector2 scale = new(7, 11);
+            Assert.False(EffectCaptureFrame.TryResolveSourcePixelsPerUnit(64, 32, 256, 128, viewport, out scale));
+            Assert.Equal(Vector2.Zero, scale);
+        }
     }
 
     private static void Reject(ShaderEffectSourceCapture source, Vector2 translation, Vector2 pixelsPerUnit)
