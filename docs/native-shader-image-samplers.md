@@ -31,6 +31,11 @@ Unbound bitmap uploads may be registered before their source pixels arrive, but
 cannot produce a scene. VisualBrush, DrawingBrush, DrawingImage, double-buffered
 or external bitmap sources and multiple samplers stay closed.
 
+The DrawingImage restriction above describes the original bitmap-only family.
+The additive [owned DrawingImage connection](native-shader-drawing-image-samplers.md)
+uses the same full-RGBA tile capture and adds sampler-specific complete-closure
+ownership preflight. Other source-family gates remain unchanged.
+
 Both native providers acquire the picture through existing owned picture
 rasterization and queue submission. A binding retains the exact engine-owned
 picture alongside its program, constants and bind group; disposal follows the
