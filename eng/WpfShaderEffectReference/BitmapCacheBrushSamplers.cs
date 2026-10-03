@@ -29,6 +29,8 @@ internal static partial class Program
         public Rect FirstRectangle => Index >= 8 ? new(-4, 4, 8, 12) : new(4, 6, 8, 12);
         public Rect SecondRectangle => Index >= 8 ? new(4, 4, 8, 12) : new(12, 6, 8, 12);
         public Rect? InnerClip => Index == 4 ? new Rect(12, 6, 8, 12) : null;
+        public Rect? RootScrollClip => Index is 12 or 13 ? new Rect(1000, 1000, 1, 1) : null;
+        public Rect? InnerScrollClip => Index == 13 ? new Rect(1000, 1000, 1, 1) : null;
         public double RelativeX => Index == 5 ? .25 : 0;
         public double AbsoluteY => Index == 5 ? 2 : 0;
     }
@@ -47,10 +49,16 @@ internal static partial class Program
         yield return new(9, "cache-sampler-attached-empty-group");
         yield return new(10, "cache-sampler-attached-empty-root");
         yield return new(11, "cache-sampler-refilled-same-owners");
+        yield return new(12, "cache-sampler-ignored-root-scroll-clip");
+        yield return new(13, "cache-sampler-descendant-scroll-clip");
+        yield return new(14, "cache-sampler-restored-scroll-clips");
     }
 
     private static void CaptureBitmapCacheBrushSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
     {
+        uint systemDpiObservation = ObserveCacheSamplerSystemDpi();
+        if (systemDpiObservation == 0)
+            throw new InvalidOperationException("Original system DPI observation failed.");
         var observations = new List<object>();
         var failures = new List<string>();
         OriginalBitmapCacheSamplerScene? retained = null;
@@ -71,6 +79,10 @@ internal static partial class Program
                 SourceFrameworkElements = false, SourceReplacedByBitmap = false,
                 ReceivingLocalBounds = new Rect(0, 0, 32, 24), ReceivingOffset = new Vector(8, 10),
                 OutputClip = new Rect(8, 10, 32, 24), TargetDpi = 96,
+                SamplerRealization = "selected raw cache texture sampled over normalized shader coordinates",
+                ConsumerBrushOpacityAndTransforms = "ignored by the BitmapCacheBrush shader sampler",
+                SystemDpiObservation = systemDpiObservation,
+                DpiObservationScope = "current UI-thread GetDpiForSystem; not proof of WPF's historically cached primary DPI",
                 ExpectedFirstArgb = state.Blue ? "FF0000FF" : "FFFF0000", ExpectedSecondArgb = "FF00FF00"
             };
             using (var file = new FileStream(Path.Combine(directory, state.Name + ".input.json"), FileMode.CreateNew))
@@ -108,6 +120,8 @@ internal static partial class Program
             if (state.Index == 0) defaultPixels = first;
             if (state.Index is >= 1 and <= 3 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
                 failures.Add($"{state.Name}: cache policy or excluded root state changed logical source output.");
+            if (state.Index == 5 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
+                failures.Add("Consumer brush transforms changed the selected raw cache sampler output.");
             if (state.Index == 6) zeroScalePixels = first;
             if (state.Index == 7 && (zeroScalePixels == null || !zeroScalePixels.AsSpan().SequenceEqual(first)))
                 failures.Add("The genuine null target differs from the independently retained zero-scale frame.");
@@ -117,18 +131,25 @@ internal static partial class Program
                 failures.Add($"{state.Name}: the genuine attached empty source differs from the independent null frame.");
             if (state.Index == 11 && (filledPixels == null || !filledPixels.AsSpan().SequenceEqual(first)))
                 failures.Add("Refilling the same source owners did not restore their original nonempty frame.");
+            if (state.Index is 12 or 14 && (filledPixels == null || !filledPixels.AsSpan().SequenceEqual(first)))
+                failures.Add($"{state.Name}: root scroll clipping or restored descendant clipping changed the raw source frame.");
+            if (state.Index == 13 && (nullTargetPixels == null || !nullTargetPixels.AsSpan().SequenceEqual(first)))
+                failures.Add("The descendant outside scroll clip did not preserve the independent transparent-sampler frame.");
             observations.Add(new { state.Name, Input = input, Replays = replays });
         }
-        if (observations.Count != 12) throw new InvalidOperationException("Original BitmapCacheBrush sampler inventory changed.");
+        if (observations.Count != 15) throw new InvalidOperationException("Original BitmapCacheBrush sampler inventory changed.");
         CheckSamplerAnimationDeadline(timer);
         var receipt = new
         {
-            Schema = 1, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
+            Schema = 3, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
             OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             PresentationCore = FileIdentity(typeof(BitmapCacheBrush).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
-            CaseCount = observations.Count, Replays = 36, Cases = observations, Failures = failures,
+            CaseCount = observations.Count, Replays = 45, Cases = observations, Failures = failures,
+            SystemDpiObservation = systemDpiObservation,
+            SamplerContract = "raw selected cache texture; consumer brush opacity and transforms excluded",
+            RasterProfile = "literal integral-cache corpus; no fractional/near-integer, device-clamp or historical primary-DPI qualification",
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
             Qualification = "Original Microsoft WPF SoftwareOnly BitmapCacheBrush controls only; no native/provider/package, generic-cache allocation, UIElement wrapper, cyclic-source or source-host qualification."
@@ -137,29 +158,28 @@ internal static partial class Program
             "bitmap-cache-brush-samplers.json" : "bitmap-cache-brush-samplers.failed.json"), FileMode.CreateNew))
             JsonSerializer.Serialize(file, receipt, new JsonSerializerOptions { WriteIndented = true });
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine($"Original BitmapCacheBrush samplers: 12 states / 36 replays; {(unavailable ? 0 : 12)} shader cases qualified.");
+        Console.WriteLine($"Original BitmapCacheBrush samplers: 15 states / 45 replays; {(unavailable ? 0 : 15)} shader cases qualified.");
     }
 
     private static void AssertBitmapCacheSamplerPixels(BitmapCacheSamplerState state, byte[] pixels, bool unavailable)
     {
-        // Independent literal bands. Source bounds, product transforms and
-        // observed original pixels never supply the expected frame.
+        // Independent literal bands for the integral-cache profile. The raw
+        // cache texture spans normalized shader coordinates; ordinary brush
+        // placement and opacity do not apply. No product math or observed
+        // original pixels supply the expected frame.
         for (int y = 0; y < 64; ++y) for (int x = 0; x < 64; ++x)
         {
             int selected = -1;
-            byte component = state.Index == 4 ? (byte)64 : (byte)255;
+            byte component = state.Index == 4 ? (byte)128 : (byte)255;
             if (!unavailable && x >= 8 && x < 40 && y >= 10 && y < 34)
             {
-                int column = x - 8, row = y - 10;
+                int column = x - 8;
                 selected = state.Index switch
                 {
-                    0 or 1 or 2 or 3 when row >= 6 && row < 18 =>
-                        column >= 4 && column < 12 ? 2 : column >= 12 && column < 20 ? 1 : -1,
-                    4 when row >= 6 && row < 18 && column >= 12 && column < 20 => 1,
-                    5 when row >= 8 && row < 20 =>
-                        column >= 12 && column < 20 ? 2 : column >= 20 && column < 28 ? 1 : -1,
-                    8 or 11 when row >= 4 && row < 16 => column < 4 ? 0 : column < 12 ? 1 : -1,
-                    >= 0 and <= 11 => -1,
+                    0 or 1 or 2 or 3 or 5 => column < 16 ? 2 : 1,
+                    4 => 1,
+                    8 or 11 or 12 or 14 => column < 16 ? 0 : 1,
+                    6 or 7 or 9 or 10 or 13 => -1,
                     _ => throw new InvalidOperationException("Unknown independent BitmapCacheBrush sampler oracle.")
                 };
             }
@@ -175,8 +195,8 @@ internal static partial class Program
 
     private sealed class OriginalBitmapCacheSamplerScene
     {
-        private readonly ContainerVisual sampledRoot = new();
-        private readonly ContainerVisual group = new();
+        private readonly BitmapCacheSamplerContainerVisual sampledRoot = new();
+        private readonly BitmapCacheSamplerContainerVisual group = new();
         private readonly VisualSamplerDrawingVisual first = new();
         private readonly VisualSamplerDrawingVisual second = new();
         private readonly RectangleGeometry firstGeometry = new();
@@ -255,6 +275,8 @@ internal static partial class Program
             sampledRoot.Effect = state.IgnoredRootState ? rootEffect : null;
             sampledRoot.Opacity = state.IgnoredRootState ? .25 : 1;
             sampledRoot.OpacityMask = state.IgnoredRootState ? rootMask : null;
+            sampledRoot.ScrollClip = state.RootScrollClip;
+            group.ScrollClip = state.InnerScrollClip;
             group.Opacity = state.InnerOpacity;
             if (state.InnerClip is Rect clip)
             {
@@ -290,6 +312,7 @@ internal static partial class Program
                 !ReferenceEquals(sampledRoot.Effect, state.IgnoredRootState ? rootEffect : null) ||
                 sampledRoot.Opacity != (state.IgnoredRootState ? .25 : 1) ||
                 !ReferenceEquals(sampledRoot.OpacityMask, state.IgnoredRootState ? rootMask : null) ||
+                sampledRoot.ScrollClip != state.RootScrollClip || group.ScrollClip != state.InnerScrollClip ||
                 rootTransform.X != 29 || rootTransform.Y != 31 || rootClip.Rect != new Rect(0, 0, 1, 1) ||
                 rootEffect.Radius != 3 || rootMask.Color != Colors.Transparent || rootMask.Opacity != 1 ||
                 group.Opacity != state.InnerOpacity || !ReferenceEquals(group.Clip, state.InnerClip.HasValue ? groupClip : null) ||
@@ -325,14 +348,24 @@ internal static partial class Program
                 RootClip = sampledRoot.Clip == null ? null : VisualSamplerBoundsDescription(rootClip.Rect),
                 RootEffect = sampledRoot.Effect == null ? "none" : "BlurEffect(radius=3)",
                 RootOpacity = sampledRoot.Opacity, RootMask = sampledRoot.OpacityMask == null ? "none" : rootMask.Color.ToString(),
+                RootScrollClip = sampledRoot.ScrollClip, InnerScrollClip = group.ScrollClip,
                 InnerClip = state.InnerClip, InnerOpacity = group.Opacity, BrushOpacity = brush.Opacity,
                 RelativeTransform = relativeTransform.Value, AbsoluteTransform = absoluteTransform.Value,
                 TargetCacheAttached = state.TargetCache, TargetScale = targetCache.RenderAtScale,
                 ExplicitCacheAttached = state.ExplicitCache, ExplicitScale = explicitCache.RenderAtScale,
                 ExplicitSnapping = explicitCache.SnapsToDevicePixels,
                 SelectedPolicy = state.ExplicitCache ? "explicit-brush" : state.TargetCache ? "target" : "default",
-                LogicalPlacement = "natural original source coordinates; no TileBrush viewport or stretch"
+                SamplerPlacement = "raw cache texture over normalized shader coordinates; no ordinary brush mapping"
             };
+        }
+    }
+
+    private sealed class BitmapCacheSamplerContainerVisual : ContainerVisual
+    {
+        internal Rect? ScrollClip
+        {
+            get => VisualScrollableAreaClip;
+            set => VisualScrollableAreaClip = value;
         }
     }
 
@@ -358,4 +391,7 @@ internal static partial class Program
 
         protected override Freezable CreateInstanceCore() => new OriginalBitmapCacheSamplerEffect(InputBrush);
     }
+
+    [DllImport("user32.dll", EntryPoint = "GetDpiForSystem", ExactSpelling = true)]
+    private static extern uint ObserveCacheSamplerSystemDpi();
 }

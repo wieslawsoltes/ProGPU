@@ -16,6 +16,7 @@
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
+#include "../src/Mil/progpu_native_cache_raster_frame.hpp"
 #include "../src/Scene/progpu_native_semantic_path_stroke.hpp"
 #include "../src/Scene/progpu_native_semantic_state.hpp"
 #include "../src/Scene/progpu_native_scene.hpp"
@@ -22161,6 +22162,142 @@ bool original_shader_sampler_transform_animation_owns_graph() {
     return true;
 }
 
+bool cache_raster_frame_preserves_source_arithmetic() {
+    using progpu::native::mil::cache_raster_frame;
+    using progpu::native::mil::make_cache_raster_frame;
+    cache_raster_frame frame{};
+    PROGPU_REQUIRE(make_cache_raster_frame(-4,6,16,12,1,1.5F,2,4096,4096,frame));
+    PROGPU_REQUIRE(frame.width == 24U && frame.height == 24U && frame.scale_x == 1.5F &&
+        frame.scale_y == 2.0F && frame.offset_x == 6.0F && frame.offset_y == -12.0F);
+    PROGPU_REQUIRE(make_cache_raster_frame(4,6,10,12,1.25,1,1,8,256,frame));
+    PROGPU_REQUIRE(frame.width == 8U && frame.height == 15U && frame.scale_x == 0.769230783F &&
+        frame.scale_y == 1.25F && frame.offset_x == -3.076923132F && frame.offset_y == -7.5F);
+    // Distinguishes round-out from ceil, including the strict relative test's
+    // denominator: ten epsilon steps still lie below the relative threshold.
+    for (const auto steps : {9U,10U,11U}) {
+        const double selected=1.0+static_cast<double>(steps)*0x1p-23;
+        PROGPU_REQUIRE(make_cache_raster_frame(0,0,1,1,selected,1,1,256,256,frame));
+        PROGPU_REQUIRE(frame.width == (steps == 11U ? 2U : 1U) && frame.height == frame.width);
+    }
+    // Full rectangle emptiness precedes overflow of the other scaled axis.
+    PROGPU_REQUIRE(make_cache_raster_frame(0x1p24,0,0.25,1e20,1e100,1,1,256,256,frame));
+    PROGPU_REQUIRE(frame.width == 0U && frame.height == 0U);
+    PROGPU_REQUIRE(make_cache_raster_frame(0,0,1,1,0x1p-160,1,1,256,256,frame));
+    PROGPU_REQUIRE(frame.width == 0U && frame.height == 0U);
+    PROGPU_REQUIRE(make_cache_raster_frame(0,0,1,1,0,1,1,256,256,frame));
+    const cache_raster_frame sentinel{17U,19U,2,3,5,7};
+    for (std::uint32_t fault=0U; fault<9U; ++fault) {
+        frame=sentinel;
+        const bool admitted=make_cache_raster_frame(
+            fault == 0U ? std::numeric_limits<double>::infinity() : 0.0,0,
+            fault == 1U ? -1.0 : fault == 2U ? std::numeric_limits<double>::max() : 1.0,1,
+            fault == 3U ? -1.0 : fault == 4U ? 0x1p33 : 1.0,
+            fault == 5U ? 0.0F : fault == 6U ? std::numeric_limits<float>::quiet_NaN() : 1.0F,1,
+            fault == 7U ? 0U : 256U,fault == 8U ? 0U : 256U,frame);
+        PROGPU_REQUIRE(!admitted && std::memcmp(&frame,&sentinel,sizeof(frame)) == 0);
+    }
+    return true;
+}
+
+bool cache_raster_policy_is_atomic_and_required() {
+    using namespace progpu::native::tests;
+    using mil_clip_fixture_detail::packet;
+    static_assert(sizeof(progpu_native_mil_bitmap_cache_raster_policy) == 40U);
+    static_assert(offsetof(progpu_native_mil_bitmap_cache_raster_policy,primary_dpi_scale_x) == 16U);
+    static_assert(offsetof(progpu_native_mil_bitmap_cache_raster_policy,source_revision) == 32U);
+    const auto picture_extent=[](const std::vector<std::byte>& stream) {
+        const auto header=read_value<progpu_native_scene_header>(stream,0U);
+        for (std::uint32_t i=0U; i<header.resource_count; ++i) {
+            const auto resource=read_value<progpu_native_scene_resource>(stream,header.resource_offset+i*header.resource_stride);
+            if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE &&
+                (resource.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) != 0U) {
+                const auto picture=read_value<progpu_native_scene_picture_image>(stream,resource.payload_offset);
+                return std::array{picture.width,picture.height};
+            }
+        }
+        return std::array{0U,0U};
+    };
+    progpu_native_mil_channel* raw{};
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    mil_clip_channel owner(raw);
+    PROGPU_REQUIRE(initialize_shader_bitmap_cache(raw,false) && update_shader_bitmap_cache(raw,0U));
+    std::vector<std::byte> scene,batch;
+    for (const auto index : {0U,6U,7U,9U,10U}) {
+        PROGPU_REQUIRE(update_shader_bitmap_cache(raw,index));
+        PROGPU_REQUIRE(!build_shader_bitmap_cache(raw,0U,scene));
+    }
+    auto policy=shader_cache_policy;
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(nullptr,5U,&policy) ==
+        PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    for (const auto handle : {0U,40U,999U})
+        PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(raw,handle,&policy) ==
+            PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    packet(batch,command::channel_create_resource,90U,83U);
+    PROGPU_REQUIRE(progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(raw,90U,&policy) ==
+        PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE); // declared alone is not initialized
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(raw,5U,&policy) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(update_shader_bitmap_cache(raw,11U) && build_shader_bitmap_cache(raw,0U,scene));
+    const auto stable=scene;
+    const auto generation=progpu_native_mil_channel_get_resource_generation(raw,5U);
+    for (std::uint32_t fault=0U; fault<10U; ++fault) {
+        policy=shader_cache_policy;
+        switch (fault) {
+        case 0U: --policy.struct_size; break;
+        case 1U: policy.version=2U; break;
+        case 2U: policy.flags=1U; break;
+        case 3U: policy.reserved=1U; break;
+        case 4U: policy.primary_dpi_scale_x=0.0F; break;
+        case 5U: policy.primary_dpi_scale_y=-1.0F; break;
+        case 6U: policy.primary_dpi_scale_x=std::numeric_limits<float>::infinity(); break;
+        case 7U: policy.maximum_texture_width=0U; break;
+        case 8U: policy.maximum_texture_height=0U; break;
+        default: policy.source_revision=0U; break;
+        }
+        PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(raw,5U,&policy) ==
+            PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+        PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,5U) == generation &&
+            build_shader_bitmap_cache(raw,0U,scene) && scene == stable);
+    }
+    policy=shader_cache_policy; policy.primary_dpi_scale_x=1.5F; policy.primary_dpi_scale_y=2.0F;
+    ++policy.source_revision;
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(raw,5U,&policy) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene) && scene != stable);
+    const auto revised=scene;
+    PROGPU_REQUIRE(picture_extent(scene) == (std::array{24U,24U}));
+    const auto revised_generation=progpu_native_mil_channel_get_resource_generation(raw,5U);
+    batch.clear(); append_shader_bitmap_cache_brush(batch,0U,0U);
+    packet(batch,command::visual_insert_child_at,40U,999U,0U);
+    PROGPU_REQUIRE(progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr) ==
+        PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,5U) == revised_generation &&
+        build_shader_bitmap_cache(raw,0U,scene) && scene == revised);
+    policy.maximum_texture_width=8U; policy.maximum_texture_height=6U; ++policy.source_revision;
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(raw,5U,&policy) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene));
+    PROGPU_REQUIRE(picture_extent(scene) == (std::array{8U,6U}));
+    auto request=shader_bitmap_cache_request(0U);
+    request.dpi_scale_x=request.dpi_scale_y=2.0;
+    progpu_native_mil_scene_build_result result{}; result.struct_size=sizeof(result);
+    std::size_t written{};
+    PROGPU_REQUIRE(progpu_native_mil_channel_build_scene_with_request(raw,&request,nullptr,0U,&written,nullptr,&result) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    scene.resize(written);
+    PROGPU_REQUIRE(progpu_native_mil_channel_build_scene_with_request(raw,&request,scene.data(),scene.size(),&written,
+        nullptr,&result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS && picture_extent(scene) == (std::array{8U,6U}));
+    // Policy owns independent source scale/limits, not the receiving DPI.
+    // An uninitialized, ignored brush-only matrix cannot replace raw cache
+    // ownership/current-policy admission. Ordinary painting still resolves it.
+    batch.clear(); packet(batch,command::channel_create_resource,91U,54U);
+    packet(batch,command::channel_create_resource,92U,66U);
+    packet(batch,command::matrix_transform,92U,1.0,0.0,0.0,1.0,0.0,0.0,91U);
+    append_shader_bitmap_cache_brush(batch,40U,51U,0.0,92U);
+    PROGPU_REQUIRE(progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene));
+    return true;
+}
+
 bool empty_cache_sampler_authorization_is_exact_and_owned() {
     using namespace progpu::native::tests;
     using mil_clip_fixture_detail::packet;
@@ -22280,7 +22417,7 @@ bool original_shader_bitmap_cache_owns_selected_capture() {
     batch.clear(); append_shader_bitmap_cache_brush(batch,999U,0U);
     PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
 
-    const auto shader_revision = [](const std::vector<std::byte>& stream) {
+    const auto shader_revision = [](const std::vector<std::byte>& stream, std::uint32_t index = 0U) {
         const auto header=read_value<progpu_native_scene_header>(stream,0U);
         for (std::uint32_t i=0U; i<header.resource_count; ++i) {
             const auto resource=read_value<progpu_native_scene_resource>(stream,header.resource_offset+i*header.resource_stride);
@@ -22293,7 +22430,10 @@ bool original_shader_bitmap_cache_owns_selected_capture() {
             if (image.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
                 (image.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) return 0U;
             const auto picture=read_value<progpu_native_scene_picture_image>(stream,image.payload_offset);
-            if (picture.width != 32U || picture.height != 24U || picture.dpi_scale != 1.0F ||
+            const bool absent=index == 6U || index == 7U || index == 9U || index == 10U;
+            const std::uint32_t width=absent ? 1U : index == 1U ? 32U : index == 4U ? 8U : 16U;
+            const std::uint32_t height=absent ? 1U : index == 1U ? 24U : 12U;
+            if (picture.width != width || picture.height != height || picture.dpi_scale != 1.0F ||
                 picture.flags != 0U || picture.clear_color.a != 0.0F) return 0U;
             return shader.program.revision;
         }
@@ -22305,7 +22445,7 @@ bool original_shader_bitmap_cache_owns_selected_capture() {
         const auto effect_generation=progpu_native_mil_channel_get_resource_generation(raw,7U);
         PROGPU_REQUIRE(update_shader_bitmap_cache(raw,index) && build_shader_bitmap_cache(raw,index,retained[index]));
         PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,7U) == effect_generation);
-        const auto revision=shader_revision(retained[index]);
+        const auto revision=shader_revision(retained[index],index);
         PROGPU_REQUIRE(revision != 0U && revision != previous); previous=revision;
         PROGPU_REQUIRE(progpu::native::scene::validate(retained[index].data(),retained[index].size()).status ==
             PROGPU_NATIVE_STATUS_SUCCESS);
@@ -23287,6 +23427,8 @@ int main() {
     PROGPU_REQUIRE(original_shader_sampler_transform_animation_owns_graph());
     PROGPU_REQUIRE(original_shader_drawing_image_owns_complete_capture());
     PROGPU_REQUIRE(original_shader_visual_brush_owns_complete_capture());
+    PROGPU_REQUIRE(cache_raster_frame_preserves_source_arithmetic());
+    PROGPU_REQUIRE(cache_raster_policy_is_atomic_and_required());
     PROGPU_REQUIRE(original_shader_bitmap_cache_owns_selected_capture());
     PROGPU_REQUIRE(empty_cache_sampler_authorization_is_exact_and_owned());
     PROGPU_REQUIRE(original_shader_sampler_inherits_actual_visual_options());

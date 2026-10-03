@@ -392,6 +392,21 @@ progpu_native_mil_channel_set_visual_source_empty_bounds(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(
+    progpu_native_mil_channel* channel, uint32_t handle,
+    const progpu_native_mil_bitmap_cache_raster_policy* policy) {
+    if (channel == nullptr || policy == nullptr ||
+        reinterpret_cast<std::uintptr_t>(policy) % alignof(progpu_native_mil_bitmap_cache_raster_policy) != 0U ||
+        policy->struct_size != sizeof(*policy) || policy->version != 1U ||
+        policy->flags != 0U || policy->reserved != 0U)
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    const progpu::native::mil::bitmap_cache_raster_policy value{
+        policy->primary_dpi_scale_x, policy->primary_dpi_scale_y,
+        policy->maximum_texture_width, policy->maximum_texture_height, policy->source_revision};
+    return to_abi(channel->state.set_bitmap_cache_brush_raster_policy(handle, value));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_point_hit_rectangles(
     progpu_native_mil_channel* channel,
     const progpu_native_mil_point_hit_rectangle* rectangles,

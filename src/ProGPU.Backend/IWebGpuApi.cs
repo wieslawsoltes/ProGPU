@@ -175,8 +175,22 @@ public interface IWebGpuExternalDeviceLifetime : IDisposable
 
 internal unsafe sealed class SilkWebGpuApi(
     WebGPU api,
-    object synchronizationRoot) : IWebGpuApi, IWebGpuRenderBundleApi
+    object synchronizationRoot) : IWebGpuApi, IWebGpuRenderBundleApi, IWebGpuTextureLimitsSource
 {
+    public bool TryGetTextureLimits(Device* device, out uint maximumTextureWidth, out uint maximumTextureHeight)
+    {
+        maximumTextureWidth = maximumTextureHeight = 0;
+        if (device == null) return false;
+        lock (synchronizationRoot)
+        {
+            var limits = new SupportedLimits();
+            if (!api.DeviceGetLimits(device, &limits) || limits.Limits.MaxTextureDimension2D == 0)
+                return false;
+            maximumTextureWidth = maximumTextureHeight = limits.Limits.MaxTextureDimension2D;
+            return true;
+        }
+    }
+
     private sealed class MapCompletion
     {
         public readonly TaskCompletionSource<BufferMapAsyncStatus> Source = new(TaskCreationOptions.RunContinuationsAsynchronously);
