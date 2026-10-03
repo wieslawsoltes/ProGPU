@@ -117,7 +117,8 @@ public class SKNWayCanvas : SKNoDrawCanvas
                 command.Pen.DashOffset,
                 command.Pen.StrokeTransformMode)
             {
-                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit,
+                UseWpfJoinSemantics = command.Pen.UseWpfJoinSemantics
             };
         }
 

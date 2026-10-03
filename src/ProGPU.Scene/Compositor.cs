@@ -6641,7 +6641,8 @@ SceneStateUploadComplete:
                 command.Pen.DashOffset,
                 command.Pen.StrokeTransformMode)
             {
-                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit,
+                UseWpfJoinSemantics = command.Pen.UseWpfJoinSemantics
             };
         }
     }
@@ -6685,7 +6686,8 @@ SceneStateUploadComplete:
             command.Pen.DashOffset,
             command.Pen.StrokeTransformMode)
         {
-            ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+            ClipMiterAtLimit = command.Pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = command.Pen.UseWpfJoinSemantics
         };
     }
 
@@ -9420,7 +9422,8 @@ CompilePathStroke:
             pen.DashCap,
             strokeTransformMode: pen.StrokeTransformMode)
         {
-            ClipMiterAtLimit = pen.ClipMiterAtLimit
+            ClipMiterAtLimit = pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = pen.UseWpfJoinSemantics
         };
     }
 
@@ -9438,7 +9441,8 @@ CompilePathStroke:
             pen.DashOffset,
             pen.StrokeTransformMode)
         {
-            ClipMiterAtLimit = pen.ClipMiterAtLimit
+            ClipMiterAtLimit = pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = pen.UseWpfJoinSemantics
         };
     }
 
@@ -10324,14 +10328,12 @@ CompilePathStroke:
     {
         Span<StrokeJoinTriangle> localTriangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
-        int localTriangleCount = StrokeJoinGeometry.WriteLineJoin(
-            localTriangles,
-            pen,
-            localThickness,
-            localJoinPoint - localIncomingDirection,
-            localJoinPoint,
-            localJoinPoint + localOutgoingDirection,
-            isSmoothJoin);
+        int localTriangleCount = pen.UseWpfJoinSemantics
+            ? StrokeJoinGeometry.WriteDirectionalJoin(localTriangles, pen, localThickness,
+                localJoinPoint, localIncomingDirection, localOutgoingDirection, isSmoothJoin)
+            : StrokeJoinGeometry.WriteLineJoin(localTriangles, pen, localThickness,
+                localJoinPoint - localIncomingDirection, localJoinPoint,
+                localJoinPoint + localOutgoingDirection, isSmoothJoin);
 
         var generatedTriangles = localTriangles[..localTriangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
@@ -10342,7 +10344,7 @@ CompilePathStroke:
                 Vector2.Transform(localTriangle.P1, transform),
                 Vector2.Transform(localTriangle.P2, transform));
             var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
-                pen.LineJoin,
+                pen.UseWpfJoinSemantics && isSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
                 generatedTriangles.Length,
                 triangleIndex);
             AppendStrokeTriangleVertices(
@@ -10658,20 +10660,17 @@ CompilePathStroke:
     {
         Span<StrokeJoinTriangle> triangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
-        int triangleCount = StrokeJoinGeometry.WriteLineJoin(
-            triangles,
-            pen,
-            thickness,
-            joinPoint - incomingDirection,
-            joinPoint,
-            joinPoint + outgoingDirection,
-            isSmoothJoin);
+        int triangleCount = pen.UseWpfJoinSemantics
+            ? StrokeJoinGeometry.WriteDirectionalJoin(triangles, pen, thickness,
+                joinPoint, incomingDirection, outgoingDirection, isSmoothJoin)
+            : StrokeJoinGeometry.WriteLineJoin(triangles, pen, thickness,
+                joinPoint - incomingDirection, joinPoint, joinPoint + outgoingDirection, isSmoothJoin);
 
         var generatedTriangles = triangles[..triangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
             var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
-                pen.LineJoin,
+                pen.UseWpfJoinSemantics && isSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
                 generatedTriangles.Length,
                 triangleIndex);
             AppendStrokeTriangleVertices(
@@ -11111,7 +11110,7 @@ CompilePathStroke:
         return Vector2.Transform(direction, transform) - Vector2.Transform(Vector2.Zero, transform);
     }
 
-    private static bool TryGetPathSegmentStartDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
+    internal static bool TryGetPathSegmentStartDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
     {
         switch (segment)
         {
@@ -11147,7 +11146,7 @@ CompilePathStroke:
         }
     }
 
-    private static bool TryGetPathSegmentEndDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
+    internal static bool TryGetPathSegmentEndDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
     {
         switch (segment)
         {
@@ -11395,6 +11394,7 @@ CompilePathStroke:
 
     internal static bool IsRenderableStroke(Pen? pen)
     {
+        pen?.ValidateJoinSemantics();
         return pen != null &&
             float.IsFinite(pen.Thickness) &&
             (pen.IsHairline || pen.Thickness > 0f);
