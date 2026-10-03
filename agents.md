@@ -5,8 +5,13 @@ four-padding descriptor between implicit input and framed samplers. Narrow the
 original far endpoints separately, inflate each edge independently and apply the
 source host's actual rebase only after computing the extent. Keep raw cache
 sampler dimensions independent, exact descriptor/cache identity, source opacity
-and final clips. Preserve legacy scalar/raster-override paths; neither metadata
-validity nor this managed frame admits native fractional/affine pixel parity.
+and final clips. The explicit vector frame uses actual projection/viewport XY,
+signed outward physical origins and full input textures, retaining semantic DPI
+separately for text/snapping. Project the exact floating raster extent, never its
+integer bookkeeping ceiling; final direct shader UVs and independent output
+edges stay paired. Keep complete frame identity through cache reuse and command
+translation. Preserve legacy scalar/raster-override paths; do not infer a source
+affine capture basis or claim original fractional/affine pixel qualification.
 See docs/managed-source-effect-capture.md.
 
 ShaderEffect padding transport preserves all four original double values,

@@ -73,7 +73,11 @@ with 1 or transform a framed ImageBrush/VisualBrush's physical-identity content.
 Final shader evaluation stays in the existing direct output draw. Its original
 padded coverage selects `TextureUvBounds` within the complete input texture;
 there is no extra post-effect intermediate or second final-sample shader. UV
-endpoints survive clipping and retained-command translation. Texture-size and
+endpoints survive clipping and retained-command translation. `OutputEdges`
+retains the four independently rebased geometry endpoints: adding a rounded
+`Rect.Width` back to its origin is not a substitute for the original far edge.
+The optional parameter override defaults to null for historical Rect-based
+callers, and resets with the legacy UV mapping. Texture-size and
 derivative metadata continue to describe the complete input texture. Raw cache
 sampler textures remain independently sized and mapped.
 
@@ -140,6 +144,16 @@ Pure controls cover independent fractional edges, original double endpoint
 narrowing, exact source rebasing, same-size origin changes, source bit identity,
 cache invalidation, nullable reset, explicit legacy overrides and atomic invalid
 metadata/extent/DPI results. Existing scalar frame controls remain unchanged.
+
+Twelve additional pure facts cover the explicit vector frame and shared target
+resolver, including signed origins, independent output edges, exact over-limit
+integer spans before narrowing, projection overflow, semantic DPI independent
+of XY, sub-unit extents, viewport clamping and atomic invalid results. The new
+provider fixture authors twelve states per provider over constant/implicit-input
+shaders: actual XY changes with unchanged logical dimensions and semantic DPI,
+viewport translation, retained original source rebase and reset. Each compares
+literal complete 160-by-96 pixel images on first, warm and independent compositor
+replays. These are authored acceptance controls, not observed results.
 
 The actual shared native and Dawn compositor harnesses each receive twelve
 authored configurations: constant versus implicit-input shaders over retained
