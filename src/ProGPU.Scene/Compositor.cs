@@ -6641,7 +6641,8 @@ SceneStateUploadComplete:
                 command.Pen.DashOffset,
                 command.Pen.StrokeTransformMode)
             {
-                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit,
+                UseWpfJoinSemantics = command.Pen.UseWpfJoinSemantics
             };
         }
     }
@@ -6685,7 +6686,8 @@ SceneStateUploadComplete:
             command.Pen.DashOffset,
             command.Pen.StrokeTransformMode)
         {
-            ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+            ClipMiterAtLimit = command.Pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = command.Pen.UseWpfJoinSemantics
         };
     }
 
@@ -9420,7 +9422,8 @@ CompilePathStroke:
             pen.DashCap,
             strokeTransformMode: pen.StrokeTransformMode)
         {
-            ClipMiterAtLimit = pen.ClipMiterAtLimit
+            ClipMiterAtLimit = pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = pen.UseWpfJoinSemantics
         };
     }
 
@@ -9438,7 +9441,8 @@ CompilePathStroke:
             pen.DashOffset,
             pen.StrokeTransformMode)
         {
-            ClipMiterAtLimit = pen.ClipMiterAtLimit
+            ClipMiterAtLimit = pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = pen.UseWpfJoinSemantics
         };
     }
 
@@ -10342,7 +10346,7 @@ CompilePathStroke:
                 Vector2.Transform(localTriangle.P1, transform),
                 Vector2.Transform(localTriangle.P2, transform));
             var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
-                pen.LineJoin,
+                pen.UseWpfJoinSemantics && isSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
                 generatedTriangles.Length,
                 triangleIndex);
             AppendStrokeTriangleVertices(
@@ -10671,7 +10675,7 @@ CompilePathStroke:
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
             var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
-                pen.LineJoin,
+                pen.UseWpfJoinSemantics && isSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
                 generatedTriangles.Length,
                 triangleIndex);
             AppendStrokeTriangleVertices(
@@ -11395,6 +11399,7 @@ CompilePathStroke:
 
     internal static bool IsRenderableStroke(Pen? pen)
     {
+        pen?.ValidateJoinSemantics();
         return pen != null &&
             float.IsFinite(pen.Thickness) &&
             (pen.IsHairline || pen.Thickness > 0f);

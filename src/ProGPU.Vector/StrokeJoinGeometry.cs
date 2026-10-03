@@ -90,7 +90,7 @@ public static class StrokeJoinGeometry
             clipMiterAtLimit: false);
     }
 
-    /// <summary>Writes a join using the pen's retained miter policy without changing reversal semantics.</summary>
+    /// <summary>Writes a join using the pen's retained clipping and source-join policy.</summary>
     public static int WriteLineJoin(
         Span<StrokeJoinTriangle> destination,
         Pen pen,
@@ -102,9 +102,11 @@ public static class StrokeJoinGeometry
         int maxRoundSegments = MaxTrianglesPerJoin)
     {
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
         return WriteLineJoinCore(destination, pen.LineJoin, thickness, pen.MiterLimit,
             previousPoint, joinPoint, nextPoint, isSmoothJoin, maxRoundSegments,
-            useWpfJoinSemantics: false, clipMiterAtLimit: pen.ClipMiterAtLimit);
+            useWpfJoinSemantics: pen.UseWpfJoinSemantics,
+            clipMiterAtLimit: pen.ClipMiterAtLimit || pen.UseWpfJoinSemantics);
     }
 
     public static int WriteWpfLineJoin(
@@ -146,8 +148,13 @@ public static class StrokeJoinGeometry
         bool clipMiterAtLimit)
     {
         ValidateLineJoin(lineJoin);
-        clipMiterAtLimit &= lineJoin == PenLineJoin.Miter;
         useWpfJoinSemantics &= lineJoin != PenLineJoin.MiterOrBevel;
+        if (useWpfJoinSemantics && isSmoothJoin)
+        {
+            lineJoin = PenLineJoin.Round;
+            isSmoothJoin = false;
+        }
+        clipMiterAtLimit &= lineJoin == PenLineJoin.Miter;
         if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon ||
             !TryNormalize(joinPoint - previousPoint, out var incomingDirection) ||
             !TryNormalize(nextPoint - joinPoint, out var outgoingDirection))
@@ -347,6 +354,11 @@ public static class StrokeJoinGeometry
     {
         ValidateLineJoin(lineJoin);
         useWpfJoinSemantics &= lineJoin != PenLineJoin.MiterOrBevel;
+        if (useWpfJoinSemantics && isSmoothJoin)
+        {
+            lineJoin = PenLineJoin.Round;
+            isSmoothJoin = false;
+        }
         if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon)
         {
             return Array.Empty<StrokeJoinTriangle>();
