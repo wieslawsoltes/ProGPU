@@ -588,9 +588,15 @@ public:
             return com::pointer_error;
         }
         *value = nullptr;
-        if (com::guid_equal(interface_id, com::unknown_interface_id()) ||
-            com::guid_equal(
-                interface_id, compat::wic_bitmap_source_interface_id)) {
+        if (com::guid_equal(interface_id, compat::wic_bitmap_source_interface_id)) {
+            ++source_query_count;
+            if (source_query_returns_pointer) {
+                *value = static_cast<compat::wic_bitmap_source*>(this);
+                AddRef();
+            }
+            return source_query_result;
+        }
+        if (com::guid_equal(interface_id, com::unknown_interface_id())) {
             *value = static_cast<compat::wic_bitmap_source*>(this);
             AddRef();
             return com::ok;
@@ -601,12 +607,14 @@ public:
     com::reference_count_value PROGPU_NATIVE_COM_CALL AddRef()
         noexcept override
     {
+        ++add_ref_count;
         return reference_count_.add_ref();
     }
 
     com::reference_count_value PROGPU_NATIVE_COM_CALL Release()
         noexcept override
     {
+        ++release_count;
         return reference_count_.release(this);
     }
 
@@ -614,6 +622,7 @@ public:
         std::uint32_t* width,
         std::uint32_t* height) noexcept override
     {
+        ++size_call_count;
         if (width == nullptr || height == nullptr) {
             return com::invalid_argument;
         }
@@ -625,6 +634,7 @@ public:
     com::result PROGPU_NATIVE_COM_CALL GetPixelFormat(
         com::guid* pixel_format) noexcept override
     {
+        ++format_call_count;
         if (pixel_format == nullptr) {
             return com::invalid_argument;
         }
@@ -679,6 +689,13 @@ public:
     }
 
     std::vector<std::uint8_t> pixels;
+    com::result source_query_result = com::ok;
+    bool source_query_returns_pointer = true;
+    std::uint32_t source_query_count = 0U;
+    std::uint32_t add_ref_count = 0U;
+    std::uint32_t release_count = 0U;
+    std::uint32_t size_call_count = 0U;
+    std::uint32_t format_call_count = 0U;
     std::uint32_t resolution_call_count = 0U;
     std::uint32_t copy_call_count = 0U;
     std::uint32_t last_stride = 0U;
@@ -7660,6 +7677,46 @@ int run_tests()
             nullptr,
             nullptr) != com::pointer_error) {
         return 250;
+    }
+
+    // A malformed foreign QueryInterface must not turn a null output into
+    // successful bitmap creation. Failure-owned interfaces still release once;
+    // all failed imports leave the already-recorded target bytes untouched.
+    struct wic_query_fault final {
+        com::result result;
+        bool returns_pointer;
+    };
+    constexpr std::array wic_query_faults{
+        wic_query_fault{com::ok, false},
+        wic_query_fault{com::false_result, false},
+        wic_query_fault{com::no_interface, false},
+        wic_query_fault{com::no_interface, true},
+        wic_query_fault{com::out_of_memory, false},
+        wic_query_fault{com::out_of_memory, true}};
+    for (const auto& fault : wic_query_faults) {
+        auto* faulty = new fake_wic_bitmap_source(compat::wic_pixel_format_32bpp_pbgra);
+        com::pointer<compat::wic_bitmap_source> faulty_owner;
+        faulty_owner.attach(faulty);
+        faulty->source_query_result = fault.result;
+        faulty->source_query_returns_pointer = fault.returns_pointer;
+        compat::bitmap* failed_bitmap =
+            reinterpret_cast<compat::bitmap*>(static_cast<std::uintptr_t>(1U));
+        const auto expected = com::failed(fault.result) ? fault.result : compat::failure;
+        if (target->CreateBitmapFromWicBitmap(faulty_owner.get(), nullptr, &failed_bitmap) != expected ||
+            failed_bitmap != nullptr || faulty->source_query_count != 1U ||
+            faulty->size_call_count != 0U || faulty->format_call_count != 0U ||
+            faulty->resolution_call_count != 0U || faulty->copy_call_count != 0U ||
+            faulty->add_ref_count != (fault.returns_pointer ? 1U : 0U) ||
+            faulty->release_count != (fault.returns_pointer ? 1U : 0U)) {
+            return 527;
+        }
+        std::vector<std::byte> preserved(ignored_alpha_scene.size());
+        std::uint64_t preserved_written{};
+        if (scene_target->GetRequiredSceneSize() != preserved.size() ||
+            scene_target->BuildScene(preserved.data(), preserved.size(), &preserved_written) != com::ok ||
+            preserved_written != preserved.size() || preserved != ignored_alpha_scene) {
+            return 528;
+        }
     }
 
     target->BeginDraw();

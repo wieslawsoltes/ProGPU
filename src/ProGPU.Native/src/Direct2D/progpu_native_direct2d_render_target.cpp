@@ -3825,7 +3825,10 @@ public:
         com::pointer<wic_bitmap_source> wic_source;
         wic_source.attach(raw_wic_source);
         if (com::failed(query_result) || !wic_source) {
-            return query_result;
+            // A foreign source cannot publish a successful bitmap creation
+            // without supplying the queried interface. Keep genuine failures
+            // and release any reference returned alongside them unchanged.
+            return com::failed(query_result) ? query_result : failure;
         }
 
         size_u size{};
