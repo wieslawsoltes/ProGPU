@@ -16923,12 +16923,20 @@ CompilePathStroke:
 
         Rect contentBounds = fe.EffectContentBounds ??
             new Rect(Vector2.Zero, fe.Size);
-        if (contentBounds.IsEmpty)
-            return;
-
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
-        if (!EffectCaptureFrame.TryCreateResolved(contentBounds, paddingX, paddingY, dpiScale, out var captureFrame))
-            throw new InvalidOperationException("Effect input capture has nonfinite or unrepresentable bounds or dimensions.");
+        EffectCaptureFrame captureFrame;
+        if (effect is WpfShaderEffect { SourceCapture: { } sourceCapture })
+        {
+            if (!EffectCaptureFrame.TryCreateSource(sourceCapture, fe.EffectSourceTranslation ?? Vector2.Zero,
+                    fe.EffectRasterPadding, dpiScale, out captureFrame))
+                throw new InvalidOperationException("Source effect input capture has invalid or unrepresentable source bounds, padding or dimensions.");
+        }
+        else
+        {
+            if (contentBounds.IsEmpty) return;
+            if (!EffectCaptureFrame.TryCreateResolved(contentBounds, paddingX, paddingY, dpiScale, out captureFrame))
+                throw new InvalidOperationException("Effect input capture has nonfinite or unrepresentable bounds or dimensions.");
+        }
         Rect paddedRect = captureFrame.PaddedBounds;
         float logicalWidth = captureFrame.LogicalWidth;
         float logicalHeight = captureFrame.LogicalHeight;

@@ -253,6 +253,31 @@ public class Visual
         }
     }
 
+    /// <summary>
+    /// Actual source-to-local translation already applied to recorded content.
+    /// Used only by an effect with an explicit source capture descriptor; it
+    /// does not move ordinary effects, input geometry or the visual itself.
+    /// </summary>
+    public Vector2? EffectSourceTranslation
+    {
+        get => _coldState?.EffectSourceTranslation;
+        set
+        {
+            if (value is { } translation &&
+                (!float.IsFinite(translation.X) || !float.IsFinite(translation.Y)))
+                throw new ArgumentOutOfRangeException(nameof(value));
+            if (_coldState?.EffectSourceTranslation != value)
+            {
+                if (value is null)
+                {
+                    if (_coldState is { } state) state.EffectSourceTranslation = null;
+                }
+                else GetOrCreateColdState().EffectSourceTranslation = value;
+                InvalidateVisualState();
+            }
+        }
+    }
+
     private ContainerVisual? _parent;
     public ContainerVisual? Parent
     {
@@ -1032,6 +1057,7 @@ public class Visual
         public Rect? OpacityMaskBounds;
         public Rect? EffectContentBounds;
         public float? EffectRasterPadding;
+        public Vector2? EffectSourceTranslation;
         public EffectBase? Effect;
         public bool CacheAsLayer;
         public float LayerCacheRenderScale = 1f;
@@ -1456,6 +1482,7 @@ public sealed class BlendModeEffect : EffectBase
 public sealed class WpfShaderEffect : EffectBase
 {
     private float _padding;
+    private ShaderEffectSourceCapture? _sourceCapture;
     private string? _failedShaderKey;
     private string? _failedShaderSourceKey;
 
@@ -1472,6 +1499,23 @@ public sealed class WpfShaderEffect : EffectBase
     /// adapters opt in explicitly; ordinary effects keep output-opacity ordering.
     /// </summary>
     public bool CaptureSourceVisualOpacity { get; init; }
+
+    /// <summary>
+    /// Explicit original source bounds and four-edge padding. Null retains the
+    /// legacy scalar Padding and Visual.EffectContentBounds capture contract.
+    /// </summary>
+    public ShaderEffectSourceCapture? SourceCapture
+    {
+        get => _sourceCapture;
+        set
+        {
+            if (_sourceCapture != value)
+            {
+                _sourceCapture = value;
+                Invalidate();
+            }
+        }
+    }
 
     public float Padding
     {
@@ -1542,6 +1586,7 @@ public sealed class WpfShaderEffect : EffectBase
         hash.Add(GetType());
         hash.Add(ChangeVersion);
         hash.Add(Padding);
+        hash.Add(SourceCapture);
         hash.Add(CaptureSourceVisualOpacity);
         Parameters.AddRenderCacheKey(ref hash);
         return hash.ToHashCode();
