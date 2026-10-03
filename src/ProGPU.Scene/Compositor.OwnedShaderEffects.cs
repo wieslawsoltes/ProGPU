@@ -49,8 +49,11 @@ public unsafe partial class Compositor
         try
         {
             sourceLease = recording.Acquire();
-            parameters = recording.Source.Preparation.Prepare(context) ??
+            var result = recording.Source.Preparation.Prepare(context) ??
                 throw new InvalidOperationException("Owned shader preparation returned no parameter generation.");
+            if (!result.TryClaim())
+                throw new InvalidOperationException("An owned shader parameter generation cannot be transferred twice or after disposal.");
+            parameters = result;
             parameters.ValidateDevice(_context);
             if (!context.Matches(GetOwnedShaderTarget(recording.Source)))
                 throw new InvalidOperationException("Owned shader preparation changed its actual target or device.");

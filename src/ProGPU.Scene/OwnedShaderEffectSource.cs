@@ -84,6 +84,7 @@ public sealed class OwnedShaderEffectSource : IDisposable
 public sealed class OwnedShaderEffectParameters : IDisposable
 {
     private bool _disposed;
+    private int _claimed;
     internal WpfShaderEffectParams Snapshot { get; }
 
     public OwnedShaderEffectParameters(WpfShaderEffectParams parameters)
@@ -117,6 +118,10 @@ public sealed class OwnedShaderEffectParameters : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         return Snapshot;
     }
+
+    // A recipe transfers a result once. Reusing one already-owned result for a
+    // later target must not let rollback dispose the earlier target's leases.
+    internal bool TryClaim() => !_disposed && Interlocked.CompareExchange(ref _claimed, 1, 0) == 0;
 
     internal void ValidateDevice(WgpuContext context)
     {
