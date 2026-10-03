@@ -4046,8 +4046,17 @@ public:
             reinterpret_cast<void**>(&raw_source_native));
         com::pointer<scene_bitmap_native> source_native;
         source_native.attach(raw_source_native);
-        if (com::failed(query_result) && query_result != com::no_interface) {
-            return query_result;
+        if (com::failed(query_result)) {
+            // Only an absent interface permits the scene-target alternative.
+            // A failed query may still hand back an owned malformed pointer;
+            // keep it under RAII, but never use it as a successful capability.
+            if (query_result != com::no_interface || source_native) {
+                return query_result;
+            }
+        } else if (!source_native) {
+            // Success without an interface is not E_NOINTERFACE and must not
+            // be repaired by selecting a different source representation.
+            return not_implemented;
         }
         scene_render_target_native* raw_source_scene = nullptr;
         const com::result scene_query_result = source_native
