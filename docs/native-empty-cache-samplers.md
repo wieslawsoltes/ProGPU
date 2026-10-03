@@ -7,6 +7,11 @@ complete cache-root-aware ownership closure. The actual target handle, cache and
 descendant topology remain owned; no null rewrite or invented positive rectangle
 is used.
 
+Current-value checks here are the existing selected cache scale, brush opacity
+and admitted animated-transform checks. Static transform composition and nested
+semantic replay remain lazy; ownership preflight is not a claim that every static
+or descendant numeric value was eagerly evaluated for a no-ink capture.
+
 The private child scene authorizes only the exact validated sampler brush to omit
 cache-page allocation. It still produces the normal owned transparent picture.
 The authorization is not copied into other capture contexts, and another brush

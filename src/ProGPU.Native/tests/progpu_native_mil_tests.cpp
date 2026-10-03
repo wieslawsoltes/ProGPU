@@ -22161,6 +22161,95 @@ bool original_shader_sampler_transform_animation_owns_graph() {
     return true;
 }
 
+bool empty_cache_sampler_authorization_is_exact_and_owned() {
+    using namespace progpu::native::tests;
+    using mil_clip_fixture_detail::packet;
+    progpu_native_mil_channel* raw{};
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    mil_clip_channel owner(raw);
+    PROGPU_REQUIRE(initialize_shader_bitmap_cache(raw));
+    PROGPU_REQUIRE(update_shader_bitmap_cache(raw,9U));
+    std::vector<std::byte> batch,content,scene;
+    const auto apply=[&] { return progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr); };
+    const auto rejected=[&](progpu_native_mil_status expected) {
+        const auto request=shader_bitmap_cache_request(0U);
+        std::array<std::byte,256U> output; output.fill(std::byte{0xC7});
+        const auto before=output;
+        std::size_t written=321U;
+        progpu_native_mil_scene_build_result result{}; result.struct_size=sizeof(result);
+        return progpu_native_mil_channel_build_scene_with_request(raw,&request,output.data(),output.size(),
+            &written,nullptr,&result) == expected && written == 0U && output == before;
+    };
+    PROGPU_REQUIRE(build_shader_bitmap_cache(raw,0U,scene));
+    const auto empty=scene;
+    const auto generation=progpu_native_mil_channel_get_resource_generation(raw,40U);
+    // A later failed graph batch retains the exact empty witness and revision.
+    packet(batch,command::visual_set_offset,40U,999.0,888.0);
+    packet(batch,command::visual_insert_child_at,40U,999U,0U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,40U) == generation);
+    PROGPU_REQUIRE(build_shader_bitmap_cache(raw,0U,scene) && scene == empty);
+    // No authorization exists for an ordinary paint of this same brush.
+    batch.clear(); packet(batch,command::visual_set_effect,1U,0U);
+    packet(content,command::draw_rectangle,8.0,10.0,32.0,24.0,5U,0U);
+    append_visual_sampler_content(batch,1U,2U,content);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    batch.clear(); packet(batch,command::channel_create_resource,93U,83U);
+    packet(batch,command::bitmap_cache_brush,93U,1.0,0U,0U,0U,0U,40U);
+    content.clear(); packet(content,command::draw_rectangle,8.0,10.0,32.0,24.0,93U,0U);
+    append_visual_sampler_content(batch,1U,2U,content);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND)); // same target, other ordinary brush
+    batch.clear(); content.clear(); packet(content,command::draw_rectangle,8.0,10.0,32.0,24.0,8U,0U);
+    append_visual_sampler_content(batch,1U,2U,content);
+    packet(batch,command::visual_set_effect,1U,7U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene));
+    // Empty does not waive actual selected-cache initialization.
+    batch.clear(); packet(batch,command::channel_create_resource,90U,94U);
+    append_shader_bitmap_cache_brush(batch,40U,90U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE));
+    PROGPU_REQUIRE(update_shader_bitmap_cache(raw,11U));
+    PROGPU_REQUIRE(build_shader_bitmap_cache(raw,0U,scene) && scene != empty);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,40U) != generation);
+    // Empty source metadata cannot suppress ownership failures in a hidden
+    // descendant. The source-provided witness is not inferred from visibility.
+    const progpu_native_mil_visual_visibility hidden{41U,PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN};
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_visibilities(raw,&hidden,1U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(raw,40U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    batch.clear(); packet(batch,command::channel_create_resource,91U,95U);
+    content.clear(); packet(content,command::draw_image,4.0,6.0,16.0,12.0,91U,0U);
+    append_visual_sampler_content(batch,44U,46U,content);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE));
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_source_external_image(raw,91U,16U,12U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    batch.clear(); content.clear(); packet(content,command::draw_rectangle,4.0,6.0,16.0,12.0,5U,0U);
+    append_visual_sampler_content(batch,44U,46U,content);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH));
+    PROGPU_REQUIRE(update_shader_bitmap_cache(raw,11U));
+    const progpu_native_mil_visual_visibility visible{41U,PROGPU_NATIVE_MIL_VISIBILITY_VISIBLE};
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_visibilities(raw,&visible,1U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    // A different nested cache brush receives no sampler authorization.
+    batch.clear(); packet(batch,command::channel_create_resource,92U,39U);
+    packet(batch,command::visual_create,92U);
+    packet(batch,command::bitmap_cache_brush,93U,1.0,0U,0U,0U,0U,92U);
+    content.clear(); packet(content,command::draw_rectangle,-4.0,4.0,16.0,12.0,93U,0U);
+    append_visual_sampler_content(batch,44U,46U,content);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(raw,92U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    // Positive bounds supersede empty, and a fresh empty setter removes that
+    // mapping again. Neither transition substitutes a null target.
+    PROGPU_REQUIRE(update_shader_bitmap_cache(raw,11U) && build_shader_bitmap_cache(raw,0U,scene));
+    PROGPU_REQUIRE(update_shader_bitmap_cache(raw,10U) && build_shader_bitmap_cache(raw,0U,scene));
+    const auto childless=scene;
+    PROGPU_REQUIRE(update_shader_bitmap_cache(raw,11U) && build_shader_bitmap_cache(raw,0U,scene) && scene != childless);
+    return true;
+}
+
 bool original_shader_bitmap_cache_owns_selected_capture() {
     using namespace progpu::native::tests;
     using mil_clip_fixture_detail::packet;
@@ -22181,7 +22270,7 @@ bool original_shader_bitmap_cache_owns_selected_capture() {
     const auto apply = [&] { return progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr); };
     PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND)); // actual source, absent bounds
     PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(raw,40U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
-    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND)); // not a cache empty-source contract
+    PROGPU_REQUIRE(build_shader_bitmap_cache(raw,0U,scene)); // explicit source witness, exact sampler only
     append_shader_bitmap_cache_brush(batch,0U,0U);
     PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene));
     batch.clear(); packet(batch,command::channel_create_resource,80U,39U);
@@ -23199,6 +23288,7 @@ int main() {
     PROGPU_REQUIRE(original_shader_drawing_image_owns_complete_capture());
     PROGPU_REQUIRE(original_shader_visual_brush_owns_complete_capture());
     PROGPU_REQUIRE(original_shader_bitmap_cache_owns_selected_capture());
+    PROGPU_REQUIRE(empty_cache_sampler_authorization_is_exact_and_owned());
     PROGPU_REQUIRE(original_shader_sampler_inherits_actual_visual_options());
     PROGPU_REQUIRE(original_shader_padding_retains_local_bounds_and_atomic_updates());
     PROGPU_REQUIRE(original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire());

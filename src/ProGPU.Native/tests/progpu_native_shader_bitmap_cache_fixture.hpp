@@ -4,7 +4,7 @@
 
 namespace progpu::native::tests {
 
-inline constexpr std::uint32_t shader_bitmap_cache_case_count = 9U;
+inline constexpr std::uint32_t shader_bitmap_cache_case_count = 12U;
 
 inline void append_shader_bitmap_cache_brush(std::vector<std::byte>& batch, std::uint32_t target,
     std::uint32_t cache, double opacity = 1.0, std::uint32_t transform = 0U,
@@ -62,9 +62,9 @@ inline bool update_shader_bitmap_cache(progpu_native_mil_channel* channel,std::u
     using mil_clip_fixture_detail::packet;
     using mil::command;
     std::vector<std::byte> batch,content;
-    const double x=index == 8U ? -4.0 : 4.0, y=index == 8U ? 4.0 : 6.0;
+    const double x=index >= 8U ? -4.0 : 4.0, y=index >= 8U ? 4.0 : 6.0;
     packet(batch,command::solid_color_brush,42U,1.0,
-        index == 8U ? progpu_native_color{0,0,1,1} : progpu_native_color{1,0,0,1},0U,0U,0U,0U);
+        index >= 8U ? progpu_native_color{0,0,1,1} : progpu_native_color{1,0,0,1},0U,0U,0U,0U);
     packet(batch,command::solid_color_brush,43U,1.0,progpu_native_color{0,1,0,1},0U,0U,0U,0U);
     packet(content,command::draw_rectangle,x,y,8.0,12.0,42U,0U);
     append_visual_sampler_content(batch,44U,46U,content);
@@ -82,10 +82,22 @@ inline bool update_shader_bitmap_cache(progpu_native_mil_channel* channel,std::u
     packet(batch,command::visual_set_effect,40U,ignored ? 55U : 0U);
     packet(batch,command::visual_set_alpha,40U,ignored ? .25 : 1.0);
     packet(batch,command::visual_set_alpha_mask,40U,ignored ? 56U : 0U);
+    if (index >= 9U) {
+        packet(batch,command::visual_remove_all_children,41U);
+        packet(batch,command::visual_remove_all_children,40U);
+        if (index != 10U) packet(batch,command::visual_insert_child_at,40U,41U,0U);
+        if (index == 11U) {
+            packet(batch,command::visual_insert_child_at,41U,44U,0U);
+            packet(batch,command::visual_insert_child_at,41U,45U,1U);
+        }
+    }
     append_shader_bitmap_cache_brush(batch,index == 7U ? 0U : 40U,index >= 2U ? 51U : 0U,
         index == 4U ? .5 : 1.0,index == 5U ? 52U : 0U,index == 5U ? 53U : 0U);
     if (progpu_native_mil_channel_apply(channel,batch.data(),batch.size(),nullptr) != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
         return false;
+    if (index == 9U || index == 10U)
+        return progpu_native_mil_channel_set_visual_source_empty_bounds(channel,41U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
+            progpu_native_mil_channel_set_visual_source_empty_bounds(channel,40U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
     return progpu_native_mil_channel_set_visual_cache_bounds(channel,41U,x,y,16,12) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
         progpu_native_mil_channel_set_visual_cache_bounds(channel,40U,index == 4U ? 12.0 : x,y,
             index == 4U ? 8.0 : 16.0,12) == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
@@ -120,6 +132,7 @@ void verify_shader_bitmap_cache_pixels(Render render,Require require) {
             require(build_shader_bitmap_cache(raw,index,scenes[index]),"cache sampler immutable capture");
         }
     }
+    std::vector<std::uint8_t> zero_scale_pixels, refill_pixels;
     for (std::uint32_t index=0U; index<scenes.size(); ++index) {
         progpu_native_scene_header header{};
         require(scenes[index].size() >= sizeof(header),"cache sampler header");
@@ -139,11 +152,18 @@ void verify_shader_bitmap_cache_pixels(Render render,Require require) {
         }
         require(images[0].size() == 64U*64U*4U && images[0] == images[1] && images[0] == images[2],
             "cache sampler complete cold/warm/independent frames");
+        if (index == 6U) zero_scale_pixels=images[0];
+        if (index == 7U || index == 9U || index == 10U)
+            require(images[0] == zero_scale_pixels,"distinct null/empty/zero-scale full-frame equality");
+        if (index == 8U) refill_pixels=images[0];
+        if (index == 11U)
+            require(images[0] == refill_pixels,"same-owner empty source reappears without replacement");
         for (std::uint32_t y=0U; y<64U; ++y) for (std::uint32_t x=0U; x<64U; ++x) {
             std::array<std::uint8_t,4U> expected{0U,0U,0U,255U};
-            if (x >= 8U && x < 40U && y >= 10U && y < 34U && index != 6U && index != 7U) {
+            if (x >= 8U && x < 40U && y >= 10U && y < 34U &&
+                index != 6U && index != 7U && index != 9U && index != 10U) {
                 const auto local_x=x-8U, local_y=y-10U;
-                if (index == 8U && local_y >= 4U && local_y < 16U) {
+                if (index >= 8U && local_y >= 4U && local_y < 16U) {
                     if (local_x < 4U) expected[2]=255U;
                     else if (local_x < 12U) expected[1]=255U;
                 } else if (index == 5U && local_y >= 8U && local_y < 20U) {
