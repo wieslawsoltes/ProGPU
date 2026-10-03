@@ -15,6 +15,8 @@
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_animation_fixture.hpp"
 #include "progpu_native_shader_sampler_transform_fixture.hpp"
+#include "progpu_native_shader_drawing_image_fixture.hpp"
+#include "progpu_native_drawing_image_brush_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_rgb_glyph_scene_fixture.hpp"
@@ -2372,10 +2374,24 @@ int main(int argc, char** argv)
             };
         progpu::native::tests::verify_shader_sampler_animation_pixels(render_animated_sampler,require);
         progpu::native::tests::verify_sampler_transform_animation_pixels(render_animated_sampler,require);
+        progpu::native::tests::verify_shader_drawing_image_pixels(render_animated_sampler,require);
         for (auto& family : animation_engines)
             for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
     }
     phase("original animated ImageBrush shader samplers passed");
+    {
+        std::array<std::array<progpu_native_engine*, 2U>, 2U> drawing_engines{};
+        progpu::native::tests::verify_ordinary_drawing_image_brush_pixels(
+            [&](bool explicit_bounds, bool reference, const auto& stream,
+                const progpu_native_scene_header& header, progpu_native_scene_frame_metrics& frame) {
+                auto*& selected = drawing_engines[explicit_bounds ? 1U : 0U][reference ? 1U : 0U];
+                if (!selected) selected = create_engine(gpu);
+                return render_scene(gpu, selected, nullptr, 2U, 10U, 1U,
+                    stream, header.scene_id, header.generation, &frame);
+            }, require);
+        for (auto& family : drawing_engines)
+            for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
+    }
     auto* scoped_copy_reference_engine = create_engine(gpu);
     progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
