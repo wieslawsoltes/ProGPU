@@ -4,13 +4,13 @@
 the original identity shader. One unparented ContainerVisual owns an inner
 ContainerVisual and two retained DrawingVisual leaves. Their mutable rectangle
 geometries and color brushes, both cache objects, sampled root, brush, transforms,
-effect and PixelShader retain identity across all twelve states. No UIElement,
+effect and PixelShader retain identity across all fifteen states. No UIElement,
 source bitmap substitute, reflection or product renderer supplies the source.
 
 The [BitmapCacheBrush contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapcachebrush?view=windowsdesktop-10.0)
 distinguishes explicit, target and default cache selection. It excludes six outer
 root properties from capture and ignores brush-cache snapping. The fixture sets
-all six excluded properties on states 3–11: offset, transform, clip, blur effect,
+all six excluded properties on states 3–14: offset, transform, clip, blur effect,
 opacity and a fully transparent opacity mask. Descendant clip and opacity remain
 real source state. The original [shader sampler implementation](https://github.com/dotnet/wpf/blob/381194e1ffe4d64fb747556fcaf76e1c34fe9df8/src/Microsoft.DotNet.Wpf/src/WpfGfx/core/resources/ShaderEffect.cpp#L419)
 uses the selected raw cache texture directly. Its normalized shader coordinates
@@ -36,6 +36,9 @@ literal bands for the integral-cache profile are:
 | 9 | Remove both leaves from the same attached inner group | Black; same non-null target |
 | 10 | Detach that empty inner group from the same target | Black; same non-null target |
 | 11 | Reattach the same group and ordered leaves | Exact restoration of state 8 |
+| 12 | Root ScrollableAreaClip outside all source ink | Same state-8 blue/green frame; root scroll clip ignored |
+| 13 | Also set the descendant group's scroll clip outside all source ink | Black; the same leaves remain attached |
+| 14 | Clear both scroll clips | Exact restoration of state 8 |
 
 Zero-scale no-ink follows the public
 [RenderAtScale contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapcache.renderatscale?view=windowsdesktop-10.0).
@@ -51,11 +54,21 @@ reference the same non-null target and explicit scale-one cache throughout.
 Actual descendant/content bounds and selected properties are recorded before and
 after rendering; none derive expected pixels. Every byte is compared over three
 replays: retained, same-owner warm and independent literal construction, totaling
-36 captures. Raw BGRA/PNG evidence precedes pixel failure publication. Cache-policy,
+45 captures. Raw BGRA/PNG evidence precedes pixel failure publication. Cache-policy,
 null/zero-scale/attached-empty and refill equivalence are separate complete-frame
 controls. The original source mutations are unchanged. Schema 2 corrects the
 previous unexecuted natural-placement and consumer-opacity expectations; those
 expectations were not observed original behavior.
+
+Schema 3 adds the three scroll-clip mutations without changing any prior input.
+Two small ContainerVisual subclasses expose only the original protected scroll
+clip property; they do not alter painting or bounds. The root cache entrypoint
+captures its content and children without the root's outer properties, while
+[ordinary descendant traversal retains the scroll clip](https://github.com/dotnet/wpf/blob/381194e1ffe4d64fb747556fcaf76e1c34fe9df8/src/Microsoft.DotNet.Wpf/src/WpfGfx/core/uce/drawingcontext.cpp#L4816),
+including when scroll acceleration is unavailable. The outside descendant clip
+deliberately expects black independently of whether original bounds tighten.
+State 14 restores the same live source owners, not a replacement visual or bitmap.
+These controls concern clipping, not scroll acceleration or fractional snapping.
 
 The target RenderTargetBitmap remains 96 DPI, but that is not proof of the primary
 DPI used by the original cache rasterizer. The fixture records the UI thread's
