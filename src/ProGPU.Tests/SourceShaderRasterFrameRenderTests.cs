@@ -56,7 +56,9 @@ public sealed class SourceShaderRasterFrameRenderTests
                     : "fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> { return inputColor; }"
             })
             {
-                SourceCapture = new ShaderEffectSourceCapture(.125, .25, 9.5, 8, 0, 0, 0, 0),
+                // At physical X scale 2, the outward width is 19 pixels:
+                // its logical projection is 9.5, not the bookkeeping ceil 10.
+                SourceCapture = new ShaderEffectSourceCapture(.125, .25, 9, 8, 0, 0, 0, 0),
                 CaptureSourceVisualOpacity = true
             };
             var visual = new DrawingVisual { Size = new Vector2(16), Effect = effect };
@@ -74,12 +76,12 @@ public sealed class SourceShaderRasterFrameRenderTests
                 };
                 if (state == 4)
                 {
-                    effect.SourceCapture = new ShaderEffectSourceCapture(10.125, 20.25, 9.5, 8, 0, 0, 0, 0);
+                    effect.SourceCapture = new ShaderEffectSourceCapture(10.125, 20.25, 9, 8, 0, 0, 0, 0);
                     visual.EffectSourceTranslation = new Vector2(-10, -20);
                 }
                 else if (state == 5)
                 {
-                    effect.SourceCapture = new ShaderEffectSourceCapture(.125, .25, 9.5, 8, 0, 0, 0, 0);
+                    effect.SourceCapture = new ShaderEffectSourceCapture(.125, .25, 9, 8, 0, 0, 0, 0);
                     visual.EffectSourceTranslation = null;
                 }
 
@@ -105,10 +107,10 @@ public sealed class SourceShaderRasterFrameRenderTests
         (int left, int top, int right, int bottom) bounds = constant
             ? state switch
             {
-                1 => (8, 8, 27, 12),
-                2 => (8, 8, 18, 16),
-                3 => (16, 12, 35, 20),
-                _ => (8, 8, 27, 16)
+                1 => (8, 8, 26, 12),
+                2 => (8, 8, 17, 16),
+                3 => (16, 12, 34, 20),
+                _ => (8, 8, 26, 16)
             }
             : state switch
             {
