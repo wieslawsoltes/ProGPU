@@ -42,6 +42,7 @@
 #include "progpu_native_direct2d_cff_contour_origin_reference.hpp"
 #include "progpu_native_direct2d_variable_sideways_glyph_reference.hpp"
 #include "progpu_native_direct2d_command_hairline_reference.hpp"
+#include "progpu_native_direct2d_clipped_miter_reference.hpp"
 
 using Microsoft::WRL::ComPtr;
 using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
@@ -5992,6 +5993,7 @@ int main()
     full_target_clear_regressions(surface, context.Get());
     progpu::native::direct2d::tests::verify_command_hairline_dpi(surface, context.Get(), require);
     progpu::native::direct2d::tests::verify_original_hairline_dpi_pixels(context.Get(), require);
+    progpu::native::direct2d::tests::verify_original_clipped_miter_pixels(context.Get(), require);
 
     {
         ComPtr<ID2D1PathGeometry> line_geometry;
