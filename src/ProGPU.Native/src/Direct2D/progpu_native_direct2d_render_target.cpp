@@ -8000,35 +8000,6 @@ private:
         }
     }
 
-    static void scale_hairline_dashes(stroke_style_snapshot& style, float dpi) noexcept
-    {
-        if (style.dash_intervals.empty() || dpi == 96.0F) {
-            return;
-        }
-        const double scale = 96.0 / static_cast<double>(dpi);
-        style.dash_offset *= scale;
-        auto& intervals = style.dash_intervals;
-        std::size_t index = 0U;
-#if defined(__aarch64__) || defined(_M_ARM64)
-        const float64x2_t factor = vdupq_n_f64(scale);
-        for (; index + 2U <= intervals.size(); index += 2U) {
-            vst1q_f64(intervals.data() + index,
-                vmulq_f64(vld1q_f64(intervals.data() + index), factor));
-        }
-#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2)
-        const __m128d factor = _mm_set1_pd(scale);
-        for (; index + 2U <= intervals.size(); index += 2U) {
-            _mm_storeu_pd(intervals.data() + index,
-                _mm_mul_pd(_mm_loadu_pd(intervals.data() + index), factor));
-        }
-#endif
-        // One double tail on ARM64/x64; scalar portability for targets without
-        // double-lane intrinsics, consistent with the native compatibility lane.
-        for (; index < intervals.size(); ++index) {
-            intervals[index] *= scale;
-        }
-    }
-
     void draw_styled_line(
         point_2f point0,
         point_2f point1,
@@ -8146,7 +8117,7 @@ private:
                 latch(not_implemented);
                 return;
             }
-            scale_hairline_dashes(style, dpi_x_);
+            core::scale_hairline_dashes(style.dash_intervals, style.dash_offset, dpi_x_);
         }
 
         auto* raw_sink = new (std::nothrow) portable_scene_stroke_sink();

@@ -5600,11 +5600,14 @@ int main()
     recorder_hint.fill_count = 4U;
     recorder_hint.total_command_count = 9U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
+    const progpu_native_direct2d_target_extent direct_target{
+        sizeof(progpu_native_direct2d_target_extent), descriptor.width, descriptor.height, 0U, 96.0F, 96.0F};
     native_hresult = E_FAIL;
     require(
-        progpu_native_direct2d_scene_recorder_create(
+        progpu_native_direct2d_scene_recorder_create_for_target(
             7002U,
             10U,
+            &direct_target,
             &recorder_hint,
             &direct_recorder,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
@@ -5955,7 +5958,7 @@ int main()
         require(line_sink->Close() == S_OK, "styled line reference close failed");
         const auto record = [&](bool primitive, unsigned shape, ID2D1StrokeStyle* style, bool aliased) {
             progpu_native_direct2d_scene_recorder* recorder = nullptr;
-            require(progpu_native_direct2d_scene_recorder_create(7013U, 1U, nullptr,
+            require(progpu_native_direct2d_scene_recorder_create_for_target(7013U, 1U, &direct_target, nullptr,
                 &recorder, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
                 "styled primitive recorder creation failed");
             void* raw_sink = nullptr;
