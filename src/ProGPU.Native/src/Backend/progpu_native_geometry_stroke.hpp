@@ -1832,14 +1832,16 @@ inline bool try_get_path_join_bounds(
     const float thickness = affine ? primitive.stroke_thickness
         : primitive.stroke_thickness * maximum_scale;
     if (!std::isfinite(thickness)) return false;
+    const auto center = affine ? primitive.p0 : transformed_point(primitive.transform, primitive.p0);
+    const auto incoming = affine ? primitive.p1 : transformed_direction(primitive.transform, primitive.p1);
+    const auto outgoing = affine ? primitive.p2 : transformed_direction(primitive.transform, primitive.p2);
+    if (!is_finite(center) || !is_finite(incoming) || !is_finite(outgoing)) return false;
     const std::uint32_t join = (primitive.flags &
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
     std::array<stroke_triangle, 8U> triangles{};
     const std::size_t count = create_join_triangles(
         triangles, join, thickness, primitive.p3.x,
-        affine ? primitive.p0 : transformed_point(primitive.transform, primitive.p0),
-        affine ? primitive.p1 : transformed_direction(primitive.transform, primitive.p1),
-        affine ? primitive.p2 : transformed_direction(primitive.transform, primitive.p2),
+        center, incoming, outgoing,
         (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U,
         (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U);
     path_join_bounds candidate{};

@@ -6,8 +6,12 @@ not merely independent miter clipping. Keep normal-width source joins 0 through
 Round under the same policy; do not suppress them using a generic writer rule.
 Primitive WPF bit 8 is PathJoin-only and must reach both paint and retained input;
 reject device-width, other-kind and incompatible-join descriptors atomically.
-Reuse the owned stroker and preserve candidate rollback. Record layout stability
-does not make the new flag compatible with old producers. See
+Reuse the owned stroker and preserve candidate rollback. Material bounds union
+actual emitted join triangles with existing body/cap measurement, using original
+double dash inputs and exact endpoints without AA or blanket inflation. Share
+the corrected painted extent with relative mapping and tile allocation; retain
+absolute mapping and source ownership. Record layout stability does not make
+the new flag compatible with old producers. See
 docs/native-mil-path-join-policy.md; authored controls are not qualification.
 
 Clipped-miter source policy is an independent retained Pen flag, effective only

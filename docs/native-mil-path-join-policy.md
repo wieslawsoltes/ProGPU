@@ -24,6 +24,16 @@ phase, gap partitions and closed seams. Tile masks retain their own capture
 frame and are not replaced by bounds geometry. The shared compiler's candidate
 publication and rollback behavior remains in place.
 
+Path-stroke material bounds retain existing curve/body/cap measurement and union
+actual WPF PathJoin coverage emitted from the same prepared contours and original
+double dash inputs. The shared renderer's triangle bounds use the same
+affine/uniform branch and no AA fringe. Exact min/max endpoints are retained
+until the complete bounds are published. The corrected source-space painted
+extent is shared by relative brush mapping and tile allocation; absolute
+mappings, captures and ownership are unchanged. No blanket inflation or
+replacement bounds geometry is used. Original failure and degenerate-cap
+handling remains in place.
+
 ## Smooth joins are round, not absent
 
 This connection preserves the existing semantic `smooth_join` conversion to
@@ -56,11 +66,29 @@ kinds, three rejected join/width combinations, and independent clip-only versus
 WPF versus legacy policy. Rejected construction leaves no published candidate;
 these controls do not load a native library or exercise a GPU.
 
-Separate focused controls cover actual MIL curved and tiled source routes,
-solid and dashed joins, smooth Round selection, reversal, complete source
-ownership and atomic rejected input. Native primitive controls distinguish the
-WPF flag from independent clipping and reject unsupported wire combinations.
-All controls in this slice are authored, not executed.
+Two native internal groups cover actual primitive triangle routing, affine
+frames, edge ownership, clipping thresholds, reversal and semantic compilation
+of closed solid/dashed paths. Unsupported wire descriptors and failed semantic
+compilation retain seeded outputs. Bounds controls compare unpadded emitted
+coverage and literal transformed reversal extents, distinguish independent
+clipping, and retain both outputs on invalid input.
+
+The MIL fixture retains eight configurations: solid/tiled brush, corner/reversal
+and solid/dashed path. It authors 32 complete pixel renders per provider
+(cold, warm, independently recreated source and brush mutation), source-owner
+input queries, rejected source changes and smooth Round updates. Its independent
+full-frame expectations remain strict. Direct submissions stay exactly one;
+tiled submissions allow the existing one-to-two mask-preparation path without
+claiming cache or performance qualification.
+
+The existing original-WPF runner additionally authors those eight ordinary
+stroke configurations, 24 cold/warm/independent-source BGRA captures and 36
+point queries. It retains the existing runner deadline, shader inventory and
+architecture controls; these ordinary strokes do not require software shader
+availability. Captures and failure receipts precede assertion failure.
+
+All controls in this slice are authored, not executed. In particular, the
+original-WPF companion is not a new authorized probe or an observed comparison.
 
 No build, test, syntax verifier, GPU/UI run, original probe, CI or package
 qualification was performed for this slice. Exact-head provider rendering and
