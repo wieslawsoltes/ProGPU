@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+BitmapCacheBrush shader samplers use the existing owned cache-page renderer,
+not TileBrush fitting or borrowed textures. Follow selected explicit/target/default
+cache identity, natural source bounds and consumer mapping. Exclude the target
+root's six ignored outer properties from painted ownership/revision while keeping
+all descendant dependencies and mixed-resource cycle guards. Null target and
+zero scale are distinct from missing or known-empty nonnull source bounds; the
+latter remain unsupported. Ordinary cache policies and source qualification are
+separate. See docs/native-shader-bitmap-cache-samplers.md.
+
 Portable shared-bitmap queries use HRESULT as the capability decision, not a
 nonnull output left by a failed private-interface query. Retain failure-owned
 interfaces under RAII and preserve their exact error; only E_NOINTERFACE with
