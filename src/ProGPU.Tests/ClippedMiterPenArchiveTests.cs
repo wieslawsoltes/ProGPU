@@ -60,8 +60,10 @@ public sealed class ClippedMiterPenArchiveTests
         Assert.True(changedPen.ClipMiterAtLimit);
         Assert.True(cache.TryGetLinearDashCoverage(pen, pen.Thickness, out var changedCoverage));
         Assert.NotSame(firstCoverage.GeometryCache, changedCoverage.GeometryCache);
-        Assert.True(changedCoverage.Pen!.ClipMiterAtLimit);
-        Assert.False(firstCoverage.Pen!.ClipMiterAtLimit);
+        if (changedCoverage.Pen is { } changedCoveragePen)
+            Assert.True(changedCoveragePen.ClipMiterAtLimit);
+        if (firstCoverage.Pen is { } firstCoveragePen)
+            Assert.False(firstCoveragePen.ClipMiterAtLimit);
     }
 
     [Theory]
@@ -81,8 +83,9 @@ public sealed class ClippedMiterPenArchiveTests
         Assert.NotNull(restored);
         Assert.False(Assert.Single(restored.Picture.Commands).Pen!.ClipMiterAtLimit);
         pen.ClipMiterAtLimit = true; // Inactive on Round, but still retained source intent.
+        using var clipped = Picture(pen);
         Assert.Throws<NotSupportedException>(() =>
-            PictureArchive.Serialize(picture, new SKRect(0, 0, 64, 64), version));
+            PictureArchive.Serialize(clipped, new SKRect(0, 0, 64, 64), version));
     }
 
     private static GpuPicture Picture(Pen pen) => new(
