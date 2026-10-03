@@ -16,6 +16,7 @@ public sealed class SourceEffectRasterFrameTests
         // Their physical edges are (.25, -3.5, 4.25, 3.5), so the
         // outward pixel rectangle is (0, -4, 5, 4), not ceil(size*DPI).
         Assert.Equal(new Rect(.125f, -.875f, 2, 1.75f), frame.PaddedBounds);
+        Assert.Equal(new Vector4(.125f, -.875f, 2.125f, .875f), frame.OutputEdges);
         Assert.Equal(5U, frame.PixelWidth);
         Assert.Equal(8U, frame.PixelHeight);
         Assert.True(frame.HasPhysicalOrigin);
@@ -37,6 +38,7 @@ public sealed class SourceEffectRasterFrameTests
             new Vector2(2), 1, out var rebased));
         Assert.Equal(new Rect(10.25f, 20.5f, 1, 1), original.PaddedBounds);
         Assert.Equal(new Rect(0, 0, 1, 1), rebased.PaddedBounds);
+        Assert.Equal(new Vector4(0, 0, 1, 1), rebased.OutputEdges);
         // Rounding the already rebased rectangle would incorrectly use 2x2.
         Assert.Equal(3U, original.PixelWidth);
         Assert.Equal(2U, original.PixelHeight);
@@ -106,6 +108,21 @@ public sealed class SourceEffectRasterFrameTests
         Assert.Equal(new Vector2(0, 1), a.PhysicalOrigin);
         Assert.Equal(new Vector2(2, -7), b.PhysicalOrigin);
         Assert.Equal(a.TextureUvBounds, b.TextureUvBounds);
+    }
+
+    [Fact]
+    public void OutputEdgesDoNotReconstructOriginalFarEndpointsFromRoundedSize()
+    {
+        const float right = 1f / 4194304; // 2^-22
+        const float bottom = 1f / 8388608; // 2^-23
+        var source = new ShaderEffectSourceCapture(-8, -4, 8.0 + right, 4.0 + bottom, 0, 0, 0, 0);
+        Assert.True(EffectCaptureFrame.TryCreateSource(source, Vector2.Zero, Vector2.One, 1, out var frame));
+        Assert.Equal(new Rect(-8, -4, 8, 4), frame.PaddedBounds);
+        Assert.Equal(0f, frame.PaddedBounds.X + frame.PaddedBounds.Width);
+        Assert.Equal(0f, frame.PaddedBounds.Y + frame.PaddedBounds.Height);
+        Assert.Equal(new Vector4(-8, -4, right, bottom), frame.OutputEdges);
+        Assert.Equal(9U, frame.PixelWidth);
+        Assert.Equal(5U, frame.PixelHeight);
     }
 
     [Fact]
