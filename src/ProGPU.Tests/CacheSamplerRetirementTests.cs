@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -138,6 +139,148 @@ public sealed class CacheSamplerRetirementTests
         GC.KeepAlive(sourceCache);
     }
 
+    [Fact]
+    public void CoordinatorKeepsFailedOwnerAndExactPayloadAcrossCollectionAndShutdownRetries()
+    {
+        var transfers = new List<IDisposable>();
+        var coordinator = new CacheSamplerRetirement(transfers.Add);
+        var state = new FailureState();
+        FailedOwnerObservation failed = RegisterFailedOwner(coordinator, state);
+
+        Assert.Same(state.Failure, Record.Exception(coordinator.RetireAll));
+        Assert.Equal(1, state.Attempts);
+        CollectAndFinishFinalizers();
+        Assert.True(IsAlive(failed.Participant));
+        Assert.True(IsAlive(failed.Payload));
+        Assert.True(IsAlive(failed.SourceKey));
+
+        // RetireAll's automatic null-payload failure update must preserve the
+        // exact payload the participant previously supplied. GC cannot erase
+        // that failure and turn the next shutdown request into success.
+        Assert.Same(state.Failure, Record.Exception(coordinator.RetireAll));
+        Assert.Equal(2, state.Attempts);
+        CollectAndFinishFinalizers();
+        Assert.True(IsAlive(failed.Participant));
+        Assert.True(IsAlive(failed.Payload));
+        Assert.True(IsAlive(failed.SourceKey));
+        Assert.Throws<ObjectDisposedException>(coordinator.EnsureAcceptsCapture);
+        Assert.Empty(transfers);
+
+        // This is only fixture teardown of a CPU participant, not recovery or
+        // clearing of an actual raster's latched source/device exception.
+        RemoveFixtureParticipant(coordinator, failed.Participant);
+        CollectAndFinishFinalizers();
+        Assert.False(IsAlive(failed.Participant));
+        Assert.False(IsAlive(failed.Payload));
+        Assert.False(IsAlive(failed.SourceKey));
+        GC.KeepAlive(coordinator);
+    }
+
+    [Fact]
+    public void CoordinatorAttemptsAllOwnersAndPreservesFirstObservedFailureIdentity()
+    {
+        var transfers = new List<IDisposable>();
+        var coordinator = new CacheSamplerRetirement(transfers.Add);
+        var attempted = new List<int>();
+        var observedFailures = new List<Exception>();
+        var firstFailure = new InvalidOperationException("First authored source failure");
+        var secondFailure = new InvalidOperationException("Second authored source failure");
+        var first = new RetirementParticipant(() =>
+        {
+            attempted.Add(1);
+            observedFailures.Add(firstFailure);
+            throw firstFailure;
+        });
+        var successful = new RetirementParticipant(() => attempted.Add(2));
+        var second = new RetirementParticipant(() =>
+        {
+            attempted.Add(3);
+            observedFailures.Add(secondFailure);
+            throw secondFailure;
+        });
+        coordinator.Add(first);
+        coordinator.Add(successful);
+        coordinator.Add(second);
+
+        Exception? actual = Record.Exception(coordinator.RetireAll);
+
+        // The coordinator does not promise HashSet enumeration order. Whichever
+        // source fails first must remain the exact reported exception, and all
+        // other owners must still receive their retirement attempt.
+        Assert.Equal(3, attempted.Count);
+        Assert.Contains(1, attempted);
+        Assert.Contains(2, attempted);
+        Assert.Contains(3, attempted);
+        Assert.Equal(2, observedFailures.Count);
+        Assert.Same(observedFailures[0], actual);
+        Assert.Throws<ObjectDisposedException>(coordinator.EnsureAcceptsCapture);
+        Assert.Empty(transfers);
+        GC.KeepAlive(first);
+        GC.KeepAlive(successful);
+        GC.KeepAlive(second);
+    }
+
+    [Fact]
+    public void CoordinatorClosesAdmissionBeforeCallbacksWithoutLockingOutLateTransfer()
+    {
+        var transfers = new List<IDisposable>();
+        var coordinator = new CacheSamplerRetirement(transfers.Add);
+        var lateOwner = new SourceCallback();
+        Thread? transfer = null;
+        Exception? transferFailure = null;
+        bool completedInsideCallback = false;
+        var participant = new RetirementParticipant(() =>
+        {
+            Assert.Throws<ObjectDisposedException>(coordinator.EnsureAcceptsCapture);
+            Assert.Throws<ObjectDisposedException>(() =>
+                coordinator.Add(new RetirementParticipant(() => { })));
+            Assert.Throws<InvalidOperationException>(coordinator.RetireAll);
+
+            // A finalizer may reach this queue while a real source callback
+            // owns RenderLock. The closed coordinator must decline the late
+            // transfer without holding its handshake lock over this callback.
+            transfer = new Thread(() =>
+                transferFailure = Record.Exception(() => coordinator.Queue(lateOwner)))
+            {
+                IsBackground = true,
+                Name = "Cache retirement closing transfer"
+            };
+            transfer.Start();
+            completedInsideCallback = transfer.Join(ThreadTimeout);
+        });
+        coordinator.Add(participant);
+
+        coordinator.RetireAll();
+
+        Assert.NotNull(transfer);
+        Assert.True(transfer.Join(ThreadTimeout), "The closing transfer did not finish after the retirement callback returned.");
+        Assert.True(completedInsideCallback, "The coordinator held its transfer lock over a retirement callback.");
+        Assert.Null(transferFailure);
+        Assert.Empty(transfers);
+        Assert.Equal(0, lateOwner.Count); // Queue rejection is not a fabricated Dispose.
+        GC.KeepAlive(participant);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static FailedOwnerObservation RegisterFailedOwner(CacheSamplerRetirement coordinator,
+        FailureState state)
+    {
+        object sourceKey = new();
+        object exactPayload = new();
+        var participant = new FailedParticipant(coordinator, state, sourceKey, exactPayload);
+        coordinator.Add(participant);
+        return new FailedOwnerObservation(new(participant, trackResurrection: true),
+            new(exactPayload, trackResurrection: true), new(sourceKey, trackResurrection: true));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void RemoveFixtureParticipant(CacheSamplerRetirement coordinator,
+        WeakReference<FailedParticipant> reference)
+    {
+        Assert.True(reference.TryGetTarget(out FailedParticipant? participant));
+        coordinator.Remove(participant!);
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static AbandonedCapture AbandonCapture(Compositor compositor,
         WgpuContext context, ConditionalWeakTable<object, CacheSamplerRaster> sourceCache,
@@ -248,6 +391,40 @@ public sealed class CacheSamplerRetirementTests
             Count++;
             Thread = Environment.CurrentManagedThreadId;
         }
+    }
+
+    // These CPU participants exercise the actual coordinator's storage and
+    // ordering only. They deliberately do not simulate GpuTexture, a provider,
+    // or CacheSamplerRaster's independent creating-thread/source-failure latch.
+    private sealed class FailureState
+    {
+        internal Exception Failure { get; } = new InvalidOperationException("Uncertain authored retirement");
+        internal int Attempts { get; set; }
+    }
+
+    private sealed class FailedParticipant(CacheSamplerRetirement coordinator,
+        FailureState state, object sourceKey, object exactPayload)
+        : ICacheSamplerRetirementParticipant
+    {
+        private object? _payload = exactPayload;
+        internal object SourceKey { get; } = sourceKey;
+        public void Retire()
+        {
+            state.Attempts++;
+            object? payload = Interlocked.Exchange(ref _payload, null);
+            if (payload is not null) coordinator.RetainFailure(this, payload);
+            throw state.Failure;
+        }
+    }
+
+    private sealed record FailedOwnerObservation(
+        WeakReference<FailedParticipant> Participant,
+        WeakReference<object> Payload,
+        WeakReference<object> SourceKey);
+
+    private sealed class RetirementParticipant(Action retire) : ICacheSamplerRetirementParticipant
+    {
+        public void Retire() => retire();
     }
 
     private sealed class OwnedDevice : IDisposable
