@@ -150,7 +150,7 @@ public sealed class WpfJoinInputAndBoundsTests
 
     private static Matrix4x4 Frame(int frame) => frame switch
     {
-        1 => Matrix4x4.CreateScale(1.5f) * Matrix4x4.CreateTranslation(7.25f, -3.5f, 0),
+        1 => Matrix4x4.CreateScale(1.5f, 1.5f, 1) * Matrix4x4.CreateTranslation(7.25f, -3.5f, 0),
         2 => new Matrix4x4(2, .25f, 0, 0, .5f, 3, 0, 0, 0, 0, 1, 0, 4, 7, 0, 1),
         _ => Matrix4x4.Identity
     };
