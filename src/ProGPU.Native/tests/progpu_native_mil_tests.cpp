@@ -22096,8 +22096,24 @@ bool original_shader_sampler_transform_animation_owns_graph() {
         packet(batch,command::channel_create_resource,70U,54U);
         packet(batch,command::matrix_transform,60U,1.0,0.0,0.0,1.0,0.0,0.0,70U);
         append_sampler_transform_brush(batch,relative,60U,true);
+        packet(batch,command::shader_effect,7U,0.0,0.0,0.0,0.0,6U,0xFFFFFFFFU,
+            std::array<std::uint32_t,8U>{0U,0U,0U,0U,0U,0U,8U,4U},0U,1U,5U);
         PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
         PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE));
+        batch.clear();
+        packet(batch,command::matrix_resource,70U,1.0,0.0,0.0,1.0,0.0,0.0);
+        append_sampler_transform_brush(batch,relative,60U);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,0U,scene));
+        // A finite leaf does not prove that its complete repeated/grouped
+        // matrix remains representable. The empty paint cannot hide overflow.
+        batch.clear();
+        packet(batch,command::matrix_resource,70U,static_cast<double>(std::numeric_limits<float>::max()),
+            0.0,0.0,1.0,0.0,0.0);
+        append_sampler_transform_group(batch,{60U,60U});
+        append_sampler_transform_brush(batch,relative,63U,true);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH));
         batch.clear();
         packet(batch,command::matrix_resource,70U,1.0,0.0,0.0,1.0,0.0,0.0);
         append_sampler_transform_brush(batch,relative,60U);
@@ -22125,6 +22141,19 @@ bool original_shader_sampler_transform_animation_owns_graph() {
             PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
             PROGPU_REQUIRE(build_sampler_transform_animation(raw,relative,0U,scene));
         }
+        // Retain the old 64-level sampler bound, independently of the generic
+        // transform resolver's larger traversal stack. Build bottom-up so every
+        // child already exists and the source graph is acyclic.
+        batch.clear();
+        std::uint32_t child = 60U;
+        for (std::uint32_t id = 100U; id < 164U; ++id) {
+            packet(batch,command::channel_create_resource,id,61U);
+            packet(batch,command::transform_group,id,4U,child);
+            child = id;
+        }
+        append_sampler_transform_brush(batch,relative,child);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(rejected_capture(PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH));
     }
     return true;
 }

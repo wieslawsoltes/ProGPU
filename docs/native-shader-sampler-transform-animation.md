@@ -55,14 +55,18 @@ counter, timeout or provider policy changes.
 
 Raw MIL controls retain all captures through source deletion, inspect revision
 changes without owner-generation bumps, compare atomic rollback after invalid
-dependencies/cycles/current values, reject missing initialization even with empty
-viewports, and distinguish new named-angle rejection from old static acceptance.
+dependencies/cycles/current values, preserve declaration before current-value
+initialization, reject missing initialization and composed overflow even with
+empty viewports, retain the original 64-level limit, and distinguish new
+named-angle rejection from old static acceptance.
 The previous initialized-matrix rejection in the property-animation fixture is
 intentionally replaced by positive capture/scene validation for this newly
 implemented family; all unrelated negative controls remain.
 
 Managed WPF brush replay already exports current transform values through its
-existing typed transform adapter; this native-only preflight barrier did not
+existing typed transform adapter (`TileBrush.TryGetPortableTileBrushTransform`
+and `Transform.IPortableTransformMatrixSource`, source snapshot
+`fab2bc2383c181660430ac4d27d1c400fbb553e7`); this native-only preflight barrier did not
 apply there. No managed fallback, capability advertisement or qualified producer
 pin changes. Original Microsoft WPF source animation controls are an additive
 companion in this same change; their SoftwareOnly/ARM-negative status is separate
