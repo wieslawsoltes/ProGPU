@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit retained MiterOrBevel uses join value 3 through source pens, managed
+bounds/outlines/hit geometry, device shaders and native scene/query transport.
+Keep under-limit miter and over-limit bevel independent of WPF clipping and
+reversal policy; do not alias it to legacy Miter or expand the MIL WPF enum.
+Preserve complete join cache identity, cap/dash/frame policies and atomic
+undefined-value rejection. Record layouts stay fixed, but new enum semantics
+require matching rebuilt native producers. Legacy Miter paint/bounds clipping
+differences remain unfinished; no parity or downstream pin admission follows.
+See docs/retained-miter-or-bevel.md; authored controls remain unexecuted.
+
 Direct2D rectangle strokes apply intrinsic geometry transforms before expanding
 the pen, and caller world transforms afterward. Explicit solid normal styles
 reuse the ordered path stroker; null/default positive-diagonal direct rectangles

@@ -1649,13 +1649,15 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   scoped opacity layers with exact rectangle or path-geometry clips; layers
   must close LIFO and cannot cross a `Flush`, so malformed retained stacks fail
   before native submission;
-- mutable `CanvasStrokeStyle` state for start/end/dash caps, miter/bevel/round
+- mutable `CanvasStrokeStyle` state for start/end/dash caps, miter/bevel/round/miter-or-bevel
   joins, miter limit, standard or custom dash patterns, dash offset, normal,
   fixed, and hairline transform behavior. Each style caches its last immutable
   typed `Pen` realization and invalidates that cache on mutation, so repeated
   ArcOptions-style drawing is allocation-free after warmup. Custom dashes take
-  precedence over the standard dash enum. `MiterOrBevel` fails closed until it
-  has a distinct retained semantic;
+  precedence over the standard dash enum. `MiterOrBevel` retains explicit join
+  value 3 through geometry, device-width paint and native transport; matching
+  rebuilt producers and final qualification are required (see
+  [retained-miter-or-bevel.md](retained-miter-or-bevel.md));
 - typed `ICanvasBrush`, `CanvasSolidColorBrush`,
   `CanvasLinearGradientBrush`, `CanvasRadialGradientBrush`, and
   `CanvasImageBrush` resources plus color/HDR gradient-stop DTOs. Primitive,
@@ -1724,7 +1726,7 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, portable Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file decoding, buffer creation and updates, `MiterOrBevel`, geometry
+Bitmap file decoding, buffer creation and updates, geometry
 query/stroke/outline operations,
 command-list/effect image brushes, opacity
 brush layers, text formats/layouts, effects, sprite batches, and XAML controls
