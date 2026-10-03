@@ -6639,7 +6639,10 @@ SceneStateUploadComplete:
                 command.Pen.DashCap,
                 command.Pen.DashArray,
                 command.Pen.DashOffset,
-                command.Pen.StrokeTransformMode);
+                command.Pen.StrokeTransformMode)
+            {
+                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+            };
         }
     }
 
@@ -6680,7 +6683,10 @@ SceneStateUploadComplete:
             command.Pen.DashCap,
             command.Pen.DashArray,
             command.Pen.DashOffset,
-            command.Pen.StrokeTransformMode);
+            command.Pen.StrokeTransformMode)
+        {
+            ClipMiterAtLimit = command.Pen.ClipMiterAtLimit
+        };
     }
 
     private static Brush? TransformCommandBrush(Brush? brush, Matrix4x4 inverseCommandTransform)
@@ -9412,7 +9418,10 @@ CompilePathStroke:
             pen.DashCap,
             pen.DashCap,
             pen.DashCap,
-            strokeTransformMode: pen.StrokeTransformMode);
+            strokeTransformMode: pen.StrokeTransformMode)
+        {
+            ClipMiterAtLimit = pen.ClipMiterAtLimit
+        };
     }
 
     private static Pen CreatePenWithThickness(Pen pen, float localThickness)
@@ -9427,7 +9436,10 @@ CompilePathStroke:
             pen.DashCap,
             pen.DashArray,
             pen.DashOffset,
-            pen.StrokeTransformMode);
+            pen.StrokeTransformMode)
+        {
+            ClipMiterAtLimit = pen.ClipMiterAtLimit
+        };
     }
 
     private static int CountStrokeSegmentJoinTriangleBudget(PathFigure figure)
@@ -10247,6 +10259,7 @@ CompilePathStroke:
                 penBrushIdx,
                 pen.LineJoin,
                 pen.MiterLimit,
+                pen.ClipMiterAtLimit,
                 localJoinPoint,
                 localIncomingDirection,
                 localOutgoingDirection,
@@ -10313,9 +10326,8 @@ CompilePathStroke:
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
         int localTriangleCount = StrokeJoinGeometry.WriteLineJoin(
             localTriangles,
-            pen.LineJoin,
+            pen,
             localThickness,
-            pen.MiterLimit,
             localJoinPoint - localIncomingDirection,
             localJoinPoint,
             localJoinPoint + localOutgoingDirection,
@@ -10481,6 +10493,7 @@ CompilePathStroke:
         float penBrushIdx,
         PenLineJoin lineJoin,
         float miterLimit,
+        bool clipMiterAtLimit,
         Vector2 localJoinPoint,
         Vector2 localIncomingDirection,
         Vector2 localOutgoingDirection,
@@ -10524,7 +10537,7 @@ CompilePathStroke:
                 (float)resolvedJoin,
                 resolvedMiterLimit,
                 index,
-                0f),
+                resolvedJoin == PenLineJoin.Miter && clipMiterAtLimit ? 1f : 0f),
             incomingDirection,
             penBrushIdx,
             outgoingDirection,
@@ -10647,9 +10660,8 @@ CompilePathStroke:
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
         int triangleCount = StrokeJoinGeometry.WriteLineJoin(
             triangles,
-            pen.LineJoin,
+            pen,
             thickness,
-            pen.MiterLimit,
             joinPoint - incomingDirection,
             joinPoint,
             joinPoint + outgoingDirection,
@@ -10874,6 +10886,9 @@ CompilePathStroke:
             return (3u, triangleIndex == 0 ? 4u : 0u);
         }
 
+        // The clipped-miter three-triangle fan shares the round fan's ordering:
+        // center, preceding outer point, following outer point. Own each fan
+        // diagonal once, retaining the existing first/last radial-edge policy.
         uint exterior = 2u;
         if (triangleIndex == 0)
         {
