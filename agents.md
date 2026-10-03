@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Managed source ShaderEffect captures share one immutable original-bounds and
+four-padding descriptor between implicit input and framed samplers. Narrow the
+original far endpoints separately, inflate each edge independently and apply the
+source host's actual rebase only after computing the extent. Keep raw cache
+sampler dimensions independent, exact descriptor/cache identity, source opacity
+and final clips. Preserve legacy scalar/raster-override paths; neither metadata
+validity nor this managed frame admits native fractional/affine pixel parity.
+See docs/managed-source-effect-capture.md.
+
 ShaderEffect padding transport preserves all four original double values,
 including invalid metadata and signed zero. Consumers validate before source
 dependency callbacks or packet publication; never sanitize invalid padding to
