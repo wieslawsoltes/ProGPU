@@ -539,6 +539,7 @@ public sealed partial class RenderCommandGeometryCache
     private float _undashedStrokeLocalThickness;
     private PenLineJoin _undashedStrokeLineJoin;
     private float _undashedStrokeMiterLimit;
+    private bool _undashedStrokeClipMiterAtLimit;
     private PenLineCap _undashedStrokeStartLineCap;
     private PenLineCap _undashedStrokeEndLineCap;
     private PenLineCap _undashedStrokeDashCap;
@@ -718,6 +719,7 @@ public sealed partial class RenderCommandGeometryCache
         _undashedStrokeLocalThickness = localThickness;
         _undashedStrokeLineJoin = pen.LineJoin;
         _undashedStrokeMiterLimit = pen.MiterLimit;
+        _undashedStrokeClipMiterAtLimit = pen.ClipMiterAtLimit;
         _undashedStrokeStartLineCap = pen.StartLineCap;
         _undashedStrokeEndLineCap = pen.EndLineCap;
         _undashedStrokeDashCap = pen.DashCap;
@@ -824,6 +826,7 @@ public sealed partial class RenderCommandGeometryCache
             _undashedStrokeLocalThickness == localThickness &&
             _undashedStrokeLineJoin == pen.LineJoin &&
             _undashedStrokeMiterLimit == pen.MiterLimit &&
+            _undashedStrokeClipMiterAtLimit == pen.ClipMiterAtLimit &&
             _undashedStrokeStartLineCap == pen.StartLineCap &&
             _undashedStrokeEndLineCap == pen.EndLineCap &&
             _undashedStrokeDashCap == pen.DashCap &&

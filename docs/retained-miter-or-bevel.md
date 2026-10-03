@@ -46,10 +46,11 @@ and final consumer qualification remain required; downstream pins are unchanged.
 
 ## Remaining boundaries and qualification
 
-Legacy `Miter=0` is deliberately unchanged. Its generic paint writer bevels at
-overflow, while WPF-specific writers and some retained bounds/outline paths
-clip. That pre-existing paint/bounds policy difference is unfinished work, not
-resolved by introducing the explicit value. Existing Direct2D rectangle dash,
+The explicit value did not itself resolve legacy `Miter=0` policy differences.
+The subsequent [source-qualified clipped-miter policy](retained-clipped-miter.md)
+preserves generic bevel-overflow defaults and lets Win2D request clipped
+geometry, with bounds following the selection. Original Drawing Miter clipping
+remains separate contract work. Existing Direct2D rectangle dash,
 default transformed-source and fixed/hairline admission limits remain separate.
 
 `MiterOrBevelStrokeTests` adds 17 authored configurations: four threshold,

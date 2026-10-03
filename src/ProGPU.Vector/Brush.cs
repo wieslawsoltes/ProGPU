@@ -356,6 +356,11 @@ public class Pen
     public float Thickness { get; set; }
     public PenLineJoin LineJoin { get; set; }
     public float MiterLimit { get; set; }
+    /// <summary>
+    /// Clips an overflowing Miter join at its centerline-relative miter limit.
+    /// Defaults to false and has no effect on other joins or reversal policy.
+    /// </summary>
+    public bool ClipMiterAtLimit { get; set; }
     public PenLineCap StartLineCap { get; set; }
     public PenLineCap EndLineCap { get; set; }
     public PenLineCap DashCap { get; set; }
@@ -389,6 +394,7 @@ public class Pen
             Thickness = Thickness,
             LineJoin = LineJoin,
             MiterLimit = MiterLimit,
+            ClipMiterAtLimit = ClipMiterAtLimit,
             StartLineCap = StartLineCap,
             EndLineCap = EndLineCap,
             DashCap = DashCap,

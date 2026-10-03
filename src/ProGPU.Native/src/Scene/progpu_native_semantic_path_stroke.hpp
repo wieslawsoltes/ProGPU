@@ -36,6 +36,7 @@ struct style {
     std::uint32_t dash_cap{};
     std::uint32_t line_join{};
     std::uint32_t primitive_flags{};
+    bool clip_miter_at_limit{};
 };
 
 // smooth_joins[i] describes the join from segments[i] to segments[i + 1].
@@ -272,6 +273,7 @@ inline result compile(
         stroke.end_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
         stroke.dash_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
         stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
+        (stroke.clip_miter_at_limit && stroke.line_join != PROGPU_NATIVE_STROKE_JOIN_MITER) ||
         (stroke.primitive_flags & ~allowed_primitive_flags) != 0U ||
         (hairline && fixed_device)) {
         return result::invalid;
@@ -343,6 +345,9 @@ inline result compile(
                         PROGPU_NATIVE_STROKE_JOIN_ROUND)
                     : stroke.line_join) <<
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
+            if (!smooth_join && stroke.clip_miter_at_limit) {
+                primitive.flags |= PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT;
+            }
             primitive.p0 = join_point;
             primitive.p1 = incoming_tangent;
             primitive.p2 = outgoing_tangent;

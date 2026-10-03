@@ -3677,6 +3677,8 @@ public static partial class GpuPictureNativeSceneCompiler
             flags |= NativePolylineFlags.FixedDeviceStroke;
         if (command.IsClosed)
             flags |= NativePolylineFlags.Closed;
+        if (pen.LineJoin == PenLineJoin.Miter && pen.ClipMiterAtLimit)
+            flags |= NativePolylineFlags.ClipMiterAtLimit;
         nativeStrokes.Add(new(
             kind,
             resourcePointOffset,
@@ -3922,6 +3924,10 @@ public static partial class GpuPictureNativeSceneCompiler
             Vector2 p3 = default,
             NativeStrokeCap specialKind = NativeStrokeCap.Flat)
         {
+            var primitiveFlags = flags;
+            if (kind == NativeGeometryPrimitiveKind.PathJoin &&
+                pen.LineJoin == PenLineJoin.Miter && pen.ClipMiterAtLimit)
+                primitiveFlags |= NativeGeometryPrimitiveFlags.ClipMiterAtLimit;
             nativeGeometry.Add(new(
                 kind,
                 p0,
@@ -3931,7 +3937,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 p2,
                 p3,
                 thickness,
-                flags,
+                primitiveFlags,
                 specialKind));
             brushIndices.Add(brushIndex);
         }

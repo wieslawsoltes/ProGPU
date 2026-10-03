@@ -405,7 +405,8 @@ inline bool append_polyline(
         PROGPU_NATIVE_POLYLINE_END_CAP_MASK |
         PROGPU_NATIVE_POLYLINE_JOIN_MASK |
         PROGPU_NATIVE_POLYLINE_FLAG_CLOSED |
-        PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS;
+        PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS |
+        PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT;
     const std::uint32_t join =
         (polyline.flags & PROGPU_NATIVE_POLYLINE_JOIN_MASK) >>
         PROGPU_NATIVE_POLYLINE_JOIN_SHIFT;
@@ -419,10 +420,13 @@ inline bool append_polyline(
     const bool use_wpf_join_semantics =
         (polyline.flags &
             PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U;
+    const bool clip_miter_at_limit =
+        (polyline.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT) != 0U;
     if (points == nullptr || polyline.point_count < 2U ||
         (closed && polyline.point_count < 3U) ||
         (polyline.flags & ~all_flags) != 0U ||
         join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
+        (clip_miter_at_limit && join != PROGPU_NATIVE_STROKE_JOIN_MITER) ||
         !is_finite(polyline.color) || !is_finite(polyline.transform) ||
         !std::isfinite(polyline.stroke_thickness) ||
         !std::isfinite(polyline.miter_limit) ||
@@ -595,7 +599,8 @@ inline bool append_polyline(
                     brush_index,
                     aliased,
                     vertices,
-                    indices);
+                    indices,
+                    clip_miter_at_limit);
                 return true;
             }
             if (affine_outline) {
@@ -611,7 +616,8 @@ inline bool append_polyline(
                     aliased,
                     vertices,
                     indices,
-                    use_wpf_join_semantics);
+                    use_wpf_join_semantics,
+                    clip_miter_at_limit);
             }
             return append_cpu_join(
                 join,
@@ -625,7 +631,8 @@ inline bool append_polyline(
                 aliased,
                 vertices,
                 indices,
-                use_wpf_join_semantics);
+                use_wpf_join_semantics,
+                clip_miter_at_limit);
         };
         if (!walk_dashed_polyline(
                 polyline,
@@ -661,7 +668,8 @@ inline bool append_polyline(
                 brush_index,
                 aliased,
                 vertices,
-                indices);
+                indices,
+                clip_miter_at_limit);
             return true;
         }
         if (affine_outline) {
@@ -677,7 +685,8 @@ inline bool append_polyline(
                 aliased,
                 vertices,
                 indices,
-                use_wpf_join_semantics);
+                use_wpf_join_semantics,
+                clip_miter_at_limit);
         }
         return append_cpu_join(
             join,
@@ -691,7 +700,8 @@ inline bool append_polyline(
             aliased,
             vertices,
             indices,
-            use_wpf_join_semantics);
+            use_wpf_join_semantics,
+            clip_miter_at_limit);
     };
 
     if (!closed) {

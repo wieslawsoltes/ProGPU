@@ -1657,7 +1657,9 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   precedence over the standard dash enum. `MiterOrBevel` retains explicit join
   value 3 through geometry, device-width paint and native transport; matching
   rebuilt producers and final qualification are required (see
-  [retained-miter-or-bevel.md](retained-miter-or-bevel.md));
+  [retained-miter-or-bevel.md](retained-miter-or-bevel.md)). `Miter` selects the
+  separate retained `ClipMiterAtLimit` policy rather than inheriting generic
+  bevel-overflow paint; see [retained-clipped-miter.md](retained-clipped-miter.md);
 - typed `ICanvasBrush`, `CanvasSolidColorBrush`,
   `CanvasLinearGradientBrush`, `CanvasRadialGradientBrush`, and
   `CanvasImageBrush` resources plus color/HDR gradient-stop DTOs. Primitive,

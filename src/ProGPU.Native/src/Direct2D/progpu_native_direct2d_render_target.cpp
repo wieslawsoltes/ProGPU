@@ -8493,10 +8493,10 @@ private:
                     stroke.end_cap = run.end_uses_dash_cap
                         ? static_cast<std::uint32_t>(style.dash_cap)
                         : static_cast<std::uint32_t>(style.end_cap);
-                    stroke.line_join = style.join == line_join::miter_or_bevel
-                        ? static_cast<std::uint32_t>(
-                            PROGPU_NATIVE_STROKE_JOIN_MITER)
-                        : static_cast<std::uint32_t>(style.join);
+                    stroke.line_join = static_cast<std::uint32_t>(style.join);
+                    if (style.join == line_join::miter) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT;
+                    }
                     stroke.dash_cap =
                         static_cast<std::uint32_t>(style.dash_cap);
                     points.push_back(segments.front().p0);
@@ -8534,11 +8534,8 @@ private:
                 semantic_style.dash_offset = style.dash_offset;
                 semantic_style.dash_cap =
                     static_cast<std::uint32_t>(style.dash_cap);
-                semantic_style.line_join = style.join ==
-                        line_join::miter_or_bevel
-                    ? static_cast<std::uint32_t>(
-                        PROGPU_NATIVE_STROKE_JOIN_MITER)
-                    : static_cast<std::uint32_t>(style.join);
+                semantic_style.line_join = static_cast<std::uint32_t>(style.join);
+                semantic_style.clip_miter_at_limit = style.join == line_join::miter;
                 semantic_style.primitive_flags = primitive_flags();
                 if (style.transform_type == stroke_transform_type::fixed) {
                     semantic_style.primitive_flags |=

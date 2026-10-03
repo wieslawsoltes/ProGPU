@@ -687,7 +687,8 @@ inline bool is_valid_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
-        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
+        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT;
     if (primitive.kind > PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
         !is_finite(primitive.p0) || !is_finite(primitive.p1) ||
         !is_finite(primitive.p2) || !is_finite(primitive.p3) ||
@@ -721,7 +722,10 @@ inline bool is_valid_geometry_primitive(
                 ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) == 0U &&
             primitive.stroke_thickness == 0.0F;
     }
-    if ((primitive.flags & ~all_line_flags) != 0U) {
+    if ((primitive.flags & ~all_line_flags) != 0U ||
+        ((primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U &&
+            (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
+                (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) != 0U))) {
         return false;
     }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC &&
@@ -850,7 +854,8 @@ inline bool append_cpu_join(
     bool aliased,
     std::vector<vector_vertex>& vertices,
     std::vector<std::uint32_t>& indices,
-    bool use_wpf_join_semantics = false);
+    bool use_wpf_join_semantics = false,
+    bool clip_miter_at_limit = false);
 
 inline void append_device_join(
     std::uint32_t join,
@@ -862,7 +867,8 @@ inline void append_device_join(
     float brush_index,
     bool aliased,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices);
+    std::vector<std::uint32_t>& indices,
+    bool clip_miter_at_limit = false);
 
 inline bool append_geometry_primitive(
     const progpu_native_geometry_primitive& primitive,
@@ -874,7 +880,8 @@ inline bool append_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
-        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
+        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT;
     if (!is_valid_geometry_primitive(primitive) ||
         !std::isfinite(brush_index) || brush_index < 0.0F) {
         return false;
@@ -1081,6 +1088,8 @@ inline bool append_geometry_primitive(
         const std::uint32_t join =
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
                 PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+        const bool clip_miter_at_limit = (primitive.flags &
+            PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U;
         if (hairline || fixed_device) {
             append_device_join(
                 join,
@@ -1092,7 +1101,8 @@ inline bool append_geometry_primitive(
                 brush_index,
                 aliased,
                 vertices,
-                indices);
+                indices,
+                clip_miter_at_limit);
             return true;
         }
         return append_cpu_join(
@@ -1114,7 +1124,9 @@ inline bool append_geometry_primitive(
             brush_index,
             aliased,
             vertices,
-            indices);
+            indices,
+            false,
+            clip_miter_at_limit);
     }
 
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
@@ -1601,7 +1613,8 @@ inline std::size_t create_join_triangles(
     const progpu_native_point& join_point,
     progpu_native_point incoming,
     progpu_native_point outgoing,
-    bool use_wpf_join_semantics = false) noexcept {
+    bool use_wpf_join_semantics = false,
+    bool clip_miter_at_limit = false) noexcept {
     if (join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
         !try_normalize(incoming, {}, incoming) ||
         !try_normalize(outgoing, {}, outgoing) ||
@@ -1612,6 +1625,7 @@ inline std::size_t create_join_triangles(
     // when the source otherwise requests WPF's clipped-miter policy.
     use_wpf_join_semantics = use_wpf_join_semantics &&
         join != PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL;
+    clip_miter_at_limit = clip_miter_at_limit && join == PROGPU_NATIVE_STROKE_JOIN_MITER;
     const float turn = cross_product(incoming, outgoing);
     if (!std::isfinite(turn)) {
         return 0U;
@@ -1703,11 +1717,11 @@ inline std::size_t create_join_triangles(
                 radius * resolved_limit + 0.0001F;
         triangles[0] = {previous_outer, join_point, next_outer};
         if (!has_miter) {
-            if (!use_wpf_join_semantics) {
+            if (!use_wpf_join_semantics && !clip_miter_at_limit) {
                 return 1U;
             }
-            // WPF's public Miter join clips the outer corner at the nominal
-            // miter-limit distance instead of falling back to a bevel.
+            // Clip at the centerline half-width/limit plane. Selecting this
+            // overflow law does not opt into WPF's separate reversal behavior.
             const float dot = incoming.x * outgoing.x +
                 incoming.y * outgoing.y;
             const float denominator = radius * std::sqrt(
@@ -1788,7 +1802,8 @@ inline bool append_cpu_join(
     bool aliased,
     std::vector<vector_vertex>& vertices,
     std::vector<std::uint32_t>& indices,
-    bool use_wpf_join_semantics) {
+    bool use_wpf_join_semantics,
+    bool clip_miter_at_limit) {
     std::array<stroke_triangle, 8U> triangles{};
     const std::size_t count = create_join_triangles(
         triangles,
@@ -1798,7 +1813,8 @@ inline bool append_cpu_join(
         join_point,
         incoming,
         outgoing,
-        use_wpf_join_semantics);
+        use_wpf_join_semantics,
+        clip_miter_at_limit);
     for (std::size_t index = 0U; index < count; ++index) {
         std::uint32_t exterior_mask = 0U;
         std::uint32_t owned_internal_mask = 0U;
@@ -1838,7 +1854,8 @@ inline void append_device_join(
     float brush_index,
     bool aliased,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices) {
+    std::vector<std::uint32_t>& indices,
+    bool clip_miter_at_limit) {
     const std::uint32_t base = static_cast<std::uint32_t>(vertices.size());
     vector_vertex descriptor{};
     descriptor.position[0] = join_point.x;
@@ -1849,6 +1866,8 @@ inline void append_device_join(
         ? miter_limit
         : 1.0F;
     descriptor.color[2] = static_cast<float>(base);
+    descriptor.color[3] = clip_miter_at_limit && join == PROGPU_NATIVE_STROKE_JOIN_MITER
+        ? 1.0F : 0.0F;
     descriptor.texture_coordinate[0] = incoming.x;
     descriptor.texture_coordinate[1] = incoming.y;
     descriptor.brush_index = brush_index;

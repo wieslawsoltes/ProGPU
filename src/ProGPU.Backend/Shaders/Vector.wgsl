@@ -1,5 +1,5 @@
 // Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, nine-neighbor affine rectangular fixed-device dot grids, derivative-mapped affine minor/major line grids, affine pattern-space hatch families, fixed 8x8 tiles, and bounded path gradients; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; path-gradient fragments test at most 128 retained boundary edges; affine rectangular fixed-device dots evaluate exactly nine neighboring lattice centers, while affine minor/major line grids evaluate two line families with fixed work; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
+// Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; path-gradient fragments test at most 128 retained boundary edges; affine rectangular fixed-device dots evaluate exactly nine neighboring lattice centers, while affine minor/major line grids evaluate two line families with fixed work; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most five signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record. Path coverage uses one integer texel load for a proven pixel translation, otherwise one filtered sample; the vertex output carries three flat integers without changing the vertex buffer layout.
 struct Uniforms {
     projection: mat4x4<f32>,
@@ -208,6 +208,17 @@ fn safe_normalize(value: vec2<f32>) -> vec2<f32> {
 
 fn cross_2d(left: vec2<f32>, right: vec2<f32>) -> f32 {
     return left.x * right.y - left.y * right.x;
+}
+
+// The signed offset/radius ratio advances the preceding outer line and retreats
+// the following one to the same miter-limit plane. Sharing the reconstruction
+// keeps the vertex bounds and fragment polygon on exactly the same two points.
+fn device_clipped_miter_points(previousOuter: vec2<f32>, nextOuter: vec2<f32>, signedRatio: f32) -> vec4<f32> {
+    let first = previousOuter +
+        vec2<f32>(previousOuter.y, -previousOuter.x) * signedRatio;
+    let second = nextOuter -
+        vec2<f32>(nextOuter.y, -nextOuter.x) * signedRatio;
+    return vec4<f32>(first, second);
 }
 
 fn nearest_ellipse_theta(point: vec2<f32>, center: vec2<f32>, axisX: vec2<f32>, axisY: vec2<f32>) -> f32 {
@@ -624,7 +635,9 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         // A join descriptor stores the center and its two centerline
         // directions. Resolve the outer side, transformed angle, and miter
         // limit in framebuffer space. One AABB quad then evaluates the bevel,
-        // miter, or round exterior analytically in the fragment shader.
+        // miter, clipped-miter, or round exterior analytically in the fragment
+        // shader. color.w is the independent clipped-miter policy (exactly 1),
+        // effective only for join kind 0; old descriptors retain zero.
         var center = inPos;
         var incoming = inTexCoord;
         var outgoing = inShapeSize;
@@ -657,6 +670,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let nextOuter =
             vec2<f32>(-outgoing.y, outgoing.x) * outerSign * halfStrokeThickness;
         let denominator = cross_2d(incoming, outgoing);
+        let miterLimit = max(input.color.y, 1.0);
         var miterPoint = vec2<f32>(0.0);
         var hasMiter = false;
         if (abs(denominator) > 0.0001) {
@@ -664,7 +678,6 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
                 cross_2d(nextOuter - previousOuter, outgoing) /
                 denominator;
             let candidate = previousOuter + incoming * intersectionDistance;
-            let miterLimit = max(input.color.y, 1.0);
             if (length(candidate) <= halfStrokeThickness * miterLimit + 0.0001) {
                 miterPoint = candidate;
                 hasMiter = true;
@@ -672,6 +685,29 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         }
 
         let joinKind = u32(round(input.color.x));
+        var clippedMiterRatio = 0.0;
+        var clippedMiterPoints = vec4<f32>(0.0);
+        var hasClippedMiter = false;
+        if (joinKind == 0u && input.color.w == 1.0 &&
+            !hasMiter && !discardGeneratedHairlineAdornment) {
+            // Intersect both outer lines with the perpendicular bisector plane
+            // at half-width * limit. This is the retained CPU clipped fan's
+            // half-angle construction, independent of WPF reversal policy.
+            let directionDot = dot(incoming, outgoing);
+            let clipDenominator = halfStrokeThickness *
+                sqrt(max(0.0, (1.0 - directionDot) * 0.5));
+            let clipNumerator = halfStrokeThickness *
+                sqrt(max(0.0, (1.0 + directionDot) * 0.5));
+            if (clipDenominator > 0.0001) {
+                clippedMiterRatio = outerSign * max(
+                    0.0,
+                    (halfStrokeThickness * miterLimit - clipNumerator) /
+                        clipDenominator);
+                clippedMiterPoints = device_clipped_miter_points(
+                    previousOuter, nextOuter, clippedMiterRatio);
+                hasClippedMiter = true;
+            }
+        }
         var boundsMin = min(vec2<f32>(0.0), min(previousOuter, nextOuter));
         var boundsMax = max(vec2<f32>(0.0), max(previousOuter, nextOuter));
         if (joinKind == 2u) {
@@ -680,6 +716,9 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         } else if ((joinKind == 0u || joinKind == 3u) && hasMiter) {
             boundsMin = min(boundsMin, miterPoint);
             boundsMax = max(boundsMax, miterPoint);
+        } else if (hasClippedMiter) {
+            boundsMin = min(boundsMin, min(clippedMiterPoints.xy, clippedMiterPoints.zw));
+            boundsMax = max(boundsMax, max(clippedMiterPoints.xy, clippedMiterPoints.zw));
         }
         boundsMin = boundsMin - vec2<f32>(1.5);
         boundsMax = boundsMax + vec2<f32>(1.5);
@@ -696,9 +735,14 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         worldPos = center + joinCoordinate;
         texCoord = joinCoordinate;
         inColor = vec4<f32>(previousOuter, nextOuter);
-        inShapeSize = miterPoint;
+        inShapeSize = select(
+            miterPoint,
+            vec2<f32>(clippedMiterRatio, 0.0),
+            hasClippedMiter);
         outputCornerRadius = input.color.x;
-        outputStrokeThickness = select(0.0, 1.0, hasMiter);
+        // Fragment-only state: 0 bevel, 1 full miter, 2 clipped miter. The
+        // retained descriptor and its fixed/hairline thickness are unchanged.
+        outputStrokeThickness = select(select(0.0, 1.0, hasMiter), 2.0, hasClippedMiter);
         outputShapeType = 23u;
         gridIndex = select(-1.0, 1.0, turn > 0.0);
     } else if (sType == 19u || sType == 20u) {
@@ -1992,10 +2036,12 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             internalInside && allDistance <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 23u) {
-        // Analytic one-device-pixel path join. color stores the two outer
-        // offsets, shapeSize stores a valid miter intersection, cornerRadius
+        // Analytic fixed-device or one-device-pixel path join. color stores the
+        // two outer offsets, shapeSize stores a valid miter intersection (or
+        // signed clipped offset/radius ratio), cornerRadius
         // selects miter/bevel/round/miter-or-bevel, and gridIndex preserves turn
-        // direction. Both miter kinds use the vertex stage's limit decision.
+        // direction. Both miter kinds use the vertex stage's limit decision;
+        // only explicitly clipped kind 0 can publish fragment state 2.
         // Body-facing radial edges are hard-owned to prevent overlap seams.
         let point = input.texCoord;
         let previousOuter = input.color.xy;
@@ -2024,6 +2070,51 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             exteriorDistance = length(point) - length(previousOuter);
             exteriorGradient = safe_normalize(point);
             allDistance = exteriorDistance;
+        } else if (joinKind == 0u && input.strokeThickness > 1.5) {
+            // Convex clipped polygon: previous outer, first clip intersection,
+            // second clip intersection, next outer, center. The three outer
+            // edges contribute AA; the two body-facing edges stay hard-owned.
+            let clippedPoints = device_clipped_miter_points(
+                previousOuter, nextOuter, input.shapeSize.x);
+            let p0 = previousOuter;
+            let p1 = clippedPoints.xy;
+            let p2 = clippedPoints.zw;
+            let p3 = nextOuter;
+            let p4 = vec2<f32>(0.0);
+            let edge0 = p1 - p0;
+            let edge1 = p2 - p1;
+            let edge2 = p3 - p2;
+            let edge3 = p4 - p3;
+            let edge4 = p0 - p4;
+            let orientation = select(
+                -1.0,
+                1.0,
+                cross_2d(edge0, p2 - p0) >= 0.0);
+            let distance0 = -orientation * cross_2d(edge0, point - p0) /
+                max(length(edge0), 0.0001);
+            let distance1 = -orientation * cross_2d(edge1, point - p1) /
+                max(length(edge1), 0.0001);
+            let distance2 = -orientation * cross_2d(edge2, point - p2) /
+                max(length(edge2), 0.0001);
+            let distance3 = -orientation * cross_2d(edge3, point - p3) /
+                max(length(edge3), 0.0001);
+            let distance4 = -orientation * cross_2d(edge4, point - p4) /
+                max(length(edge4), 0.0001);
+            let gradient0 = orientation *
+                vec2<f32>(edge0.y, -edge0.x) / max(length(edge0), 0.0001);
+            let gradient1 = orientation *
+                vec2<f32>(edge1.y, -edge1.x) / max(length(edge1), 0.0001);
+            let gradient2 = orientation *
+                vec2<f32>(edge2.y, -edge2.x) / max(length(edge2), 0.0001);
+            exteriorDistance = max(distance0, distance1);
+            exteriorGradient = select(
+                gradient1, gradient0, distance0 >= distance1);
+            if (distance2 > exteriorDistance) {
+                exteriorDistance = distance2;
+                exteriorGradient = gradient2;
+            }
+            internalInside = distance3 <= 0.001 && distance4 <= 0.001;
+            allDistance = max(exteriorDistance, max(distance3, distance4));
         } else if ((joinKind == 0u || joinKind == 3u) && input.strokeThickness > 0.5) {
             // Convex miter polygon order: previous outer, intersection, next
             // outer, center. Only the first two edges are exterior.

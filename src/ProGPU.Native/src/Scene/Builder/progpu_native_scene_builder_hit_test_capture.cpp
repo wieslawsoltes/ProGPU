@@ -675,7 +675,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK | PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
                     if (source.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
                         if ((source.flags & ~(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
-                            PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK)) != 0U) return unsupported();
+                            PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
+                            PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT)) != 0U) return unsupported();
                         const auto transform = compose_affine(source.transform, state.transform);
                         float maximum_scale{}, minimum_scale{};
                         if (!try_get_stroke_scales(transform, maximum_scale, minimum_scale)) return unsupported();
@@ -688,7 +689,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                             affine_outline ? source.stroke_thickness : source.stroke_thickness * maximum_scale,
                             source.p3.x, affine_outline ? source.p0 : transformed_point(transform, source.p0),
                             affine_outline ? source.p1 : transformed_direction(transform, source.p1),
-                            affine_outline ? source.p2 : transformed_direction(transform, source.p2));
+                            affine_outline ? source.p2 : transformed_direction(transform, source.p2), false,
+                            (source.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U);
                         for (std::size_t k = 0U; k < count; ++k)
                             if (!append_join_triangle(joins[k], affine_outline ? transform : identity_transform(),
                                 state, state_index)) return unsupported();
@@ -746,7 +748,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                 for (std::size_t j = 0U; j < resource.payload.size() / sizeof(progpu_native_scene_stroke); ++j) {
                     const auto source = read_record<progpu_native_scene_stroke>(resource.payload, j);
                     constexpr std::uint32_t allowed = PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED |
-                        PROGPU_NATIVE_POLYLINE_FLAG_CLOSED | PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS;
+                        PROGPU_NATIVE_POLYLINE_FLAG_CLOSED | PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS |
+                        PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT;
                     const bool closed = (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U;
                     if (source.kind != PROGPU_NATIVE_SCENE_STROKE_POLYLINE ||
                         (source.flags & ~allowed) != 0U || source.point_count < (closed ? 3U : 2U) ||
@@ -760,6 +763,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                         return read_record<progpu_native_point>(resource.auxiliary, source.point_offset + index);
                     };
                     const bool wpf_joins = (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U;
+                    const bool clip_miter_at_limit = (source.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT) != 0U;
                     const auto append_stroke_join = [&](progpu_native_point corner,
                         progpu_native_point incoming, progpu_native_point outgoing) {
                         std::array<stroke_triangle, 8U> joins{};
@@ -767,7 +771,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                             affine_outline ? source.stroke_thickness : source.stroke_thickness * maximum_scale,
                             source.miter_limit, affine_outline ? corner : transformed_point(transform, corner),
                             affine_outline ? incoming : transformed_direction(transform, incoming),
-                            affine_outline ? outgoing : transformed_direction(transform, outgoing), wpf_joins);
+                            affine_outline ? outgoing : transformed_direction(transform, outgoing), wpf_joins,
+                            clip_miter_at_limit);
                         for (std::size_t k = 0U; k < count; ++k)
                             if (!append_join_triangle(joins[k], join_transform, state, state_index)) return false;
                         return true;

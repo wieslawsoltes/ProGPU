@@ -418,7 +418,8 @@ public ref struct NativeSceneStreamBuilder
             NativePolylineFlags.Hairline |
             NativePolylineFlags.FixedDeviceStroke |
             NativePolylineFlags.Closed |
-            NativePolylineFlags.WpfJoinSemantics;
+            NativePolylineFlags.WpfJoinSemantics |
+            NativePolylineFlags.ClipMiterAtLimit;
         ulong expectedPoints = 0U;
         ulong expectedDoubles = 0U;
         foreach (ref readonly NativeSceneStroke stroke in strokes)
@@ -432,6 +433,8 @@ public ref struct NativeSceneStreamBuilder
                 (uint)stroke.EndCap > (uint)NativeStrokeCap.Triangle ||
                 (uint)stroke.DashCap > (uint)NativeStrokeCap.Triangle ||
                 (uint)stroke.LineJoin > (uint)NativeStrokeJoin.MiterOrBevel ||
+                ((stroke.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0 &&
+                    stroke.LineJoin != NativeStrokeJoin.Miter) ||
                 !IsFinite(stroke.Color) || !IsFinite(stroke.Transform) ||
                 !float.IsFinite(stroke.StrokeThickness) ||
                 !float.IsFinite(stroke.MiterLimit) ||

@@ -8679,10 +8679,10 @@ private:
                     stroke.end_cap = run.end_uses_dash_cap
                         ? static_cast<uint32_t>(style.dash_cap)
                         : static_cast<uint32_t>(style.end_cap);
-                    stroke.line_join = style.line_join ==
-                            D2D1_LINE_JOIN_MITER_OR_BEVEL
-                        ? PROGPU_NATIVE_STROKE_JOIN_MITER
-                        : static_cast<uint32_t>(style.line_join);
+                    stroke.line_join = static_cast<uint32_t>(style.line_join);
+                    if (style.line_join == D2D1_LINE_JOIN_MITER) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT;
+                    }
                     stroke.dash_cap = static_cast<uint32_t>(style.dash_cap);
                     points.push_back(segments.front().p0);
                     const size_t end_count = segments.size() -
@@ -8725,10 +8725,8 @@ private:
                 semantic_style.dash_offset = style.dash_offset;
                 semantic_style.dash_cap =
                     static_cast<uint32_t>(style.dash_cap);
-                semantic_style.line_join = style.line_join ==
-                        D2D1_LINE_JOIN_MITER_OR_BEVEL
-                    ? PROGPU_NATIVE_STROKE_JOIN_MITER
-                    : static_cast<uint32_t>(style.line_join);
+                semantic_style.line_join = static_cast<uint32_t>(style.line_join);
+                semantic_style.clip_miter_at_limit = style.line_join == D2D1_LINE_JOIN_MITER;
                 semantic_style.primitive_flags = primitive_flags();
                 if (style.transform_type ==
                     D2D1_STROKE_TRANSFORM_TYPE_FIXED) {

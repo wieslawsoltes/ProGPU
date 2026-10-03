@@ -440,9 +440,8 @@ public static class StrokePathGeometry
         Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
         int count = StrokeJoinGeometry.WriteLineJoin(
             triangles,
-            pen.LineJoin,
+            pen,
             thickness,
-            pen.MiterLimit,
             previous,
             join,
             next);
