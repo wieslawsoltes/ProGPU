@@ -3087,6 +3087,16 @@ typedef struct progpu_native_draw_state {
     uint32_t reserved2;
 } progpu_native_draw_state;
 
+/* Actual initialized device texture limits. Version 1; no GPU submission,
+ * adapter/default limit, system-DPI inference or allocation performed. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeCacheRasterLimits */
+typedef struct progpu_native_cache_raster_limits {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t maximum_texture_width;
+    uint32_t maximum_texture_height;
+} progpu_native_cache_raster_limits;
+
 /* Directly retained engine allocations, not driver residency or whole-device
  * usage. Borrowed views and opaque-format bytes are explicitly separate.
  * All dimensions/mips/samples use the actual live WebGPU resource descriptors. */
@@ -3517,6 +3527,11 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_layer_metrics(
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_gpu_memory_snapshot(
     progpu_native_engine* engine,
     progpu_native_gpu_memory_snapshot* snapshot);
+/* Owner-thread query of this engine's actual live device. Caller initializes
+ * exact struct_size and version 1. Failure leaves all output bytes unchanged. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_cache_raster_limits(
+    progpu_native_engine* engine,
+    progpu_native_cache_raster_limits* limits);
 /*
  * Polls or waits for one submission from this engine. This is the consumer
  * fence used by external-image owners before recycling a borrowed texture.

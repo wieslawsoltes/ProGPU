@@ -577,6 +577,37 @@ progpu_native_status progpu_native_engine_get_last_submission(
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
+progpu_native_status progpu_native_engine_get_cache_raster_limits(
+    progpu_native_engine* engine, progpu_native_cache_raster_limits* output) {
+    if (engine == nullptr || output == nullptr ||
+        reinterpret_cast<std::uintptr_t>(output) % alignof(progpu_native_cache_raster_limits) != 0U ||
+        output->struct_size != sizeof(*output) || output->version != 1U)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (!engine->is_owner_thread())
+        return engine->fail(PROGPU_NATIVE_STATUS_WRONG_THREAD, "Cache raster limits require the native owner thread.");
+    if (engine->device_lost)
+        return engine->fail(PROGPU_NATIVE_STATUS_DEVICE_LOST, "Cache raster limits belong to a lost device.");
+    const progpu::native::webgpu::dispatch_scope dispatch_scope(&engine->webgpu_dispatch);
+#if defined(PROGPU_NATIVE_DAWN_ABI)
+    WGPULimits limits = WGPU_LIMITS_INIT;
+    if (wgpuDeviceGetLimits(engine->device, &limits) != WGPUStatus_Success)
+        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED, "The actual device did not publish texture limits.");
+#else
+    WGPUSupportedLimits supported{};
+    if (!wgpuDeviceGetLimits(engine->device, &supported))
+        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED, "The actual device did not publish texture limits.");
+    const auto& limits = supported.limits;
+#endif
+    if (limits.maxTextureDimension2D == 0U || limits.maxTextureDimension2D == UINT32_MAX)
+        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED, "The actual device texture limit is unavailable.");
+    const progpu_native_cache_raster_limits result{
+        sizeof(progpu_native_cache_raster_limits), 1U,
+        limits.maxTextureDimension2D, limits.maxTextureDimension2D};
+    *output = result;
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status progpu_native_engine_get_gpu_memory_snapshot(
     progpu_native_engine* engine,
     progpu_native_gpu_memory_snapshot* snapshot) {

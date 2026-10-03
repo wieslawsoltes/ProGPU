@@ -565,6 +565,10 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus GetGpuMemorySnapshot(nint engine, NativeGpuMemorySnapshot* snapshot);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_get_cache_raster_limits")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus GetCacheRasterLimits(nint engine, NativeCacheRasterLimits* limits);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_engine_poll_submission")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus PollSubmission(

@@ -319,6 +319,27 @@ public sealed unsafe class NativeCompositor : IDisposable
     }
 
     /// <summary>
+    /// Reads actual initialized-device cache-raster limits on the renderer owner
+    /// thread. Does not submit, allocate a texture, infer primary DPI or use an
+    /// adapter/default limit when the device query is unavailable.
+    /// </summary>
+    public NativeCacheRasterLimits GetCacheRasterLimits()
+    {
+        var limits = new NativeCacheRasterLimits
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeCacheRasterLimits>(),
+            Version = 1,
+        };
+        lock (_context.RenderLock)
+        {
+            ThrowIfGpuUnavailable();
+            ThrowForStatus(NativeRendererInterop.GetCacheRasterLimits(_interopKind, _engine, &limits));
+        }
+
+        return limits;
+    }
+
+    /// <summary>
     /// Returns pooled group-layer activity for the most recently submitted frame.
     /// </summary>
     public NativeLayerMetrics GetLayerMetrics()
