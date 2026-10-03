@@ -22234,6 +22234,15 @@ bool empty_cache_source_witness_retains_nested_native_ownership() {
     append_visual_sampler_content(batch,92U,93U,content);
     packet(batch,command::bitmap_cache,51U,0.0,0U,0U,0U);
     PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH));
+    batch.clear(); packet(batch,command::channel_create_resource,96U,95U);
+    content.clear(); packet(content,command::draw_image,0.0,0.0,8.0,8.0,96U,0U);
+    append_visual_sampler_content(batch,92U,93U,content);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    const progpu_native_mil_visual_visibility hidden{92U,PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN};
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_visibilities(raw,&hidden,1U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE));
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_source_external_image(raw,96U,8U,8U) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS && rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
     batch.clear(); content.clear(); append_visual_sampler_content(batch,92U,93U,content);
     packet(batch,command::bitmap_cache,51U,1.0,0U,0U,0U);
     PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene));
