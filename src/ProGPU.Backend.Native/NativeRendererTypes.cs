@@ -438,7 +438,9 @@ public enum NativeGeometryPrimitiveFlags : uint
     StartCapMask = 3U << 3,
     EndCapMask = 3U << 5,
     /// <summary>Clips a PathJoin/Miter corner at the limit without WPF reversal behavior.</summary>
-    ClipMiterAtLimit = 1U << 7
+    ClipMiterAtLimit = 1U << 7,
+    /// <summary>Retains WPF clipping/reversal on normal-width PathJoin kinds 0..2.</summary>
+    WpfJoinSemantics = 1U << 8
 }
 
 [Flags]
@@ -3337,6 +3339,12 @@ public readonly struct NativeGeometryPrimitive
         if ((flags & NativeGeometryPrimitiveFlags.ClipMiterAtLimit) != 0 &&
             (kind != NativeGeometryPrimitiveKind.PathJoin || startCap != NativeStrokeCap.Flat))
             throw new ArgumentException("Miter clipping requires a PathJoin with the Miter kind.", nameof(flags));
+        if ((flags & NativeGeometryPrimitiveFlags.WpfJoinSemantics) != 0 &&
+            (kind != NativeGeometryPrimitiveKind.PathJoin ||
+                (uint)startCap > (uint)NativeStrokeJoin.Round ||
+                (flags & (NativeGeometryPrimitiveFlags.Hairline |
+                    NativeGeometryPrimitiveFlags.FixedDeviceStroke)) != 0))
+            throw new ArgumentException("WPF joins require a normal-width PathJoin with kind 0, 1 or 2.", nameof(flags));
         Kind = kind;
         Flags = (flags & ~(
                 NativeGeometryPrimitiveFlags.StartCapMask |

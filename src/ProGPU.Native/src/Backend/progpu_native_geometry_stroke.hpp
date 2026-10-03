@@ -688,7 +688,8 @@ inline bool is_valid_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
         PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK |
-        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT;
+        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS;
     if (primitive.kind > PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
         !is_finite(primitive.p0) || !is_finite(primitive.p1) ||
         !is_finite(primitive.p2) || !is_finite(primitive.p3) ||
@@ -722,7 +723,10 @@ inline bool is_valid_geometry_primitive(
                 ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) == 0U &&
             primitive.stroke_thickness == 0.0F;
     }
+    const bool use_wpf_join_semantics = (primitive.flags &
+        PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U;
     if ((primitive.flags & ~all_line_flags) != 0U ||
+        (use_wpf_join_semantics && primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN) ||
         ((primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U &&
             (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
                 (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) != 0U))) {
@@ -756,6 +760,7 @@ inline bool is_valid_geometry_primitive(
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
                 PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
         if (join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
+            (use_wpf_join_semantics && join > PROGPU_NATIVE_STROKE_JOIN_ROUND) ||
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) != 0U ||
             !(primitive.p3.x >= 1.0F) || primitive.p3.y != 0.0F) {
             return false;
@@ -766,6 +771,7 @@ inline bool is_valid_geometry_primitive(
     const bool fixed_device = (primitive.flags &
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE) != 0U;
     if ((hairline && fixed_device) ||
+        (use_wpf_join_semantics && (hairline || fixed_device)) ||
         (hairline && primitive.stroke_thickness != 0.0F) ||
         (!hairline && primitive.stroke_thickness <= 0.0F)) {
         return false;
@@ -881,7 +887,8 @@ inline bool append_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
         PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK |
-        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT;
+        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS;
     if (!is_valid_geometry_primitive(primitive) ||
         !std::isfinite(brush_index) || brush_index < 0.0F) {
         return false;
@@ -1125,7 +1132,7 @@ inline bool append_geometry_primitive(
             aliased,
             vertices,
             indices,
-            false,
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U,
             clip_miter_at_limit);
     }
 

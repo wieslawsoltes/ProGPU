@@ -676,7 +676,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                     if (source.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN) {
                         if ((source.flags & ~(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
                             PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
-                            PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT)) != 0U) return unsupported();
+                            PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT |
+                            PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS)) != 0U) return unsupported();
                         const auto transform = compose_affine(source.transform, state.transform);
                         float maximum_scale{}, minimum_scale{};
                         if (!try_get_stroke_scales(transform, maximum_scale, minimum_scale)) return unsupported();
@@ -689,7 +690,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
                             affine_outline ? source.stroke_thickness : source.stroke_thickness * maximum_scale,
                             source.p3.x, affine_outline ? source.p0 : transformed_point(transform, source.p0),
                             affine_outline ? source.p1 : transformed_direction(transform, source.p1),
-                            affine_outline ? source.p2 : transformed_direction(transform, source.p2), false,
+                            affine_outline ? source.p2 : transformed_direction(transform, source.p2),
+                            (source.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U,
                             (source.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U);
                         for (std::size_t k = 0U; k < count; ++k)
                             if (!append_join_triangle(joins[k], affine_outline ? transform : identity_transform(),

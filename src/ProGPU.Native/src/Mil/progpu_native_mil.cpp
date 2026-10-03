@@ -14034,7 +14034,8 @@ struct channel::implementation {
                         contour.end_uses_dash_cap ? pen.dash_cap : pen.end_line_cap,
                         pen.dash_cap, pen.line_join,
                         current.edge_aliased ? static_cast<std::uint32_t>(
-                            PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) : 0U};
+                            PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) : 0U,
+                        false, true}; // Full WPF joins, not only miter clipping.
                     std::vector<progpu_native_geometry_primitive> primitives;
                     std::vector<std::uint32_t> brushes;
                     primitives.reserve(contour.segments.size() * 2U + 2U);
@@ -16490,7 +16491,8 @@ struct channel::implementation {
             native::semantic_path_stroke::style style{transform,
                 static_cast<float>(pen.thickness), static_cast<float>(std::max(1.0, pen.miter_limit)),
                 dash_offset, pen.start_line_cap, pen.end_line_cap, pen.dash_cap, pen.line_join,
-                state.edge_aliased ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) : 0U};
+                state.edge_aliased ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) : 0U,
+                false, true}; // Tile masks retain the same source join/reversal policy.
             curve_dash::run_buffer scratch;
             std::vector<progpu_native_geometry_primitive> local_primitives;
             auto& primitives = collected == nullptr ? local_primitives : *collected;
