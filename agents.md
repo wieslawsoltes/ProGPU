@@ -1,13 +1,23 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Clipped-miter source policy is an independent retained Pen flag, effective only
+for Miter0. Preserve false generic defaults, raw intent in every pen/cache/archive
+snapshot, closed seams and the separate WPF reversal policy. Win2D Miter selects
+the owned centerline-relative clip; do not infer GDI+'s inner-corner plane.
+Paint, hit geometry and bounds must consume the same selected policy, including
+actual fixed/hairline device joins. Emit native flags only on supported Miter0
+records and reject contradictory wire descriptors. Version7 archives retain the
+flag; older reads default false and lossy old-version writes fail. No pin/default
+or qualification change follows. See docs/retained-clipped-miter.md.
+
 Explicit retained MiterOrBevel uses join value 3 through source pens, managed
 bounds/outlines/hit geometry, device shaders and native scene/query transport.
 Keep under-limit miter and over-limit bevel independent of WPF clipping and
 reversal policy; do not alias it to legacy Miter or expand the MIL WPF enum.
 Preserve complete join cache identity, cap/dash/frame policies and atomic
 undefined-value rejection. Record layouts stay fixed, but new enum semantics
-require matching rebuilt native producers. Legacy Miter paint/bounds clipping
-differences remain unfinished; no parity or downstream pin admission follows.
+require matching rebuilt native producers. Original Drawing Miter clipping
+remains separate contract work; no parity or downstream pin admission follows.
 See docs/retained-miter-or-bevel.md; authored controls remain unexecuted.
 
 Direct2D rectangle strokes apply intrinsic geometry transforms before expanding
