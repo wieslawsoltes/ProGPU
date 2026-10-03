@@ -1,14 +1,16 @@
 #pragma once
 
 #include "progpu_native_direct2d_font_capture.hpp"
+#include "progpu_native.h"
 
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace progpu::native::direct2d {
 
 enum class original_vertical_origin_kind : std::uint8_t {
-    unavailable, true_type_bounds, cff_vorg
+    unavailable, true_type_bounds, cff_vorg, cff_contour
 };
 
 struct original_vertical_glyph_metrics final {
@@ -16,6 +18,17 @@ struct original_vertical_glyph_metrics final {
     std::int16_t top_side_bearing = 0;
     std::int32_t top_origin = 0;
     std::int32_t bottom_origin = 0;
+    bool has_origin = false;
+    original_vertical_origin_kind origin_kind = original_vertical_origin_kind::unavailable;
+};
+
+// Bounds of the actual retained design contours, not their control-point
+// envelope or a rounded/clamped int16 glyph box. No source rounding policy is
+// encoded in this private intermediate result.
+struct original_vertical_outline_metrics final {
+    double top_origin = 0.0, bottom_origin = 0.0;
+    std::uint16_t advance_height = 0U;
+    std::int16_t top_side_bearing = 0;
     bool has_origin = false;
     original_vertical_origin_kind origin_kind = original_vertical_origin_kind::unavailable;
 };
@@ -39,6 +52,13 @@ public:
     // has_origin=false and the actual advance/bearing. Caller output is atomic.
     [[nodiscard]] com::result read_base(std::uint16_t glyph,
         original_vertical_glyph_metrics& output) const noexcept;
+    // CFF/CFF2 only. The caller supplies this exact glyph's owned, already
+    // matrix-transformed/varied contours. VORG retains precedence; absent VORG
+    // uses the real Bezier maximum and base vmtx bearing. Empty contours retain
+    // their advance without fabricating an ink origin. Publication is atomic.
+    [[nodiscard]] com::result read_outline(std::uint16_t glyph,
+        std::span<const progpu_native_path_segment> contours,
+        original_vertical_outline_metrics& output) const noexcept;
 private:
     struct state;
     explicit retained_original_vertical_metrics(std::unique_ptr<state> value) noexcept;
