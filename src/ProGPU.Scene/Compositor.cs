@@ -1558,6 +1558,8 @@ public unsafe partial class Compositor : IDisposable
 
         public bool? SuppressesClearType { get; set; }
 
+        public EffectCaptureFrame? CaptureFrame { get; set; }
+
         public GpuTexture? Temporary { get; private set; }
 
         public GpuTexture? Destination { get; private set; }
@@ -16927,8 +16929,29 @@ CompilePathStroke:
         EffectCaptureFrame captureFrame;
         if (effect is WpfShaderEffect { SourceCapture: { } sourceCapture })
         {
-            if (!EffectCaptureFrame.TryCreateSource(sourceCapture, fe.EffectSourceTranslation ?? Vector2.Zero,
-                    fe.EffectRasterPadding, dpiScale, out captureFrame))
+            bool valid;
+            if (fe.EffectRasterPadding.HasValue)
+            {
+                // An explicit legacy override keeps its original scalar frame.
+                valid = EffectCaptureFrame.TryCreateSource(sourceCapture, fe.EffectSourceTranslation ?? Vector2.Zero,
+                    fe.EffectRasterPadding, dpiScale, out captureFrame);
+            }
+            else
+            {
+                // Use the exact projection and viewport of this actual target,
+                // including nested offscreen targets. Semantic DPI and the final
+                // visual affine transform are independent of this capture basis.
+                GetRootRenderTargetSize(_currentWidth, _currentHeight, out uint targetWidth, out uint targetHeight);
+                var viewport = NormalizeRenderTargetViewport(
+                    _explicitRenderTargetViewport ?? RenderTargetViewport.Full(targetWidth, targetHeight),
+                    targetWidth, targetHeight);
+                valid = EffectCaptureFrame.TryResolveSourcePixelsPerUnit(_currentProjection, viewport, out var pixelsPerUnit);
+                captureFrame = default;
+                if (valid)
+                    valid = EffectCaptureFrame.TryCreateSource(sourceCapture, fe.EffectSourceTranslation ?? Vector2.Zero,
+                        pixelsPerUnit, dpiScale, out captureFrame);
+            }
+            if (!valid)
                 throw new InvalidOperationException("Source effect input capture has invalid or unrepresentable source bounds, padding or dimensions.");
         }
         else
@@ -16952,6 +16975,8 @@ CompilePathStroke:
             fe.IsDirty ||
             !hasCachedEffectKey ||
             cachedEffectKey != effectCacheKey ||
+            textures!.CaptureFrame is not { } previousFrame ||
+            !previousFrame.HasSameCapture(captureFrame) ||
             textures!.SuppressesClearType != _suppressCachedClearType ||
             textures!.Source.Width != w ||
             textures.Source.Height != h;
@@ -16979,6 +17004,7 @@ CompilePathStroke:
             var activeTextures = textures!;
             // Only a fully rendered and filtered result may qualify for reuse.
             activeTextures.SuppressesClearType = null;
+            activeTextures.CaptureFrame = null;
             if (effect is BlurEffect blurResources && blurResources.BlurRadius > 0.01f)
             {
                 activeTextures.EnsureTemporary(_context, w, h, TextureFormat.Rgba8Unorm);
@@ -17022,16 +17048,18 @@ CompilePathStroke:
             _elementsRenderingEffects.Add(fe);
             try
             {
-                // 1. Render the subtree of fe offscreen centered into textures.Source (offset by padding)
+                // Keep text/snapping/effect DPI semantics while projecting the
+                // exact raster extent, not its integer bookkeeping ceiling.
                 RenderOffscreen(
                     fe,
                     logicalRenderWidth,
                     logicalRenderHeight,
                     activeTextures.Source,
-                    -paddedRect.Position,
+                    -(captureFrame.HasPhysicalOrigin ? captureFrame.RasterBounds.Position : paddedRect.Position),
                     dpiScale,
                     includeRootTransform: false,
                     includeRootVisualState: false,
+                    logicalExtent: captureFrame.HasPhysicalOrigin ? captureFrame.ProjectionExtent : null,
                     includeRootOpacityOnly: captureSourceOpacity);
             }
             finally
@@ -17102,6 +17130,7 @@ CompilePathStroke:
             }
 
             _effectCacheKeys[fe] = effectCacheKey;
+            activeTextures.CaptureFrame = captureFrame;
             activeTextures.SuppressesClearType = _suppressCachedClearType;
         }
 
@@ -17147,7 +17176,8 @@ CompilePathStroke:
             }
             else if (fe.Effect is WpfShaderEffect shaderEffect)
             {
-                DrawWpfShaderEffectOnMain(fe, shaderEffect, cachedTextures.Source, paddedRect, compositeTransform);
+                DrawWpfShaderEffectOnMain(fe, shaderEffect, cachedTextures.Source, paddedRect, compositeTransform,
+                    captureFrame.TextureUvBounds);
             }
             else if (fe.Effect is ColorMatrixEffect colorMatrixEffect)
             {
@@ -17712,13 +17742,15 @@ CompilePathStroke:
         Rect localRect,
         Matrix4x4 parentTransform,
         int hitTestId = 0,
-        GpuBlendMode? blendMode = null)
+        GpuBlendMode? blendMode = null,
+        Rect? sourceRect = null)
     {
         var cmd = new RenderCommand
         {
             Type = RenderCommandType.DrawTexture,
             Texture = texture,
-            Rect = localRect
+            Rect = localRect,
+            SrcRect = sourceRect ?? default
         };
         if (hitTestId != 0)
         {
@@ -17749,12 +17781,17 @@ CompilePathStroke:
         WpfShaderEffect effect,
         GpuTexture sourceTexture,
         Rect localRect,
-        Matrix4x4 parentTransform)
+        Matrix4x4 parentTransform,
+        Vector4 textureUvBounds)
     {
         var pipeline = GetExtension(CompositorBuiltInExtensions.WpfShaderEffect);
         if (pipeline == null)
         {
-            DrawTextureOnMain(sourceTexture, localRect, parentTransform, visual.HitTestId);
+            Rect? sourceRect = textureUvBounds == new Vector4(0, 0, 1, 1) ? null :
+                new Rect(textureUvBounds.X * sourceTexture.Width, textureUvBounds.Y * sourceTexture.Height,
+                    (textureUvBounds.Z - textureUvBounds.X) * sourceTexture.Width,
+                    (textureUvBounds.W - textureUvBounds.Y) * sourceTexture.Height);
+            DrawTextureOnMain(sourceTexture, localRect, parentTransform, visual.HitTestId, sourceRect: sourceRect);
             return;
         }
 
@@ -17779,6 +17816,7 @@ CompilePathStroke:
         }
 
         effect.UpdateDrawParameters(parameters, sourceTexture, localRect);
+        parameters.TextureUvBounds = textureUvBounds;
 
         var cmd = new RenderCommand
         {

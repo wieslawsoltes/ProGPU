@@ -28,9 +28,9 @@ public readonly struct EffectCaptureFrame
 
     /// <summary>Original padded float rectangle, without minimum-size or pixel rounding.</summary>
     public Rect PaddedBounds { get; }
-    /// <summary>Original padded width with the compositor's one-logical-unit minimum.</summary>
+    /// <summary>Raster projection width; legacy frames retain their one-logical-unit minimum.</summary>
     public float LogicalWidth { get; }
-    /// <summary>Original padded height with the compositor's one-logical-unit minimum.</summary>
+    /// <summary>Raster projection height; legacy frames retain their one-logical-unit minimum.</summary>
     public float LogicalHeight { get; }
     public uint LogicalRenderWidth { get; }
     public uint LogicalRenderHeight { get; }
@@ -136,6 +136,7 @@ public readonly struct EffectCaptureFrame
             -x - translatedX, -y - translatedY, 0, 1);
         if (!IsFinite(raster) || !IsFinite(padded) || !float.IsFinite(sourceToRaster.M41) ||
             !float.IsFinite(sourceToRaster.M42) ||
+            !float.IsFinite(2f / logicalWidth) || !float.IsFinite(-2f / logicalHeight) ||
             !TryCeilingDimension(logicalWidth, out uint logicalRenderWidth) ||
             !TryCeilingDimension(logicalHeight, out uint logicalRenderHeight))
             return false;
@@ -153,6 +154,27 @@ public readonly struct EffectCaptureFrame
         };
         return true;
     }
+
+    // Cache identity includes the complete capture mapping, not merely texture
+    // dimensions. Keep signed source/physical zero identity without boxing a
+    // struct on every retained effect draw.
+    internal bool HasSameCapture(in EffectCaptureFrame other) =>
+        HasPhysicalOrigin == other.HasPhysicalOrigin &&
+        LogicalRenderWidth == other.LogicalRenderWidth && LogicalRenderHeight == other.LogicalRenderHeight &&
+        PixelWidth == other.PixelWidth && PixelHeight == other.PixelHeight &&
+        Same(DpiScale, other.DpiScale) && Same(LogicalWidth, other.LogicalWidth) && Same(LogicalHeight, other.LogicalHeight) &&
+        Same(PaddedBounds.X, other.PaddedBounds.X) && Same(PaddedBounds.Y, other.PaddedBounds.Y) &&
+        Same(PaddedBounds.Width, other.PaddedBounds.Width) && Same(PaddedBounds.Height, other.PaddedBounds.Height) &&
+        Same(RasterBounds.X, other.RasterBounds.X) && Same(RasterBounds.Y, other.RasterBounds.Y) &&
+        Same(RasterBounds.Width, other.RasterBounds.Width) && Same(RasterBounds.Height, other.RasterBounds.Height) &&
+        Same(PixelsPerUnit.X, other.PixelsPerUnit.X) && Same(PixelsPerUnit.Y, other.PixelsPerUnit.Y) &&
+        Same(PhysicalOrigin.X, other.PhysicalOrigin.X) && Same(PhysicalOrigin.Y, other.PhysicalOrigin.Y) &&
+        Same(TextureUvBounds.X, other.TextureUvBounds.X) && Same(TextureUvBounds.Y, other.TextureUvBounds.Y) &&
+        Same(TextureUvBounds.Z, other.TextureUvBounds.Z) && Same(TextureUvBounds.W, other.TextureUvBounds.W) &&
+        Same(SourceToRaster.M41, other.SourceToRaster.M41) && Same(SourceToRaster.M42, other.SourceToRaster.M42);
+
+    private static bool Same(float left, float right) =>
+        BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 
     /// <summary>
     /// Resolves a shader input using ceil(max(0, shaderPadding)), then the same
