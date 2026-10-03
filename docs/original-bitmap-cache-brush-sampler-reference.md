@@ -4,13 +4,13 @@
 the original identity shader. One unparented ContainerVisual owns an inner
 ContainerVisual and two retained DrawingVisual leaves. Their mutable rectangle
 geometries and color brushes, both cache objects, sampled root, brush, transforms,
-effect and PixelShader retain identity across all fifteen states. No UIElement,
+effect and PixelShader retain identity across all twenty states. No UIElement,
 source bitmap substitute, reflection or product renderer supplies the source.
 
 The [BitmapCacheBrush contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapcachebrush?view=windowsdesktop-10.0)
 distinguishes explicit, target and default cache selection. It excludes six outer
 root properties from capture and ignores brush-cache snapping. The fixture sets
-all six excluded properties on states 3–14: offset, transform, clip, blur effect,
+all six excluded properties on states 3–19: offset, transform, clip, blur effect,
 opacity and a fully transparent opacity mask. Descendant clip and opacity remain
 real source state. The original [shader sampler implementation](https://github.com/dotnet/wpf/blob/381194e1ffe4d64fb747556fcaf76e1c34fe9df8/src/Microsoft.DotNet.Wpf/src/WpfGfx/core/resources/ShaderEffect.cpp#L419)
 uses the selected raw cache texture directly. Its normalized shader coordinates
@@ -39,6 +39,11 @@ literal bands for the integral-cache profile are:
 | 12 | Root ScrollableAreaClip outside all source ink | Same state-8 blue/green frame; root scroll clip ignored |
 | 13 | Also set the descendant group's scroll clip outside all source ink | Black; the same leaves remain attached |
 | 14 | Clear both scroll clips | Exact restoration of state 8 |
+| 15 | Attach a nested empty DrawingImage containing a cache brush with an empty visual target | Same state-8 blue/green frame |
+| 16 | Attach that cache target's retained red leaf; leave the DrawingImage geometry empty | Same state-8 blue/green frame |
+| 17 | Add the retained rectangle to the DrawingImage's GeometryGroup | Red [0,16), green [16,32), full Y [0,24) |
+| 18 | Clear that same GeometryGroup, retaining its drawing, brush and source | Same state-8 blue/green frame |
+| 19 | Restore the same rectangle to the same GeometryGroup | Exact restoration of state 17 |
 
 Zero-scale no-ink follows the public
 [RenderAtScale contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.bitmapcache.renderatscale?view=windowsdesktop-10.0).
@@ -54,7 +59,7 @@ reference the same non-null target and explicit scale-one cache throughout.
 Actual descendant/content bounds and selected properties are recorded before and
 after rendering; none derive expected pixels. Every byte is compared over three
 replays: retained, same-owner warm and independent literal construction, totaling
-45 captures. Raw BGRA/PNG evidence precedes pixel failure publication. Cache-policy,
+60 captures. Raw BGRA/PNG evidence precedes pixel failure publication. Cache-policy,
 null/zero-scale/attached-empty and refill equivalence are separate complete-frame
 controls. The original source mutations are unchanged. Schema 2 corrects the
 previous unexecuted natural-placement and consumer-opacity expectations; those
@@ -69,6 +74,26 @@ including when scroll acceleration is unavailable. The outside descendant clip
 deliberately expects black independently of whether original bounds tighten.
 State 14 restores the same live source owners, not a replacement visual or bitmap.
 These controls concern clipping, not scroll acceleration or fractional snapping.
+
+Schema 4 adds the nested DrawingImage sequence without changing states 0–14.
+A third retained visual draws an ordinary ImageBrush over `(-4,4,8,12)`. Its real
+DrawingImage owns one DrawingGroup and one GeometryDrawing. That drawing retains
+an ordinary BitmapCacheBrush and a GeometryGroup even when the latter has no
+children and the image bounds are exactly empty. The cache brush keeps its
+original target, explicit scale-one cache and initially detached red source leaf.
+State 16 attaches that leaf while the image remains empty. States 17–19 mutate
+only membership of the original `(0,0,8,12)` RectangleGeometry in the retained
+GeometryGroup, so visible red replaces the outer source's blue half only while
+the image has real geometry. No substitute bitmap, zero-area stand-in or fake
+positive drawing bound is supplied.
+
+The fixture checks the nested image, drawing, geometry, brush, cache and visual
+identities and actual empty/nonempty bounds before and after every capture.
+Empty image and empty nested visual are independent source states. Their pixel
+observations do not by themselves prove native graph ownership, deletion guards,
+cycle handling or sideband transitions; the paired native/source controls retain
+those separate obligations. This sequence is inside a BitmapCacheBrush shader
+source and does not broaden the direct DrawingImage shader sampler policy.
 
 The target RenderTargetBitmap remains 96 DPI, but that is not proof of the primary
 DPI used by the original cache rasterizer. The fixture records the UI thread's
