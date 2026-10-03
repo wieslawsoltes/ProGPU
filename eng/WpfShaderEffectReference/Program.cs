@@ -119,6 +119,7 @@ internal static partial class Program
             CaptureShaderAxisDecomposition(directory, args[2], unavailableControl, timer);
             CaptureShaderAffineMath(directory, args[2], timer);
             CaptureTransformPrimitiveMath(directory, args[2], timer);
+            CaptureImageSamplerAnimations(directory, args[2], unavailableControl, timer);
             var receipt = new
             {
                 Schema = 1, SourceCommit = args[2], CaseCount = observations.Count, Cases = observations,

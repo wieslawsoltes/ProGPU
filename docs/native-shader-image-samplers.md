@@ -1,6 +1,6 @@
 # Owned ImageBrush shader samplers
 
-The original MIL ShaderEffect path can capture one static ImageBrush backed by
+The original MIL ShaderEffect path can capture one ImageBrush backed by
 an owned bitmap upload. This is an additional supported source family, not full
 ShaderEffect, external-sampler or application qualification.
 
@@ -22,11 +22,14 @@ clamps normalized coordinates to the complete capture.
 
 The decoder checks the actual same-channel brush and bitmap resources again at
 scene compilation, including deletion, replacement and external-source changes.
-Dependency revisions include the brush, transforms and bitmap. Static transform
-graphs are bounded; cycles, missing resources and animations fail explicitly.
+Dependency revisions include the brush, transforms, bitmap and original property
+animation resources. [Opacity, Viewport and Viewbox animations](native-shader-sampler-animation.md)
+resolve their retained typed current values through the ordinary tile replay.
+Static transform graphs are bounded; cycles, missing resources and animated
+transforms fail explicitly.
 Unbound bitmap uploads may be registered before their source pixels arrive, but
 cannot produce a scene. VisualBrush, DrawingBrush, DrawingImage, double-buffered
-or external bitmap sources, animated brushes and multiple samplers stay closed.
+or external bitmap sources and multiple samplers stay closed.
 
 Both native providers acquire the picture through existing owned picture
 rasterization and queue submission. A binding retains the exact engine-owned

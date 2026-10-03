@@ -12,6 +12,7 @@
 #include "progpu_native_picture_axis_fixture.hpp"
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
+#include "progpu_native_shader_sampler_animation_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_rgb_glyph_scene_fixture.hpp"
@@ -2349,6 +2350,24 @@ int main(int argc, char** argv)
     progpu_native_engine_destroy(sampler_reference_engine);
     }
     phase("original ImageBrush shader samplers passed");
+    {
+        std::array<std::array<progpu_native_engine*, 2U>, 2U> animation_engines{};
+        progpu::native::tests::verify_shader_sampler_animation_pixels(
+            [&](bool absolute, bool reference, const auto& stream,
+                const progpu_native_scene_header& header, std::uint64_t submissions,
+                progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+                auto*& selected = animation_engines[absolute ? 1U : 0U][reference ? 1U : 0U];
+                if (!selected) selected = create_engine(gpu);
+                auto pixels = render_scene(gpu, selected, nullptr, 1U, 3U, submissions,
+                    stream, header.scene_id, header.generation, &metrics);
+                require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                    "animated sampler layer metrics unavailable");
+                return pixels;
+            }, require);
+        for (auto& family : animation_engines)
+            for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
+    }
+    phase("original animated ImageBrush shader samplers passed");
     auto* scoped_copy_reference_engine = create_engine(gpu);
     progpu::native::direct2d::tests::verify_scoped_memory_copy_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
