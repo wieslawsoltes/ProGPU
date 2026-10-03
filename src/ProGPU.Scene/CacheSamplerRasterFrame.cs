@@ -112,6 +112,7 @@ public readonly struct CacheSamplerRasterFrame
         }
 
         pixels = Math.Min(integral, maximum);
+        if (pixels == 0) return true;
         double effectivePrimary = primaryScale;
         if (integral > maximum) effectivePrimary *= (double)maximum / integral;
         contentScale = (float)(renderScale * effectivePrimary);

@@ -324,10 +324,10 @@ public sealed class WpfShaderEffectSampler : IDisposable
         }
         ~OwnedSamplerLease()
         {
-            // Source Effects are managed graph nodes. Their final reference
-            // ends this parameter lease; recorded/compiled consumers retain
-            // independent explicit leases, never just the lifetime of a cache.
-            try { System.Threading.Interlocked.Exchange(ref _source, null)?.Dispose(); }
+            // Never invoke picture/source disposal from the finalizer thread.
+            // Explicit consumers retain separate leases; the existing context
+            // retirement drain owns this abandoned parameter's final release.
+            try { System.Threading.Interlocked.Exchange(ref _source, null)?.QueueRetirement(); }
             catch { }
         }
     }
