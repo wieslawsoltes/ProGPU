@@ -2150,6 +2150,11 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
+        if (command.Pen is { } sourcePen && !HasSupportedSourceJoinPolicy(sourcePen))
+        {
+            error = NativePictureCompileError.UnsupportedStroke;
+            return false;
+        }
         switch (command.Type)
         {
             case RenderCommandType.DrawHintedGlyphs:
@@ -3520,6 +3525,7 @@ public static partial class GpuPictureNativeSceneCompiler
         error = NativePictureCompileError.None;
         Pen? pen = command.Pen;
         if (pen is null || !command.IsPenThicknessLocal ||
+            !HasSupportedSourceJoinPolicy(pen) ||
             !float.IsFinite(pen.Thickness) ||
             (!pen.IsHairline && pen.Thickness <= 0f) ||
             !float.IsFinite(pen.MiterLimit) || pen.MiterLimit < 1f ||
@@ -3677,6 +3683,8 @@ public static partial class GpuPictureNativeSceneCompiler
             flags |= NativePolylineFlags.FixedDeviceStroke;
         if (command.IsClosed)
             flags |= NativePolylineFlags.Closed;
+        if (pen.UseWpfJoinSemantics)
+            flags |= NativePolylineFlags.WpfJoinSemantics;
         if (pen.LineJoin == PenLineJoin.Miter && pen.ClipMiterAtLimit)
             flags |= NativePolylineFlags.ClipMiterAtLimit;
         nativeStrokes.Add(new(
@@ -3842,6 +3850,7 @@ public static partial class GpuPictureNativeSceneCompiler
         error = NativePictureCompileError.None;
         Pen? pen = command.Pen;
         if (pen is null || !command.IsPenThicknessLocal ||
+            !HasSupportedSourceJoinPolicy(pen) ||
             (!pen.IsHairline &&
                 (!float.IsFinite(pen.Thickness) || pen.Thickness <= 0f)) ||
             !float.IsFinite(pen.MiterLimit) || pen.MiterLimit < 1f ||
@@ -3925,9 +3934,13 @@ public static partial class GpuPictureNativeSceneCompiler
             NativeStrokeCap specialKind = NativeStrokeCap.Flat)
         {
             var primitiveFlags = flags;
-            if (kind == NativeGeometryPrimitiveKind.PathJoin &&
-                pen.LineJoin == PenLineJoin.Miter && pen.ClipMiterAtLimit)
-                primitiveFlags |= NativeGeometryPrimitiveFlags.ClipMiterAtLimit;
+            if (kind == NativeGeometryPrimitiveKind.PathJoin)
+            {
+                if (pen.UseWpfJoinSemantics)
+                    primitiveFlags |= NativeGeometryPrimitiveFlags.WpfJoinSemantics;
+                if ((uint)specialKind == (uint)NativeStrokeJoin.Miter && pen.ClipMiterAtLimit)
+                    primitiveFlags |= NativeGeometryPrimitiveFlags.ClipMiterAtLimit;
+            }
             nativeGeometry.Add(new(
                 kind,
                 p0,
@@ -3966,7 +3979,7 @@ public static partial class GpuPictureNativeSceneCompiler
             Vector2 outgoing,
             bool isSmooth)
         {
-            if (isSmooth)
+            if (isSmooth && !pen.UseWpfJoinSemantics)
                 return;
             AppendPrimitive(
                 NativeGeometryPrimitiveKind.PathJoin,
@@ -3974,7 +3987,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 incoming,
                 outgoing,
                 new Vector2(pen.MiterLimit, 0f),
-                (NativeStrokeCap)(uint)MapJoin(pen.LineJoin));
+                (NativeStrokeCap)(uint)MapJoin(isSmooth ? PenLineJoin.Round : pen.LineJoin));
         }
 
         bool AppendSegment(
@@ -5655,7 +5668,7 @@ public static partial class GpuPictureNativeSceneCompiler
         thickness = 0f;
         Pen? pen = command.Pen;
         return pen is not null && command.IsPenThicknessLocal &&
-            !pen.IsHairline && !pen.IsFixed && !pen.HasDashPattern &&
+            !pen.IsHairline && !pen.IsFixed && !pen.HasDashPattern && !pen.UseWpfJoinSemantics &&
             pen.StartLineCap == PenLineCap.Flat &&
             pen.EndLineCap == PenLineCap.Flat &&
             float.IsFinite(pen.Thickness) && pen.Thickness > 0f &&
@@ -5695,6 +5708,11 @@ public static partial class GpuPictureNativeSceneCompiler
         PenLineCap.Triangle => NativeStrokeCap.Triangle,
         _ => NativeStrokeCap.Flat
     };
+
+    private static bool HasSupportedSourceJoinPolicy(Pen pen) =>
+        !pen.UseWpfJoinSemantics ||
+        (!pen.IsHairline && pen.StrokeTransformMode == PenStrokeTransformMode.Normal &&
+         (uint)pen.LineJoin <= (uint)PenLineJoin.Round);
 
     private static NativeStrokeJoin MapJoin(PenLineJoin join) => join switch
     {
