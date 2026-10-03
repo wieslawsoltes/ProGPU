@@ -3834,7 +3834,10 @@ static DrawingVisual CreateManagedGeometryVisual(
                 dashCap: dashCap,
                 dashArray: dashArray,
                 dashOffset: dashOffset,
-                strokeTransformMode: mode),
+                strokeTransformMode: mode)
+            {
+                ClipMiterAtLimit = (polyline.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0
+            },
             points.Slice(offset, count),
             polyline.IsClosed);
         RenderCommand command = visual.Context.Commands[^1];
@@ -3889,7 +3892,10 @@ static DrawingVisual CreateManagedGeometryVisual(
                 dashCap: dashCap,
                 dashArray: dashArray,
                 dashOffset: dashOffset,
-                strokeTransformMode: mode),
+                strokeTransformMode: mode)
+            {
+                ClipMiterAtLimit = (stroke.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0
+            },
             points.Slice(pointOffset, pointCount),
             doubles.Slice(knotOffset, knotCount),
             weightCount == 0
