@@ -77,6 +77,7 @@ public static partial class StrokeCoverageGeometry
     private static bool CanPrepareSmooth(Pen pen, Matrix3x2 matrix)
     {
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
         return float.IsFinite(pen.Thickness) && pen.Thickness >= 0 && !pen.IsFixed && !pen.HasDashPattern
             && (uint)pen.LineJoin <= (uint)PenLineJoin.MiterOrBevel && float.IsFinite(pen.MiterLimit)
             && float.IsFinite(matrix.M11) && float.IsFinite(matrix.M12)

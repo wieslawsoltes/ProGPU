@@ -99,6 +99,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
         IRenderDataProvider? provider,
         int? id = null)
     {
+        command.Pen?.ValidateJoinSemantics();
         if (command.Type == RenderCommandType.DrawHintedGlyphs)
         {
             _sourceCaptureFailed = true;
@@ -388,7 +389,12 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
             }
             else
             {
-                AddPrimitive(GpuHitTestPrimitive.RectangleStroke(id, min, max, Vector2.Zero, localThickness, 0f, transform, zIndex));
+                if (command.Pen.UseWpfJoinSemantics)
+                    TryAddPathStrokePrimitive(command.GeometryCache?.StrokePath ??
+                        PrimitivePathGeometry.CreateRectangle(command.Rect.X, command.Rect.Y, command.Rect.Width, command.Rect.Height),
+                        transform, id, zIndex, command.Pen, localThickness);
+                else
+                    AddPrimitive(GpuHitTestPrimitive.RectangleStroke(id, min, max, Vector2.Zero, localThickness, 0f, transform, zIndex));
             }
         }
     }
@@ -916,6 +922,9 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
         float localThickness,
         CompiledHitTestPath? precompiledPath = null)
     {
+        pen.ValidateJoinSemantics();
+        if (pen.UseWpfJoinSemantics)
+            return TryAddSourcePathStrokePrimitives(path, transform, id, zIndex, pen, localThickness);
         if (!UsesDeviceStrokeWidth(pen) &&
             (HasStrokeCapOverride(path) ||
              pen.StartLineCap != PenLineCap.Round ||

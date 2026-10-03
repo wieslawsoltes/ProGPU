@@ -19,6 +19,7 @@ public static partial class StrokeCoverageGeometry
         out PathGeometry path, out Pen coveragePen, out Rect bounds)
     {
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
         path = null!;
         coveragePen = null!;
         bounds = default;
@@ -58,6 +59,7 @@ public static partial class StrokeCoverageGeometry
         out PathGeometry path, out Pen coveragePen, out Rect bounds)
     {
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
         path = null!;
         coveragePen = null!;
         bounds = default;
@@ -99,7 +101,11 @@ public static partial class StrokeCoverageGeometry
             var normal = LeftNormal(directions[i]) * Vector128.Create(radius);
             state.Include(vertices[i] - normal); state.Include(vertices[i] + normal);
             state.Include(vertices[(i + 1) & 3] - normal); state.Include(vertices[(i + 1) & 3] + normal);
-            if (!IncludeRectangleJoin(ref state, vertices[i], directions[(i + 3) & 3], directions[i],
+            if (pen.UseWpfJoinSemantics)
+            {
+                if (!IncludeSourceJoin(ref state, pen, points[(i + 3) & 3], points[i], points[(i + 1) & 3], false)) return false;
+            }
+            else if (!IncludeRectangleJoin(ref state, vertices[i], directions[(i + 3) & 3], directions[i],
                     radius, pen.LineJoin, pen.MiterLimit, orientation)) return false;
         }
         if (!state.TryGetBounds(out var minimum, out var maximum)) return false;
@@ -206,6 +212,7 @@ public static partial class StrokeCoverageGeometry
         out PathGeometry path, out Pen coveragePen, out Rect bounds, out PathGeometry? fillCoverage)
     {
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
         path = null!;
         coveragePen = null!;
         bounds = default;

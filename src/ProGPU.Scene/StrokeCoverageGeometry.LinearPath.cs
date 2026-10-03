@@ -33,6 +33,7 @@ public static partial class StrokeCoverageGeometry
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
         strokePath = null!; coveragePen = null!; bounds = default; fillCoverage = null;
         if (source.IsCombined || (uint)source.FillRule > 1 || !float.IsFinite(pen.Thickness) || pen.Thickness < 0
             || pen.StrokeTransformMode != PenStrokeTransformMode.Normal || !double.IsFinite(pen.DashOffset)
@@ -211,14 +212,28 @@ public static partial class StrokeCoverageGeometry
             bounds.Include(NarrowPair(start + normal)); bounds.Include(NarrowPair(start - normal));
             bounds.Include(NarrowPair(end + normal)); bounds.Include(NarrowPair(end - normal));
             if (i == 0) firstDirection = direction;
+            else if (pen.UseWpfJoinSemantics)
+            {
+                var previous = i == 1 ? first : ((LineSegment)figure.Segments[i - 2]).Point;
+                if (!IncludeSourceJoin(ref bounds, pen, previous, ((LineSegment)figure.Segments[i - 1]).Point,
+                        segment.Point, segment.IsSmoothJoin)) return false;
+            }
             else IncludeLinearJoin(ref bounds, start, previousDirection, direction, radius,
                 segment.IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, pen.MiterLimit);
             previousDirection = direction;
             start = end;
         }
         if (figure.IsClosed)
-            IncludeLinearJoin(ref bounds, Wide(first), previousDirection, firstDirection, radius,
+        {
+            if (pen.UseWpfJoinSemantics)
+            {
+                var previous = count == 1 ? first : ((LineSegment)figure.Segments[count - 2]).Point;
+                if (!IncludeSourceJoin(ref bounds, pen, previous, first,
+                        ((LineSegment)figure.Segments[0]).Point, figure.Segments[0].IsSmoothJoin)) return false;
+            }
+            else IncludeLinearJoin(ref bounds, Wide(first), previousDirection, firstDirection, radius,
                 figure.Segments[0].IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, pen.MiterLimit);
+        }
         else
         {
             IncludeLinearCap(ref bounds, Wide(first), -firstDirection, radius, figure.StrokeStartLineCap ?? pen.StartLineCap);

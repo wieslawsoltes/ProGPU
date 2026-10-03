@@ -25,6 +25,7 @@ public static partial class StrokeCoverageGeometry
     {
         ArgumentNullException.ThrowIfNull(prepared);
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
         bounds = default;
         if (prepared.IsCombined || pen.HasDashPattern || pen.StrokeTransformMode != PenStrokeTransformMode.Normal
             || !float.IsFinite(pen.Thickness) || pen.Thickness < 0 || !float.IsFinite(pen.MiterLimit)
@@ -80,6 +81,12 @@ public static partial class StrokeCoverageGeometry
                     if (!AppendPositiveOutline(outline, body)) return false;
                 }
                 if (i == 0) firstDirection = direction;
+                else if (pen.UseWpfJoinSemantics)
+                {
+                    var previous = i == 1 ? figure.StartPoint : ((LineSegment)figure.Segments[i - 2]).Point;
+                    if (!IncludeSourceJoin(ref state, pen, previous, ((LineSegment)figure.Segments[i - 1]).Point,
+                            segment.Point, segment.IsSmoothJoin, outline)) return false;
+                }
                 else if (!IncludeEmittedLinearJoin(ref state, start, previousDirection, direction, radius,
                     segment.IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, Math.Max(1, pen.MiterLimit), outline)) return false;
                 previousDirection = direction;
@@ -87,7 +94,14 @@ public static partial class StrokeCoverageGeometry
             }
             if (figure.IsClosed)
             {
-                if (!IncludeEmittedLinearJoin(ref state, Wide(figure.StartPoint), previousDirection,
+                if (pen.UseWpfJoinSemantics)
+                {
+                    var previous = figure.Segments.Count == 1 ? figure.StartPoint
+                        : ((LineSegment)figure.Segments[^2]).Point;
+                    if (!IncludeSourceJoin(ref state, pen, previous, figure.StartPoint,
+                            ((LineSegment)figure.Segments[0]).Point, figure.Segments[0].IsSmoothJoin, outline)) return false;
+                }
+                else if (!IncludeEmittedLinearJoin(ref state, Wide(figure.StartPoint), previousDirection,
                     firstDirection, radius, figure.Segments[0].IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
                     Math.Max(1, pen.MiterLimit), outline)) return false;
             }
@@ -122,6 +136,32 @@ public static partial class StrokeCoverageGeometry
         var result = new Rect(min.X, min.Y, extent.X, extent.Y);
         if (!float.IsFinite(result.Right) || !float.IsFinite(result.Bottom)) return false;
         bounds = result;
+        return true;
+    }
+
+    // The explicit source policy measures the actual float join triangles used
+    // for painting and input, including a collinear reversal. Legacy material
+    // bounds retain their independently established double arithmetic above.
+    private static bool IncludeSourceJoin(ref LineBounds state, Pen pen,
+        Vector2 previous, Vector2 center, Vector2 next, bool smooth, PathGeometry? outline = null)
+    {
+        Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+        int count = StrokeJoinGeometry.WriteLineJoin(triangles, pen, pen.Thickness,
+            previous, center, next, smooth);
+        for (int i = 0; i < count; i++)
+        {
+            var triangle = triangles[i];
+            if (!FinitePoint(triangle.P0) || !FinitePoint(triangle.P1) || !FinitePoint(triangle.P2)) return false;
+            var a = Wide(triangle.P0); var b = Wide(triangle.P1); var c = Wide(triangle.P2);
+            if (Cross(b - a, c - a) == 0) continue;
+            state.Include(a); state.Include(b); state.Include(c);
+            if (outline != null)
+            {
+                var figure = OutlineFigure(a);
+                figure.Segments.Add(OutlineLine(b)); figure.Segments.Add(OutlineLine(c));
+                if (!AppendPositiveOutline(outline, figure)) return false;
+            }
+        }
         return true;
     }
 
