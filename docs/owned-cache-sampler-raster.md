@@ -47,6 +47,10 @@ entries are resurrection-aware weak references: neither the registry nor a
 weak-key source cache globally roots discarded original brushes. An abandoned
 raster also only transfers its owned payload to the context drain. Shutdown
 rejects reentrant new captures before recording or GPU allocation.
+Uncertain failed retirement is the deliberate exception to weak tracking: its
+exact owner remains strongly pending, so GC cannot erase a latched source failure
+or make a subsequent shutdown appear successful. Wrong-thread rejection retains
+the owner for an explicit creating-thread retry; successful retirement removes it.
 
 Managed shader applicability: `WpfShaderEffectExtensionPipeline` generates one
 typed texture binding per sampler and samples normalized UVs independently. It
