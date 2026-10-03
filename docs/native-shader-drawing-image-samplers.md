@@ -85,7 +85,11 @@ configurations and 18 full-frame replays per provider. They retain the source
 graph through null/empty/refill transitions, retire it before replay and compare
 every pixel against literal colors and against the paired bounds mode. Exact
 source command order, two original child draws and vector-tile composition
-remain asserted; no per-source-command GPU draw count is invented.
+remain asserted; no per-source-command GPU draw count is invented. A separate
+ordinary original-WPF family retains those three states and nine replays without
+creating a ShaderEffect, including positive ordinary drawing on native ARM64.
+It does not alter the nine-state shader reference inventory or its distinct
+unavailable SoftwareOnly control.
 
 Raw controls retain declaration-before-initialization, untouched caller output
 on failed capture, graph mutation/deletion rollback, leaf-only revision changes,
