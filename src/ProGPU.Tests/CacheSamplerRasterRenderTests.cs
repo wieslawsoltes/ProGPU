@@ -57,7 +57,8 @@ public sealed class CacheSamplerRasterRenderTests
             Assert.Equal(item.Height, raster.Texture.Height);
             Assert.False(raster.Frame.IsEmpty);
             Assert.False(raster.EnableClearType);
-            var effect = CreateEffect(implicitInput, raster.Texture);
+            using var sampler = WpfShaderEffectSampler.FromCacheRaster(1, raster, TextureSamplingMode.Nearest);
+            var effect = CreateEffect(implicitInput, sampler);
             AssertColdAndWarmPixels(compositor, target, effect, ExpectedQuadrants(changed: false));
         }
     }
@@ -79,7 +80,8 @@ public sealed class CacheSamplerRasterRenderTests
             enableClearType: false);
         firstPicture.Dispose(); // Only the captured owned generation remains.
         AssertOwnedRaster(first, frame, device.Context, sourceIdentity, 17);
-        var firstEffect = CreateEffect(implicitInput, first.Texture);
+        using var firstSampler = WpfShaderEffectSampler.FromCacheRaster(1, first, TextureSamplingMode.Nearest);
+        var firstEffect = CreateEffect(implicitInput, firstSampler);
         AssertColdAndWarmPixels(compositor, target, firstEffect, ExpectedQuadrants(changed: false));
 
         using var changedPicture = RecordQuadrants(changed: true);
@@ -90,7 +92,8 @@ public sealed class CacheSamplerRasterRenderTests
         Assert.True(changed.EnableClearType);
         Assert.NotSame(first.Texture, changed.Texture);
         Assert.NotEqual(first.Texture.Id, changed.Texture.Id);
-        var changedEffect = CreateEffect(implicitInput, changed.Texture);
+        using var changedSampler = WpfShaderEffectSampler.FromCacheRaster(1, changed, TextureSamplingMode.Nearest);
+        var changedEffect = CreateEffect(implicitInput, changedSampler);
         AssertColdAndWarmPixels(compositor, target, changedEffect, ExpectedQuadrants(changed: true));
 
         // The same source owner has advanced. Its earlier actual texture must
@@ -101,7 +104,8 @@ public sealed class CacheSamplerRasterRenderTests
         Assert.False(first.Texture.IsDisposed);
         changed.Dispose();
         Assert.True(changed.IsDisposed);
-        Assert.True(changed.Texture.IsDisposed);
+        Assert.False(changed.Texture.IsDisposed); // Its parameter still owns a lease.
+        changedSampler.Dispose();
         Assert.False(first.Texture.IsDisposed);
         AssertColdAndWarmPixels(compositor, target, firstEffect, ExpectedQuadrants(changed: false));
     }
@@ -119,7 +123,8 @@ public sealed class CacheSamplerRasterRenderTests
         var sourceIdentity = new object();
         CacheSamplerRasterFrame valid = CreateFrame(device.Context, 1, 2, 1);
         using var raster = compositor.CaptureCacheSampler(picture, valid, sourceIdentity, 23, false);
-        var effect = CreateEffect(implicitInput, raster.Texture);
+        using var sampler = WpfShaderEffectSampler.FromCacheRaster(1, raster, TextureSamplingMode.Nearest);
+        var effect = CreateEffect(implicitInput, sampler);
         AssertColdAndWarmPixels(compositor, target, effect, ExpectedQuadrants(changed: false));
 
         // Only these negative frames deliberately contradict the real query.
@@ -167,7 +172,8 @@ public sealed class CacheSamplerRasterRenderTests
             Assert.True(raster.Frame.IsEmpty);
             Assert.Equal(1U, raster.Texture.Width);
             Assert.Equal(1U, raster.Texture.Height);
-            var effect = CreateEffect(implicitInput, raster.Texture);
+            using var sampler = WpfShaderEffectSampler.FromCacheRaster(1, raster, TextureSamplingMode.Nearest);
+            var effect = CreateEffect(implicitInput, sampler);
             effect.ShaderKey = "test_raw_cache_sampler_transparent_texel";
             effect.ShaderSource = """
 fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
@@ -179,6 +185,92 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
 """;
             AssertColdAndWarmPixels(compositor, target, effect, ExpectedBackground());
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ParameterLeaseSurvivesOwnerDisposalAndRejectedReplacement(bool useDawn)
+    {
+        using var device = new RenderDevice(useDawn);
+        using var compositor = CreateCompositor(device.Context);
+        using var target = CreateTarget(device.Context);
+        using var implicitInput = CreateImplicitInput(device.Context);
+        using var picture = RecordQuadrants(changed: false);
+        var sourceIdentity = new object();
+        CacheSamplerRasterFrame frame = CreateFrame(device.Context, 1, 2, 1);
+        using var raster = compositor.CaptureCacheSampler(picture, frame, sourceIdentity, 31, false);
+        using var sampler = WpfShaderEffectSampler.FromCacheRaster(1, raster, TextureSamplingMode.Nearest);
+        var effect = CreateEffect(implicitInput, sampler);
+        raster.Dispose();
+        picture.Dispose();
+
+        Assert.True(raster.IsDisposed);
+        Assert.False(raster.Texture.IsDisposed);
+        Assert.False(raster.TryAcquireGpuTextureLease(out var rejectedLease));
+        Assert.Null(rejectedLease);
+        AssertColdAndWarmPixels(compositor, target, effect, ExpectedQuadrants(changed: false));
+
+        using var candidatePicture = RecordQuadrants(changed: true);
+        using var candidate = compositor.CaptureCacheSampler(candidatePicture, frame, sourceIdentity, 32, false);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            WpfShaderEffectSampler.FromCacheRaster(WpfShaderEffectParams.MaxSamplerRegisterCount, candidate));
+        Assert.False(candidate.IsDisposed);
+        Assert.False(candidate.Texture.IsDisposed);
+        candidate.Dispose();
+        Assert.True(candidate.Texture.IsDisposed); // No sampler ever acquired it.
+        Assert.Throws<ObjectDisposedException>(() => WpfShaderEffectSampler.FromCacheRaster(1, candidate));
+
+        // A failed candidate cannot replace/retire the existing parameter's
+        // exact owner, even after its source cache and recording were released.
+        Assert.Same(raster.Texture, sampler.Texture);
+        Assert.Equal(31UL, raster.SourceRevision);
+        Assert.False(raster.Texture.IsDisposed);
+        AssertColdAndWarmPixels(compositor, target, effect, ExpectedQuadrants(changed: false));
+        sampler.Dispose();
+        compositor.Dispose(); // Ends actual compiled/frame ownership as well.
+        Assert.True(raster.Texture.IsDisposed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClonedRecordingOwnsSamplerAfterContextParameterAndSourceRetire(bool useDawn)
+    {
+        using var device = new RenderDevice(useDawn);
+        using var compositor = CreateCompositor(device.Context);
+        using var target = CreateTarget(device.Context);
+        using var implicitInput = CreateImplicitInput(device.Context);
+        using var sourcePicture = RecordQuadrants(changed: false);
+        CacheSamplerRasterFrame frame = CreateFrame(device.Context, 1, 2, 1);
+        using var raster = compositor.CaptureCacheSampler(sourcePicture, frame, new object(), 41, false);
+        using var sampler = WpfShaderEffectSampler.FromCacheRaster(1, raster, TextureSamplingMode.Nearest);
+        var effect = CreateEffect(implicitInput, sampler);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(new Rect(0, 0, TargetWidth, TargetHeight));
+        drawing.DrawWpfShaderEffect(effect);
+        using var recorded = recorder.EndRecording();
+        using var clone = recorded.Clone();
+        Assert.True(recorded.SharesRetainedCommandStorageWith(clone));
+        Assert.Equal(1, recorded.RetainedResourceCount);
+        Assert.Equal(1, clone.RetainedResourceCount);
+        drawing.Clear();
+        recorded.Dispose();
+        sampler.Dispose();
+        raster.Dispose();
+        sourcePicture.Dispose();
+
+        Assert.True(raster.IsDisposed);
+        Assert.False(raster.Texture.IsDisposed);
+        AssertColdAndWarmPixels(compositor, target, new RecordedSamplerVisual(clone), effect,
+            ExpectedQuadrants(changed: false));
+        compositor.Dispose(); // No compiled consumer may hide the clone control.
+        Assert.False(raster.Texture.IsDisposed);
+        clone.Dispose();
+        Assert.True(raster.Texture.IsDisposed);
+        clone.Dispose();
+        sampler.Dispose();
+        raster.Dispose(); // Repeated owner endings do not release another use.
     }
 
     private static uint DifferentLimit(uint actual) => actual == uint.MaxValue ? actual - 1 : actual + 1;
@@ -249,13 +341,13 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
         return recorder.EndRecording();
     }
 
-    private static WpfShaderEffectParams CreateEffect(GpuTexture implicitInput, GpuTexture sampler) => new()
+    private static WpfShaderEffectParams CreateEffect(GpuTexture implicitInput, WpfShaderEffectSampler sampler) => new()
     {
         Texture = implicitInput,
         SourceTextureRegisterIndex = 0,
         Rect = new Rect(8, 8, 64, 32),
         SamplingMode = TextureSamplingMode.Nearest,
-        Samplers = [new WpfShaderEffectSampler(1, sampler, TextureSamplingMode.Nearest)],
+        Samplers = [sampler],
         ShaderKey = "test_independent_raw_cache_sampler",
         ShaderSource = """
 fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
@@ -264,10 +356,13 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
 """
     };
 
-    private static unsafe void AssertColdAndWarmPixels(Compositor compositor, GpuTexture target,
+    private static void AssertColdAndWarmPixels(Compositor compositor, GpuTexture target,
         WpfShaderEffectParams effect, byte[] expected)
+        => AssertColdAndWarmPixels(compositor, target, new SamplerVisual(effect), effect, expected);
+
+    private static unsafe void AssertColdAndWarmPixels(Compositor compositor, GpuTexture target,
+        FrameworkElement visual, WpfShaderEffectParams effect, byte[] expected)
     {
-        var visual = new SamplerVisual(effect);
         visual.Measure(new Vector2(TargetWidth, TargetHeight));
         visual.Arrange(new Rect(0, 0, TargetWidth, TargetHeight));
         for (int replay = 0; replay < 2; replay++)
@@ -313,6 +408,11 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
     private sealed class SamplerVisual(WpfShaderEffectParams effect) : FrameworkElement
     {
         public override void OnRender(DrawingContext context) => context.DrawWpfShaderEffect(effect);
+    }
+
+    private sealed class RecordedSamplerVisual(GpuPicture picture) : FrameworkElement
+    {
+        public override void OnRender(DrawingContext context) => context.DrawPicture(picture);
     }
 
     private sealed class RenderDevice : IDisposable
