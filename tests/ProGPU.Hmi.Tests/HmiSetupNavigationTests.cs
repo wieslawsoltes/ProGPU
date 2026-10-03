@@ -70,10 +70,32 @@ public sealed class HmiSetupNavigationTests : IDisposable
         {
             Press(next);
             Assert.True(scroll.HorizontalOffset > 0);
+            Assert.True(previous.IsEnabled);
             Press(previous);
             Assert.Equal(0f, scroll.HorizontalOffset);
             Assert.False(previous.IsEnabled);
         }
+    }
+
+    [Fact]
+    public void StudioScrollButtonsTrackTheViewerWithoutAButtonCallback()
+    {
+        using var host = CreateHost(640);
+        var scroll = Find<ScrollViewer>(host, "HmiStudioTools");
+        var previous = Find<Button>(host, "HmiStudioScrollLeft");
+        var next = Find<Button>(host, "HmiStudioScrollRight");
+        Assert.True(scroll.ScrollableWidth > 0);
+
+        scroll.ChangeView(scroll.ScrollableWidth, null, null);
+        Assert.True(previous.IsEnabled);
+        Assert.False(next.IsEnabled);
+
+        scroll.ChangeView(0, null, null);
+        Assert.False(previous.IsEnabled);
+        Assert.True(next.IsEnabled);
+        Assert.Null(host.Runtime);
+        Assert.Null(host.ConnectionFactory);
+        Assert.Null(host.WriteAuthorizer);
     }
 
     [Theory]
