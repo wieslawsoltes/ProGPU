@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using ProGPU.Backend;
 
@@ -10,19 +9,20 @@ namespace ProGPU.Scene;
 /// The texture is sampled directly in normalized coordinates; consumer opacity,
 /// transforms and effect-input dimensions do not belong to this raster.
 /// </summary>
-public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
+public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable, ICacheSamplerRetirementParticipant
 {
-    private static readonly ConditionalWeakTable<WgpuContext, ContextRetirement> s_retirements = new();
+    private static readonly ConditionalWeakTable<WgpuContext, CacheSamplerRetirement> s_retirements = new();
     static CacheSamplerRaster() => WgpuContext.Disposing += RetireContext;
     internal static void EnsureContextAcceptsCapture(WgpuContext context) =>
-        s_retirements.GetValue(context, static _ => new()).EnsureAcceptsCapture();
+        s_retirements.GetValue(context, static owner => new(owner.QueueExternalTextureOwnerDisposal)).EnsureAcceptsCapture();
     private GpuPicture? _picture;
-    private readonly ContextRetirement _retirementOwner;
+    private readonly CacheSamplerRetirement _retirementOwner;
     private int _ownerReleased;
     private int _references = 1;
     private readonly int _creatingThread = Environment.CurrentManagedThreadId;
     private int _payloadRetired;
     private bool _registered;
+    private bool _retirementInProgress;
     private System.Runtime.ExceptionServices.ExceptionDispatchInfo? _retirementFailure;
 
     internal CacheSamplerRaster(GpuTexture texture, GpuPicture picture,
@@ -34,7 +34,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
         DeviceIdentity = deviceIdentity; EnableClearType = enableClearType;
         // The owning context retires surviving parameter/recording generations
         // before its final resource drain. Shutdown never relies on a later GC.
-        _retirementOwner = s_retirements.GetValue(texture.Context, static _ => new());
+        _retirementOwner = s_retirements.GetValue(texture.Context, static owner => new(owner.QueueExternalTextureOwnerDisposal));
         _retirementOwner.Add(this);
         _registered = true;
     }
@@ -95,19 +95,23 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
         if (System.Threading.Interlocked.Decrement(ref _references) != 0) return;
         if (System.Threading.Volatile.Read(ref _payloadRetired) != 0) return;
         if (Environment.CurrentManagedThreadId == _creatingThread) RetireResources();
-        else _retirementOwner.Queue(Texture.Context, new Retirement(this));
+        else _retirementOwner.Queue(new Retirement(this));
     }
 
     private static void RetireContext(WgpuContext context)
     {
-        if (s_retirements.TryGetValue(context, out ContextRetirement? owner)) owner.RetireAll();
+        if (s_retirements.TryGetValue(context, out CacheSamplerRetirement? owner)) owner.RetireAll();
     }
+
+    void ICacheSamplerRetirementParticipant.Retire() => RetireResources();
 
     private void RetireResources()
     {
         lock (Texture.Context.RenderLock)
         {
             _retirementFailure?.Throw();
+            if (_retirementInProgress)
+                throw new InvalidOperationException("A cache source callback cannot complete its own retirement reentrantly.");
             if (_payloadRetired != 0) return;
             if (Environment.CurrentManagedThreadId != _creatingThread)
             {
@@ -118,11 +122,16 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
             // both payload releases and preserve the first failure; an uncertain
             // release remains latched and blocks successful context shutdown.
             System.Threading.Volatile.Write(ref _payloadRetired, 1);
+            _retirementInProgress = true;
             GpuPicture? picture = System.Threading.Interlocked.Exchange(ref _picture, null);
-            try { Texture.Dispose(); }
-            catch (Exception error) { _retirementFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
-            try { picture?.Dispose(); }
-            catch (Exception error) { _retirementFailure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
+            try
+            {
+                try { Texture.Dispose(); }
+                catch (Exception error) { _retirementFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
+                try { picture?.Dispose(); }
+                catch (Exception error) { _retirementFailure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
+            }
+            finally { _retirementInProgress = false; }
             if (_retirementFailure is not null)
             {
                 _retirementOwner.RetainFailure(this, picture);
@@ -130,81 +139,6 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
             }
             _retirementOwner.Remove(this);
             GC.SuppressFinalize(this);
-        }
-    }
-
-    private sealed class ContextRetirement
-    {
-        // Short queue-vs-shutdown handshake only. Never run source callbacks or
-        // acquire RenderLock while held: a source callback owning RenderLock
-        // may itself wait for pending finalizers.
-        private readonly object _sync = new();
-        // The weak context key and weak generation entries must not turn a source-cache weak key
-        // into a strong retained history through Raster.SourceIdentity. Track
-        // resurrection so shutdown can also see a queued/finalizing generation.
-        private readonly List<WeakReference<CacheSamplerRaster>> _rasters = [];
-        // An uncertain release is not ordinary abandoned history. Its exact
-        // owner stays strongly pending so GC cannot turn failure into success.
-        private readonly Dictionary<CacheSamplerRaster, GpuPicture?> _failed = [];
-        private bool _retiring;
-        internal void EnsureAcceptsCapture()
-        {
-            lock (_sync)
-                if (_retiring) throw new ObjectDisposedException(nameof(CacheSamplerRaster), "The owning context is retiring cache sources.");
-        }
-        internal void Add(CacheSamplerRaster raster)
-        {
-            lock (_sync)
-            {
-                EnsureAcceptsCapture();
-                _rasters.RemoveAll(static entry => !entry.TryGetTarget(out _));
-                _rasters.Add(new(raster, trackResurrection: true));
-            }
-        }
-        internal void RetainFailure(CacheSamplerRaster raster, GpuPicture? picture = null)
-        {
-            lock (_sync)
-            {
-                if (picture is not null || !_failed.ContainsKey(raster)) _failed[raster] = picture;
-            }
-        }
-        internal void Remove(CacheSamplerRaster raster)
-        {
-            lock (_sync)
-            {
-                _failed.Remove(raster);
-                _rasters.RemoveAll(entry => !entry.TryGetTarget(out var target) || ReferenceEquals(target, raster));
-            }
-        }
-        internal void Queue(WgpuContext context, IDisposable owner)
-        {
-            lock (_sync)
-            {
-                // Shutdown owns the complete live snapshot after this flag.
-                // Its payload retirement replaces any late finalizer enqueue.
-                if (!_retiring) context.QueueExternalTextureOwnerDisposal(owner);
-            }
-        }
-        internal void RetireAll()
-        {
-            HashSet<CacheSamplerRaster> snapshot;
-            lock (_sync)
-            {
-                _retiring = true;
-                snapshot = new HashSet<CacheSamplerRaster>(_failed.Keys);
-                foreach (var entry in _rasters)
-                    if (entry.TryGetTarget(out var raster)) snapshot.Add(raster);
-            }
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
-            foreach (CacheSamplerRaster raster in snapshot)
-            {
-                try { raster.RetireResources(); }
-                catch (Exception error)
-                {
-                    failure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
-                }
-            }
-            failure?.Throw();
         }
     }
 
@@ -221,7 +155,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
         {
             if (!_registered) return; // Failed construction still belongs to its caller.
             if (System.Threading.Volatile.Read(ref _payloadRetired) == 0)
-                _retirementOwner.Queue(Texture.Context, new Retirement(this));
+                _retirementOwner.Queue(new Retirement(this));
         }
         catch { }
     }
@@ -255,7 +189,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
             // releases it, including any source leases in the recorded picture.
             CacheSamplerRaster? owner = System.Threading.Volatile.Read(ref _owner);
             if (owner is null) return;
-            owner._retirementOwner.Queue(owner.Texture.Context, this);
+            owner._retirementOwner.Queue(this);
         }
         public void Dispose() => System.Threading.Interlocked.Exchange(ref _owner, null)?.Release();
     }
