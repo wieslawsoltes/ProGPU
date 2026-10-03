@@ -65,8 +65,20 @@ retains 256 outline queries, exact bounds bits, and full paired DrawPath/FillPat
 RGBA comparisons; Widen point/type transcripts are diagnostic only. The
 original 13 clip/44 transform cases, provenance and deadlines are unchanged.
 
-Source-adapter and native triangle/mask, resource and query controls accompany
-those fixtures. No builds,
+`MiterOrBevelCanvasTests` and `MiterClippedPenTests` add six configurations
+each for the real source adapters. Three native helper groups are registered
+in the existing internal and geometry-utility executables:
+
+- eight threshold/WPF-policy triangle-and-mask combinations, plus reversal and
+  untouched invalid-tail controls;
+- four retained stroke-mode layouts and six solid/dashed semantic-path
+  compilations, with failed-resource rollback;
+- sixteen closed-seam/dash/limit public C query combinations, plus undefined
+  join output-reset controls.
+
+These native controls are source/resource/query checks, not additional native
+GPU pixel qualification. Existing native provider and package gates remain
+required. No builds,
 tests, syntax checks, verifiers, original probes, GPU/UI runs, package checks
 or CI were executed for this slice. This is not full Direct2D/Win2D/Drawing,
 WPF application or cross-provider image qualification.
