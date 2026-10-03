@@ -299,15 +299,20 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
         var r = p.Rect;
         var color = new Vector4(1f, 1f, 1f, compositor.ActiveOpacity);
 
-        var v0 = Vector2.Transform(new Vector2(r.X, r.Y), transform);
-        var v1 = Vector2.Transform(new Vector2(r.X + r.Width, r.Y), transform);
-        var v2 = Vector2.Transform(new Vector2(r.X + r.Width, r.Y + r.Height), transform);
-        var v3 = Vector2.Transform(new Vector2(r.X, r.Y + r.Height), transform);
+        var edges = p.OutputEdges ?? new Vector4(r.X, r.Y, r.X + r.Width, r.Y + r.Height);
+        var v0 = Vector2.Transform(new Vector2(edges.X, edges.Y), transform);
+        var v1 = Vector2.Transform(new Vector2(edges.Z, edges.Y), transform);
+        var v2 = Vector2.Transform(new Vector2(edges.Z, edges.W), transform);
+        var v3 = Vector2.Transform(new Vector2(edges.X, edges.W), transform);
 
-        var uv0 = new Vector2(0f, 0f);
-        var uv1 = new Vector2(1f, 0f);
-        var uv2 = new Vector2(1f, 1f);
-        var uv3 = new Vector2(0f, 1f);
+        // The output remains the original padded quad; its UVs select that
+        // coverage within the complete outward-rounded input texture. Shader
+        // evaluation still occurs here at the final draw, not in another pass.
+        var uv = p.TextureUvBounds;
+        var uv0 = new Vector2(uv.X, uv.Y);
+        var uv1 = new Vector2(uv.Z, uv.Y);
+        var uv2 = new Vector2(uv.Z, uv.W);
+        var uv3 = new Vector2(uv.X, uv.W);
 
         if (compositor.ActiveClipRect.HasValue &&
             !QuadClipper.TryClipAxisAlignedQuad(

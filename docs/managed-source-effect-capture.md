@@ -38,16 +38,59 @@ repair invalid source metadata. Source frame failures publish no partial frame
 and are detected before effect texture allocation. Existing source-opacity and
 final-clip ordering, real GPU resource ownership and retirement remain unchanged.
 
-## Rendering boundary still to qualify
+## Actual target mapping and complete input texture
 
-This path retains the managed compositor's existing one-logical-unit minimum,
-float multiplication followed by ceiling for physical dimensions, and final
-sampling/coverage behavior. It does **not** import the native compiler's outward
-physical-origin lattice, fractional/affine final-sample decomposition or separate
-original output-clip proof. Those original-WPF equivalence requirements remain
-separate; a correct four-edge metadata/frame connection is not full fractional
-or transformed image parity. In particular, the raw descriptor must never be
-advertised as a successful device or original pixel qualification by itself.
+The explicit per-axis overload of `EffectCaptureFrame.TryCreateSource` takes
+`(source, sourceTranslation, pixelsPerUnit, dpiScale, out frame)`. Its XY value is
+the actual target projection-to-viewport scale, not semantic DPI, the maximum of
+two DPI values, or a decomposition of a visual's affine transform. The separately
+supplied positive finite `dpiScale` remains the caller's actual text/snapping and
+nested-effect DPI. The compositor retains it during offscreen rendering.
+
+`TryResolveSourcePixelsPerUnit` constructs the host's original float orthographic
+projection, normalizes its viewport against the physical target, and multiplies
+the stored projection coefficients by the viewport's half extents. It does not
+replace that order with `viewport/logicalSize`. Source hosts can pass their actual
+pre-replay target snapshot through this shared resolver; the compositor resolves
+from its current projection and actual root/offscreen target. Neither path reads
+an earlier frame's compositor state as a substitute for an eager source request.
+
+The vector overload multiplies each independently padded float endpoint by the
+corresponding XY value, floors the near edges and ceilings the far edges. It
+retains signed physical origins and complete texture dimensions as exact float
+integers, bounded to the inclusive +/-2^24 coordinate domain and at most 2^24
+pixels per axis. Larger footprints fail explicitly; no integer truncation hides
+an unrepresentable origin. Invalid extents or nonfinite projection coefficients
+fail before frame publication. Device allocation limits remain separately owned.
+
+`RasterBounds` and `ProjectionExtent` describe the complete outward texture in
+rebased logical coordinates. Rendering offsets by that raster origin and uses
+the floating projection extent, not its integer bookkeeping ceiling. There is
+no one-logical-unit minimum on this explicit route. `SourceToRaster` describes
+the source-to-physical mapping as metadata; it does not replace semantic DPI
+with 1 or transform a framed ImageBrush/VisualBrush's physical-identity content.
+
+Final shader evaluation stays in the existing direct output draw. Its original
+padded coverage selects `TextureUvBounds` within the complete input texture;
+there is no extra post-effect intermediate or second final-sample shader. UV
+endpoints survive clipping and retained-command translation. `OutputEdges`
+retains the four independently rebased geometry endpoints: adding a rounded
+`Rect.Width` back to its origin is not a substitute for the original far edge.
+The optional parameter override defaults to null for historical Rect-based
+callers, and resets with the legacy UV mapping. Texture-size and
+derivative metadata continue to describe the complete input texture. Raw cache
+sampler textures remain independently sized and mapped.
+
+The complete resolved frame participates in texture reuse, including semantic
+DPI, XY, physical origin, logical origin/extent and UVs. A changed frame is not
+qualified for reuse until capture succeeds. Scalar frame overloads and explicit
+raster-padding overrides retain their previous extent, minimum and mapping
+semantics; clearing the descriptor also restores full-texture UVs.
+
+The managed final affine quad still follows the existing compositor transform
+behavior. This change does not infer a source affine capture basis or claim the
+native/original fractional-affine equivalence contract is qualified. Actual
+original comparisons and complete device/application gates remain separate.
 
 ## Basis, research and costs
 
@@ -57,6 +100,10 @@ Product changes derive from ProGPU-owned `EffectCaptureFrame`, `Visual` and
 already documented in [native source padding](native-shader-capture-padding.md)
 and [native local capture](native-shader-local-capture-frame.md). No foreign
 implementation, coefficients or renderer code is copied or adapted.
+
+The outward lattice and independent coverage/texture distinction additionally
+reuse ProGPU's owned `progpu_native_shader_capture_frame.hpp` and
+`progpu_native_shader_sample_frame.hpp`. They are not a port of a foreign engine.
 
 Primary architecture references were examined for this change:
 
@@ -97,6 +144,16 @@ Pure controls cover independent fractional edges, original double endpoint
 narrowing, exact source rebasing, same-size origin changes, source bit identity,
 cache invalidation, nullable reset, explicit legacy overrides and atomic invalid
 metadata/extent/DPI results. Existing scalar frame controls remain unchanged.
+
+Twelve additional pure facts cover the explicit vector frame and shared target
+resolver, including signed origins, independent output edges, exact over-limit
+integer spans before narrowing, projection overflow, semantic DPI independent
+of XY, sub-unit extents, viewport clamping and atomic invalid results. The new
+provider fixture authors twelve states per provider over constant/implicit-input
+shaders: actual XY changes with unchanged logical dimensions and semantic DPI,
+viewport translation, retained original source rebase and reset. Each compares
+literal complete 160-by-96 pixel images on first, warm and independent compositor
+replays. These are authored acceptance controls, not observed results.
 
 The actual shared native and Dawn compositor harnesses each receive twelve
 authored configurations: constant versus implicit-input shaders over retained

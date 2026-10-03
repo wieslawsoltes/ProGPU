@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using ProGPU.Backend;
 
 namespace ProGPU.Scene;
@@ -18,6 +19,10 @@ public sealed class WpfShaderEffectParams
 
     public GpuTexture? Texture { get; set; }
     public Rect Rect { get; set; }
+    /// <summary>Left/top/right/bottom texture coordinates for the final output rectangle. Legacy callers use the full texture.</summary>
+    public Vector4 TextureUvBounds { get; set; } = new(0, 0, 1, 1);
+    /// <summary>Optional independent local left/top/right/bottom output edges. Null preserves Rect-based geometry.</summary>
+    public Vector4? OutputEdges { get; set; }
     public string ShaderSource { get; set; } = WpfShaderEffectShaders.PassThrough;
     public string ShaderKey { get; set; } = string.Empty;
     public float[] Constants { get; set; } = Array.Empty<float>();
@@ -197,6 +202,8 @@ public sealed class WpfShaderEffectParams
         hash.Add(Rect.Y);
         hash.Add(Rect.Width);
         hash.Add(Rect.Height);
+        hash.Add(TextureUvBounds);
+        hash.Add(OutputEdges);
 
         hash.Add(Constants.Length);
         for (int i = 0; i < Constants.Length; i++)
