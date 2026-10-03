@@ -93,22 +93,24 @@ public sealed class OwnedShaderEffectRecordingTests
         Assert.Equal(1, recipe.DisposeCount);
     }
 
-    [Fact]
-    public void OneRecordingKeepsSeparateTargetsWithSharedNativeProvider()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void OneRecordingKeepsSeparateTargetsWithSharedNativeProvider(bool returnPriorGeneration)
     {
         using var window = new HeadlessWindow(64, 64);
-        VerifySeparateTargets(window.Context);
+        VerifySeparateTargets(window.Context, returnPriorGeneration);
     }
 
-    [Fact]
-    public void OneRecordingKeepsSeparateTargetsWithSharedDawnProvider()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void OneRecordingKeepsSeparateTargetsWithSharedDawnProvider(bool returnPriorGeneration)
     {
         if (!OperatingSystem.IsMacOS()) return;
         using var dawn = DawnGpuContext.CreateMetalPresentation();
-        VerifySeparateTargets(dawn.Context);
+        VerifySeparateTargets(dawn.Context, returnPriorGeneration);
     }
 
-    private static unsafe void VerifySeparateTargets(WgpuContext context)
+    private static unsafe void VerifySeparateTargets(WgpuContext context, bool returnPriorGeneration)
     {
         using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm,
             CompositorOptions.Default with { EnableGpuHitTesting = false, PrimarySampleCount = 1 });
@@ -118,7 +120,7 @@ public sealed class OwnedShaderEffectRecordingTests
             alphaMode: GpuTextureAlphaMode.Premultiplied);
         var contentOwner = new CountedOwner();
         using var content = RecordContent(contentOwner);
-        var recipe = new Preparation();
+        var recipe = new Preparation(returnPriorGeneration);
         using var source = new OwnedShaderEffectSource(Capture, Vector2.Zero, recipe);
         var recorder = new GpuPictureRecorder();
         var commands = recorder.BeginRecording(new Rect(0, 0, 8, 4));
@@ -149,7 +151,20 @@ public sealed class OwnedShaderEffectRecordingTests
         root.Context.DrawRectangle(new SolidColorBrush(new Vector4(0, 1, 0, 1)), null, new Rect(8, 8, 2, 4));
         try
         {
-            byte[] expected = ExpectedSeparateTargets();
+            if (returnPriorGeneration)
+            {
+                // The second target deliberately returns the first target's
+                // already-transferred object. Reject it without disposing the
+                // first generation, then draw that earlier generation again.
+                Assert.Throws<InvalidOperationException>(() => compositor.RenderScene(root,
+                    64, 64, 128, 64, RenderTargetViewport.Full(128, 64), 1, target.ViewPtr));
+                Assert.Equal(2, recipe.Targets.Count);
+                root.Context.Clear();
+                outer.Context.Clear();
+                root.Context.DrawPictureTransformed(picture, Matrix4x4.CreateTranslation(4, 8, 0));
+                root.Context.DrawRectangle(new SolidColorBrush(new Vector4(0, 1, 0, 1)), null, new Rect(8, 8, 2, 4));
+            }
+            byte[] expected = ExpectedSeparateTargets(includeNested: !returnPriorGeneration);
             compositor.RenderScene(root, 64, 64, 128, 64, RenderTargetViewport.Full(128, 64), 1, target.ViewPtr);
             Assert.Equal(expected, target.ReadPixels());
             Assert.Equal(2, recipe.Targets.Count);
@@ -178,7 +193,7 @@ public sealed class OwnedShaderEffectRecordingTests
         Assert.Equal(1, contentOwner.DisposeCount);
     }
 
-    private static byte[] ExpectedSeparateTargets()
+    private static byte[] ExpectedSeparateTargets(bool includeNested)
     {
         // Independent literal physical rectangles: red main capture, blue
         // nested unit-scale capture, then green later content above the red.
@@ -190,7 +205,7 @@ public sealed class OwnedShaderEffectRecordingTests
             if (y >= 8 && y < 12)
             {
                 if (x >= 8 && x < 24) pixels[index] = 255;
-                if (x >= 40 && x < 56) pixels[index + 2] = 255;
+                if (includeNested && x >= 40 && x < 56) pixels[index + 2] = 255;
                 if (x >= 16 && x < 20)
                 {
                     pixels[index] = 0;
@@ -217,21 +232,25 @@ public sealed class OwnedShaderEffectRecordingTests
         public void Dispose() => DisposeCount++;
     }
 
-    private sealed class Preparation : IShaderEffectPreparation
+    private sealed class Preparation(bool returnPriorGeneration = false) : IShaderEffectPreparation
     {
+        private OwnedShaderEffectParameters? _prior;
         internal List<ShaderEffectPreparationContext> Targets { get; } = [];
         internal int DisposeCount { get; private set; }
         public OwnedShaderEffectParameters Prepare(ShaderEffectPreparationContext context)
         {
             Targets.Add(context);
+            if (returnPriorGeneration && _prior is not null) return _prior;
             bool wide = context.CaptureFrame.PixelsPerUnit.X == 2;
-            return new OwnedShaderEffectParameters(new WpfShaderEffectParams
+            var result = new OwnedShaderEffectParameters(new WpfShaderEffectParams
             {
                 ShaderKey = wide ? "owned_target_wide" : "owned_target_unit",
                 ShaderSource = wide
                     ? "fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> { return vec4<f32>(1.0, 0.0, 0.0, 1.0); }"
                     : "fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> { return vec4<f32>(0.0, 0.0, 1.0, 1.0); }"
             });
+            if (returnPriorGeneration) _prior = result;
+            return result;
         }
         public void Dispose() => DisposeCount++;
     }
