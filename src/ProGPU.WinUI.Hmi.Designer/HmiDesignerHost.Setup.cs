@@ -74,6 +74,8 @@ public sealed partial class HmiDesignerHost
         strip.AddChild(previous);
         strip.AddChild(scroll); SetColumn(scroll, 1);
         strip.AddChild(next); SetColumn(next, 2);
+        // Observe the clamped offset after both buttons exist. Move must capture
+        // only the viewer, since its delegates are created in button initializers.
         scroll.RegisterPropertyChangedCallback(ScrollViewer.ScrollableWidthProperty, (_, _) => UpdateButtons());
         scroll.RegisterPropertyChangedCallback(ScrollViewer.HorizontalOffsetProperty, (_, _) => UpdateButtons());
         UpdateButtons();
@@ -83,7 +85,6 @@ public sealed partial class HmiDesignerHost
         {
             scroll.ChangeView(scroll.HorizontalOffset + direction * Math.Max(120f, scroll.ViewportWidth * 0.75f),
                 null, null);
-            UpdateButtons();
         }
         void UpdateButtons()
         {
