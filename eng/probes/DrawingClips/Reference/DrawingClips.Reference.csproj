@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Program.cs" Link="Program.cs" />
+    <Compile Include="../MiterJoins.cs" Link="MiterJoins.cs" />
   </ItemGroup>
 </Project>

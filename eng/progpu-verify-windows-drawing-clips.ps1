@@ -1,9 +1,13 @@
-param([Parameter(Mandatory = $true)][ValidateSet('win-x64', 'win-arm64')][string] $Rid)
+param(
+    [Parameter(Mandatory = $true)][ValidateSet('win-x64', 'win-arm64')][string] $Rid,
+    [switch] $StrokeJoins
+)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if (-not $IsWindows) { throw 'Drawing clip comparison requires actual Windows.' }
 $root = Split-Path -Parent $PSScriptRoot
 $output = Join-Path $root "artifacts/windows-drawing-clips/$Rid"
+if ($StrokeJoins) { $output += '-stroke-joins' }
 if (Test-Path -LiteralPath $output) { throw 'Drawing clip evidence already exists.' }
 New-Item -ItemType Directory -Path $output | Out-Null
 $receipts = @()
@@ -16,7 +20,9 @@ foreach ($kind in @('Reference', 'Portable')) {
     $receipt = Join-Path $output "$kind.json"
     $stdout = Join-Path $output "$kind-stdout.log"
     $stderr = Join-Path $output "$kind-stderr.log"
-    $child = Start-Process -FilePath (Get-Command dotnet).Source -ArgumentList @(('"{0}"' -f $dll), ('"{0}"' -f $receipt)) -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $childArguments = @(('"{0}"' -f $dll), ('"{0}"' -f $receipt))
+    if ($StrokeJoins) { $childArguments += '--stroke-joins' }
+    $child = Start-Process -FilePath (Get-Command dotnet).Source -ArgumentList $childArguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     try {
         if (!$child.WaitForExit(120000)) { throw "Drawing clip probe $kind exceeded 120 seconds." }
         if ($child.ExitCode -ne 0) { throw "Drawing clip probe $kind failed: $($child.ExitCode)." }
@@ -79,3 +85,76 @@ for ($index = 0; $index -lt 13; $index++) {
     }
 }
 Write-Host "Drawing clips match Microsoft: $Rid / 13 cases, exact bounds, visibility, and every pixel."
+
+# Explicitly selected, authored controls; execution remains a separate Windows
+# qualification step. Existing clip/transform inventory and deadlines are intact.
+$strokeJoinNames = @()
+if ($StrokeJoins) {
+    $strokeJoinNames = @(foreach ($shape in @('rectangle', 'acute')) {
+        foreach ($join in @('Miter', 'MiterClipped')) {
+            foreach ($limit in @(1, 2, 10)) { "$shape-$join-$limit" }
+        }
+    })
+}
+foreach ($receipt in $receipts) {
+    if ($receipt.StrokeJoins.Count -ne $strokeJoinNames.Count -or
+        (@($receipt.StrokeJoins | ForEach-Object { $_.Name }) -join ',') -cne ($strokeJoinNames -join ',')) {
+        throw 'The explicitly selected drawing stroke join inventory must execute completely in source order.'
+    }
+    foreach ($case in $receipt.StrokeJoins) {
+        if ($case.Width -ne 64 -or $case.Height -ne 64 -or
+            $case.QueryPoints.Count -ne 512 -or
+            $case.OutlineVisible.Count -ne 256 -or $case.WidenedVisible.Count -ne 256 -or
+            $case.StrokeBounds.Values.Count -ne 4 -or $case.StrokeBounds.Bits.Count -ne 4 -or
+            $case.WidenedBounds.Values.Count -ne 4 -or $case.WidenedBounds.Bits.Count -ne 4) {
+            throw "Incomplete drawing stroke join capture: $($case.Name)."
+        }
+        if (($case.SourceBefore | ConvertTo-Json -Depth 10 -Compress) -cne
+            ($case.SourceAfter | ConvertTo-Json -Depth 10 -Compress)) {
+            throw "Drawing stroke queries or painting mutated the source path: $($case.Name)."
+        }
+        foreach ($path in @($case.SourceBefore, $case.SourceAfter, $case.WidenedPath)) {
+            if ($path.PointCount -le 0 -or
+                $path.Points.Values.Count -ne 2 * $path.PointCount -or
+                $path.Points.Bits.Count -ne 2 * $path.PointCount -or
+                [Convert]::FromBase64String($path.Types).Length -ne $path.PointCount) {
+                throw "Incomplete original path metadata: $($case.Name)."
+            }
+        }
+    }
+}
+for ($index = 0; $index -lt $strokeJoinNames.Count; $index++) {
+    $reference = $expected.StrokeJoins[$index]
+    $portable = $actual.StrokeJoins[$index]
+    foreach ($property in @('Name', 'Width', 'Height', 'Pen', 'SourceBefore', 'SourceAfter',
+        'StrokeBounds', 'WidenedBounds', 'QueryPoints', 'OutlineVisible', 'WidenedVisible',
+        'DrawState', 'FillState')) {
+        if (($reference.$property | ConvertTo-Json -Depth 10 -Compress) -cne
+            ($portable.$property | ConvertTo-Json -Depth 10 -Compress)) {
+            throw "Drawing stroke join mismatch: $($reference.Name)/$property. See both original receipts."
+        }
+    }
+    # WidenedPath retains each implementation's original points/types, but
+    # decomposition is diagnostic: compare coverage and bounds, not topology.
+    # Compare each public paint route only with the same Microsoft route.
+    foreach ($route in @('draw', 'widen')) {
+        $hashProperty = if ($route -eq 'draw') { 'DrawPixelsSha256' } else { 'WidenPixelsSha256' }
+        $referenceFile = Join-Path $output "Reference.json.stroke-joins.$($reference.Name).$route.rgba"
+        $portableFile = Join-Path $output "Portable.json.stroke-joins.$($portable.Name).$route.rgba"
+        [byte[]] $referencePixels = [IO.File]::ReadAllBytes($referenceFile)
+        [byte[]] $portablePixels = [IO.File]::ReadAllBytes($portableFile)
+        if ($referencePixels.Length -ne 64 * 64 * 4 -or $portablePixels.Length -ne 64 * 64 * 4 -or
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($referencePixels)) -cne $reference.$hashProperty -or
+            [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($portablePixels)) -cne $portable.$hashProperty) {
+            throw "Incomplete or changed drawing stroke pixels: $($reference.Name)/$route."
+        }
+        for ($offset = 0; $offset -lt $referencePixels.Length; $offset++) {
+            if ($referencePixels[$offset] -ne $portablePixels[$offset]) {
+                throw "Drawing stroke pixel mismatch: $($reference.Name)/$route, RGBA byte $offset. Original bytes retained."
+            }
+        }
+    }
+}
+if ($StrokeJoins) {
+    Write-Host "Drawing stroke joins match Microsoft: $Rid / 12 cases, exact bounds, 256 original queries per case, and complete DrawPath/FillPath RGBA."
+}

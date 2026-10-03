@@ -6,8 +6,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-if (args.Length != 1)
-    throw new ArgumentException("Expected an output JSON path.");
+if (args.Length is < 1 or > 2 ||
+    (args.Length == 2 && args[1] != "--stroke-joins"))
+    throw new ArgumentException("Expected an output JSON path and optional --stroke-joins.");
+bool captureStrokeJoins = args.Length == 2;
 
 string[] names = ["Replace", "Intersect", "Union", "Xor", "Exclude", "Complement",
     "save", "container", "flush", "translate", "page", "display", "rotate"];
@@ -109,6 +111,7 @@ foreach (string name in names)
         Visible = visible, Ink = ink, PixelsSha256 = Convert.ToHexString(SHA256.HashData(pixels)) });
     Console.WriteLine($"Drawing clip {name}: completed at {elapsed.ElapsedMilliseconds} ms; ink={ink}");
 }
+var strokeJoins = captureStrokeJoins ? MiterJoins.Capture(args[0]) : new List<object>();
 var assembly = typeof(Graphics).Assembly;
 using var assemblyFile = File.OpenRead(assembly.Location);
 File.WriteAllText(args[0], JsonSerializer.Serialize(new
@@ -116,7 +119,7 @@ File.WriteAllText(args[0], JsonSerializer.Serialize(new
     Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
     Assembly = assembly.FullName, AssemblyPath = assembly.Location,
     AssemblySha256 = Convert.ToHexString(SHA256.HashData(assemblyFile)),
-    Cases = cases, Transforms = transforms
+    Cases = cases, Transforms = transforms, StrokeJoins = strokeJoins
 }, new JsonSerializerOptions { WriteIndented = true,
     NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals }));
 
