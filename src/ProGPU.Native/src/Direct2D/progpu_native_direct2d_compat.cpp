@@ -1491,7 +1491,7 @@ template <std::size_t Capacity>
     return com::ok;
 }
 
-[[nodiscard]] com::result widen_transformed_rectangle(
+[[nodiscard]] com::result widen_transformed_rectangle_impl(
     const rectangle_f& rectangle,
     float stroke_width,
     stroke_style* style,
@@ -2356,7 +2356,7 @@ public:
             get_axis_preserving_rectangle(&transformed_rectangle);
         return com::failed(rectangle_result)
             ? rectangle_result
-            : widen_transformed_rectangle(
+            : detail::widen_transformed_rectangle(
                   transformed_rectangle,
                   stroke_width,
                   style,
@@ -2393,6 +2393,13 @@ private:
             return com::pointer_error;
         }
         *transformed_rectangle = {};
+        if (transform_.m12 == 0.0F && transform_.m21 == 0.0F &&
+            transform_.m11 > 0.0F && transform_.m22 > 0.0F) {
+            bool selected = false;
+            const com::result status = detail::try_get_default_transformed_rectangle(
+                owner_.get(), source_.get(), transform_, transformed_rectangle, &selected);
+            return com::failed(status) ? status : selected ? com::ok : not_implemented;
+        }
         const bool axis_preserving =
             (transform_.m12 == 0.0F && transform_.m21 == 0.0F) ||
             (transform_.m11 == 0.0F && transform_.m22 == 0.0F);
@@ -2903,6 +2910,72 @@ com::result create_transformed_rectangle_stroke_path(
         *value = path.detach();
     }
     return creation;
+}
+
+com::result try_get_default_transformed_rectangle(
+    factory* owner,
+    geometry* source,
+    const matrix_3x2_f& intrinsic,
+    rectangle_f* rectangle,
+    bool* selected) noexcept
+{
+    if (rectangle == nullptr || selected == nullptr) {
+        return com::pointer_error;
+    }
+    *rectangle = {};
+    *selected = false;
+    if (owner == nullptr || source == nullptr) {
+        return com::pointer_error;
+    }
+    if (!core::valid_transform(&intrinsic)) {
+        return com::invalid_argument;
+    }
+    if (intrinsic.m12 != 0.0F || intrinsic.m21 != 0.0F ||
+        intrinsic.m11 <= 0.0F || intrinsic.m22 <= 0.0F) {
+        return com::ok;
+    }
+    factory* raw_factory = nullptr;
+    source->GetFactory(&raw_factory);
+    com::pointer<factory> source_factory;
+    source_factory.attach(raw_factory);
+    if (source_factory.get() != owner) {
+        return wrong_factory;
+    }
+    com::pointer<rectangle_geometry> source_rectangle;
+    const com::result query = source->QueryInterface(
+        rectangle_geometry_interface_id, reinterpret_cast<void**>(source_rectangle.put()));
+    if (com::failed(query)) {
+        return query == com::no_interface && !source_rectangle ? com::ok : query;
+    }
+    if (!source_rectangle) {
+        return failure;
+    }
+    rectangle_f original{};
+    source_rectangle->GetRect(&original);
+    rectangle_f candidate{};
+    const com::result status = core::rectangle_geometry(original).bounds(&intrinsic, &candidate);
+    if (com::failed(status)) {
+        return status;
+    }
+    if (original.right <= original.left || original.bottom <= original.top ||
+        candidate.right <= candidate.left || candidate.bottom <= candidate.top) {
+        return not_implemented;
+    }
+    *rectangle = candidate;
+    *selected = true;
+    return com::ok;
+}
+
+com::result widen_transformed_rectangle(
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    return widen_transformed_rectangle_impl(rectangle, stroke_width, style,
+        world_transform, flattening_tolerance, sink);
 }
 
 } // namespace detail

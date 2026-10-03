@@ -68,4 +68,23 @@ namespace progpu::native::direct2d::compat::detail {
     float flattening_tolerance,
     path_geometry** value) noexcept;
 
+// Materialize only the established direct-rectangle/positive-diagonal intrinsic
+// lane. Success with selected=false leaves unrelated geometry on its old route.
+[[nodiscard]] com::result try_get_default_transformed_rectangle(
+    factory* owner,
+    geometry* source,
+    const matrix_3x2_f& intrinsic,
+    rectangle_f* rectangle,
+    bool* selected) noexcept;
+
+// Preserve the original default transformed rectangle sink transcript, including
+// winding-only zero width. This is not the generic closed-path Widen output.
+[[nodiscard]] com::result widen_transformed_rectangle(
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept;
+
 } // namespace progpu::native::direct2d::compat::detail
