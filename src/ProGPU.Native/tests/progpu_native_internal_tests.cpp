@@ -7,6 +7,7 @@
 #include "progpu_native_geometry_dash.hpp"
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_geometry_stroke.hpp"
+#include "progpu_native_miter_or_bevel_fixture.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_semantic_budget.hpp"
@@ -2189,6 +2190,8 @@ bool run_shader_effect_arithmetic_tests();
 bool run_shader_effect_uniform_tests();
 
 int main() {
+    require(progpu::native::tests::miter_or_bevel_join_triangles_and_masks());
+    require(progpu::native::tests::miter_or_bevel_semantic_resources());
     require(run_shader_effect_translation_tests());
     require(run_shader_effect_arithmetic_tests());
     require(run_shader_effect_uniform_tests());

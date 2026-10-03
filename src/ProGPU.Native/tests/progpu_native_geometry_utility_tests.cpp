@@ -1,4 +1,5 @@
 #include "progpu_native.h"
+#include "progpu_native_miter_or_bevel_fixture.hpp"
 #include "../src/Backend/progpu_native_path_pixel_mapping.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
@@ -517,7 +518,7 @@ int main()
             }
         }
     }
-    const std::array<std::pair<const char*, bool (*)()>, 11> tests{{
+    const std::array<std::pair<const char*, bool (*)()>, 12> tests{{
         {"exact_pixel_mapping", exact_pixel_mapping_checks_every_corner},
         {"filled_relations", filled_relations_preserve_topology_and_shared_com_results},
         {"modes_and_boundaries", modes_and_actual_boundaries},
@@ -525,6 +526,7 @@ int main()
         {"empty_ownership", failures_and_empty_ownership},
         {"fill_queries", fill_queries_match_scalar_and_reject_bad_inputs},
         {"stroke_queries", stroke_queries_preserve_caps_gaps_dashes_and_world_order},
+        {"miter_or_bevel_queries", progpu::native::tests::miter_or_bevel_query_contract},
         {"stroke_transport", stroke_queries_reject_incomplete_transport},
         {"point_strokes", point_strokes_match_independent_cap_oracle},
         {"constant_edges", constant_edges_preserve_endpoint_and_join_eligibility},
