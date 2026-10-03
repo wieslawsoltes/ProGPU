@@ -120,6 +120,7 @@ internal static partial class Program
             CaptureShaderAffineMath(directory, args[2], timer);
             CaptureTransformPrimitiveMath(directory, args[2], timer);
             CaptureDrawingImageSamplers(directory, args[2], unavailableControl, timer);
+            CaptureOrdinaryDrawingImageBrushes(directory, args[2], timer);
             CaptureImageSamplerAnimations(directory, args[2], unavailableControl, timer);
             var receipt = new
             {

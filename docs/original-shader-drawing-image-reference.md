@@ -51,6 +51,31 @@ invalid JSON numeric infinities. Pixel failures preserve a failed receipt before
 failing the application. The existing native ARM64 SoftwareOnly-unavailable lane
 requires opaque black output and zero qualified shader cases.
 
+## Ordinary ImageBrush counterpart
+
+A separate family renders states 0, 2 and 7 through an ordinary ImageBrush fill,
+without creating or attaching a PixelShader/ShaderEffect. It draws the source
+rectangle at local `(0,0,32,24)` under the actual visual offset `(8,10)` and final
+clip `(8,10,32,24)`. This preserves the same viewport frame as the shader's
+secondary capture without replacing the source coordinate contract.
+
+The same objects traverse all intervening mutations, including null, empty and
+refilled Drawing state. The three required nonempty generations each have
+retained, warm and independent-literal renders: three configurations / nine
+replays in a separate receipt. All use the same independent literal full-byte
+oracle. They are ordinary positive drawing controls on both architectures;
+ARM64's separate unavailable SoftwareOnly shader gate cannot turn these into
+black-output success. The nine shader states / 27 shader replays above remain
+unchanged.
+
+Paired native controls replay those three states with both inferred bounds and
+exact nonzero DrawingImage bounds metadata. All source channels retire before
+replay. Their strict source command sequence has ten commands: visual save,
+forced tile layer, image and group saves, two analytic draws, corresponding
+restores/pop. Adjacent analytic children share one replay draw and the tile
+composite adds one: two draws and one submission on cold, warm and independent
+engines. These are authored source-derived assertions, not measured performance.
+
 ## Source frame and clean-room provenance
 
 The reference reuses the original ProGPU-owned identity shader and capture helpers
