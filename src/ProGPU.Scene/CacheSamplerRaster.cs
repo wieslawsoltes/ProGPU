@@ -39,7 +39,7 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable,
         _registered = true;
     }
 
-    /// <summary>Borrowed from this owner; disposing the raster retires the texture.</summary>
+    /// <summary>Borrowed exact texture; leases defer retirement beyond owner disposal.</summary>
     public GpuTexture Texture { get; }
     public CacheSamplerRasterFrame Frame { get; }
     public object SourceIdentity { get; }
@@ -80,6 +80,11 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable,
             if (references == 0 || System.Threading.Volatile.Read(ref _payloadRetired) != 0 || Texture.IsDisposed) return false;
             if (System.Threading.Interlocked.CompareExchange(ref _references, checked(references + 1), references) != references)
                 continue;
+            if (System.Threading.Volatile.Read(ref _payloadRetired) != 0 || Texture.IsDisposed)
+            {
+                Release();
+                return false;
+            }
             lease = new Lease(this);
             return true;
         }
