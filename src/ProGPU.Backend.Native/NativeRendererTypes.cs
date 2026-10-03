@@ -436,7 +436,9 @@ public enum NativeGeometryPrimitiveFlags : uint
     Hairline = 1U << 1,
     FixedDeviceStroke = 1U << 2,
     StartCapMask = 3U << 3,
-    EndCapMask = 3U << 5
+    EndCapMask = 3U << 5,
+    /// <summary>Clips a PathJoin/Miter corner at the limit without WPF reversal behavior.</summary>
+    ClipMiterAtLimit = 1U << 7
 }
 
 [Flags]
@@ -450,7 +452,9 @@ public enum NativePolylineFlags : uint
     EndCapMask = 3U << 5,
     JoinMask = 3U << 7,
     Closed = 1U << 9,
-    WpfJoinSemantics = 1U << 10
+    WpfJoinSemantics = 1U << 10,
+    /// <summary>Clips Miter overflow independently of the WPF reversal policy.</summary>
+    ClipMiterAtLimit = 1U << 11
 }
 
 [Flags]
@@ -3330,6 +3334,9 @@ public readonly struct NativeGeometryPrimitive
             throw new ArgumentOutOfRangeException(nameof(startCap));
         if ((uint)endCap > (uint)NativeStrokeCap.Triangle)
             throw new ArgumentOutOfRangeException(nameof(endCap));
+        if ((flags & NativeGeometryPrimitiveFlags.ClipMiterAtLimit) != 0 &&
+            (kind != NativeGeometryPrimitiveKind.PathJoin || startCap != NativeStrokeCap.Flat))
+            throw new ArgumentException("Miter clipping requires a PathJoin with the Miter kind.", nameof(flags));
         Kind = kind;
         Flags = (flags & ~(
                 NativeGeometryPrimitiveFlags.StartCapMask |
@@ -3570,6 +3577,9 @@ public readonly struct NativePolyline
             throw new ArgumentOutOfRangeException(nameof(endCap));
         if ((uint)lineJoin > (uint)NativeStrokeJoin.MiterOrBevel)
             throw new ArgumentOutOfRangeException(nameof(lineJoin));
+        if ((flags & NativePolylineFlags.ClipMiterAtLimit) != 0 &&
+            lineJoin != NativeStrokeJoin.Miter)
+            throw new ArgumentException("Miter clipping requires the Miter join kind.", nameof(flags));
 
         PointOffset = pointOffset;
         PointCount = pointCount;
