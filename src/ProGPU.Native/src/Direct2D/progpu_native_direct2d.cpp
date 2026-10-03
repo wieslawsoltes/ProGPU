@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_stroke_metrics.hpp"
 #include "progpu_native_direct2d_clear.hpp"
 #include "progpu_native_direct2d_drawing_state.hpp"
 #include "progpu_native_direct2d_path.hpp"
@@ -8431,11 +8432,13 @@ private:
                 hr = geometry->GetBounds(&transform_, &geometry_bounds);
                 // Original portable target bounds: width is one physical
                 // pixel, expressed separately on each target-DIP axis.
-                const float extent = 0.5F * miter_extent;
-                const float pad_x = extent * (style.transform_type ==
-                    D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE ? 96.0F / target_dpi_x_ : stroke_width);
-                const float pad_y = extent * (style.transform_type ==
-                    D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE ? 96.0F / target_dpi_y_ : stroke_width);
+                const bool hairline = style.transform_type == D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE;
+                const float pad_x = hairline
+                    ? (0.5F * miter_extent) * (96.0F / target_dpi_x_)
+                    : stroke_width * 0.5F * miter_extent;
+                const float pad_y = hairline
+                    ? (0.5F * miter_extent) * (96.0F / target_dpi_y_)
+                    : stroke_width * 0.5F * miter_extent;
                 if (SUCCEEDED(hr)) {
                     bounds = {
                         geometry_bounds.left - pad_x,

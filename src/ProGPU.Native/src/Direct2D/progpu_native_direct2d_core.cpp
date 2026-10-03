@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_stroke_metrics.hpp"
 
 #include <algorithm>
 #include <cmath>

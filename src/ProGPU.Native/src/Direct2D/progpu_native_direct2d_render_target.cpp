@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_render_target.hpp"
+#include "progpu_native_direct2d_stroke_metrics.hpp"
 #include "progpu_native_direct2d_prepared_glyphs.hpp"
 #include "progpu_native_direct2d_path.hpp"
 #include "progpu_native_direct2d_clear.hpp"

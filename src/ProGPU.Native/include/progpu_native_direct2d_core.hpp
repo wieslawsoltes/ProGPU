@@ -5,7 +5,6 @@
 
 #include <array>
 #include <cstdint>
-#include <span>
 
 namespace progpu::native::direct2d::core {
 
@@ -100,11 +99,6 @@ struct stroke_style_properties_f final {
 
 [[nodiscard]] bool valid_target_extent(
     const progpu_native_direct2d_target_extent* target) noexcept;
-
-/* Borrowed, already validated dash storage. Convert physical hairline lengths
- * and phase to target DIPs once; callers must supply a positive finite DPI. */
-void scale_hairline_dashes(
-    std::span<double> intervals, double& offset, float dpi) noexcept;
 
 /* Direct2D uses row-vector affine matrices. The returned matrix applies
  * first, followed by second (or identity when second is null). */
