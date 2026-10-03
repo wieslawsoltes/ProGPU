@@ -200,8 +200,7 @@ public sealed class CanvasStrokeStyle : IDisposable
             CanvasLineJoin.Miter => PenLineJoin.Miter,
             CanvasLineJoin.Bevel => PenLineJoin.Bevel,
             CanvasLineJoin.Round => PenLineJoin.Round,
-            CanvasLineJoin.MiterOrBevel => throw new NotSupportedException(
-                "CanvasLineJoin.MiterOrBevel requires a distinct retained join semantic and does not silently degrade to miter or bevel."),
+            CanvasLineJoin.MiterOrBevel => PenLineJoin.MiterOrBevel,
             _ => throw new ArgumentOutOfRangeException(nameof(LineJoin))
         };
         PenStrokeTransformMode transformMode = _transformBehavior switch

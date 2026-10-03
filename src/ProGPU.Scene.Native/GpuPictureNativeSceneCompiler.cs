@@ -5695,7 +5695,8 @@ public static partial class GpuPictureNativeSceneCompiler
         PenLineJoin.Miter => NativeStrokeJoin.Miter,
         PenLineJoin.Bevel => NativeStrokeJoin.Bevel,
         PenLineJoin.Round => NativeStrokeJoin.Round,
-        _ => NativeStrokeJoin.Miter
+        PenLineJoin.MiterOrBevel => NativeStrokeJoin.MiterOrBevel,
+        _ => throw new ArgumentOutOfRangeException(nameof(join))
     };
 
     private static bool IsFinite(Vector4 value) =>

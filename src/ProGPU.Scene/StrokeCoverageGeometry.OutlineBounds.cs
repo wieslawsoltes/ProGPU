@@ -28,7 +28,7 @@ public static partial class StrokeCoverageGeometry
         bounds = default;
         if (prepared.IsCombined || pen.HasDashPattern || pen.StrokeTransformMode != PenStrokeTransformMode.Normal
             || !float.IsFinite(pen.Thickness) || pen.Thickness < 0 || !float.IsFinite(pen.MiterLimit)
-            || (uint)pen.LineJoin > 2 || (uint)pen.StartLineCap > 3 || (uint)pen.EndLineCap > 3) return false;
+            || (uint)pen.LineJoin > (uint)PenLineJoin.MiterOrBevel || (uint)pen.StartLineCap > 3 || (uint)pen.EndLineCap > 3) return false;
         int records = prepared.Figures.Count;
         if (records > 1_000_000) return false;
         for (int f = 0; f < prepared.Figures.Count; f++)
@@ -204,7 +204,7 @@ public static partial class StrokeCoverageGeometry
         {
             state.Include(intersection); wedge?.Segments.Add(OutlineLine(intersection));
         }
-        else
+        else if (join != PenLineJoin.MiterOrBevel)
         {
             var bisector = delta / Vector128.Create(length);
             if (!IncludeEmittedClippedMiter(ref state, center, turn > 0 ? a : b, intersection,

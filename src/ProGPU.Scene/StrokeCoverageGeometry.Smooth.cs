@@ -78,7 +78,7 @@ public static partial class StrokeCoverageGeometry
     {
         ArgumentNullException.ThrowIfNull(pen);
         return float.IsFinite(pen.Thickness) && pen.Thickness >= 0 && !pen.IsFixed && !pen.HasDashPattern
-            && (uint)pen.LineJoin <= 2 && float.IsFinite(pen.MiterLimit)
+            && (uint)pen.LineJoin <= (uint)PenLineJoin.MiterOrBevel && float.IsFinite(pen.MiterLimit)
             && float.IsFinite(matrix.M11) && float.IsFinite(matrix.M12)
             && float.IsFinite(matrix.M21) && float.IsFinite(matrix.M22)
             && float.IsFinite(matrix.M31) && float.IsFinite(matrix.M32)

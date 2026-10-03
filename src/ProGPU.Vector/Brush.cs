@@ -313,7 +313,9 @@ public enum PenLineJoin
 {
     Miter = 0,
     Bevel = 1,
-    Round = 2
+    Round = 2,
+    /// <summary>Uses a miter within the limit and a bevel beyond it, independently of WPF join policy.</summary>
+    MiterOrBevel = 3
 }
 
 public enum PenLineCap
