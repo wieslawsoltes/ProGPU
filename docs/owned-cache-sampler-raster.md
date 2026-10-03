@@ -45,3 +45,23 @@ atomic invalid inputs. They are authored only. No tests, build, syntax check,
 verifier, GPU, native, VM or CI workload was executed. The final coordinated
 producer/source rebuild, full providers/packages and original Windows gates are
 still required; no source pin or default changes are made here.
+
+## Authored managed GPU controls
+
+`CacheSamplerRasterRenderTests` adds eight cases (four scenarios on each owned
+provider), without executing them in this implementation batch. Positive captures
+query the actual context's limits and retain the exact device/source generation.
+Three explicitly selected primary-axis/scale combinations produce 16x4, 8x16 and
+4x4 cache textures independently of the 16x8 implicit input and 64x32 effect quad.
+The real `WpfShaderEffectExtensionPipeline` samples these through register1 using
+nearest filtering; independently literal opaque quadrant colors are compared at
+every output byte on cold/warm replays, with one actual effect draw per replay.
+
+The other scenarios retain and replay the original texture across same-owner
+source replacement and replacement disposal, reject each deliberately incorrect
+device-limit axis without damaging an earlier raster, and observe genuine1x1
+transparent-black textures for a childless empty recording and a zero-scale
+nonempty recording. The transparent control exposes sampled alpha in RGB, so
+opaque black or a missing sampler replaced with the yellow implicit input cannot
+pass. Caller recordings are disposed before retained-generation replay. These
+controls are authored only, not provider or original Windows qualification.
