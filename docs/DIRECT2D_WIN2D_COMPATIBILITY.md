@@ -859,16 +859,16 @@ Triangle order and count are deliberately not compared because Direct2D does
 not make its valid diagonalization an API contract. Ambiguous topology and
 the existing bounded normalization limits still fail closed transactionally.
 
-Portable nondegenerate rectangle geometry also implements exact
+The retained default-stroke portable nondegenerate rectangle lane implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
 styles. The stroke expands in local geometry space and the caller transform
 is applied afterward, matching Direct2D ordering for nonuniform affine
 transforms. An axis-preserving `ID2D1TransformedGeometry` first materializes
 its intrinsic rectangle transform, then widens by the unscaled stroke width,
 then applies the caller world transform; this avoids incorrectly scaling the
-stroke with the intrinsic geometry transform. Dashed styles, degenerate
-rectangles, and non-axis-preserving transformed rectangles continue to fail
-closed until their cap/run/offset bounds share the retained stroke compiler.
+stroke with the intrinsic geometry transform. Dashed styles and degenerate
+rectangles remain outside this lane. Explicit solid styles additionally use the
+shared ordered-path implementation described below.
 The native fixture compares both base and transformed results through genuine
 system Direct2D pointers on Windows.
 
@@ -876,8 +876,8 @@ The same default-stroke rectangle lane now implements
 `StrokeContainsPoint`. It tests the exact transformed outer miter rectangle
 and excludes only the strict transformed inner rectangle, so both centered
 stroke boundaries remain included. Non-finite input is rejected; non-null
-styles, degenerate rectangles, and singular transforms fail closed until the
-shared styled-offset implementation is available. Portable and Windows
+styles previously failed closed; their bounded solid-style route is described
+below. Degenerate rectangles and singular transforms remain separate. Portable and Windows
 system-Direct2D fixtures compare edge and center points for both base and
 intrinsically transformed rectangles.
 
@@ -888,9 +888,23 @@ axis-aligned intrinsic transformed rectangles reproduce Direct2D's single
 winding-fill, force-unstroked open contour, including its explicit bridge
 segments; the caller transform is applied only after widening. The Windows
 oracle compares fill mode, segment flags, figure kinds, closure, and every
-emitted point against system Direct2D. Zero width, explicit styles, degenerate
-rectangles, and transformed cases with a collapsed inner contour or reflected,
-swapped-axis, or general-affine intrinsic transforms remain fail closed.
+emitted point against system Direct2D. The existing zero-width base rectangle
+still emits its two closed contours; the existing transformed default zero-width
+path emits winding fill with no figures. Degenerate rectangles and unsupported
+default transformed cases retain their existing gates.
+
+Explicit same-factory **solid, normal-transform, positive-width** rectangle
+strokes now reuse owned path `GetWidenedBounds`, `StrokeContainsPoint`, and `Widen`
+for miter, bevel, round, and miter-or-bevel joins. The source TL/TR/BR/BL contour
+is retained through intrinsic transforms, including reflection and shear, before
+stroke expansion; the caller world transform follows the stroke. Both portable
+geometry and Windows compatibility wrappers use the same implementation. Newly
+authored CPU and original-Windows controls are not executed or qualified. Dashed
+rectangle phase, new fixed/hairline behavior, explicit zero-width hit/widening,
+and degenerate admission remain excluded. The Windows transformed **null/default**
+wrapper's older intrinsic/world composition remains a known separate implementation
+gap; preservation of the portable default sink receipts does not resolve it.
+See [solid rectangle strokes](direct2d-rectangle-solid-strokes.md).
 
 Nondegenerate rectangles now implement `CompareWithGeometry` against
 same-factory rectangles and bounded transformed-rectangle chains. The current

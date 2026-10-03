@@ -15,6 +15,7 @@
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native_direct2d_shared_bitmap_query_fixture.hpp"
 #include "progpu_native_direct2d_draw_query_fixture.hpp"
+#include "progpu_native_direct2d_rectangle_stroke_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_text_capture.hpp"
@@ -3353,6 +3354,20 @@ int run_tests()
     }
     com::pointer<compat::factory> second_factory;
     second_factory.attach(second_raw_factory);
+    try {
+        const auto require_rectangle_stroke = [](bool condition, const char* message) {
+            if (!condition) {
+                throw message;
+            }
+        };
+        static_cast<void>(progpu::native::direct2d::tests::verify_rectangle_solid_strokes(
+            factory.get(), require_rectangle_stroke));
+        progpu::native::direct2d::tests::verify_rectangle_solid_stroke_rejections(
+            factory.get(), second_factory.get(), require_rectangle_stroke);
+    } catch (const char* message) {
+        std::fprintf(stderr, "%s\n", message);
+        return 531;
+    }
     compat::transformed_geometry* wrong_factory_geometry = nullptr;
     if (second_factory->CreateTransformedGeometry(
             geometry_base.get(),

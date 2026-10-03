@@ -260,6 +260,26 @@ void verify_rectangle_solid_stroke_rejections(compat::factory* factory,
         rectangle->StrokeContainsPoint({7, 3}, 4, solid.get(), nullptr, solid_stroke_tolerance, nullptr) == com::pointer_error &&
         rectangle->Widen(4, solid.get(), nullptr, solid_stroke_tolerance, nullptr) == com::pointer_error,
         "rectangle stroke null-output error contract changed");
+
+    // Device-dependent style1 modes must not enter the new normal-style path.
+    // Their old base bounds remain available; this is not original DPI parity.
+    const auto normal_properties = rectangle_solid_stroke_style(0U);
+    for (const auto mode : {compat::stroke_transform_type::fixed,
+            compat::stroke_transform_type::hairline}) {
+        com::pointer<compat::stroke_style1> extended;
+        require(compat::create_stroke_style1(factory, &normal_properties, mode,
+            nullptr, 0U, extended.put()) == com::ok,
+            "rectangle fixed/hairline retained-policy style creation failed");
+        compat::rectangle_f bounds{};
+        contains = 77;
+        require(rectangle->GetWidenedBounds(4, extended.get(), nullptr, solid_stroke_tolerance,
+                &bounds) == com::ok && same_solid_stroke_bounds(bounds, {0, 1, 14, 13}) &&
+            rectangle->StrokeContainsPoint({7, 3}, 4, extended.get(), nullptr,
+                solid_stroke_tolerance, &contains) == compat::not_implemented && contains == 0 &&
+            rectangle->Widen(4, extended.get(), nullptr, solid_stroke_tolerance,
+                sink.get()) == compat::not_implemented && sink->calls == 0U,
+            "rectangle solid path widened fixed/hairline admission");
+    }
 }
 
 } // namespace progpu::native::direct2d::tests

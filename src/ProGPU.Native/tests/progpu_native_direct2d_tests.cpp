@@ -10,6 +10,7 @@
 #include "progpu_native_direct2d_aa_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
+#include "progpu_native_direct2d_rectangle_stroke_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -1998,6 +1999,30 @@ int main()
                 system_rectangle_widening_sink.Get()) == S_OK &&
             system_rectangle_widening_sink->Close() == S_OK,
         "system Direct2D rectangle oracle creation failed");
+    // The original rectangle and separately authored path run through the real
+    // Microsoft factory; neither result is manufactured by the portable stroker.
+    const auto original_solid_rectangles =
+        progpu::native::direct2d::tests::verify_rectangle_solid_strokes(
+            reinterpret_cast<compat::factory*>(system_rectangle_factory.Get()), require);
+    const auto native_solid_rectangles =
+        progpu::native::direct2d::tests::verify_rectangle_solid_strokes(
+            reinterpret_cast<compat::factory*>(compat_base_factory.Get()), require);
+    progpu::native::com::pointer<compat::factory> portable_solid_factory;
+    require(compat::create_factory(portable_solid_factory.put()) == S_OK,
+        "portable solid rectangle oracle factory creation failed");
+    const auto portable_solid_rectangles =
+        progpu::native::direct2d::tests::verify_rectangle_solid_strokes(
+            portable_solid_factory.get(), require);
+    for (std::size_t index = 0U; index < original_solid_rectangles.size(); ++index) {
+        const auto& original = original_solid_rectangles[index];
+        for (const auto* actual : {&native_solid_rectangles[index], &portable_solid_rectangles[index]}) {
+            require(progpu::native::direct2d::tests::same_solid_stroke_bounds(
+                    actual->bounds, original.bounds) &&
+                actual->contains == original.contains &&
+                actual->widened_contains == original.widened_contains,
+                "solid rectangle bounds/hit/widened-region differ from original Direct2D");
+        }
+    }
     D2D1_RECT_F system_widened_bounds{};
     D2D1_RECT_F system_outline_bounds{};
     D2D1_RECT_F system_widening_bounds{};
