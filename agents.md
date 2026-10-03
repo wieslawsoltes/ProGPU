@@ -1,5 +1,15 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Native MIL curved/smooth and tiled path strokes retain full WPF join policy,
+not merely independent miter clipping. Keep normal-width source joins 0 through
+2, actual tangent/capture frames, dash gaps and closed seams. Smooth joins force
+Round under the same policy; do not suppress them using a generic writer rule.
+Primitive WPF bit 8 is PathJoin-only and must reach both paint and retained input;
+reject device-width, other-kind and incompatible-join descriptors atomically.
+Reuse the owned stroker and preserve candidate rollback. Record layout stability
+does not make the new flag compatible with old producers. See
+docs/native-mil-path-join-policy.md; authored controls are not qualification.
+
 Clipped-miter source policy is an independent retained Pen flag, effective only
 for Miter0. Preserve false generic defaults, raw intent in every pen/cache/archive
 snapshot, closed seams and the separate WPF reversal policy. Win2D Miter selects
