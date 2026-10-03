@@ -9980,7 +9980,7 @@ CompilePathStroke:
         indicesSpan[currentIndexCount++] = index + 3;
     }
 
-    private static bool RequiresAffineStrokeGeometry(Matrix4x4 transform)
+    internal static bool RequiresAffineStrokeGeometry(Matrix4x4 transform)
     {
         var axisX = new Vector2(transform.M11, transform.M12);
         var axisY = new Vector2(transform.M21, transform.M22);
@@ -11105,7 +11105,7 @@ CompilePathStroke:
             isStart: false);
     }
 
-    private static Vector2 TransformDirection(Vector2 direction, Matrix4x4 transform)
+    internal static Vector2 TransformDirection(Vector2 direction, Matrix4x4 transform)
     {
         return Vector2.Transform(direction, transform) - Vector2.Transform(Vector2.Zero, transform);
     }
