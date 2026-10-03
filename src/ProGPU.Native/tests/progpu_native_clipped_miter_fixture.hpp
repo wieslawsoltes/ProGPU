@@ -22,7 +22,7 @@ inline bool clipped_miter_query_contract()
             &pen,nullptr,0U,nullptr,&point,.01F,&bounds,&has,&contains);
     };
     // These points are strictly separated from all three corner boundaries:
-    // bevel x-y=40, clipped x-y=40+4*sqrt(2), full miter's outer square.
+    // bevel x-y=24, clipped x-y=20+4*sqrt(2), full miter's outer square.
     if (query({32.4F,7.6F}) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 1U || has != 1U ||
         bounds.x != 6 || bounds.y != 6 || bounds.width != 28 || bounds.height != 28 ||
         query({33.2F,6.8F}) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 0U) return false;
