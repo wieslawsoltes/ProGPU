@@ -46,7 +46,20 @@ defines cache selection, ignored root properties and ignored snapping.
 defines zero and negative scale and distinguishes raster resolution from layout.
 ShaderEffect's original sampler API permits BitmapCacheBrush, not DrawingBrush.
 
-Native ownership/provider controls and original WPF captures are authored with
-this implementation. All builds, tests, original captures and provider execution
+The paired native providers author nine same-owner states, each replayed cold,
+warm and independently after channel retirement. The complete 64×64 RGBA oracle
+uses literal natural-coordinate rectangles, not captured bounds or product
+mapping. States cover default/target/explicit cache policy, scale two, ignored
+snapping and all six root properties, effective descendant clipping/opacity,
+both consumer transforms, zero scale, null target and negative-origin refill.
+Original WPF captures use the same nine states with actual source objects.
+
+Raw controls additionally retain caller output on failure; distinguish absent,
+known-empty, null and uninitialized targets; prove explicit cache selection,
+ignored-root versus descendant cycles, retained dependency deletion rollback,
+leaf revision, hidden external-source rejection even at zero scale, actual scale
+animation initialization, nonfinite rejection and retained-scene ownership.
+
+All builds, tests, original captures and provider execution
 are deferred to the final integrated tip. This is not qualified source, pixel,
 package or application parity; downstream pins remain unchanged.
