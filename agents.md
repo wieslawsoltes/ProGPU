@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Source visual opacity masks may be input-neutral only through the producer's
+explicit SourceOpacityMaskPreservesHitGeometry contract. Keep the default false,
+actual source geometry/clip frames, ownership and singular-transform behavior;
+never inspect mask alpha/bounds to manufacture input. Effect mapping and required
+cache-source gates remain independent. Rebuild the source adapter against the
+qualified producer before claiming the new interface dispatch. See
+docs/source-visual-mask-hit-geometry.md; authored controls are not qualification.
+
 Explicit axis-clip area masks retain identity source mapping, zero radii and unit
 opacity. Project original four edges through actual per-axis DPI/viewport and
 localize physical target origin before pixel overlap; never divide by DPI and

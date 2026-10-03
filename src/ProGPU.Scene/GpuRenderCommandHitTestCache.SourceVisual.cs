@@ -52,9 +52,15 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
             return;
         if (visual is not ISourceGeometryHitTestCommands source)
             throw new NotSupportedException("Retained source input requires typed materialized commands for every visible visual.");
-        if (visual.Effect is { PreservesSourceHitGeometry: false } || visual.RequiresLayerCache ||
-            visual.OpacityMask != null || visual.OpacityMaskPicture != null)
-            throw new NotSupportedException("Source hit-only traversal requires an identity-mapped effect and no required cache source or opacity mask.");
+        if (visual.Effect is { PreservesSourceHitGeometry: false } || visual.RequiresLayerCache)
+            throw new NotSupportedException("Source hit-only traversal requires an identity-mapped effect and no required cache source.");
+        if ((visual.OpacityMask != null || visual.OpacityMaskPicture != null) &&
+            !source.SourceOpacityMaskPreservesHitGeometry)
+            throw new NotSupportedException("Source visual opacity masks require an explicit input-neutral source contract.");
+
+        // The opted-in source owns the geometry independently of alpha. Do not
+        // enter, sample or derive clips from its raster-only mask. The original
+        // visual clips and source transforms below still own input placement.
 
         // CacheAsLayer changes raster reuse/resolution, not source geometry.
         // Required cached-picture sources have a separate refresh/ownership
