@@ -10328,14 +10328,12 @@ CompilePathStroke:
     {
         Span<StrokeJoinTriangle> localTriangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
-        int localTriangleCount = StrokeJoinGeometry.WriteLineJoin(
-            localTriangles,
-            pen,
-            localThickness,
-            localJoinPoint - localIncomingDirection,
-            localJoinPoint,
-            localJoinPoint + localOutgoingDirection,
-            isSmoothJoin);
+        int localTriangleCount = pen.UseWpfJoinSemantics
+            ? StrokeJoinGeometry.WriteDirectionalJoin(localTriangles, pen, localThickness,
+                localJoinPoint, localIncomingDirection, localOutgoingDirection, isSmoothJoin)
+            : StrokeJoinGeometry.WriteLineJoin(localTriangles, pen, localThickness,
+                localJoinPoint - localIncomingDirection, localJoinPoint,
+                localJoinPoint + localOutgoingDirection, isSmoothJoin);
 
         var generatedTriangles = localTriangles[..localTriangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
@@ -10662,14 +10660,11 @@ CompilePathStroke:
     {
         Span<StrokeJoinTriangle> triangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
-        int triangleCount = StrokeJoinGeometry.WriteLineJoin(
-            triangles,
-            pen,
-            thickness,
-            joinPoint - incomingDirection,
-            joinPoint,
-            joinPoint + outgoingDirection,
-            isSmoothJoin);
+        int triangleCount = pen.UseWpfJoinSemantics
+            ? StrokeJoinGeometry.WriteDirectionalJoin(triangles, pen, thickness,
+                joinPoint, incomingDirection, outgoingDirection, isSmoothJoin)
+            : StrokeJoinGeometry.WriteLineJoin(triangles, pen, thickness,
+                joinPoint - incomingDirection, joinPoint, joinPoint + outgoingDirection, isSmoothJoin);
 
         var generatedTriangles = triangles[..triangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
@@ -11115,7 +11110,7 @@ CompilePathStroke:
         return Vector2.Transform(direction, transform) - Vector2.Transform(Vector2.Zero, transform);
     }
 
-    private static bool TryGetPathSegmentStartDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
+    internal static bool TryGetPathSegmentStartDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
     {
         switch (segment)
         {
@@ -11151,7 +11146,7 @@ CompilePathStroke:
         }
     }
 
-    private static bool TryGetPathSegmentEndDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
+    internal static bool TryGetPathSegmentEndDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
     {
         switch (segment)
         {
