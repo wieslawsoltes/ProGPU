@@ -52,9 +52,21 @@ clip. That pre-existing paint/bounds policy difference is unfinished work, not
 resolved by introducing the explicit value. Existing Direct2D rectangle dash,
 default transformed-source and fixed/hairline admission limits remain separate.
 
-Controls for source mappings, join thresholds, reversal, retained caches,
-native transport, actual-provider painting and separate-process original
-Drawing behavior are authored alongside this implementation. No builds,
+`MiterOrBevelStrokeTests` adds 17 authored configurations: four threshold,
+one reversal, four closed-seam, one cache/snapshot, one invalid-value and six
+actual headless normal/fixed/hairline configurations. The latter compare full
+cold/warm pixel buffers against the separately selected existing miter or bevel
+route; they are not an original Microsoft raster oracle.
+
+The existing separate-process Drawing runner has an opt-in `-StrokeJoins`
+extension, forwarded as `--stroke-joins` to both applications. Its 12 cases
+cross rectangle/acute contours, Miter/MiterClipped and limits 1/2/10. Each
+retains 256 outline queries, exact bounds bits, and full paired DrawPath/FillPath
+RGBA comparisons; Widen point/type transcripts are diagnostic only. The
+original 13 clip/44 transform cases, provenance and deadlines are unchanged.
+
+Source-adapter and native triangle/mask, resource and query controls accompany
+those fixtures. No builds,
 tests, syntax checks, verifiers, original probes, GPU/UI runs, package checks
 or CI were executed for this slice. This is not full Direct2D/Win2D/Drawing,
 WPF application or cross-provider image qualification.
