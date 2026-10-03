@@ -95,3 +95,20 @@ parameter/cache/source owners end, and retire two still-leased source generation
 on actual owned context shutdown. The shutdown control uses separate contexts,
 counts real source-retirement callbacks, and does not force GC or substitute
 finalizer execution for explicit lifecycle completion.
+
+## Authored retirement ownership controls
+
+`CacheSamplerRetirementTests` adds ten actual-device configurations across both
+providers for direct and parameter-held finalizer transfer, weak source-key
+collection, finalizer completion while the render lock is held, and late
+finalizers after explicit context shutdown. These retain the existing fourteen
+render controls unchanged and use bounded waits; they have not been executed.
+
+Three additional pure controls exercise the same internal retirement coordinator
+used by the production raster: exact failed owner/payload retention across GC and
+shutdown retries, attempting every owner while preserving the first failure, and
+the admission/reentrant/late-queue handshake. Non-GPU participants isolate that
+ownership and exception-ordering contract without deliberately stranding a live
+device. They do not qualify `CacheSamplerRaster`'s separate source-callback failure
+latch or replace actual-device lifetime qualification. No validation was run for
+this follow-up.
