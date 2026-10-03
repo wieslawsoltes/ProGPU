@@ -20,6 +20,10 @@ public readonly struct EffectCaptureFrame
         PixelWidth = pixelWidth;
         PixelHeight = pixelHeight;
         DpiScale = dpiScale;
+        PixelsPerUnit = new Vector2(dpiScale);
+        RasterBounds = paddedBounds;
+        TextureUvBounds = new Vector4(0, 0, 1, 1);
+        SourceToRaster = Matrix4x4.Identity;
     }
 
     /// <summary>Original padded float rectangle, without minimum-size or pixel rounding.</summary>
@@ -33,6 +37,122 @@ public readonly struct EffectCaptureFrame
     public uint PixelWidth { get; }
     public uint PixelHeight { get; }
     public float DpiScale { get; }
+    /// <summary>True only for a source frame with a retained outward physical lattice.</summary>
+    public bool HasPhysicalOrigin { get; private init; }
+    /// <summary>Actual target projection-to-viewport scale, independent of semantic DPI and visual transforms.</summary>
+    public Vector2 PixelsPerUnit { get; private init; }
+    /// <summary>Signed, float-exact integer origin of the complete source texture, before source rebasing.</summary>
+    public Vector2 PhysicalOrigin { get; private init; }
+    /// <summary>Complete texture rectangle in rebased local coordinates, distinct from output coverage.</summary>
+    public Rect RasterBounds { get; private init; }
+    /// <summary>Independent left/top/right/bottom UVs for the original output coverage in the complete texture.</summary>
+    public Vector4 TextureUvBounds { get; private init; }
+    /// <summary>Rebased source-local to physical capture coordinates; not a replacement for semantic DPI.</summary>
+    public Matrix4x4 SourceToRaster { get; private init; }
+    /// <summary>Exact floating logical projection extent; integer bookkeeping dimensions must not replace it.</summary>
+    public Vector2 ProjectionExtent => new(LogicalWidth, LogicalHeight);
+
+    /// <summary>
+    /// Resolves the same orthographic projection and normalized viewport used by
+    /// the actual compositor host frame. This is not window/monitor DPI or an
+    /// extraction of the source visual's local or ancestor affine transforms.
+    /// </summary>
+    public static bool TryResolveSourcePixelsPerUnit(uint logicalWidth, uint logicalHeight,
+        uint targetWidth, uint targetHeight, RenderTargetViewport viewport, out Vector2 pixelsPerUnit)
+    {
+        pixelsPerUnit = default;
+        if (logicalWidth == 0 || logicalHeight == 0 || targetWidth == 0 || targetHeight == 0 || !viewport.IsValid)
+            return false;
+        var projection = new Matrix4x4(
+            2f / logicalWidth, 0, 0, 0,
+            0, -2f / logicalHeight, 0, 0,
+            0, 0, 1, 0,
+            -1, 1, 0, 1);
+        return TryResolveSourcePixelsPerUnit(projection, viewport.Clamp(targetWidth, targetHeight), out pixelsPerUnit);
+    }
+
+    internal static bool TryResolveSourcePixelsPerUnit(Matrix4x4 projection,
+        RenderTargetViewport viewport, out Vector2 pixelsPerUnit)
+    {
+        pixelsPerUnit = default;
+        if (!viewport.IsValid || !float.IsFinite(projection.M11) || !float.IsFinite(projection.M22) ||
+            projection.M12 != 0 || projection.M21 != 0 || projection.M14 != 0 || projection.M24 != 0 ||
+            projection.M44 != 1)
+            return false;
+        // Preserve projection coefficient rounding before the viewport scale.
+        // viewport/logicalSize is not an interchangeable arithmetic shortcut.
+        float halfWidth = viewport.Width * .5f, halfHeight = viewport.Height * .5f;
+        var result = new Vector2(MathF.Abs(projection.M11) * halfWidth, MathF.Abs(projection.M22) * halfHeight);
+        if (!float.IsFinite(result.X) || !float.IsFinite(result.Y) || result.X <= 0 || result.Y <= 0)
+            return false;
+        pixelsPerUnit = result;
+        return true;
+    }
+
+    /// <summary>
+    /// Creates a complete outward source texture in the actual per-axis target
+    /// mapping. The separate semantic DPI is retained for text, snapping and
+    /// nested effects. Original edges resolve before source-to-local rebasing.
+    /// Old scalar and explicit raster-override overloads remain independent.
+    /// </summary>
+    public static bool TryCreateSource(ShaderEffectSourceCapture source, Vector2 sourceTranslation,
+        Vector2 pixelsPerUnit, float dpiScale, out EffectCaptureFrame frame)
+    {
+        frame = default;
+        if (!source.IsValid || !float.IsFinite(sourceTranslation.X) || !float.IsFinite(sourceTranslation.Y) ||
+            !float.IsFinite(pixelsPerUnit.X) || !float.IsFinite(pixelsPerUnit.Y) ||
+            pixelsPerUnit.X <= 0 || pixelsPerUnit.Y <= 0 || !float.IsFinite(dpiScale) || dpiScale <= 0)
+            return false;
+
+        float left = (float)source.X - (float)source.PaddingLeft;
+        float top = (float)source.Y - (float)source.PaddingTop;
+        float right = (float)(source.X + source.Width) + (float)source.PaddingRight;
+        float bottom = (float)(source.Y + source.Height) + (float)source.PaddingBottom;
+        float width = right - left, height = bottom - top;
+        if (!float.IsFinite(left) || !float.IsFinite(top) || !float.IsFinite(right) || !float.IsFinite(bottom) ||
+            !float.IsFinite(width) || !float.IsFinite(height) || width <= 0 || height <= 0)
+            return false;
+
+        float physicalLeft = left * pixelsPerUnit.X, physicalTop = top * pixelsPerUnit.Y;
+        float physicalRight = right * pixelsPerUnit.X, physicalBottom = bottom * pixelsPerUnit.Y;
+        float x = MathF.Floor(physicalLeft), y = MathF.Floor(physicalTop);
+        float farX = MathF.Ceiling(physicalRight), farY = MathF.Ceiling(physicalBottom);
+        const float exactIntegerLimit = 1 << 24;
+        float pixelWidth = farX - x, pixelHeight = farY - y;
+        if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(farX) || !float.IsFinite(farY) ||
+            x < -exactIntegerLimit || y < -exactIntegerLimit || farX > exactIntegerLimit || farY > exactIntegerLimit ||
+            pixelWidth <= 0 || pixelHeight <= 0 || pixelWidth > exactIntegerLimit || pixelHeight > exactIntegerLimit)
+            return false;
+
+        float logicalWidth = pixelWidth / pixelsPerUnit.X, logicalHeight = pixelHeight / pixelsPerUnit.Y;
+        var raster = new Rect(x / pixelsPerUnit.X + sourceTranslation.X,
+            y / pixelsPerUnit.Y + sourceTranslation.Y, logicalWidth, logicalHeight);
+        var padded = new Rect(left + sourceTranslation.X, top + sourceTranslation.Y, width, height);
+        float translatedX = sourceTranslation.X * pixelsPerUnit.X, translatedY = sourceTranslation.Y * pixelsPerUnit.Y;
+        var sourceToRaster = new Matrix4x4(
+            pixelsPerUnit.X, 0, 0, 0,
+            0, pixelsPerUnit.Y, 0, 0,
+            0, 0, 1, 0,
+            -x - translatedX, -y - translatedY, 0, 1);
+        if (!IsFinite(raster) || !IsFinite(padded) || !float.IsFinite(sourceToRaster.M41) ||
+            !float.IsFinite(sourceToRaster.M42) ||
+            !TryCeilingDimension(logicalWidth, out uint logicalRenderWidth) ||
+            !TryCeilingDimension(logicalHeight, out uint logicalRenderHeight))
+            return false;
+
+        frame = new EffectCaptureFrame(padded, logicalWidth, logicalHeight,
+            logicalRenderWidth, logicalRenderHeight, (uint)pixelWidth, (uint)pixelHeight, dpiScale)
+        {
+            HasPhysicalOrigin = true,
+            PixelsPerUnit = pixelsPerUnit,
+            PhysicalOrigin = new Vector2(x, y),
+            RasterBounds = raster,
+            TextureUvBounds = new Vector4((physicalLeft - x) / pixelWidth, (physicalTop - y) / pixelHeight,
+                (physicalRight - x) / pixelWidth, (physicalBottom - y) / pixelHeight),
+            SourceToRaster = sourceToRaster
+        };
+        return true;
+    }
 
     /// <summary>
     /// Resolves a shader input using ceil(max(0, shaderPadding)), then the same
