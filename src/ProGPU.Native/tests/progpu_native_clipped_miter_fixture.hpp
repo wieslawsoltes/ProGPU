@@ -9,6 +9,29 @@
 
 namespace progpu::native::tests {
 
+inline bool clipped_miter_query_contract()
+{
+    const auto segments = miter_or_bevel_rectangle(0U);
+    const progpu_native_geometry_query_figure figure{segments[0U].p0,0U,4U,1U};
+    constexpr std::array<std::uint8_t,4U> stroked{1U,1U,1U,1U};
+    progpu_native_geometry_query_pen pen{8,1,0,0U,0U,0U,0U};
+    progpu_native_image_rect bounds{};
+    std::uint32_t has{}, contains{};
+    const auto query = [&](progpu_native_point point) {
+        return progpu_native_geometry_stroke_query(&figure,1U,segments.data(),stroked.data(),4U,
+            &pen,nullptr,0U,nullptr,&point,.01F,&bounds,&has,&contains);
+    };
+    // These points are strictly separated from all three corner boundaries:
+    // bevel x-y=40, clipped x-y=40+4*sqrt(2), full miter's outer square.
+    if (query({32.4F,7.6F}) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 1U || has != 1U ||
+        bounds.x != 6 || bounds.y != 6 || bounds.width != 28 || bounds.height != 28 ||
+        query({33.2F,6.8F}) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 0U) return false;
+    pen.line_join = 3U;
+    if (query({32.4F,7.6F}) != PROGPU_NATIVE_STATUS_SUCCESS || contains != 0U) return false;
+    pen.line_join = 0U; pen.miter_limit = 2;
+    return query({33.2F,6.8F}) == PROGPU_NATIVE_STATUS_SUCCESS && contains == 1U;
+}
+
 inline bool clipped_miter_triangles_and_flags()
 {
     std::array<stroke_triangle, 8U> triangles{}, wpf{};
