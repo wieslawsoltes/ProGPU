@@ -3641,6 +3641,29 @@ public:
             }
             return status;
         }
+        if (stroke_style == nullptr) {
+            direct2d_compat::rectangle_f rectangle{};
+            bool selected = false;
+            const HRESULT selection = get_default_rectangle_stroke_geometry(
+                &rectangle, &selected);
+            if (FAILED(selection)) {
+                return selection;
+            }
+            if (selected) {
+                progpu_native_direct2d_matrix_3x2_f transform{};
+                direct2d_compat::rectangle_f result{};
+                const HRESULT status =
+                    direct2d_compat::detail::get_rectangle_widened_bounds(
+                        reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
+                        rectangle, stroke_width, nullptr,
+                        compat_core_transform(world_transform, transform),
+                        flattening_tolerance, &result);
+                if (SUCCEEDED(status)) {
+                    *bounds = {result.left, result.top, result.right, result.bottom};
+                }
+                return status;
+            }
+        }
         D2D1_MATRIX_3X2_F composed{};
         if (!compose(world_transform, composed)) {
             return E_INVALIDARG;
@@ -3686,6 +3709,29 @@ public:
                 *contains = result == 0 ? FALSE : TRUE;
             }
             return status;
+        }
+        if (stroke_style == nullptr) {
+            direct2d_compat::rectangle_f rectangle{};
+            bool selected = false;
+            const HRESULT selection = get_default_rectangle_stroke_geometry(
+                &rectangle, &selected);
+            if (FAILED(selection)) {
+                return selection;
+            }
+            if (selected) {
+                progpu_native_direct2d_matrix_3x2_f transform{};
+                std::int32_t result = 0;
+                const HRESULT status =
+                    direct2d_compat::detail::rectangle_stroke_contains_point(
+                        reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
+                        rectangle, {point.x, point.y}, stroke_width, nullptr,
+                        compat_core_transform(world_transform, transform),
+                        flattening_tolerance, &result);
+                if (SUCCEEDED(status)) {
+                    *contains = result == 0 ? FALSE : TRUE;
+                }
+                return status;
+            }
         }
         D2D1_MATRIX_3X2_F composed{};
         if (!compose(world_transform, composed)) {
@@ -3925,6 +3971,24 @@ public:
                 reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
                     geometry_sink));
         }
+        if (stroke_style == nullptr) {
+            direct2d_compat::rectangle_f rectangle{};
+            bool selected = false;
+            const HRESULT selection = get_default_rectangle_stroke_geometry(
+                &rectangle, &selected);
+            if (FAILED(selection)) {
+                return selection;
+            }
+            if (selected) {
+                progpu_native_direct2d_matrix_3x2_f transform{};
+                return direct2d_compat::detail::widen_transformed_rectangle(
+                    rectangle, stroke_width, nullptr,
+                    compat_core_transform(world_transform, transform),
+                    flattening_tolerance,
+                    reinterpret_cast<direct2d_compat::simplified_geometry_sink*>(
+                        geometry_sink));
+            }
+        }
         D2D1_MATRIX_3X2_F composed{};
         if (!compose(world_transform, composed)) {
             return E_INVALIDARG;
@@ -3958,6 +4022,20 @@ public:
     }
 
 private:
+    HRESULT get_default_rectangle_stroke_geometry(
+        direct2d_compat::rectangle_f* rectangle,
+        bool* selected) const noexcept
+    {
+        // Preserve the original transformed-rectangle Widen transcript rather
+        // than replacing the default style with the generic path-stroke sink.
+        progpu_native_direct2d_matrix_3x2_f intrinsic{};
+        return direct2d_compat::detail::try_get_default_transformed_rectangle(
+            reinterpret_cast<direct2d_compat::factory*>(factory_.Get()),
+            reinterpret_cast<direct2d_compat::geometry*>(source_.Get()),
+            *compat_core_transform(&transform_, intrinsic),
+            rectangle, selected);
+    }
+
     HRESULT get_solid_rectangle_stroke_path(
         FLOAT stroke_width,
         ID2D1StrokeStyle* stroke_style,
