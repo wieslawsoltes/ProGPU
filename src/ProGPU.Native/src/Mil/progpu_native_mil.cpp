@@ -3524,8 +3524,24 @@ struct channel::implementation {
         const auto found = tile_brushes.find(handle);
         if (found == tile_brushes.end()) return status::invalid_handle;
         const auto& brush = found->second;
-        if (brush.opacity_animation != 0U || brush.viewport_animation != 0U || brush.viewbox_animation != 0U)
-            return status::unsupported_command;
+        // Original animation resources retain the current source property,
+        // not an extra shader uniform or a replacement bitmap. The shared tile
+        // replay resolves these same values and its dependency traversal owns
+        // their generations. Declaration may precede value initialization;
+        // capture must validate the complete current generation even when a
+        // zero-area viewport would otherwise omit its paint.
+        if ((brush.opacity_animation != 0U && !require_resource(brush.opacity_animation, type_double_resource)) ||
+            (brush.viewport_animation != 0U && !require_resource(brush.viewport_animation, type_rect_resource)) ||
+            (brush.viewbox_animation != 0U && !require_resource(brush.viewbox_animation, type_rect_resource)))
+            return status::invalid_handle;
+        if (require_pixels) {
+            double opacity{};
+            const auto resolved = resolve_animated_double(brush.opacity, brush.opacity_animation, opacity);
+            if (resolved != status::success) return resolved;
+            if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0) return status::invalid_graph;
+            for (const auto animation : {brush.viewport_animation, brush.viewbox_animation})
+                if (animation != 0U && !rect_resources.contains(animation)) return status::invalid_handle;
+        }
         for (const auto transform : {brush.transform_handle, brush.relative_transform_handle}) {
             const auto result = validate_static_sampler_transform(transform);
             if (result != status::success) return result;
