@@ -65,6 +65,19 @@ constexpr com::guid scene_mesh_native_interface_id{
     0x4CB8U,
     {0x9EU, 0xD4U, 0x23U, 0x24U, 0x58U, 0x36U, 0xBEU, 0x9BU}};
 
+// A family probe has exactly three outcomes: owned capability, absent family,
+// or error. Callers attach the output to local RAII before classification,
+// including malformed failed queries which nevertheless return an interface.
+// Only E_NOINTERFACE with null permits another family; S_FALSE with an owned
+// output is still success. This O(1) check performs no callbacks or allocation.
+[[nodiscard]] com::result classify_resource_query(
+    com::result result, const void* value) noexcept
+{
+    if (result == com::no_interface && value == nullptr) return com::false_result;
+    if (com::failed(result)) return result;
+    return value == nullptr ? failure : com::ok;
+}
+
 [[nodiscard]] bool valid_color(const color_f& value) noexcept
 {
     return std::isfinite(value.red) && std::isfinite(value.green) &&
@@ -4825,9 +4838,9 @@ public:
             reinterpret_cast<void**>(&raw_scene_target));
         com::pointer<scene_render_target_native> scene_target;
         scene_target.attach(raw_scene_target);
-        if (com::failed(scene_target_query) &&
-            scene_target_query != com::no_interface) {
-            latch(scene_target_query);
+        const auto scene_status = classify_resource_query(scene_target_query, scene_target.get());
+        if (com::failed(scene_status)) {
+            latch(scene_status);
             return;
         }
         if (scene_target.get() ==
@@ -4841,6 +4854,11 @@ public:
                 reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_native> native;
         native.attach(raw_native);
+        const auto bitmap_status = classify_resource_query(query, native.get());
+        if (com::failed(bitmap_status)) {
+            latch(bitmap_status);
+            return;
+        }
         if (native) {
             // Native compatible bitmaps now share the image path, preserving
             // clear color and source ownership as well as ordinary draw support.
@@ -4850,8 +4868,10 @@ public:
                 return;
             }
         }
-        if (!scene_target && (com::failed(query) || !native)) {
-            latch(com::failed(query) ? query : not_implemented);
+        if (!scene_target && !native) {
+            // Preserve the terminal absent-mask result, without interpreting
+            // any failed nonnull output as a usable bitmap.
+            latch(query);
             return;
         }
         bitmap_snapshot snapshot{};
@@ -5028,7 +5048,8 @@ public:
                 reinterpret_cast<void**>(&raw_bitmap_brush));
             com::pointer<scene_bitmap_brush_native> bitmap_brush;
             bitmap_brush.attach(raw_bitmap_brush);
-            if (com::succeeded(bitmap_query) && bitmap_brush) {
+            const auto brush_status = classify_resource_query(bitmap_query, bitmap_brush.get());
+            if (brush_status == com::ok) {
                 if (!draw_bitmap_brush_image(
                         bitmap_brush.get(),
                         mask_resource_index,
@@ -5038,8 +5059,8 @@ public:
                 }
                 return;
             }
-            if (bitmap_query != com::no_interface) {
-                latch(com::failed(bitmap_query) ? bitmap_query : failure);
+            if (com::failed(brush_status)) {
+                latch(brush_status);
                 return;
             }
             std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -5113,8 +5134,9 @@ public:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_native> native;
         native.attach(raw_native);
-        if (com::failed(query) || !native) {
-            latch(not_implemented);
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status != com::ok) {
+            latch(query_status == com::false_result ? not_implemented : query_status);
             return;
         }
         std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -7038,8 +7060,9 @@ private:
             reinterpret_cast<void**>(&raw_source));
         com::pointer<scene_bitmap_native> source;
         source.attach(raw_source);
-        if (com::failed(source_result) || !source) {
-            latch(not_implemented);
+        const auto source_status = classify_resource_query(source_result, source.get());
+        if (source_status != com::ok) {
+            latch(source_status == com::false_result ? not_implemented : source_status);
             return false;
         }
         std::uint32_t image_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -7173,11 +7196,12 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface || !native) {
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) {
             return bitmap_brush_draw_result::not_bitmap;
         }
-        if (com::failed(query)) {
-            latch(query);
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         progpu_native_scene_layer_geometry_mask mask{};
@@ -7220,11 +7244,12 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface || !native) {
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) {
             return bitmap_brush_draw_result::not_bitmap;
         }
-        if (com::failed(query)) {
-            latch(query);
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         progpu_native_scene_layer_mask mask{};
@@ -7268,11 +7293,12 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface || !native) {
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) {
             return bitmap_brush_draw_result::not_bitmap;
         }
-        if (com::failed(query)) {
-            latch(query);
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         const progpu_native_scene_clip_path path{
@@ -7390,7 +7416,12 @@ private:
             reinterpret_cast<void**>(&raw_linear));
         com::pointer<linear_gradient_brush> linear;
         linear.attach(raw_linear);
-        if (com::succeeded(linear_query) && linear) {
+        const auto linear_status = classify_resource_query(linear_query, linear.get());
+        if (com::failed(linear_status)) {
+            latch(linear_status);
+            return false;
+        }
+        if (linear_status == com::ok) {
             const point_2f start = linear->GetStartPoint();
             const point_2f end = linear->GetEndPoint();
             const float opacity = linear->GetOpacity();
@@ -7418,7 +7449,12 @@ private:
                 reinterpret_cast<void**>(&raw_radial));
             com::pointer<radial_gradient_brush> radial;
             radial.attach(raw_radial);
-            if (com::succeeded(radial_query) && radial) {
+            const auto radial_status = classify_resource_query(radial_query, radial.get());
+            if (com::failed(radial_status)) {
+                latch(radial_status);
+                return false;
+            }
+            if (radial_status == com::ok) {
                 const point_2f center = radial->GetCenter();
                 const point_2f offset = radial->GetGradientOriginOffset();
                 const point_2f origin{
@@ -7457,8 +7493,9 @@ private:
                     reinterpret_cast<void**>(&raw_solid));
                 com::pointer<solid_color_brush> solid;
                 solid.attach(raw_solid);
-                if (com::failed(solid_query) || !solid) {
-                    latch(not_implemented);
+                const auto solid_status = classify_resource_query(solid_query, solid.get());
+                if (solid_status != com::ok) {
+                    latch(solid_status == com::false_result ? not_implemented : solid_status);
                     return false;
                 }
                 const color_f color = solid->GetColor();
@@ -7504,9 +7541,10 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface) return bitmap_brush_draw_result::not_bitmap;
-        if (com::failed(query) || !native) {
-            latch(com::failed(query) ? query : failure);
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) return bitmap_brush_draw_result::not_bitmap;
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         factory* raw_factory = nullptr;
@@ -8358,10 +8396,11 @@ private:
                 reinterpret_cast<void**>(&raw_bitmap_brush));
             com::pointer<scene_bitmap_brush_native> bitmap_identity;
             bitmap_identity.attach(raw_bitmap_brush);
-            if (com::succeeded(bitmap_query) && bitmap_identity) {
+            const auto bitmap_status = classify_resource_query(bitmap_query, bitmap_identity.get());
+            if (bitmap_status == com::ok) {
                 bitmap_brush = true;
-            } else if (bitmap_query != com::no_interface) {
-                latch(com::failed(bitmap_query) ? bitmap_query : failure);
+            } else if (com::failed(bitmap_status)) {
+                latch(bitmap_status);
                 return;
             }
 
@@ -8755,7 +8794,12 @@ private:
             reinterpret_cast<void**>(&raw_linear));
         com::pointer<linear_gradient_brush> linear;
         linear.attach(raw_linear);
-        if (com::succeeded(linear_query) && linear) {
+        const auto linear_status = classify_resource_query(linear_query, linear.get());
+        if (com::failed(linear_status)) {
+            latch(linear_status);
+            return false;
+        }
+        if (linear_status == com::ok) {
             const point_2f start = linear->GetStartPoint();
             const point_2f end = linear->GetEndPoint();
             const float opacity = linear->GetOpacity();
@@ -8783,7 +8827,12 @@ private:
             reinterpret_cast<void**>(&raw_radial));
         com::pointer<radial_gradient_brush> radial;
         radial.attach(raw_radial);
-        if (com::succeeded(radial_query) && radial) {
+        const auto radial_status = classify_resource_query(radial_query, radial.get());
+        if (com::failed(radial_status)) {
+            latch(radial_status);
+            return false;
+        }
+        if (radial_status == com::ok) {
             const point_2f center = radial->GetCenter();
             const point_2f offset = radial->GetGradientOriginOffset();
             const point_2f origin{center.x + offset.x, center.y + offset.y};
@@ -8820,8 +8869,9 @@ private:
             reinterpret_cast<void**>(&raw_solid));
         com::pointer<solid_color_brush> solid;
         solid.attach(raw_solid);
-        if (com::failed(query) || !solid) {
-            latch(not_implemented);
+        const auto solid_status = classify_resource_query(query, solid.get());
+        if (solid_status != com::ok) {
+            latch(solid_status == com::false_result ? not_implemented : solid_status);
             return false;
         }
         const color_f color = solid->GetColor();
