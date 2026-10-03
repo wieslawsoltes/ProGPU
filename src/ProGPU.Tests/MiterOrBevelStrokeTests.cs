@@ -142,6 +142,11 @@ public sealed class MiterOrBevelStrokeTests
         window.Content = new PictureVisual(actual);
         window.Render();
         byte[] cold = window.ReadPixels();
+        float radius = mode == 0 ? 6f : mode == 1 ? 4f : .5f;
+        var corner = new Vector2(45, 15);
+        Assert.True(window.Compositor.TryHitTestPoint(corner + new Vector2(radius * .25f, -radius * .25f), out _));
+        Assert.Equal(limit == 2, window.Compositor.TryHitTestPoint(
+            corner + new Vector2(radius * .75f, -radius * .75f), out _));
         window.Render();
         Assert.Equal(cold, window.ReadPixels());
         window.Content = new PictureVisual(expected);
