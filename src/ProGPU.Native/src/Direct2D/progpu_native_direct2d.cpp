@@ -3966,8 +3966,8 @@ private:
         direct2d_compat::path_geometry** path) const noexcept
     {
         // The intrinsic transform belongs to the centerline. Only the caller's
-        // world transform applies after widening; composing both would scale
-        // the stroke by the source geometry's transform a second time.
+        // world transform applies after widening; composing both would also
+        // apply the source geometry's transform to the stroke width.
         progpu_native_direct2d_matrix_3x2_f intrinsic{};
         progpu_native_direct2d_matrix_3x2_f world{};
         return direct2d_compat::detail::create_transformed_rectangle_stroke_path(
