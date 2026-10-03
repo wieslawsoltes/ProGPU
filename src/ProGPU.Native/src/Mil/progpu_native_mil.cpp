@@ -2470,6 +2470,7 @@ struct channel::implementation {
         double cache_bounds_width{};
         double cache_bounds_height{};
         bool has_cache_bounds{};
+        bool has_empty_source_bounds{};
         std::vector<double> guidelines_x;
         std::vector<double> guidelines_y;
         std::vector<std::uint32_t> children;
@@ -3554,7 +3555,8 @@ struct channel::implementation {
     status validate_shader_sampler(std::uint32_t handle, bool require_pixels) const noexcept {
         if (require_resource(handle, type_implicit_input_brush))
             return implicit_input_brushes.contains(handle) ? status::success : status::invalid_handle;
-        if (!require_resource(handle, type_image_brush)) return status::invalid_handle;
+        const bool visual_sampler = require_resource(handle, type_visual_brush);
+        if (!require_resource(handle, type_image_brush) && !visual_sampler) return status::invalid_handle;
         const auto found = tile_brushes.find(handle);
         if (found == tile_brushes.end()) return status::invalid_handle;
         const auto& brush = found->second;
@@ -3578,6 +3580,17 @@ struct channel::implementation {
         }
         const auto transforms_status = validate_sampler_transforms(brush, require_pixels);
         if (transforms_status != status::success) return transforms_status;
+        if (visual_sampler) {
+            // Null is a genuine source property, not an uninitialized Visual.
+            // A nonnull source keeps its exact typed descendant bounds; neither
+            // the sampler extent nor the viewport can stand in for those bounds.
+            if (brush.source_handle == 0U) return status::success;
+            if (!require_resource(brush.source_handle, type_visual)) return status::unsupported_command;
+            const auto visual = visuals.find(brush.source_handle);
+            if (visual == visuals.end()) return require_pixels ? status::invalid_handle : status::success;
+            return require_pixels && !visual->second.has_cache_bounds && !visual->second.has_empty_source_bounds
+                ? status::unsupported_command : status::success;
+        }
         if (require_resource(brush.source_handle, type_drawing_image)) {
             const auto image = drawing_images.find(brush.source_handle);
             if (image == drawing_images.end()) return require_pixels ? status::invalid_handle : status::success;
@@ -15782,6 +15795,7 @@ struct channel::implementation {
                 if (compile_context == nullptr) return status::unsupported_command;
                 const auto visual = visuals.find(brush.source_handle);
                 if (visual == visuals.end()) return status::invalid_handle;
+                if (visual->second.has_empty_source_bounds) return status::success;
                 // Source-built Visual owns exact descendant bounds. Never infer
                 // a visual's extent by scraping UI properties or using viewport
                 // bounds as a substitute for missing content geometry.
@@ -20316,7 +20330,8 @@ struct channel::implementation {
             }
             std::uint32_t effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (require_resource(resolved_effect.input_brush_handle, type_image_brush)) {
+            if (require_resource(resolved_effect.input_brush_handle, type_image_brush) ||
+                require_resource(resolved_effect.input_brush_handle, type_visual_brush)) {
                 if (mask_context.frame == nullptr) return status::unsupported_command;
                 const auto& request = mask_context.frame->request;
                 const double width = capture_frame.capture_width != 0U ? capture_frame.capture_width
@@ -20548,11 +20563,13 @@ struct channel::implementation {
         return push_source_composite_layer();
     }
 
+    enum class shader_sampler_ownership { ordinary, drawing_image, visual };
+
     status append_cache_resource_revision(
         std::uint32_t handle,
         std::unordered_set<std::uint32_t>& active_resources,
         std::uint64_t& hash,
-        bool owned_shader_sampler = false) const {
+        shader_sampler_ownership sampler_ownership = shader_sampler_ownership::ordinary) const {
         append_fnv1a64(hash, handle);
         if (handle == 0U) {
             return status::success;
@@ -20565,16 +20582,18 @@ struct channel::implementation {
             active_resources.erase(handle);
             return status::invalid_handle;
         }
-        if (owned_shader_sampler) {
+        if (sampler_ownership != shader_sampler_ownership::ordinary) {
             // The existing dependency walk supplies ordered revisions, cycle
             // detection and the original depth budget. This stricter capture
             // policy must inspect even nonpainting drawing branches; it does
             // not widen ordinary brush or external texture admission.
             const auto type = resource->second.type;
-            if (type == type_drawing_brush || type == type_visual_brush ||
+            const bool visual_source = sampler_ownership == shader_sampler_ownership::visual;
+            if (type == type_drawing_brush || (!visual_source && type == type_visual_brush) ||
                 type == type_bitmap_cache_brush || type == type_double_buffered_bitmap ||
                 type == type_d3d_image || type == type_video_drawing || type == type_media_player ||
-                type == type_visual || type == type_viewport3d_visual || type == type_visual3d) {
+                (!visual_source && type == type_visual) || type == type_viewport3d_visual || type == type_visual3d ||
+                (visual_source && type == type_bitmap_cache)) {
                 active_resources.erase(handle);
                 return status::unsupported_command;
             }
@@ -20594,7 +20613,7 @@ struct channel::implementation {
         append_fnv1a64(hash, resource->second.generation);
         const auto append_dependency = [&](std::uint32_t dependency) {
             return append_cache_resource_revision(
-                dependency, active_resources, hash, owned_shader_sampler);
+                dependency, active_resources, hash, sampler_ownership);
         };
         status result = status::success;
         const auto append_if_success = [&](std::uint32_t dependency) {
@@ -20602,7 +20621,25 @@ struct channel::implementation {
                 result = append_dependency(dependency);
             }
         };
-        if (resource->second.type == type_visual || resource->second.type == type_viewport3d_visual) {
+        if (resource->second.type == type_visual && sampler_ownership == shader_sampler_ownership::visual) {
+            const auto visual = visuals.find(handle);
+            if (visual == visuals.end()) {
+                result = status::invalid_handle;
+            } else {
+                // This is a complete ownership preflight, not ordinary cache
+                // visibility pruning. Use the same active-resource set across
+                // visual, drawing, mask, effect and brush references, including
+                // hidden descendants and empty captures. Semantic replay still
+                // owns current-value/effect/frame admission.
+                append_if_success(visual->second.content_handle);
+                append_if_success(visual->second.transform_handle);
+                append_if_success(visual->second.effect_handle);
+                append_if_success(visual->second.cache_mode_handle);
+                append_if_success(visual->second.clip_geometry_handle);
+                append_if_success(visual->second.alpha_mask_handle);
+                for (const auto child : visual->second.children) append_if_success(child);
+            }
+        } else if (resource->second.type == type_visual || resource->second.type == type_viewport3d_visual) {
             std::unordered_set<std::uint32_t> active_visuals;
             result = compute_visual_cache_content_revision(handle, true, active_visuals, active_resources, hash);
         } else if (resource->second.type == type_visual3d) {
@@ -21158,6 +21195,7 @@ struct channel::implementation {
             append_fnv1a64(hash, visual->second.scroll_clip_width);
             append_fnv1a64(hash, visual->second.scroll_clip_height);
             append_fnv1a64(hash, visual->second.has_cache_bounds);
+            append_fnv1a64(hash, visual->second.has_empty_source_bounds);
             append_fnv1a64(hash, visual->second.cache_bounds_x);
             append_fnv1a64(hash, visual->second.cache_bounds_y);
             append_fnv1a64(hash, visual->second.cache_bounds_width);
@@ -21507,7 +21545,8 @@ struct channel::implementation {
         wire.program.bytecode_size = static_cast<std::uint32_t>(bytecode.size());
         const auto captured = add_shader_input_picture(visual_handle, sample, state, builder, wire.input_resource_index, context);
         if (captured != status::success) return captured;
-        if (require_resource(effect.input_brush_handle, type_image_brush)) {
+        if (require_resource(effect.input_brush_handle, type_image_brush) ||
+            require_resource(effect.input_brush_handle, type_visual_brush)) {
             const auto sampler = add_shader_sampler_picture(effect.input_brush_handle, f.capture_width,
                 f.capture_height, state, builder, wire.sampler_resource_index, context);
             if (sampler != status::success) return sampler;
@@ -21545,13 +21584,15 @@ struct channel::implementation {
         if (context.frame == nullptr) return status::unsupported_command;
         const auto admitted = validate_shader_sampler(brush_handle, true);
         if (admitted != status::success) return admitted;
-        if (require_resource(tile_brushes.at(brush_handle).source_handle, type_drawing_image)) {
+        const bool visual_sampler = require_resource(brush_handle, type_visual_brush);
+        if (visual_sampler || require_resource(tile_brushes.at(brush_handle).source_handle, type_drawing_image)) {
             // Preflight the original complete drawing graph before the shared
             // tile renderer can short-circuit empty bounds, opacity or viewport.
             // The child scene below remains the sole pixel producer.
             std::unordered_set<std::uint32_t> active;
             std::uint64_t revision = 14695981039346656037ULL;
-            const auto owned = append_cache_resource_revision(brush_handle, active, revision, true);
+            const auto owned = append_cache_resource_revision(brush_handle, active, revision, visual_sampler
+                ? shader_sampler_ownership::visual : shader_sampler_ownership::drawing_image);
             if (owned != status::success) return owned;
         }
         // Original source samplers realize a brush over the physical implicit-
@@ -23437,6 +23478,22 @@ status channel::set_visual_cache_bounds(
     visual.cache_bounds_width = width;
     visual.cache_bounds_height = height;
     visual.has_cache_bounds = true;
+    visual.has_empty_source_bounds = false;
+    implementation_->increment_generation(handle);
+    build_cache_.reset();
+    return status::success;
+}
+
+status channel::set_visual_source_empty_bounds(std::uint32_t handle) noexcept {
+    if (!implementation_->require_resource(handle, type_visual) || !implementation_->require_visual(handle))
+        return status::invalid_handle;
+    auto& visual = implementation_->visuals.at(handle);
+    // This explicit source witness is not a cache allocation rectangle. Keep
+    // the live Visual and all dependencies while invalidating any prior extent.
+    visual.cache_bounds_x = visual.cache_bounds_y = 0.0;
+    visual.cache_bounds_width = visual.cache_bounds_height = 0.0;
+    visual.has_cache_bounds = false;
+    visual.has_empty_source_bounds = true;
     implementation_->increment_generation(handle);
     build_cache_.reset();
     return status::success;

@@ -241,6 +241,9 @@ public:
         double y,
         double width,
         double height) noexcept;
+    // Retains a live Visual with explicit source-known empty descendant bounds.
+    // This is not a cache allocation or a replacement null Visual handle.
+    status set_visual_source_empty_bounds(std::uint32_t handle) noexcept;
     status set_point_hit_rectangles(
         std::span<const progpu_native_mil_point_hit_rectangle> rectangles) noexcept;
     status set_visual_visibilities(
