@@ -3578,6 +3578,17 @@ struct channel::implementation {
         }
         const auto transforms_status = validate_sampler_transforms(brush, require_pixels);
         if (transforms_status != status::success) return transforms_status;
+        if (require_resource(brush.source_handle, type_drawing_image)) {
+            const auto image = drawing_images.find(brush.source_handle);
+            if (image == drawing_images.end()) return require_pixels ? status::invalid_handle : status::success;
+            // A genuine null drawing is an owned transparent image, not a
+            // missing bitmap upload. Full drawing ownership is checked before
+            // capture, including branches an empty viewport would not paint.
+            if (image->second.drawing_handle == 0U) return status::success;
+            const auto drawing = resources.find(image->second.drawing_handle);
+            return drawing != resources.end() && is_drawing_type(drawing->second.type)
+                ? status::success : status::invalid_handle;
+        }
         if (!require_resource(brush.source_handle, type_bitmap_source)) return status::unsupported_command;
         const auto bitmap = bitmap_sources.find(brush.source_handle);
         if (bitmap == bitmap_sources.end()) return require_pixels ? status::invalid_handle : status::success;
@@ -15802,6 +15813,8 @@ struct channel::implementation {
                 if (image->second.drawing_handle == 0U) return status::success;
                 vector_source = true;
                 if (image->second.has_bounds) {
+                    content_x = image->second.bounds_x;
+                    content_y = image->second.bounds_y;
                     content_width = image->second.bounds_width;
                     content_height = image->second.bounds_height;
                 } else {
@@ -15809,11 +15822,14 @@ struct channel::implementation {
                     const status resolved = resolve_drawing_image_bounds(
                         resolve_drawing_image_bounds, image->second.drawing_handle, 0U, {}, nullptr, bounds);
                     if (resolved != status::success) return resolved;
+                    content_x = bounds.x;
+                    content_y = bounds.y;
                     content_width = bounds.width;
                     content_height = bounds.height;
                 }
-                // DrawingImage has a zero-origin natural image extent. Its
-                // drawing bounds origin is removed by append_drawing_image.
+                // ImageBrush absolute viewboxes use original drawing
+                // coordinates. Relative viewboxes resolve against these same
+                // bounds; ordinary DrawImage retains its independent mapping.
             } else {
                 return status::unsupported_command;
             }
@@ -16124,7 +16140,7 @@ struct channel::implementation {
                     auto saved_segments = std::exchange(clip_segments, {});
                     auto saved_nodes = std::exchange(clip_boolean_nodes, {});
                     drawn = append_bitmap_source(brush.source_handle,
-                        0.0, 0.0, content_width, content_height, content);
+                        content_x, content_y, content_width, content_height, content);
                     clip_paths = std::move(saved_paths);
                     clip_segments = std::move(saved_segments);
                     clip_boolean_nodes = std::move(saved_nodes);
@@ -20535,7 +20551,8 @@ struct channel::implementation {
     status append_cache_resource_revision(
         std::uint32_t handle,
         std::unordered_set<std::uint32_t>& active_resources,
-        std::uint64_t& hash) const {
+        std::uint64_t& hash,
+        bool owned_shader_sampler = false) const {
         append_fnv1a64(hash, handle);
         if (handle == 0U) {
             return status::success;
@@ -20548,11 +20565,36 @@ struct channel::implementation {
             active_resources.erase(handle);
             return status::invalid_handle;
         }
+        if (owned_shader_sampler) {
+            // The existing dependency walk supplies ordered revisions, cycle
+            // detection and the original depth budget. This stricter capture
+            // policy must inspect even nonpainting drawing branches; it does
+            // not widen ordinary brush or external texture admission.
+            const auto type = resource->second.type;
+            if (type == type_drawing_brush || type == type_visual_brush ||
+                type == type_bitmap_cache_brush || type == type_double_buffered_bitmap ||
+                type == type_d3d_image || type == type_video_drawing || type == type_media_player ||
+                type == type_visual || type == type_viewport3d_visual || type == type_visual3d) {
+                active_resources.erase(handle);
+                return status::unsupported_command;
+            }
+            if (type == type_bitmap_source) {
+                const auto bitmap = bitmap_sources.find(handle);
+                if (bitmap == bitmap_sources.end()) {
+                    active_resources.erase(handle);
+                    return status::invalid_handle;
+                }
+                if (bitmap->second.external_image || bitmap->second.pixels.empty()) {
+                    active_resources.erase(handle);
+                    return status::unsupported_command;
+                }
+            }
+        }
         append_fnv1a64(hash, resource->second.type);
         append_fnv1a64(hash, resource->second.generation);
         const auto append_dependency = [&](std::uint32_t dependency) {
             return append_cache_resource_revision(
-                dependency, active_resources, hash);
+                dependency, active_resources, hash, owned_shader_sampler);
         };
         status result = status::success;
         const auto append_if_success = [&](std::uint32_t dependency) {
@@ -21503,6 +21545,15 @@ struct channel::implementation {
         if (context.frame == nullptr) return status::unsupported_command;
         const auto admitted = validate_shader_sampler(brush_handle, true);
         if (admitted != status::success) return admitted;
+        if (require_resource(tile_brushes.at(brush_handle).source_handle, type_drawing_image)) {
+            // Preflight the original complete drawing graph before the shared
+            // tile renderer can short-circuit empty bounds, opacity or viewport.
+            // The child scene below remains the sole pixel producer.
+            std::unordered_set<std::uint32_t> active;
+            std::uint64_t revision = 14695981039346656037ULL;
+            const auto owned = append_cache_resource_revision(brush_handle, active, revision, true);
+            if (owned != status::success) return owned;
+        }
         // Original source samplers realize a brush over the physical implicit-
         // input extent, at zero origin and identity mapping. Brush transforms,
         // opacity, viewbox/viewport and tile addressing remain in the real tile
