@@ -37,6 +37,21 @@ fractional INT32 design-metric rounding rule has been inferred or inserted.
 Independent integral-instance original SDK/pixel controls and separate fractional
 observations remain required to establish the actual source numeric contract.
 
+Authored controls add eight font/table configurations, five independently
+specified instances and both explicit and null advances: 80 full-byte frames per
+provider, each cold, warm and independently drawn. Literal dyadic rectangle
+oracles distinguish changed vertical origins, empty-glyph movement and complete
+horizontal instance ownership. Each provider keeps its existing exact one-draw,
+one-submission caller assertions. The original 24 static frames are unchanged.
+
+Raw controls additionally cover horizontal-before/after cache reuse, raw sideways
+BOOL, repeated logical occurrences, lazy malformed VVAR, late-failure rollback,
+equal-byte wrong-owner rejection, and a deliberately differing VVAR/gvar fixture.
+That last fixture is a precedence discriminator, not an original-positive font
+parity assertion; its independent Windows readings are observation-only until
+the original implementation is actually measured. No existing source assertion
+or deadline is relaxed.
+
 Authoring only: no build, test, syntax check, verifier, SDK probe, renderer, GPU,
 VM or CI execution. This implementation is not a claim of original-Windows pixel
 parity, complete vertical text support or application qualification.
