@@ -422,7 +422,7 @@ inline bool append_polyline(
     if (points == nullptr || polyline.point_count < 2U ||
         (closed && polyline.point_count < 3U) ||
         (polyline.flags & ~all_flags) != 0U ||
-        join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
+        join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
         !is_finite(polyline.color) || !is_finite(polyline.transform) ||
         !std::isfinite(polyline.stroke_thickness) ||
         !std::isfinite(polyline.miter_limit) ||

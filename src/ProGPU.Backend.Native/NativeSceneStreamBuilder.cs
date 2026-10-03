@@ -431,7 +431,7 @@ public ref struct NativeSceneStreamBuilder
                 (uint)stroke.StartCap > (uint)NativeStrokeCap.Triangle ||
                 (uint)stroke.EndCap > (uint)NativeStrokeCap.Triangle ||
                 (uint)stroke.DashCap > (uint)NativeStrokeCap.Triangle ||
-                (uint)stroke.LineJoin > (uint)NativeStrokeJoin.Round ||
+                (uint)stroke.LineJoin > (uint)NativeStrokeJoin.MiterOrBevel ||
                 !IsFinite(stroke.Color) || !IsFinite(stroke.Transform) ||
                 !float.IsFinite(stroke.StrokeThickness) ||
                 !float.IsFinite(stroke.MiterLimit) ||

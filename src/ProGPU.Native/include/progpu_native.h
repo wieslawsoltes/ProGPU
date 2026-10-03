@@ -1109,7 +1109,9 @@ typedef enum progpu_native_stroke_cap {
 typedef enum progpu_native_stroke_join {
     PROGPU_NATIVE_STROKE_JOIN_MITER = 0,
     PROGPU_NATIVE_STROKE_JOIN_BEVEL = 1,
-    PROGPU_NATIVE_STROKE_JOIN_ROUND = 2
+    PROGPU_NATIVE_STROKE_JOIN_ROUND = 2,
+    /* Explicit bevel fallback at the miter limit, independent of WPF policy. */
+    PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL = 3
 } progpu_native_stroke_join;
 
 enum {

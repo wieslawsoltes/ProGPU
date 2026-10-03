@@ -211,7 +211,9 @@ inline void classify_join_triangle_edges(
         exterior_mask = 0x7U;
         return;
     }
-    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER && triangle_count == 2U) {
+    if ((join == PROGPU_NATIVE_STROKE_JOIN_MITER ||
+            join == PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL) &&
+        triangle_count == 2U) {
         exterior_mask = 0x3U;
         owned_internal_mask = triangle_index == 0U ? 0x4U : 0U;
         return;
@@ -749,7 +751,7 @@ inline bool is_valid_geometry_primitive(
         const std::uint32_t join =
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
                 PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
-        if (join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
+        if (join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) != 0U ||
             !(primitive.p3.x >= 1.0F) || primitive.p3.y != 0.0F) {
             return false;
@@ -1600,11 +1602,16 @@ inline std::size_t create_join_triangles(
     progpu_native_point incoming,
     progpu_native_point outgoing,
     bool use_wpf_join_semantics = false) noexcept {
-    if (!try_normalize(incoming, {}, incoming) ||
+    if (join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
+        !try_normalize(incoming, {}, incoming) ||
         !try_normalize(outgoing, {}, outgoing) ||
         !std::isfinite(thickness) || thickness <= 0.0001F) {
         return 0U;
     }
+    // This explicit join retains bevel overflow and reversal behavior even
+    // when the source otherwise requests WPF's clipped-miter policy.
+    use_wpf_join_semantics = use_wpf_join_semantics &&
+        join != PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL;
     const float turn = cross_product(incoming, outgoing);
     if (!std::isfinite(turn)) {
         return 0U;
@@ -1677,7 +1684,8 @@ inline std::size_t create_join_triangles(
         triangles[0] = {previous_outer, join_point, next_outer};
         return 1U;
     }
-    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER) {
+    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER ||
+        join == PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL) {
         progpu_native_point miter{};
         const float resolved_limit =
             std::isfinite(miter_limit) && miter_limit >= 1.0F

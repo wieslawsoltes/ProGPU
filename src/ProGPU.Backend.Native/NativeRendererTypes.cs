@@ -242,7 +242,8 @@ public enum NativeStrokeJoin : uint
 {
     Miter = 0,
     Bevel = 1,
-    Round = 2
+    Round = 2,
+    MiterOrBevel = 3
 }
 
 public enum NativePathSegmentKind : uint
@@ -3567,7 +3568,7 @@ public readonly struct NativePolyline
             throw new ArgumentOutOfRangeException(nameof(startCap));
         if ((uint)endCap > (uint)NativeStrokeCap.Triangle)
             throw new ArgumentOutOfRangeException(nameof(endCap));
-        if ((uint)lineJoin > (uint)NativeStrokeJoin.Round)
+        if ((uint)lineJoin > (uint)NativeStrokeJoin.MiterOrBevel)
             throw new ArgumentOutOfRangeException(nameof(lineJoin));
 
         PointOffset = pointOffset;

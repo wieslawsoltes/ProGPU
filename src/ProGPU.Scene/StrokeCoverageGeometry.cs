@@ -26,7 +26,7 @@ public static partial class StrokeCoverageGeometry
             || !float.IsFinite(rectangle.Width) || !float.IsFinite(rectangle.Height)
             || rectangle.Width <= 0 || rectangle.Height <= 0
             || !float.IsFinite(pen.Thickness) || pen.Thickness < 0 || pen.IsFixed || pen.HasDashPattern
-            || (uint)pen.LineJoin > 2 || !float.IsFinite(pen.MiterLimit)
+            || (uint)pen.LineJoin > (uint)PenLineJoin.MiterOrBevel || !float.IsFinite(pen.MiterLimit)
             || !float.IsFinite(geometryTransform.M11) || !float.IsFinite(geometryTransform.M12)
             || !float.IsFinite(geometryTransform.M21) || !float.IsFinite(geometryTransform.M22)
             || !float.IsFinite(geometryTransform.M31) || !float.IsFinite(geometryTransform.M32)) return false;
@@ -62,7 +62,7 @@ public static partial class StrokeCoverageGeometry
         coveragePen = null!;
         bounds = default;
         if (points.Length != 4 || !float.IsFinite(pen.Thickness) || pen.Thickness < 0
-            || pen.IsFixed || pen.HasDashPattern || (uint)pen.LineJoin > 2 || !float.IsFinite(pen.MiterLimit)) return false;
+            || pen.IsFixed || pen.HasDashPattern || (uint)pen.LineJoin > (uint)PenLineJoin.MiterOrBevel || !float.IsFinite(pen.MiterLimit)) return false;
         Span<Vector128<double>> vertices = stackalloc Vector128<double>[4];
         Span<Vector128<double>> directions = stackalloc Vector128<double>[4];
         for (int i = 0; i < 4; i++)
@@ -129,14 +129,14 @@ public static partial class StrokeCoverageGeometry
         var previous = point + LeftNormal(incoming) * Vector128.Create(sign * radius);
         var next = point + LeftNormal(outgoing) * Vector128.Create(sign * radius);
         double dot = Dot(incoming, outgoing);
-        if (join == PenLineJoin.Miter)
+        if (join is PenLineJoin.Miter or PenLineJoin.MiterOrBevel)
         {
             double limit = Math.Max(1, miterLimit);
             var miter = previous + incoming * Vector128.Create(Cross(next - previous, outgoing) / turn);
             var delta = miter - point;
             if (double.Hypot(delta[0], delta[1]) <= radius * limit + 0.0001)
                 state.Include(miter);
-            else
+            else if (join != PenLineJoin.MiterOrBevel)
             {
                 double denominator = radius * Math.Sqrt(Math.Max(0, (1 - dot) * 0.5));
                 if (!double.IsFinite(denominator) || denominator <= 0.0001) return false;

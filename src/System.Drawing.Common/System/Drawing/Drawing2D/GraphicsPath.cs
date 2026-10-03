@@ -1595,6 +1595,7 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
         {
             LineJoin.Bevel => ProGPU.Vector.PenLineJoin.Bevel,
             LineJoin.Round => ProGPU.Vector.PenLineJoin.Round,
+            LineJoin.MiterClipped => ProGPU.Vector.PenLineJoin.MiterOrBevel,
             _ => ProGPU.Vector.PenLineJoin.Miter,
         };
 
