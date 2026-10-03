@@ -153,7 +153,12 @@ public static partial class StrokeCoverageGeometry
             var triangle = triangles[i];
             if (!FinitePoint(triangle.P0) || !FinitePoint(triangle.P1) || !FinitePoint(triangle.P2)) return false;
             var a = Wide(triangle.P0); var b = Wide(triangle.P1); var c = Wide(triangle.P2);
-            if (Cross(b - a, c - a) == 0) continue;
+            var edge0 = triangle.P1 - triangle.P0; var edge1 = triangle.P2 - triangle.P0;
+            float area = edge0.X * edge1.Y - edge0.Y * edge1.X;
+            if (!float.IsFinite(area)) return false;
+            // Bounds may conservatively retain a tiny join, but materialized
+            // source outlines must not resurrect a triangle skipped by paint.
+            if (area == 0 || (outline != null && MathF.Abs(area) <= 0.0001f)) continue;
             state.Include(a); state.Include(b); state.Include(c);
             if (outline != null)
             {
