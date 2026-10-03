@@ -540,6 +540,7 @@ public sealed partial class RenderCommandGeometryCache
     private PenLineJoin _undashedStrokeLineJoin;
     private float _undashedStrokeMiterLimit;
     private bool _undashedStrokeClipMiterAtLimit;
+    private bool _undashedStrokeUseWpfJoinSemantics;
     private PenLineCap _undashedStrokeStartLineCap;
     private PenLineCap _undashedStrokeEndLineCap;
     private PenLineCap _undashedStrokeDashCap;
@@ -666,6 +667,7 @@ public sealed partial class RenderCommandGeometryCache
         out Pen undashedStrokePen)
     {
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
 
         if (StrokePath == null)
         {
@@ -720,6 +722,7 @@ public sealed partial class RenderCommandGeometryCache
         _undashedStrokeLineJoin = pen.LineJoin;
         _undashedStrokeMiterLimit = pen.MiterLimit;
         _undashedStrokeClipMiterAtLimit = pen.ClipMiterAtLimit;
+        _undashedStrokeUseWpfJoinSemantics = pen.UseWpfJoinSemantics;
         _undashedStrokeStartLineCap = pen.StartLineCap;
         _undashedStrokeEndLineCap = pen.EndLineCap;
         _undashedStrokeDashCap = pen.DashCap;
@@ -827,6 +830,7 @@ public sealed partial class RenderCommandGeometryCache
             _undashedStrokeLineJoin == pen.LineJoin &&
             _undashedStrokeMiterLimit == pen.MiterLimit &&
             _undashedStrokeClipMiterAtLimit == pen.ClipMiterAtLimit &&
+            _undashedStrokeUseWpfJoinSemantics == pen.UseWpfJoinSemantics &&
             _undashedStrokeStartLineCap == pen.StartLineCap &&
             _undashedStrokeEndLineCap == pen.EndLineCap &&
             _undashedStrokeDashCap == pen.DashCap &&

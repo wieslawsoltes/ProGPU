@@ -18,6 +18,7 @@ public sealed partial class RenderCommandGeometryCache
 
     internal bool SupportsLinearDashCoverage(Pen pen)
     {
+        pen.ValidateJoinSemantics();
         if (!IsLinearDashCandidate(pen) || StrokePath == null)
             return false;
         if (_linearStrokeTopology.HasValue) return _linearStrokeTopology.Value;
@@ -40,7 +41,8 @@ public sealed partial class RenderCommandGeometryCache
         coverage = default;
         if (!SupportsLinearDashCoverage(pen)) return false;
         var key = new LinearDashKey(localThickness, pen.LineJoin, pen.MiterLimit,
-            pen.ClipMiterAtLimit, pen.StartLineCap, pen.EndLineCap, pen.DashCap, pen.DashOffset, pen.DashArrayStorage);
+            pen.ClipMiterAtLimit, pen.UseWpfJoinSemantics,
+            pen.StartLineCap, pen.EndLineCap, pen.DashCap, pen.DashOffset, pen.DashArrayStorage);
         if (!_linearDashPrepared || !_linearDashKey.Matches(key))
         {
             _linearDashPrepared = true;
@@ -66,11 +68,13 @@ public sealed partial class RenderCommandGeometryCache
     }
 
     private readonly record struct LinearDashKey(float Width, PenLineJoin Join, float Miter, bool ClipMiterAtLimit,
+        bool UseWpfJoinSemantics,
         PenLineCap Start, PenLineCap End, PenLineCap Dash, double Offset, double[]? Intervals)
     {
         // Equal NaN-valued invalid keys must retain their cached failure too.
         public bool Matches(LinearDashKey other) => Width.Equals(other.Width) && Join == other.Join
             && Miter.Equals(other.Miter) && ClipMiterAtLimit == other.ClipMiterAtLimit
+            && UseWpfJoinSemantics == other.UseWpfJoinSemantics
             && Start == other.Start && End == other.End && Dash == other.Dash
             && Offset.Equals(other.Offset) && (ReferenceEquals(Intervals, other.Intervals)
                 || Intervals.AsSpan().SequenceEqual(other.Intervals));

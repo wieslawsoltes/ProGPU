@@ -3836,7 +3836,8 @@ static DrawingVisual CreateManagedGeometryVisual(
                 dashOffset: dashOffset,
                 strokeTransformMode: mode)
             {
-                ClipMiterAtLimit = (polyline.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0
+                ClipMiterAtLimit = (polyline.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0,
+                UseWpfJoinSemantics = (polyline.Flags & NativePolylineFlags.WpfJoinSemantics) != 0
             },
             points.Slice(offset, count),
             polyline.IsClosed);
@@ -3894,7 +3895,8 @@ static DrawingVisual CreateManagedGeometryVisual(
                 dashOffset: dashOffset,
                 strokeTransformMode: mode)
             {
-                ClipMiterAtLimit = (stroke.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0
+                ClipMiterAtLimit = (stroke.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0,
+                UseWpfJoinSemantics = (stroke.Flags & NativePolylineFlags.WpfJoinSemantics) != 0
             },
             points.Slice(pointOffset, pointCount),
             doubles.Slice(knotOffset, knotCount),
