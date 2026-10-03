@@ -23,6 +23,7 @@
 #include "progpu_native_direct2d_variable_glyph_fixture.hpp"
 #include "progpu_native_direct2d_cff_glyph_fixture.hpp"
 #include "progpu_native_direct2d_sideways_glyph_fixture.hpp"
+#include "progpu_native_direct2d_variable_sideways_glyph_fixture.hpp"
 #include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_compatible_dpi_fixture.hpp"
 #if defined(PROGPU_NATIVE_FONT_HINTING)
@@ -2246,6 +2247,11 @@ int main(int argc, char** argv)
                 1U, header.command_count, 1U, stream, header.scene_id, header.generation);
         }, require);
     progpu::native::direct2d::tests::verify_sideways_glyph_pixels(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+            return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
+                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+        }, require);
+    progpu::native::direct2d::tests::verify_variable_sideways_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
                 1U, header.command_count, 1U, stream, header.scene_id, header.generation);
