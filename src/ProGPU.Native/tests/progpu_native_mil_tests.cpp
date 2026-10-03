@@ -40,6 +40,8 @@
 #include <limits>
 #include <vector>
 
+bool native_empty_drawing_image_ownership_controls();
+
 namespace {
 
 using progpu::native::mil::batch_metrics;
@@ -23532,6 +23534,7 @@ int main() {
     PROGPU_REQUIRE(original_shader_visual_brush_owns_complete_capture());
     PROGPU_REQUIRE(cache_raster_frame_preserves_source_arithmetic());
     PROGPU_REQUIRE(empty_cache_source_witness_retains_nested_native_ownership());
+    PROGPU_REQUIRE(native_empty_drawing_image_ownership_controls());
     PROGPU_REQUIRE(cache_raster_policy_is_atomic_and_required());
     PROGPU_REQUIRE(original_shader_bitmap_cache_owns_selected_capture());
     PROGPU_REQUIRE(empty_cache_sampler_authorization_is_exact_and_owned());

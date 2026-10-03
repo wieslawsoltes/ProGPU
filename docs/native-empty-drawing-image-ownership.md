@@ -40,6 +40,25 @@ sideband in captured session topology, and publish it after graph construction
 and any nested source witnesses. Managed scene replay retains its own actual
 source graph and does not consume this native channel sideband.
 
-Controls are authored for direct owners, nested dependencies, revisions,
-clear/refill, candidate rollback and failure atomicity. No build, test, syntax
-check, verifier, GPU/UI/VM execution or CI qualification is claimed.
+The native raw controls exercise every initialized drawing-family setter root,
+declared/missing/wrong-type roots, positive-bounds conflict, referenced deletion,
+exact resource generations and complete scene bytes after a failed later batch
+command. The retained raw-cache graph includes an ordinary ImageBrush whose
+empty DrawingImage owns a DrawingGroup and a GeometryDrawing with its own
+BitmapCacheBrush source. Mixed image/drawing/cache/visual cycles and hidden
+unsupported descendants still reject when the outer cache scale is zero.
+These are ownership checks, not a new direct DrawingImage sampler admission.
+
+The shared native provider corpus preserves states 0–14 and adds states 15–19
+with the same actual handles throughout: nested empty image/cache, nested cache
+refill while the image stays empty, image refill, image clear, and image refill
+again. Its 20 configurations each retain cold, warm and independent-engine
+replays (60 complete-frame assertions per provider). Blue/green pixels remain
+unchanged while the image is empty; the original red nested cache covers the
+left half only in the two positive-image states. The original Windows companion
+uses actual retained WPF objects and independent full-frame literals for those
+same states. Original pixels do not prove native ownership/deletion behavior.
+
+All controls are authored only. No build, test, syntax check, verifier, GPU/UI/VM
+execution or CI qualification is claimed. Existing selectors, deadlines and
+the original 15-case assertions are unchanged.

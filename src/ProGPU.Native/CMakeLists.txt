@@ -1844,6 +1844,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
+        tests/progpu_native_mil_empty_drawing_image_tests.cpp
         src/Scene/progpu_native_scene.cpp
         src/Scene/progpu_native_semantic_brush.cpp
         src/Scene/progpu_native_semantic_color_glyph.cpp
