@@ -294,6 +294,8 @@ public sealed unsafe class WpfShaderEffectExtensionPipeline : ICompositorExtensi
             return;
         }
 
+        compositor.RetainOwnedShaderSamplers(p);
+
         var r = p.Rect;
         var color = new Vector4(1f, 1f, 1f, compositor.ActiveOpacity);
 
