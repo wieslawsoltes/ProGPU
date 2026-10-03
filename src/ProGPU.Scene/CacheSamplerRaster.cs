@@ -89,9 +89,12 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
     private void Release()
     {
         if (System.Threading.Interlocked.Decrement(ref _references) != 0) return;
-        if (System.Threading.Volatile.Read(ref _payloadRetired) != 0) return;
-        if (Environment.CurrentManagedThreadId == _creatingThread) RetireResources();
-        else Texture.Context.QueueExternalTextureOwnerDisposal(new Retirement(this));
+        lock (Texture.Context.RenderLock)
+        {
+            if (_payloadRetired != 0) return;
+            if (Environment.CurrentManagedThreadId == _creatingThread) RetireResources();
+            else Texture.Context.QueueExternalTextureOwnerDisposal(new Retirement(this));
+        }
     }
 
     private static void RetireContext(WgpuContext context)

@@ -71,10 +71,12 @@ public unsafe partial class Compositor
                     throw new InvalidOperationException("The cache raster lost its owning device during capture.");
                 return new CacheSamplerRaster(texture, owned, frame, sourceIdentity, sourceRevision, device, enableClearType);
             }
-            catch
+            catch (Exception failure)
             {
                 try { texture?.Dispose(); }
-                finally { owned.Dispose(); }
+                catch (Exception cleanup) { try { failure.Data["CacheRasterTextureCleanupFailure"] = cleanup; } catch { } }
+                try { owned.Dispose(); }
+                catch (Exception cleanup) { try { failure.Data["CacheRasterSourceCleanupFailure"] = cleanup; } catch { } }
                 throw;
             }
             finally
