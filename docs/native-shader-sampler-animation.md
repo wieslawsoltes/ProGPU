@@ -49,3 +49,10 @@ three malformed later rectangles, each unpopulated property, invalid opacity
 behind an empty viewport, valid empty capture, retained snapshots after source
 retirement, and unchanged animated-transform rejection. Existing sampler cases,
 render-option controls and provider expectations remain intact.
+
+The same PR includes an [independent original Microsoft WPF companion](original-shader-sampler-animation-reference.md):
+nine states and 27 full-frame captures using real paused, controllable animation
+clocks, exact current/base property bits, same-owner reuse and independent
+literal-current-value scenes. Its existing SoftwareOnly/ARM-unavailable contract
+does not qualify hardware sampling. No new timing budget or source pixel
+tolerance was introduced, and these authored controls have not been executed.
