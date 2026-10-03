@@ -173,6 +173,7 @@ if (info.AbiVersion != 5 ||
 ValidateNativeMilSceneBuildTiming();
 ValidateNativeMilCompactGuidelineBuilder();
 VisualSourceBoundsValidation.Run();
+CacheRasterPolicyValidation.Run();
 ValidateNativeDocumentRows();
 ValidateNativePositionedParagraphs();
 ValidateNativeInlineParagraph();

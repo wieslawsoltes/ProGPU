@@ -3748,7 +3748,11 @@ int main(int argc, char** argv) {
         progpu::native::tests::verify_sampler_transform_animation_pixels(render_animated_sampler,require);
         progpu::native::tests::verify_shader_drawing_image_pixels(render_animated_sampler,require);
         progpu::native::tests::verify_shader_visual_brush_pixels(render_animated_sampler,require);
-        progpu::native::tests::verify_shader_bitmap_cache_pixels(render_animated_sampler,require);
+        if (!animation_engines[0][0])
+            require(progpu_native_dawn_engine_create(&engine_options,&animation_engines[0][0]) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && animation_engines[0][0],"cache sampler Dawn owner");
+        const auto cache_limits=progpu::native::tests::read_owned_cache_raster_limits(animation_engines[0][0],require);
+        progpu::native::tests::verify_shader_bitmap_cache_pixels(render_animated_sampler,require,cache_limits);
         for (auto& family : animation_engines)
             for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
     }

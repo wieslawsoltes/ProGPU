@@ -21681,7 +21681,7 @@ struct channel::implementation {
             }
             if (!target.has_empty_source_bounds && !make_cache_raster_frame(
                     target.cache_bounds_x, target.cache_bounds_y, target.cache_bounds_width,
-                    target.cache_bounds_height, scale, policy.primary_dpi_scale_x,
+                    target.cache_bounds_height, std::max(0.0, scale), policy.primary_dpi_scale_x,
                     policy.primary_dpi_scale_y, policy.maximum_texture_width,
                     policy.maximum_texture_height, raster)) return status::unsupported_command;
         }

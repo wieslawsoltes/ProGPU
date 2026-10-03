@@ -18,11 +18,11 @@ inline bool cache_raster_axis(float first, float last, double selected_scale,
     float primary_scale, std::uint32_t limit, std::uint32_t& pixels,
     float& scale, float& offset) noexcept {
     if (!std::isfinite(first) || !std::isfinite(last) || last < first ||
-        !std::isfinite(selected_scale) || !std::isfinite(primary_scale) ||
+        !std::isfinite(selected_scale) || selected_scale < 0.0 || !std::isfinite(primary_scale) ||
         primary_scale <= 0.0F || limit == 0U) return false;
     volatile float extent = last - first;
     if (!std::isfinite(extent)) return false;
-    if (extent == 0.0F || selected_scale <= 0.0) {
+    if (extent == 0.0F || selected_scale == 0.0) {
         pixels = 0U; scale = offset = 0.0F;
         return true;
     }
@@ -61,11 +61,24 @@ inline bool make_cache_raster_frame(double x, double y, double width, double hei
     std::uint32_t maximum_width, std::uint32_t maximum_height,
     cache_raster_frame& output) noexcept {
     if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) ||
-        !std::isfinite(height) || width < 0.0 || height < 0.0) return false;
+        !std::isfinite(height) || width < 0.0 || height < 0.0 ||
+        !std::isfinite(selected_scale) || selected_scale < 0.0 ||
+        !std::isfinite(primary_x) || !std::isfinite(primary_y) || primary_x <= 0.0F ||
+        primary_y <= 0.0F || maximum_width == 0U || maximum_height == 0U) return false;
     cache_raster_frame candidate{};
-    if (!cache_raster_axis(static_cast<float>(x), static_cast<float>(x + width),
+    const float left = static_cast<float>(x), top = static_cast<float>(y);
+    const float right = static_cast<float>(x + width), bottom = static_cast<float>(y + height);
+    if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) ||
+        !std::isfinite(bottom) || right < left || bottom < top) return false;
+    // A float rectangle is globally empty before either nonempty axis is
+    // multiplied by cache/DPI scale. Do not overflow the other axis first.
+    if (left == right || top == bottom || selected_scale == 0.0) {
+        output = candidate;
+        return true;
+    }
+    if (!cache_raster_axis(left, right,
             selected_scale, primary_x, maximum_width, candidate.width, candidate.scale_x, candidate.offset_x) ||
-        !cache_raster_axis(static_cast<float>(y), static_cast<float>(y + height),
+        !cache_raster_axis(top, bottom,
             selected_scale, primary_y, maximum_height, candidate.height, candidate.scale_y, candidate.offset_y)) return false;
     output = candidate;
     return true;

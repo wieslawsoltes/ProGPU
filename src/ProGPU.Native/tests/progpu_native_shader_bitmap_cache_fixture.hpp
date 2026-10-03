@@ -1,10 +1,11 @@
 #pragma once
 
 #include "progpu_native_shader_visual_brush_fixture.hpp"
+#include <thread>
 
 namespace progpu::native::tests {
 
-inline constexpr std::uint32_t shader_bitmap_cache_case_count = 12U;
+inline constexpr std::uint32_t shader_bitmap_cache_case_count = 15U;
 
 inline void append_shader_bitmap_cache_brush(std::vector<std::byte>& batch, std::uint32_t target,
     std::uint32_t cache, double opacity = 1.0, std::uint32_t transform = 0U,
@@ -13,7 +14,39 @@ inline void append_shader_bitmap_cache_brush(std::vector<std::byte>& batch, std:
         0U, transform, relative, cache, target);
 }
 
-inline bool initialize_shader_bitmap_cache(progpu_native_mil_channel* channel) {
+// CPU controls supply explicit authored limits; provider controls replace this
+// with their actual owned-device query before any scene is captured.
+inline constexpr progpu_native_mil_bitmap_cache_raster_policy shader_cache_policy{
+    sizeof(progpu_native_mil_bitmap_cache_raster_policy),1U,0U,0U,1.0F,1.0F,256U,256U,1U};
+
+template<class Require>
+progpu_native_cache_raster_limits read_owned_cache_raster_limits(progpu_native_engine* engine,Require require) {
+    progpu_native_cache_raster_limits result{sizeof(result),1U,0U,0U};
+    require(progpu_native_engine_get_cache_raster_limits(engine,&result) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        result.maximum_texture_width != 0U && result.maximum_texture_height != 0U,
+        "actual owned cache device limits");
+    for (std::uint32_t fault=0U; fault<3U; ++fault) {
+        auto invalid=result;
+        if (fault == 0U) --invalid.struct_size;
+        if (fault == 1U) ++invalid.version;
+        const auto unchanged=invalid;
+        require(progpu_native_engine_get_cache_raster_limits(fault == 2U ? nullptr : engine,&invalid) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && std::memcmp(&invalid,&unchanged,sizeof(invalid)) == 0,
+            "invalid device limit query leaves caller storage intact");
+    }
+    auto other_thread=result;
+    progpu_native_status status=PROGPU_NATIVE_STATUS_SUCCESS;
+    std::thread worker([&] { status=progpu_native_engine_get_cache_raster_limits(engine,&other_thread); });
+    worker.join();
+    require(status == PROGPU_NATIVE_STATUS_WRONG_THREAD && std::memcmp(&other_thread,&result,sizeof(result)) == 0,
+        "cache limit query retains creating-thread ownership");
+    auto again=result;
+    require(progpu_native_engine_get_cache_raster_limits(engine,&again) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        std::memcmp(&again,&result,sizeof(result)) == 0,"actual device limit identity retained after failed query");
+    return result;
+}
+
+inline bool initialize_shader_bitmap_cache(progpu_native_mil_channel* channel, bool with_policy = true) {
     using mil_clip_fixture_detail::packet;
     using mil::command;
     std::vector<std::byte> batch, content;
@@ -54,7 +87,9 @@ inline bool initialize_shader_bitmap_cache(progpu_native_mil_channel* channel) {
     packet(content,command::draw_rectangle,8.0,10.0,32.0,24.0,8U,0U);
     append_visual_sampler_content(batch,1U,2U,content);
     return progpu_native_mil_channel_apply(channel,batch.data(),batch.size(),nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
-        progpu_native_mil_channel_set_visual_cache_bounds(channel,1U,8,10,32,24) == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+        progpu_native_mil_channel_set_visual_cache_bounds(channel,1U,8,10,32,24) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
+        (!with_policy || progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(channel,5U,
+            &shader_cache_policy) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
 }
 
 inline bool update_shader_bitmap_cache(progpu_native_mil_channel* channel,std::uint32_t index) {
@@ -82,11 +117,15 @@ inline bool update_shader_bitmap_cache(progpu_native_mil_channel* channel,std::u
     packet(batch,command::visual_set_effect,40U,ignored ? 55U : 0U);
     packet(batch,command::visual_set_alpha,40U,ignored ? .25 : 1.0);
     packet(batch,command::visual_set_alpha_mask,40U,ignored ? 56U : 0U);
+    packet(batch,command::visual_set_scrollable_area_clip,40U,1000.0,1000.0,1.0,1.0,
+        index == 12U || index == 13U ? 1U : 0U);
+    packet(batch,command::visual_set_scrollable_area_clip,41U,1000.0,1000.0,1.0,1.0,
+        index == 13U ? 1U : 0U);
     if (index >= 9U) {
         packet(batch,command::visual_remove_all_children,41U);
         packet(batch,command::visual_remove_all_children,40U);
         if (index != 10U) packet(batch,command::visual_insert_child_at,40U,41U,0U);
-        if (index == 11U) {
+        if (index >= 11U) {
             packet(batch,command::visual_insert_child_at,41U,44U,0U);
             packet(batch,command::visual_insert_child_at,41U,45U,1U);
         }
@@ -120,13 +159,19 @@ inline bool build_shader_bitmap_cache(progpu_native_mil_channel* channel,std::ui
 }
 
 template<class Render,class Require>
-void verify_shader_bitmap_cache_pixels(Render render,Require require) {
+void verify_shader_bitmap_cache_pixels(Render render,Require require,
+    const progpu_native_cache_raster_limits& limits) {
     std::array<std::vector<std::byte>,shader_bitmap_cache_case_count> scenes;
     {
         progpu_native_mil_channel* raw{};
         require(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS,"cache sampler channel");
         mil_clip_channel owner(raw);
         require(initialize_shader_bitmap_cache(raw),"cache sampler declaration");
+        auto policy=shader_cache_policy;
+        policy.maximum_texture_width=limits.maximum_texture_width;
+        policy.maximum_texture_height=limits.maximum_texture_height;
+        require(progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(raw,5U,&policy) ==
+            PROGPU_NATIVE_MIL_STATUS_SUCCESS,"cache sampler actual owned device policy");
         for (std::uint32_t index=0U; index<scenes.size(); ++index) {
             require(update_shader_bitmap_cache(raw,index),"cache sampler exact source mutation");
             require(build_shader_bitmap_cache(raw,index,scenes[index]),"cache sampler immutable capture");
@@ -153,26 +198,18 @@ void verify_shader_bitmap_cache_pixels(Render render,Require require) {
         require(images[0].size() == 64U*64U*4U && images[0] == images[1] && images[0] == images[2],
             "cache sampler complete cold/warm/independent frames");
         if (index == 6U) zero_scale_pixels=images[0];
-        if (index == 7U || index == 9U || index == 10U)
+        if (index == 7U || index == 9U || index == 10U || index == 13U)
             require(images[0] == zero_scale_pixels,"distinct null/empty/zero-scale full-frame equality");
         if (index == 8U) refill_pixels=images[0];
-        if (index == 11U)
+        if (index == 11U || index == 12U || index == 14U)
             require(images[0] == refill_pixels,"same-owner empty source reappears without replacement");
         for (std::uint32_t y=0U; y<64U; ++y) for (std::uint32_t x=0U; x<64U; ++x) {
             std::array<std::uint8_t,4U> expected{0U,0U,0U,255U};
             if (x >= 8U && x < 40U && y >= 10U && y < 34U &&
-                index != 6U && index != 7U && index != 9U && index != 10U) {
-                const auto local_x=x-8U, local_y=y-10U;
-                if (index >= 8U && local_y >= 4U && local_y < 16U) {
-                    if (local_x < 4U) expected[2]=255U;
-                    else if (local_x < 12U) expected[1]=255U;
-                } else if (index == 5U && local_y >= 8U && local_y < 20U) {
-                    if (local_x >= 12U && local_x < 20U) expected[0]=255U;
-                    else if (local_x >= 20U && local_x < 28U) expected[1]=255U;
-                } else if (index <= 4U && local_y >= 6U && local_y < 18U) {
-                    if (index != 4U && local_x >= 4U && local_x < 12U) expected[0]=255U;
-                    else if (local_x >= 12U && local_x < 20U) expected[1]=index == 4U ? 64U : 255U;
-                }
+                index != 6U && index != 7U && index != 9U && index != 10U && index != 13U) {
+                if (index == 4U) expected[1]=128U; // descendant opacity only; brush opacity is not sampled
+                else if (x >= 24U) expected[1]=255U;
+                else expected[index >= 8U ? 2U : 0U]=255U;
             }
             const auto* actual=images[0].data()+(y*64U+x)*4U;
             if (!std::equal(expected.begin(),expected.end(),actual))
@@ -180,7 +217,7 @@ void verify_shader_bitmap_cache_pixels(Render render,Require require) {
                     index,x,y,static_cast<unsigned>(actual[0]),static_cast<unsigned>(actual[1]),
                     static_cast<unsigned>(actual[2]),static_cast<unsigned>(actual[3]),static_cast<unsigned>(expected[0]),
                     static_cast<unsigned>(expected[1]),static_cast<unsigned>(expected[2]),static_cast<unsigned>(expected[3]));
-            require(std::equal(expected.begin(),expected.end(),actual),"cache sampler literal natural-frame pixels");
+            require(std::equal(expected.begin(),expected.end(),actual),"cache sampler literal raw-texture pixels");
         }
     }
 }
