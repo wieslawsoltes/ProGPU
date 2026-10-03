@@ -29,7 +29,7 @@ public sealed class ClippedMiterPenArchiveTests
         using var clone = picture.Clone();
         Assert.True(picture.SharesRetainedCommandStorageWith(clone));
         Assert.True(clone.GetCommand(0).Pen!.ClipMiterAtLimit);
-        byte[] archive = PictureArchive.Serialize(picture, new SKRect(0, 0, 64, 64));
+        byte[] archive = PictureArchive.Serialize(picture, new SKRect(0, 0, 64, 64), 7);
         Assert.Equal(7, BinaryPrimitives.ReadInt32LittleEndian(archive.AsSpan(8, 4)));
         using SKPicture? restored = SKPicture.Deserialize(archive);
         Assert.NotNull(restored);
