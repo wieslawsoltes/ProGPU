@@ -34,6 +34,7 @@
 #include "progpu_native_direct2d_variable_glyph_reference.hpp"
 #include "progpu_native_direct2d_cff_glyph_reference.hpp"
 #include "progpu_native_direct2d_vertical_glyph_reference.hpp"
+#include "progpu_native_direct2d_variable_sideways_glyph_reference.hpp"
 
 using Microsoft::WRL::ComPtr;
 using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
@@ -7976,6 +7977,8 @@ int main()
     progpu::native::direct2d::tests::verify_original_cff_glyph_pixels(context.Get(),
         static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
     progpu::native::direct2d::tests::verify_original_sideways_glyph_pixels(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
+    progpu::native::direct2d::tests::verify_original_variable_sideways_glyph_pixels(context.Get(),
         static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
 
     // Original Windows command lists retain the actual face, offsets and
