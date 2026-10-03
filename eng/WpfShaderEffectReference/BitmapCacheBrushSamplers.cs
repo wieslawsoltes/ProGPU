@@ -19,12 +19,15 @@ internal static partial class Program
         public bool ExplicitCache => Index >= 2;
         public bool IgnoredRootState => Index >= 3;
         public bool Attached => Index != 7;
-        public bool Blue => Index == 8;
+        public bool Blue => Index >= 8;
+        public bool HasGroup => Index != 10;
+        public bool HasLeaves => Index != 9 && Index != 10;
+        public bool EmptyTarget => !HasLeaves;
         public double ExplicitScale => Index == 6 ? 0 : 1;
         public double InnerOpacity => Index == 4 ? .5 : 1;
         public double BrushOpacity => Index == 4 ? .5 : 1;
-        public Rect FirstRectangle => Index == 8 ? new(-4, 4, 8, 12) : new(4, 6, 8, 12);
-        public Rect SecondRectangle => Index == 8 ? new(4, 4, 8, 12) : new(12, 6, 8, 12);
+        public Rect FirstRectangle => Index >= 8 ? new(-4, 4, 8, 12) : new(4, 6, 8, 12);
+        public Rect SecondRectangle => Index >= 8 ? new(4, 4, 8, 12) : new(12, 6, 8, 12);
         public Rect? InnerClip => Index == 4 ? new Rect(12, 6, 8, 12) : null;
         public double RelativeX => Index == 5 ? .25 : 0;
         public double AbsoluteY => Index == 5 ? 2 : 0;
@@ -41,6 +44,9 @@ internal static partial class Program
         yield return new(6, "cache-sampler-zero-scale");
         yield return new(7, "cache-sampler-null-target");
         yield return new(8, "cache-sampler-restored-negative-origin");
+        yield return new(9, "cache-sampler-attached-empty-group");
+        yield return new(10, "cache-sampler-attached-empty-root");
+        yield return new(11, "cache-sampler-refilled-same-owners");
     }
 
     private static void CaptureBitmapCacheBrushSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
@@ -50,6 +56,8 @@ internal static partial class Program
         OriginalBitmapCacheSamplerScene? retained = null;
         byte[]? defaultPixels = null;
         byte[]? zeroScalePixels = null;
+        byte[]? nullTargetPixels = null;
+        byte[]? filledPixels = null;
         foreach (BitmapCacheSamplerState state in BitmapCacheSamplerStates())
         {
             CheckSamplerAnimationDeadline(timer);
@@ -103,9 +111,15 @@ internal static partial class Program
             if (state.Index == 6) zeroScalePixels = first;
             if (state.Index == 7 && (zeroScalePixels == null || !zeroScalePixels.AsSpan().SequenceEqual(first)))
                 failures.Add("The genuine null target differs from the independently retained zero-scale frame.");
+            if (state.Index == 7) nullTargetPixels = first;
+            if (state.Index == 8) filledPixels = first;
+            if (state.EmptyTarget && (nullTargetPixels == null || !nullTargetPixels.AsSpan().SequenceEqual(first)))
+                failures.Add($"{state.Name}: the genuine attached empty source differs from the independent null frame.");
+            if (state.Index == 11 && (filledPixels == null || !filledPixels.AsSpan().SequenceEqual(first)))
+                failures.Add("Refilling the same source owners did not restore their original nonempty frame.");
             observations.Add(new { state.Name, Input = input, Replays = replays });
         }
-        if (observations.Count != 9) throw new InvalidOperationException("Original BitmapCacheBrush sampler inventory changed.");
+        if (observations.Count != 12) throw new InvalidOperationException("Original BitmapCacheBrush sampler inventory changed.");
         CheckSamplerAnimationDeadline(timer);
         var receipt = new
         {
@@ -114,16 +128,16 @@ internal static partial class Program
             OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             PresentationCore = FileIdentity(typeof(BitmapCacheBrush).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
-            CaseCount = observations.Count, Replays = 27, Cases = observations, Failures = failures,
+            CaseCount = observations.Count, Replays = 36, Cases = observations, Failures = failures,
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
-            Qualification = "Original Microsoft WPF SoftwareOnly BitmapCacheBrush controls only; no native/provider/package, empty-target, UIElement wrapper, cyclic-source or source-host qualification."
+            Qualification = "Original Microsoft WPF SoftwareOnly BitmapCacheBrush controls only; no native/provider/package, generic-cache allocation, UIElement wrapper, cyclic-source or source-host qualification."
         };
         using (var file = new FileStream(Path.Combine(directory, failures.Count == 0 ?
             "bitmap-cache-brush-samplers.json" : "bitmap-cache-brush-samplers.failed.json"), FileMode.CreateNew))
             JsonSerializer.Serialize(file, receipt, new JsonSerializerOptions { WriteIndented = true });
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine($"Original BitmapCacheBrush samplers: 9 states / 27 replays; {(unavailable ? 0 : 9)} shader cases qualified.");
+        Console.WriteLine($"Original BitmapCacheBrush samplers: 12 states / 36 replays; {(unavailable ? 0 : 12)} shader cases qualified.");
     }
 
     private static void AssertBitmapCacheSamplerPixels(BitmapCacheSamplerState state, byte[] pixels, bool unavailable)
@@ -144,8 +158,8 @@ internal static partial class Program
                     4 when row >= 6 && row < 18 && column >= 12 && column < 20 => 1,
                     5 when row >= 8 && row < 20 =>
                         column >= 12 && column < 20 ? 2 : column >= 20 && column < 28 ? 1 : -1,
-                    8 when row >= 4 && row < 16 => column < 4 ? 0 : column < 12 ? 1 : -1,
-                    >= 0 and <= 8 => -1,
+                    8 or 11 when row >= 4 && row < 16 => column < 4 ? 0 : column < 12 ? 1 : -1,
+                    >= 0 and <= 11 => -1,
                     _ => throw new InvalidOperationException("Unknown independent BitmapCacheBrush sampler oracle.")
                 };
             }
@@ -221,6 +235,14 @@ internal static partial class Program
         private void Apply(BitmapCacheSamplerState state)
         {
             index = state.Index;
+            if (!state.HasLeaves && group.Children.Count != 0) group.Children.Clear();
+            else if (state.HasLeaves && group.Children.Count == 0)
+            {
+                group.Children.Add(first);
+                group.Children.Add(second);
+            }
+            if (!state.HasGroup && sampledRoot.Children.Count != 0) sampledRoot.Children.Clear();
+            else if (state.HasGroup && sampledRoot.Children.Count == 0) sampledRoot.Children.Add(group);
             firstGeometry.Rect = state.FirstRectangle;
             secondGeometry.Rect = state.SecondRectangle;
             firstBrush.Color = state.Blue ? Colors.Blue : Colors.Red;
@@ -248,11 +270,16 @@ internal static partial class Program
 
         internal object Describe(BitmapCacheSamplerState state)
         {
+            Rect observedBounds = VisualTreeHelper.GetDescendantBounds(sampledRoot);
             if (index != state.Index || !ReferenceEquals(brush.Target, state.Attached ? sampledRoot : null) ||
-                VisualTreeHelper.GetParent(sampledRoot) != null || sampledRoot.Children.Count != 1 ||
-                !ReferenceEquals(sampledRoot.Children[0], group) || !ReferenceEquals(VisualTreeHelper.GetParent(group), sampledRoot) ||
-                group.Children.Count != 2 || !ReferenceEquals(group.Children[0], first) || !ReferenceEquals(group.Children[1], second) ||
-                !ReferenceEquals(VisualTreeHelper.GetParent(first), group) || !ReferenceEquals(VisualTreeHelper.GetParent(second), group) ||
+                VisualTreeHelper.GetParent(sampledRoot) != null || sampledRoot.Children.Count != (state.HasGroup ? 1 : 0) ||
+                (state.HasGroup && !ReferenceEquals(sampledRoot.Children[0], group)) ||
+                !ReferenceEquals(VisualTreeHelper.GetParent(group), state.HasGroup ? sampledRoot : null) ||
+                group.Children.Count != (state.HasLeaves ? 2 : 0) ||
+                (state.HasLeaves && (!ReferenceEquals(group.Children[0], first) || !ReferenceEquals(group.Children[1], second))) ||
+                !ReferenceEquals(VisualTreeHelper.GetParent(first), state.HasLeaves ? group : null) ||
+                !ReferenceEquals(VisualTreeHelper.GetParent(second), state.HasLeaves ? group : null) ||
+                (state.EmptyTarget && !observedBounds.IsEmpty) ||
                 !ReferenceEquals(sampledRoot.CacheMode, state.TargetCache ? targetCache : null) ||
                 !ReferenceEquals(brush.BitmapCache, state.ExplicitCache ? explicitCache : null) ||
                 targetCache.RenderAtScale != 2 || targetCache.EnableClearType || targetCache.SnapsToDevicePixels ||
@@ -285,10 +312,11 @@ internal static partial class Program
             return new
             {
                 CurrentState = index, AttachedOriginalTarget = state.Attached, SourceRootChildCount = sampledRoot.Children.Count,
-                InnerChildOrder = new[] { "first", "second" },
+                InnerChildOrder = state.HasLeaves ? new[] { "first", "second" } : Array.Empty<string>(),
+                state.HasGroup, state.HasLeaves, state.EmptyTarget,
                 // Observations, not inputs to the literal pixel oracle. In
                 // particular, outer root effects are excluded from cache paint.
-                ObservedDescendantBounds = VisualSamplerBoundsDescription(VisualTreeHelper.GetDescendantBounds(sampledRoot)),
+                ObservedDescendantBounds = VisualSamplerBoundsDescription(observedBounds),
                 FirstContentBounds = VisualSamplerBoundsDescription(VisualTreeHelper.GetContentBounds(first)),
                 SecondContentBounds = VisualSamplerBoundsDescription(VisualTreeHelper.GetContentBounds(second)),
                 FirstRectangle = firstGeometry.Rect, SecondRectangle = secondGeometry.Rect,
