@@ -2656,6 +2656,8 @@ struct channel::implementation {
         std::uint32_t relative_transform_handle{};
         std::uint32_t cache_handle{};
         std::uint32_t target_handle{};
+        bool has_raster_policy{};
+        bitmap_cache_raster_policy raster_policy{};
     };
 
     struct cache_brush_capture_policy {
@@ -9402,6 +9404,13 @@ struct channel::implementation {
                 (brush.target_handle != 0U && !require_visual(brush.target_handle))) return status::invalid_handle;
             if (!std::isfinite(brush.opacity) || brush.opacity < 0.0 || brush.opacity > 1.0)
                 return status::malformed_batch;
+            // Raster policy is a copied source/device sideband, not a canonical
+            // brush property. Updating the original brush retains that binding.
+            const auto previous = bitmap_cache_brushes.find(handle);
+            if (previous != bitmap_cache_brushes.end()) {
+                brush.has_raster_policy = previous->second.has_raster_policy;
+                brush.raster_policy = previous->second.raster_policy;
+            }
             bitmap_cache_brushes.insert_or_assign(handle, brush);
             increment_generation(handle);
             ++metrics.updated_resource_count;
@@ -23583,6 +23592,22 @@ status channel::set_visual_source_empty_bounds(std::uint32_t handle) noexcept {
     visual.cache_bounds_width = visual.cache_bounds_height = 0.0;
     visual.has_cache_bounds = false;
     visual.has_empty_source_bounds = true;
+    implementation_->increment_generation(handle);
+    build_cache_.reset();
+    return status::success;
+}
+
+status channel::set_bitmap_cache_brush_raster_policy(std::uint32_t handle,
+    const bitmap_cache_raster_policy& policy) noexcept {
+    if (!implementation_->require_resource(handle, type_bitmap_cache_brush)) return status::invalid_handle;
+    const auto found = implementation_->bitmap_cache_brushes.find(handle);
+    if (found == implementation_->bitmap_cache_brushes.end()) return status::invalid_handle;
+    if (!std::isfinite(policy.primary_dpi_scale_x) || policy.primary_dpi_scale_x <= 0.0F ||
+        !std::isfinite(policy.primary_dpi_scale_y) || policy.primary_dpi_scale_y <= 0.0F ||
+        policy.maximum_texture_width == 0U || policy.maximum_texture_height == 0U || policy.source_revision == 0U)
+        return status::invalid_argument;
+    found->second.raster_policy = policy;
+    found->second.has_raster_policy = true;
     implementation_->increment_generation(handle);
     build_cache_.reset();
     return status::success;

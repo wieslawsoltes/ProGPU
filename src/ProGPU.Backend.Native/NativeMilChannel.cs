@@ -680,6 +680,31 @@ public sealed unsafe class NativeMilChannel : IDisposable
             throw new NativeMilException(status, $"The empty source bounds for MIL Visual handle {handle} were rejected with {status}.");
     }
 
+    /// <summary>Copies explicit primary-display/renderer policy for an initialized cache brush.</summary>
+    public void SetBitmapCacheBrushRasterPolicy(uint handle, NativeMilBitmapCacheRasterPolicy policy)
+    {
+        if (!float.IsFinite(policy.PrimaryDpiScaleX) || policy.PrimaryDpiScaleX <= 0 ||
+            !float.IsFinite(policy.PrimaryDpiScaleY) || policy.PrimaryDpiScaleY <= 0 ||
+            policy.MaximumTextureWidth == 0 || policy.MaximumTextureHeight == 0 || policy.SourceRevision == 0)
+            throw new ArgumentOutOfRangeException(nameof(policy));
+        var value = new NativeMilMethods.BitmapCacheRasterPolicy
+        {
+            StructSize = (uint)sizeof(NativeMilMethods.BitmapCacheRasterPolicy),
+            Version = 1,
+            PrimaryDpiScaleX = policy.PrimaryDpiScaleX,
+            PrimaryDpiScaleY = policy.PrimaryDpiScaleY,
+            MaximumTextureWidth = policy.MaximumTextureWidth,
+            MaximumTextureHeight = policy.MaximumTextureHeight,
+            SourceRevision = policy.SourceRevision,
+        };
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetBitmapCacheBrushRasterPolicy(channel, handle, &value)
+            : NativeMilMethods.SetBitmapCacheBrushRasterPolicy(channel, handle, &value);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The cache-raster policy for MIL brush {handle} was rejected with {status}.");
+    }
+
     /// <summary>
     /// Copies a flattened camera/mesh scene into the portable sideband for a
     /// canonical WPF <see cref="NativeMilResourceType.Viewport3DVisual"/>
