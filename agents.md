@@ -1,5 +1,17 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Retained source WPF pens explicitly select full join semantics; generic pens
+keep their old smooth and reversal behavior. Preserve the raw policy in every
+snapshot/cache/material copy and archive version 8, rejecting lossy older writes.
+Normal source joins 0 through 2 use shared clipping/reversal and smooth-to-Round geometry;
+device-width and incompatible descriptors reject. Source input must not retain
+implicitly rounded internal body ends behind explicit joins. Share original
+tangents, affine/conformal frames, gap/cap/closed-seam metadata and effective
+Round edge ownership with paint and material bounds. Actual WPF adapters require
+the matching rebuilt producer, not a pretend capability on qualified old pins.
+Public source Geometry stroke queries have an independent transport gap. See
+docs/retained-source-wpf-joins.md; authored comparisons are not qualification.
+
 Native MIL curved/smooth and tiled path strokes retain full WPF join policy,
 not merely independent miter clipping. Keep normal-width source joins 0 through
 2, actual tangent/capture frames, dash gaps and closed seams. Smooth joins force
