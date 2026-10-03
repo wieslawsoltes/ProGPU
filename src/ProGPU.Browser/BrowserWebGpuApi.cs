@@ -25,6 +25,8 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
     {
         _commands = new BrowserGpuCommandEncoder(initialCommandCapacity);
         _dispatch = dispatch ?? BrowserGpuRuntime.Dispatch;
+        _textureLimitsGeneration = dispatch is null
+            ? BrowserGpuRuntime.CaptureTextureLimitsGeneration() : 0;
     }
 
     public static Device* DeviceHandle => (Device*)1;
@@ -868,6 +870,9 @@ public unsafe sealed partial class BrowserWebGpuApi : IWebGpuApi, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        // A failed Flush may require a later disposal retry, but no limit query
+        // may publish a capability once this provider begins retirement.
+        _textureLimitsRevoked = true;
         Flush();
         foreach (var mapped in _mappedBuffers.Values) mapped.Dispose();
         _mappedBuffers.Clear();

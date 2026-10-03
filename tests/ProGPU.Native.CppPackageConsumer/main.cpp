@@ -24,6 +24,19 @@ int main() {
         progpu_native_mil_channel_set_visual_source_empty_bounds(nullptr, 1U) != PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT) {
         return 7;
     }
+    const progpu::native::mil::bitmap_cache_raster_policy raster_policy{1.5F,2.0F,1024U,2048U,1U};
+    const progpu_native_mil_bitmap_cache_raster_policy wire_policy{
+        sizeof(wire_policy),1U,0U,0U,1.5F,2.0F,1024U,2048U,1U};
+    progpu_native_cache_raster_limits limits{sizeof(limits),1U,17U,19U};
+    if (mil_channel.set_bitmap_cache_brush_raster_policy(1U,raster_policy) !=
+            progpu::native::mil::status::invalid_handle ||
+        progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(nullptr,1U,&wire_policy) !=
+            PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT ||
+        progpu_native_engine_get_cache_raster_limits(nullptr,&limits) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT ||
+        limits.maximum_texture_width != 17U || limits.maximum_texture_height != 19U) return 8;
+    if (mil_channel.set_bitmap_cache_brush_empty_source(1U,2U) != progpu::native::mil::status::invalid_handle ||
+        progpu_native_mil_channel_set_bitmap_cache_brush_empty_source(nullptr,1U,2U) !=
+            PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT) return 9;
     progpu::native::semantic_scene_builder builder(42U, 1U);
     if (!builder.reserve(1U, 1U, 256U)) {
         return 2;

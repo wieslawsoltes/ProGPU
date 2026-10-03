@@ -19,6 +19,7 @@ public static partial class BrowserGpuRuntime
         if (!OperatingSystem.IsBrowser())
             throw new PlatformNotSupportedException("The ProGPU browser runtime requires browser-wasm.");
 
+        object textureLimitsInitialization = BeginTextureLimitsInitialization();
         var request = new BrowserInitializationRequest(
             options.CanvasSelector,
             options.ExecutionMode.ToString(),
@@ -32,6 +33,7 @@ public static partial class BrowserGpuRuntime
             ?? throw new InvalidOperationException("The browser WebGPU initializer returned no capabilities.");
         Capabilities = capabilities;
         _counters = default;
+        CompleteTextureLimitsInitialization(textureLimitsInitialization, capabilities.IsSupported);
         return capabilities;
     }
 

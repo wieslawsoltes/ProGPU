@@ -10,6 +10,7 @@ struct SampleEffectUniforms {
     constants: array<vec4<f32>, 32>,
     // xy: complete source capture; zw: retained texture allocation.
     extent: vec4<f32>,
+    sample_extent: vec4<f32>,
     // Original unit-quad transform AFTER the actual target's float projection.
     quad_scale_offset: vec4<f32>,
     // xy: actual parent device origin; zw: its raster viewport extent.
@@ -52,7 +53,7 @@ struct SampleVertex {
 }
 
 fn wpf_sample_input(uv: vec2<f32>) -> vec4<f32> {
-    let pixel = clamp(uv * effect.extent.xy, vec2<f32>(0.5), effect.extent.xy - vec2<f32>(0.5));
+    let pixel = clamp(uv * effect.sample_extent.xy, vec2<f32>(0.5), effect.sample_extent.xy - vec2<f32>(0.5));
     return textureSample(source_texture, source_sampler, pixel / effect.extent.zw);
 }
 

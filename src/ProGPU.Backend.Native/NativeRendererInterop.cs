@@ -205,6 +205,12 @@ internal static unsafe class NativeRendererInterop
             ? NativeDawnMethods.GetLastSubmission(engine, submissionIndex)
             : NativeMethods.GetLastSubmission(engine, submissionIndex);
 
+    internal static NativeRendererStatus GetCacheRasterLimits(
+        NativeRendererInteropKind kind, nint engine, NativeCacheRasterLimits* limits) =>
+        kind == NativeRendererInteropKind.Dawn
+            ? NativeDawnMethods.GetCacheRasterLimits(engine, limits)
+            : NativeMethods.GetCacheRasterLimits(engine, limits);
+
     internal static NativeRendererStatus GetGpuMemorySnapshot(
         NativeRendererInteropKind kind, nint engine, NativeGpuMemorySnapshot* snapshot) =>
         kind == NativeRendererInteropKind.Dawn

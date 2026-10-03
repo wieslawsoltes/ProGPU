@@ -27,8 +27,9 @@ constexpr std::size_t maximum_programs = 64U;
 struct effect_uniforms {
     std::array<float, 128U> constants;
     float extent[4];
+    float sample_extent[4];
 };
-static_assert(sizeof(effect_uniforms) == 528U);
+static_assert(sizeof(effect_uniforms) == 544U);
 struct sample_effect_uniforms {
     effect_uniforms source;
     float quad_scale_offset[4];
@@ -36,12 +37,12 @@ struct sample_effect_uniforms {
     float homogeneous[4];
     float physical_clip[4];
 };
-static_assert(sizeof(sample_effect_uniforms) == 592U);
+static_assert(sizeof(sample_effect_uniforms) == 608U);
 struct affine_effect_uniforms {
     sample_effect_uniforms sample;
     float quad_cross[4];
 };
-static_assert(sizeof(affine_effect_uniforms) == 608U);
+static_assert(sizeof(affine_effect_uniforms) == 624U);
 
 std::shared_ptr<semantic_shader_program> program_for(progpu_native_engine& engine,
     const progpu_native_scene_shader_effect& descriptor, std::span<const std::byte> bytecode,
@@ -151,8 +152,8 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     if (!shader_effect::validate(descriptor, bytecode) || width == 0U || height == 0U ||
         width > slot.width || height > slot.height || slot.view == nullptr) return {};
     if (sampler_picture && (sampler_picture->owner != &engine ||
-        sampler_picture->view == nullptr || sampler_picture->descriptor.width != width ||
-        sampler_picture->descriptor.height != height)) return {};
+        sampler_picture->view == nullptr || sampler_picture->descriptor.width == 0U ||
+        sampler_picture->descriptor.height == 0U)) return {};
     effect_uniforms uniforms{};
     if (!shader_effect::prepare_constants(descriptor, derivative_register, width, height, uniforms.constants)) return {};
     auto program = program_for(engine, descriptor, bytecode);
@@ -168,8 +169,10 @@ std::shared_ptr<semantic_shader_binding> create_semantic_shader_binding(
     binding->uniforms = wgpuDeviceCreateBuffer(engine.device, &buffer);
     if (binding->uniforms == nullptr) return {};
     uniforms.extent[0] = static_cast<float>(width); uniforms.extent[1] = static_cast<float>(height);
-    uniforms.extent[2] = static_cast<float>(binding->sampler_picture ? width : slot.width);
-    uniforms.extent[3] = static_cast<float>(binding->sampler_picture ? height : slot.height);
+    uniforms.extent[2] = static_cast<float>(binding->sampler_picture ? binding->sampler_picture->descriptor.width : slot.width);
+    uniforms.extent[3] = static_cast<float>(binding->sampler_picture ? binding->sampler_picture->descriptor.height : slot.height);
+    uniforms.sample_extent[0] = binding->sampler_picture ? uniforms.extent[2] : uniforms.extent[0];
+    uniforms.sample_extent[1] = binding->sampler_picture ? uniforms.extent[3] : uniforms.extent[1];
     wgpuQueueWriteBuffer(engine.queue, binding->uniforms, 0U, &uniforms, sizeof(uniforms));
     std::array<WGPUBindGroupEntry, 3U> entries{};
     entries[0].binding = 0U; entries[0].buffer = binding->uniforms; entries[0].size = sizeof(uniforms);
@@ -192,8 +195,8 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     std::shared_ptr<semantic_picture_backing> input_picture, std::uint32_t derivative_register,
     bool source_vector_mask, const progpu_native_scene_shader_affine_frame* affine_frame) {
     if (!shader_effect::validate(descriptor, bytecode) || !source_picture || source_picture->owner != &engine ||
-        source_picture->view == nullptr || source_picture->descriptor.width != frame.capture.width ||
-        source_picture->descriptor.height != frame.capture.height || frame.capture.width == 0U || frame.capture.height == 0U ||
+        source_picture->view == nullptr || source_picture->descriptor.width == 0U ||
+        source_picture->descriptor.height == 0U || frame.capture.width == 0U || frame.capture.height == 0U ||
         frame.output.width == 0U || frame.output.height == 0U || frame.output.width > 16'384U || frame.output.height > 16'384U ||
         !shader_effect::finite_affine_matrix(frame.unit_to_device) || !shader_effect::finite_affine_matrix(frame.device_to_unit) ||
         frame.unit_to_device.w <= 0.0F || frame.affine != (affine_frame != nullptr) ||
@@ -220,6 +223,8 @@ std::shared_ptr<semantic_shader_binding> create_semantic_sample_shader_binding(
     uniforms.source.extent[1] = static_cast<float>(frame.capture.height);
     uniforms.source.extent[2] = static_cast<float>(source_picture->descriptor.width);
     uniforms.source.extent[3] = static_cast<float>(source_picture->descriptor.height);
+    uniforms.source.sample_extent[0] = uniforms.source.extent[2];
+    uniforms.source.sample_extent[1] = uniforms.source.extent[3];
     uniforms.quad_scale_offset[0] = projection.unit_to_clip.x;
     uniforms.quad_scale_offset[1] = projection.unit_to_clip.y;
     uniforms.quad_scale_offset[2] = projection.unit_to_clip.tx;

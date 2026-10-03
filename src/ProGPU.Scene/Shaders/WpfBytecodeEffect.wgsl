@@ -8,6 +8,8 @@ struct EffectUniforms {
     constants: array<vec4<f32>, 32>,
     // xy: actual capture extent; zw: retained texture allocation extent.
     extent: vec4<f32>,
+    // xy: independently owned sampler's valid pixels (not output dimensions).
+    sample_extent: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> effect: EffectUniforms;
 @group(0) @binding(1) var source_sampler: sampler;
@@ -20,7 +22,7 @@ struct EffectUniforms {
 }
 
 fn wpf_sample_input(uv: vec2<f32>) -> vec4<f32> {
-    let pixel = clamp(uv * effect.extent.xy, vec2<f32>(0.5), effect.extent.xy - vec2<f32>(0.5));
+    let pixel = clamp(uv * effect.sample_extent.xy, vec2<f32>(0.5), effect.sample_extent.xy - vec2<f32>(0.5));
     return textureSample(source_texture, source_sampler, pixel / effect.extent.zw);
 }
 

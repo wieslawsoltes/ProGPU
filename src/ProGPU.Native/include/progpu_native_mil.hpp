@@ -105,6 +105,14 @@ struct scene_build_result {
     std::uint64_t stream_bytes{};
 };
 
+struct bitmap_cache_raster_policy {
+    float primary_dpi_scale_x{};
+    float primary_dpi_scale_y{};
+    std::uint32_t maximum_texture_width{};
+    std::uint32_t maximum_texture_height{};
+    std::uint64_t source_revision{};
+};
+
 class batch_reader final {
 public:
     explicit batch_reader(std::span<const std::byte> bytes) noexcept;
@@ -244,6 +252,12 @@ public:
     // Retains a live Visual with explicit source-known empty descendant bounds.
     // This is not a cache allocation or a replacement null Visual handle.
     status set_visual_source_empty_bounds(std::uint32_t handle) noexcept;
+    // Independent source/device inputs for raw BitmapCacheBrush shader capture.
+    // No receiving-window DPI or default texture limit is inferred.
+    status set_bitmap_cache_brush_raster_policy(std::uint32_t handle,
+        const bitmap_cache_raster_policy& policy) noexcept;
+    status set_bitmap_cache_brush_empty_source(std::uint32_t brush_handle,
+        std::uint32_t visual_handle) noexcept;
     status set_point_hit_rectangles(
         std::span<const progpu_native_mil_point_hit_rectangle> rectangles) noexcept;
     status set_visual_visibilities(

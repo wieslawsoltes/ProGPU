@@ -674,6 +674,16 @@ public partial struct NativeSceneHitTestIndex
     public uint PathSegmentOffset;
 }
 
+// Native source: progpu_native_cache_raster_limits.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeCacheRasterLimits
+{
+    public uint StructSize;
+    public uint Version;
+    public uint MaximumTextureWidth;
+    public uint MaximumTextureHeight;
+}
+
 // Native source: progpu_native_gpu_memory_snapshot.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeGpuMemorySnapshot
