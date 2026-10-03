@@ -11,6 +11,7 @@
 #include "progpu_native_shader_sampler_animation_fixture.hpp"
 #include "progpu_native_shader_sampler_transform_fixture.hpp"
 #include "progpu_native_shader_drawing_image_fixture.hpp"
+#include "progpu_native_shader_visual_brush_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_shader_local_frame_fixture.hpp"
 #include "../src/Mil/progpu_native_mil_curve_dash.hpp"
@@ -22159,6 +22160,149 @@ bool original_shader_sampler_transform_animation_owns_graph() {
     return true;
 }
 
+bool original_shader_visual_brush_owns_complete_capture() {
+    using namespace progpu::native::tests;
+    using mil_clip_fixture_detail::packet;
+    progpu_native_mil_channel* raw{};
+    PROGPU_REQUIRE(progpu_native_mil_channel_create(&raw) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    mil_clip_channel owner(raw);
+    PROGPU_REQUIRE(initialize_shader_visual_brush(raw,false));
+    const auto rejected = [&](progpu_native_mil_status expected) {
+        const auto request=shader_visual_brush_request(0U);
+        std::array<std::byte,256U> output; output.fill(std::byte{0xA5});
+        const auto untouched=output;
+        std::size_t written=123U;
+        progpu_native_mil_scene_build_result result{}; result.struct_size=sizeof(result);
+        return progpu_native_mil_channel_build_scene_with_request(raw,&request,output.data(),output.size(),
+            &written,nullptr,&result) == expected && written == 0U && output == untouched;
+    };
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE));
+    std::vector<std::byte> batch,content,scene;
+    const auto apply = [&] { return progpu_native_mil_channel_apply(raw,batch.data(),batch.size(),nullptr); };
+    // Actual null, declared/uninitialized, initialized/no bounds and explicit
+    // empty bounds are four different source contracts.
+    append_shader_visual_brush(batch,0U,0U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_visual_brush(raw,0U,scene));
+    batch.clear(); packet(batch,command::visual_create,40U); append_shader_visual_brush(batch,0U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_cache_bounds(raw,40U,0,0,0,0) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(nullptr,40U) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    const auto before_empty=progpu_native_mil_channel_get_resource_generation(raw,40U);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(raw,5U) == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(raw,999U) == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,40U) == before_empty);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(raw,40U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,40U) != before_empty);
+    PROGPU_REQUIRE(build_shader_visual_brush(raw,0U,scene));
+    const auto empty_scene=scene;
+    const auto empty_generation=progpu_native_mil_channel_get_resource_generation(raw,40U);
+    batch.clear(); packet(batch,command::visual_set_offset,40U,3.0,4.0);
+    packet(batch,command::visual_insert_child_at,40U,999U,0U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,40U) == empty_generation);
+    PROGPU_REQUIRE(build_shader_visual_brush(raw,0U,scene) && scene == empty_scene);
+    const auto shader_revision = [](const std::vector<std::byte>& stream) {
+        const auto header=read_value<progpu_native_scene_header>(stream,0U);
+        for (std::uint32_t i=0U; i<header.resource_count; ++i) {
+            const auto resource=read_value<progpu_native_scene_resource>(stream,header.resource_offset+i*header.resource_stride);
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT ||
+                resource.payload_size != sizeof(progpu_native_scene_shader_effect_picture)) continue;
+            const auto shader=read_value<progpu_native_scene_shader_effect_picture>(stream,resource.payload_offset);
+            if (shader.version != 2U || shader.sampler_resource_index >= i) return 0U;
+            const auto image=read_value<progpu_native_scene_resource>(stream,
+                header.resource_offset+shader.sampler_resource_index*header.resource_stride);
+            if (image.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE ||
+                (image.flags & PROGPU_NATIVE_SCENE_IMAGE_PICTURE) == 0U) return 0U;
+            const auto picture=read_value<progpu_native_scene_picture_image>(stream,image.payload_offset);
+            if (picture.width != 32U || picture.height != 24U || picture.dpi_scale != 1.0F ||
+                picture.flags != 0U || picture.clear_color.a != 0.0F) return 0U;
+            return shader.program.revision;
+        }
+        return 0U;
+    };
+    std::array<std::vector<std::byte>,shader_visual_brush_case_count> retained;
+    std::uint32_t previous{};
+    for (std::uint32_t index=0U; index<retained.size(); ++index) {
+        const auto effect_generation=progpu_native_mil_channel_get_resource_generation(raw,7U);
+        PROGPU_REQUIRE(update_shader_visual_brush(raw,index) && build_shader_visual_brush(raw,index,retained[index]));
+        PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,7U) == effect_generation);
+        const auto revision=shader_revision(retained[index]);
+        PROGPU_REQUIRE(revision != 0U && revision != previous); previous=revision;
+        PROGPU_REQUIRE(progpu::native::scene::validate(retained[index].data(),retained[index].size()).status ==
+            PROGPU_NATIVE_STATUS_SUCCESS);
+    }
+    PROGPU_REQUIRE(update_shader_visual_brush(raw,0U) && build_shader_visual_brush(raw,0U,scene));
+    const auto stable=scene;
+    for (const auto dependency : std::array{std::array{40U,39U},std::array{41U,39U},
+            std::array{44U,39U},std::array{46U,43U},std::array{42U,75U}}) {
+        const auto generation=progpu_native_mil_channel_get_resource_generation(raw,42U);
+        batch.clear(); packet(batch,command::solid_color_brush,42U,1.0,progpu_native_color{0,0,1,1},0U,0U,0U,0U);
+        packet(batch,command::channel_delete_resource,dependency[0],dependency[1]);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH);
+        PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,42U) == generation);
+        PROGPU_REQUIRE(build_shader_visual_brush(raw,0U,scene) && scene == stable);
+    }
+    const auto root_generation=progpu_native_mil_channel_get_resource_generation(raw,40U);
+    const auto brush_generation=progpu_native_mil_channel_get_resource_generation(raw,5U);
+    batch.clear(); packet(batch,command::solid_color_brush,42U,1.0,progpu_native_color{0,0,1,1},0U,0U,0U,0U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_visual_brush(raw,0U,scene));
+    PROGPU_REQUIRE(shader_revision(scene) != shader_revision(stable) &&
+        progpu_native_mil_channel_get_resource_generation(raw,40U) == root_generation &&
+        progpu_native_mil_channel_get_resource_generation(raw,5U) == brush_generation);
+
+    // Ordinary cache revision pruning excludes this hidden group. The sampler
+    // ownership policy must still inspect its complete content before the empty
+    // viewport can return a transparent picture.
+    const progpu_native_mil_visual_visibility hidden{41U,PROGPU_NATIVE_MIL_VISIBILITY_HIDDEN};
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_visibilities(raw,&hidden,1U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_source_empty_bounds(raw,40U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    batch.clear(); packet(batch,command::channel_create_resource,50U,95U);
+    content.clear(); packet(content,command::draw_image,10.0,20.0,8.0,6.0,50U,0U);
+    append_visual_sampler_content(batch,44U,46U,content); append_shader_visual_brush(batch,0U,40U,true);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE));
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_bitmap_source_external_image(raw,50U,8U,6U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    for (const auto type : {96U,97U}) {
+        batch.clear(); packet(batch,command::channel_create_resource,type,type);
+        content.clear(); packet(content,command::draw_image,10.0,20.0,8.0,6.0,type,0U);
+        append_visual_sampler_content(batch,44U,46U,content);
+        PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+        PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    }
+    PROGPU_REQUIRE(update_shader_visual_brush(raw,0U));
+    batch.clear(); packet(batch,command::channel_create_resource,60U,94U);
+    packet(batch,command::bitmap_cache,60U,1.0,0U,0U,0U);
+    packet(batch,command::visual_set_cache_mode,41U,60U); append_shader_visual_brush(batch,0U,40U,true);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_UNSUPPORTED_COMMAND));
+    batch.clear(); packet(batch,command::visual_set_cache_mode,41U,0U);
+    content.clear(); packet(content,command::draw_rectangle,10.0,20.0,8.0,6.0,5U,0U);
+    append_visual_sampler_content(batch,44U,46U,content);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH));
+    PROGPU_REQUIRE(update_shader_visual_brush(raw,0U));
+    const progpu_native_mil_visual_visibility visible{41U,PROGPU_NATIVE_MIL_VISIBILITY_VISIBLE};
+    PROGPU_REQUIRE(progpu_native_mil_channel_set_visual_visibilities(raw,&visible,1U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(build_shader_visual_brush(raw,0U,scene));
+    // A DrawingBrush remains illegal at the original sampler-property boundary.
+    batch.clear(); packet(batch,command::channel_create_resource,61U,81U);
+    packet(batch,command::drawing_brush,61U,1.0,std::array{0.0,0.0,1.0,1.0},std::array{0.0,0.0,1.0,1.0},
+        .707,1.414,0U,0U,0U,1U,1U,0U,0U,1U,0U,1U,1U,0U,0U);
+    packet(batch,command::shader_effect,7U,0.0,0.0,0.0,0.0,6U,0xFFFFFFFFU,
+        std::array<std::uint32_t,8U>{0U,0U,0U,0U,0U,0U,8U,4U},0U,1U,61U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,61U) == 0U);
+    // Detach the real source, then delete it: previous captures own all bytes.
+    batch.clear(); append_shader_visual_brush(batch,0U,0U);
+    packet(batch,command::channel_delete_resource,40U,39U);
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_visual_brush(raw,0U,scene));
+    for (const auto& saved : retained)
+        PROGPU_REQUIRE(progpu::native::scene::validate(saved.data(),saved.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
+    return true;
+}
+
 bool original_shader_drawing_image_owns_complete_capture() {
     using namespace progpu::native::tests;
     using mil_clip_fixture_detail::packet;
@@ -22912,6 +23056,7 @@ int main() {
     PROGPU_REQUIRE(original_shader_sampler_animation_owns_current_resources());
     PROGPU_REQUIRE(original_shader_sampler_transform_animation_owns_graph());
     PROGPU_REQUIRE(original_shader_drawing_image_owns_complete_capture());
+    PROGPU_REQUIRE(original_shader_visual_brush_owns_complete_capture());
     PROGPU_REQUIRE(original_shader_sampler_inherits_actual_visual_options());
     PROGPU_REQUIRE(original_shader_padding_retains_local_bounds_and_atomic_updates());
     PROGPU_REQUIRE(original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire());

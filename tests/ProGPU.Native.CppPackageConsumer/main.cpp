@@ -20,6 +20,10 @@ int main() {
     if (mil_channel.resource_count() != 0U) {
         return 6;
     }
+    if (mil_channel.set_visual_source_empty_bounds(1U) != progpu::native::mil::status::invalid_handle ||
+        progpu_native_mil_channel_set_visual_source_empty_bounds(nullptr, 1U) != PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT) {
+        return 7;
+    }
     progpu::native::semantic_scene_builder builder(42U, 1U);
     if (!builder.reserve(1U, 1U, 256U)) {
         return 2;

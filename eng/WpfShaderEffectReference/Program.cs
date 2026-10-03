@@ -124,6 +124,7 @@ internal static partial class Program
             CaptureImageSamplerAnimations(directory, args[2], unavailableControl, timer);
             CaptureImageSamplerTransformAnimations(directory, args[2], unavailableControl, timer);
             CaptureVisualMaskInput(directory, args[2], timer);
+            CaptureVisualBrushSamplers(directory, args[2], unavailableControl, timer);
             var receipt = new
             {
                 Schema = 1, SourceCommit = args[2], CaseCount = observations.Count, Cases = observations,

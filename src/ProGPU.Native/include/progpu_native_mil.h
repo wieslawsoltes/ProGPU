@@ -281,6 +281,15 @@ progpu_native_mil_channel_set_visual_cache_bounds(
     double y,
     double width,
     double height);
+/*
+ * Records explicit source-known empty descendant bounds for a live TYPE_VISUAL.
+ * Preserves its topology and invalidates previous positive bounds. Ordinary
+ * cache bounds remain strictly positive; setting them clears this empty witness.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_visual_source_empty_bounds(
+    progpu_native_mil_channel* channel,
+    uint32_t handle);
 /* Atomically replaces all point overrides. Handles must be strictly increasing;
  * zero count clears them. The source snapshot is copied before return. */
 PROGPU_NATIVE_API progpu_native_mil_status

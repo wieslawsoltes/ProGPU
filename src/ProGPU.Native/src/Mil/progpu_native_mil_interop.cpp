@@ -384,6 +384,14 @@ progpu_native_mil_channel_set_visual_cache_bounds(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_visual_source_empty_bounds(
+    progpu_native_mil_channel* channel,
+    uint32_t handle) {
+    if (channel == nullptr) return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    return to_abi(channel->state.set_visual_source_empty_bounds(handle));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_point_hit_rectangles(
     progpu_native_mil_channel* channel,
     const progpu_native_mil_point_hit_rectangle* rectangles,

@@ -212,6 +212,10 @@ internal static unsafe partial class NativeMilMethods
     internal static partial NativeMilStatus SetPointHitRectangles(nint channel,
         NativeMilPointHitRectangle* rectangles, nuint count);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_source_empty_bounds")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetVisualSourceEmptyBounds(nint channel, uint handle);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_visibilities")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetVisualVisibilities(nint channel,
@@ -470,6 +474,10 @@ internal static unsafe partial class NativeMilDawnMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetPointHitRectangles(nint channel,
         NativeMilPointHitRectangle* rectangles, nuint count);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_source_empty_bounds")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetVisualSourceEmptyBounds(nint channel, uint handle);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_visibilities")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
