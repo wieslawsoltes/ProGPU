@@ -51,6 +51,9 @@ internal static partial class Program
 
     private static void CaptureBitmapCacheBrushSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
     {
+        uint systemDpiObservation = ObserveCacheSamplerSystemDpi();
+        if (systemDpiObservation == 0)
+            throw new InvalidOperationException("Original system DPI observation failed.");
         var observations = new List<object>();
         var failures = new List<string>();
         OriginalBitmapCacheSamplerScene? retained = null;
@@ -71,6 +74,10 @@ internal static partial class Program
                 SourceFrameworkElements = false, SourceReplacedByBitmap = false,
                 ReceivingLocalBounds = new Rect(0, 0, 32, 24), ReceivingOffset = new Vector(8, 10),
                 OutputClip = new Rect(8, 10, 32, 24), TargetDpi = 96,
+                SamplerRealization = "selected raw cache texture sampled over normalized shader coordinates",
+                ConsumerBrushOpacityAndTransforms = "ignored by the BitmapCacheBrush shader sampler",
+                SystemDpiObservation = systemDpiObservation,
+                DpiObservationScope = "current UI-thread GetDpiForSystem; not proof of WPF's historically cached primary DPI",
                 ExpectedFirstArgb = state.Blue ? "FF0000FF" : "FFFF0000", ExpectedSecondArgb = "FF00FF00"
             };
             using (var file = new FileStream(Path.Combine(directory, state.Name + ".input.json"), FileMode.CreateNew))
@@ -108,6 +115,8 @@ internal static partial class Program
             if (state.Index == 0) defaultPixels = first;
             if (state.Index is >= 1 and <= 3 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
                 failures.Add($"{state.Name}: cache policy or excluded root state changed logical source output.");
+            if (state.Index == 5 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
+                failures.Add("Consumer brush transforms changed the selected raw cache sampler output.");
             if (state.Index == 6) zeroScalePixels = first;
             if (state.Index == 7 && (zeroScalePixels == null || !zeroScalePixels.AsSpan().SequenceEqual(first)))
                 failures.Add("The genuine null target differs from the independently retained zero-scale frame.");
@@ -123,12 +132,15 @@ internal static partial class Program
         CheckSamplerAnimationDeadline(timer);
         var receipt = new
         {
-            Schema = 1, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
+            Schema = 2, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
             OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             PresentationCore = FileIdentity(typeof(BitmapCacheBrush).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             CaseCount = observations.Count, Replays = 36, Cases = observations, Failures = failures,
+            SystemDpiObservation = systemDpiObservation,
+            SamplerContract = "raw selected cache texture; consumer brush opacity and transforms excluded",
+            RasterProfile = "literal integral-cache corpus; no fractional/near-integer, device-clamp or historical primary-DPI qualification",
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
             Qualification = "Original Microsoft WPF SoftwareOnly BitmapCacheBrush controls only; no native/provider/package, generic-cache allocation, UIElement wrapper, cyclic-source or source-host qualification."
@@ -142,23 +154,22 @@ internal static partial class Program
 
     private static void AssertBitmapCacheSamplerPixels(BitmapCacheSamplerState state, byte[] pixels, bool unavailable)
     {
-        // Independent literal bands. Source bounds, product transforms and
-        // observed original pixels never supply the expected frame.
+        // Independent literal bands for the integral-cache profile. The raw
+        // cache texture spans normalized shader coordinates; ordinary brush
+        // placement and opacity do not apply. No product math or observed
+        // original pixels supply the expected frame.
         for (int y = 0; y < 64; ++y) for (int x = 0; x < 64; ++x)
         {
             int selected = -1;
-            byte component = state.Index == 4 ? (byte)64 : (byte)255;
+            byte component = state.Index == 4 ? (byte)128 : (byte)255;
             if (!unavailable && x >= 8 && x < 40 && y >= 10 && y < 34)
             {
-                int column = x - 8, row = y - 10;
+                int column = x - 8;
                 selected = state.Index switch
                 {
-                    0 or 1 or 2 or 3 when row >= 6 && row < 18 =>
-                        column >= 4 && column < 12 ? 2 : column >= 12 && column < 20 ? 1 : -1,
-                    4 when row >= 6 && row < 18 && column >= 12 && column < 20 => 1,
-                    5 when row >= 8 && row < 20 =>
-                        column >= 12 && column < 20 ? 2 : column >= 20 && column < 28 ? 1 : -1,
-                    8 or 11 when row >= 4 && row < 16 => column < 4 ? 0 : column < 12 ? 1 : -1,
+                    0 or 1 or 2 or 3 or 5 => column < 16 ? 2 : 1,
+                    4 => 1,
+                    8 or 11 => column < 16 ? 0 : 1,
                     >= 0 and <= 11 => -1,
                     _ => throw new InvalidOperationException("Unknown independent BitmapCacheBrush sampler oracle.")
                 };
@@ -331,7 +342,7 @@ internal static partial class Program
                 ExplicitCacheAttached = state.ExplicitCache, ExplicitScale = explicitCache.RenderAtScale,
                 ExplicitSnapping = explicitCache.SnapsToDevicePixels,
                 SelectedPolicy = state.ExplicitCache ? "explicit-brush" : state.TargetCache ? "target" : "default",
-                LogicalPlacement = "natural original source coordinates; no TileBrush viewport or stretch"
+                SamplerPlacement = "raw cache texture over normalized shader coordinates; no ordinary brush mapping"
             };
         }
     }
@@ -358,4 +369,7 @@ internal static partial class Program
 
         protected override Freezable CreateInstanceCore() => new OriginalBitmapCacheSamplerEffect(InputBrush);
     }
+
+    [DllImport("user32.dll", EntryPoint = "GetDpiForSystem", ExactSpelling = true)]
+    private static extern uint ObserveCacheSamplerSystemDpi();
 }
