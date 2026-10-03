@@ -34,6 +34,9 @@ int main() {
             PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT ||
         progpu_native_engine_get_cache_raster_limits(nullptr,&limits) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT ||
         limits.maximum_texture_width != 17U || limits.maximum_texture_height != 19U) return 8;
+    if (mil_channel.set_bitmap_cache_brush_empty_source(1U,2U) != progpu::native::mil::status::invalid_handle ||
+        progpu_native_mil_channel_set_bitmap_cache_brush_empty_source(nullptr,1U,2U) !=
+            PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT) return 9;
     progpu::native::semantic_scene_builder builder(42U, 1U);
     if (!builder.reserve(1U, 1U, 256U)) {
         return 2;
