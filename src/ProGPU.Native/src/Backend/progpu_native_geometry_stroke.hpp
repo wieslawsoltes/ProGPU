@@ -848,6 +848,18 @@ inline bool geometry_primitive_capacity(
     return true;
 }
 
+struct path_join_bounds {
+    float left{};
+    float top{};
+    float right{};
+    float bottom{};
+};
+
+inline bool try_get_path_join_bounds(
+    const progpu_native_geometry_primitive& primitive,
+    path_join_bounds& output,
+    bool& has_coverage) noexcept;
+
 inline bool append_cpu_join(
     std::uint32_t join,
     float thickness,
@@ -1795,6 +1807,73 @@ inline std::size_t create_join_triangles(
         };
     }
     return segment_count;
+}
+
+// Allocation extents come from the same owned normal-width triangles as paint,
+// not from AA-expanded quad vertices or a second miter/reversal approximation.
+// Retain endpoints separately: reconstructing right/bottom from a rounded width
+// can lose actual coverage before MIL chooses its tile capture allocation.
+inline bool try_get_path_join_bounds(
+    const progpu_native_geometry_primitive& primitive,
+    path_join_bounds& output,
+    bool& has_coverage) noexcept {
+    if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
+        (primitive.flags & (PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
+            PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE)) != 0U ||
+        !is_valid_geometry_primitive(primitive)) {
+        return false;
+    }
+    float maximum_scale = 0.0F;
+    float minimum_scale = 0.0F;
+    if (!try_get_stroke_scales(primitive.transform, maximum_scale, minimum_scale)) {
+        return false;
+    }
+    const bool affine = requires_affine_stroke_geometry(primitive.transform);
+    const float thickness = affine ? primitive.stroke_thickness
+        : primitive.stroke_thickness * maximum_scale;
+    if (!std::isfinite(thickness)) return false;
+    const std::uint32_t join = (primitive.flags &
+        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+    std::array<stroke_triangle, 8U> triangles{};
+    const std::size_t count = create_join_triangles(
+        triangles, join, thickness, primitive.p3.x,
+        affine ? primitive.p0 : transformed_point(primitive.transform, primitive.p0),
+        affine ? primitive.p1 : transformed_direction(primitive.transform, primitive.p1),
+        affine ? primitive.p2 : transformed_direction(primitive.transform, primitive.p2),
+        (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U,
+        (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U);
+    path_join_bounds candidate{};
+    bool found = false;
+    for (std::size_t index = 0U; index < count; ++index) {
+        auto triangle = triangles[index];
+        if (affine) {
+            triangle.p0 = transformed_point(primitive.transform, triangle.p0);
+            triangle.p1 = transformed_point(primitive.transform, triangle.p1);
+            triangle.p2 = transformed_point(primitive.transform, triangle.p2);
+        }
+        if (!is_finite(triangle.p0) || !is_finite(triangle.p1) ||
+            !is_finite(triangle.p2)) return false;
+        // Match append_stroke_triangle's admission of actual coverage.
+        const float edge0_x = triangle.p1.x - triangle.p0.x;
+        const float edge0_y = triangle.p1.y - triangle.p0.y;
+        const float edge1_x = triangle.p2.x - triangle.p0.x;
+        const float edge1_y = triangle.p2.y - triangle.p0.y;
+        const float area = edge0_x * edge1_y - edge0_y * edge1_x;
+        if (!std::isfinite(area)) return false;
+        if (std::abs(area) <= 0.0001F) continue;
+        const float left = std::min({triangle.p0.x, triangle.p1.x, triangle.p2.x});
+        const float top = std::min({triangle.p0.y, triangle.p1.y, triangle.p2.y});
+        const float right = std::max({triangle.p0.x, triangle.p1.x, triangle.p2.x});
+        const float bottom = std::max({triangle.p0.y, triangle.p1.y, triangle.p2.y});
+        candidate = found ? path_join_bounds{
+            std::min(candidate.left, left), std::min(candidate.top, top),
+            std::max(candidate.right, right), std::max(candidate.bottom, bottom)}
+            : path_join_bounds{left, top, right, bottom};
+        found = true;
+    }
+    output = candidate;
+    has_coverage = found;
+    return true;
 }
 
 inline bool append_cpu_join(
