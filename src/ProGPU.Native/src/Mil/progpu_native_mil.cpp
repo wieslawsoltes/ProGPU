@@ -2656,6 +2656,7 @@ struct channel::implementation {
         std::uint32_t relative_transform_handle{};
         std::uint32_t cache_handle{};
         std::uint32_t target_handle{};
+        std::uint32_t empty_source_handle{};
         bool has_raster_policy{};
         bitmap_cache_raster_policy raster_policy{};
     };
@@ -3571,10 +3572,14 @@ struct channel::implementation {
             // Null is an original property value. A nonnull source is never
             // replaced with an empty target or an invented positive cache box.
             std::uint32_t cache_handle = brush.cache_handle;
-            if (brush.target_handle != 0U) {
-                if (!require_resource(brush.target_handle, type_visual)) return status::unsupported_command;
-                const auto visual = visuals.find(brush.target_handle);
+            const auto source_handle = brush.empty_source_handle != 0U ? brush.empty_source_handle : brush.target_handle;
+            if (source_handle != 0U) {
+                if (!require_resource(source_handle, type_visual)) return status::unsupported_command;
+                const auto visual = visuals.find(source_handle);
                 if (visual == visuals.end()) return require_pixels ? status::invalid_handle : status::success;
+                if (brush.empty_source_handle != 0U && (brush.target_handle != 0U ||
+                    !visual->second.has_empty_source_bounds || visual->second.has_cache_bounds))
+                    return status::unsupported_command;
                 if (require_pixels && !visual->second.has_cache_bounds && !visual->second.has_empty_source_bounds)
                     return status::unsupported_command;
                 if (cache_handle == 0U) cache_handle = visual->second.cache_mode_handle;
@@ -5825,7 +5830,8 @@ struct channel::implementation {
                 }
             }
             for (const auto& [brush_handle, brush] : bitmap_cache_brushes) {
-                if (brush_handle != handle && (brush.target_handle == handle || brush.cache_handle == handle ||
+                if (brush_handle != handle && (brush.target_handle == handle || brush.empty_source_handle == handle ||
+                    brush.cache_handle == handle ||
                     brush.opacity_animation == handle || brush.transform_handle == handle ||
                     brush.relative_transform_handle == handle)) return status::invalid_graph;
             }
@@ -9399,6 +9405,8 @@ struct channel::implementation {
                 return status::malformed_batch;
             // Raster policy is a copied source/device sideband, not a canonical
             // brush property. Updating the original brush retains that binding.
+            // Empty-source ownership is different: this new canonical source
+            // identity clears its prior witness, even when target stays zero.
             const auto previous = bitmap_cache_brushes.find(handle);
             if (previous != bitmap_cache_brushes.end()) {
                 brush.has_raster_policy = previous->second.has_raster_policy;
@@ -20833,16 +20841,25 @@ struct channel::implementation {
             const auto brush = bitmap_cache_brushes.find(handle);
             if (brush == bitmap_cache_brushes.end()) result = status::invalid_handle;
             else {
+                const auto source_handle = brush->second.empty_source_handle != 0U
+                    ? brush->second.empty_source_handle : brush->second.target_handle;
+                if (brush->second.empty_source_handle != 0U) {
+                    const auto source = visuals.find(source_handle);
+                    if (!require_resource(source_handle, type_visual) || source == visuals.end())
+                        result = status::invalid_handle;
+                    else if (brush->second.target_handle != 0U || !source->second.has_empty_source_bounds ||
+                        source->second.has_cache_bounds) result = status::unsupported_command;
+                }
                 if (sampler_ownership == shader_sampler_ownership::bitmap_cache) {
                     // CacheBrush captures root content, not its six excluded
                     // outer properties. Its selected cache is explicit, target
                     // inherited, or genuinely default; an unused target cache
                     // must not enter this capture's ownership closure.
-                    result = append_cache_resource_revision(brush->second.target_handle,
+                    if (result == status::success) result = append_cache_resource_revision(source_handle,
                         active_resources, hash, sampler_ownership, true);
                     std::uint32_t cache_handle = brush->second.cache_handle;
-                    if (cache_handle == 0U && brush->second.target_handle != 0U) {
-                        const auto target = visuals.find(brush->second.target_handle);
+                    if (cache_handle == 0U && source_handle != 0U) {
+                        const auto target = visuals.find(source_handle);
                         if (target == visuals.end()) result = status::invalid_handle;
                         else cache_handle = target->second.cache_mode_handle;
                     }
@@ -20857,7 +20874,7 @@ struct channel::implementation {
                         append_fnv1a64(hash, policy.source_revision);
                     }
                 } else {
-                    append_if_success(brush->second.target_handle);
+                    append_if_success(source_handle);
                     append_if_success(brush->second.cache_handle);
                 }
                 if (!raw_cache_sampler) {
@@ -21669,8 +21686,9 @@ struct channel::implementation {
         const auto& brush = bitmap_cache_brushes.at(brush_handle);
         const auto& policy = brush.raster_policy;
         cache_raster_frame raster{};
-        if (brush.target_handle != 0U) {
-            const auto& target = visuals.at(brush.target_handle);
+        const auto source_handle = brush.empty_source_handle != 0U ? brush.empty_source_handle : brush.target_handle;
+        if (source_handle != 0U) {
+            const auto& target = visuals.at(source_handle);
             const auto selected = brush.cache_handle != 0U ? brush.cache_handle : target.cache_mode_handle;
             double scale = 1.0;
             if (selected != 0U) {
@@ -23669,6 +23687,24 @@ status channel::set_visual_source_empty_bounds(std::uint32_t handle) noexcept {
     visual.has_cache_bounds = false;
     visual.has_empty_source_bounds = true;
     implementation_->increment_generation(handle);
+    build_cache_.reset();
+    return status::success;
+}
+
+status channel::set_bitmap_cache_brush_empty_source(std::uint32_t brush_handle,
+    std::uint32_t visual_handle) noexcept {
+    if (!implementation_->require_resource(brush_handle, type_bitmap_cache_brush) ||
+        !implementation_->require_resource(visual_handle, type_visual)) return status::invalid_handle;
+    const auto brush = implementation_->bitmap_cache_brushes.find(brush_handle);
+    const auto visual = implementation_->visuals.find(visual_handle);
+    if (brush == implementation_->bitmap_cache_brushes.end() || visual == implementation_->visuals.end())
+        return status::invalid_handle;
+    if (brush->second.target_handle != 0U || !visual->second.has_empty_source_bounds ||
+        visual->second.has_cache_bounds) return status::invalid_argument;
+    // Exact same-channel ownership edge, not permission to allocate or paint
+    // an ordinary empty cache. Candidate channel copies retain it atomically.
+    brush->second.empty_source_handle = visual_handle;
+    implementation_->increment_generation(brush_handle);
     build_cache_.reset();
     return status::success;
 }

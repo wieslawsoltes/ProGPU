@@ -256,6 +256,8 @@ public:
     // No receiving-window DPI or default texture limit is inferred.
     status set_bitmap_cache_brush_raster_policy(std::uint32_t handle,
         const bitmap_cache_raster_policy& policy) noexcept;
+    status set_bitmap_cache_brush_empty_source(std::uint32_t brush_handle,
+        std::uint32_t visual_handle) noexcept;
     status set_point_hit_rectangles(
         std::span<const progpu_native_mil_point_hit_rectangle> rectangles) noexcept;
     status set_visual_visibilities(

@@ -311,6 +311,12 @@ progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(
     progpu_native_mil_channel* channel,
     uint32_t handle,
     const progpu_native_mil_bitmap_cache_raster_policy* policy);
+/* Retains an initialized explicitly empty 2D source Visual for a brush whose
+ * canonical paint target is zero. Ownership only: no ordinary empty allocation.
+ * Every canonical brush update clears this witness; input is never borrowed. */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_cache_brush_empty_source(
+    progpu_native_mil_channel* channel, uint32_t brush_handle, uint32_t visual_handle);
 /* Atomically replaces all point overrides. Handles must be strictly increasing;
  * zero count clears them. The source snapshot is copied before return. */
 PROGPU_NATIVE_API progpu_native_mil_status

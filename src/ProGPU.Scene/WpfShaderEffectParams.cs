@@ -243,9 +243,32 @@ public sealed class WpfShaderEffectParams
     }
 }
 
-public sealed class WpfShaderEffectSampler
+public sealed class WpfShaderEffectSampler : IDisposable
 {
     private int _registerIndex;
+    private OwnedSamplerLease? _cacheRasterLease;
+    private GpuTexture? _texture;
+
+    /// <summary>
+    /// Retains this exact owned cache generation independently of source-cache
+    /// replacement. Ordinary texture constructors keep their existing ownership.
+    /// Recordings and compiled frames take additional leases from this sampler.
+    /// </summary>
+    public static WpfShaderEffectSampler FromCacheRaster(int registerIndex, CacheSamplerRaster raster,
+        TextureSamplingMode samplingMode = TextureSamplingMode.Linear)
+    {
+        ArgumentNullException.ThrowIfNull(raster);
+        WpfShaderEffectParams.ValidateSamplerRegister(registerIndex);
+        CacheSamplerRaster.Lease lease = raster.AcquireSamplerLease();
+        try
+        {
+            return new WpfShaderEffectSampler(registerIndex, lease.Texture, samplingMode)
+                { _cacheRasterLease = new OwnedSamplerLease(lease) };
+        }
+        catch { lease.Dispose(); throw; }
+    }
+
+    internal IProGpuTextureLeaseSource? RetainedTextureSource => _cacheRasterLease?.Source;
 
     public WpfShaderEffectSampler()
     {
@@ -271,8 +294,43 @@ public sealed class WpfShaderEffectSampler
         }
     }
 
-    public GpuTexture? Texture { get; set; }
+    public GpuTexture? Texture
+    {
+        get => _texture;
+        set
+        {
+            if (_cacheRasterLease is not null && !ReferenceEquals(value, _texture))
+                throw new InvalidOperationException("An owned sampler cannot change its retained texture generation.");
+            _texture = value;
+        }
+    }
     public TextureSamplingMode SamplingMode { get; set; } = TextureSamplingMode.Linear;
+
+    public void Dispose()
+    {
+        System.Threading.Interlocked.Exchange(ref _cacheRasterLease, null)?.Dispose();
+    }
+
+    // Only the new owned path allocates a finalizable lease holder. Existing
+    // ordinary sampler constructors have no added finalization/ownership work.
+    private sealed class OwnedSamplerLease(CacheSamplerRaster.Lease source) : IDisposable
+    {
+        private CacheSamplerRaster.Lease? _source = source;
+        internal IProGpuTextureLeaseSource Source => _source ?? throw new ObjectDisposedException(nameof(OwnedSamplerLease));
+        public void Dispose()
+        {
+            System.Threading.Interlocked.Exchange(ref _source, null)?.Dispose();
+            GC.SuppressFinalize(this);
+        }
+        ~OwnedSamplerLease()
+        {
+            // Never invoke picture/source disposal from the finalizer thread.
+            // Explicit consumers retain separate leases; the existing context
+            // retirement drain owns this abandoned parameter's final release.
+            try { System.Threading.Interlocked.Exchange(ref _source, null)?.QueueRetirement(); }
+            catch { }
+        }
+    }
 }
 
 public static class WpfShaderEffectShaders
