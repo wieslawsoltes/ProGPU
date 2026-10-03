@@ -61,9 +61,59 @@ public sealed class PortableTileBrush
         PortableMatrix3x2 transform,
         bool hasRelativeTransform,
         PortableMatrix3x2 relativeTransform)
+        : this(kind, content, opacity, viewport, viewbox, viewportUnits, viewboxUnits,
+            tileMode, stretch, alignmentX, alignmentY, hasTransform, transform,
+            hasRelativeTransform, relativeTransform, allowNullVisual: false)
+    {
+    }
+
+    /// <summary>
+    /// Captures a VisualBrush, including an explicitly unassigned Visual.
+    /// A null <paramref name="visual"/> means transparent source content; it
+    /// does not replace unavailable source bounds or a failed visual capture.
+    /// Mapping and transform values retain the ordinary snapshot policy.
+    /// </summary>
+    public static PortableTileBrush Visual(
+        object? visual,
+        double opacity,
+        PortableRect viewport,
+        PortableRect viewbox,
+        PortableBrushMappingMode viewportUnits,
+        PortableBrushMappingMode viewboxUnits,
+        PortableTileMode tileMode,
+        PortableStretch stretch,
+        PortableAlignmentX alignmentX,
+        PortableAlignmentY alignmentY,
+        bool hasTransform,
+        PortableMatrix3x2 transform,
+        bool hasRelativeTransform,
+        PortableMatrix3x2 relativeTransform)
+        => new(PortableTileBrushKind.Visual, visual, opacity, viewport, viewbox,
+            viewportUnits, viewboxUnits, tileMode, stretch, alignmentX, alignmentY,
+            hasTransform, transform, hasRelativeTransform, relativeTransform, allowNullVisual: true);
+
+    private PortableTileBrush(
+        PortableTileBrushKind kind,
+        object? content,
+        double opacity,
+        PortableRect viewport,
+        PortableRect viewbox,
+        PortableBrushMappingMode viewportUnits,
+        PortableBrushMappingMode viewboxUnits,
+        PortableTileMode tileMode,
+        PortableStretch stretch,
+        PortableAlignmentX alignmentX,
+        PortableAlignmentY alignmentY,
+        bool hasTransform,
+        PortableMatrix3x2 transform,
+        bool hasRelativeTransform,
+        PortableMatrix3x2 relativeTransform,
+        bool allowNullVisual)
     {
         Kind = kind;
-        Content = content ?? throw new ArgumentNullException(nameof(content));
+        if (content is null && !(allowNullVisual && kind == PortableTileBrushKind.Visual))
+            throw new ArgumentNullException(nameof(content));
+        Content = content;
         Opacity = double.IsFinite(opacity) ? opacity : 1.0;
         Viewport = viewport;
         Viewbox = viewbox;
@@ -81,7 +131,11 @@ public sealed class PortableTileBrush
 
     public PortableTileBrushKind Kind { get; }
 
-    public object Content { get; }
+    /// <summary>
+    /// Original source identity. Only the explicit <see cref="Visual"/>
+    /// factory can publish null, for a genuinely unassigned VisualBrush source.
+    /// </summary>
+    public object? Content { get; }
 
     public double Opacity { get; }
 
