@@ -29,3 +29,23 @@ through its existing typed brush adapter; it does not consume original MIL
 Validation is deferred by user request. Authored packet/pixel controls are not
 execution evidence, original Windows equivalence or application qualification.
 The coverage ledger is mechanically regenerated, not verified or hand-edited.
+
+## Authored controls
+
+The shared provider fixture owns nine consecutive source states in both absolute
+and relative brush units (18 configurations, 54 full-frame replays per provider).
+Only actual animation resources change in ordinary updates: original brush and
+ShaderEffect resource generations remain fixed. Independent literal nearest
+two-color rectangles check every RGBA byte, including untouched pixels and alpha.
+Opacity, viewport, viewbox, restore, detached base values, reattachment, bitmap
+mutation and animation-resource retirement/recreation use the same channel.
+Both engines require cold/independent two submissions and warm one submission,
+one original effect, three source commands and exact effect pass/cache counts.
+These expectations are authored requirements, not measured results.
+
+Raw controls cover the complete same-channel resource path, nine dependency
+deletion/unknown/wrong-type failures with an earlier valid update rolled back,
+three malformed later rectangles, each unpopulated property, invalid opacity
+behind an empty viewport, valid empty capture, retained snapshots after source
+retirement, and unchanged animated-transform rejection. Existing sampler cases,
+render-option controls and provider expectations remain intact.

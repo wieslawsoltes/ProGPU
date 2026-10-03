@@ -16,6 +16,7 @@
 #include "progpu_native_picture_axis_fixture.hpp"
 #include "progpu_native_shader_effect_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
+#include "progpu_native_shader_sampler_animation_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_rgb_glyph_scene_fixture.hpp"
@@ -3723,6 +3724,23 @@ int main(int argc, char** argv) {
     for (auto& policy : sampler_engines)
         for (auto* selected : policy) if (selected) progpu_native_engine_destroy(selected);
     for (auto* selected : capture_engines) if (selected) progpu_native_engine_destroy(selected);
+    }
+    {
+        std::array<std::array<progpu_native_engine*, 2U>, 2U> animation_engines{};
+        progpu::native::tests::verify_shader_sampler_animation_pixels(
+            [&](bool absolute, bool reference, const auto& stream,
+                const progpu_native_scene_header& header, std::uint64_t submissions,
+                progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& frame) {
+                auto*& selected = animation_engines[absolute ? 1U : 0U][reference ? 1U : 0U];
+                if (!selected)
+                    require(progpu_native_dawn_engine_create(&engine_options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+                        "animated sampler Dawn engine creation failed");
+                return render_retained_scene(reference, stream, header.generation, submissions,
+                    header.scene_id, 1U, 3U, &layers, &frame, 1.0F, nullptr,
+                    PROGPU_NATIVE_STATUS_SUCCESS, false, 64U, nullptr, selected);
+            }, require);
+        for (auto& family : animation_engines)
+            for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
     }
     progpu::native::tests::verify_original_shader_derivative_pixels(
         [&](bool reference, const auto& stream, std::uint64_t generation,
