@@ -37,6 +37,9 @@ struct style {
     std::uint32_t line_join{};
     std::uint32_t primitive_flags{};
     bool clip_miter_at_limit{};
+    // Source policy, not a body/cap flag. Smooth corners retain their forced
+    // Round kind while using the same WPF reversal policy as sharp corners.
+    bool wpf_join_semantics{};
 };
 
 // smooth_joins[i] describes the join from segments[i] to segments[i + 1].
@@ -274,6 +277,8 @@ inline result compile(
         stroke.dash_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
         stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
         (stroke.clip_miter_at_limit && stroke.line_join != PROGPU_NATIVE_STROKE_JOIN_MITER) ||
+        (stroke.wpf_join_semantics &&
+            (stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_ROUND || hairline || fixed_device)) ||
         (stroke.primitive_flags & ~allowed_primitive_flags) != 0U ||
         (hairline && fixed_device)) {
         return result::invalid;
@@ -347,6 +352,9 @@ inline result compile(
                     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT);
             if (!smooth_join && stroke.clip_miter_at_limit) {
                 primitive.flags |= PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT;
+            }
+            if (stroke.wpf_join_semantics) {
+                primitive.flags |= PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS;
             }
             primitive.p0 = join_point;
             primitive.p1 = incoming_tangent;

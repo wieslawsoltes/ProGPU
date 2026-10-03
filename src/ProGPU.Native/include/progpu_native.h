@@ -1098,7 +1098,9 @@ enum {
     PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT = 5U,
     PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK = 3U << 5U,
     /* PATH_JOIN/MITER only: clip overflow without WPF reversal semantics. */
-    PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT = 1U << 7U
+    PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT = 1U << 7U,
+    /* Normal-width PATH_JOIN, joins 0..2: retain WPF clipping and reversal. */
+    PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS = 1U << 8U
 };
 
 typedef enum progpu_native_stroke_cap {
