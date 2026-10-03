@@ -17,6 +17,7 @@
 #include "progpu_native_shader_sampler_transform_fixture.hpp"
 #include "progpu_native_shader_drawing_image_fixture.hpp"
 #include "progpu_native_shader_visual_brush_fixture.hpp"
+#include "progpu_native_shader_bitmap_cache_fixture.hpp"
 #include "progpu_native_drawing_image_brush_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
@@ -2377,6 +2378,7 @@ int main(int argc, char** argv)
         progpu::native::tests::verify_sampler_transform_animation_pixels(render_animated_sampler,require);
         progpu::native::tests::verify_shader_drawing_image_pixels(render_animated_sampler,require);
         progpu::native::tests::verify_shader_visual_brush_pixels(render_animated_sampler,require);
+        progpu::native::tests::verify_shader_bitmap_cache_pixels(render_animated_sampler,require);
         for (auto& family : animation_engines)
             for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
     }
