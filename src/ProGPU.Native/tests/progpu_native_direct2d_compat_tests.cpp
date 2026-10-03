@@ -13,6 +13,7 @@
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
+#include "progpu_native_direct2d_shared_bitmap_query_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_text_capture.hpp"
@@ -8296,6 +8297,11 @@ int run_tests()
             &rejected_locked_bitmap) != compat::not_implemented ||
         rejected_locked_bitmap != nullptr) {
         return 488;
+    }
+
+    if (!progpu::native::direct2d::tests::shared_bitmap_query_failure_contract(
+            target.get(), portable_bitmap.get(), scene_target.get())) {
+        return 529;
     }
 
     const compat::bitmap_properties shared_bitmap_properties{

@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Portable shared-bitmap queries use HRESULT as the capability decision, not a
+nonnull output left by a failed private-interface query. Retain failure-owned
+interfaces under RAII and preserve their exact error; only E_NOINTERFACE with
+null output permits the existing scene-source alternative. Success without an
+interface fails closed and does not select fallback. Preserve valid aliases and
+recorded scene bytes; malformed owned-provider controls are not Microsoft COM
+parity evidence. See docs/DIRECT2D_WIN2D_COMPATIBILITY.md.
+
 Source visual opacity masks may be input-neutral only through the producer's
 explicit SourceOpacityMaskPreservesHitGeometry contract. Keep the default false,
 actual source geometry/clip frames, ownership and singular-transform behavior;

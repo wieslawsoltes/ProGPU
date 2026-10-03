@@ -649,6 +649,28 @@ pixels. Windows tests call both ordinary and A8
 compatible sources through the actual SDK
 `ID2D1RenderTarget::CreateSharedBitmap` vtable.
 
+The portable bitmap-sharing boundary treats the private storage query's HRESULT
+as authoritative. Only `E_NOINTERFACE` with a null interface selects the existing
+scene-target alternative. A failed query with an owned nonnull interface returns
+that exact failure and releases the interface through the existing COM RAII
+owner; it cannot become a successful bitmap. Success with a null interface returns
+`E_NOTIMPL` without trying another representation. The alternative scene query
+likewise preserves failures and releases any returned interface before returning.
+No IID, vtable, bitmap alias, format, DPI, pixel-copy or scene-generation contract
+changes.
+
+Thirteen authored raw fault controls exercise both queries, exact HRESULTs,
+null publication, no downstream bitmap metadata/copy access, no first-query
+fallback after malformed responses, balanced actual owned source/scene/factory
+references, and byte-identical recorded target scenes. The fixture reuses actual
+ProGPU interfaces rather than fabricating a private vtable; its fault injection
+is an owned boundary policy, not an original Microsoft behavior claim for broken
+COM or a ProGPU-private IID. Existing valid upload/locked/compatible-source
+sharing and alias mutation controls are unchanged. These additions are source
+only: no build, syntax check, test, verifier, probe, GPU/UI/VM execution or CI
+dispatch was performed. Final integrated native/provider/package validation
+remains required.
+
 `CreateSharedBitmap(IID_IWICBitmapLock, ...)` is now a second typed ownership
 lane. The installed portable header carries the canonical four-method lock
 vtable and IID, so a real Windows lock or an ABI-compatible portable provider
