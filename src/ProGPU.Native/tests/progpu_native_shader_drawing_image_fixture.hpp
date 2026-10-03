@@ -4,16 +4,17 @@
 
 namespace progpu::native::tests {
 
-inline constexpr std::uint32_t shader_drawing_image_case_count = 8U;
+inline constexpr std::uint32_t shader_drawing_image_case_count = 9U;
 
 inline void append_shader_drawing_image_brush(std::vector<std::byte>& batch,
     std::uint32_t index, std::uint32_t image = 40U, bool empty_viewport = false) {
     using mil_clip_fixture_detail::packet;
-    const bool absolute = index == 2U;
+    const bool absolute = index == 2U || index == 8U;
     packet(batch, mil::command::image_brush, 5U, index == 1U ? 0.5 : 1.0,
         absolute ? std::array{8.0, 0.0, 16.0, 24.0} :
             std::array{0.0, 0.0, empty_viewport ? 0.0 : index == 3U ? 0.5 : 1.0, 1.0},
-        absolute ? std::array{4.0, 0.0, 4.0, 6.0} : std::array{0.0, 0.0, 1.0, 1.0},
+        absolute ? index == 2U ? std::array{14.0, 20.0, 4.0, 6.0} : std::array{4.0, 0.0, 4.0, 6.0}
+            : std::array{0.0, 0.0, 1.0, 1.0},
         0.707, 1.414, 0U, 0U, 0U, absolute ? 0U : 1U, absolute ? 0U : 1U,
         0U, 0U, 1U, index == 3U ? 4U : 0U, 1U, 1U, 0U, image);
 }
@@ -141,12 +142,12 @@ void verify_shader_drawing_image_pixels(Render render,Require require) {
         if (index == 7U) require(images[0] == blue,"drawing sampler origin-changing refill");
         for (std::uint32_t y=0U; y<64U; ++y) for (std::uint32_t x=0U; x<64U; ++x) {
             std::array<std::uint8_t,4U> expected{0,0,0,255};
-            if (x>=8U && x<40U && y>=10U && y<34U && index != 5U && index != 6U) {
+            if (x>=8U && x<40U && y>=10U && y<34U && index != 5U && index != 6U && index != 8U) {
                 const auto local=x-8U;
-                // TileMode.None maps the full natural image: the selected
-                // absolute viewbox does not clip away the red source strip.
-                const bool inside=index != 2U || local<24U;
-                const bool green=index == 2U ? local>=8U : (index == 3U ? local%16U>=8U : local>=16U);
+                // The DrawingImage intermediate keeps its original content
+                // origin and clips None to the actual mapped viewport.
+                const bool inside=index != 2U || (local>=8U && local<24U);
+                const bool green=index == 2U || (index == 3U ? local%16U>=8U : local>=16U);
                 if (inside) expected[green ? 1U : index>=4U ? 2U : 0U]=index == 1U ? 64U : 255U;
             }
             const auto* actual=images[0].data()+(y*64U+x)*4U;

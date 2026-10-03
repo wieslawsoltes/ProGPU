@@ -15813,6 +15813,8 @@ struct channel::implementation {
                 if (image->second.drawing_handle == 0U) return status::success;
                 vector_source = true;
                 if (image->second.has_bounds) {
+                    content_x = image->second.bounds_x;
+                    content_y = image->second.bounds_y;
                     content_width = image->second.bounds_width;
                     content_height = image->second.bounds_height;
                 } else {
@@ -15820,11 +15822,14 @@ struct channel::implementation {
                     const status resolved = resolve_drawing_image_bounds(
                         resolve_drawing_image_bounds, image->second.drawing_handle, 0U, {}, nullptr, bounds);
                     if (resolved != status::success) return resolved;
+                    content_x = bounds.x;
+                    content_y = bounds.y;
                     content_width = bounds.width;
                     content_height = bounds.height;
                 }
-                // DrawingImage has a zero-origin natural image extent. Its
-                // drawing bounds origin is removed by append_drawing_image.
+                // ImageBrush absolute viewboxes use original drawing
+                // coordinates. Relative viewboxes resolve against these same
+                // bounds; ordinary DrawImage retains its independent mapping.
             } else {
                 return status::unsupported_command;
             }
@@ -16135,7 +16140,7 @@ struct channel::implementation {
                     auto saved_segments = std::exchange(clip_segments, {});
                     auto saved_nodes = std::exchange(clip_boolean_nodes, {});
                     drawn = append_bitmap_source(brush.source_handle,
-                        0.0, 0.0, content_width, content_height, content);
+                        content_x, content_y, content_width, content_height, content);
                     clip_paths = std::move(saved_paths);
                     clip_segments = std::move(saved_segments);
                     clip_boolean_nodes = std::move(saved_nodes);

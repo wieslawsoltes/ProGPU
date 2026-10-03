@@ -2,8 +2,8 @@
 
 An original MIL ImageBrush sampler can now name an initialized DrawingImage in
 the same channel. The existing owned drawing/tile compiler produces the full
-RGBA child picture. It retains the original drawing-bounds origin separately
-from the zero-origin natural image extent, then applies the original viewbox,
+RGBA child picture. Its ImageBrush mapping retains the original drawing-bounds
+origin rather than substituting the zero-origin Width/Height extent. It applies the original viewbox,
 viewport, brush transform, opacity and addressing. No synthetic bitmap, CPU
 raster, new renderer or shader wire is introduced.
 
@@ -22,6 +22,18 @@ nonpainting branch. Ordinary DrawingImage consumers keep their existing policy.
 Dependency deletion and updates retain the original channel graph rules; every
 drawing, child, brush, geometry and animation generation contributes to capture
 revision. Original sampler transform-animation gates remain unchanged.
+This is ownership/revision preflight, not eager evaluation of every nested
+semantic value. Registered scalar/glyph/guideline resources retain the ordinary
+drawing compiler's lazy semantic validation; no claim is made that an empty
+paint evaluates otherwise unused current-value dictionaries.
+
+The shared ImageBrush DrawingImage path now preserves original bounds X/Y for
+absolute viewboxes. Relative viewboxes still resolve against the same bounds.
+Replaying the drawing at that original origin cancels its independent DrawImage
+normalization exactly once; ordinary DrawImage destination mapping is unchanged.
+The existing vector intermediate clips TileMode.None to the actual viewport.
+An absolute viewbox at (14,20) and one at (4,0) are deliberately distinct for
+content whose original bounds start at (10,20). No bitmap behavior changes.
 
 ## Implementation provenance and applicability
 
