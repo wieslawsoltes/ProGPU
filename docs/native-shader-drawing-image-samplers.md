@@ -78,6 +78,15 @@ an empty group and refilling that same group. The original Microsoft WPF
 [companion](original-shader-drawing-image-reference.md) authors the same nine
 states and 27 replays without constructing a BitmapSource.
 
+Ordinary ImageBrush controls separately paint the relative, positive absolute
+and shifted-origin cases without a ShaderEffect. Each is captured with inferred
+bounds and with the original nonzero DrawingImageBounds sideband: six
+configurations and 18 full-frame replays per provider. They retain the source
+graph through null/empty/refill transitions, retire it before replay and compare
+every pixel against literal colors and against the paired bounds mode. Exact
+source command order, two original child draws and vector-tile composition
+remain asserted; no per-source-command GPU draw count is invented.
+
 Raw controls retain declaration-before-initialization, untouched caller output
 on failed capture, graph mutation/deletion rollback, leaf-only revision changes,
 explicit bounds, immutable scenes after source destruction/detachment, hidden
