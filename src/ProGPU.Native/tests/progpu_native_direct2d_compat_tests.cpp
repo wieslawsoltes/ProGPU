@@ -16,6 +16,7 @@
 #include "progpu_native_direct2d_shared_bitmap_query_fixture.hpp"
 #include "progpu_native_direct2d_draw_query_fixture.hpp"
 #include "progpu_native_direct2d_rectangle_stroke_fixture.hpp"
+#include "progpu_native_direct2d_default_transformed_stroke_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_text_capture.hpp"
@@ -3364,6 +3365,10 @@ int run_tests()
             factory.get(), require_rectangle_stroke));
         progpu::native::direct2d::tests::verify_rectangle_solid_stroke_rejections(
             factory.get(), second_factory.get(), require_rectangle_stroke);
+        static_cast<void>(progpu::native::direct2d::tests::verify_default_transformed_strokes(
+            factory.get(), require_rectangle_stroke));
+        progpu::native::direct2d::tests::verify_default_transformed_stroke_rejections(
+            factory.get(), require_rectangle_stroke, true);
     } catch (const char* message) {
         std::fprintf(stderr, "%s\n", message);
         return 531;

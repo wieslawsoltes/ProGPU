@@ -52,7 +52,18 @@ degenerate and collapsed-inner-contour gates remain independent. No epsilon,
 target DPI inference, provider fallback or sink-layout normalization was added.
 
 Controls are authored for the existing portable CPU entry point and genuine
-Windows factory/Windows wrapper/portable comparisons. Both native providers use
+Windows factory/Windows wrapper/portable comparisons. Six configurations retain
+identity, translation and the original nonuniform intrinsic, each at width 2
+and zero. Every bound, hit and ordered sink event is compared, with literal
+point arrays independent of the product helper. Only `AddLines` batching is
+normalized into ordered point events; no primitive, state callback, figure
+boundary or coordinate is discarded. Thirteen product-only rejection
+configurations preserve initialized outputs and untouched sinks; portable
+geometry additionally retains its singular-intrinsic rejection. None requires
+the original implementation to reject an intentionally unadmitted product family.
+The prior base/default and explicit-solid controls remain unchanged.
+
+Both native providers use
 the same CPU compatibility implementation; this does not establish GPU/package
 or application qualification. No build, test, verifier, syntax check, probe,
 CI dispatch, GPU/UI or VM execution was performed for this change.

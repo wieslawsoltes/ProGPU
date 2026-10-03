@@ -11,6 +11,7 @@
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
 #include "progpu_native_direct2d_rectangle_stroke_fixture.hpp"
+#include "progpu_native_direct2d_default_transformed_stroke_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -2023,6 +2024,24 @@ int main()
                 "solid rectangle bounds/hit/widened-region differ from original Direct2D");
         }
     }
+    const auto original_default_transformed =
+        progpu::native::direct2d::tests::verify_default_transformed_strokes(
+            reinterpret_cast<compat::factory*>(system_rectangle_factory.Get()), require);
+    const auto native_default_transformed =
+        progpu::native::direct2d::tests::verify_default_transformed_strokes(
+            reinterpret_cast<compat::factory*>(compat_base_factory.Get()), require);
+    const auto portable_default_transformed =
+        progpu::native::direct2d::tests::verify_default_transformed_strokes(
+            portable_solid_factory.get(), require);
+    require(progpu::native::direct2d::tests::same_default_transformed_stroke_observations(
+            original_default_transformed, native_default_transformed) &&
+        progpu::native::direct2d::tests::same_default_transformed_stroke_observations(
+            original_default_transformed, portable_default_transformed),
+        "default transformed rectangle bounds/hit/sink transcript differ from original Direct2D");
+    progpu::native::direct2d::tests::verify_default_transformed_stroke_rejections(
+        reinterpret_cast<compat::factory*>(compat_base_factory.Get()), require);
+    progpu::native::direct2d::tests::verify_default_transformed_stroke_rejections(
+        portable_solid_factory.get(), require, true);
     D2D1_RECT_F system_widened_bounds{};
     D2D1_RECT_F system_outline_bounds{};
     D2D1_RECT_F system_widening_bounds{};
