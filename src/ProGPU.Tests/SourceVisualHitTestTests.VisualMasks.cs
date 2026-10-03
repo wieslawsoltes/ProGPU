@@ -12,9 +12,11 @@ namespace ProGPU.Tests;
 public sealed partial class SourceVisualHitTestTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void SourceVisualMasksPreserveOwnersClipsAndRestoredGeometry(bool pictureMask)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void SourceVisualMasksPreserveOwnersClipsAndRestoredGeometry(bool pictureMask, bool outerClip)
     {
         // Paired with native scene 9842 and original VisualMaskInput reference.
         // Mask bounds intentionally have no overlap with the source drawings.
@@ -24,6 +26,7 @@ public sealed partial class SourceVisualHitTestTests
         var root = new SourceVisual { Opacity = 0 };
         var masked = new MaskSourceVisual { HitTestId = 1, ClipBounds = new Rect(10, 12, 20, 18),
             OpacityMaskBounds = new Rect(100, 100, 1, 1) };
+        if (outerClip) masked.OuterClipBounds = new Rect(12, 14, 16, 14);
         if (pictureMask) masked.OpacityMaskPicture = picture;
         else masked.OpacityMask = new SolidColorBrush(Vector4.Zero);
         masked.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(8, 10, 32, 24));
@@ -49,11 +52,11 @@ public sealed partial class SourceVisualHitTestTests
             if (!suppressed)
             {
                 Assert.Equal(1, hits[0].Id);
-                Assert.Equal(new Vector2(10, 12), hits[0].BoundsMin);
-                Assert.Equal(new Vector2(30, 30), hits[0].BoundsMax);
+                Assert.Equal(outerClip ? new Vector2(12, 14) : new Vector2(10, 12), hits[0].BoundsMin);
+                Assert.Equal(outerClip ? new Vector2(28, 28) : new Vector2(30, 30), hits[0].BoundsMax);
                 Assert.Equal(7, hits[1].Id);
                 Assert.Equal(new Vector2(20, 20), hits[1].BoundsMin);
-                Assert.Equal(new Vector2(30, 30), hits[1].BoundsMax);
+                Assert.Equal(outerClip ? new Vector2(28, 28) : new Vector2(30, 30), hits[1].BoundsMax);
             }
             Assert.Equal(9, hits[^1].Id);
             Assert.Equal(new Vector2(8, 10), hits[^1].BoundsMin);
@@ -62,6 +65,54 @@ public sealed partial class SourceVisualHitTestTests
         }
         Assert.Equal(0, root.RenderCalls + masked.RenderCalls + child.RenderCalls + sibling.RenderCalls);
         Assert.NotNull(child.OpacityMask); // capture did not mutate raster state
+    }
+
+    [Fact]
+    public void SourceVisualMaskRetainsPointRegionPolicyAndNonrectangularClip()
+    {
+        var triangle = new PathGeometry { FillRule = FillRule.Nonzero };
+        var figure = new PathFigure(new Vector2(8, 8), isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(88, 8)));
+        figure.Segments.Add(new LineSegment(new Vector2(8, 88)));
+        triangle.Figures.Add(figure);
+        var source = new MaskSourceVisual { HitTestId = 1, Opacity = 0, GeometryClip = triangle,
+            OpacityMask = new SolidColorBrush(Vector4.Zero), OpacityMaskBounds = new Rect(100, 100, 1, 1) };
+        source.SourceHitTestCommands.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PushOpacity, FontSize = 1,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleBegin, new Vector4(0, 0, 100, 100))
+        });
+        source.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 100, 100));
+        source.SourceHitTestCommands.Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.PopOpacity,
+            SourceHitGeometry = new(SourceHitTestGeometryKind.PointRectangleEnd, default)
+        });
+        var root = new SourceVisual();
+        root.AddChild(source);
+        var sibling = new SourceVisual { HitTestId = 9 };
+        sibling.SourceHitTestCommands.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(1, 2, 3, 4));
+        root.AddChild(sibling);
+        using var capture = new GpuRenderCommandHitTestCacheBuilder();
+        capture.AddSourceVisual(root, Matrix4x4.Identity);
+        var index = capture.BuildIndex();
+        Assert.Equal(3, index.Primitives.Count);
+        Assert.True(index.Primitives[0].Flags.HasFlag(GpuHitTestPrimitiveFlags.PointOnly));
+        Assert.True(index.Primitives[1].Flags.HasFlag(GpuHitTestPrimitiveFlags.RegionOnly));
+        for (int i = 0; i < 2; i++)
+        {
+            var hit = index.Primitives[i];
+            Assert.Equal(1, hit.Id);
+            Assert.Equal(3u, hit.ClipSegmentCount);
+            Assert.Equal(new Vector2(8, 8), hit.BoundsMin);
+            Assert.Equal(new Vector2(88, 88), hit.BoundsMax);
+            var first = index.PathSegments[(int)hit.ClipStartSegment];
+            Assert.Equal(new Vector2(8, 8), first.P0);
+            Assert.Equal(new Vector2(88, 8), first.P1);
+        }
+        Assert.Equal(9, index.Primitives[2].Id);
+        Assert.Equal(0u, index.Primitives[2].ClipSegmentCount);
+        Assert.Equal(0, source.RenderCalls);
     }
 
     [Theory]
