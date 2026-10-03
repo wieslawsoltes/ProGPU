@@ -171,10 +171,13 @@ public sealed class PortableShaderEffect
         Samplers = samplers is { Length: > 0 } ? (PortableShaderSampler[])samplers.Clone() : Array.Empty<PortableShaderSampler>();
         IntConstantCount = intConstantCount;
         BoolConstantCount = boolConstantCount;
-        PaddingTop = SanitizeNonNegative(paddingTop);
-        PaddingBottom = SanitizeNonNegative(paddingBottom);
-        PaddingLeft = SanitizeNonNegative(paddingLeft);
-        PaddingRight = SanitizeNonNegative(paddingRight);
+        // This is source transport, not rendering admission. Retain invalid
+        // metadata and signed zero so consumers can reject the original state
+        // instead of silently publishing a different, zero-padding effect.
+        PaddingTop = paddingTop;
+        PaddingBottom = paddingBottom;
+        PaddingLeft = paddingLeft;
+        PaddingRight = paddingRight;
         DdxUvDdyUvRegisterIndex = ddxUvDdyUvRegisterIndex;
     }
 
@@ -210,10 +213,5 @@ public sealed class PortableShaderEffect
                 Math.Max(PaddingTop, PaddingBottom),
                 Math.Max(PaddingLeft, PaddingRight));
         }
-    }
-
-    private static double SanitizeNonNegative(double value)
-    {
-        return double.IsFinite(value) && value > 0.0 ? value : 0.0;
     }
 }
