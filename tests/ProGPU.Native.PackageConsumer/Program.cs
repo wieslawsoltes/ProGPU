@@ -175,6 +175,7 @@ ValidateNativeMilCompactGuidelineBuilder();
 VisualSourceBoundsValidation.Run();
 CacheRasterPolicyValidation.Run();
 CacheBrushEmptySourceValidation.Run();
+DrawingImageEmptySourceValidation.Run();
 ValidateNativeDocumentRows();
 ValidateNativePositionedParagraphs();
 ValidateNativeInlineParagraph();

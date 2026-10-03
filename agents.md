@@ -1,5 +1,16 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Known-empty DrawingImage shader-source closures retain the actual initialized
+drawing through a typed ownership-only edge while canonical paint stays drawing
+zero. Empty-source publication clears stale positive bounds; canonical updates
+clear the edge, and positive bounds cannot silently discard it. Republish the
+actual canonical drawing before returning to positive content. Preserve nested
+ownership, revisions, deletion/cycle checks, atomic candidates and reused wrapper
+dependencies in both traversal orders before empty-paint shortcuts. Do not invent
+positive bounds, equate unavailable metadata with empty, or expand the separate
+direct DrawingImage sampler policy. Original pixels, provider/package controls
+and source-host qualification remain independent required gates.
+
 BitmapCacheBrush shader samplers own the selected raw cache texture, not an
 ordinary brush painted over the receiving frame. Ignore consumer brush opacity,
 Transform and RelativeTransform only on this shader path. Retain explicit/target/

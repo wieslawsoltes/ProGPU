@@ -1,11 +1,55 @@
 #pragma once
 
 #include "progpu_native_shader_visual_brush_fixture.hpp"
+#include "progpu_native_shader_drawing_image_fixture.hpp"
 #include <thread>
 
 namespace progpu::native::tests {
 
-inline constexpr std::uint32_t shader_bitmap_cache_case_count = 15U;
+inline constexpr std::uint32_t shader_bitmap_cache_case_count = 20U;
+
+// Retained identities for the nested empty-image ownership/refill controls.
+// These are not replacement handles when either source becomes nonempty.
+namespace shader_cache_image_source {
+inline constexpr std::uint32_t target=100U, leaf=101U, leaf_content=102U,
+    red=103U, cache=104U, cache_brush=105U, geometry=106U, rectangle=107U,
+    drawing=108U, group=109U, image=110U, image_brush=111U,
+    receiver=112U, receiver_content=113U;
+}
+
+inline void append_shader_cache_image_source(std::vector<std::byte>& batch) {
+    using mil_clip_fixture_detail::packet;
+    using mil::command;
+    namespace source=shader_cache_image_source;
+    for (const auto resource : std::array{
+        std::array{source::target,39U},std::array{source::leaf,39U},std::array{source::leaf_content,43U},
+        std::array{source::red,75U},std::array{source::cache,94U},std::array{source::cache_brush,83U},
+        std::array{source::geometry,71U},std::array{source::rectangle,69U},std::array{source::drawing,87U},
+        std::array{source::group,91U},std::array{source::image,59U},std::array{source::image_brush,80U},
+        std::array{source::receiver,39U},std::array{source::receiver_content,43U}})
+        packet(batch,command::channel_create_resource,resource[0],resource[1]);
+    for (const auto handle : {source::target,source::leaf,source::receiver}) {
+        packet(batch,command::visual_create,handle);
+        packet(batch,command::visual_set_render_options,handle,3U,1U,0U,3U,0U,0U,0U);
+    }
+    packet(batch,command::solid_color_brush,source::red,1.0,progpu_native_color{1,0,0,1},0U,0U,0U,0U);
+    packet(batch,command::bitmap_cache,source::cache,1.0,0U,0U,0U);
+    packet(batch,command::bitmap_cache_brush,source::cache_brush,1.0,0U,0U,0U,source::cache,0U);
+    packet(batch,command::rectangle_geometry,source::rectangle,0.0,0.0,0.0,0.0,8.0,12.0,0U,0U,0U,0U);
+    packet(batch,command::geometry_group,source::geometry,0U,0U,0U);
+    packet(batch,command::geometry_drawing,source::drawing,source::cache_brush,0U,source::geometry);
+    append_shader_drawing_group(batch,source::group,1.0,std::array{source::drawing});
+    packet(batch,command::drawing_image,source::image,0U);
+    packet(batch,command::image_brush,source::image_brush,1.0,
+        std::array{0.0,0.0,1.0,1.0},std::array{0.0,0.0,1.0,1.0},
+        0.707,1.414,0U,0U,0U,1U,1U,0U,0U,1U,0U,1U,1U,0U,source::image);
+    std::vector<std::byte> content;
+    packet(content,command::draw_rectangle,0.0,0.0,8.0,12.0,source::red,0U);
+    append_visual_sampler_content(batch,source::leaf,source::leaf_content,content);
+    content.clear();
+    packet(content,command::draw_rectangle,-4.0,4.0,8.0,12.0,source::image_brush,0U);
+    append_visual_sampler_content(batch,source::receiver,source::receiver_content,content);
+}
 
 inline void append_shader_bitmap_cache_brush(std::vector<std::byte>& batch, std::uint32_t target,
     std::uint32_t cache, double opacity = 1.0, std::uint32_t transform = 0U,
@@ -121,19 +165,48 @@ inline bool update_shader_bitmap_cache(progpu_native_mil_channel* channel,std::u
         index == 12U || index == 13U ? 1U : 0U);
     packet(batch,command::visual_set_scrollable_area_clip,41U,1000.0,1000.0,1.0,1.0,
         index == 13U ? 1U : 0U);
-    if (index >= 9U) {
+    if (index >= 9U || progpu_native_mil_channel_get_resource_generation(channel,
+            shader_cache_image_source::image) != 0U) {
         packet(batch,command::visual_remove_all_children,41U);
         packet(batch,command::visual_remove_all_children,40U);
         if (index != 10U) packet(batch,command::visual_insert_child_at,40U,41U,0U);
-        if (index >= 11U) {
+        if (index < 9U || index >= 11U) {
             packet(batch,command::visual_insert_child_at,41U,44U,0U);
             packet(batch,command::visual_insert_child_at,41U,45U,1U);
         }
+    }
+    if (index >= 15U) {
+        namespace source=shader_cache_image_source;
+        if (progpu_native_mil_channel_get_resource_generation(channel,source::image) == 0U)
+            append_shader_cache_image_source(batch);
+        packet(batch,command::visual_insert_child_at,41U,source::receiver,2U);
+        packet(batch,command::visual_remove_all_children,source::target);
+        if (index >= 16U) packet(batch,command::visual_insert_child_at,source::target,source::leaf,0U);
+        packet(batch,command::bitmap_cache_brush,source::cache_brush,1.0,0U,0U,0U,
+            source::cache,index >= 16U ? source::target : 0U);
+        const bool ink=index == 17U || index == 19U;
+        if (ink) packet(batch,command::geometry_group,source::geometry,0U,0U,4U,source::rectangle);
+        else packet(batch,command::geometry_group,source::geometry,0U,0U,0U);
+        packet(batch,command::drawing_image,source::image,ink ? source::group : 0U);
     }
     append_shader_bitmap_cache_brush(batch,index == 7U ? 0U : 40U,index >= 2U ? 51U : 0U,
         index == 4U ? .5 : 1.0,index == 5U ? 52U : 0U,index == 5U ? 53U : 0U);
     if (progpu_native_mil_channel_apply(channel,batch.data(),batch.size(),nullptr) != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
         return false;
+    if (index >= 15U) {
+        namespace source=shader_cache_image_source;
+        if (index == 15U) {
+            if (progpu_native_mil_channel_set_visual_source_empty_bounds(channel,source::target) !=
+                    PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
+                progpu_native_mil_channel_set_bitmap_cache_brush_empty_source(channel,source::cache_brush,source::target) !=
+                    PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+        } else if (progpu_native_mil_channel_set_visual_cache_bounds(channel,source::target,0,0,8,12) !=
+                PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+        const auto bound=index == 17U || index == 19U
+            ? progpu_native_mil_channel_set_drawing_image_bounds(channel,source::image,0,0,8,12)
+            : progpu_native_mil_channel_set_drawing_image_empty_source(channel,source::image,source::group);
+        if (bound != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+    }
     if (index == 9U || index == 10U)
         return progpu_native_mil_channel_set_visual_source_empty_bounds(channel,41U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
             progpu_native_mil_channel_set_visual_source_empty_bounds(channel,40U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
@@ -177,7 +250,7 @@ void verify_shader_bitmap_cache_pixels(Render render,Require require,
             require(build_shader_bitmap_cache(raw,index,scenes[index]),"cache sampler immutable capture");
         }
     }
-    std::vector<std::uint8_t> zero_scale_pixels, refill_pixels;
+    std::vector<std::uint8_t> zero_scale_pixels, refill_pixels, nested_refill_pixels;
     for (std::uint32_t index=0U; index<scenes.size(); ++index) {
         progpu_native_scene_header header{};
         require(scenes[index].size() >= sizeof(header),"cache sampler header");
@@ -188,6 +261,9 @@ void verify_shader_bitmap_cache_pixels(Render render,Require require,
             progpu_native_layer_metrics layers{}; layers.struct_size=sizeof(layers);
             progpu_native_scene_frame_metrics frame{}; frame.struct_size=sizeof(frame);
             const std::uint64_t submissions=replay == 1U ? 1U : 2U;
+            // The nested ordinary ImageBrush and cache are layers inside the
+            // existing raw page. They use its child encoder (one vector mask),
+            // not an additional picture/submit; the parent shader is unchanged.
             images[replay]=render(false,replay == 2U,scenes[index],header,submissions,layers,frame);
             require(frame.submission_count == submissions && frame.command_count == 3U,
                 "cache sampler actual commands/submissions");
@@ -201,15 +277,18 @@ void verify_shader_bitmap_cache_pixels(Render render,Require require,
         if (index == 7U || index == 9U || index == 10U || index == 13U)
             require(images[0] == zero_scale_pixels,"distinct null/empty/zero-scale full-frame equality");
         if (index == 8U) refill_pixels=images[0];
-        if (index == 11U || index == 12U || index == 14U)
+        if (index == 11U || index == 12U || index == 14U || index == 15U || index == 16U || index == 18U)
             require(images[0] == refill_pixels,"same-owner empty source reappears without replacement");
+        if (index == 17U) nested_refill_pixels=images[0];
+        if (index == 19U)
+            require(images[0] == nested_refill_pixels,"same nested DrawingImage/cache owners refill without replacement");
         for (std::uint32_t y=0U; y<64U; ++y) for (std::uint32_t x=0U; x<64U; ++x) {
             std::array<std::uint8_t,4U> expected{0U,0U,0U,255U};
             if (x >= 8U && x < 40U && y >= 10U && y < 34U &&
                 index != 6U && index != 7U && index != 9U && index != 10U && index != 13U) {
                 if (index == 4U) expected[1]=128U; // descendant opacity only; brush opacity is not sampled
                 else if (x >= 24U) expected[1]=255U;
-                else expected[index >= 8U ? 2U : 0U]=255U;
+                else expected[index >= 8U && index != 17U && index != 19U ? 2U : 0U]=255U;
             }
             const auto* actual=images[0].data()+(y*64U+x)*4U;
             if (!std::equal(expected.begin(),expected.end(),actual))
