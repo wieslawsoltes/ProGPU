@@ -44,8 +44,8 @@ public readonly record struct PortablePrimaryDisplayRasterScale(
     public bool IsValid =>
         float.IsFinite(ScaleX) && ScaleX > 0 &&
         float.IsFinite(ScaleY) && ScaleY > 0 &&
-        Policy is PortablePrimaryDisplayRasterPolicy.WindowsSystemDpi or
-            PortablePrimaryDisplayRasterPolicy.PrimaryMonitorContentScale &&
+        (Policy is PortablePrimaryDisplayRasterPolicy.WindowsSystemDpi or
+            PortablePrimaryDisplayRasterPolicy.PrimaryMonitorContentScale) &&
         SourceIdentity is not null && Revision != 0;
 
     public bool Equals(PortablePrimaryDisplayRasterScale other) =>

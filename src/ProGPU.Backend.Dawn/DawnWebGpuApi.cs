@@ -20,10 +20,22 @@ namespace ProGPU.Backend.Dawn;
 public sealed unsafe class DawnWebGpuApi :
     IWebGpuApi,
     IWebGpuRenderBundleApi,
-    IWebGpuExternalSurfaceApi
+    IWebGpuExternalSurfaceApi,
+    IWebGpuTextureLimitsSource
 {
     private const int MaxDescriptorItems = 256;
     private DawnNativePresentationSurface? _presentationSurface;
+
+    public bool TryGetTextureLimits(SW.Device* device, out uint maximumTextureWidth, out uint maximumTextureHeight)
+    {
+        maximumTextureWidth = maximumTextureHeight = 0;
+        if (device == null) return false;
+        var limits = new W.Limits();
+        if (DeviceHandle(device).GetLimits(&limits) != W.Status.Success || limits.MaxTextureDimension2D == 0)
+            return false;
+        maximumTextureWidth = maximumTextureHeight = limits.MaxTextureDimension2D;
+        return true;
+    }
 
     private sealed class MapCompletion
     {

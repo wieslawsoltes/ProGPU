@@ -10,8 +10,8 @@ public sealed class PortableCacheRasterPolicyTests
     {
         Assert.False(default(PortableBitmapCacheRasterPolicy).IsValid);
         Assert.False(default(PortablePrimaryDisplayRasterScale).IsValid);
-        Assert.Equal(0, default(PortableBitmapCacheRasterPolicy).MaximumTextureWidth);
-        Assert.Equal(0, default(PortablePrimaryDisplayRasterScale).ScaleX);
+        Assert.Equal(0u, default(PortableBitmapCacheRasterPolicy).MaximumTextureWidth);
+        Assert.Equal(0f, default(PortablePrimaryDisplayRasterScale).ScaleX);
     }
 
     [Theory]
