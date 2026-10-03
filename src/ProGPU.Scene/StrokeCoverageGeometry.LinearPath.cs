@@ -212,13 +212,13 @@ public static partial class StrokeCoverageGeometry
             bounds.Include(NarrowPair(end + normal)); bounds.Include(NarrowPair(end - normal));
             if (i == 0) firstDirection = direction;
             else IncludeLinearJoin(ref bounds, start, previousDirection, direction, radius,
-                segment.IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, pen.MiterLimit, pen.ClipMiterAtLimit);
+                segment.IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, pen.MiterLimit);
             previousDirection = direction;
             start = end;
         }
         if (figure.IsClosed)
             IncludeLinearJoin(ref bounds, Wide(first), previousDirection, firstDirection, radius,
-                figure.Segments[0].IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, pen.MiterLimit, pen.ClipMiterAtLimit);
+                figure.Segments[0].IsSmoothJoin ? PenLineJoin.Round : pen.LineJoin, pen.MiterLimit);
         else
         {
             IncludeLinearCap(ref bounds, Wide(first), -firstDirection, radius, figure.StrokeStartLineCap ?? pen.StartLineCap);
@@ -253,8 +253,7 @@ public static partial class StrokeCoverageGeometry
     }
 
     private static void IncludeLinearJoin(ref LineBounds state, Vector128<double> center,
-        Vector128<double> incoming, Vector128<double> outgoing, double radius, PenLineJoin join, double limit,
-        bool clipMiterAtLimit)
+        Vector128<double> incoming, Vector128<double> outgoing, double radius, PenLineJoin join, double limit)
     {
         if (join == PenLineJoin.Round) { IncludeRoundSector(ref state, center, incoming, outgoing, radius); return; }
         if (join == PenLineJoin.Bevel) return;
@@ -269,7 +268,7 @@ public static partial class StrokeCoverageGeometry
             var delta = miter - center;
             double length = double.Hypot(delta[0], delta[1]);
             if (length <= Math.Max(1, limit) * radius) { state.Include(miter); continue; }
-            if (length == 0 || join != PenLineJoin.Miter || !clipMiterAtLimit) continue;
+            if (length == 0 || join == PenLineJoin.MiterOrBevel) continue;
             var bisector = delta / Vector128.Create(length);
             IncludeClippedMiter(ref state, center, a, miter, bisector, length, Math.Max(1, limit) * radius);
             IncludeClippedMiter(ref state, center, b, miter, bisector, length, Math.Max(1, limit) * radius);

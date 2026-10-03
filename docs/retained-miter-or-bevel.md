@@ -49,8 +49,9 @@ and final consumer qualification remain required; downstream pins are unchanged.
 The explicit value did not itself resolve legacy `Miter=0` policy differences.
 The subsequent [source-qualified clipped-miter policy](retained-clipped-miter.md)
 preserves generic bevel-overflow defaults and lets Win2D request clipped
-geometry, with bounds following the selection. Original Drawing Miter clipping
-remains separate contract work. Existing Direct2D rectangle dash,
+paint/hit geometry matching its existing clipped bounds. The legacy generic
+paint/bounds mismatch and original Drawing Miter clipping remain separate
+contract work. Existing Direct2D rectangle dash,
 default transformed-source and fixed/hairline admission limits remain separate.
 
 `MiterOrBevelStrokeTests` adds 17 authored configurations: four threshold,

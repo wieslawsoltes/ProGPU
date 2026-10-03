@@ -22,11 +22,12 @@ three-triangle clipped fan; clipping does not imply a square extension at an
 exact reversal.
 
 `StrokePathGeometry` hit/outline geometry and the compositor use that same
-typed writer. Rectangle, linear and materialized stroke bounds now select
-clipped versus bevel overflow from the actual pen policy, instead of measuring
-a clipped corner for a generic pen that paints a bevel. Closed seams retain
-the policy too. Existing cap, dash, transform, tolerance and width arithmetic
-are not replaced.
+typed writer. For the new true policy, paint and hit geometry now agree with
+the existing clipped rectangle, linear and materialized stroke bounds. Those
+existing bounds/outline algorithms remain unchanged, including their legacy
+false-policy behavior; this is not a global generic-miter correction. Closed
+seams retain the selected paint policy. Existing cap, dash, transform,
+tolerance and width arithmetic are not replaced.
 
 `WithBrush`, compositor-derived pens, undashed stroke caches and materialized
 linear-dash keys retain the raw bool alongside the exact join and miter limit.
@@ -56,9 +57,10 @@ renderer defaults or WPF's original source enum.
 
 ## Remaining source and qualification boundaries
 
-Generic `Miter=0` still bevels on overflow unless explicitly opted in; its
-retained bounds now describe that selection. `MiterOrBevel=3` always bevels on
-overflow. This correction does not redefine Drawing's `LineJoin.Miter`:
+Generic `Miter=0` still bevels on overflow unless explicitly opted in; the old
+generic paint versus clipped-bounds/materialized-outline mismatch remains
+unfinished. `MiterOrBevel=3` always bevels on overflow. This source-qualified
+correction does not redefine Drawing's `LineJoin.Miter`:
 [GDI+ specifies a clipping reference measured from the inner corner](https://learn.microsoft.com/en-us/windows/win32/api/gdiplusenums/ne-gdiplusenums-linejoin),
 which is not permission to substitute the Direct2D centerline plane. Exact
 Drawing Miter policy remains separate original-contract work. Drawing's

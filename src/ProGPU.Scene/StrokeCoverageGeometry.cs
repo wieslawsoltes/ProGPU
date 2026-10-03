@@ -100,7 +100,7 @@ public static partial class StrokeCoverageGeometry
             state.Include(vertices[i] - normal); state.Include(vertices[i] + normal);
             state.Include(vertices[(i + 1) & 3] - normal); state.Include(vertices[(i + 1) & 3] + normal);
             if (!IncludeRectangleJoin(ref state, vertices[i], directions[(i + 3) & 3], directions[i],
-                    radius, pen.LineJoin, pen.MiterLimit, orientation, pen.ClipMiterAtLimit)) return false;
+                    radius, pen.LineJoin, pen.MiterLimit, orientation)) return false;
         }
         if (!state.TryGetBounds(out var minimum, out var maximum)) return false;
         var extent = maximum - minimum;
@@ -119,7 +119,7 @@ public static partial class StrokeCoverageGeometry
 
     private static bool IncludeRectangleJoin(ref LineBounds state, Vector128<double> point,
         Vector128<double> incoming, Vector128<double> outgoing, double radius,
-        PenLineJoin join, float miterLimit, double orientation, bool clipMiterAtLimit = false)
+        PenLineJoin join, float miterLimit, double orientation)
     {
         double turn = Cross(incoming, outgoing);
         // Float narrowing can collapse or reverse a nearly singular corner.
@@ -136,7 +136,7 @@ public static partial class StrokeCoverageGeometry
             var delta = miter - point;
             if (double.Hypot(delta[0], delta[1]) <= radius * limit + 0.0001)
                 state.Include(miter);
-            else if (join == PenLineJoin.Miter && clipMiterAtLimit)
+            else if (join != PenLineJoin.MiterOrBevel)
             {
                 double denominator = radius * Math.Sqrt(Math.Max(0, (1 - dot) * 0.5));
                 if (!double.IsFinite(denominator) || denominator <= 0.0001) return false;
