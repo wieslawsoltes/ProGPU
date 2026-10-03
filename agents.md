@@ -173,8 +173,11 @@ as a substitute. Keep same-channel bitmap ownership, graph/deletion/revision
 checks, exact engine leases and submission retirement. ImageBrush opacity and
 Viewport/Viewbox animation consume their retained typed current-value resources
 through the same capture; missing values and invalid opacity fail before even
-empty capture publication. Animated transforms and external sources stay closed;
-later versioned capture contracts retain their independent gates. See
+empty capture publication. Animated Matrix/Scale/Translate and ordered transform
+groups reuse their retained current-value resolver and dependency generations;
+any animated mapping containing named Rotate/Skew stays closed. Wholly-static
+named transforms retain legacy unqualified arithmetic, not new numeric admission.
+External sources stay closed; later versioned capture contracts retain their independent gates. See
 docs/native-shader-image-samplers.md. Source/ABI checks are not GPU or UI parity.
 
 Native WPF shader effects retain original validated bytecode and constant values,

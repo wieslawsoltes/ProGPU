@@ -117,3 +117,25 @@ controls are recorded in [sampler render options](native-shader-sampler-render-o
 Attached options on a bare DrawingVisual are not equivalent to emitted native
 MIL render options; no default or incoming-only filtering change follows from
 that reference distinction.
+
+## Retained sampler transform animation
+
+Sampler `Transform` and `RelativeTransform` now consume retained MatrixResource
+and DoubleResource current values for MatrixTransform, ScaleTransform,
+TranslateTransform and ordered TransformGroup graphs. The compiler reuses its
+existing `resolve_transform` and ordinary tile capture arithmetic; no new
+animation interpolation, matrix reconstruction, shader uniform or bitmap owner
+is introduced. Relative mapping remains relative-to-paint conjugation before the
+absolute brush transform. See
+[the complete transform contract and controls](native-shader-sampler-transform-animation.md).
+
+The earlier static-transform-only wording above describes the original family.
+The new family preserves declaration before current-value initialization, but
+capture requires complete valid current matrices before an empty viewport or
+zero-alpha paint could bypass them. Existing resource revision traversal already
+includes ordered children and each animation handle/generation. Named Rotate/Skew
+inside an animated combined mapping remain unsupported: existing host trig is not
+the original numeric contract. Wholly-static named graphs retain legacy behavior
+without a new parity claim. All execution/qualification is deferred to the final
+integrated producer; neither authored controls nor retained packet acceptance is
+runtime evidence.
