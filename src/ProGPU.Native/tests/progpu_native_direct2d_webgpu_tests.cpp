@@ -9,6 +9,7 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
+#include "progpu_native_mil_path_join_fixture.hpp"
 #include "progpu_native_semantic_glyph_sharing_fixture.hpp"
 #include "progpu_native_path_pixel_mapping_fixture.hpp"
 #include "progpu_native_picture_axis_fixture.hpp"
@@ -2251,6 +2252,18 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(picture_reference_engine);
     auto* prepared_reference_engine = create_engine(gpu);
+    progpu::native::tests::verify_mil_path_join_pixels(
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header, bool tiled) {
+            progpu_native_scene_frame_metrics metrics{};
+            const auto pixels = render_scene(gpu, reference ? prepared_reference_engine : engine,
+                nullptr, 1U, header.command_count, tiled ? 0U : 1U, stream,
+                header.scene_id, header.generation, &metrics);
+            // One main replay plus at most one independently encoded geometry
+            // mask. This does not qualify mask-cache retention performance.
+            require(metrics.submission_count >= 1U && metrics.submission_count <= (tiled ? 2U : 1U),
+                "MIL PathJoin exceeded its bounded mask dependency graph");
+            return pixels;
+        }, require);
     progpu::native::direct2d::tests::verify_clipped_miter_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,

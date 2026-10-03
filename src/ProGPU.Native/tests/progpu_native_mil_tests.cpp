@@ -7,6 +7,7 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_mil_visual_clip_fixture.hpp"
 #include "progpu_native_mil_image_brush_fixture.hpp"
+#include "progpu_native_mil_path_join_fixture.hpp"
 #include "progpu_native_shader_sampler_pixel_fixture.hpp"
 #include "progpu_native_shader_sampler_animation_fixture.hpp"
 #include "progpu_native_shader_sampler_transform_fixture.hpp"
@@ -23527,6 +23528,10 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    progpu::native::tests::verify_mil_path_join_ownership([](bool condition, const char* message) {
+        if (!condition) std::fprintf(stderr, "%s\n", message);
+        PROGPU_REQUIRE(condition);
+    });
     PROGPU_REQUIRE(original_shader_effect_resources_compile_and_reject_atomically());
     PROGPU_REQUIRE(original_shader_sampler_animation_owns_current_resources());
     PROGPU_REQUIRE(original_shader_sampler_transform_animation_owns_graph());
