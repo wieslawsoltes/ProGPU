@@ -1,4 +1,5 @@
 #include "../src/Direct2D/progpu_native_direct2d_vertical_metrics.hpp"
+#include "../src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp"
 #include "progpu_native_direct2d_font_source_fixture.hpp"
 #include "progpu_native_direct2d_cff_vertical_fixture.hpp"
 
@@ -86,6 +87,63 @@ bool contour_origins()
     }
     return true;
 }
+
+bool prepared_contour_origins()
+{
+    for (const bool fractional : {false, true}) {
+        font_stream stream; stream.bytes = make_cff_vertical_font(fractional); stream.declared_size = stream.bytes.size();
+        font_loader loader; loader.stream = &stream; font_file file; file.loader = &loader;
+        font_face face; face.files[0] = &file; face.declared_count = 1U; face.type = 0U;
+        face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+        std::shared_ptr<const d2d::original_font_capture> source;
+        std::shared_ptr<d2d::prepared_original_font> font;
+        if (d2d::capture_original_font(&face, source) != com::ok ||
+            d2d::prepared_original_font::create(source, font) != com::ok) return false;
+        com::pointer<d2d::compat::factory> factory;
+        if (d2d::compat::create_factory(factory.put()) != com::ok) return false;
+        const d2d::original_glyph_target frame{com::pointer<com::unknown>(factory.get()), 1U,
+            {0, 1, -1, 0, 150, 0}, {8, 50}, {256U, 256U}, 144, 120, {}, d2d::compat::text_antialias_mode::grayscale};
+        rendering_parameters parameters; parameters.mode = d2d::compat::rendering_mode::outline;
+        const std::uint16_t ids[]{1U, 0U, 2U};
+        const float advances[]{40, -7, 12};
+        const d2d::compat::glyph_offset offsets[]{{0.5F, 0.25F}, {0, 0}, {-2, 3}};
+        const auto reads = stream.reads;
+        face.count_result = d2d::compat::not_implemented;
+        for (const bool nominal : {false, true}) {
+            const d2d::compat::glyph_run run{&face, 62.5F, 3U, ids, nominal ? nullptr : advances, offsets, -1, 2U};
+            std::shared_ptr<const d2d::original_glyph_request> request;
+            std::shared_ptr<const d2d::prepared_original_glyph_run> prepared;
+            if (!check(d2d::capture_original_glyph_request(source, run, d2d::compat::measuring_mode::natural,
+                    &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok &&
+                    prepared->segments().size() == 4U && font->cached_glyph_count() == 3U,
+                    "actual prepared CFF sideways source without VORG, including empty advance")) return false;
+            const float first_end = fractional ? 32.34375F : 32.25F;
+            const float first_control = fractional ? 7.21875F : 7.25F;
+            const float second_end = nominal ? 141.0F : 55.25F;
+            const float second_control = nominal ? 116.0F : 30.25F;
+            const std::array<progpu_native_path_segment, 4U> expected{{
+                {{first_end, 67.25F}, {first_control, 67.25F}, {first_control, 49.75F}, {first_end, 49.75F},
+                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0},
+                {{first_end, 49.75F}, {first_end, 67.25F}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0, 0, 0},
+                {{second_end, 68.875F}, {second_control, 68.875F}, {second_control, 56.375F}, {second_end, 56.375F},
+                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0},
+                {{second_end, 56.375F}, {second_end, 68.875F}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0, 0, 0}}};
+            for (std::size_t index = 0U; index < expected.size(); ++index) {
+                const auto& actual = prepared->segments()[index]; const auto& reference = expected[index];
+                const auto point = [](progpu_native_point a, progpu_native_point b) { return a.x == b.x && a.y == b.y; };
+                if (!check(actual.kind == reference.kind && point(actual.p0, reference.p0) && point(actual.p1, reference.p1) &&
+                        (actual.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE ||
+                            (point(actual.p2, reference.p2) && point(actual.p3, reference.p3))),
+                        "independent literal CFF cubic endpoints/handles and true origin placement")) return false;
+            }
+            std::shared_ptr<const d2d::prepared_original_glyph_run> warm;
+            if (!check(font->prepare(request, warm) == com::ok && warm->segments().size() == expected.size() &&
+                    font->cached_glyph_count() == 3U && stream.reads == reads && face.outline_calls == 0U && face.table_calls == 0U,
+                    "CFF contour origins are retained without source callbacks or cache replacement")) return false;
+        }
+    }
+    return true;
+}
 } // namespace
 
-bool progpu_native_direct2d_cff_vertical_tests() { return contour_origins(); }
+bool progpu_native_direct2d_cff_vertical_tests() { return contour_origins() && prepared_contour_origins(); }
