@@ -102,7 +102,10 @@ public class Pen : IPortablePenSource, IPortablePenStateSource
             ToNativeLineCap(EndLineCap),
             ToNativeLineCap(DashCap),
             GetDashArray(),
-            DashStyle?.Offset ?? 0.0);
+            DashStyle?.Offset ?? 0.0)
+        {
+            UseWpfJoinSemantics = true
+        };
     }
 
     private float GetScaledThickness(float thicknessScale)
