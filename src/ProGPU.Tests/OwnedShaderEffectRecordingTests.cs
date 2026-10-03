@@ -93,6 +93,115 @@ public sealed class OwnedShaderEffectRecordingTests
         Assert.Equal(1, recipe.DisposeCount);
     }
 
+    [Fact]
+    public void OneRecordingKeepsSeparateTargetsWithSharedNativeProvider()
+    {
+        using var window = new HeadlessWindow(64, 64);
+        VerifySeparateTargets(window.Context);
+    }
+
+    [Fact]
+    public void OneRecordingKeepsSeparateTargetsWithSharedDawnProvider()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+        using var dawn = DawnGpuContext.CreateMetalPresentation();
+        VerifySeparateTargets(dawn.Context);
+    }
+
+    private static unsafe void VerifySeparateTargets(WgpuContext context)
+    {
+        using var compositor = new Compositor(context, TextureFormat.Rgba8Unorm,
+            CompositorOptions.Default with { EnableGpuHitTesting = false, PrimarySampleCount = 1 });
+        compositor.ClearColor = new Vector4(0, 0, 0, 1);
+        using var target = new GpuTexture(context, 128, 64, TextureFormat.Rgba8Unorm,
+            TextureUsage.RenderAttachment | TextureUsage.CopySrc, "Two owned shader targets",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        var contentOwner = new CountedOwner();
+        using var content = RecordContent(contentOwner);
+        var recipe = new Preparation();
+        using var source = new OwnedShaderEffectSource(Capture, Vector2.Zero, recipe);
+        var recorder = new GpuPictureRecorder();
+        var commands = recorder.BeginRecording(new Rect(0, 0, 8, 4));
+        commands.DrawOwnedShaderEffect(content, source);
+        using var original = recorder.EndRecording();
+        using var picture = original.Clone();
+        original.Dispose(); content.Dispose(); source.Dispose();
+
+        var outer = new DrawingVisual
+        {
+            Offset = new Vector2(20, 8), Size = new Vector2(8, 4),
+            EffectContentBounds = new Rect(0, 0, 8, 4),
+            // This existing scalar effect really captures at semantic DPI 1,
+            // independently of the main target's actual geometric X scale 2.
+            Effect = new WpfShaderEffect(new WpfShaderEffectParams
+            {
+                ShaderKey = "owned_target_outer_input",
+                SamplingMode = TextureSamplingMode.Nearest,
+                ShaderSource = "fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> { return inputColor; }"
+            })
+        };
+        outer.Context.DrawPicture(picture);
+        var root = new DrawingVisual { Size = new Vector2(64) };
+        root.Context.DrawPictureTransformed(picture, Matrix4x4.CreateTranslation(4, 8, 0));
+        root.Context.DrawVisual(outer);
+        // Following content must stay after the effect, not before appended
+        // child visuals. It deliberately overlaps the first effect only.
+        root.Context.DrawRectangle(new SolidColorBrush(new Vector4(0, 1, 0, 1)), null, new Rect(8, 8, 2, 4));
+        try
+        {
+            byte[] expected = ExpectedSeparateTargets();
+            compositor.RenderScene(root, 64, 64, 128, 64, RenderTargetViewport.Full(128, 64), 1, target.ViewPtr);
+            Assert.Equal(expected, target.ReadPixels());
+            Assert.Equal(2, recipe.Targets.Count);
+            Assert.Contains(recipe.Targets, frame => frame.CaptureFrame.PixelsPerUnit == new Vector2(2, 1) &&
+                frame.TargetWidth == 128 && frame.TargetHeight == 64 && frame.DpiScale == 1);
+            Assert.Contains(recipe.Targets, frame => frame.CaptureFrame.PixelsPerUnit == Vector2.One &&
+                frame.TargetWidth == 8 && frame.TargetHeight == 4 && frame.DpiScale == 1);
+            Assert.All(recipe.Targets, frame =>
+            {
+                Assert.Same(source, frame.Source);
+                Assert.Same(context.DeviceIdentity, frame.DeviceIdentity);
+                Assert.Same(compositor, frame.Compositor);
+            });
+            Assert.Equal(0, recipe.DisposeCount);
+            Assert.Equal(0, contentOwner.DisposeCount);
+
+            compositor.RenderScene(root, 64, 64, 128, 64, RenderTargetViewport.Full(128, 64), 1, target.ViewPtr);
+            Assert.Equal(expected, target.ReadPixels());
+            Assert.Equal(2, recipe.Targets.Count);
+        }
+        finally
+        {
+            root.Context.Clear(); outer.Context.Clear(); picture.Dispose(); compositor.Dispose();
+        }
+        Assert.Equal(1, recipe.DisposeCount);
+        Assert.Equal(1, contentOwner.DisposeCount);
+    }
+
+    private static byte[] ExpectedSeparateTargets()
+    {
+        // Independent literal physical rectangles: red main capture, blue
+        // nested unit-scale capture, then green later content above the red.
+        var pixels = new byte[128 * 64 * 4];
+        for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 128; ++x)
+        {
+            int index = (y * 128 + x) * 4;
+            if (y >= 8 && y < 12)
+            {
+                if (x >= 8 && x < 24) pixels[index] = 255;
+                if (x >= 40 && x < 56) pixels[index + 2] = 255;
+                if (x >= 16 && x < 20)
+                {
+                    pixels[index] = 0;
+                    pixels[index + 1] = 255;
+                }
+            }
+            pixels[index + 3] = 255;
+        }
+        return pixels;
+    }
+
     private static GpuPicture RecordContent(IDisposable? owner = null)
     {
         var recorder = new GpuPictureRecorder();
