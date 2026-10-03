@@ -3528,10 +3528,11 @@ struct channel::implementation {
         return status::success;
     }
 
-    status validate_sampler_transforms(const tile_brush_state& brush, bool require_current) const noexcept {
+    status validate_sampler_transforms(std::uint32_t transform_handle,
+        std::uint32_t relative_transform_handle, bool require_current) const noexcept {
         std::array<std::uint32_t, 64U> active{};
         bool animated = false, named_angle = false;
-        for (const auto handle : {brush.transform_handle, brush.relative_transform_handle}) {
+        for (const auto handle : {transform_handle, relative_transform_handle}) {
             const auto inspected = inspect_sampler_transform(handle, active, 0U, animated, named_angle);
             if (inspected != status::success) return inspected;
         }
@@ -3540,7 +3541,7 @@ struct channel::implementation {
         // host libm, even when that named leaf itself happens to be static.
         if (animated && named_angle) return status::unsupported_command;
         if (require_current && animated) {
-            for (const auto handle : {brush.transform_handle, brush.relative_transform_handle}) {
+            for (const auto handle : {transform_handle, relative_transform_handle}) {
                 if (handle == 0U) continue;
                 affine_2d_double current{};
                 const auto resolved = resolve_transform(handle, current);
@@ -3555,6 +3556,46 @@ struct channel::implementation {
     status validate_shader_sampler(std::uint32_t handle, bool require_pixels) const noexcept {
         if (require_resource(handle, type_implicit_input_brush))
             return implicit_input_brushes.contains(handle) ? status::success : status::invalid_handle;
+        if (require_resource(handle, type_bitmap_cache_brush)) {
+            const auto found = bitmap_cache_brushes.find(handle);
+            if (found == bitmap_cache_brushes.end()) return status::invalid_handle;
+            const auto& brush = found->second;
+            if (brush.opacity_animation != 0U && !require_resource(brush.opacity_animation, type_double_resource))
+                return status::invalid_handle;
+            const auto transforms_status = validate_sampler_transforms(
+                brush.transform_handle, brush.relative_transform_handle, require_pixels);
+            if (transforms_status != status::success) return transforms_status;
+            if (require_pixels) {
+                double opacity{};
+                const auto resolved = resolve_animated_double(brush.opacity, brush.opacity_animation, opacity);
+                if (resolved != status::success) return resolved;
+                if (!std::isfinite(opacity) || opacity < 0.0 || opacity > 1.0) return status::invalid_graph;
+            }
+            // Null is an original property value. A nonnull source is never
+            // replaced with an empty target or an invented positive cache box.
+            std::uint32_t cache_handle = brush.cache_handle;
+            if (brush.target_handle != 0U) {
+                if (!require_resource(brush.target_handle, type_visual)) return status::unsupported_command;
+                const auto visual = visuals.find(brush.target_handle);
+                if (visual == visuals.end()) return require_pixels ? status::invalid_handle : status::success;
+                if (require_pixels && (visual->second.has_scroll_clip || !visual->second.has_cache_bounds))
+                    return status::unsupported_command;
+                if (cache_handle == 0U) cache_handle = visual->second.cache_mode_handle;
+            }
+            if (cache_handle != 0U) {
+                if (!require_resource(cache_handle, type_bitmap_cache)) return status::invalid_handle;
+                const auto cache = bitmap_caches.find(cache_handle);
+                if (cache == bitmap_caches.end()) return require_pixels ? status::invalid_handle : status::success;
+                if (require_pixels) {
+                    double scale{};
+                    const auto resolved = resolve_animated_double(cache->second.render_at_scale,
+                        cache->second.render_at_scale_animation_handle, scale);
+                    if (resolved != status::success) return resolved;
+                    if (!std::isfinite(scale)) return status::invalid_graph;
+                }
+            }
+            return status::success;
+        }
         const bool visual_sampler = require_resource(handle, type_visual_brush);
         if (!require_resource(handle, type_image_brush) && !visual_sampler) return status::invalid_handle;
         const auto found = tile_brushes.find(handle);
@@ -3578,7 +3619,8 @@ struct channel::implementation {
             for (const auto animation : {brush.viewport_animation, brush.viewbox_animation})
                 if (animation != 0U && !rect_resources.contains(animation)) return status::invalid_handle;
         }
-        const auto transforms_status = validate_sampler_transforms(brush, require_pixels);
+        const auto transforms_status = validate_sampler_transforms(
+            brush.transform_handle, brush.relative_transform_handle, require_pixels);
         if (transforms_status != status::success) return transforms_status;
         if (visual_sampler) {
             // Null is a genuine source property, not an uninitialized Visual.
@@ -20331,7 +20373,8 @@ struct channel::implementation {
             std::uint32_t effect_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             std::uint32_t picture_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (require_resource(resolved_effect.input_brush_handle, type_image_brush) ||
-                require_resource(resolved_effect.input_brush_handle, type_visual_brush)) {
+                require_resource(resolved_effect.input_brush_handle, type_visual_brush) ||
+                require_resource(resolved_effect.input_brush_handle, type_bitmap_cache_brush)) {
                 if (mask_context.frame == nullptr) return status::unsupported_command;
                 const auto& request = mask_context.frame->request;
                 const double width = capture_frame.capture_width != 0U ? capture_frame.capture_width
@@ -20563,13 +20606,14 @@ struct channel::implementation {
         return push_source_composite_layer();
     }
 
-    enum class shader_sampler_ownership { ordinary, drawing_image, visual };
+    enum class shader_sampler_ownership { ordinary, drawing_image, visual, bitmap_cache };
 
     status append_cache_resource_revision(
         std::uint32_t handle,
         std::unordered_set<std::uint32_t>& active_resources,
         std::uint64_t& hash,
-        shader_sampler_ownership sampler_ownership = shader_sampler_ownership::ordinary) const {
+        shader_sampler_ownership sampler_ownership = shader_sampler_ownership::ordinary,
+        bool cache_target_root = false) const {
         append_fnv1a64(hash, handle);
         if (handle == 0U) {
             return status::success;
@@ -20588,12 +20632,13 @@ struct channel::implementation {
             // policy must inspect even nonpainting drawing branches; it does
             // not widen ordinary brush or external texture admission.
             const auto type = resource->second.type;
-            const bool visual_source = sampler_ownership == shader_sampler_ownership::visual;
+            const bool cache_source = sampler_ownership == shader_sampler_ownership::bitmap_cache;
+            const bool visual_source = sampler_ownership == shader_sampler_ownership::visual || cache_source;
             if (type == type_drawing_brush || (!visual_source && type == type_visual_brush) ||
-                type == type_bitmap_cache_brush || type == type_double_buffered_bitmap ||
+                (!cache_source && type == type_bitmap_cache_brush) || type == type_double_buffered_bitmap ||
                 type == type_d3d_image || type == type_video_drawing || type == type_media_player ||
                 (!visual_source && type == type_visual) || type == type_viewport3d_visual || type == type_visual3d ||
-                (visual_source && type == type_bitmap_cache)) {
+                (visual_source && !cache_source && type == type_bitmap_cache)) {
                 active_resources.erase(handle);
                 return status::unsupported_command;
             }
@@ -20621,7 +20666,9 @@ struct channel::implementation {
                 result = append_dependency(dependency);
             }
         };
-        if (resource->second.type == type_visual && sampler_ownership == shader_sampler_ownership::visual) {
+        if (resource->second.type == type_visual &&
+            (sampler_ownership == shader_sampler_ownership::visual ||
+                sampler_ownership == shader_sampler_ownership::bitmap_cache)) {
             const auto visual = visuals.find(handle);
             if (visual == visuals.end()) {
                 result = status::invalid_handle;
@@ -20632,11 +20679,13 @@ struct channel::implementation {
                 // hidden descendants and empty captures. Semantic replay still
                 // owns current-value/effect/frame admission.
                 append_if_success(visual->second.content_handle);
-                append_if_success(visual->second.transform_handle);
-                append_if_success(visual->second.effect_handle);
-                append_if_success(visual->second.cache_mode_handle);
-                append_if_success(visual->second.clip_geometry_handle);
-                append_if_success(visual->second.alpha_mask_handle);
+                if (!cache_target_root) {
+                    append_if_success(visual->second.transform_handle);
+                    append_if_success(visual->second.effect_handle);
+                    append_if_success(visual->second.cache_mode_handle);
+                    append_if_success(visual->second.clip_geometry_handle);
+                    append_if_success(visual->second.alpha_mask_handle);
+                }
                 for (const auto child : visual->second.children) append_if_success(child);
             }
         } else if (resource->second.type == type_visual || resource->second.type == type_viewport3d_visual) {
@@ -20779,8 +20828,24 @@ struct channel::implementation {
             const auto brush = bitmap_cache_brushes.find(handle);
             if (brush == bitmap_cache_brushes.end()) result = status::invalid_handle;
             else {
-                append_if_success(brush->second.target_handle);
-                append_if_success(brush->second.cache_handle);
+                if (sampler_ownership == shader_sampler_ownership::bitmap_cache) {
+                    // CacheBrush captures root content, not its six excluded
+                    // outer properties. Its selected cache is explicit, target
+                    // inherited, or genuinely default; an unused target cache
+                    // must not enter this capture's ownership closure.
+                    result = append_cache_resource_revision(brush->second.target_handle,
+                        active_resources, hash, sampler_ownership, true);
+                    std::uint32_t cache_handle = brush->second.cache_handle;
+                    if (cache_handle == 0U && brush->second.target_handle != 0U) {
+                        const auto target = visuals.find(brush->second.target_handle);
+                        if (target == visuals.end()) result = status::invalid_handle;
+                        else cache_handle = target->second.cache_mode_handle;
+                    }
+                    append_if_success(cache_handle);
+                } else {
+                    append_if_success(brush->second.target_handle);
+                    append_if_success(brush->second.cache_handle);
+                }
                 append_if_success(brush->second.opacity_animation);
                 append_if_success(brush->second.transform_handle);
                 append_if_success(brush->second.relative_transform_handle);
@@ -20791,7 +20856,12 @@ struct channel::implementation {
                 result = status::invalid_handle;
             } else {
                 append_if_success(effect->second.pixel_shader_handle);
-                append_if_success(effect->second.input_brush_handle);
+                if (result == status::success && sampler_ownership == shader_sampler_ownership::ordinary &&
+                    effect->second.type == effect_state::kind::shader &&
+                    require_resource(effect->second.input_brush_handle, type_bitmap_cache_brush)) {
+                    result = append_cache_resource_revision(effect->second.input_brush_handle,
+                        active_resources, hash, shader_sampler_ownership::bitmap_cache);
+                } else append_if_success(effect->second.input_brush_handle);
                 for (const std::uint32_t animation :
                      effect->second.animations) {
                     append_if_success(animation);
@@ -21546,7 +21616,8 @@ struct channel::implementation {
         const auto captured = add_shader_input_picture(visual_handle, sample, state, builder, wire.input_resource_index, context);
         if (captured != status::success) return captured;
         if (require_resource(effect.input_brush_handle, type_image_brush) ||
-            require_resource(effect.input_brush_handle, type_visual_brush)) {
+            require_resource(effect.input_brush_handle, type_visual_brush) ||
+            require_resource(effect.input_brush_handle, type_bitmap_cache_brush)) {
             const auto sampler = add_shader_sampler_picture(effect.input_brush_handle, f.capture_width,
                 f.capture_height, state, builder, wire.sampler_resource_index, context);
             if (sampler != status::success) return sampler;
@@ -21585,13 +21656,15 @@ struct channel::implementation {
         const auto admitted = validate_shader_sampler(brush_handle, true);
         if (admitted != status::success) return admitted;
         const bool visual_sampler = require_resource(brush_handle, type_visual_brush);
-        if (visual_sampler || require_resource(tile_brushes.at(brush_handle).source_handle, type_drawing_image)) {
+        const bool cache_sampler = require_resource(brush_handle, type_bitmap_cache_brush);
+        if (visual_sampler || cache_sampler || require_resource(tile_brushes.at(brush_handle).source_handle, type_drawing_image)) {
             // Preflight the original complete drawing graph before the shared
             // tile renderer can short-circuit empty bounds, opacity or viewport.
             // The child scene below remains the sole pixel producer.
             std::unordered_set<std::uint32_t> active;
             std::uint64_t revision = 14695981039346656037ULL;
-            const auto owned = append_cache_resource_revision(brush_handle, active, revision, visual_sampler
+            const auto owned = append_cache_resource_revision(brush_handle, active, revision, cache_sampler
+                ? shader_sampler_ownership::bitmap_cache : visual_sampler
                 ? shader_sampler_ownership::visual : shader_sampler_ownership::drawing_image);
             if (owned != status::success) return owned;
         }
