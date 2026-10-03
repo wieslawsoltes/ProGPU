@@ -21909,6 +21909,20 @@ bool original_shader_sampler_animation_owns_current_resources() {
     PROGPU_REQUIRE(update_shader_sampler_animation(raw, false, 0U));
     std::vector<std::byte> original, current, batch;
     PROGPU_REQUIRE(build_shader_sampler_animation(raw, false, 0U, original));
+    const auto effect_revision = [](const std::vector<std::byte>& scene) {
+        const auto header = read_value<progpu_native_scene_header>(scene, 0U);
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto resource = read_value<progpu_native_scene_resource>(scene,
+                header.resource_offset + i * header.resource_stride);
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) continue;
+            if (resource.payload_size != sizeof(progpu_native_scene_shader_effect_picture)) return 0U;
+            const auto shader = read_value<progpu_native_scene_shader_effect_picture>(scene, resource.payload_offset);
+            return shader.version == 2U ? shader.program.revision : 0U;
+        }
+        return 0U;
+    };
+    auto previous_revision = effect_revision(original);
+    PROGPU_REQUIRE(previous_revision != 0U);
     const auto brush_generation = progpu_native_mil_channel_get_resource_generation(raw, 5U);
     const auto shader_generation = progpu_native_mil_channel_get_resource_generation(raw, 7U);
     for (std::uint32_t index = 1U; index <= 4U; ++index) {
@@ -21917,6 +21931,9 @@ bool original_shader_sampler_animation_owns_current_resources() {
         PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw, 7U) == shader_generation);
         PROGPU_REQUIRE(build_shader_sampler_animation(raw, false, index, current));
         PROGPU_REQUIRE(current != original);
+        const auto revision = effect_revision(current);
+        PROGPU_REQUIRE(revision != 0U && revision != previous_revision);
+        previous_revision = revision;
         PROGPU_REQUIRE(progpu::native::scene::validate(current.data(), current.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
     }
     PROGPU_REQUIRE(update_shader_sampler_animation(raw, false, 0U));
