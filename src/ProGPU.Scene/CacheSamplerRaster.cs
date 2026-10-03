@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using ProGPU.Backend;
 
 namespace ProGPU.Scene;
@@ -10,7 +12,10 @@ namespace ProGPU.Scene;
 /// </summary>
 public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
 {
+    private static readonly ConditionalWeakTable<WgpuContext, ContextRetirement> s_retirements = new();
+    static CacheSamplerRaster() => WgpuContext.Disposing += RetireContext;
     private GpuPicture? _picture;
+    private readonly ContextRetirement _retirementOwner;
     private int _ownerReleased;
     private int _references = 1;
     private readonly int _creatingThread = Environment.CurrentManagedThreadId;
@@ -26,7 +31,8 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
         DeviceIdentity = deviceIdentity; EnableClearType = enableClearType;
         // The owning context retires surviving parameter/recording generations
         // before its final resource drain. Shutdown never relies on a later GC.
-        WgpuContext.Disposing += OnContextDisposing;
+        _retirementOwner = s_retirements.GetValue(texture.Context, static _ => new());
+        _retirementOwner.Add(this);
     }
 
     /// <summary>Borrowed from this owner; disposing the raster retires the texture.</summary>
@@ -88,9 +94,9 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
         else Texture.Context.QueueExternalTextureOwnerDisposal(new Retirement(this));
     }
 
-    private void OnContextDisposing(WgpuContext context)
+    private static void RetireContext(WgpuContext context)
     {
-        if (ReferenceEquals(context, Texture.Context)) RetireResources();
+        if (s_retirements.TryGetValue(context, out ContextRetirement? owner)) owner.RetireAll();
     }
 
     private void RetireResources()
@@ -111,7 +117,32 @@ public sealed class CacheSamplerRaster : IProGpuTextureLeaseSource, IDisposable
             try { picture?.Dispose(); }
             catch (Exception error) { _retirementFailure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error); }
             _retirementFailure?.Throw();
-            WgpuContext.Disposing -= OnContextDisposing;
+            _retirementOwner.Remove(this);
+        }
+    }
+
+    private sealed class ContextRetirement
+    {
+        // Accessed only under the exact context's RenderLock. The weak context
+        // key does not globally root an abandoned device, and successful release
+        // removes the generation rather than retaining a source history.
+        private readonly HashSet<CacheSamplerRaster> _rasters = [];
+        internal void Add(CacheSamplerRaster raster) => _rasters.Add(raster);
+        internal void Remove(CacheSamplerRaster raster) => _rasters.Remove(raster);
+        internal void RetireAll()
+        {
+            var snapshot = new CacheSamplerRaster[_rasters.Count];
+            _rasters.CopyTo(snapshot);
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo? failure = null;
+            foreach (CacheSamplerRaster raster in snapshot)
+            {
+                try { raster.RetireResources(); }
+                catch (Exception error)
+                {
+                    failure ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+                }
+            }
+            failure?.Throw();
         }
     }
 
