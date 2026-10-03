@@ -17,6 +17,14 @@ namespace ProGPU.Scene;
 public interface ISourceGeometryHitTestCommands
 {
     DrawingContext SourceHitTestCommands { get; }
+
+    /// <summary>
+    /// Explicit source contract that this visual's opacity brush/picture changes
+    /// only raster alpha, not the retained point/region geometry or its mapping.
+    /// Actual geometry clips, effect mappings and required cache sources retain
+    /// their independent admission. Default providers do not make this promise.
+    /// </summary>
+    bool SourceOpacityMaskPreservesHitGeometry => false;
 }
 
 /// <summary>

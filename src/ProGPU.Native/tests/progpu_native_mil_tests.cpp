@@ -23424,9 +23424,16 @@ int main() {
         request.flags = scene_build_request_flags::hit_test_index;
         request.target_handle = 3U; request.scene_id = 9842U;
         request.dpi_scale_x = request.dpi_scale_y = 1.0;
-        for (std::uint32_t phase = 0; phase < 2U; ++phase) {
+        for (std::uint32_t phase = 0; phase < 5U; ++phase) {
             if (phase != 0U) {
-                batch.clear(); append_command(batch, command::visual_set_alpha_mask, 1U, 0U);
+                batch.clear();
+                append_command(batch, command::visual_set_alpha_mask, 1U,
+                    phase == 2U || phase == 3U ? 6U : 0U);
+                // The masked visual is a descendant of the zero-alpha source
+                // owner. Input remains original geometry, including sibling
+                // restoration, across suppression and reappearance.
+                append_command(batch, command::visual_set_alpha, 10U,
+                    phase == 2U || phase == 4U ? 0.0 : 1.0);
                 PROGPU_REQUIRE(state.apply(batch) == status::success);
             }
             request.generation = request.request_serial = phase + 1U;
@@ -23461,7 +23468,11 @@ int main() {
                 const auto layer = read_value<progpu_native_scene_layer>(stream, record.payload_offset);
                 if (layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) ++masked_layers;
             }
-            PROGPU_REQUIRE(masked_layers == (phase == 0U ? 1U : 0U));
+            if (phase <= 1U) {
+                PROGPU_REQUIRE(masked_layers == (phase == 0U ? 1U : 0U));
+            } else if (phase == 3U) {
+                PROGPU_REQUIRE(masked_layers == 1U); // real mask restored on reappearance
+            }
         }
     }
     {

@@ -9,7 +9,7 @@ using Xunit;
 
 namespace ProGPU.Tests;
 
-public sealed class SourceVisualHitTestTests
+public sealed partial class SourceVisualHitTestTests
 {
     [Theory]
     [InlineData(false)]
