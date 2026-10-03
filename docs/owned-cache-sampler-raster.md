@@ -42,7 +42,11 @@ context registry also retires every surviving raster on the creating thread befo
 context teardown, without waiting for finalization. It invalidates acquisition
 before callbacks, attempts every registered generation, and preserves the first
 cleanup failure; failure is not successful retirement. Successfully retired
-generations are removed, not retained as an unbounded source history.
+generations are removed, not retained as an unbounded source history. Registry
+entries are resurrection-aware weak references: neither the registry nor a
+weak-key source cache globally roots discarded original brushes. An abandoned
+raster also only transfers its owned payload to the context drain. Shutdown
+rejects reentrant new captures before recording or GPU allocation.
 
 Managed shader applicability: `WpfShaderEffectExtensionPipeline` generates one
 typed texture binding per sampler and samples normalized UVs independently. It

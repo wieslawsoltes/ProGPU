@@ -39,6 +39,7 @@ public unsafe partial class Compositor
         {
             if (!_context.IsInitialized || _context.IsDeviceLost)
                 throw new InvalidOperationException("The cache raster device is unavailable.");
+            CacheSamplerRaster.EnsureContextAcceptsCapture(_context);
             WgpuDeviceIdentity device = _context.DeviceIdentity;
             if (!_context.TryGetCacheRasterLimits(out uint width, out uint height) ||
                 width != frame.MaximumTextureWidth || height != frame.MaximumTextureHeight)
