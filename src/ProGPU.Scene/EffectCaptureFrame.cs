@@ -73,11 +73,7 @@ public readonly struct EffectCaptureFrame
         float? rasterPaddingOverride, float dpiScale, out EffectCaptureFrame frame)
     {
         frame = default;
-        if (!double.IsFinite(source.X) || !double.IsFinite(source.Y) ||
-            !double.IsFinite(source.Width) || !double.IsFinite(source.Height) ||
-            source.Width <= 0 || source.Height <= 0 ||
-            !ValidSourcePadding(source.PaddingTop) || !ValidSourcePadding(source.PaddingBottom) ||
-            !ValidSourcePadding(source.PaddingLeft) || !ValidSourcePadding(source.PaddingRight) ||
+        if (!source.IsValid ||
             !float.IsFinite(sourceTranslation.X) || !float.IsFinite(sourceTranslation.Y))
             return false;
 
@@ -109,9 +105,6 @@ public readonly struct EffectCaptureFrame
         return TryCreatePadded(new Rect(left + sourceTranslation.X, top + sourceTranslation.Y,
             width, height), dpiScale, out frame);
     }
-
-    private static bool ValidSourcePadding(double value) =>
-        double.IsFinite(value) && value >= 0 && float.IsFinite((float)value);
 
     internal static float ResolveShaderPadding(float padding) => MathF.Ceiling(MathF.Max(0f, padding));
 

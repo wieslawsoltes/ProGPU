@@ -25,6 +25,17 @@ public readonly struct ShaderEffectSourceCapture : IEquatable<ShaderEffectSource
     public double PaddingLeft { get; }
     public double PaddingRight { get; }
 
+    /// <summary>
+    /// Whether original bounds/endpoints and padding are finite in the source
+    /// float domain. This is not DPI, inflated-extent or device qualification.
+    /// </summary>
+    public bool IsValid => double.IsFinite(X) && double.IsFinite(Y) &&
+        double.IsFinite(Width) && double.IsFinite(Height) && Width > 0 && Height > 0 &&
+        float.IsFinite((float)X) && float.IsFinite((float)Y) &&
+        float.IsFinite((float)(X + Width)) && float.IsFinite((float)(Y + Height)) &&
+        ValidPadding(PaddingTop) && ValidPadding(PaddingBottom) &&
+        ValidPadding(PaddingLeft) && ValidPadding(PaddingRight);
+
     public bool Equals(ShaderEffectSourceCapture other) =>
         Bits(X) == Bits(other.X) && Bits(Y) == Bits(other.Y) &&
         Bits(Width) == Bits(other.Width) && Bits(Height) == Bits(other.Height) &&
@@ -40,4 +51,6 @@ public readonly struct ShaderEffectSourceCapture : IEquatable<ShaderEffectSource
     public static bool operator !=(ShaderEffectSourceCapture left, ShaderEffectSourceCapture right) => !left.Equals(right);
 
     private static long Bits(double value) => BitConverter.DoubleToInt64Bits(value);
+    private static bool ValidPadding(double value) =>
+        double.IsFinite(value) && value >= 0 && float.IsFinite((float)value);
 }
