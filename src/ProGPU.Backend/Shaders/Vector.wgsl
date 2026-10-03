@@ -677,7 +677,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         if (joinKind == 2u) {
             boundsMin = vec2<f32>(-halfStrokeThickness);
             boundsMax = vec2<f32>(halfStrokeThickness);
-        } else if (joinKind == 0u && hasMiter) {
+        } else if ((joinKind == 0u || joinKind == 3u) && hasMiter) {
             boundsMin = min(boundsMin, miterPoint);
             boundsMax = max(boundsMax, miterPoint);
         }
@@ -1994,7 +1994,8 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     } else if (sType == 23u) {
         // Analytic one-device-pixel path join. color stores the two outer
         // offsets, shapeSize stores a valid miter intersection, cornerRadius
-        // selects miter/bevel/round, and gridIndex preserves turn direction.
+        // selects miter/bevel/round/miter-or-bevel, and gridIndex preserves turn
+        // direction. Both miter kinds use the vertex stage's limit decision.
         // Body-facing radial edges are hard-owned to prevent overlap seams.
         let point = input.texCoord;
         let previousOuter = input.color.xy;
@@ -2023,7 +2024,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             exteriorDistance = length(point) - length(previousOuter);
             exteriorGradient = safe_normalize(point);
             allDistance = exteriorDistance;
-        } else if (joinKind == 0u && input.strokeThickness > 0.5) {
+        } else if ((joinKind == 0u || joinKind == 3u) && input.strokeThickness > 0.5) {
             // Convex miter polygon order: previous outer, intersection, next
             // outer, center. Only the first two edges are exterior.
             let p0 = previousOuter;

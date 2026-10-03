@@ -10511,6 +10511,7 @@ CompilePathStroke:
         {
             PenLineJoin.Bevel => PenLineJoin.Bevel,
             PenLineJoin.Round => PenLineJoin.Round,
+            PenLineJoin.MiterOrBevel => PenLineJoin.MiterOrBevel,
             _ => PenLineJoin.Miter
         };
         var resolvedMiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1f
@@ -10867,7 +10868,7 @@ CompilePathStroke:
         {
             return (7u, 0u);
         }
-        if (lineJoin == PenLineJoin.Miter && triangleCount == 2)
+        if ((lineJoin is PenLineJoin.Miter or PenLineJoin.MiterOrBevel) && triangleCount == 2)
         {
             return (3u, triangleIndex == 0 ? 4u : 0u);
         }

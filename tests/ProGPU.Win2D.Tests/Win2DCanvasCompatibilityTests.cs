@@ -431,17 +431,10 @@ public sealed class Win2DCanvasCompatibilityTests
     }
 
     [Fact]
-    public void UnsupportedMiterOrBevelFailsClosed()
+    public void UndefinedLineJoinFailsClosed()
     {
-        using var style = new CanvasStrokeStyle
-        {
-            LineJoin = CanvasLineJoin.MiterOrBevel
-        };
-
-        Assert.Throws<NotSupportedException>(() =>
-            style.GetOrCreatePen(
-                new SolidColorBrush(Vector4.One),
-                2f));
+        using var style = new CanvasStrokeStyle();
+        Assert.Throws<ArgumentOutOfRangeException>(() => style.LineJoin = (CanvasLineJoin)4);
     }
 
     [Fact]

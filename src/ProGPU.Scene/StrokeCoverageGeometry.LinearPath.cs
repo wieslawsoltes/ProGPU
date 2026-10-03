@@ -36,7 +36,7 @@ public static partial class StrokeCoverageGeometry
         strokePath = null!; coveragePen = null!; bounds = default; fillCoverage = null;
         if (source.IsCombined || (uint)source.FillRule > 1 || !float.IsFinite(pen.Thickness) || pen.Thickness < 0
             || pen.StrokeTransformMode != PenStrokeTransformMode.Normal || !double.IsFinite(pen.DashOffset)
-            || (uint)pen.LineJoin > 2 || !float.IsFinite(pen.MiterLimit) || (uint)pen.StartLineCap > 3
+            || (uint)pen.LineJoin > (uint)PenLineJoin.MiterOrBevel || !float.IsFinite(pen.MiterLimit) || (uint)pen.StartLineCap > 3
             || (uint)pen.EndLineCap > 3 || (uint)pen.DashCap > 3) return false;
         // Validate the entire input before allocating the owned stroke snapshot.
         // One-million source records bounds output storage and traversal work.
@@ -268,7 +268,7 @@ public static partial class StrokeCoverageGeometry
             var delta = miter - center;
             double length = double.Hypot(delta[0], delta[1]);
             if (length <= Math.Max(1, limit) * radius) { state.Include(miter); continue; }
-            if (length == 0) continue;
+            if (length == 0 || join == PenLineJoin.MiterOrBevel) continue;
             var bisector = delta / Vector128.Create(length);
             IncludeClippedMiter(ref state, center, a, miter, bisector, length, Math.Max(1, limit) * radius);
             IncludeClippedMiter(ref state, center, b, miter, bisector, length, Math.Max(1, limit) * radius);

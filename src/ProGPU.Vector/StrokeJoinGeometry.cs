@@ -125,6 +125,8 @@ public static class StrokeJoinGeometry
         int maxRoundSegments,
         bool useWpfJoinSemantics)
     {
+        ValidateLineJoin(lineJoin);
+        useWpfJoinSemantics &= lineJoin != PenLineJoin.MiterOrBevel;
         if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon ||
             !TryNormalize(joinPoint - previousPoint, out var incomingDirection) ||
             !TryNormalize(nextPoint - joinPoint, out var outgoingDirection))
@@ -158,7 +160,7 @@ public static class StrokeJoinGeometry
             return 1;
         }
 
-        if (lineJoin == PenLineJoin.Miter)
+        if (lineJoin is PenLineJoin.Miter or PenLineJoin.MiterOrBevel)
         {
             var clampedMiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1f ? miterLimit : 1f;
             var hasMiter = TryIntersectLines(
@@ -259,6 +261,14 @@ public static class StrokeJoinGeometry
         }
     }
 
+    private static void ValidateLineJoin(PenLineJoin lineJoin)
+    {
+        if ((uint)lineJoin > (uint)PenLineJoin.MiterOrBevel)
+        {
+            throw new ArgumentOutOfRangeException(nameof(lineJoin));
+        }
+    }
+
     public static StrokeJoinTriangle[] CreateDirectionalJoin(
         PenLineJoin lineJoin,
         float thickness,
@@ -314,6 +324,8 @@ public static class StrokeJoinGeometry
         int maxRoundSegments,
         bool useWpfJoinSemantics)
     {
+        ValidateLineJoin(lineJoin);
+        useWpfJoinSemantics &= lineJoin != PenLineJoin.MiterOrBevel;
         if (isSmoothJoin || !float.IsFinite(thickness) || thickness <= Epsilon)
         {
             return Array.Empty<StrokeJoinTriangle>();

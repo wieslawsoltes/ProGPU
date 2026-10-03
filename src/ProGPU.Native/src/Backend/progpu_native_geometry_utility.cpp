@@ -30,7 +30,8 @@ extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_
         !std::isfinite(pen->thickness) || pen->thickness < 0.0F ||
         !std::isfinite(pen->miter_limit) || pen->miter_limit < 1.0F ||
         !std::isfinite(pen->dash_offset) || pen->start_cap > 3U || pen->end_cap > 3U ||
-        pen->dash_cap > 3U || pen->line_join > 2U) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        pen->dash_cap > 3U || pen->line_join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     namespace d2d = progpu::native::direct2d::compat;
     namespace com = progpu::native::com;
     try {
