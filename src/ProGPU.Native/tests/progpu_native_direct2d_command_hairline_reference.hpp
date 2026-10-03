@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include "progpu_native_direct2d_hairline_dpi_fixture.hpp"
 
 // Windows-only actual SDK resources and command-sink transport controls.
 // Include after the original SDK/WRL declarations. No product dash helper is
@@ -206,6 +207,79 @@ void verify_command_hairline_dpi(progpu_native_direct2d_surface* surface,
     }
     context->SetDpi(saved_x,saved_y);
     context->SetTransform(saved_transform); context->SetAntialiasMode(saved_antialias);
+}
+
+template<class Require>
+void verify_original_hairline_dpi_pixels(ID2D1DeviceContext* source, Require require)
+{
+    using Microsoft::WRL::ComPtr;
+    ComPtr<ID2D1Device> device;
+    source->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE,context.GetAddressOf()) == S_OK,
+        "hairline original independent context");
+    ComPtr<ID2D1Factory> base_factory;
+    context->GetFactory(base_factory.GetAddressOf());
+    ComPtr<ID2D1Factory1> factory;
+    require(base_factory.As(&factory) == S_OK,"hairline original pixel factory1");
+    com::pointer<compat::factory> typed_factory;
+    com::pointer<compat::render_target> typed_target;
+    require(base_factory->QueryInterface(compat::factory_interface_id,reinterpret_cast<void**>(typed_factory.put())) == S_OK &&
+        context->QueryInterface(compat::render_target_interface_id,reinterpret_cast<void**>(typed_target.put())) == S_OK,
+        "hairline actual SDK typed resource identity");
+    std::array<ComPtr<ID2D1StrokeStyle1>,4U> styles;
+    std::array<com::pointer<compat::stroke_style>,4U> typed_styles;
+    std::array<compat::stroke_style*,4U> injected{};
+    for (unsigned band=0U; band<styles.size(); ++band) {
+        const auto original=hairline_dpi_style(band);
+        const D2D1_STROKE_STYLE_PROPERTIES1 properties{
+            static_cast<D2D1_CAP_STYLE>(original.start_cap),static_cast<D2D1_CAP_STYLE>(original.end_cap),
+            static_cast<D2D1_CAP_STYLE>(original.dash_cap),static_cast<D2D1_LINE_JOIN>(original.join),original.miter_limit,
+            static_cast<D2D1_DASH_STYLE>(original.dash),original.dash_offset,D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE};
+        require(factory->CreateStrokeStyle(&properties,hairline_dpi_dashes.data(),2U,styles[band].GetAddressOf()) == S_OK &&
+            styles[band]->GetStrokeTransformType() == D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE &&
+            styles[band]->QueryInterface(compat::stroke_style_interface_id,reinterpret_cast<void**>(typed_styles[band].put())) == S_OK,
+            "hairline original pixel style identity");
+        injected[band]=typed_styles[band].get();
+    }
+    const auto target_properties=D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,D2D1_ALPHA_MODE_PREMULTIPLIED),96,96);
+    const auto read_properties=D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_CPU_READ|D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        target_properties.pixelFormat,96,96);
+    ComPtr<ID2D1Bitmap1> target,readback;
+    require(context->CreateBitmap({64U,64U},nullptr,0U,&target_properties,target.GetAddressOf()) == S_OK &&
+        context->CreateBitmap({64U,64U},nullptr,0U,&read_properties,readback.GetAddressOf()) == S_OK,
+        "hairline original pixel targets");
+    const auto pixels=[&] {
+        context->SetTarget(nullptr);
+        require(readback->CopyFromBitmap(nullptr,target.Get(),nullptr) == S_OK,"hairline original pixel copy");
+        D2D1_MAPPED_RECT mapped{};
+        require(readback->Map(D2D1_MAP_OPTIONS_READ,&mapped) == S_OK && mapped.pitch >= 256U,"hairline original pixel map");
+        std::vector<std::uint8_t> result(64U*256U);
+        for (std::size_t row=0U; row<64U; ++row) std::memcpy(result.data()+row*256U,mapped.bits+row*mapped.pitch,256U);
+        require(readback->Unmap() == S_OK,"hairline original pixel unmap");
+        return result;
+    };
+    unsigned configurations=0U;
+    for (const float dpi : {96.0F,192.0F}) {
+    for (const bool curved : {false,true}) {
+        std::array<std::vector<std::uint8_t>,2U> images;
+        for (unsigned path=0U; path<images.size(); ++path) {
+            context->SetTarget(target.Get());
+            record_hairline_dpi_case(typed_factory.get(),typed_target.get(),dpi,curved,path != 0U,
+                std::span<compat::stroke_style* const>(injected),require);
+            images[path]=pixels();
+            hairline_dpi_pixels(images[path],true,require);
+        }
+        require(images[0] == images[1],"original hairline versus independent physical rectangles full-byte mismatch");
+        for (unsigned band=0U; band<styles.size(); ++band) {
+            std::array<FLOAT,2U> intervals{}; styles[band]->GetDashes(intervals.data(),2U);
+            require(intervals == hairline_dpi_dashes && styles[band]->GetDashOffset() == hairline_dpi_style(band).dash_offset,
+                "original hairline pixel source style changed");
+        }
+        ++configurations;
+    } }
+    require(configurations == 4U,"original hairline DPI line/cubic pixel inventory");
 }
 
 } // namespace progpu::native::direct2d::tests

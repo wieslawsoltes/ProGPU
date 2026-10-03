@@ -44,5 +44,19 @@ bounds and every odd dash interval/phase, mutate the caller descriptor after
 creation, and read back unchanged original SDK style values. Prior positive
 hairline tests now supply explicit 96-DPI metadata; their assertions remain.
 
+The paired pixel inventory is four configurations: 96/192 DPI times line or
+collinear cubic. Each contains four independently colored, one-physical-pixel
+bands with flat/square caps, zero/nonzero phase and ignored requested widths.
+The original Windows path owns genuine SDK hairline styles and compares every
+BGRA byte against independently authored physical rectangles. Both native
+providers replay the corresponding portable scenes cold, warm and as independent
+rectangles, comparing every RGBA byte. Four source commands remain distinct in
+the scene; compatible draws merge to one GPU draw and one submission per replay.
+No product dash walker or captured output generates the rectangle oracle.
+
+This source-correctness change also includes the separately scoped
+[WIC interface ownership correction](direct2d-wic-source-query.md): a successful
+query without its interface cannot publish successful bitmap creation.
+
 All new controls are authored only. No compilation, source verifier, original
 SDK execution or native/provider pixel qualification has run for this stack.

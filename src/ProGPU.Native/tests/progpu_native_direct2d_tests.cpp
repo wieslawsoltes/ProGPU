@@ -5947,6 +5947,7 @@ int main()
     gradient_stop_order_regressions(context.Get());
     full_target_clear_regressions(surface, context.Get());
     progpu::native::direct2d::tests::verify_command_hairline_dpi(surface, context.Get(), require);
+    progpu::native::direct2d::tests::verify_original_hairline_dpi_pixels(context.Get(), require);
 
     {
         ComPtr<ID2D1PathGeometry> line_geometry;
