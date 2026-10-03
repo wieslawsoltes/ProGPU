@@ -9,6 +9,7 @@
 #include "progpu_native_geometry_stroke.hpp"
 #include "progpu_native_miter_or_bevel_fixture.hpp"
 #include "progpu_native_clipped_miter_fixture.hpp"
+#include "progpu_native_wpf_path_join_fixture.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_semantic_budget.hpp"
@@ -2194,6 +2195,8 @@ int main() {
     require(progpu::native::tests::miter_or_bevel_join_triangles_and_masks());
     require(progpu::native::tests::miter_or_bevel_semantic_resources());
     require(progpu::native::tests::clipped_miter_triangles_and_flags());
+    require(progpu::native::tests::wpf_path_join_triangles_and_flags());
+    require(progpu::native::tests::wpf_path_join_semantic_atomic());
     require(run_shader_effect_translation_tests());
     require(run_shader_effect_arithmetic_tests());
     require(run_shader_effect_uniform_tests());
