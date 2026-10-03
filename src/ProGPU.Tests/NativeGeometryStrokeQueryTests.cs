@@ -36,7 +36,7 @@ public class NativeGeometryStrokeQueryTests
     public void InvalidPenTransformPointAndSpanLengthsRejectBeforeLoading()
     {
         var pen = Pen;
-        pen.LineJoin = 3;
+        pen.LineJoin = 4;
         Assert.Throws<ArgumentException>(() => NativeGeometryUtilities.GetStrokeBounds(
             [], [], [], pen, [], Matrix3x2.Identity, 0.25f, out _));
         Assert.Throws<ArgumentException>(() => NativeGeometryUtilities.GetStrokeBounds(

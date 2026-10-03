@@ -271,7 +271,7 @@ inline result compile(
         stroke.start_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
         stroke.end_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
         stroke.dash_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
-        stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
+        stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
         (stroke.primitive_flags & ~allowed_primitive_flags) != 0U ||
         (hairline && fixed_device)) {
         return result::invalid;

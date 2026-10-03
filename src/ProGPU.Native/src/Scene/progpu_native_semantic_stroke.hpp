@@ -48,7 +48,7 @@ inline bool semantic_stroke_resource_layout(
             stroke.start_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
             stroke.end_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
             stroke.dash_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
-            stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
+            stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
             !is_finite(stroke.color) || !is_finite(stroke.transform) ||
             !std::isfinite(stroke.stroke_thickness) ||
             !std::isfinite(stroke.miter_limit) ||
