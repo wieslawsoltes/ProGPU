@@ -20,6 +20,7 @@
 #include "progpu_native_shader_sampler_animation_fixture.hpp"
 #include "progpu_native_shader_sampler_transform_fixture.hpp"
 #include "progpu_native_shader_drawing_image_fixture.hpp"
+#include "progpu_native_drawing_image_brush_fixture.hpp"
 #include "progpu_native_shader_derivative_pixel_fixture.hpp"
 #include "progpu_native_shader_padding_fixture.hpp"
 #include "progpu_native_rgb_glyph_scene_fixture.hpp"
@@ -3745,6 +3746,22 @@ int main(int argc, char** argv) {
         progpu::native::tests::verify_sampler_transform_animation_pixels(render_animated_sampler,require);
         progpu::native::tests::verify_shader_drawing_image_pixels(render_animated_sampler,require);
         for (auto& family : animation_engines)
+            for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
+    }
+    {
+        std::array<std::array<progpu_native_engine*, 2U>, 2U> drawing_engines{};
+        progpu::native::tests::verify_ordinary_drawing_image_brush_pixels(
+            [&](bool explicit_bounds, bool reference, const auto& stream,
+                const progpu_native_scene_header& header, progpu_native_scene_frame_metrics& frame) {
+                auto*& selected = drawing_engines[explicit_bounds ? 1U : 0U][reference ? 1U : 0U];
+                if (!selected)
+                    require(progpu_native_dawn_engine_create(&engine_options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+                        "ordinary DrawingImage Dawn engine creation failed");
+                return render_retained_scene(reference, stream, header.generation, 1U,
+                    header.scene_id, 2U, 10U, nullptr, &frame, 1.0F, nullptr,
+                    PROGPU_NATIVE_STATUS_SUCCESS, false, 64U, nullptr, selected);
+            }, require);
+        for (auto& family : drawing_engines)
             for (auto* selected : family) if (selected) progpu_native_engine_destroy(selected);
     }
     progpu::native::tests::verify_original_shader_derivative_pixels(
