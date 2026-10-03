@@ -36,6 +36,8 @@ public readonly record struct ProGpuDirect2DRecorderTarget(
 /// GPU surface. The current COM provider is Windows-only. Never mutate its acquired
 /// command sink concurrently with measuring/writing the stream. Target changes
 /// require a new recorder and generation, not mutation of an existing recording.
+/// Sink coordinates are DIPs. Hairlines require an explicit target with equal
+/// DPI axes; targetless recording does not imply a 96-DPI hairline target.
 /// </summary>
 public sealed unsafe class ProGpuDirect2DSceneRecorder : SafeHandleZeroOrMinusOneIsInvalid
 {

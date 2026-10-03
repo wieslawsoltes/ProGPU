@@ -117,7 +117,11 @@ typedef enum progpu_native_direct2d_scene_stream_flags {
     /* Full-target brush domains depend on this surface's physical size and
      * current context DPI. Rebuild at a new generation if either changes. */
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_MASKS =
-        1U << 10U
+        1U << 10U,
+    /* Hairline stroke bounds/dashes depend on the immutable target DPI.
+     * Rebuild at a new generation if that DPI changes. Bit 11. */
+    /* PROGPU_CSHARP_ULONG: Direct2DSceneStreamHasTargetDependentStrokes */
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_STROKES = 2048ULL
 } progpu_native_direct2d_scene_stream_flags;
 
 typedef enum progpu_native_direct2d_scene_stream_failure_reason {
@@ -842,7 +846,10 @@ typedef struct progpu_native_direct2d_target_extent {
 
 /* Creates a retained ProGPU scene recorder. capacity_hint is optional and is
  * used only to reserve storage; recording remains bounded by the semantic
- * scene ABI even when the actual callback counts differ from the hint. */
+ * scene ABI even when the actual callback counts differ from the hint.
+ * Sink coordinates are DIPs. Targetless hairlines are unsupported: their
+ * physical pen bounds and dash lengths require actual target DPI. Normal and
+ * fixed strokes do not acquire this target dependency. */
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_scene_recorder_create(
     uint64_t scene_id,
@@ -854,7 +861,9 @@ progpu_native_direct2d_scene_recorder_create(
 /* ABI v55: target is required and copied during creation. No surface, device,
  * COM owner or caller memory is retained for the target descriptor. The sink
  * supports full-target brush domains and publishes HAS_TARGET_DEPENDENT_MASKS.
- * The targetless create entry point keeps its previous behavior. */
+ * Hairlines require equal DPI axes and publish HAS_TARGET_DEPENDENT_STROKES.
+ * The descriptor is copied before callbacks; changing its memory cannot change
+ * the recorder. Pixel-unit callbacks remain unsupported. */
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_scene_recorder_create_for_target(
     uint64_t scene_id,

@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_stroke_metrics.hpp"
 #include "progpu_native_direct2d_clear.hpp"
 #include "progpu_native_direct2d_drawing_state.hpp"
 #include "progpu_native_direct2d_path.hpp"
@@ -6083,10 +6084,13 @@ public:
         uint64_t generation,
         const progpu_native_direct2d_command_stream_summary& summary,
         double target_width = 0.0,
-        double target_height = 0.0)
+        double target_height = 0.0,
+        float target_dpi_x = 0.0F,
+        float target_dpi_y = 0.0F)
         : builder_(scene_id, generation),
           scene_id_(scene_id), generation_(generation),
-          target_width_(target_width), target_height_(target_height)
+          target_width_(target_width), target_height_(target_height),
+          target_dpi_x_(target_dpi_x), target_dpi_y_(target_dpi_y)
     {
         const uint64_t draw_count =
             static_cast<uint64_t>(summary.draw_count) + summary.fill_count;
@@ -6372,6 +6376,7 @@ public:
         has_opacity_brush_layer_masks_ = false;
         has_composite_layer_masks_ = false;
         has_target_dependent_masks_ = false;
+        has_target_dependent_strokes_ = false;
         clear_color_ = value;
         has_clear_ = true;
         return S_OK;
@@ -6903,6 +6908,11 @@ public:
     bool has_target_dependent_masks() const noexcept
     {
         return has_target_dependent_masks_;
+    }
+
+    bool has_target_dependent_strokes() const noexcept
+    {
+        return has_target_dependent_strokes_;
     }
 
     bool has_gradient_brushes() const noexcept
@@ -8018,10 +8028,16 @@ private:
         float stroke_width,
         ID2D1StrokeStyle* stroke_style) noexcept
     {
+        bool allow_widen = true;
         const HRESULT semantic_hr = draw_semantic_stroked_geometry(
-            geometry, brush, stroke_width, stroke_style);
+            geometry, brush, stroke_width, stroke_style, allow_widen);
         if (semantic_hr != E_NOINTERFACE) {
             return semantic_hr;
+        }
+        if (!allow_widen) {
+            // ID2D1Geometry::Widen has no target DPI. It cannot recover a
+            // rejected device-pixel hairline by widening in an invented frame.
+            return fail_unsupported_operation();
         }
 
         CommandScenePathSink* raw_sink = new (std::nothrow)
@@ -8158,7 +8174,8 @@ private:
         ID2D1Geometry* geometry,
         ID2D1Brush* brush,
         float stroke_width,
-        ID2D1StrokeStyle* stroke_style) noexcept
+        ID2D1StrokeStyle* stroke_style,
+        bool& allow_widen) noexcept
     {
         command_scene_stroke_style style{};
         HRESULT hr = translate_stroke_style(stroke_style, style);
@@ -8173,6 +8190,17 @@ private:
             D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE) {
             record_draw();
             return S_OK;
+        }
+        if (style.transform_type == D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE) {
+            allow_widen = false;
+            if (!std::isfinite(target_dpi_x_) || target_dpi_x_ <= 0.0F ||
+                target_dpi_x_ != target_dpi_y_) {
+                // No implicit 96-DPI target and no nonuniform scalar dash
+                // metric. Match the portable target's existing admission.
+                return fail_unsupported_state();
+            }
+            direct2d_core::scale_hairline_dashes(
+                style.dash_intervals, style.dash_offset, target_dpi_x_);
         }
 
         auto* raw_sink = new (std::nothrow) CommandSceneStrokeSink();
@@ -8402,20 +8430,23 @@ private:
                 }
             } else {
                 hr = geometry->GetBounds(&transform_, &geometry_bounds);
-                const float device_width = style.transform_type ==
-                        D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE
-                    ? 1.0F
-                    : stroke_width;
-                const float padding =
-                    device_width * 0.5F * miter_extent;
+                // Original portable target bounds: width is one physical
+                // pixel, expressed separately on each target-DIP axis.
+                const bool hairline = style.transform_type == D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE;
+                const float pad_x = hairline
+                    ? (0.5F * miter_extent) * (96.0F / target_dpi_x_)
+                    : stroke_width * 0.5F * miter_extent;
+                const float pad_y = hairline
+                    ? (0.5F * miter_extent) * (96.0F / target_dpi_y_)
+                    : stroke_width * 0.5F * miter_extent;
                 if (SUCCEEDED(hr)) {
                     bounds = {
-                        geometry_bounds.left - padding,
-                        geometry_bounds.top - padding,
+                        geometry_bounds.left - pad_x,
+                        geometry_bounds.top - pad_y,
                         geometry_bounds.right - geometry_bounds.left +
-                            padding * 2.0F,
+                            pad_x * 2.0F,
                         geometry_bounds.bottom - geometry_bounds.top +
-                            padding * 2.0F};
+                            pad_y * 2.0F};
                 }
             }
             if (FAILED(hr)) {
@@ -8600,6 +8631,8 @@ private:
             }
             has_path_geometry_ = true;
             has_stroked_path_geometry_ = true;
+            has_target_dependent_strokes_ |=
+                style.transform_type == D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE;
             record_draw();
             return S_OK;
         } catch (const std::bad_alloc&) {
@@ -8709,6 +8742,8 @@ private:
     const uint64_t generation_;
     const double target_width_;
     const double target_height_;
+    const float target_dpi_x_;
+    const float target_dpi_y_;
     D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
     D2D1_COLOR_F clear_color_{};
     std::array<
@@ -8749,6 +8784,7 @@ private:
     bool has_opacity_brush_layer_masks_ = false;
     bool has_composite_layer_masks_ = false;
     bool has_target_dependent_masks_ = false;
+    bool has_target_dependent_strokes_ = false;
 };
 
 void initialize_scene_stream_result(
@@ -8780,6 +8816,9 @@ void initialize_scene_stream_result(
     }
     if (sink.has_target_dependent_masks()) {
         result.flags |= PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_MASKS;
+    }
+    if (sink.has_target_dependent_strokes()) {
+        result.flags |= PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_STROKES;
     }
     if (sink.has_gradient_brushes()) {
         result.flags |=
@@ -10147,7 +10186,9 @@ static progpu_native_direct2d_status create_scene_recorder(
     try {
         sink = new CommandSceneStreamSink(scene_id, generation, hint,
             target != nullptr ? static_cast<double>(target->pixel_width) * 96.0 / target->dpi_x : 0.0,
-            target != nullptr ? static_cast<double>(target->pixel_height) * 96.0 / target->dpi_y : 0.0);
+            target != nullptr ? static_cast<double>(target->pixel_height) * 96.0 / target->dpi_y : 0.0,
+            target != nullptr ? target->dpi_x : 0.0F,
+            target != nullptr ? target->dpi_y : 0.0F);
     } catch (const std::bad_alloc&) {
         *native_hresult = E_OUTOFMEMORY;
         return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
@@ -11965,7 +12006,8 @@ progpu_native_direct2d_command_list_build_scene_stream(
                 std::isfinite(dpi_x) && dpi_x > 0.0F
                     ? static_cast<double>(surface->width) * 96.0 / dpi_x : 0.0,
                 std::isfinite(dpi_y) && dpi_y > 0.0F
-                    ? static_cast<double>(surface->height) * 96.0 / dpi_y : 0.0);
+                    ? static_cast<double>(surface->height) * 96.0 / dpi_y : 0.0,
+                dpi_x, dpi_y);
         } catch (const std::bad_alloc&) {
             hr = E_OUTOFMEMORY;
         } catch (...) {

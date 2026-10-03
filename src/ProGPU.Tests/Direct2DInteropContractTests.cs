@@ -9,6 +9,36 @@ namespace ProGPU.Tests;
 public sealed class Direct2DInteropContractTests
 {
     [Fact]
+    public void HairlineTargetDependencyHasItsOwnGeneratedFlagAndPublicResult()
+    {
+        Assert.Equal(1UL << 11, NativeMethods.Direct2DSceneStreamHasTargetDependentStrokes);
+        Assert.Equal(NativeMethods.Direct2DSceneStreamHasTargetDependentStrokes,
+            (ulong)ProGpuDirect2DSceneStreamFlags.HasTargetDependentStrokes);
+        var result = new ProGpuDirect2DSceneStreamResult(
+            ProGpuDirect2DSceneStreamFlags.HasTargetDependentStrokes, 0, 0, 0, 0, 0, 0, 0,
+            ProGpuDirect2DSceneStreamFailureReason.None, default, 1, 1);
+        Assert.True(result.HasTargetDependentStrokes);
+        Assert.Equal(0U, (uint)(result.Flags & ProGpuDirect2DSceneStreamFlags.HasTargetDependentMasks));
+        Assert.False((result with { Flags = ProGpuDirect2DSceneStreamFlags.HasTargetDependentMasks }).HasTargetDependentStrokes);
+    }
+
+    [Fact]
+    public void WindowsAndPortableHairlinesShareOriginalDashArithmetic()
+    {
+        string windows = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d.cpp");
+        string portable = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_render_target.cpp");
+        Assert.Contains("direct2d_core::scale_hairline_dashes(", windows, StringComparison.Ordinal);
+        Assert.Contains("core::scale_hairline_dashes(style.dash_intervals, style.dash_offset, dpi_x_)", portable, StringComparison.Ordinal);
+        Assert.Contains("target_dpi_x_ != target_dpi_y_", windows, StringComparison.Ordinal);
+        Assert.Contains("if (!allow_widen)", windows, StringComparison.Ordinal);
+        Assert.Contains("has_target_dependent_strokes_ = false;", windows, StringComparison.Ordinal);
+        // The native wire reader passes the original flags value through,
+        // rather than reconstructing only the previously known bits.
+        string conversion = ReadRepoFile("src", "ProGPU.Direct2D", "ProGpuDirect2DNative.cs");
+        Assert.Contains("Flags, RequiredBytes, WrittenBytes, CommandCount, ResourceCount,", conversion, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ClippedClearUsesSharedReplacementAndKeepsUnsupportedScopeGates()
     {
         string portable = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_render_target.cpp");
