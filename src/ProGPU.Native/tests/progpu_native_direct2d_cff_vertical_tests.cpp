@@ -58,18 +58,29 @@ bool contour_origins()
         // Additional algebraic controls isolate derivative degree and endpoint
         // handling. They exercise the reduction, not a claim that these are the
         // original font's contours. Every expected maximum is exact dyadic.
+        // A separate zero-bearing owner prevents the tiny maximum disappearing
+        // in the addition to an ordinary nonzero top side bearing.
+        auto zero_source = std::make_shared<d2d::original_font_capture>(*source);
+        auto tables = vertical_font_wire::original_tables(zero_source->files[0]);
+        for (auto& table : tables)
+            if (table.tag == 0x766D7478U) vertical_font_wire::put16(table.data, 6U, 0U);
+        zero_source->files[0] = vertical_font_wire::assemble(std::move(tables), 0x4F54544FU);
+        std::shared_ptr<const d2d::retained_original_vertical_metrics> zero_metrics;
+        if (d2d::retained_original_vertical_metrics::create(zero_source, zero_metrics) != com::ok) return false;
         const float tiny = std::numeric_limits<float>::denorm_min();
-        const std::array<progpu_native_path_segment, 5U> curves{{
+        const std::array<progpu_native_path_segment, 7U> curves{{
             {{0, 0}, {1, 16}, {2, 0}, {}, PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC, 0, 0, 0},
             {{0, 2}, {1, 4}, {2, 6}, {}, PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC, 0, 0, 0},
             {{0, 0}, {1, 0}, {2, 0}, {3, 8}, PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0},
             {{0, 0}, {1, 8}, {2, 0}, {3, 8}, PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0},
-            {{0, 0}, {1, tiny * 4}, {2, tiny * 4}, {3, 0}, PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0}}};
-        const std::array<double, 5U> tops{8, 6, 8, 8, static_cast<double>(tiny) * 3};
+            {{0, 0}, {1, tiny * 4}, {2, tiny * 4}, {3, 0}, PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0},
+            {{0, 0}, {1, 4}, {2, 2}, {3, -22}, PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0},
+            {{0, 0}, {1, 2}, {2, 8}, {3, -6}, PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0}}};
+        const std::array<double, 7U> tops{8, 6, 8, 8, static_cast<double>(tiny) * 3, 1.625, 3};
         for (std::size_t index = 0U; index < curves.size(); ++index) {
             d2d::original_vertical_outline_metrics result{};
-            if (!check(metrics->read_outline(1U, std::span(&curves[index], 1U), result) == com::ok &&
-                    result.top_origin == tops[index] + 80.0,
+            if (!check(zero_metrics->read_outline(1U, std::span(&curves[index], 1U), result) == com::ok &&
+                    result.top_origin == tops[index],
                     "quadratic/linear/repeated-root/endpoint/subnormal derivative policy")) return false;
         }
     }
