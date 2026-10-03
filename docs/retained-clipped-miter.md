@@ -6,7 +6,10 @@ enum-based join APIs are unchanged. It is effective only for `PenLineJoin.Miter`
 Bevel, Round and MiterOrBevel ignore it while retaining the raw property value
 in snapshots, so a later join mutation does not lose caller intent.
 
-Win2D `CanvasStrokeStyle` selects it for `CanvasLineJoin.Miter`. Direct2D's
+Win2D `CanvasStrokeStyle` selects it for `CanvasLineJoin.Miter`; omitted-style
+Canvas color and typed-brush pen caches select the same policy. Both actual
+Direct2D producers (portable render target and Windows command stream) select
+the flag for original Miter, preserving MiterOrBevel separately. Direct2D's
 owned clipped-miter geometry is distinct from [MiterOrBevel's over-limit bevel](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_line_join),
 and Canvas defines its [limit relative to half the stroke width](https://microsoft.github.io/Win2D/WinUI3/html/P_Microsoft_Graphics_Canvas_Geometry_CanvasStrokeStyle_MiterLimit.htm).
 The implementation reuses ProGPU's existing centerline-relative clipping
@@ -66,8 +69,21 @@ which is not permission to substitute the Direct2D centerline plane. Exact
 Drawing Miter policy remains separate original-contract work. Drawing's
 MiterClipped-to-MiterOrBevel mapping remains unchanged.
 
-Focused source, geometry, archive, native transport and actual-render controls
-are authored with this change. They are not executed qualification: no builds,
+Authored controls comprise:
+
+- six Canvas configurations: three width modes, source mutation/cache identity,
+  invalid style, and actual-device source recording through both omitted-style
+  caches plus explicit style. The recording-only target does not claim pixels;
+- eleven pen/cache/archive configurations: four raw-join snapshot/clone/version7
+  cases, both dash-cache generation keys, and six historical-version default/
+  lossy-write controls. Existing old-version fixtures remain unchanged;
+- ten managed geometry/render configurations, including six normal/fixed/
+  hairline full-frame cases;
+- two native triangle/flag and query helper groups; six portable source pixel
+  cases replayed cold, warm and with an independent engine on each provider;
+- six original-Windows source versus independently authored full-frame cases.
+
+These controls are not executed qualification: no builds,
 tests, syntax checks, verifiers, original probes, GPU/UI/VM runs, package runs
 or CI have been performed. Original pixel/tolerance/transform and final package
 gates remain required; no full Direct2D/Win2D/Drawing or source UI parity is
