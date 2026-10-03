@@ -275,6 +275,50 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
 
     private static uint DifferentLimit(uint actual) => actual == uint.MaxValue ? actual - 1 : actual + 1;
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OwningContextShutdownRetiresSurvivingParameterGenerationsWithoutFinalization(bool useDawn)
+    {
+        using var device = new RenderDevice(useDawn, exclusive: true);
+        using var compositor = CreateCompositor(device.Context);
+        var firstSource = new SourceRetirement();
+        var secondSource = new SourceRetirement();
+        using var firstPicture = RecordQuadrants(false, firstSource);
+        using var secondPicture = RecordQuadrants(true, secondSource);
+        CacheSamplerRasterFrame frame = CreateFrame(device.Context, 1, 2, 1);
+        using var first = compositor.CaptureCacheSampler(firstPicture, frame, new object(), 51, false);
+        using var second = compositor.CaptureCacheSampler(secondPicture, frame, new object(), 52, false);
+        using var firstSampler = WpfShaderEffectSampler.FromCacheRaster(1, first);
+        using var secondSampler = WpfShaderEffectSampler.FromCacheRaster(2, second);
+        firstPicture.Dispose(); secondPicture.Dispose();
+        first.Dispose(); second.Dispose();
+        Assert.False(first.Texture.IsDisposed);
+        Assert.False(second.Texture.IsDisposed);
+        Assert.Equal(0, firstSource.Count);
+        Assert.Equal(0, secondSource.Count);
+
+        compositor.Dispose();
+        device.Dispose();
+        Assert.True(first.Texture.IsDisposed);
+        Assert.True(second.Texture.IsDisposed);
+        Assert.Equal(1, firstSource.Count);
+        Assert.Equal(1, secondSource.Count);
+        Assert.Equal(Environment.CurrentManagedThreadId, firstSource.Thread);
+        Assert.Equal(Environment.CurrentManagedThreadId, secondSource.Thread);
+        Assert.Throws<ObjectDisposedException>(() => WpfShaderEffectSampler.FromCacheRaster(3, first));
+        firstSampler.Dispose(); secondSampler.Dispose();
+        Assert.Equal(1, firstSource.Count);
+        Assert.Equal(1, secondSource.Count);
+    }
+
+    private sealed class SourceRetirement : IDisposable
+    {
+        internal int Count;
+        internal int Thread;
+        public void Dispose() { Count++; Thread = Environment.CurrentManagedThreadId; }
+    }
+
     private static Compositor CreateCompositor(WgpuContext context)
     {
         var compositor = new Compositor(context, TextureFormat.Rgba8Unorm,
@@ -328,10 +372,11 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
         Assert.False(raster.Texture.IsDisposed);
     }
 
-    private static GpuPicture RecordQuadrants(bool changed)
+    private static GpuPicture RecordQuadrants(bool changed, IDisposable? sourceOwner = null)
     {
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(SourceBounds);
+        if (sourceOwner is not null) drawing.RetainResource(sourceOwner);
         drawing.DrawRectangle(new SolidColorBrush(changed ? new Vector4(0, 1, 1, 1) : new Vector4(1, 0, 0, 1)),
             null, new Rect(12, -6, 4, 2));
         drawing.DrawRectangle(new SolidColorBrush(new Vector4(0, 1, 0, 1)), null, new Rect(16, -6, 4, 2));
@@ -418,9 +463,10 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
     private sealed class RenderDevice : IDisposable
     {
         private readonly DawnGpuContext? _dawn;
+        private readonly bool _ownsContext;
         public WgpuContext Context { get; }
 
-        public RenderDevice(bool useDawn)
+        public RenderDevice(bool useDawn, bool exclusive = false)
         {
             if (useDawn)
             {
@@ -429,9 +475,19 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
                 _dawn = DawnGpuContext.CreateOffscreen(backend, forceFallbackAdapter: false);
                 Context = _dawn.Context;
             }
+            else if (exclusive)
+            {
+                Context = new WgpuContext();
+                Context.Initialize(null);
+                _ownsContext = true;
+            }
             else Context = HeadlessWindow.Shared.Context;
         }
 
-        public void Dispose() => _dawn?.Dispose();
+        public void Dispose()
+        {
+            _dawn?.Dispose();
+            if (_ownsContext) Context.Dispose();
+        }
     }
 }

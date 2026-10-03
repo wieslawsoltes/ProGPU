@@ -32,6 +32,18 @@ the context submission queues. Source identity/revision, retained recording,
 frame and device identity belong to one returned generation. This first producer
 creates a fresh raster; cross-consumer cache reuse/performance is not claimed.
 
+`WpfShaderEffectSampler.FromCacheRaster` gives each parameter generation an
+explicit lease. Recorded pictures (including clones) and compiled frames acquire
+their own leases, so replacing a source cache cannot mutate or retire an earlier
+consumer's texture. Ordinary sampler constructors retain borrowed ownership.
+Abandoned owned parameter holders only transfer their lease to the owning context
+retirement queue, never invoke source callbacks on the finalizer thread. A scoped
+context registry also retires every surviving raster on the creating thread before
+context teardown, without waiting for finalization. It invalidates acquisition
+before callbacks, attempts every registered generation, and preserves the first
+cleanup failure; failure is not successful retirement. Successfully retired
+generations are removed, not retained as an unbounded source history.
+
 Managed shader applicability: `WpfShaderEffectExtensionPipeline` generates one
 typed texture binding per sampler and samples normalized UVs independently. It
 has no equal-sampler/implicit-input-size gate. The three native `WpfBytecode*`
@@ -48,7 +60,7 @@ still required; no source pin or default changes are made here.
 
 ## Authored managed GPU controls
 
-`CacheSamplerRasterRenderTests` adds eight cases (four scenarios on each owned
+`CacheSamplerRasterRenderTests` adds fourteen cases (seven scenarios on each owned
 provider), without executing them in this implementation batch. Positive captures
 query the actual context's limits and retain the exact device/source generation.
 Three explicitly selected primary-axis/scale combinations produce 16x4, 8x16 and
@@ -65,3 +77,10 @@ nonempty recording. The transparent control exposes sampled alpha in RGB, so
 opaque black or a missing sampler replaced with the yellow implicit input cannot
 pass. Caller recordings are disposed before retained-generation replay. These
 controls are authored only, not provider or original Windows qualification.
+
+Additional controls retain parameters after owner disposal, reject failed
+candidates without damaging earlier pixels, retain cloned recordings after the
+parameter/cache/source owners end, and retire two still-leased source generations
+on actual owned context shutdown. The shutdown control uses separate contexts,
+counts real source-retirement callbacks, and does not force GC or substitute
+finalizer execution for explicit lifecycle completion.
