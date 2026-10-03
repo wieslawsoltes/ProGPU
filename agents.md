@@ -1,15 +1,19 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
-BitmapCacheBrush shader samplers use the existing owned cache-page renderer,
-not TileBrush fitting or borrowed textures. Follow selected explicit/target/default
-cache identity, natural source bounds and consumer mapping. Exclude the target
-root's six ignored outer properties from painted ownership/revision while keeping
-all descendant dependencies and mixed-resource cycle guards. Null target and
-zero scale are distinct from missing or explicitly known-empty nonnull bounds.
-Only an exact sampler capture that completed ownership/current-policy preflight
-may omit an explicitly empty source's page; generic cache admission stays closed.
-Ordinary cache policies and source qualification are separate. See
-docs/native-shader-bitmap-cache-samplers.md and docs/native-empty-cache-samplers.md.
+BitmapCacheBrush shader samplers own the selected raw cache texture, not an
+ordinary brush painted over the receiving frame. Ignore consumer brush opacity,
+Transform and RelativeTransform only on this shader path. Retain explicit/target/
+default cache identity, actual source bounds and independent sampler dimensions.
+Exclude the root's six outer properties and ScrollableAreaClip from cache paint;
+descendant state, selected-cache ownership and mixed-resource cycle guards remain.
+Preserve original float edge/raster arithmetic, actual primary-scale provenance,
+live device limits and coherent source/device generations; never infer receiving-
+window DPI or default caps. Missing metadata is not an empty source. Null, proven
+empty and zero-scale realizations own a transparent one-texel sampler only after
+the required policy/ownership preflight. Retain capture resources and exact texture
+identity through retirement; ordinary cache admission and input-frame checks stay
+separate. See docs/bitmap-cache-raster-policy-contract.md and
+docs/native-shader-bitmap-cache-samplers.md. Authored controls are not qualification.
 
 Portable shared-bitmap queries use HRESULT as the capability decision, not a
 nonnull output left by a failed private-interface query. Retain failure-owned
