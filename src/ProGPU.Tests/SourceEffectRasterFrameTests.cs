@@ -120,6 +120,10 @@ public sealed class SourceEffectRasterFrameTests
         }
         Reject(new ShaderEffectSourceCapture(-16777218, 0, 2, 1, 0, 0, 0, 0), Vector2.Zero, Vector2.One);
         Reject(new ShaderEffectSourceCapture(16777218, 0, 2, 1, 0, 0, 0, 0), Vector2.Zero, Vector2.One);
+        // Both endpoints are exact, but the true integer span is 2^24+1.
+        // Subtracting in float first would round down and admit 2^24 instead.
+        Reject(new ShaderEffectSourceCapture(-16777216, 0, 16777217, 1, 0, 0, 0, 0), Vector2.Zero, Vector2.One);
+        Reject(new ShaderEffectSourceCapture(0, -16777216, 1, 16777217, 0, 0, 0, 0), Vector2.Zero, Vector2.One);
     }
 
     [Fact]
