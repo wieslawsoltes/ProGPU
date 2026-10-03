@@ -16602,6 +16602,7 @@ bool progpu_native_direct2d_font_capture_tests();
 bool progpu_native_direct2d_variable_glyph_tests();
 bool progpu_native_direct2d_cff_glyph_tests();
 bool progpu_native_direct2d_sideways_glyph_tests();
+bool progpu_native_direct2d_cff_vertical_tests();
 bool progpu_native_direct2d_variable_sideways_glyph_tests();
 bool progpu_native_direct2d_vertical_metrics_tests();
 
@@ -16613,6 +16614,7 @@ int main()
     if (!progpu_native_direct2d_vertical_metrics_tests()) return 423;
     if (!progpu_native_direct2d_sideways_glyph_tests()) return 424;
     if (!progpu_native_direct2d_variable_sideways_glyph_tests()) return 425;
+    if (!progpu_native_direct2d_cff_vertical_tests()) return 426;
     const int result = run_tests();
     if (result != 0) {
         std::fprintf(
