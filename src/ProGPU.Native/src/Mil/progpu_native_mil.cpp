@@ -2470,6 +2470,7 @@ struct channel::implementation {
         double cache_bounds_width{};
         double cache_bounds_height{};
         bool has_cache_bounds{};
+        bool has_empty_source_bounds{};
         std::vector<double> guidelines_x;
         std::vector<double> guidelines_y;
         std::vector<std::uint32_t> children;
@@ -3587,7 +3588,7 @@ struct channel::implementation {
             if (!require_resource(brush.source_handle, type_visual)) return status::unsupported_command;
             const auto visual = visuals.find(brush.source_handle);
             if (visual == visuals.end()) return require_pixels ? status::invalid_handle : status::success;
-            return require_pixels && !visual->second.has_cache_bounds
+            return require_pixels && !visual->second.has_cache_bounds && !visual->second.has_empty_source_bounds
                 ? status::unsupported_command : status::success;
         }
         if (require_resource(brush.source_handle, type_drawing_image)) {
@@ -15794,6 +15795,7 @@ struct channel::implementation {
                 if (compile_context == nullptr) return status::unsupported_command;
                 const auto visual = visuals.find(brush.source_handle);
                 if (visual == visuals.end()) return status::invalid_handle;
+                if (visual->second.has_empty_source_bounds) return status::success;
                 // Source-built Visual owns exact descendant bounds. Never infer
                 // a visual's extent by scraping UI properties or using viewport
                 // bounds as a substitute for missing content geometry.
@@ -21193,6 +21195,7 @@ struct channel::implementation {
             append_fnv1a64(hash, visual->second.scroll_clip_width);
             append_fnv1a64(hash, visual->second.scroll_clip_height);
             append_fnv1a64(hash, visual->second.has_cache_bounds);
+            append_fnv1a64(hash, visual->second.has_empty_source_bounds);
             append_fnv1a64(hash, visual->second.cache_bounds_x);
             append_fnv1a64(hash, visual->second.cache_bounds_y);
             append_fnv1a64(hash, visual->second.cache_bounds_width);
@@ -23475,6 +23478,22 @@ status channel::set_visual_cache_bounds(
     visual.cache_bounds_width = width;
     visual.cache_bounds_height = height;
     visual.has_cache_bounds = true;
+    visual.has_empty_source_bounds = false;
+    implementation_->increment_generation(handle);
+    build_cache_.reset();
+    return status::success;
+}
+
+status channel::set_visual_source_empty_bounds(std::uint32_t handle) noexcept {
+    if (!implementation_->require_resource(handle, type_visual) || !implementation_->require_visual(handle))
+        return status::invalid_handle;
+    auto& visual = implementation_->visuals.at(handle);
+    // This explicit source witness is not a cache allocation rectangle. Keep
+    // the live Visual and all dependencies while invalidating any prior extent.
+    visual.cache_bounds_x = visual.cache_bounds_y = 0.0;
+    visual.cache_bounds_width = visual.cache_bounds_height = 0.0;
+    visual.has_cache_bounds = false;
+    visual.has_empty_source_bounds = true;
     implementation_->increment_generation(handle);
     build_cache_.reset();
     return status::success;

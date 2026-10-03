@@ -93,10 +93,10 @@ inline bool update_shader_visual_brush(progpu_native_mil_channel* channel,std::u
     // Independent literal descendant bounds. Root includes the inner clip and
     // transform; the inner visual's own content bounds stay in its local frame.
     return progpu_native_mil_channel_set_visual_cache_bounds(channel,41U,x,y,8,6) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
-        progpu_native_mil_channel_set_visual_cache_bounds(channel,40U,
-            index == 6U ? 0.0 : index == 8U ? 13.0 : x,
-            index == 6U ? 0.0 : index == 8U ? 18.0 : y,
-            index == 6U ? 0.0 : index == 3U ? 6.0 : 8.0,index == 6U ? 0.0 : 6.0) == PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+        (index == 6U ? progpu_native_mil_channel_set_visual_source_empty_bounds(channel,40U)
+            : progpu_native_mil_channel_set_visual_cache_bounds(channel,40U,
+                index == 8U ? 13.0 : x,index == 8U ? 18.0 : y,index == 3U ? 6.0 : 8.0,6.0)) ==
+        PROGPU_NATIVE_MIL_STATUS_SUCCESS;
 }
 
 inline progpu_native_mil_scene_build_request shader_visual_brush_request(std::uint32_t index) {

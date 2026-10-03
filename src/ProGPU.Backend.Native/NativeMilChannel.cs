@@ -666,6 +666,21 @@ public sealed unsafe class NativeMilChannel : IDisposable
     }
 
     /// <summary>
+    /// Records source-known empty descendant bounds while preserving the live
+    /// Visual and its dependencies. This invalidates earlier positive bounds;
+    /// <see cref="SetVisualCacheBounds"/> restores a nonempty source extent.
+    /// </summary>
+    public void SetVisualSourceEmptyBounds(uint handle)
+    {
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetVisualSourceEmptyBounds(channel, handle)
+            : NativeMilMethods.SetVisualSourceEmptyBounds(channel, handle);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The empty source bounds for MIL Visual handle {handle} were rejected with {status}.");
+    }
+
+    /// <summary>
     /// Copies a flattened camera/mesh scene into the portable sideband for a
     /// canonical WPF <see cref="NativeMilResourceType.Viewport3DVisual"/>
     /// handle.
