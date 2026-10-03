@@ -695,6 +695,22 @@ public sealed unsafe class NativeMilChannel : IDisposable
             throw new NativeMilException(status, $"The empty source ownership for MIL brush {brushHandle} was rejected with {status}.");
     }
 
+    /// <summary>
+    /// Retains the actual initialized Drawing behind a source-known empty
+    /// DrawingImage whose canonical paint handle is zero. Invalidates previous
+    /// positive bounds; a canonical image update clears this ownership witness.
+    /// Publish that update before binding positive bounds on a refilled image.
+    /// </summary>
+    public void SetDrawingImageEmptySource(uint imageHandle, uint drawingHandle)
+    {
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetDrawingImageEmptySource(channel, imageHandle, drawingHandle)
+            : NativeMilMethods.SetDrawingImageEmptySource(channel, imageHandle, drawingHandle);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The empty source ownership for MIL DrawingImage {imageHandle} was rejected with {status}.");
+    }
+
     /// <summary>Copies explicit primary-display/renderer policy for an initialized cache brush.</summary>
     public void SetBitmapCacheBrushRasterPolicy(uint handle, NativeMilBitmapCacheRasterPolicy policy)
     {

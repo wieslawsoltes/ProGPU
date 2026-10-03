@@ -2784,6 +2784,9 @@ struct channel::implementation {
 
     struct drawing_image_state {
         std::uint32_t drawing_handle{};
+        // Explicit known-empty source ownership, never a paint handle. The
+        // source supplied this complete Drawing even though its bounds are Empty.
+        std::uint32_t empty_source_handle{};
         double bounds_x{};
         double bounds_y{};
         double bounds_width{};
@@ -5724,7 +5727,7 @@ struct channel::implementation {
             }
             for (const auto& [image_handle, image] : drawing_images) {
                 if (image_handle != handle &&
-                    image.drawing_handle == handle) {
+                    (image.drawing_handle == handle || image.empty_source_handle == handle)) {
                     return status::invalid_graph;
                 }
             }
@@ -10357,6 +10360,9 @@ struct channel::implementation {
                 return status::invalid_handle;
             }
             drawing_image_state image{};
+            // A canonical update always clears the ownership-only empty
+            // witness. Keep the existing independently supplied positive bounds
+            // policy; an explicit empty witness has already invalidated those.
             const auto previous = drawing_images.find(handle);
             if (previous != drawing_images.end() &&
                 previous->second.has_bounds) {
@@ -21007,7 +21013,11 @@ struct channel::implementation {
             if (image == drawing_images.end()) {
                 result = status::invalid_handle;
             } else {
-                append_if_success(image->second.drawing_handle);
+                if (image->second.empty_source_handle != 0U &&
+                    (image->second.drawing_handle != 0U || image->second.has_bounds))
+                    result = status::invalid_graph;
+                append_if_success(image->second.empty_source_handle != 0U
+                    ? image->second.empty_source_handle : image->second.drawing_handle);
             }
         } else if (resource->second.type == type_drawing_group) {
             const auto group = drawing_groups.find(handle);
@@ -23562,12 +23572,46 @@ status channel::set_drawing_image_bounds(
         return status::invalid_argument;
     }
     auto& image = implementation_->drawing_images.at(handle);
+    // Positive bounds cannot silently discard the actual owner of a source
+    // still declared empty. Republish its canonical drawing first.
+    if (image.empty_source_handle != 0U) return status::invalid_argument;
     image.bounds_x = x;
     image.bounds_y = y;
     image.bounds_width = width;
     image.bounds_height = height;
     image.has_bounds = true;
     implementation_->increment_generation(handle);
+    build_cache_.reset();
+    return status::success;
+}
+
+status channel::set_drawing_image_empty_source(std::uint32_t image_handle,
+    std::uint32_t drawing_handle) noexcept {
+    if (!implementation_->require_resource(image_handle, type_drawing_image))
+        return status::invalid_handle;
+    const auto image = implementation_->drawing_images.find(image_handle);
+    const auto drawing = implementation_->resources.find(drawing_handle);
+    if (image == implementation_->drawing_images.end() || drawing == implementation_->resources.end())
+        return status::invalid_handle;
+    bool initialized = false;
+    switch (drawing->second.type) {
+    case type_geometry_drawing: initialized = implementation_->geometry_drawings.contains(drawing_handle); break;
+    case type_glyph_run_drawing: initialized = implementation_->glyph_run_drawings.contains(drawing_handle); break;
+    case type_image_drawing: initialized = implementation_->image_drawings.contains(drawing_handle); break;
+    case type_video_drawing: initialized = implementation_->video_drawings.contains(drawing_handle); break;
+    case type_drawing_group: initialized = implementation_->drawing_groups.contains(drawing_handle); break;
+    default: break;
+    }
+    if (!initialized) return status::invalid_handle;
+    if (image->second.drawing_handle != 0U) return status::invalid_argument;
+    // The explicit source assertion is independent of computed/positive
+    // bounds. Painting remains null; dependency traversal retains the real
+    // graph and its existing family-specific admission, cycles and revisions.
+    image->second.empty_source_handle = drawing_handle;
+    image->second.bounds_x = image->second.bounds_y = 0.0;
+    image->second.bounds_width = image->second.bounds_height = 0.0;
+    image->second.has_bounds = false;
+    implementation_->increment_generation(image_handle);
     build_cache_.reset();
     return status::success;
 }

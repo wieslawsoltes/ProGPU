@@ -354,6 +354,15 @@ progpu_native_mil_channel_set_drawing_image_bounds(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_drawing_image_empty_source(
+    progpu_native_mil_channel* channel,
+    uint32_t image_handle,
+    uint32_t drawing_handle) {
+    if (channel == nullptr) return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    return to_abi(channel->state.set_drawing_image_empty_source(image_handle, drawing_handle));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_drawing_group_bounds(
     progpu_native_mil_channel* channel,
     uint32_t handle,

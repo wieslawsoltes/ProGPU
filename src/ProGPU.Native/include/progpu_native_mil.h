@@ -255,6 +255,19 @@ progpu_native_mil_channel_set_drawing_image_bounds(
     double width,
     double height);
 /*
+ * Records source-known empty DrawingImage bounds and retains the actual Drawing
+ * as an ownership-only edge. Both handles must be initialized in this channel;
+ * the image's canonical drawing must be zero and drawing_handle must be nonzero.
+ * No drawing pixels or positive allocation bounds are synthesized. Canonical
+ * DrawingImage updates clear this witness. Positive bounds require that update
+ * first; all rejected calls leave state and resource generations unchanged.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_drawing_image_empty_source(
+    progpu_native_mil_channel* channel,
+    uint32_t image_handle,
+    uint32_t drawing_handle);
+/*
  * Binds exact local DrawingGroup content bounds for spatial opacity-mask
  * mapping and bounded group composition. Canonical MIL carries child handles
  * but not this Drawing-derived metadata.
