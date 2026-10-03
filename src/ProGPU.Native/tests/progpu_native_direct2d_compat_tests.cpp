@@ -14,6 +14,7 @@
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native_direct2d_shared_bitmap_query_fixture.hpp"
+#include "progpu_native_direct2d_draw_query_fixture.hpp"
 #include "progpu_native.h"
 #include "../src/Direct2D/progpu_native_direct2d_path.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_text_capture.hpp"
@@ -6721,6 +6722,10 @@ int run_tests()
     if (!progpu::native::direct2d::tests::bitmap_destination_contract(factory.get(), second_factory.get())) return 406;
     if (!progpu::native::direct2d::tests::gradient_stop_contract(scene_factory.get())) return 406;
     if (!progpu::native::direct2d::tests::compatible_dpi_contract(scene_factory.get())) return 406;
+    if (!progpu::native::direct2d::tests::draw_resource_query_contract(
+            scene_factory.get(), [](const auto& earlier, auto later) {
+                return same_scene_after_generation_advance(earlier, std::move(later));
+            })) return 530;
     const compat::scene_render_target_properties target_properties{
         640U, 480U, 96.0F, 96.0F, 7001U, 11U};
     compat::render_target* raw_target = nullptr;
