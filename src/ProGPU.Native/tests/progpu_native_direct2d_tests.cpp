@@ -2022,8 +2022,10 @@ int main()
     for (std::size_t index = 0U; index < original_solid_rectangles.size(); ++index) {
         const auto& original = original_solid_rectangles[index];
         for (const auto* actual : {&native_solid_rectangles[index], &portable_solid_rectangles[index]}) {
-            require(progpu::native::direct2d::tests::same_solid_stroke_bounds(
-                    actual->bounds, original.bounds) &&
+            require(progpu::native::direct2d::tests::matching_solid_stroke_bounds(
+                    index / 5U, index % 5U, actual->bounds, original.bounds) &&
+                progpu::native::direct2d::tests::matching_solid_stroke_bounds(
+                    index / 5U, index % 5U, actual->path_bounds, original.path_bounds) &&
                 actual->contains == original.contains &&
                 actual->widened_contains == original.widened_contains,
                 "solid rectangle bounds/hit/widened-region differ from original Direct2D");

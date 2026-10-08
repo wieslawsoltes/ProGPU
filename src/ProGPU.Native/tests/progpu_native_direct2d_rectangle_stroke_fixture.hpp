@@ -3,6 +3,8 @@
 #include "progpu_native_direct2d_compat.hpp"
 
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -37,6 +39,7 @@ inline constexpr std::array<compat::point_2f, 20U> solid_stroke_points{{
 
 struct rectangle_solid_stroke_observation final {
     compat::rectangle_f bounds{};
+    compat::rectangle_f path_bounds{};
     std::array<std::int32_t, solid_stroke_points.size()> contains{};
     std::array<std::int32_t, solid_stroke_points.size()> widened_contains{};
 };
@@ -59,6 +62,40 @@ inline bool same_solid_stroke_bounds(const compat::rectangle_f& a,
     const compat::rectangle_f& b) noexcept
 {
     return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+}
+
+// A sheared round stroke has curved X extrema. GetWidenedBounds explicitly
+// accepts a flattening error; even the original rectangle and original path
+// APIs need not return bit-identical approximations. Check each against the
+// independent disk support of the four authored source vertices. All straight
+// extrema and all other joins retain exact equality.
+inline bool round_solid_stroke_bounds(std::size_t frame, const compat::rectangle_f& bounds) noexcept
+{
+    const auto& vertices = solid_stroke_vertices[frame < 2U ? 0U : frame - 1U];
+    double left = std::numeric_limits<double>::infinity(), top = left;
+    double right = -left, bottom = -left;
+    for (const auto& point : vertices) {
+        const double x = frame == 0U ? point.x : static_cast<double>(point.x) + point.y + 3.0;
+        const double y = frame == 0U ? point.y : static_cast<double>(point.y) - 1.0;
+        left = std::min(left, x); right = std::max(right, x);
+        top = std::min(top, y); bottom = std::max(bottom, y);
+    }
+    const double radius = solid_stroke_width / 2.0;
+    if (frame == 0U)
+        return same_solid_stroke_bounds(bounds, {static_cast<float>(left - radius),
+            static_cast<float>(top - radius), static_cast<float>(right + radius),
+            static_cast<float>(bottom + radius)});
+    const double support = radius * std::sqrt(2.0);
+    return bounds.top == top - radius && bounds.bottom == bottom + radius &&
+        std::abs(static_cast<double>(bounds.left) - (left - support)) <= solid_stroke_tolerance &&
+        std::abs(static_cast<double>(bounds.right) - (right + support)) <= solid_stroke_tolerance;
+}
+
+inline bool matching_solid_stroke_bounds(std::size_t frame, std::size_t join,
+    const compat::rectangle_f& a, const compat::rectangle_f& b) noexcept
+{
+    return join == 2U ? round_solid_stroke_bounds(frame, a) && round_solid_stroke_bounds(frame, b)
+        : same_solid_stroke_bounds(a, b);
 }
 
 template<class Require>
@@ -119,13 +156,12 @@ rectangle_solid_stroke_observations verify_rectangle_solid_strokes(
             require(factory->CreateStrokeStyle(&properties, nullptr, 0U, style.put()) == com::ok,
                 "solid rectangle stroke style creation failed");
             auto& output = observations[frame * solid_stroke_joins.size() + join];
-            compat::rectangle_f path_bounds{};
             require(current->GetWidenedBounds(solid_stroke_width, style.get(), world,
                 solid_stroke_tolerance, &output.bounds) == com::ok &&
                 independent->GetWidenedBounds(solid_stroke_width, style.get(), world,
-                    solid_stroke_tolerance, &path_bounds) == com::ok,
+                    solid_stroke_tolerance, &output.path_bounds) == com::ok,
                 "solid rectangle/path bounds query failed");
-            require(same_solid_stroke_bounds(output.bounds, path_bounds),
+            require(matching_solid_stroke_bounds(frame, join, output.bounds, output.path_bounds),
                 "solid rectangle bounds differ from independently materialized source path");
             auto widened = rectangle_solid_stroke_widen(factory, current, style.get(), world, require);
             auto path_widened = rectangle_solid_stroke_widen(factory, independent.get(), style.get(), world, require);

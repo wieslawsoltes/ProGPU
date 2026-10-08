@@ -49,7 +49,7 @@ Other default source/transform families retain the older intrinsic/world
 composition fallback and remain a separate gap. This explicit-style slice does
 not complete transformed strokes or generic non-rectangle behavior.
 
-## Authored controls, not execution
+## Controls and integrated observations
 
 The shared fixture covers five joins/limits across five frames: plain,
 caller-world shear, and nonuniform/reflected/sheared intrinsic transforms followed
@@ -60,6 +60,22 @@ through the real Microsoft factory, the Windows wrapper, and the portable factor
 then compares their complete observations. No expected output comes from a product
 decoder or rendered-image substitution.
 
+The integrated public-SDK probe on Windows ARM64 and x64 captured all 25 cases
+and 2,000 containment/widened-containment results per architecture. Those Boolean
+results match the portable macOS ARM64 observations exactly. Original rectangle
+and original path bounds themselves differ by one float ULP for a world-sheared
+round join. The combined intrinsic/world-shear round case also differs from the
+portable analytic envelope by about 0.00006, inside the original requested
+0.001 flattening tolerance. These are raw retained observations, not repaired
+reference values.
+
+The round-join check therefore validates curved X extrema against independent
+disk support of the four authored vertices, using that same requested tolerance.
+Straight Y extrema, the untransformed frame, all other joins, and every Boolean
+query retain exact comparisons. This follows the public
+[GetWidenedBounds geometric-error contract](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1geometry-getwidenedbounds%28float_id2d1strokestyle_constd2d1_matrix_3x2_f_float_d2d1_rect_f%29);
+it introduces no product geometry tolerance or pixel allowance.
+
 Rejection controls cover foreign factories (including zero width), nonfinite or
 invalid inputs, dash and degenerate gates, exact singular intrinsic transforms,
 initialized failed outputs and untouched destination sinks. Two actual style1
@@ -67,7 +83,6 @@ controls retain the fixed/hairline base bounds and reject new hit/widen admissio
 The existing default
 rectangle/null-width fixtures remain unchanged.
 
-These controls are authored only. No build, test, syntax check, verifier, native
-provider execution, original Windows probe, GPU/UI run or CI dispatch was performed.
-The shared CPU geometry implementation is used by both native providers; that
-applicability does not qualify provider rendering, packages or applications.
+The portable CPU suite passes locally. Full Windows product execution and both
+provider/package gates remain pending. The shared CPU implementation and SDK
+observations do not qualify provider rendering or applications.
