@@ -900,6 +900,7 @@ bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
 bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noexcept {
     constexpr std::uint32_t supported_flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
         PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+        PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
         PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS;
     const bool aliased_composite =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U;
@@ -910,6 +911,8 @@ bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noex
             layer.content_revision == 0U && layer.composite_revision == 0U &&
             layer.reserved0 == 0U && layer.reserved1 == 0U)) &&
         (layer.blend_mode == PROGPU_NATIVE_BLEND_SRC ||
+            layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
+        ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) == 0U ||
             layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
         layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
         layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;

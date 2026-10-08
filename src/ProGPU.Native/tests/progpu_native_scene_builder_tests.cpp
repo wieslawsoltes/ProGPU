@@ -2408,13 +2408,19 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
     layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
     layer.bounds = {1, 2, 5, 4};
-    for (const auto blend : {PROGPU_NATIVE_BLEND_SRC, PROGPU_NATIVE_BLEND_SRC_OVER}) {
-        layer.blend_mode = blend;
-        for (const float opacity : {0.0F, 0.5F, 1.0F}) {
-            layer.opacity = opacity;
-            if (!semantic::supports_mapped_semantic_layer(layer)) return false;
+    for (const auto opaque : {false, true}) {
+        layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+            (opaque ? PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA : 0U);
+        for (const auto blend : {PROGPU_NATIVE_BLEND_SRC, PROGPU_NATIVE_BLEND_SRC_OVER}) {
+            layer.blend_mode = blend;
+            for (const float opacity : {0.0F, 0.5F, 1.0F}) {
+                layer.opacity = opacity;
+                if (semantic::supports_mapped_semantic_layer(layer) !=
+                    (!opaque || blend == PROGPU_NATIVE_BLEND_SRC_OVER)) return false;
+            }
         }
     }
+    layer.flags &= ~PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA;
     const auto original = layer;
     for (const auto flag : std::array<std::uint32_t, 7U>{PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT,
             PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE, PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE,
@@ -2422,6 +2428,8 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
             PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE, 0x80000000U}) {
         layer = original;
         layer.flags |= static_cast<std::uint32_t>(flag);
+        if (semantic::supports_mapped_semantic_layer(layer)) return false;
+        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA;
         if (semantic::supports_mapped_semantic_layer(layer)) return false;
     }
     layer = original;

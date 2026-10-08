@@ -5328,6 +5328,13 @@ metadata and bounds are never ignored or replaced by ordinary isolation. The
 old uniform rendering path is unchanged, including all format and mixed-DPI
 history restrictions. This does not claim general mapped-layer compatibility.
 
+The same transient SRC_OVER path retains an explicitly requested `IGNORE_ALPHA`
+target. Its original opaque clear/composition behavior and actual innermost
+target identity remain authoritative for RGB glyph replay. This flag does not
+admit background initialization or any excluded layer feature. Integrated stock
+Metal controls preserve every pixel through a nonzero mapped viewport; Windows,
+the second provider and whole producer/package qualification remain separate.
+
 Authored controls cover policy rejection, nested physical extents with a nonzero
 viewport, and both native providers' exact all-pixel comparison against an
 independently recorded uniform-DPI physical scene. The GPU fixture keeps both

@@ -164,18 +164,28 @@ bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t generatio
     progpu_native_scene_rgb_glyph_draw draw{sizeof(draw), 3U,
         PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8, test.geometry, 1, 0, 1,
         test.variant == 23U ? 2.0F : test.dpi, 0U, 0U};
+    const auto draw_rgb = [&](std::span<const progpu_native_scene_rgb_glyph_tile> glyphs) {
+        if (test.variant != 22U)
+            return builder.draw_rgb_glyph_run(glyph_resource, draw, glyphs, layer.bounds, state_resource);
+        // Direct per-point draw state is invalid at the builder boundary.
+        // A valid retained SAVE may carry those guidelines to the draw; keep
+        // that separate runtime rejection control and both original owners.
+        if (builder.draw_rgb_glyph_run(glyph_resource, draw, glyphs, layer.bounds, state_resource) ||
+            builder.last_error() != scene_build_error::invalid_argument) return false;
+        return builder.save(state_resource) &&
+            builder.draw_rgb_glyph_run(glyph_resource, draw, glyphs, layer.bounds) && builder.restore();
+    };
     if (!rectangle(layer.bounds, {1, 1, 1, 1}) ||
-        !builder.draw_rgb_glyph_run(glyph_resource, draw, std::span(tiles).first(3U), layer.bounds, state_resource) ||
+        !draw_rgb(std::span(tiles).first(3U)) ||
         !rectangle({16, 8, 4, 24}, {0, 0, 1, 1})) return fail("ordered prefix");
     draw.glyph_count = 1U;
-    if (!builder.draw_rgb_glyph_run(glyph_resource, draw, std::span(tiles).last(1U), layer.bounds, state_resource))
-        return fail("ordered suffix");
+    if (!draw_rgb(std::span(tiles).last(1U))) return fail("ordered suffix");
     if (test.variant == 17U && !builder.pop_layer()) return fail("inner pop");
     if (test.variant != 15U && !builder.pop_layer()) return fail("pop");
     if (!builder.build(stream) || stream.size() < sizeof(header)) return fail("build");
     std::memcpy(&header, stream.data(), sizeof(header));
     return header.scene_id == 0x9682U && header.generation == generation &&
-        header.command_count == (test.variant == 15U ? 4U : test.variant == 17U ? 8U : 6U);
+        header.command_count == (test.variant == 15U ? 4U : test.variant == 17U ? 8U : test.variant == 22U ? 10U : 6U);
 }
 
 inline bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t generation,

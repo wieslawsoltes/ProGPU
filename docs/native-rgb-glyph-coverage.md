@@ -113,6 +113,15 @@ Fully clipped draws retain validation but publish no RGB operation. Bounded
 packing accounts for the actual shelf rectangle and aligned staging, not ink
 area alone. No test export or borrowed opaque-engine reinterpretation is added.
 
+Integrated stock Metal execution exposed an omitted `IGNORE_ALPHA` flag in
+the mapped transient-layer gate. Mapped SRC_OVER targets now preserve that
+existing opaque-layer contract without admitting cache, backdrop, effect or
+layer-mask metadata. All 24 scene cases pass both GPU routes with cold/warm exact
+pixels or atomic rejection, including the nonzero viewport. The per-point
+guideline control separately checks direct builder rejection and valid inherited
+SAVE-state runtime rejection; failed direct draws publish no command. Original
+Windows, the second provider and complete package qualification remain required.
+
 CPU originals survive bundle reuse; GPU batches still use the original real
 submission retirement lease. Cold and warm replay both report their actual
 buffer uploads and compute/fragment draw counts. This is not retained coverage
