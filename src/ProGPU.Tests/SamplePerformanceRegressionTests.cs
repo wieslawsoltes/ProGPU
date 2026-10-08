@@ -1078,8 +1078,11 @@ public sealed class SamplePerformanceRegressionTests
         Assert.True(visual.ChangeVersion > initialVersion);
     }
 
-    [Fact]
-    public void MotionMarkRetainedRecordingAllocationsStayBounded()
+    [Theory]
+    [InlineData(0.5f, 240)]
+    [InlineData(0f, 240)]
+    [InlineData(1f, 240)]
+    public void MotionMarkRetainedRecordingAllocationsStayBounded(float splitProbability, int warmupFrames)
     {
         var previousFont = ProGPU.Samples.AppState._font;
         ProGPU.Samples.AppState._font = null;
@@ -1092,13 +1095,14 @@ public sealed class SamplePerformanceRegressionTests
                     var visual = new ProGPU.Samples.MotionMarkShowcaseVisual
                     {
                         UseIndividualPaths = useIndividualPaths,
-                        FillShapes = fillShapes
+                        FillShapes = fillShapes,
+                        SplitProbability = splitProbability
                     };
                     visual.Measure(new Vector2(900f, 620f));
                     visual.Arrange(new Rect(0f, 0f, 900f, 620f));
                     var context = new DrawingContext();
 
-                    for (var frame = 0; frame < 240; frame++)
+                    for (var frame = 0; frame < warmupFrames; frame++)
                     {
                         visual.Update(1f / 60f);
                         context.Clear();
@@ -1120,7 +1124,7 @@ public sealed class SamplePerformanceRegressionTests
                     Assert.True(
                         allocatedBytes < 64 * 1024,
                         $"MotionMark retained recording allocated {allocatedBytes:N0} bytes across 120 " +
-                        $"animated frames (individual={useIndividualPaths}, fill={fillShapes}).");
+                        $"animated frames (individual={useIndividualPaths}, fill={fillShapes}, initial splits={splitProbability}).");
                 }
             }
         }
