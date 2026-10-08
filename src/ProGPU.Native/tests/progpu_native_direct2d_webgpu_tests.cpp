@@ -2241,12 +2241,13 @@ void verify_explicit_rgb_glyphs(const gpu_context& gpu)
 
 void verify_sampled_source_opacity(gpu_context& gpu)
 {
-    std::array<std::array<progpu_native_engine*, 3U>, 3U> sampled_engines{};
+    std::array<progpu_native_engine*, 3U> sampled_engines{};
     progpu::native::tests::verify_shader_sampled_input_opacity(
         [&](unsigned family, unsigned lane, const auto& stream, const progpu_native_scene_header& header,
             float dpi, bool baseline, std::uint64_t minimum_submissions, std::uint64_t maximum_submissions,
             progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
-            auto*& selected = sampled_engines[family][lane];
+            require(family < 3U && lane < sampled_engines.size(), "sampled input engine lane is invalid");
+            auto*& selected = sampled_engines[lane];
             if (selected == nullptr) selected = create_engine(gpu);
             auto pixels = render_scene(gpu, selected, nullptr, baseline ? 1U : 0U, header.command_count,
                 minimum_submissions == maximum_submissions ? minimum_submissions : 0U,
@@ -2257,8 +2258,7 @@ void verify_sampled_source_opacity(gpu_context& gpu)
                 "sampled input dependency counts/layer metrics differ");
             return pixels;
         }, require);
-    for (auto& family : sampled_engines)
-        for (auto* selected : family) progpu_native_engine_destroy(selected);
+    for (auto* selected : sampled_engines) progpu_native_engine_destroy(selected);
 }
 
 } // namespace

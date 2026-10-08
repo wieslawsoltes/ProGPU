@@ -204,9 +204,12 @@ void require_shader_sampled_rejections(progpu_native_mil_channel* channel,
         unchanged == sentinel, "recursive sampled source published partial input bytes");
 }
 
-// Render(family,lane,...) keeps three persistent engines per source family:
+// Render(family,lane,...) keeps three independent engines across source families:
 // lane0 ordinary baseline, lane1 subject, lane2 independent shader. No baseline
 // texture is imported into a shader engine. Source channels are already retired.
+// Each family has distinct original scene owners, so its first graph must still
+// submit every cold picture dependency. Reusing the host engine's immutable
+// pipelines also exercises owner replacement instead of hiding it in new engines.
 // The first cold counts enumerate every input/brush/source picture dependency;
 // later mutations may retain unchanged nested pages. Their bounds describe that
 // same finite graph, not a cache-retention performance qualification. Warm counts

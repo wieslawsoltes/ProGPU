@@ -3839,12 +3839,13 @@ int main(int argc, char** argv) {
                 PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, nullptr, 64U);
         }, require);
     {
-        std::array<std::array<progpu_native_engine*, 3U>, 3U> sampled_engines{};
+        std::array<progpu_native_engine*, 3U> sampled_engines{};
         progpu::native::tests::verify_shader_sampled_input_opacity(
             [&](unsigned family, unsigned lane, const auto& stream, const progpu_native_scene_header& header,
                 float dpi, bool baseline, std::uint64_t minimum_submissions, std::uint64_t maximum_submissions,
                 progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
-                auto*& selected = sampled_engines[family][lane];
+                require(family < 3U && lane < sampled_engines.size(), "sampled source Dawn engine lane is invalid");
+                auto*& selected = sampled_engines[lane];
                 if (selected == nullptr)
                     require(progpu_native_dawn_engine_create(&engine_options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
                         "sampled source Dawn engine creation failed");
@@ -3852,8 +3853,7 @@ int main(int argc, char** argv) {
                     baseline ? 1U : 0U, header.command_count, &layers, &metrics, dpi, nullptr,
                     PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, selected, 64U, maximum_submissions);
             }, require);
-        for (auto& family : sampled_engines)
-            for (auto* selected : family) progpu_native_engine_destroy(selected);
+        for (auto* selected : sampled_engines) progpu_native_engine_destroy(selected);
     }
     {
         progpu_native_engine* clear_engine{};
