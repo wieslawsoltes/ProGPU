@@ -42,6 +42,8 @@ same child objects, including the deliberately repeated translation object.
 Real `MatrixAnimationUsingKeyFrames` and `DoubleAnimation` clocks belong to a
 controllable four-second `ParallelTimeline`. The fixture observes an actual
 paused/active timing tick before using exact seeks at zero, one or two seconds.
+It shares the bounded composition-startup helper with the brush animation
+reference: the public rendering subscription ends before captures and on failure.
 Discrete matrix values and dyadic interpolation avoid an unrelated numeric
 approximation policy. Before and after every render it requires exact root and
 child times, zero global speed, source object identities, six double matrix bits,
@@ -100,7 +102,11 @@ capture, filtering, frame or trigonometric contracts.
 
 ## Status
 
-Authored only: no build, syntax check, test, verifier, original Windows execution,
-GPU/VM operation or CI dispatch was performed. Actual original reference and both
-native-provider execution remain mandatory at the final consolidated tip; no
-source-host, package or desktop qualification follows from this authored fixture.
+The local Windows diagnostic on original Microsoft WPF .NET 10.0.12 now passes
+all 24 states and 72 replays on x64, including independent literal pixels, matrix
+bits, clock times, base values and actual attachment. Native ARM64 passes the
+distinct unavailable-software controls. Together with the nine brush-animation
+states, the diagnostics finished in 3193 ms on x64 and 1472 ms on ARM64.
+The complete hosted original workflow and both native-provider executions remain
+mandatory at the final consolidated tip. These selected-family diagnostics do
+not qualify a source host, package or desktop application.

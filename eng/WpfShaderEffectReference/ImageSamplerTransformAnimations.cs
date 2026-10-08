@@ -174,6 +174,7 @@ internal static partial class Program
         private readonly ClockGroup clock;
         private readonly ClockController controller;
         private Transform? selected;
+        private readonly int startupCompositionNotifications;
 
         public SamplerTransformAnimationOwner(bool relative, Stopwatch timer)
         {
@@ -196,23 +197,8 @@ internal static partial class Program
             translation.ApplyAnimationClock(TranslateTransform.XProperty, (AnimationClock)clock.Children[1]);
             scale.ApplyAnimationClock(ScaleTransform.ScaleXProperty, (AnimationClock)clock.Children[2]);
             groupTranslation.ApplyAnimationClock(TranslateTransform.XProperty, (AnimationClock)clock.Children[3]);
-            controller.Begin(); controller.Pause();
-            var frame = new DispatcherFrame();
-            Exception? failure = null;
-            var poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
-            EventHandler tick = (_, _) =>
-            {
-                try
-                {
-                    CheckSamplerAnimationDeadline(timer);
-                    if (clock.IsPaused && clock.CurrentState == ClockState.Active) frame.Continue = false;
-                }
-                catch (Exception error) { failure = error; frame.Continue = false; }
-            };
-            poll.Tick += tick;
-            try { poll.Start(); Dispatcher.PushFrame(frame); }
-            finally { poll.Stop(); poll.Tick -= tick; }
-            if (failure != null) { Dispose(); throw failure; }
+            try { startupCompositionNotifications = BeginPausedSamplerClock(clock, controller, timer); }
+            catch { Dispose(); throw; }
         }
 
         public Matrix LiteralMatrix(SamplerTransformAnimationCase test)
@@ -245,7 +231,7 @@ internal static partial class Program
         public object Describe(ImageBrush brush, SamplerTransformAnimationCase test)
         {
             TimeSpan expected = TimeSpan.FromSeconds(test.Seconds);
-            if (!clock.IsPaused || clock.CurrentState != ClockState.Active || clock.CurrentTime != expected ||
+            if (startupCompositionNotifications == 0 || !clock.IsPaused || clock.CurrentState != ClockState.Active || clock.CurrentTime != expected ||
                 clock.CurrentProgress != test.Seconds / 4.0 || clock.CurrentGlobalSpeed != 0 ||
                 clock.Children.Any(child => child.CurrentTime != expected))
                 throw new InvalidOperationException("Original transform clock did not retain the exact paused current time.");
@@ -278,6 +264,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Original transform animation silently replaced a source base value.");
             return new
             {
+                StartupCompositionNotifications = startupCompositionNotifications,
                 clock.IsPaused, CurrentTimeTicks = clock.CurrentTime?.Ticks, clock.CurrentGlobalSpeed,
                 Kind = test.Kind, MatrixBits = SamplerMatrixBits(actual.Value),
                 MatrixCurrentBits = SamplerMatrixBits(matrix.Matrix), ScaleX = scale.ScaleX, scale.CenterX,

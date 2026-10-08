@@ -34,7 +34,6 @@ internal static partial class Program
                 switch (state.Name)
                 {
                     case "sampler-animation-opacity":
-                        clocks.Seek(2);
                         scene.Brush.ApplyAnimationClock(Brush.OpacityProperty, clocks.Opacity);
                         break;
                     case "sampler-animation-viewport":
@@ -42,9 +41,6 @@ internal static partial class Program
                         break;
                     case "sampler-animation-viewbox":
                         scene.Brush.ApplyAnimationClock(TileBrush.ViewboxProperty, clocks.Viewbox);
-                        break;
-                    case "sampler-animation-seek-origin":
-                        clocks.Seek(0);
                         break;
                     case "sampler-animation-hidden-base-update":
                         scene.Brush.Opacity = .25;
@@ -57,9 +53,12 @@ internal static partial class Program
                         scene.Brush.ApplyAnimationClock(Brush.OpacityProperty, clocks.Opacity);
                         scene.Brush.ApplyAnimationClock(TileBrush.ViewportProperty, clocks.Viewport);
                         scene.Brush.ApplyAnimationClock(TileBrush.ViewboxProperty, clocks.Viewbox);
-                        clocks.Seek(2);
                         break;
                 }
+                // Publish this exact source time after changing attachments.
+                // Applying an already-paused clock retains its prior snapshot
+                // until the public immediate seek notifies the new consumer.
+                clocks.Seek(state.ClockSeconds);
 
                 var input = new
                 {
@@ -197,11 +196,52 @@ internal static partial class Program
             throw new TimeoutException("Original animated sampler reference exceeded the shared 60-second deadline.");
     }
 
+    private static int BeginPausedSamplerClock(ClockGroup clock, ClockController controller, Stopwatch timer)
+    {
+        // This offscreen reference has no presentation source. A public
+        // composition subscription schedules actual WPF timing work; reading a
+        // clock from a DispatcherTimer alone leaves it stopped. Retire this
+        // subscription before any pixel capture, including startup failures.
+        int notifications = 0;
+        EventHandler rendering = (_, _) => ++notifications;
+        var frame = new DispatcherFrame();
+        Exception? failure = null;
+        var poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
+        EventHandler tick = (_, _) =>
+        {
+            try
+            {
+                CheckSamplerAnimationDeadline(timer);
+                if (clock.IsPaused && clock.CurrentState == ClockState.Active) frame.Continue = false;
+            }
+            catch (Exception error) { failure = error; frame.Continue = false; }
+        };
+        CompositionTarget.Rendering += rendering;
+        poll.Tick += tick;
+        try
+        {
+            controller.Begin();
+            controller.Pause();
+            poll.Start();
+            Dispatcher.PushFrame(frame);
+        }
+        finally
+        {
+            poll.Stop();
+            poll.Tick -= tick;
+            CompositionTarget.Rendering -= rendering;
+        }
+        if (failure != null) throw failure;
+        if (notifications == 0) throw new InvalidOperationException("Original paused clock has no composition startup receipt.");
+        return notifications;
+    }
+
     private sealed class SamplerAnimationClocks : IDisposable
     {
         private readonly ClockGroup root;
         private readonly ClockController controller;
         private int timingNotifications;
+        private int startupCompositionNotifications;
         public AnimationClock Opacity => (AnimationClock)root.Children[0];
         public AnimationClock Viewport => (AnimationClock)root.Children[1];
         public AnimationClock Viewbox => (AnimationClock)root.Children[2];
@@ -215,33 +255,11 @@ internal static partial class Program
             timeline.Children.Add(new RectAnimation(new(0, 0, 1, 1), new(1, 0, 0, 1), duration));
             root = (ClockGroup)timeline.CreateClock(hasControllableRoot: true);
             controller = root.Controller ?? throw new InvalidOperationException("Original clock is not controllable.");
-            // Until the first animation is applied, the public timing event is
-            // the clock's only consumer. An unattached, unobserved clock does not
-            // progress merely because a DispatcherTimer reads its properties.
+            // Retain a timing observer while the original clocks are detached.
             root.CurrentTimeInvalidated += OnTimeInvalidated;
             try
             {
-                controller.Begin();
-                controller.Pause();
-                // Pause is processed by a real timing tick. Observe its public state,
-                // never assume a sleep/drain implies that it happened. The watchdog
-                // cannot extend the caller's original 60-second overall deadline.
-                var frame = new DispatcherFrame();
-                Exception? failure = null;
-                var poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
-                EventHandler tick = (_, _) =>
-                {
-                    try
-                    {
-                        CheckSamplerAnimationDeadline(timer);
-                        if (root.IsPaused && root.CurrentState == ClockState.Active) frame.Continue = false;
-                    }
-                    catch (Exception error) { failure = error; frame.Continue = false; }
-                };
-                poll.Tick += tick;
-                try { poll.Start(); Dispatcher.PushFrame(frame); }
-                finally { poll.Stop(); poll.Tick -= tick; }
-                if (failure != null) throw failure;
+                startupCompositionNotifications = BeginPausedSamplerClock(root, controller, timer);
                 Seek(0);
             }
             catch
@@ -256,11 +274,12 @@ internal static partial class Program
         public object Describe(int seconds)
         {
             TimeSpan expected = TimeSpan.FromSeconds(seconds);
-            if (timingNotifications == 0 || !root.IsPaused || root.CurrentState != ClockState.Active || root.CurrentTime != expected ||
+            if (timingNotifications == 0 || startupCompositionNotifications == 0 ||
+                !root.IsPaused || root.CurrentState != ClockState.Active || root.CurrentTime != expected ||
                 root.CurrentProgress != seconds / 4.0 || root.CurrentGlobalSpeed != 0 ||
                 Opacity.CurrentTime != expected || Viewport.CurrentTime != expected || Viewbox.CurrentTime != expected)
                 throw new InvalidOperationException("Original clock time moved or was not the requested paused source time.");
-            return new { TimingNotifications = timingNotifications,
+            return new { TimingNotifications = timingNotifications, StartupCompositionNotifications = startupCompositionNotifications,
                 root.IsPaused, State = root.CurrentState.ToString(), CurrentTimeTicks = root.CurrentTime?.Ticks,
                 root.CurrentProgress, root.CurrentGlobalSpeed, OpacityTicks = Opacity.CurrentTime?.Ticks,
                 ViewportTicks = Viewport.CurrentTime?.Ticks, ViewboxTicks = Viewbox.CurrentTime?.Ticks };
@@ -341,7 +360,13 @@ internal static partial class Program
                 !RectBits(Brush.Viewbox).SequenceEqual(RectBits(state.Viewbox)) ||
                 !RectBits(baseViewport).SequenceEqual(RectBits(new(0, 0, 1, 1))) ||
                 !RectBits(baseViewbox).SequenceEqual(RectBits(new(0, 0, 1, 1))))
-                throw new InvalidOperationException($"{state.Name}: original current/base values or actual animation attachment differ.");
+                throw new InvalidOperationException($"{state.Name}: original current/base values or actual animation attachment differ: " +
+                    JsonSerializer.Serialize(new { ActualAnimated = animated, ExpectedAnimated = state.AnimatedProperties,
+                        Brush.HasAnimatedProperties, CurrentOpacity = Bits(Brush.Opacity), ExpectedOpacity = Bits(state.Opacity),
+                        BaseOpacity = Bits(baseOpacity), ExpectedBaseOpacity = Bits(state.BaseOpacity),
+                        CurrentViewport = RectBits(Brush.Viewport), ExpectedViewport = RectBits(state.Viewport),
+                        CurrentViewbox = RectBits(Brush.Viewbox), ExpectedViewbox = RectBits(state.Viewbox),
+                        BaseViewport = RectBits(baseViewport), BaseViewbox = RectBits(baseViewbox) }));
             return new { Clock = timing, AnimatedProperties = animated, Brush.HasAnimatedProperties,
                 OpacityBits = Bits(Brush.Opacity), ViewportBits = RectBits(Brush.Viewport), ViewboxBits = RectBits(Brush.Viewbox),
                 BaseOpacityBits = Bits(baseOpacity), BaseViewportBits = RectBits(baseViewport), BaseViewboxBits = RectBits(baseViewbox) };
