@@ -1634,6 +1634,24 @@ void semantic_presentation_layers_keep_independent_device_domains() {
         }
     }
 
+    // Explicit binary clips use exact physical pixel centers. Keep the legacy
+    // outward-rounded grid above independent, including its original policy.
+    state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+    state.clip_rect = {1.25F, 2.5F, 6.0F, 4.0F};
+    require(resolve_semantic_scissor(state, 200U, 160U, presentation) ==
+        scissor{15U, 24U, 12U, 12U, true});
+    const progpu_native_scene_presentation identity{
+        sizeof(identity), 0U, 0U, 100U, 80U, 1.0F, 1.0F, 0U};
+    for (const float edge : {std::nextafter(4.5F, 0.0F), 4.5F,
+            std::nextafter(4.5F, 10.0F)}) {
+        state.clip_rect = {edge, 2.5F, 10.0F, 4.0F};
+        const auto first = edge > 4.5F ? 5U : 4U;
+        const auto last = static_cast<std::uint32_t>(std::ceil(
+            static_cast<double>(edge + 10.0F) - 0.5));
+        require(resolve_semantic_scissor(state, 200U, 160U, identity) ==
+            scissor{first, 2U, last - first, 4U, true});
+    }
+
     std::array<std::byte, sizeof(progpu_native_scene_layer)> storage{};
     auto layer = semantic_default_layer();
     layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;

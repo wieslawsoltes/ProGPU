@@ -7,21 +7,21 @@ initialization and still rejects while real RGB coverage is missing.
 
 `INITIALIZE_FROM_BACKGROUND` uses an owned transient GPU texture copied from the
 actual current parent before any child draw. Final composition keeps geometric
-mask/opacity coverage separate from child alpha: it interpolates the untouched
-parent and completed child RGBA. Ordinary SRC_OVER of a copied translucent parent
-would composite that parent twice. The existing semantic BACKDROP/effect contract
+coverage separate from child alpha and retains ordinary source-over. A copied
+translucent background therefore participates again when the source layer pops;
+initialization does not select replacement. Group opacity scales and stores the
+premultiplied source RGBA8 bytes before their alpha weights the destination.
+The existing semantic BACKDROP/effect contract
 is unchanged. New initialization excludes effects, caches, mapped-picture frames
 and composite-state relocation until those separate ownership contracts connect.
 
-The common Texture/AdvancedBlend shaders implement the coverage resolve and
-destination-aware replacement for both native providers. Independent coverage
-uses an owned R32Float render attachment and textureLoad: the previous UNORM color
-scratch would quantize half opacity to 128/255 before interpolation and change an
-opposite opaque channel from 128 to 127. The original color/ROP scratch remains
-unchanged. The new attachment participates in the original byte budget and live
-memory inventory and retires with the semantic pool. Its mask binding uses the
-actual source-local resolve frame, independently of the final parent frame.
-No CPU pixel evaluation,
+The common Texture shader keeps this ordinary layer composition on both native
+providers. Explicit AA source clips containing Clear have a different pop
+contract: they replace their saved background through independent area coverage.
+That bounded family uses the AdvancedBlend shader and an owned R32Float coverage
+attachment with textureLoad. Its scratch participates in the original byte budget
+and live memory inventory and retires with the semantic pool; its mask binding
+uses the actual source-local resolve frame. No CPU pixel evaluation,
 readback or extra submission supplies layer contents. Pipeline caches belong to
 the engine and retire with it; immutable replay spans retain initialization.
 
@@ -57,15 +57,21 @@ Authored controls cover 48 opaque/translucent parent, full/half opacity and
 original aliased geometric-mask combinations, every pixel cold/warm on both
 providers, actual Microsoft device-context pixels, original command-list
 translation, and atomic invalid-option/flag rejection. Legacy ClearType rejection
-is retained. These controls are **not executed yet**: validation is deferred to
-the final integrated stack tip.
+is retained. Original Windows ARM64 and x64 execution now retains 96 complete
+BGRA captures per architecture for these 48 configurations, with identical
+cold/warm bytes. The corrected scalar source-over oracle matches every original
+byte. The local stock Metal run passes this complete family; final full provider,
+command-list, package and source-application qualification is still required.
 
 Additional authored controls exercise both real legacy ID2D1Layer and OPTIONS1_NONE
 over 32 independent mask/opacity/null/partial-clip combinations, paired native
 provider cold/warm full bytes, exact draw/command/submission counts and original
 Windows pixels/command callbacks. Later singular transforms and source tags
 remain unchanged. Builder controls retain rejection atomicity and historical
-depth accounting. These controls are also unexecuted until the final stack tip.
+depth accounting. All 128 captures per original Windows architecture match the
+corrected exact-byte oracle, including complementary value 127 for half opacity.
+The local stock Metal run passes all 64 source configurations cold/warm. These
+bounded checks do not qualify complete native packages or source applications.
 
 Remaining implementation: target-independent unbounded Clear requires its explicit
 target-metrics contract; real ClearType RGB glyph

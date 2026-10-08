@@ -130,10 +130,10 @@ inline bool transparent_layer_clear_pixels(std::span<const std::uint8_t> pixels,
     std::uint32_t image_height, std::uint32_t variant, bool bgra = false)
 {
     if (pixels.size() != std::size_t{image_height} * 256U) return false;
-    // Independent source-over onto white. These exact dyadic opacities do not
-    // permit atlas-quantization tolerances to conceal applying coverage twice.
+    // Original linear-UNORM source opacity is stored before source-over onto
+    // white. Half opacity owns alpha 128 and leaves destination weight 127.
     const unsigned halves = ((variant & 2U) != 0U ? 1U : 0U) + ((variant & 4U) != 0U ? 1U : 0U);
-    const std::uint8_t opposite = halves == 0U ? 0U : halves == 1U ? 128U : 191U;
+    const std::uint8_t opposite = halves == 0U ? 0U : halves == 1U ? 127U : 191U;
     for (std::uint32_t y = 0U; y < image_height; ++y) for (std::uint32_t x = 0U; x < 64U; ++x) {
         const bool in_layer = x >= 4U && x < 52U && y >= 6U && y < 50U &&
             ((variant & 1U) == 0U || (x >= 12U && x < 36U && y >= 10U && y < 42U));

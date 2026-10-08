@@ -2659,6 +2659,11 @@ int main(int argc, char** argv)
             metrics.struct_size = sizeof(metrics);
             auto pixels = render_scene(gpu, engine, target, 3U + fixture::aa_clear_count(value),
                 fixture::aa_clear_wire_count(value), 1U, {}, 9011U, 1U, &metrics);
+            if (metrics.draw_call_count != fixture::aa_clear_draw_calls(value) ||
+                metrics.uniform_upload_bytes < 16U * fixture::aa_clear_count(value))
+                std::fprintf(stderr, "AA Clear metrics draws=%llu/%u uniforms=%llu/%u\n",
+                    static_cast<unsigned long long>(metrics.draw_call_count), fixture::aa_clear_draw_calls(value),
+                    static_cast<unsigned long long>(metrics.uniform_upload_bytes), 16U * fixture::aa_clear_count(value));
             require(metrics.draw_call_count == fixture::aa_clear_draw_calls(value) &&
                 metrics.uniform_upload_bytes >= 16U * fixture::aa_clear_count(value),
                 "AA Clear wgpu lost ordered draws or per-replay clear uniforms");

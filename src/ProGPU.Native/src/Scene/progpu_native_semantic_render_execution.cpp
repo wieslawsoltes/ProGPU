@@ -209,6 +209,29 @@ progpu_native_status render_scene(
             sizeof(resource));
         return resource;
     };
+    const auto is_axis_clip = [&](const progpu_native_scene_layer& layer) noexcept {
+        if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
+            layer.opacity != 1.0F || layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+            (layer.flags & ~(PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U ||
+            layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) return false;
+        const auto resource = read_resource(layer.mask_resource_index);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+            resource.payload_size != sizeof(progpu_native_scene_layer_mask)) return false;
+        progpu_native_scene_layer_mask mask{};
+        std::memcpy(&mask, bytes + resource.payload_offset, sizeof(mask));
+        return mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
+            mask.flags == PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA;
+    };
+    const auto is_byte_axis_clip = [&](const progpu_native_scene_layer& layer) noexcept {
+        return (engine->target_format == WGPUTextureFormat_RGBA8Unorm ||
+            engine->target_format == WGPUTextureFormat_BGRA8Unorm) && is_axis_clip(layer);
+    };
+    const auto replaces_axis_clip_background = [&](const progpu_native_scene_layer& layer) noexcept {
+        return (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U &&
+            is_axis_clip(layer);
+    };
     const auto revision32 = [](std::uint64_t value) noexcept {
         std::uint32_t result = static_cast<std::uint32_t>(
             value ^ (value >> 32U));
@@ -395,8 +418,15 @@ progpu_native_status render_scene(
                 progpu::native::scene::layer_requires_materialization(layer);
             progpu_native_scene_shader_sample_frame physical_sample_frame{};
             const bool final_sample_layer = shader_effect::layer_output_frame(bytes, layer, physical_sample_frame);
+            // Direct root attachments may carry the source's independent DPI
+            // axes for this explicit physical-area clip family. Picture child
+            // engines and arbitrary viewport/mask mappings retain their gates.
+            const bool source_axis_clip = !engine->borrows_shared_vector_pipeline &&
+                presentation.viewport_x == 0U && presentation.viewport_y == 0U &&
+                presentation.viewport_width == frame->width && presentation.viewport_height == frame->height &&
+                is_byte_axis_clip(layer);
             if (mapped_presentation && materialized &&
-                !final_sample_layer && !semantic::supports_mapped_semantic_layer(layer)) {
+                !final_sample_layer && !source_axis_clip && !semantic::supports_mapped_semantic_layer(layer)) {
                 return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
                     "Mapped semantic layers require transient SRC or SRC_OVER composition without cache, backdrop, effects or layer masks.");
             }
@@ -685,7 +715,8 @@ progpu_native_status render_scene(
             }
             semantic_materialized_layer_count += materialized ? 1U : 0U;
             semantic_needs_layer_coverage |=
-                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U;
+                replaces_axis_clip_background(layer) ||
+                is_byte_axis_clip(layer);
             const bool backdrop = materialized &&
                 (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
                     PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
@@ -694,7 +725,8 @@ progpu_native_status render_scene(
                 backdrop && (effected || (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U) ? 1U : 0U;
             if (materialized &&
                 (is_advanced_group_blend(layer.blend_mode) ||
-                    (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U)) {
+                    replaces_axis_clip_background(layer) ||
+                    is_byte_axis_clip(layer))) {
                 ++semantic_advanced_layer_count;
                 semantic_advanced_source_width = std::max(
                     semantic_advanced_source_width,
@@ -5070,8 +5102,10 @@ progpu_native_status render_scene(
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
-                    operation.initialized_background =
-                        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U;
+                    // Ordinary initialized layers still composite with source-over.
+                    // Only explicit source AA clips replace their saved backdrop.
+                    operation.replace_axis_clip_background = replaces_axis_clip_background(layer);
+                    operation.axis_clip_composite = is_byte_axis_clip(layer);
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =
@@ -5090,7 +5124,7 @@ progpu_native_status render_scene(
                     }
                     const bool advanced_blend =
                         is_advanced_group_blend(layer.blend_mode) ||
-                        operation.initialized_background;
+                        operation.replace_axis_clip_background || operation.axis_clip_composite;
                     if (!operation.backdrop) {
                         if (!append_effect_program(
                             layer.effect_resource_index,
@@ -5143,7 +5177,7 @@ progpu_native_status render_scene(
                                 resource,
                                 // New coverage resolves into source-local scratch,
                                 // not directly into the parent attachment.
-                                operation.initialized_background ? source_extent : target_extent,
+                                operation.replace_axis_clip_background || operation.axis_clip_composite ? source_extent : target_extent,
                                 frame->dpi_scale,
                                 deform_mask_with_composite_guidelines
                                     ? &state_cursor
@@ -5231,7 +5265,47 @@ progpu_native_status render_scene(
                         sampling.source_extent[1] =
                             static_cast<float>(source_extent.height);
                         sampling.blend_mode = layer.blend_mode;
-                        sampling.operation_kind = operation.initialized_background ? 2U : 0U;
+                        const bool linear_unorm_bytes = engine->target_format == WGPUTextureFormat_RGBA8Unorm ||
+                            engine->target_format == WGPUTextureFormat_BGRA8Unorm;
+                        sampling.operation_kind = operation.replace_axis_clip_background
+                            ? (linear_unorm_bytes ? 3U : 2U) : operation.axis_clip_composite ? 4U : 0U;
+                        if ((operation.replace_axis_clip_background || operation.axis_clip_composite) && materialized_depth != 0U) {
+                            const auto axis_bounds = [&](const progpu_native_scene_layer& candidate,
+                                std::array<float, 4U>& bounds) {
+                                if (candidate.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX)
+                                    return false;
+                                const auto resource = read_resource(candidate.mask_resource_index);
+                                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                                    resource.payload_size != sizeof(progpu_native_scene_layer_mask)) return false;
+                                progpu_native_scene_layer_mask mask{};
+                                std::memcpy(&mask, bytes + resource.payload_offset, sizeof(mask));
+                                return mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
+                                    mask.flags == PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA &&
+                                    semantic::try_resolve_semantic_axis_clip_pixel_bounds(mask.bounds,
+                                        target_extent, target_cursor.current_presentation(), bounds);
+                            };
+                            std::array<float, 4U> child{}, parent{};
+                            if (axis_bounds(layer, child) &&
+                                axis_bounds(materialized_layers[materialized_depth - 1U], parent)) {
+                                // Only consecutive source axis clips participate. Ordinary
+                                // groups retain their own alpha, masks and opacity boundary.
+                                for (auto depth = materialized_depth - 1U; depth != 0U; --depth) {
+                                    std::array<float, 4U> ancestor{};
+                                    if (!axis_bounds(materialized_layers[depth - 1U], ancestor)) break;
+                                    parent[0] = std::max(parent[0], ancestor[0]);
+                                    parent[1] = std::max(parent[1], ancestor[1]);
+                                    parent[2] = std::min(parent[2], ancestor[2]);
+                                    parent[3] = std::min(parent[3], ancestor[3]);
+                                }
+                                sampling.pattern_kind = 1U;
+                                std::copy(parent.begin(), parent.end(), sampling.pattern_color);
+                                child[0] = std::max(child[0], parent[0]);
+                                child[1] = std::max(child[1], parent[1]);
+                                child[2] = std::min(child[2], parent[2]);
+                                child[3] = std::min(child[3], parent[3]);
+                                std::copy(child.begin(), child.end(), sampling.pattern_background_color);
+                            }
+                        }
                         WGPUTextureView destination_view =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
@@ -6205,7 +6279,7 @@ progpu_native_status render_scene(
                 }
                 const bool advanced_blend =
                     is_advanced_group_blend(operation.blend_mode) ||
-                    operation.initialized_background;
+                    operation.replace_axis_clip_background || operation.axis_clip_composite;
                 if (!content_cached || advanced_blend ||
                     active_pass_uses_depth) {
                     finish_pass();

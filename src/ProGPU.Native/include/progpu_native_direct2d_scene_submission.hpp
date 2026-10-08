@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <limits>
 #include <span>
 
@@ -113,6 +114,7 @@ inline progpu_native_scene_frame make_scene_frame(
     const scene_render_target_summary& summary,
     size_u pixel_size,
     float dpi_x,
+    float dpi_y,
     const scene_render_options& options) noexcept
 {
     progpu_native_scene_frame frame{};
@@ -132,12 +134,26 @@ inline progpu_native_scene_frame make_scene_frame(
     frame.scene_id = summary.scene_id;
     frame.generation = summary.generation;
     frame.flags = options.flags;
+    if (dpi_x != dpi_y) {
+        // Retain the original independent source axes over the whole physical
+        // attachment. The scalar remains the existing shader raster basis.
+        frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESENTATION;
+        frame.presentation = {sizeof(progpu_native_scene_presentation), 0U, 0U,
+            pixel_size.width, pixel_size.height, dpi_x / 96.0F, dpi_y / 96.0F, 0U};
+    }
     if (summary.has_clear == 0) {
         frame.flags |= PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
     } else {
         frame.flags &= ~PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET;
     }
     return frame;
+}
+
+inline progpu_native_scene_frame make_scene_frame(
+    const scene_render_target_summary& summary, size_u pixel_size,
+    float dpi, const scene_render_options& options) noexcept
+{
+    return make_scene_frame(summary, pixel_size, dpi, dpi, options);
 }
 
 } // namespace detail
@@ -159,8 +175,8 @@ inline progpu_native_status update_scene_target(
 
 /* Updates and renders one target in a single host call. A session without an
  * explicit Clear preserves the existing attachment, matching Direct2D target
- * behavior. Direct2D's two-axis DPI is accepted only when the semantic
- * renderer's scalar dpi_scale can preserve it exactly. */
+ * behavior. Independent source DPI axes use the explicit presentation record;
+ * individual scene families retain the renderer's existing admission checks. */
 inline progpu_native_status render_scene_target(
     scene_render_target_native* target,
     progpu_native_engine* engine,
@@ -197,7 +213,8 @@ inline progpu_native_status render_scene_target(
     float dpi_y = 0.0F;
     render_target_value->GetDpi(&dpi_x, &dpi_y);
     const size_u pixel_size = render_target_value->GetPixelSize();
-    if (!(dpi_x > 0.0F) || dpi_x != dpi_y || pixel_size.width == 0U ||
+    if (!std::isfinite(dpi_x) || !std::isfinite(dpi_y) || !(dpi_x > 0.0F) ||
+        !(dpi_y > 0.0F) || pixel_size.width == 0U ||
         pixel_size.height == 0U) {
         return detail::fail_recording(
             diagnostics,
@@ -215,7 +232,7 @@ inline progpu_native_status render_scene_target(
     scene_render_target_summary summary{};
     target->GetSummary(&summary);
     const progpu_native_scene_frame frame = detail::make_scene_frame(
-        summary, pixel_size, dpi_x, options);
+        summary, pixel_size, dpi_x, dpi_y, options);
     const progpu_native_status render_status = progpu_native_engine_render_scene(
         engine, &frame, frame_metrics);
     if (diagnostics != nullptr) {

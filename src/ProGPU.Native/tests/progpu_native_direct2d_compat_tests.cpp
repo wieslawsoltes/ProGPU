@@ -1692,6 +1692,14 @@ bool full_target_clear_regressions(compat::scene_factory_native* scene_factory)
             std::memcmp(&summary.clear_color, &expected, sizeof(expected)) != 0) return false;
         const auto submitted = compat::detail::make_scene_frame(summary, {64, 48}, 192.0F,
             {1234U, PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET});
+        const auto independent = compat::detail::make_scene_frame(summary, {64, 48}, 120.0F, 144.0F,
+            {1234U, PROGPU_NATIVE_SCENE_FRAME_PRESERVE_TARGET});
+        if (independent.flags != PROGPU_NATIVE_SCENE_FRAME_PRESENTATION || independent.dpi_scale != 1.25F ||
+            independent.presentation.struct_size != sizeof(progpu_native_scene_presentation) ||
+            independent.presentation.viewport_x != 0U || independent.presentation.viewport_y != 0U ||
+            independent.presentation.viewport_width != 64U || independent.presentation.viewport_height != 48U ||
+            independent.presentation.dpi_scale_x != 1.25F || independent.presentation.dpi_scale_y != 1.5F ||
+            independent.presentation.reserved != 0U) return false;
         if (submitted.width != 64U || submitted.height != 48U || submitted.dpi_scale != 2.0F ||
             submitted.target_view != 1234U || submitted.scene_id != summary.scene_id ||
             submitted.generation != summary.generation || submitted.flags != PROGPU_NATIVE_SCENE_FRAME_NONE ||
@@ -7131,8 +7139,10 @@ int run_tests()
     const auto* second_clip_state = reinterpret_cast<
         const progpu_native_scene_state*>(
             clipped_scene.data() + second_clip_resource->payload_offset);
-    if (first_clip_state->flags != PROGPU_NATIVE_SCENE_STATE_CLIP_RECT ||
-        second_clip_state->flags != PROGPU_NATIVE_SCENE_STATE_CLIP_RECT ||
+    constexpr auto binary_clip_flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+        PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+    if (first_clip_state->flags != binary_clip_flags ||
+        second_clip_state->flags != binary_clip_flags ||
         !approximately_equal(first_clip_state->clip_rect.x, 2.0F) ||
         !approximately_equal(first_clip_state->clip_rect.y, 3.0F) ||
         !approximately_equal(first_clip_state->clip_rect.width, 10.0F) ||
@@ -7195,7 +7205,7 @@ int run_tests()
     target->GetTransform(&previous_clip_transform);
     const compat::matrix_3x2_f clip_identity{1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
     const compat::matrix_3x2_f clip_shear{1.0F, 0.5F, 0.0F, 1.0F, 2.0F, 3.0F};
-    const compat::rectangle_f clip_parent{0.0F, 0.0F, 30.0F, 30.0F};
+    const compat::rectangle_f clip_parent{6.0F, 7.0F, 24.0F, 24.0F};
     const compat::rectangle_f clip_fractional{0.25F, 0.5F, 10.75F, 12.5F};
     const compat::rectangle_f clip_child{4.0F, 5.0F, 25.0F, 25.0F};
     target->BeginDraw();

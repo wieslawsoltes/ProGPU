@@ -349,7 +349,8 @@ struct semantic_render_bundle_span {
     std::uint64_t cache_content_revision = 0U;
     bool uses_depth = false;
     bool backdrop = false;
-    bool initialized_background = false;
+    bool replace_axis_clip_background = false;
+    bool axis_clip_composite = false;
     bool ignore_alpha = false;
     bool target_ignores_alpha = false;
     // Retained command identity also survives a completely clipped output,

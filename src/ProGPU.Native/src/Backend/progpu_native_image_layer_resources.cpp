@@ -334,7 +334,9 @@ bool create_layer_resources(progpu_native_engine& engine) {
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
     fragment.entryPoint =
-        progpu::native::webgpu::string_view("fs_main_unmasked");
+        progpu::native::webgpu::string_view(
+            engine.target_format == WGPUTextureFormat_RGBA8Unorm || engine.target_format == WGPUTextureFormat_BGRA8Unorm
+                ? "fs_layer_linear_unorm_unmasked" : "fs_main_unmasked");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor descriptor{};
@@ -537,7 +539,9 @@ bool create_layer_mask_resources(progpu_native_engine& engine) {
     target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
-    fragment.entryPoint = progpu::native::webgpu::string_view("fs_main");
+    fragment.entryPoint = progpu::native::webgpu::string_view(
+        engine.target_format == WGPUTextureFormat_RGBA8Unorm || engine.target_format == WGPUTextureFormat_BGRA8Unorm
+            ? "fs_layer_linear_unorm" : "fs_main");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor pipeline_descriptor{};
@@ -812,7 +816,9 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     fragment.entryPoint = progpu::native::webgpu::string_view(
         coverage_only
             ? (masked ? "fs_layer_coverage" : "fs_layer_coverage_unmasked")
-            : (masked ? "fs_main" : "fs_main_unmasked"));
+            : engine.target_format == WGPUTextureFormat_RGBA8Unorm || engine.target_format == WGPUTextureFormat_BGRA8Unorm
+                ? (masked ? "fs_layer_linear_unorm" : "fs_layer_linear_unorm_unmasked")
+                : (masked ? "fs_main" : "fs_main_unmasked"));
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor descriptor{};

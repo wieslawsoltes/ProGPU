@@ -324,7 +324,7 @@ bool create_semantic_advanced_blend_binding(
         engine.semantic_advanced_source_slot.view == nullptr ||
         engine.semantic_advanced_blend_uniform_buffer == nullptr ||
         engine.semantic_advanced_blend_layout == nullptr ||
-        (operation.initialized_background &&
+        ((operation.replace_axis_clip_background || operation.axis_clip_composite) &&
             (operation.source_layer >= engine.semantic_layer_slots.size() ||
                 engine.semantic_layer_coverage_slot.view == nullptr))) {
         return false;
@@ -340,14 +340,14 @@ bool create_semantic_advanced_blend_binding(
         offset,
         &uniforms,
         sizeof(uniforms));
-    const WGPUTextureView source_view = operation.initialized_background
+    const WGPUTextureView source_view = (operation.replace_axis_clip_background || operation.axis_clip_composite)
         ? engine.semantic_layer_slots[operation.source_layer].view
         : engine.semantic_advanced_source_slot.view;
     const std::array<WGPUBindGroupEntry, 4U> entries{{
         {nullptr, 0U, nullptr, 0U, 0U, nullptr, destination_view},
         {nullptr, 1U, nullptr, 0U, 0U, nullptr, source_view},
         {nullptr, 2U, nullptr, 0U, 0U, nullptr,
-            operation.initialized_background ? engine.semantic_layer_coverage_slot.view
+            (operation.replace_axis_clip_background || operation.axis_clip_composite) ? engine.semantic_layer_coverage_slot.view
                 : engine.semantic_advanced_source_slot.view},
         {nullptr, 3U, engine.semantic_advanced_blend_uniform_buffer,
             offset, sizeof(uniforms), nullptr, nullptr}
@@ -392,10 +392,10 @@ bool encode_semantic_advanced_blend(
             PROGPU_NATIVE_BLEND_SRC,
             masked,
             ignored_cache_hit,
-            operation.initialized_background);
+            (operation.replace_axis_clip_background || operation.axis_clip_composite));
     WGPURenderPassEncoder pass = begin_pass(
         encoder,
-        operation.initialized_background ? engine.semantic_layer_coverage_slot.view
+        (operation.replace_axis_clip_background || operation.axis_clip_composite) ? engine.semantic_layer_coverage_slot.view
             : engine.semantic_advanced_source_slot.view,
         WGPULoadOp_Clear,
         "ProGPU semantic advanced-blend source resolve");

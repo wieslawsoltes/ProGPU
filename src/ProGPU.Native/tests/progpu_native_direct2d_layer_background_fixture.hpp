@@ -86,8 +86,15 @@ inline bool layer_background_pixels(std::span<const std::uint8_t> pixels,
                 if (variant >= 8U) child[3] = 255U;
                 if (x >= 12U && x < 48U && y >= 10U && y < 44U) child = {255, 0, 0, 255};
                 if (clear_layer) child = {0, 0, 0, static_cast<std::uint8_t>(variant >= 8U ? 255U : 0U)};
-                for (std::size_t c = 0U; c < 4U; ++c) expected[c] = (variant & 2U) == 0U ? child[c]
-                    : static_cast<std::uint8_t>((static_cast<unsigned>(expected[c]) + child[c] + 1U) / 2U);
+                // Initialization copies the background into the source; it
+                // does not change the original layer's source-over operator.
+                // Quantize group opacity before using that stored source alpha.
+                if ((variant & 2U) != 0U)
+                    for (auto& component : child)
+                        component = static_cast<std::uint8_t>((static_cast<unsigned>(component) + 1U) / 2U);
+                for (std::size_t c = 0U; c < 4U; ++c)
+                    expected[c] = static_cast<std::uint8_t>((static_cast<unsigned>(child[c]) * 255U +
+                        static_cast<unsigned>(expected[c]) * (255U - child[3]) + 127U) / 255U);
             }
             if (x < 4U && y < 4U) expected = {0, 255, 0, 255};
             for (std::size_t c = 0U; c < 4U; ++c) {

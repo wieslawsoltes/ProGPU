@@ -10,7 +10,7 @@ namespace progpu::native::tests {
 
 template<class Render, class Require>
 void verify_picture_layer_rejections(Render render, Require require) {
-    for (unsigned variant = 0U; variant < 8U; ++variant) {
+    for (unsigned variant = 0U; variant < 9U; ++variant) {
         semantic_scene_builder child(0x94C0U + variant, 1U);
         if (variant == 7U) {
             progpu_native_matrix_4x4 identity{};
@@ -64,6 +64,13 @@ void verify_picture_layer_rejections(Render render, Require require) {
                 require(child.add_rounded_rectangle_mask(mask, layer.mask_resource_index), "mapped rejected layer mask");
             }
             if (variant == 6U) layer.blend_mode = PROGPU_NATIVE_BLEND_MULTIPLY;
+            if (variant == 8U) {
+                // Direct-root independent DPI admission must not open the
+                // still-unqualified mapped picture layer-mask contract.
+                layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+                require(child.add_axis_aligned_clip_mask(layer.bounds, layer.mask_resource_index),
+                    "mapped rejected explicit axis clip");
+            }
             std::uint32_t brush{};
             progpu_native_analytic_primitive rectangle{};
             rectangle.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;

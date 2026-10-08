@@ -6823,17 +6823,25 @@ public:
         if (!finite_native_rectangle(clip)) {
             return fail_invalid_value();
         }
+        const auto original_clip = clip;
         if (clip_depth_ != 0U) {
             clip = intersect_rectangles(clip_stack_[clip_depth_ - 1U], clip);
             if (!finite_native_rectangle(clip)) {
                 return fail_invalid_value();
             }
         }
+        const bool had_binary = clip_depth_ != 0U && binary_clip_active_[clip_depth_ - 1U];
+        const bool binary = antialias_mode == D2D1_ANTIALIAS_MODE_ALIASED;
+        const auto binary_clip = binary
+            ? (had_binary ? intersect_rectangles(binary_clip_stack_[clip_depth_ - 1U], original_clip) : original_clip)
+            : (had_binary ? binary_clip_stack_[clip_depth_ - 1U] : progpu_native_image_rect{});
         uint8_t scope = scope_axis_aligned_clip;
         if (antialias_mode == D2D1_ANTIALIAS_MODE_ALIASED) {
             auto state = progpu::native::semantic_scene_builder::identity_state();
-            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-            state.clip_rect = clip;
+            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT | PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+            // SAVE state is absolute: preserve all binary ancestors, while
+            // AA ancestors retain their independent fractional coverage.
+            state.clip_rect = binary_clip;
             uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!builder_.add_state(state, state_index) ||
                 !builder_.save(state_index)) {
@@ -6844,13 +6852,13 @@ public:
             // then apply edge coverage once to the group at PopAxisAlignedClip.
             // Do not apply the fractional mask independently to each draw.
             uint32_t mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder_.add_axis_aligned_clip_mask(clip, mask_resource_index)) {
+            if (!builder_.add_axis_aligned_clip_mask(original_clip, mask_resource_index)) {
                 return fail_builder();
             }
             const progpu_native_scene_layer layer{
                 sizeof(progpu_native_scene_layer),
                 PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
-                clip,
+                original_clip,
                 1.0F,
                 PROGPU_NATIVE_BLEND_SRC_OVER,
                 mask_resource_index,
@@ -6861,6 +6869,8 @@ public:
             }
             scope = scope_antialiased_axis_clip;
         }
+        binary_clip_stack_[clip_depth_] = binary_clip;
+        binary_clip_active_[clip_depth_] = binary || had_binary;
         clip_stack_[clip_depth_] = clip;
         ++clip_depth_;
         scope_stack_[scope_depth_] = scope;
@@ -8912,6 +8922,8 @@ private:
     std::array<
         progpu_native_image_rect,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> binary_clip_stack_{};
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> binary_clip_active_{};
     static constexpr uint8_t scope_none = 0U;
     static constexpr uint8_t scope_axis_aligned_clip = 1U;
     static constexpr uint8_t scope_opacity_layer = 2U;

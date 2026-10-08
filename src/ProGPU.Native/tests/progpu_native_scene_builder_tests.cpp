@@ -617,7 +617,7 @@ bool semantic_scene_builder_isolation_rejects_historical_depth_atomically() {
     return true;
 }
 
-static bool copies_outside_clips_atomically(bool retained_source) {
+static bool copies_outside_clips_atomically(bool retained_source, bool pixel_centers) {
     const std::array pixels{std::byte{0}, std::byte{0}, std::byte{255}, std::byte{255}};
     progpu_native_scene_image_draw image{};
     image.image_width = image.image_height = 1U; image.row_bytes = 4U;
@@ -639,6 +639,7 @@ static bool copies_outside_clips_atomically(bool retained_source) {
         if (kind == 5U && !builder.set_hit_test_owner(42)) return false;
         auto clip = semantic_scene_builder::identity_state();
         clip.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        if (pixel_centers) clip.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
         clip.clip_rect = {8, 8, 16, 16};
         std::uint32_t index{};
         if (!builder.add_state(clip, index) || !builder.save(index)) return false;
@@ -678,6 +679,7 @@ static bool copies_outside_clips_atomically(bool retained_source) {
         if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) continue;
         if (draws == 0U && (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return false;
         if (draws == 1U && ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U ||
+            ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) != 0U) != pixel_centers ||
             state.clip_rect.x != 12.0F || state.clip_rect.y != 10.0F ||
             state.clip_rect.width != 8.0F || state.clip_rect.height != 8.0F)) return false;
         ++draws;
@@ -695,11 +697,13 @@ static bool copies_outside_clips_atomically(bool retained_source) {
 }
 
 bool semantic_scene_builder_copies_outside_clips_atomically() {
-    return copies_outside_clips_atomically(false);
+    return copies_outside_clips_atomically(false, false) &&
+        copies_outside_clips_atomically(false, true);
 }
 
 bool semantic_scene_builder_moves_sources_outside_clips_atomically() {
-    return copies_outside_clips_atomically(true);
+    return copies_outside_clips_atomically(true, false) &&
+        copies_outside_clips_atomically(true, true);
 }
 
 bool semantic_scene_builder_append_capacity_is_amortized_and_atomic() {
@@ -1633,9 +1637,31 @@ bool semantic_scene_builder_rejects_invalid_state() {
         return false;
     }
     std::vector<std::byte> stream{std::byte{0x5a}};
-    return !builder.build(stream) &&
-        builder.last_error() == scene_build_error::unbalanced_stack &&
-        stream == std::vector<std::byte>{std::byte{0x5a}};
+    if (builder.build(stream) ||
+        builder.last_error() != scene_build_error::unbalanced_stack ||
+        stream != std::vector<std::byte>{std::byte{0x5a}}) return false;
+
+    semantic_scene_builder binary_builder(702U, 2U);
+    std::vector<std::byte> before;
+    if (!binary_builder.build(before)) return false;
+    state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+    if (binary_builder.add_state(state, index) ||
+        index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        !binary_builder.build(stream) || stream != before) return false;
+    state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    state.clip_rect = {1.25F, 2.5F, 8.0F, 4.0F};
+    if (!binary_builder.add_state(state, index) ||
+        !binary_builder.build(stream) ||
+        scene::validate(stream.data(), stream.size()).status != PROGPU_NATIVE_STATUS_SUCCESS)
+        return false;
+    const auto header = read<progpu_native_scene_header>(stream, 0U);
+    const auto resource = read<progpu_native_scene_resource>(stream, header.resource_offset);
+    // The raw reader also rejects a required pixel-center flag without a clip,
+    // even when the otherwise canonical rectangle is empty.
+    state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+    state.clip_rect = {};
+    std::memcpy(stream.data() + resource.payload_offset, &state, sizeof(state));
+    return scene::validate(stream.data(), stream.size()).status != PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
 bool semantic_scene_builder_reuses_retained_images() {

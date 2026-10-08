@@ -576,6 +576,29 @@ fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
+fn layer_linear_unorm(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
+    var color = texture_fs_main_with_mask(input, 1.0);
+    // Group opacity scales the retained premultiplied source bytes before
+    // blending. Its quantized alpha owns the complementary destination weight.
+    // Geometric coverage remains independent and is applied after that step.
+    if (abs(input.color.a) != 1.0) {
+        color = floor(clamp(color, vec4<f32>(0.0), vec4<f32>(1.0)) * 255.0 + 0.5) / 255.0;
+    }
+    return color * maskAlpha;
+}
+
+@fragment
+fn fs_layer_linear_unorm(input: VertexOutput) -> @location(0) vec4<f32> {
+    let fragmentOrigin = select(
+        vec2<f32>(0.0), uniforms.canvasSize, uniforms.boundedSourcePass > 0.5);
+    return layer_linear_unorm(input, sample_mask_alpha(input.position.xy + fragmentOrigin));
+}
+
+@fragment
+fn fs_layer_linear_unorm_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    return layer_linear_unorm(input, 1.0);
+}
+
 // Layer coverage is NOT source alpha. A copied background or transparent Clear
 // must not change the opacity/geometric-mask weight of the final replacement.
 @fragment

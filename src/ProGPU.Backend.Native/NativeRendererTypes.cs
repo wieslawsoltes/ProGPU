@@ -852,7 +852,9 @@ public enum NativeSceneStateFlags : uint
     None = 0,
     ClipRect = 1U << 0,
     Mask = 1U << 1,
-    GuidelineSet = 1U << 2
+    GuidelineSet = 1U << 2,
+    /// <summary>Use exact physical pixel centers for the enabled clip rectangle.</summary>
+    ClipPixelCenters = 1U << 3
 }
 
 [Flags]

@@ -7572,8 +7572,9 @@ int main()
     context->SetTransform(D2D1::Matrix3x2F::Identity());
     const D2D1_RECT_F clip_fractional = {0.25F, 0.5F, 10.75F, 12.5F};
     const D2D1_RECT_F clip_child = {4.0F, 5.0F, 25.0F, 25.0F};
+    const D2D1_RECT_F clip_parent = {6.0F, 7.0F, 24.0F, 24.0F};
     context->PushAxisAlignedClip(
-        &scene_outer_clip,
+        &clip_parent,
         D2D1_ANTIALIAS_MODE_ALIASED);
     context->SetTransform(D2D1::Matrix3x2F(1.0F, 0.5F, 0.0F, 1.0F, 2.0F, 3.0F));
     context->PushAxisAlignedClip(

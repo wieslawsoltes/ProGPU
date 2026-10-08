@@ -988,7 +988,7 @@ public ref struct NativeSceneStreamBuilder
         resourceIndex = NativeMethods.SceneNoIndex;
         const NativeSceneStateFlags knownFlags =
             NativeSceneStateFlags.ClipRect | NativeSceneStateFlags.Mask |
-            NativeSceneStateFlags.GuidelineSet;
+            NativeSceneStateFlags.GuidelineSet | NativeSceneStateFlags.ClipPixelCenters;
         bool hasClip = (state.Flags & NativeSceneStateFlags.ClipRect) != 0;
         bool hasMask = (state.Flags & NativeSceneStateFlags.Mask) != 0;
         bool hasGuidelines =
@@ -1010,6 +1010,7 @@ public ref struct NativeSceneStreamBuilder
             : state.GuidelineResourceIndex == 0U;
         if (state.StructSize != Unsafe.SizeOf<NativeSceneState>() ||
             (state.Flags & ~knownFlags) != 0 ||
+            ((state.Flags & NativeSceneStateFlags.ClipPixelCenters) != 0 && !hasClip) ||
             !state.HasCanonicalReservedFields || !IsFinite(state.Transform) ||
             !float.IsFinite(state.Opacity) ||
             state.Opacity is < 0f or > 1f ||

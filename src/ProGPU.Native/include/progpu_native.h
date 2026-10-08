@@ -267,7 +267,9 @@ enum {
 enum {
     PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U,
     PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U,
-    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET = 1U << 2U
+    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET = 1U << 2U,
+    /* With CLIP_RECT, select exact half-open physical pixel centers. */
+    PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS = 1U << 3U
 };
 
 enum {

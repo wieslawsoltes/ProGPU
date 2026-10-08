@@ -125,7 +125,10 @@ bool semantic_scene_builder::add_state(
         source.opacity > 1.0F ||
         (source.flags & ~(PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
             PROGPU_NATIVE_SCENE_STATE_MASK |
-            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET)) != 0U ||
+            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET |
+            PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS)) != 0U ||
+        ((source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) != 0U &&
+            (source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U) ||
         ((source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             !finite_rect(source.clip_rect)) ||
         ((source.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U &&

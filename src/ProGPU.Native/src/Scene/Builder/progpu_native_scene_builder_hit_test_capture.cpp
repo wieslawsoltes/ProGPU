@@ -215,6 +215,7 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
         return implementation_->fail(scene_build_error::invalid_argument);
     const bool source_geometry = opacity_mode == scene_hit_test_opacity_mode::source_geometry;
     const std::uint32_t input_state_flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+        PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS |
         (source_geometry ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET |
             PROGPU_NATIVE_SCENE_STATE_MASK) : 0U);
     if (implementation_->stack_depth != 0U)

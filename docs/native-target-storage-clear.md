@@ -33,7 +33,8 @@ nearest-layer isolation uses this same depth accounting.
 Authored builder controls compare full retained streams against independently
 declared background/isolation flags, including idempotence, SAVE scopes, a source
 owner inside an outer AA clip, eight non-clip rejection families, and exact open
-and historical capacity limits. They have not been executed.
+and historical capacity limits. The local native builder and internal suites
+pass these controls; this does not replace final provider/package qualification.
 
 The additive required `CLEAR_TARGET` command (kind 5) now retains the original
 16-byte straight color without a geometry resource. Native and managed writers
@@ -46,7 +47,12 @@ including warm replay. Per-draw masks reject before publication.
 
 Binary SAVE clips use the original physical pixel-center boundary
 `ceil(double(edge) - 0.5)`, with actual independent-axis DPI, viewport and target
-localization. AA layer allocation remains outward-rounded; it is never replaced
+localization. The explicit required state flag `CLIP_PIXEL_CENTERS` carries this
+policy for all draws in a Direct2D binary scope, not only Clear. It requires an
+actual `CLIP_RECT`; legacy generic clip states keep their original outward rule.
+Each absolute SAVE retains all binary ancestors across intervening AA groups.
+Copy operations suspend and restore the original flagged states atomically.
+AA layer allocation remains outward-rounded; it is never replaced
 by this binary clip calculation. No-op clips encode no draw.
 
 Both actual Direct2D recorders now use this retained operation when an AA
@@ -59,9 +65,16 @@ existing explicit target metrics. Leading/full-target and all-aliased Clear
 keep their original paths. Empty source intersections add no draw or isolation;
 portable DPI-history and Windows original callback counts remain distinct.
 
-Raw/managed command, source-order, nested-picture, exact fractional clip and
-provider controls are authored, with independent original Windows/source AA
-controls following in the stack. No validation has been executed for this
-implementation stack; qualify only the final integrated tips, retaining the
-existing pixel, lifetime, package and UI gates. This does not advertise managed
+Direct-root linear RGBA8/BGRA8 attachments retain independent source DPI axes
+through the explicit bounded area-mask family and a whole physical viewport.
+Mapped picture children still reject layer masks; a dedicated negative control
+preserves that distinction. Aliased filled rectangles use their original quad
+edges so raster edge ownership agrees with the source pixel-center clip.
+
+The stock Metal AA family matches all 204 original Windows ARM64/x64 frames,
+including complete cold/warm RGBA, fractional axes and nested ownership. Raw
+flag rejection, capture-time binary ancestors and copy restoration pass local
+native controls. The standard full run still fails later in a cached gradient
+mask case; qualify only the final integrated tips, retaining the existing pixel,
+lifetime, package and UI gates. This does not advertise managed
 Canvas routing, general device-context operations or desktop UI parity.

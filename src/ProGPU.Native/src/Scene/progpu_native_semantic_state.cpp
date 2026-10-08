@@ -575,6 +575,10 @@ scissor resolve_semantic_scissor(const progpu_native_scene_state& state,
     if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U) {
         return result;
     }
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) != 0U) {
+        return resolve_semantic_aliased_composite_scissor(state.clip_rect,
+            {0U, 0U, target_width, target_height, true}, presentation);
+    }
     const auto& clip = state.clip_rect;
     const auto edges = presentation_clip_edges(clip, presentation);
     const float left = std::clamp(

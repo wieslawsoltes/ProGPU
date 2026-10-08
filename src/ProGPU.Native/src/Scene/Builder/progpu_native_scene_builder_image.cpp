@@ -379,7 +379,8 @@ bool semantic_scene_builder::copy_image_outside_clips(Copy&& copy) noexcept {
             return implementation_->fail(scene_build_error::invalid_state);
         progpu_native_scene_state state{};
         std::memcpy(&state, implementation_->resources[index].payload.data(), sizeof(state));
-        if (state.flags != PROGPU_NATIVE_SCENE_STATE_CLIP_RECT || state.opacity != 1.0F ||
+        const auto clip_flags = state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+        if (clip_flags != PROGPU_NATIVE_SCENE_STATE_CLIP_RECT || state.opacity != 1.0F ||
             state.transform.m11 != 1.0F || state.transform.m12 != 0.0F ||
             state.transform.m21 != 0.0F || state.transform.m22 != 1.0F ||
             state.transform.m31 != 0.0F || state.transform.m32 != 0.0F)

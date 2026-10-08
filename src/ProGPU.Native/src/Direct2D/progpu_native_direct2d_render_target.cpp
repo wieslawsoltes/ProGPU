@@ -6021,6 +6021,7 @@ public:
             latch(com::invalid_argument);
             return;
         }
+        const auto original_clip = clip;
         if (clip_depth_ != 0U) {
             clip = intersect_rectangles(
                 clip_stack_[clip_depth_ - 1U], clip);
@@ -6029,11 +6030,18 @@ public:
                 return;
             }
         }
+        const bool had_binary = clip_depth_ != 0U && binary_clip_active_[clip_depth_ - 1U];
+        const bool binary = mode == antialias_mode::aliased;
+        const auto binary_clip = binary
+            ? (had_binary ? intersect_rectangles(binary_clip_stack_[clip_depth_ - 1U], original_clip) : original_clip)
+            : (had_binary ? binary_clip_stack_[clip_depth_ - 1U] : progpu_native_image_rect{});
         std::uint8_t scope = scope_axis_aligned_clip;
         if (mode == antialias_mode::aliased) {
             auto state = semantic_scene_builder::identity_state();
-            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-            state.clip_rect = clip;
+            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT | PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+            // SAVE state is absolute: preserve all binary ancestors, while
+            // AA ancestors retain their independent fractional coverage.
+            state.clip_rect = binary_clip;
             std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!builder_.add_state(state, state_index) ||
                 !builder_.save(state_index)) {
@@ -6043,14 +6051,16 @@ public:
         } else {
             std::uint32_t mask_resource_index =
                 PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder_.add_axis_aligned_clip_mask(clip, mask_resource_index)) {
+            // Binary ancestors select complete physical pixels in retained
+            // state. Keep this AA clip's original edges independent of them.
+            if (!builder_.add_axis_aligned_clip_mask(original_clip, mask_resource_index)) {
                 latch(builder_failure());
                 return;
             }
             const progpu_native_scene_layer native_layer{
                 sizeof(progpu_native_scene_layer),
                 PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
-                clip,
+                original_clip,
                 1.0F,
                 PROGPU_NATIVE_BLEND_SRC_OVER,
                 mask_resource_index,
@@ -6065,6 +6075,8 @@ public:
             }
             scope = scope_antialiased_axis_clip;
         }
+        binary_clip_stack_[clip_depth_] = binary_clip;
+        binary_clip_active_[clip_depth_] = binary || had_binary;
         clip_stack_[clip_depth_] = clip;
         ++clip_depth_;
         scope_stack_[scope_depth_] = scope;
@@ -6564,7 +6576,7 @@ private:
             for (std::size_t i = 0U; i < scope_depth_; ++i) {
                 if (scope_stack_[i] != scope_axis_aligned_clip || i >= clip_depth_) return wrong_state;
                 auto state = semantic_scene_builder::identity_state();
-                state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT | PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
                 state.clip_rect = clip_stack_[i];
                 std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 if (!replacement.add_state(state, state_index) || !replacement.save(state_index))
@@ -9356,6 +9368,8 @@ private:
     static constexpr std::uint8_t scope_antialiased_axis_clip = 3U;
     std::array<progpu_native_image_rect,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> binary_clip_stack_{};
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> binary_clip_active_{};
     std::array<std::uint8_t,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
     std::array<com::pointer<scene_layer_native>,

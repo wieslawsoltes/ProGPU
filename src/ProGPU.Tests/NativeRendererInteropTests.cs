@@ -4085,6 +4085,30 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderRequiresRectangleForPixelCenterClips()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        var builder = new NativeSceneStreamBuilder(destination, 83U, 1U,
+            commandCapacity: 0, resourceCapacity: 1);
+        var missingClip = new NativeSceneState(Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.ClipPixelCenters);
+        Assert.False(builder.TryAddStateResource(1U, 1U, missingClip, out uint rejected));
+        Assert.Equal(NativeMethods.SceneNoIndex, rejected);
+        var clip = new NativeSceneState(Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.ClipRect | NativeSceneStateFlags.ClipPixelCenters,
+            clipRect: new NativeImageRect(1.25f, 2.5f, 8f, 4f));
+        Assert.True(builder.TryAddStateResource(1U, 1U, clip, out uint accepted));
+        Assert.Equal(0U, accepted);
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneState>(stream[(int)resource.PayloadOffset..]);
+        Assert.Equal(clip.Flags, stored.Flags);
+        Assert.Equal(clip.ClipRect, stored.ClipRect);
+    }
+
+    [Fact]
     public void SemanticSceneBuilderValidatesTypedPerDrawMaskState()
     {
         Span<byte> destination = stackalloc byte[4096];

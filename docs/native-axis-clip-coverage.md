@@ -31,8 +31,11 @@ not the one-half supplied by a maximum-edge distance evaluated on the boundary.
 The same explicit branch is retained in shared Vector, Texture and text-mask WGSL
 consumers used by both native providers. Its fixed arithmetic is guarded by an
 authored byte-equality control; existing ordinary distance/border paths are intact.
-Work and uniform storage remain O(1) per mask/pixel, with no texture pass, readback,
-new pipeline family or managed rendering fallback.
+Area evaluation and uniform storage remain O(1) per mask/pixel. Explicit byte
+attachment layers additionally resolve through bounded source-local coverage
+and the existing destination-aware composition machinery, preserving original
+stored-byte rounding. Consecutive AA groups use conditional intersection area;
+ordinary layers stop that ancestry. There is no readback or managed fallback.
 
 ## Evidence and remaining gates
 
@@ -51,7 +54,9 @@ AA Clear fixture retains independent pixel-area calculations, cold/warm counters
 all original Windows bytes, transparent/opaque targets and nested clip/layer
 ordering. Those assertions have not been weakened to reproduce shader output.
 
-No build, test, verifier, shader compilation, GPU, VM or CI validation has run for
-this stack. Full final integrated provider, original Windows, package and source
-application qualification remains required. Mathematical coverage is not a claim
-of already established Windows or popup UI parity.
+The complete local stock Metal AA fixture and independently captured original
+Windows ARM64/x64 frames now agree on all 204 full-frame comparisons. Original
+source bytes established conditional nested coverage and independent binary
+pixel-center admission; no tolerance was introduced. The standard native run
+still fails in a later cached gradient-mask case. Full final integrated provider,
+package and source-application qualification remains required.

@@ -292,7 +292,8 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
     constexpr std::uint32_t known_flags =
         PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
         PROGPU_NATIVE_SCENE_STATE_MASK |
-        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET;
+        PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET |
+        PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
     const bool clip_is_canonical =
         (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U ||
         (state.clip_rect.x == 0.0F && state.clip_rect.y == 0.0F &&
@@ -306,6 +307,8 @@ bool valid_scene_state(const progpu_native_scene_state& state) noexcept {
         state.guideline_resource_index == 0U;
     return state.struct_size == sizeof(progpu_native_scene_state) &&
         (state.flags & ~known_flags) == 0U &&
+        ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) == 0U ||
+            (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) &&
         state.reserved == 0U &&
         std::isfinite(state.transform.m11) &&
         std::isfinite(state.transform.m12) &&

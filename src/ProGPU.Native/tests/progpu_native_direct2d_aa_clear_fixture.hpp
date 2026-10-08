@@ -74,7 +74,13 @@ inline unsigned aa_clear_wire_count(const aa_clear_case& value)
 }
 inline unsigned aa_clear_draw_calls(const aa_clear_case& value)
 {
-    return 3U + aa_clear_count(value) + aa_clear_layer_count(value) + 2U * aa_clear_promoted_count(value);
+    const auto resolved = value.order == aa_clear_order::two_aa ? 2U : 1U;
+    // Destination-aware restoration samples an owned root attachment, then
+    // copies that completed root to the caller's target once per replay.
+    // An empty binary Clear emits no operator, so the adjacent red and blue
+    // analytic fills share one GPU draw while retaining both source commands.
+    const auto fill_draws = value.order == aa_clear_order::empty_binary ? 2U : 3U;
+    return fill_draws + aa_clear_count(value) + aa_clear_layer_count(value) + 2U * resolved + 1U;
 }
 
 // These are source rectangles BEFORE capture-time translation (4,6). The two
@@ -254,10 +260,8 @@ inline bool antialiased_clear_pixels(std::span<const std::uint8_t> pixels,
     };
     auto first = captured(aa_clear_bounds), second = captured(aa_clear_second);
     const auto binary = captured(aa_clear_binary), owner = captured(aa_clear_owner);
-    if (value.order == aa_clear_order::binary_aa) {
-        first = {std::max(first[0], binary[0]), std::max(first[1], binary[1]),
-            std::min(first[2], binary[2]), std::min(first[3], binary[3])};
-    }
+    // An aliased clip selects complete physical pixels by their centers. Its
+    // fractional source edge must not become another antialiased area edge.
     second = {std::max(first[0], second[0]), std::max(first[1], second[1]),
         std::min(first[2], second[2]), std::min(first[3], second[3])};
     for (unsigned y = 0; y < 64U; ++y) for (unsigned x = 0; x < 64U; ++x) {
@@ -270,6 +274,12 @@ inline bool antialiased_clear_pixels(std::span<const std::uint8_t> pixels,
                 (initialized ? 1.0 - c : 1.0 - src[3] / 255.0 * c));
             return out;
         };
+        const auto group = [&](pixel dst, pixel src, bool visible) {
+            // The original Direct2D layer applies group opacity to its stored
+            // premultiplied bytes before SRC_OVER, including the source alpha.
+            for (auto& channel : src) channel = quantize(channel * value.owner_opacity);
+            return compose(dst, src, visible ? 1.0 : 0.0, false);
+        };
         const bool binary_inside = value.order != aa_clear_order::aa_binary && value.order != aa_clear_order::binary_aa
             ? true : inside(binary);
         const bool suffix = x + 0.5 >= 16 * value.dpi_x && x + 0.5 < 18 * value.dpi_x &&
@@ -281,13 +291,18 @@ inline bool antialiased_clear_pixels(std::span<const std::uint8_t> pixels,
         if (value.order == aa_clear_order::owner_aa) {
             auto inner = suffix ? blue : cleared;
             const auto content = compose(red, inner, coverage(first), true);
-            root = compose(root, content, inside(owner) ? value.owner_opacity : 0.0, false);
+            root = group(root, content, inside(owner));
         } else if (value.order == aa_clear_order::aa_owner) {
-            const auto content = compose(red, suffix ? blue : cleared, inside(owner) ? value.owner_opacity : 0.0, false);
+            const auto content = group(red, suffix ? blue : cleared, inside(owner));
             root = compose(root, content, coverage(first), false);
         } else if (value.order == aa_clear_order::two_aa) {
-            const auto inner = compose(root, suffix ? blue : cleared, coverage(second), true);
-            root = compose(root, inner, coverage(first), true);
+            // Preserve both stored intermediates. The inner clip contributes
+            // only its conditional area within the outer clip, so a common
+            // edge is not applied twice; each attachment still rounds once.
+            const auto outer = coverage(first);
+            const auto inner = compose(root, suffix ? blue : cleared,
+                outer > 0.0 ? coverage(second) / outer : 0.0, true);
+            root = compose(root, inner, outer, true);
         } else if (value.order == aa_clear_order::empty_binary) {
             root = compose(root, suffix ? blue : red, coverage(first), false);
         } else {

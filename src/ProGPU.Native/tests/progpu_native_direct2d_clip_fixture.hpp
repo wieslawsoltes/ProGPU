@@ -75,8 +75,12 @@ inline bool grouped_axis_clip_contract(std::span<const std::byte> bytes)
               resource) || resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) return false;
     progpu_native_scene_state state{};
     return read(resource.payload_offset, state) &&
-        state.flags == PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
-        same_rect(state.clip_rect, 4.0F, 5.0F, 8.75F, 15.875F);
+        state.flags == (PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+            PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) &&
+        // The AA parent applies its fractional edge when its layer pops. The
+        // absolute child state retains the intersection of both binary clips,
+        // including the narrower ancestor across the intervening AA layer.
+        same_rect(state.clip_rect, 6.0F, 7.0F, 18.0F, 17.0F);
 }
 
 // Original scalar oracle shared by portable and Windows producers. The fixture
