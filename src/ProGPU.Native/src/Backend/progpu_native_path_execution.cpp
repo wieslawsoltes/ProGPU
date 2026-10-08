@@ -569,7 +569,8 @@ progpu_native_status render_paths(
                         local_points[corner].y,
                         vertex.position[0],
                         vertex.position[1]);
-                    device_points[corner] = {vertex.position[0], vertex.position[1]};
+                    device_points[corner] = {vertex.position[0] * frame->dpi_scale,
+                        vertex.position[1] * frame->dpi_scale};
                     std::memcpy(
                         vertex.color,
                         &path.color,
@@ -583,10 +584,11 @@ progpu_native_status render_paths(
                     vertex.shape_type = 4.0F;
                     engine->path_vertices.push_back(vertex);
                 }
-                if (frame->dpi_scale == 1.0F &&
+                if (exact_path_pixel_projection(frame->dpi_scale) &&
                     exact_path_pixel_mapping(device_points, atlas_points)) {
                     for (std::size_t corner = 0U; corner < 4U; ++corner)
-                        engine->path_vertices[vertex_start + corner].stroke_thickness = -1.0F;
+                        engine->path_vertices[vertex_start + corner].stroke_thickness =
+                            frame->dpi_scale == 1.0F ? -1.0F : -2.0F;
                 }
                 engine->path_indices.insert(
                     engine->path_indices.end(),

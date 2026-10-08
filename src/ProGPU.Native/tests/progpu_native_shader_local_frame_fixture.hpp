@@ -103,11 +103,21 @@ inline progpu_native_mil_status build_shader_local_scene(progpu_native_mil_chann
     packet(batch, command::visual_set_content, 1U, 2U);
     const auto generation = progpu_native_mil_channel_get_resource_generation(channel, 5U);
     constexpr std::array<std::uint8_t,8U> pixels{255,0,0,255,0,255,0,255};
-    if (progpu_native_mil_channel_apply(channel, batch.data(), batch.size(), nullptr) != PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
+    const auto apply_status = progpu_native_mil_channel_apply(channel, batch.data(), batch.size(), nullptr);
+    if (apply_status != PROGPU_NATIVE_MIL_STATUS_SUCCESS) {
+        std::fprintf(stderr, "Local-frame packet apply variant=%u status=%u\n", variant, static_cast<unsigned>(apply_status));
+        return apply_status;
+    }
+    if (
         progpu_native_mil_channel_get_resource_generation(channel, 5U) <= generation ||
         progpu_native_mil_channel_set_visual_cache_bounds(channel, 1U,16.75,16.25,15.5,7.5) != PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
         progpu_native_mil_channel_set_bitmap_source_rgba8_with_dpi(channel,10U,2U,1U,8U,pixels.data(),pixels.size(),
-            144.0,192.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH;
+            144.0,192.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) {
+        std::fprintf(stderr, "Local-frame source setup variant=%u effect generation=%llu/%llu\n", variant,
+            static_cast<unsigned long long>(progpu_native_mil_channel_get_resource_generation(channel, 5U)),
+            static_cast<unsigned long long>(generation));
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH;
+    }
     if (parent_opacity != 1.0 && progpu_native_mil_channel_set_visual_cache_bounds(
             channel,11U,8.0,8.0,64.0,32.0) != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
         return PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH;
@@ -238,16 +248,41 @@ void verify_original_shader_local_frame_pixels(Render render, Require require) {
             require(same,"original local capture input/UV/derivative/sampler/final clip differs");
         }
     }
+    std::uint64_t rejection_generation = shader_local_cases.size();
+    for (const auto& scene : scenes) {
+        progpu_native_scene_header header{}; std::memcpy(&header, scene.data(), sizeof(header));
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            progpu_native_scene_resource resource{};
+            std::memcpy(&resource, scene.data() + header.resource_offset + i * header.resource_stride, sizeof(resource));
+            rejection_generation = std::max(rejection_generation, resource.generation);
+        }
+    }
+    const auto publish_rejection_revision = [&](std::vector<std::byte>& scene) {
+        progpu_native_scene_header header{}; std::memcpy(&header, scene.data(), sizeof(header));
+        // Reintroducing an earlier source state with changed wire bytes is a
+        // new revision of this same owner and its resources. Preserve every ID;
+        // stale generations must not replace the intended render preflight.
+        header.generation = ++rejection_generation;
+        std::memcpy(scene.data(), &header, sizeof(header));
+        for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
+            const auto offset = header.resource_offset + i * header.resource_stride;
+            progpu_native_scene_resource resource{};
+            std::memcpy(&resource, scene.data() + offset, sizeof(resource));
+            resource.generation = rejection_generation;
+            std::memcpy(scene.data() + offset, &resource, sizeof(resource));
+        }
+        return header;
+    };
     for(const auto variant:{0U,5U,6U}) {
         auto legacy=scenes[variant]; require(shader_local_legacy_wire(legacy),"legacy local capture control missing");
-        progpu_native_scene_header header{}; std::memcpy(&header,legacy.data(),sizeof(header));
+        const auto header = publish_rejection_revision(legacy);
         progpu_native_layer_metrics layers{}; layers.struct_size=sizeof(layers);
         progpu_native_scene_frame_metrics frame{}; frame.struct_size=sizeof(frame);
         const auto pixels=render(false,legacy,header,shader_local_cases[variant],0U,PROGPU_NATIVE_STATUS_UNSUPPORTED,layers,frame);
         require(pixels.empty() && frame.submission_count==0U,"legacy fractional wire acquired new admission");
     }
     auto fractional_clip=scenes[0U];
-    progpu_native_scene_header clip_header{}; std::memcpy(&clip_header,fractional_clip.data(),sizeof(clip_header));
+    const auto clip_header = publish_rejection_revision(fractional_clip);
     bool changed_clip=false;
     for(std::uint32_t i=0U;i<clip_header.command_count;++i) {
         progpu_native_scene_command command{};

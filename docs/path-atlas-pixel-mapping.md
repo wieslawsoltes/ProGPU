@@ -19,10 +19,15 @@ quad; the proof applies to the resulting corners, not source transform labels.
 
 Managed admission additionally requires unit DPI, the full zero-origin physical
 canvas and its unit logical projection, and no late GPU transforms. Native path
-and clip execution have full-target projections and also require unit DPI. The
+and clip execution have full-target projections. Their additional physical-frame
+lane admits integral power-of-two DPI only after multiplying every actual corner
+by that exact scale and proving the same integer atlas/device offset. Other DPI
+values, fractional corners and residual scale keep filtering. The
 general vector vertex shader rejects static/late-transformed encodings even if
 the original vertex carried the marker. Shape 4's otherwise unused stroke field
-carries -1; it is not a hairline stroke and does not alter other shape contracts.
+carries -1 for the original unit-DPI lane and -2 for the proven native physical
+lane. The latter computes the shader offset from `position * dpiScale`, never
+from logical coordinates. Neither marker denotes a hairline stroke.
 
 Both native providers and the managed renderer embed the same
 `PathAtlasSampling.wgsl`. A flat integer offset and fragment position select the
@@ -39,7 +44,11 @@ maximum scale multiplied by target DPI, with translation phase in physical
 pixels. Local capture bounds divide by that same scale before final projection.
 The integrated 96/192-DPI hairline companion checks this with independent filled
 rectangles: a one-physical-pixel fill must not be rasterized as a half-pixel DIP
-tile and then enlarged. This does not broaden exact-load admission at other DPIs.
+tile and then enlarged. The Windows integrated run exposed additional 254/1
+coverage values on its 192-DPI atlas transfer. The physical-frame proof addresses
+that transfer; no pixel tolerance, coverage clamp or blanket nearest filter is
+introduced. Cold/warm union fixtures cover both paths and clip masks at DPI1/2,
+including unchanged warm upload counters. Windows rerun remains required.
 
 The proof is fixed four-corner work with bounded stack state and no heap allocation.
 There is no extra crossing, readback, upload, GPU submission or pipeline. The

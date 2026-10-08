@@ -44,9 +44,12 @@ void verify_original_shader_final_samples(Render render, Require require) {
         mil_clip_channel owner(raw);
         for(std::uint32_t i=0U;i<scenes.size();++i) {
             const auto& test=shader_final_sample_cases[i];
-            require(build_shader_local_scene(raw,100U+i,test.source,scenes[i],false,test.x,test.y,
+            const auto source_status = build_shader_local_scene(raw,100U+i,test.source,scenes[i],false,test.x,test.y,
                 test.scale_x,test.scale_y,test.clip_shift,test.ancestor_clip,test.aliased,128U,
-                test.parent_opacity)==PROGPU_NATIVE_MIL_STATUS_SUCCESS,
+                test.parent_opacity);
+            if (source_status != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
+                std::fprintf(stderr, "Final-sample source variant=%u status=%u\n", i, static_cast<unsigned>(source_status));
+            require(source_status == PROGPU_NATIVE_MIL_STATUS_SUCCESS,
                 "actual final-sample source was rejected");
             progpu_native_scene_header header{}; std::memcpy(&header,scenes[i].data(),sizeof(header));
             bool selected=false;

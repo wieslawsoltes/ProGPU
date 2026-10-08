@@ -231,13 +231,15 @@ internal static partial class Program
     private static uint[] LocalCaptureWords(LocalCaptureCase input)
     {
         if (!input.SquareUv) return PaddingWords(input.Output);
-        // Original ps_2_0 MUL of t0.xy with itself distinguishes evaluation on
-        // the destination lattice from filtering an already evaluated image.
+        // ps_2_0 permits one t# read per instruction. Copy the original UVs
+        // to r1, then square them to distinguish destination evaluation from
+        // filtering an already evaluated image.
         return [0xffff0200,0x0200001f,0x80000000,0xb0030000,
             0x0200001f,0x90000000,0xa00f0800,
             0x05000051,0xa00f0002,0,0,0,0x3f800000,
             0x03000042,0x800f0000,0xb0e40000,0xa0e40800,
-            0x03000005,0x80030800,0xb0e40000,0xb0e40000,
+            0x02000001,0x80030001,0xb0e40000,
+            0x03000005,0x80030800,0x80e40001,0x80e40001,
             0x02000001,0x800c0800,0xa0e40002,0xffff];
     }
 

@@ -64,32 +64,35 @@ void verify_path_pixel_mapping(Render render, Require require)
     for (bool clip : {false, true}) {
         std::vector<std::byte> stream;
         require(build_path_pixel_mapping_fixture(clip, stream), "pixel mapping fixture construction failed");
-        for (unsigned frame = 0; frame < 2; ++frame) {
+        for (const float dpi : {1.0F, 2.0F}) for (unsigned frame = 0; frame < 2; ++frame) {
+            const auto extent = static_cast<unsigned>(64.0F * dpi);
             progpu_native_scene_frame_metrics metrics{};
-            const auto pixels = render(clip, stream, metrics);
-            require(pixels.size() == 64U * 64U * 4U, "pixel mapping readback size changed");
+            const auto pixels = render(clip, stream, dpi, extent, metrics);
+            require(pixels.size() == extent * extent * 4U, "pixel mapping readback size changed");
             if (frame != 0U)
                 require(metrics.coverage_staging_bytes == 0U && metrics.vertex_upload_bytes == 0U &&
                     metrics.index_upload_bytes == 0U, "warm pixel mapping rebuilt retained geometry");
-            for (unsigned y = 0; y < 64; ++y) {
-                for (unsigned x = 0; x < 64; ++x) {
-                    const bool inside = (x >= 8 && x < 40 && y >= 40 && y < 64) ||
-                        (x >= 16 && x < 48 && y >= 44 && y < 60);
+            for (unsigned y = 0; y < extent; ++y) {
+                for (unsigned x = 0; x < extent; ++x) {
+                    const auto px = (static_cast<float>(x) + .5F) / dpi;
+                    const auto py = (static_cast<float>(y) + .5F) / dpi;
+                    const bool inside = (px >= 8 && px < 40 && py >= 40 && py < 64) ||
+                        (px >= 16 && px < 48 && py >= 44 && py < 60);
                     const std::array<std::uint8_t, 4> expected{{255,
                         static_cast<std::uint8_t>(inside ? 0 : 255),
                         static_cast<std::uint8_t>(inside ? 0 : 255), 255}};
                     for (unsigned channel = 0; channel < 4; ++channel) {
-                        const auto actual = pixels[(y * 64U + x) * 4U + channel];
+                        const auto actual = pixels[(y * extent + x) * 4U + channel];
                         if (actual != expected[channel]) {
-                            std::fprintf(stderr, "Pixel mapping clip=%u frame=%u (%u,%u) channel=%u actual=%u expected=%u\n",
-                                clip ? 1U : 0U, frame, x, y, channel, actual, expected[channel]);
+                            std::fprintf(stderr, "Pixel mapping clip=%u dpi=%g frame=%u (%u,%u) channel=%u actual=%u expected=%u\n",
+                                clip ? 1U : 0U, static_cast<double>(dpi), frame, x, y, channel, actual, expected[channel]);
                             require(false, "integer-translated union changed a pixel");
                         }
                     }
                 }
             }
-            std::fprintf(stderr, "Pixel mapping clip=%u frame=%u submissions=%llu coverage=%llu exact pixels passed\n",
-                clip ? 1U : 0U, frame, static_cast<unsigned long long>(metrics.submission_count),
+            std::fprintf(stderr, "Pixel mapping clip=%u dpi=%g frame=%u submissions=%llu coverage=%llu exact pixels passed\n",
+                clip ? 1U : 0U, static_cast<double>(dpi), frame, static_cast<unsigned long long>(metrics.submission_count),
                 static_cast<unsigned long long>(metrics.coverage_staging_bytes));
         }
     }

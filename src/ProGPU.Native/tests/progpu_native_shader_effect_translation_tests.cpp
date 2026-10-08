@@ -100,6 +100,15 @@ void input_controls(controls& test) {
     ps2[9U] = src(3U, 0U);
     require(test.accept(ps2).find("wpf_sample_input((t0.xyzw).xy)") != std::string::npos,
         "original ps_2_0 input no longer translates");
+    auto squared = ps2;
+    squared.resize(11U);
+    squared.insert(squared.end(), {0x02000001U, dst(0U, 1U, 3U), src(3U, 0U),
+        0x03000005U, dst(0U, 0U, 3U), src(0U, 1U), src(0U, 1U),
+        0x02000001U, dst(8U, 0U), src(0U, 0U), 0xFFFFU});
+    test.accept(squared);
+    squared[16U] = src(3U, 0U);
+    squared[17U] = src(3U, 0U);
+    test.reject(squared, "ps_2_0 read one texture-coordinate register twice in one instruction");
     ps2[0U] = 0xFFFF0300U;
     test.reject(ps2, "ps_3_0 reused ps_2_0 t0 declaration");
     test.replace(0U, 0xFFFF0200U, "ps_2_0 accepted ps_3_0 input declaration");

@@ -124,15 +124,27 @@ Geometry operands retain the existing typed path compiler's admission and
 rasterization contracts; connecting this mask is not new numeric Windows parity
 evidence for the curve approximation or every source geometry-transform history.
 
-The paired provider fixture authors seven actual source clip generations:
+The paired provider fixture authors eight actual source clip generations:
 self ellipse, ancestor ellipse, Boolean difference/hole, two-curve intersection,
-nested-opacity target, DPI2, and mutation of the same ellipse resource. Every
+nested-opacity target, DPI2, mutation of the same ellipse resource, and a single
+half-ULP transform component that narrows to identity in both paths. Every
 effect replay is compared byte-for-byte to the corresponding ordinary original
 drawing without an effect, including nontrivial fractional curve coverage.
 Cold/warm/independent replays retire the C source channel first. Structured
 controls require retained curve and Boolean records, while source-float mismatch
 and raw non-unit vector-mask opacity remain rejected before GPU submission.
-These are unexecuted authored controls, not qualification results.
+The rejection now uses two non-dyadic transform pushes whose ordinary double
+product differs from the original float composition. Mutated raw controls advance
+the same scene/resource owners, so they reach render preflight rather than stale
+generation rejection. Integrated stock Metal passes these controls; the complete
+provider/package and original Windows qualification remains pending.
+
+The UV-squared fixture copies `t0.xy` to `r1.xy` before multiplying `r1` by itself.
+The earlier authored `mul ..., t0, t0` violated the documented
+[ps_2_0 register read limit](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx9-graphics-reference-asm-ps-registers-ps-2-0).
+Both native and original-WPF fixtures retain this corrected bytecode; validation
+still rejects the two-read form. The production translator and source constants
+are unchanged.
 
 Spatial gradient source opacity is connected by the child described in
 `native-shader-input-opacity.md`, inside the input picture before bytecode.

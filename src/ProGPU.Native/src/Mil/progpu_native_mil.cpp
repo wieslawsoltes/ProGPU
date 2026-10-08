@@ -18757,7 +18757,11 @@ struct channel::implementation {
                             local_path_bounds.y,
                             local_path_bounds.width,
                             local_path_bounds.height,
-                            effective_transform};
+                            {}};
+                        // Retained path material coordinates are the original
+                        // local points. Its separate geometry transform owns
+                        // placement; applying that inverse to paint again
+                        // would shift a gradient inside a captured drawing.
                         const status brush_status = resolve_brush_index(
                             brush_handle,
                             brush_index,
@@ -19265,8 +19269,10 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
                 std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                // Analytic/path fills supply local material coordinates while
+                // their retained transform places coverage in the target.
                 const brush_use_state brush_use{
-                    x, y, width, height, effective_transform};
+                    x, y, width, height, {}};
                 const status brush_status = resolve_brush_index(
                     brush_handle,
                     brush_index,
@@ -22681,7 +22687,13 @@ struct channel::implementation {
                 current.shader_source_offset_y = static_cast<float>(offset_y);
             }
         }
-        if (compile_context != nullptr && compile_context->shader_sample_capture) {
+        if (compile_context != nullptr && compile_context->shader_sample_capture &&
+            !compile_context->is_visual_brush()) {
+            // A sampled VisualBrush uses its own content-to-viewport mapping,
+            // not the containing shader input's retained source pushes. Its
+            // ordinary brush traversal keeps that original mapping; actual
+            // input descendants still require the proven capture frame here.
+            // The independent 3D and recursive-resource gates remain active.
             if (!current.shader_source_transform_proven) {
                 active_visuals.erase(handle);
                 return status::unsupported_command;

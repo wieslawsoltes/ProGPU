@@ -66,7 +66,7 @@ bool create_analytic_brush_mask_pipeline(progpu_native_engine& engine) {
     WGPUFragmentState fragment_state{};
     fragment_state.module = engine.shader;
     fragment_state.entryPoint =
-        progpu::native::webgpu::string_view("fs_mask_unmasked");
+        progpu::native::webgpu::string_view("fs_mask_target_space");
     fragment_state.targetCount = 1U;
     fragment_state.targets = &color_target;
 

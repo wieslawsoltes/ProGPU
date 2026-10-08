@@ -188,7 +188,21 @@ void verify_shader_input_opacity(Render render, Require require) {
             const std::uint32_t submissions = replay == 1U ? 1U : 2U;
             const auto pixels = render(replay == 2U, scenes[variant], header, dpi, false, submissions, layers, frame);
             require(pixels.size() == baseline.size(), "shader input opacity extent differs");
-            if (variant != 2U) require(pixels == baseline, "shader input changed exact ordinary gradient opacity bytes");
+            if (variant != 2U) {
+                if (pixels != baseline) {
+                    std::size_t differences = 0U;
+                    for (std::size_t i = 0U; i < pixels.size(); i += 4U) {
+                        if (std::equal(pixels.begin() + i, pixels.begin() + i + 4U, baseline.begin() + i)) continue;
+                        if (differences++ < 8U)
+                            std::fprintf(stderr, "Input opacity variant=%u replay=%u pixel=(%zu,%zu) actual=(%u,%u,%u,%u) baseline=(%u,%u,%u,%u)\n",
+                                variant, replay, (i / 4U) % 128U, i / (128U * 4U),
+                                pixels[i], pixels[i+1U], pixels[i+2U], pixels[i+3U],
+                                baseline[i], baseline[i+1U], baseline[i+2U], baseline[i+3U]);
+                    }
+                    std::fprintf(stderr, "Input opacity differing pixels=%zu\n", differences);
+                }
+                require(pixels == baseline, "shader input changed exact ordinary gradient opacity bytes");
+            }
             else for (std::uint32_t y = 0U; y < 64U; ++y) for (std::uint32_t x = 0U; x < 128U; ++x) {
                 const std::array<std::uint8_t, 4U> expected = x >= 18U && x < 52U && y >= 19U && y < 37U
                     ? std::array<std::uint8_t, 4U>{64, 128, 191, 255} : std::array<std::uint8_t, 4U>{0, 0, 0, 255};

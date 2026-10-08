@@ -939,10 +939,13 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     output.shapeSize = inShapeSize;
     output.cornerRadius = outputCornerRadius;
     output.strokeThickness = outputStrokeThickness;
-    if (sType == 4u && input.strokeThickness == -1.0 && !useGpuTransforms && !isStatic) {
+    if (sType == 4u && (input.strokeThickness == -1.0 || input.strokeThickness == -2.0) &&
+        !useGpuTransforms && !isStatic) {
         // The CPU proved the same exact integer offset at all four corners.
-        // A flat integer survives clipping without UV interpolation error.
-        output.pathPixelMapping = vec3<i32>(vec2<i32>(input.texCoord - input.position), 1);
+        // -2 additionally proves the native full-target binary DPI projection.
+        // Convert to that physical frame before retaining the flat offset.
+        let pixelScale = select(1.0, uniforms.dpiScale, input.strokeThickness == -2.0);
+        output.pathPixelMapping = vec3<i32>(vec2<i32>(input.texCoord - input.position * pixelScale), 1);
     }
     output.shapeType = select(
         f32(outputShapeType),
@@ -1436,7 +1439,7 @@ fn box_distance_gradient(
     return vec3<f32>(distance, gradient);
 }
 
-fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
+fn vector_fs_main_with_brush_frame(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -> vec4<f32> {
     let atlasCoordDx = dpdx(input.texCoord);
     let atlasCoordDy = dpdy(input.texCoord);
     let localBrushCoordDx = dpdx(input.brushCoord);
@@ -1445,6 +1448,13 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let shapeSizeDy = dpdy(input.shapeSize);
     let strokeDistanceDx = dpdx(input.gridIndex);
     let strokeDistanceDy = dpdy(input.gridIndex);
+    // The native brush-mask pass retains a target-space brush matrix beside
+    // independent local coverage geometry. Its private frame maps this pass's
+    // physical fragment position back to that original target, including the
+    // actual crop origin and per-axis presentation. Ordinary draws stay local.
+    let targetBrushCoord = (uniforms.view * vec4<f32>(input.position.xy, 0.0, 1.0)).xy;
+    let targetBrushCoordDx = dpdx(targetBrushCoord);
+    let targetBrushCoordDy = dpdy(targetBrushCoord);
     var encodedShapeType = input.shapeType;
     let aliasedEdge = encodedShapeType >= 1000.0;
     if (aliasedEdge) {
@@ -1468,6 +1478,11 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         evalCoord = input.shapeSize;
         evalCoordDx = shapeSizeDx;
         evalCoordDy = shapeSizeDy;
+    }
+    if (targetBrushFrame) {
+        evalCoord = targetBrushCoord;
+        evalCoordDx = targetBrushCoordDx;
+        evalCoordDy = targetBrushCoordDy;
     }
 
     var shapeAlpha: f32 = 1.0;
@@ -2234,6 +2249,16 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     // advanced color blend modes. Other shapes retain their existing alpha.
     let stateOpacity = select(1.0, clamp(input.strokeThickness, 0.0, 1.0), sType == 18u);
     return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha * stateOpacity);
+}
+
+fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
+    return vector_fs_main_with_brush_frame(input, maskAlpha, false);
+}
+
+@fragment
+fn fs_mask_target_space(input: VertexOutput) -> @location(0) vec4<f32> {
+    let color = vector_fs_main_with_brush_frame(input, 1.0, true);
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment

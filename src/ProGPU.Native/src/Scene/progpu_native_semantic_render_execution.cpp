@@ -612,11 +612,16 @@ progpu_native_status render_scene(
                         progpu_native_scene_presentation sampler_presentation{};
                         if (!semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
                                 sampler.payload_size, picture, sampler_presentation) ||
-                            picture.width != (input_picture == PROGPU_NATIVE_SCENE_NO_INDEX ? target_extent.width : sample_frame.capture_width) ||
-                            picture.height != (input_picture == PROGPU_NATIVE_SCENE_NO_INDEX ? target_extent.height : sample_frame.capture_height) ||
+                            // The implicit input retains the exact source frame.
+                            // An explicitly owned sampler has its own complete
+                            // physical extent (including a raw cache or absent
+                            // 1x1 texture), independent of receiving dimensions.
+                            (dependency_index == 0U &&
+                                (picture.width != sample_frame.capture_width ||
+                                    picture.height != sample_frame.capture_height)) ||
                             sampler_presentation.dpi_scale_x != 1.0F || sampler_presentation.dpi_scale_y != 1.0F)
                             return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                                "A WPF shader sampler must own the complete normalized physical source extent.");
+                                "A WPF shader picture must retain its implicit-input extent and normalized physical presentation.");
                         const std::uint64_t cost = static_cast<std::uint64_t>(picture.width) * picture.height * 4U;
                         if (cost > semantic_max_total_compiled_bytes ||
                             semantic_shader_sampler_bytes > semantic_max_total_compiled_bytes - cost)

@@ -39,7 +39,10 @@ inline std::vector<std::uint32_t> shader_padding_program(shader_padding_output o
         0x05000051U, 0xA00F0002U, 0U, 0U, 0U, 0x3F800000U,
         0x03000042U, 0x800F0000U, 0xB0E40000U, 0xA0E40800U};
     if (output == shader_padding_output::uv_squared) {
-        program.insert(program.end(), {0x03000005U, 0x80030800U, 0xB0E40000U, 0xB0E40000U,
+        // ps_2_0 permits only one t# read per instruction. Retain the
+        // original UVs in r1 before squaring, without relaxing that gate.
+        program.insert(program.end(), {0x02000001U, 0x80030001U, 0xB0E40000U,
+            0x03000005U, 0x80030800U, 0x80E40001U, 0x80E40001U,
             0x02000001U, 0x800C0800U, 0xA0E40002U});
     } else if (output == shader_padding_output::uv) {
         program.insert(program.end(), {0x02000001U, 0x80030800U, 0xB0E40000U,

@@ -4,6 +4,16 @@
 #include <cmath>
 
 namespace progpu::native {
+// Native path/clip passes use the full zero-origin target. An integral binary
+// DPI scale changes only the exponent of that projection and each vertex;
+// all other DPI mappings keep the filtered path. This is necessary, not
+// sufficient: the complete physical corners must also prove a 1:1 mapping.
+inline bool exact_path_pixel_projection(float dpi_scale) noexcept {
+    int exponent{};
+    return std::isfinite(dpi_scale) && dpi_scale >= 1.0F &&
+        std::frexp(dpi_scale, &exponent) == 0.5F;
+}
+
 // Original ProGPU.Scene/PathAtlasPixelMapping.cs contract, shared by native
 // ordinary paths and retained clips. Fixed four-corner work; no allocation.
 inline bool exact_path_pixel_mapping(

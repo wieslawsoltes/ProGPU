@@ -398,10 +398,28 @@ bool create_semantic_brush_mask_binding(
         return false;
     }
 
-    const gpu_uniforms frame_uniforms = create_uniforms(
+    gpu_uniforms frame_uniforms = create_uniforms(
         target_extent.width,
         target_extent.height,
         dpi_scale);
+    // Coverage vertices retain their local shape frame, while the immutable
+    // brush matrix consumes original target coordinates. This private mask
+    // pipeline uses view only in its fragment entry point; no vertex is marked
+    // for a late transform. Map physical fragment centers through the actual
+    // crop/presentation once, without rewriting the retained brush or stops.
+    const double brush_scale_x = presentation ? presentation->dpi_scale_x : dpi_scale;
+    const double brush_scale_y = presentation ? presentation->dpi_scale_y : dpi_scale;
+    const double brush_origin_x = presentation ? presentation->viewport_x : 0U;
+    const double brush_origin_y = presentation ? presentation->viewport_y : 0U;
+    frame_uniforms.view[0] = static_cast<float>(1.0 / brush_scale_x);
+    frame_uniforms.view[5] = static_cast<float>(1.0 / brush_scale_y);
+    frame_uniforms.view[12] = static_cast<float>((target_extent.x - brush_origin_x) / brush_scale_x);
+    frame_uniforms.view[13] = static_cast<float>((target_extent.y - brush_origin_y) / brush_scale_y);
+    if (!std::isfinite(frame_uniforms.view[0]) || !std::isfinite(frame_uniforms.view[5]) ||
+        !std::isfinite(frame_uniforms.view[12]) || !std::isfinite(frame_uniforms.view[13])) {
+        cleanup();
+        return false;
+    }
     const std::array<std::byte, sizeof(progpu_native_scene_gradient_stop)>
         gradient_sentinel{};
     wgpuQueueWriteBuffer(

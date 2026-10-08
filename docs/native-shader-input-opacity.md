@@ -30,6 +30,29 @@ immutable `381194e1ffe4d64fb747556fcaf76e1c34fe9df8`; implementation provenance 
 ProGPU's existing `add_visual_opacity_mask`, typed brush-mask builder and shared
 `create_semantic_brush_mask_binding`, not foreign implementation code.
 
+Integrated execution found that the shared mask renderer evaluated the retained
+target-space brush matrix with local shape coordinates. Its private mask fragment
+entry now maps physical pixel centers through the actual crop origin and per-axis
+presentation before brush evaluation. Shape coverage retains its local frame;
+the immutable brush/stops, alpha order, uniform size and submission graph remain
+unchanged. The same pass handles ordinary masks and shader-input masks. All eight
+gradient states pass exact stock Metal comparisons against the independent
+ordinary drawings, including translated and DPI2 captures; Windows and the
+complete producer/package gates remain required.
+
+Ordinary DrawingBrush fills retain local analytic/path material coordinates;
+their separate geometry transform places coverage in the target. Applying the
+target inverse to those same material points shifted captured gradients. The
+shared fill compiler now keeps that local brush frame. A VisualBrush inside a
+shader-input opacity mask also retains its own content-to-viewport traversal,
+separate from the containing input's proven source pushes. Actual input
+descendants, unsupported 3D and recursive-resource rejection retain their gates.
+All 27 ImageBrush/DrawingBrush/VisualBrush opacity states pass exact stock Metal
+cold, warm and independent-engine comparisons. Both vector brush families record
+directly into the owned mask picture: cold ordinary replay submits that picture
+and its target, while a shader input adds its own picture. This local evidence
+does not replace Windows, Dawn, package or original WPF qualification.
+
 ImageBrush, DrawingBrush and VisualBrush opacity now connect through the existing
 `add_spatial_opacity_mask` sampled-brush path. Its original MIL rectangle compiler
 uses the unpadded visual material bounds and `S*p-A` transform in the DPI-1 capture

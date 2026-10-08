@@ -132,14 +132,14 @@ void verify_shader_visual_brush_pixels(Render render,Require require) {
         progpu_native_scene_header header{};
         require(scenes[index].size() >= sizeof(header),"visual sampler header");
         std::memcpy(&header,scenes[index].data(),sizeof(header));
-        require(header.command_count == 3U,"visual sampler original source commands");
+        verify_shader_sampler_visual_commands(scenes[index], header, require);
         std::array<std::vector<std::uint8_t>,3U> images;
         for (std::uint32_t replay=0U; replay<3U; ++replay) {
             progpu_native_layer_metrics layers{}; layers.struct_size=sizeof(layers);
             progpu_native_scene_frame_metrics frame{}; frame.struct_size=sizeof(frame);
             const std::uint64_t submissions=replay == 1U ? 1U : 2U;
             images[replay]=render(false,replay == 2U,scenes[index],header,submissions,layers,frame);
-            require(frame.submission_count == submissions && frame.command_count == 3U,
+            require(frame.submission_count == submissions && frame.command_count == shader_sampler_visual_commands.size(),
                 "visual sampler actual commands/submissions");
             require(layers.effect_kind == PROGPU_NATIVE_GROUP_EFFECT_WPF_SHADER && layers.effect_count == 1U &&
                 layers.effect_pass_count == (replay == 1U ? 0U : 1U) && layers.effect_cache_hit == (replay == 1U ? 1U : 0U),

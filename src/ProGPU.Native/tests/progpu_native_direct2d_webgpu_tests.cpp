@@ -852,12 +852,22 @@ enum class sampler_engine_policy { original, native, four_load };
     }
     if (expected_status != PROGPU_NATIVE_STATUS_SUCCESS) {
         std::uint64_t submission_after{};
-        require(!expect_picture_rejection &&
+        const bool rejected_before_submission = !expect_picture_rejection &&
             progpu_native_engine_get_last_submission(engine, &submission_after) == PROGPU_NATIVE_STATUS_SUCCESS &&
             submission_after == submission_before &&
             expected_status == PROGPU_NATIVE_STATUS_UNSUPPORTED && scene_updated &&
             render_status == expected_status && scene_metrics.draw_count == expected_draws &&
-            frame_metrics.submission_count == 0U, "unsupported source frame did not reject before submission");
+            frame_metrics.submission_count == 0U;
+        if (!rejected_before_submission) {
+            std::array<char, 512U> error{};
+            (void)progpu_native_engine_get_last_error(engine, error.data(), error.size());
+            std::fprintf(stderr, "Expected source rejection: scene=%llu/%llu status=%u/%u updated=%u draws=%u/%u submissions=%llu validation=%u offset=%u error=%s\n",
+                static_cast<unsigned long long>(mil_scene_id), static_cast<unsigned long long>(mil_generation),
+                static_cast<unsigned>(render_status), static_cast<unsigned>(expected_status), scene_updated ? 1U : 0U,
+                scene_metrics.draw_count, expected_draws, static_cast<unsigned long long>(frame_metrics.submission_count),
+                scene_metrics.validation_error, scene_metrics.error_offset, error.data());
+        }
+        require(rejected_before_submission, "unsupported source frame did not reject before submission");
         if (observed_metrics != nullptr) *observed_metrics = frame_metrics;
         wgpuTextureViewRelease(view);
         wgpuTextureDestroy(texture); wgpuTextureRelease(texture);
@@ -902,10 +912,15 @@ enum class sampler_engine_policy { original, native, four_load };
     if (!render_matches) {
         std::fprintf(
             stderr,
-            "Direct2D scene metrics: draws=%u commands=%u submissions=%llu\n",
+            "Direct2D scene metrics: scene=%llu/%llu draws=%u/%u commands=%u/%u submissions=%llu/%llu\n",
+            static_cast<unsigned long long>(mil_scene_id),
+            static_cast<unsigned long long>(mil_generation),
             scene_metrics.draw_count,
+            expected_draws,
             frame_metrics.command_count,
-            static_cast<unsigned long long>(frame_metrics.submission_count));
+            expected_commands,
+            static_cast<unsigned long long>(frame_metrics.submission_count),
+            static_cast<unsigned long long>(expected_submissions));
     }
     require(render_matches,
         "portable Direct2D scene submission failed");
@@ -2215,9 +2230,10 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
     progpu::native::tests::verify_path_pixel_mapping(
-        [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {
+        [&](bool clip, const auto& stream, float dpi, std::uint32_t extent, progpu_native_scene_frame_metrics& metrics) {
             return render_scene(gpu, engine, nullptr, 2U, 2U, 1U, stream,
-                clip ? 0x9482U : 0x9481U, 1U, &metrics);
+                clip ? 0x9482U : 0x9481U, 1U, &metrics, dpi, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, extent);
         }, require);
     phase("exact path pixel mapping passed");
     auto* picture_reference_engine = create_engine(gpu);
@@ -2387,7 +2403,7 @@ int main(int argc, char** argv)
                 progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
                 auto*& selected = animation_engines[absolute ? 1U : 0U][reference ? 1U : 0U];
                 if (!selected) selected = create_engine(gpu);
-                auto pixels = render_scene(gpu, selected, nullptr, 1U, 3U, submissions,
+                auto pixels = render_scene(gpu, selected, nullptr, 1U, 5U, submissions,
                     stream, header.scene_id, header.generation, &metrics);
                 require(progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
                     "animated sampler layer metrics unavailable");

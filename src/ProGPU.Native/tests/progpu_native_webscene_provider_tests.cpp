@@ -3743,7 +3743,7 @@ int main(int argc, char** argv) {
                     require(progpu_native_dawn_engine_create(&engine_options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
                         "animated sampler Dawn engine creation failed");
                 return render_retained_scene(reference, stream, header.generation, submissions,
-                    header.scene_id, 1U, 3U, &layers, &frame, 1.0F, nullptr,
+                    header.scene_id, 1U, 5U, &layers, &frame, 1.0F, nullptr,
                     PROGPU_NATIVE_STATUS_SUCCESS, false, 64U, nullptr, selected);
             };
         progpu::native::tests::verify_shader_sampler_animation_pixels(render_animated_sampler,require);
@@ -4004,8 +4004,8 @@ int main(int argc, char** argv) {
             return pixels;
         }, require);
     progpu::native::tests::verify_path_pixel_mapping(
-        [&](bool clip, const auto& stream, progpu_native_scene_frame_metrics& metrics) {
-            auto* pixel_canvas = api.create_canvas(provider, &canvas_configuration, 64U, 64U);
+        [&](bool clip, const auto& stream, float dpi, std::uint32_t extent, progpu_native_scene_frame_metrics& metrics) {
+            auto* pixel_canvas = api.create_canvas(provider, &canvas_configuration, extent, extent);
             require(pixel_canvas != nullptr, "pixel mapping canvas creation failed");
             std::uintptr_t handle{};
             require(api.acquire(provider, pixel_canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
@@ -4022,8 +4022,8 @@ int main(int argc, char** argv) {
                 "pixel mapping Dawn snapshot failed");
             progpu_native_scene_frame frame{};
             frame.struct_size = sizeof(frame);
-            frame.width = frame.height = 64U;
-            frame.dpi_scale = 1;
+            frame.width = frame.height = extent;
+            frame.dpi_scale = dpi;
             frame.target_view = reinterpret_cast<std::uintptr_t>(pixel_view);
             frame.clear_color = {0, 0, 0, 1};
             frame.scene_id = clip ? 0x9482U : 0x9481U;
@@ -4045,13 +4045,13 @@ int main(int argc, char** argv) {
                 kIOReturnSuccess, "pixel mapping IOSurface lock failed");
             const auto* data = static_cast<const std::uint8_t*>(IOSurfaceGetBaseAddress(surface));
             const auto stride = IOSurfaceGetBytesPerRow(surface);
-            require(data != nullptr && IOSurfaceGetWidth(surface) == 64U &&
-                IOSurfaceGetHeight(surface) == 64U && stride >= 256U, "pixel mapping IOSurface storage is invalid");
-            std::vector<std::uint8_t> pixels(64U * 256U);
-            for (std::size_t row = 0; row < 64U; ++row) {
-                for (std::size_t x = 0; x < 64U; ++x) {
+            require(data != nullptr && IOSurfaceGetWidth(surface) == extent &&
+                IOSurfaceGetHeight(surface) == extent && stride >= extent * 4U, "pixel mapping IOSurface storage is invalid");
+            std::vector<std::uint8_t> pixels(extent * extent * 4U);
+            for (std::size_t row = 0; row < extent; ++row) {
+                for (std::size_t x = 0; x < extent; ++x) {
                     const auto* bgra = data + row * stride + x * 4U;
-                    auto* rgba = pixels.data() + row * 256U + x * 4U;
+                    auto* rgba = pixels.data() + (row * extent + x) * 4U;
                     rgba[0] = bgra[2]; rgba[1] = bgra[1]; rgba[2] = bgra[0]; rgba[3] = bgra[3];
                 }
             }

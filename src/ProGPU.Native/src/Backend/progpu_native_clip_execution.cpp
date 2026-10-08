@@ -506,7 +506,7 @@ bool rebuild_vector_clip_chain(
                     local_points[corner].y,
                     logical_x,
                     logical_y);
-                device_points[corner] = {logical_x, logical_y};
+                device_points[corner] = {logical_x * dpi_scale, logical_y * dpi_scale};
                 gpu_clip_vertex vertex{};
                 vertex.position[0] =
                     2.0F * logical_x * dpi_scale /
@@ -537,7 +537,7 @@ bool rebuild_vector_clip_chain(
                 width,
                 height
             };
-            if (dpi_scale == 1.0F && exact_path_pixel_mapping(device_points, atlas_points)) {
+            if (exact_path_pixel_projection(dpi_scale) && exact_path_pixel_mapping(device_points, atlas_points)) {
                 compose.pixel_mapping[0] = static_cast<std::int32_t>(atlas_points[0].x - device_points[0].x);
                 compose.pixel_mapping[1] = static_cast<std::int32_t>(atlas_points[0].y - device_points[0].y);
                 compose.pixel_mapping[2] = 1;

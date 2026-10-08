@@ -13,9 +13,14 @@ inline progpu_native_mil_status build_shader_source_mask_scene(progpu_native_mil
     const float dpi=variant==5U?2.0F:1.0F;
     const double opacity=variant==4U?.25:1.0;
     const shader_local_case test{shader_padding_output::constant,dpi,{},{}};
+    // A single half-ULP component narrows to identity in both paths. A real
+    // mismatch needs two non-dyadic float pushes: the ordinary double product
+    // differs from the original source's rounded float composition.
+    const std::array<double, 6U> unproven_parent{.1, 0, 0, 1, 0, 0};
     std::vector<std::byte> scratch;
     auto status=build_shader_local_scene(channel,200U+variant,test,scratch,baseline,2.25,3.5,
-        unproven?1.0+0x1p-24:1.0,1.0,0.0,false,true,128U,opacity);
+        unproven?.1:variant==7U?1.0+0x1p-24:1.0,1.0,0.0,false,true,128U,opacity,
+        nullptr, unproven ? &unproven_parent : nullptr);
     if(status!=PROGPU_NATIVE_MIL_STATUS_SUCCESS) return status;
     std::vector<std::byte> batch;
     if(progpu_native_mil_channel_get_resource_generation(channel,15U)==0U) {
@@ -48,7 +53,7 @@ inline progpu_native_mil_status build_shader_source_mask_scene(progpu_native_mil
 
 template<class Render,class Require>
 void verify_shader_source_masks(Render render,Require require) {
-    std::array<std::vector<std::byte>,7U> scenes,baselines;
+    std::array<std::vector<std::byte>,8U> scenes,baselines;
     {
         progpu_native_mil_channel* raw{};
         require(progpu_native_mil_channel_create(&raw)==PROGPU_NATIVE_MIL_STATUS_SUCCESS,"shader mask channel unavailable");
@@ -114,8 +119,12 @@ void verify_shader_source_masks(Render render,Require require) {
                 "source mask retention/pass/uniform counters differ");
         }
     }
-    auto invalid=scenes[0];
+    // Mutate the current owner revision; replaying generation one here would
+    // stop at stale-scene validation before testing the mask preflight.
+    auto invalid=scenes.back();
     progpu_native_scene_header header{};std::memcpy(&header,invalid.data(),sizeof(header));
+    ++header.generation;
+    std::memcpy(invalid.data(), &header, sizeof(header));
     bool changed=false;
     for(std::uint32_t i=0U;i<header.resource_count;++i) {
         progpu_native_scene_resource resource{};
@@ -125,6 +134,8 @@ void verify_shader_source_masks(Render render,Require require) {
         std::memcpy(&mask,invalid.data()+resource.payload_offset,sizeof(mask));
         if(mask.kind!=PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN) continue;
         mask.opacity=.5F;std::memcpy(invalid.data()+resource.payload_offset,&mask,sizeof(mask));
+        ++resource.generation;
+        std::memcpy(invalid.data()+header.resource_offset+i*header.resource_stride,&resource,sizeof(resource));
         changed=true;
     }
     require(changed,"raw source mask rejection control absent");

@@ -20,6 +20,10 @@ or tiling. The shader input ignores brush opacity, RelativeTransform and Transfo
 normalized shader UVs address the whole selected raw cache texture. Ordinary
 brush painting retains its existing consumer-transform and opacity behavior.
 RenderAtScale changes raw raster resolution, not the receiver's shader UV domain.
+The explicit sampler picture therefore owns its own physical dimensions, including
+the retained 1x1 transparent picture for an absent cache. Only the implicit input
+picture must match the effect's capture dimensions. Both remain zero-origin,
+unit-DPI normalized pictures under the same owned dependency DAG and budgets.
 The existing zero/negative scale no-bitmap policy and ignored SnapsToDevicePixels
 remain unchanged. Selected scale animations retain their actual resources;
 ignored brush paint animations do not become raw-texture dependencies. This
@@ -72,6 +76,10 @@ ignored-root versus descendant cycles, retained dependency deletion rollback,
 leaf revision, hidden external-source rejection even at zero scale, actual scale
 animation initialization, nonfinite rejection and retained-scene ownership.
 
-All builds, tests, original captures and provider execution
-are deferred to the final integrated tip. This is not qualified source, pixel,
-package or application parity; downstream pins remain unchanged.
+Integrated stock Metal execution passes all twenty native states and their
+cold/warm/independent pixels. The zero-scale-to-null and empty-group-to-empty-root
+transitions reuse the same immutable transparent picture, so those later cold
+effect revisions submit once; they still retain the original effect counters.
+Original WPF captures continue to expose a DPI-dependent boundary and two black
+nested states. Both-provider Windows, package and application parity therefore
+remain unqualified; downstream pins remain unchanged.

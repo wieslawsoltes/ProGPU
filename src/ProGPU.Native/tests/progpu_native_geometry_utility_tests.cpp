@@ -22,6 +22,13 @@ using segment = progpu_native_path_segment;
 bool exact_pixel_mapping_checks_every_corner()
 {
     using progpu::native::exact_path_pixel_mapping;
+    using progpu::native::exact_path_pixel_projection;
+    for (const float dpi : {1.0F, 2.0F, 4.0F})
+        if (!exact_path_pixel_projection(dpi)) return false;
+    for (const float dpi : {0.0F, -1.0F, 0.5F, 1.25F, 1.5F, 3.0F,
+        std::nextafter(2.0F, 0.0F), std::nextafter(2.0F, 3.0F),
+        std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
+        if (exact_path_pixel_projection(dpi)) return false;
     const std::array<point, 4> positions{{{4, 36}, {52, 36}, {52, 68}, {4, 68}}};
     const std::array<point, 4> atlas{{{2, 2}, {50, 2}, {50, 34}, {2, 34}}};
     if (!exact_path_pixel_mapping(positions, atlas)) return false;

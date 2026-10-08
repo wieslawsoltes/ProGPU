@@ -224,9 +224,18 @@ void verify_shader_sampled_input_opacity(Render render, Require require) {
                 auto& test = cases[variant];
                 test = {static_cast<shader_opacity_source>(family), variant, variant == 7U ? 2.0F : 1.0F,
                     variant == 6U ? 1.5 : 1.0, variant == 6U ? .5 : 1.0};
-                require(build_shader_sampled_opacity_scene(raw, test, false, scenes[variant]) == PROGPU_NATIVE_MIL_STATUS_SUCCESS &&
-                    build_shader_sampled_opacity_scene(raw, test, true, baselines[variant]) == PROGPU_NATIVE_MIL_STATUS_SUCCESS,
-                    "actual sampled source family did not compile before/without effect");
+                const auto subject_status = build_shader_sampled_opacity_scene(raw, test, false, scenes[variant]);
+                if (subject_status != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
+                    std::fprintf(stderr, "Sampled opacity source family=%u variant=%u baseline=0 status=%u\n",
+                        family, variant, static_cast<unsigned>(subject_status));
+                require(subject_status == PROGPU_NATIVE_MIL_STATUS_SUCCESS,
+                    "actual sampled source family did not compile before effect");
+                const auto baseline_status = build_shader_sampled_opacity_scene(raw, test, true, baselines[variant]);
+                if (baseline_status != PROGPU_NATIVE_MIL_STATUS_SUCCESS)
+                    std::fprintf(stderr, "Sampled opacity source family=%u variant=%u baseline=1 status=%u\n",
+                        family, variant, static_cast<unsigned>(baseline_status));
+                require(baseline_status == PROGPU_NATIVE_MIL_STATUS_SUCCESS,
+                    "actual sampled source family did not compile without effect");
                 require_shader_sampled_input_ownership(scenes[variant], test, require);
             }
             // Restore the actual effect before negative graph publication; the
@@ -237,7 +246,10 @@ void verify_shader_sampled_input_opacity(Render render, Require require) {
             require_shader_sampled_rejections(raw, cases.back(), require);
         }
         std::vector<std::uint8_t> original;
-        const std::uint64_t maximum_baseline_submissions = family == 0U ? 2U : 3U;
+        // DrawingBrush and VisualBrush record their source content directly
+        // into the mask picture. Their isolation layers do not add another
+        // picture dependency: cold replay submits the mask and the target.
+        constexpr std::uint64_t maximum_baseline_submissions = 2U;
         for (unsigned variant = 0U; variant < cases.size(); ++variant) {
             const auto& test = cases[variant];
             const auto header = read_shader_opacity_record<progpu_native_scene_header>(scenes[variant], 0U, require);

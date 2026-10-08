@@ -8,6 +8,30 @@
 
 namespace progpu::native::tests {
 
+// MIL visual publication retains the source state around its one effect layer.
+// Preserve the SAVE/RESTORE pair instead of counting only the layer body.
+inline constexpr std::array<std::uint32_t, 5U> shader_sampler_visual_commands{
+    PROGPU_NATIVE_SCENE_COMMAND_SAVE, PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC, PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER,
+    PROGPU_NATIVE_SCENE_COMMAND_RESTORE};
+
+template<class Require>
+void verify_shader_sampler_visual_commands(const std::vector<std::byte>& scene,
+    const progpu_native_scene_header& header, Require require) {
+    require(header.command_count == shader_sampler_visual_commands.size() &&
+        header.command_stride >= sizeof(progpu_native_scene_command) &&
+        header.command_offset <= scene.size() && header.command_stride <=
+            (scene.size() - header.command_offset) / shader_sampler_visual_commands.size(),
+        "shader sampler source visual command extent changed");
+    for (std::size_t index = 0U; index < shader_sampler_visual_commands.size(); ++index) {
+        progpu_native_scene_command command{};
+        std::memcpy(&command, scene.data() + header.command_offset + index * header.command_stride,
+            sizeof(command));
+        require(command.kind == shader_sampler_visual_commands[index],
+            "shader sampler source state/layer/draw command identity changed");
+    }
+}
+
 // Original MIL packets, owned upload and original shader bytes. The expected
 // result below is an independent source-color oracle, not another renderer.
 inline bool build_original_shader_sampler_scene(progpu_native_mil_channel* channel,
