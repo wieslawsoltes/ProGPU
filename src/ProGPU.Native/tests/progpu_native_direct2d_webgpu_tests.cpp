@@ -2239,13 +2239,36 @@ void verify_explicit_rgb_glyphs(const gpu_context& gpu)
     for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
 }
 
+void verify_sampled_source_opacity(gpu_context& gpu)
+{
+    std::array<std::array<progpu_native_engine*, 3U>, 3U> sampled_engines{};
+    progpu::native::tests::verify_shader_sampled_input_opacity(
+        [&](unsigned family, unsigned lane, const auto& stream, const progpu_native_scene_header& header,
+            float dpi, bool baseline, std::uint64_t minimum_submissions, std::uint64_t maximum_submissions,
+            progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
+            auto*& selected = sampled_engines[family][lane];
+            if (selected == nullptr) selected = create_engine(gpu);
+            auto pixels = render_scene(gpu, selected, nullptr, baseline ? 1U : 0U, header.command_count,
+                minimum_submissions == maximum_submissions ? minimum_submissions : 0U,
+                stream, header.scene_id, header.generation, &metrics, dpi, nullptr,
+                PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
+            require(metrics.submission_count >= minimum_submissions && metrics.submission_count <= maximum_submissions &&
+                progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
+                "sampled input dependency counts/layer metrics differ");
+            return pixels;
+        }, require);
+    for (auto& family : sampled_engines)
+        for (auto* selected : family) progpu_native_engine_destroy(selected);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
     require(argc == 1 || argc == 2,
         "usage: test [CAPTURE_PPM|--mil-image-brush-only|--mil-image-brush-software|"
-        "--mil-viewport3d-only|--target-clear-only|--target-clear-software|--rgb-glyph-only|--rgb-glyph-software|--software-adapter]");
+        "--mil-viewport3d-only|--target-clear-only|--target-clear-software|--rgb-glyph-only|--rgb-glyph-software|"
+        "--sampled-opacity-only|--sampled-opacity-software|--software-adapter]");
     const auto started = std::chrono::steady_clock::now();
     const auto phase = [&started](const char* name) {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2257,8 +2280,9 @@ int main(int argc, char** argv)
     const bool software = argc == 2 && std::strcmp(argv[1], "--mil-image-brush-software") == 0;
     const bool clear_software = argc == 2 && std::strcmp(argv[1], "--target-clear-software") == 0;
     const bool rgb_software = argc == 2 && std::strcmp(argv[1], "--rgb-glyph-software") == 0;
+    const bool sampled_software = argc == 2 && std::strcmp(argv[1], "--sampled-opacity-software") == 0;
     const bool full_software = argc == 2 && std::strcmp(argv[1], "--software-adapter") == 0;
-    gpu_context gpu = create_gpu(software || clear_software || rgb_software || full_software);
+    gpu_context gpu = create_gpu(software || clear_software || rgb_software || sampled_software || full_software);
     std::fprintf(stderr, "Native GPU adapter: backend=%s name=%s\n",
         backend_name(gpu.properties.backendType),
         gpu.properties.name == nullptr ? "unknown" : gpu.properties.name);
@@ -2280,6 +2304,15 @@ int main(int argc, char** argv)
         // preceding corpus. Default execution still calls this exact helper.
         verify_explicit_rgb_glyphs(gpu);
         phase("explicit RGB retained scene compute/fragment pixels passed");
+        progpu_native_engine_destroy(engine);
+        release_gpu(gpu);
+        return EXIT_SUCCESS;
+    }
+    if (sampled_software || (argc == 2 && std::strcmp(argv[1], "--sampled-opacity-only") == 0)) {
+        // All source families, generations and independent engine owners are
+        // identical to default execution; this only avoids preceding fixtures.
+        verify_sampled_source_opacity(gpu);
+        phase("original sampled source opacity captures passed");
         progpu_native_engine_destroy(engine);
         release_gpu(gpu);
         return EXIT_SUCCESS;
@@ -2627,26 +2660,7 @@ int main(int argc, char** argv)
         }, require);
     progpu_native_engine_destroy(padding_reference_engine);
     phase("original shader padded captures passed");
-    {
-        std::array<std::array<progpu_native_engine*, 3U>, 3U> sampled_engines{};
-        progpu::native::tests::verify_shader_sampled_input_opacity(
-            [&](unsigned family, unsigned lane, const auto& stream, const progpu_native_scene_header& header,
-                float dpi, bool baseline, std::uint64_t minimum_submissions, std::uint64_t maximum_submissions,
-                progpu_native_layer_metrics& layers, progpu_native_scene_frame_metrics& metrics) {
-                auto*& selected = sampled_engines[family][lane];
-                if (selected == nullptr) selected = create_engine(gpu);
-                auto pixels = render_scene(gpu, selected, nullptr, baseline ? 1U : 0U, header.command_count,
-                    minimum_submissions == maximum_submissions ? minimum_submissions : 0U,
-                    stream, header.scene_id, header.generation, &metrics, dpi, nullptr,
-                    PROGPU_NATIVE_STATUS_SUCCESS, false, 128U, nullptr, 64U);
-                require(metrics.submission_count >= minimum_submissions && metrics.submission_count <= maximum_submissions &&
-                    progpu_native_engine_get_layer_metrics(selected, &layers) == PROGPU_NATIVE_STATUS_SUCCESS,
-                    "sampled input dependency counts/layer metrics differ");
-                return pixels;
-            }, require);
-        for (auto& family : sampled_engines)
-            for (auto* selected : family) progpu_native_engine_destroy(selected);
-    }
+    verify_sampled_source_opacity(gpu);
     phase("original sampled source opacity captures passed");
     verify_explicit_rgb_glyphs(gpu);
     phase("explicit RGB retained scene compute/fragment pixels passed");

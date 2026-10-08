@@ -292,6 +292,30 @@ void verify_shader_sampled_input_opacity(Render render, Require require) {
                         std::fprintf(stderr, "Sampled opacity family=%u variant=%u replay=%u xy=%zu,%zu channel=%zu actual=%u ordinary=%u\n",
                             family, variant, replay, first / 4U % 128U, first / 512U, first % 4U,
                             first < pixels.size() ? pixels[first] : 999U, first < baseline.size() ? baseline[first] : 999U);
+                        std::size_t changed_pixels{};
+                        unsigned largest_difference{};
+                        for (std::size_t pixel = 0U; pixel < pixels.size(); pixel += 4U) {
+                            bool changed = false;
+                            for (std::size_t channel = 0U; channel < 4U; ++channel) {
+                                const unsigned actual = pixels[pixel + channel], ordinary = baseline[pixel + channel];
+                                changed |= actual != ordinary;
+                                const unsigned difference = actual > ordinary ? actual - ordinary : ordinary - actual;
+                                largest_difference = std::max(largest_difference, difference);
+                            }
+                            changed_pixels += changed ? 1U : 0U;
+                        }
+                        std::fprintf(stderr, "Sampled opacity differences: pixels=%zu largest-channel-delta=%u\n",
+                            changed_pixels, largest_difference);
+                        // Keep a small original/subject neighborhood in CI logs
+                        // to distinguish coverage rounding from displaced samples.
+                        const auto x = first / 4U % 128U, y = first / 512U, channel = first % 4U;
+                        for (auto row = y == 0U ? 0U : y - 1U; row <= std::min(y + 1U, std::size_t{63U}); ++row) {
+                            for (auto column = x < 2U ? 0U : x - 2U; column <= std::min(x + 2U, std::size_t{127U}); ++column) {
+                                const auto at = (row * 128U + column) * 4U + channel;
+                                std::fprintf(stderr, "Sampled opacity neighbor xy=%zu,%zu channel=%zu actual=%u ordinary=%u\n",
+                                    column, row, channel, unsigned(pixels[at]), unsigned(baseline[at]));
+                            }
+                        }
                     }
                     require(pixels == baseline, "nearest original sampled input changed independently compiled ordinary bytes");
                 } else for (unsigned y = 0U; y < 64U; ++y) for (unsigned x = 0U; x < 128U; ++x) {

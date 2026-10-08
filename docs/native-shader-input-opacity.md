@@ -61,6 +61,21 @@ uniform layouts, image addressing and ordinary layer shader entries are unchange
 The complete sampled-opacity families still pass on local Metal and Vulkan;
 the Intel Metal and Windows integration runs remain required.
 
+The stock native GPU executable accepts `--sampled-opacity-only` or
+`--sampled-opacity-software` for a focused run of the unchanged three source
+families, nine states and cold/warm/independent engines. Default execution calls
+the same helper and still runs its complete corpus. A failed comparison logs the
+total changed pixels, maximum channel difference and a small original/subject
+neighborhood; no expected bytes, tolerances, counters or deadlines change. The
+shared fixture provides the same failure diagnostics for Dawn.
+
+At the integrated `1eb07c48e` checkpoint, hosted Intel Metal still differs at
+DrawingBrush state 3, pixel `(34,19)`, red 32 versus ordinary 33. Windows x64's
+complete GPU test passes, while Windows ARM64 reaches the later Direct2D phase
+before the unchanged aggregate 900-second deadline. The new focused helper and
+complete default GPU corpus pass on local Apple-silicon Metal. These observations
+do not qualify the remaining platform, producer-package or application gates.
+
 ImageBrush, DrawingBrush and VisualBrush opacity now connect through the existing
 `add_spatial_opacity_mask` sampled-brush path. Its original MIL rectangle compiler
 uses the unpadded visual material bounds and `S*p-A` transform in the DPI-1 capture
