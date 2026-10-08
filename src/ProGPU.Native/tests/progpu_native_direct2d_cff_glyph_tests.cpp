@@ -145,6 +145,9 @@ bool dictionary_decimal_contract()
 bool family_and_axis_admission()
 {
     original_cff_source original(cff_font_kind::cff2_variable_hvar, 1U);
+    // Captured outputs below retain this stack-backed COM identity until
+    // teardown, after the final collection replaces the earlier source.
+    original_cff_source collection(cff_font_kind::cff2_variable_fixed, 2U);
     std::shared_ptr<const d2d::original_font_capture> source;
     std::shared_ptr<d2d::prepared_original_font> font;
     if (original.capture(source) != com::ok || d2d::prepared_original_font::create(source, font) != com::ok) return false;
@@ -177,7 +180,6 @@ bool family_and_axis_admission()
     extended->axis_values.insert(extended->axis_values.begin(), {0x68746477U, 100});
     if (!check(d2d::prepared_original_font::create(extended, font) == com::ok && font->source() == extended,
         "CFF2 retains extra standard static source descriptors")) return false;
-    original_cff_source collection(cff_font_kind::cff2_variable_fixed, 2U);
     const auto sfnt = collection.stream.bytes;
     collection.stream.bytes.assign(16U + sfnt.size(), std::byte{0});
     auto& bytes = collection.stream.bytes;

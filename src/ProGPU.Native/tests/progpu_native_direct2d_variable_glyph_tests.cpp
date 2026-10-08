@@ -49,6 +49,9 @@ std::size_t table_offset(const std::vector<std::byte>& bytes, std::uint32_t tag)
 bool axis_and_table_admission()
 {
     original_variable_source original({true, true, true});
+    // Both stack-owned COM fixtures must outlive every captured/prepared owner,
+    // including the later static source that replaces these output handles.
+    original_variable_source static_original;
     std::shared_ptr<const d2d::original_font_capture> source;
     std::shared_ptr<d2d::prepared_original_font> font;
     if (!check(original.capture(source) == com::ok && d2d::prepared_original_font::create(source, font) == com::ok,
@@ -85,7 +88,6 @@ bool axis_and_table_admission()
     if (!check(d2d::prepared_original_font::create(extended, extended_font) == com::ok &&
         extended_font->source() == extended && extended->axis_values.size() == 5U,
         "genuine fvar coordinate plus standard static attributes retained")) return false;
-    original_variable_source static_original;
     static_original.stream.bytes = progpu::native::tests::make_hint_fault_font();
     static_original.stream.declared_size = static_original.stream.bytes.size();
     static_original.face.variable = false;
