@@ -159,8 +159,8 @@ internal static partial class Program
 
     private sealed class OriginalPathJoinScene
     {
-        internal ContainerVisual Root { get; } = new();
-        internal DrawingVisual Stroke { get; } = new();
+        internal PathJoinContainerVisual Root { get; } = new();
+        internal PathJoinDrawingVisual Stroke { get; } = new();
         private PathGeometry Geometry { get; }
         private Pen Pen { get; }
 
@@ -203,6 +203,8 @@ internal static partial class Program
 
         internal object Describe()
         {
+            if (Root.EmittedEdgeMode != EdgeMode.Aliased || Stroke.EmittedEdgeMode != EdgeMode.Aliased)
+                throw new InvalidOperationException("Original path-join visual edge mode changed.");
             var figure = Geometry.Figures[0];
             var cubic = (BezierSegment)figure.Segments[0];
             var line = (LineSegment)figure.Segments[1];
@@ -224,8 +226,21 @@ internal static partial class Program
                 figure.StartPoint, figure.IsFilled, figure.IsClosed,
                 Cubic = new { cubic.Point1, cubic.Point2, cubic.Point3, cubic.IsStroked, cubic.IsSmoothJoin },
                 Line = new { line.Point, line.IsStroked, line.IsSmoothJoin },
-                EdgeMode = RenderOptions.GetEdgeMode(Stroke), Fill = "none", ShaderEffect = "none"
+                EdgeMode = RenderOptions.GetEdgeMode(Stroke), EmittedEdgeMode = Stroke.EmittedEdgeMode,
+                RootEmittedEdgeMode = Root.EmittedEdgeMode, Fill = "none", ShaderEffect = "none"
             };
         }
+    }
+
+    private sealed class PathJoinDrawingVisual : DrawingVisual
+    {
+        internal PathJoinDrawingVisual() => VisualEdgeMode = EdgeMode.Aliased;
+        internal EdgeMode EmittedEdgeMode => VisualEdgeMode;
+    }
+
+    private sealed class PathJoinContainerVisual : ContainerVisual
+    {
+        internal PathJoinContainerVisual() => VisualEdgeMode = EdgeMode.Aliased;
+        internal EdgeMode EmittedEdgeMode => VisualEdgeMode;
     }
 }

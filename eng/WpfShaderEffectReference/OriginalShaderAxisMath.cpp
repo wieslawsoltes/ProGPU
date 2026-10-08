@@ -12,6 +12,15 @@
 
 namespace {
 constexpr std::uint32_t input_count = 14U, output_count = 128U, trait_count = 5U;
+#if defined(_XM_NO_INTRINSICS_)
+constexpr std::uint32_t intrinsic_backend = 0U;
+#elif defined(_XM_ARM_NEON_INTRINSICS_)
+constexpr std::uint32_t intrinsic_backend = 2U;
+#elif defined(_XM_SSE_INTRINSICS_)
+constexpr std::uint32_t intrinsic_backend = 1U;
+#else
+constexpr std::uint32_t intrinsic_backend = 0U;
+#endif
 void store(std::array<float, output_count>& values, std::size_t offset, DirectX::FXMMATRIX matrix) {
     DirectX::XMFLOAT4X4 result{};
     DirectX::XMStoreFloat4x4(&result, matrix);
@@ -19,6 +28,46 @@ void store(std::array<float, output_count>& values, std::size_t offset, DirectX:
 }
 float product(float first, float second) { volatile float result = first * second; return result; }
 float sum(float first, float second) { volatile float result = first + second; return result; }
+}
+
+// Public SDK arithmetic controls, independent of all matrix captures. Exact
+// binary inputs distinguish fused publication from separately rounded products.
+extern "C" __declspec(dllexport) int __cdecl OriginalShaderArithmetic(
+    const double* input, std::uint32_t inputs, float* output, std::uint32_t outputs,
+    std::uint32_t* traits, std::uint32_t traits_size) noexcept {
+    if (!input || !output || !traits || inputs != 12U || outputs != 8U || traits_size != trait_count) return 0;
+    std::array<float, 12U> values{};
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        if (!std::isfinite(input[i])) return 0;
+        values[i] = static_cast<float>(input[i]);
+        if (!std::isfinite(values[i])) return 0;
+    }
+    using namespace DirectX;
+    const auto a = XMVectorSet(values[0], values[1], values[2], values[3]);
+    const auto b = XMVectorSet(values[4], values[5], values[6], values[7]);
+    const auto c = XMVectorSet(values[8], values[9], values[10], values[11]);
+    XMFLOAT4 add{}, subtract{};
+    XMStoreFloat4(&add, XMVectorMultiplyAdd(a, b, c));
+    XMStoreFloat4(&subtract, XMVectorNegativeMultiplySubtract(a, b, c));
+    std::array<float, 8U> candidate{};
+    std::memcpy(candidate.data(), &add, sizeof(add));
+    std::memcpy(candidate.data() + 4, &subtract, sizeof(subtract));
+    for (const float value : candidate) if (!std::isfinite(value)) return 0;
+    const std::array<std::uint32_t, trait_count> identity{_MSC_FULL_VER, DIRECTX_MATH_VERSION,
+#if defined(_M_ARM64)
+        0xAA64U, intrinsic_backend,
+#else
+        0x8664U, intrinsic_backend,
+#endif
+#if defined(_XM_FMA3_INTRINSICS_)
+        1U
+#else
+        0U
+#endif
+    };
+    std::memcpy(output, candidate.data(), sizeof(candidate));
+    std::memcpy(traits, identity.data(), sizeof(identity));
+    return 1;
 }
 
 extern "C" __declspec(dllexport) int __cdecl OriginalShaderAxisMath(
@@ -68,9 +117,9 @@ extern "C" __declspec(dllexport) int __cdecl OriginalShaderAxisMath(
     for (const float value : candidate) if (!std::isfinite(value)) return 0;
     std::array<std::uint32_t,trait_count> identity{_MSC_FULL_VER,DIRECTX_MATH_VERSION,
 #if defined(_M_ARM64)
-        0xAA64U,2U,
+        0xAA64U,intrinsic_backend,
 #else
-        0x8664U,1U,
+        0x8664U,intrinsic_backend,
 #endif
 #if defined(_XM_FMA3_INTRINSICS_)
         1U
@@ -136,9 +185,9 @@ extern "C" __declspec(dllexport) int __cdecl OriginalShaderAffineMath(
     for(const float value:candidate) if(!std::isfinite(value)) return 0;
     const std::array<std::uint32_t,trait_count> identity{_MSC_FULL_VER,DIRECTX_MATH_VERSION,
 #if defined(_M_ARM64)
-        0xAA64U,2U,
+        0xAA64U,intrinsic_backend,
 #else
-        0x8664U,1U,
+        0x8664U,intrinsic_backend,
 #endif
 #if defined(_XM_FMA3_INTRINSICS_)
         1U
@@ -184,9 +233,9 @@ extern "C" __declspec(dllexport) int __cdecl OriginalTransformPrimitiveMath(
     for (float value:candidate) if (!std::isfinite(value)) return 0;
     const std::array<std::uint32_t,trait_count> identity{_MSC_FULL_VER,DIRECTX_MATH_VERSION,
 #if defined(_M_ARM64)
-        0xAA64U,2U,
+        0xAA64U,intrinsic_backend,
 #else
-        0x8664U,1U,
+        0x8664U,intrinsic_backend,
 #endif
 #if defined(_XM_FMA3_INTRINSICS_)
         1U

@@ -144,6 +144,7 @@ internal static partial class Program
         private readonly Probe probe;
         private readonly Probe affineProbe;
         private readonly Probe primitiveProbe;
+        private readonly Probe arithmeticProbe;
         internal object Identity {get;}
         internal OriginalAxisSdk(string commit)
         {
@@ -180,6 +181,7 @@ internal static partial class Program
                 probe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAxisMath"));
                 affineProbe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderAffineMath"));
                 primitiveProbe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalTransformPrimitiveMath"));
+                arithmeticProbe=Marshal.GetDelegateForFunctionPointer<Probe>(NativeLibrary.GetExport(library,"OriginalShaderArithmetic"));
             }
             catch { NativeLibrary.Free(library); throw; }
         }
@@ -224,6 +226,27 @@ internal static partial class Program
             var values=new float[156]; var traits=new uint[5];
             if(Invoke(input,24,values,156,traits,affineProbe)!=1) throw new InvalidOperationException("Original affine SDK capture failed.");
             return(values,traits);
+        }
+        internal (float[] Values,uint[] Traits) CaptureArithmetic(double[] input)
+        {
+            if(input.Length!=12) throw new InvalidOperationException("Wrong arithmetic original input count.");
+            var values=new float[8]; var traits=new uint[5];
+            if(Invoke(input,12,values,8,traits,arithmeticProbe)!=1) throw new InvalidOperationException("Original SDK arithmetic capture failed.");
+            return(values,traits);
+        }
+        internal int VerifyArithmeticAtomicControls()
+        {
+            for(int mode=0;mode<4;++mode)
+            {
+                var input=ShaderAffineMathOracle.ArithmeticInputs();
+                var values=Enumerable.Repeat(3.25f,8).ToArray(); var traits=Enumerable.Repeat(777U,5).ToArray();
+                if(mode==0) input[0]=double.NaN;
+                if(mode==3) input[0]=double.MaxValue;
+                if(Invoke(input,mode==1?11U:12U,values,mode==2?7U:8U,traits,arithmeticProbe)!=0 ||
+                    values.Any(x=>x!=3.25f) || traits.Any(x=>x!=777U))
+                    throw new InvalidOperationException("Arithmetic SDK companion rejection was not atomic.");
+            }
+            return 4;
         }
         internal int VerifyAffineAtomicControls(double[] original)
         {
