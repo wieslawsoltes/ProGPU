@@ -84,6 +84,15 @@ structural-zero equivalence. The checker also rejects a one-bit mutation at
 every one of the 156 captured positions, totaling 1,248 rejection controls.
 No recorded float, product uniform, source constant, tolerance or input matrix
 is repaired. Local replay of the immutable failed ARM64 receipt passes all eight
-matrix checks and all 1,248 corruptions; the fresh installed-SDK arithmetic
-export and complete original Windows run still require hosted CI. This does
-not qualify native uniforms, hardware pixels, packages or either source host.
+matrix checks and all 1,248 corruptions.
+
+The fresh original SDK captures at `5024aa0e273522529281211ba39e93562de25675`
+in [run 37764831728](https://github.com/wieslawsoltes/ProGPU/actions/runs/37764831728)
+then passed all eight matrix cases, four matrix atomic controls, four arithmetic
+atomic controls and 1,248 matrix corruptions on both Windows architectures.
+The cancellation probes independently returned fused NEON and separate SSE
+bits. Workflow receipt checks now require these complete inventories and matching
+matrix/arithmetic backend traits. That overall reference run failed later in
+the independent animation-clock setup, so it is not a whole-workflow pass.
+These original SDK results do not qualify native uniforms, hardware pixels,
+packages or either source host.

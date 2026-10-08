@@ -201,6 +201,7 @@ internal static partial class Program
     {
         private readonly ClockGroup root;
         private readonly ClockController controller;
+        private int timingNotifications;
         public AnimationClock Opacity => (AnimationClock)root.Children[0];
         public AnimationClock Viewport => (AnimationClock)root.Children[1];
         public AnimationClock Viewbox => (AnimationClock)root.Children[2];
@@ -214,28 +215,40 @@ internal static partial class Program
             timeline.Children.Add(new RectAnimation(new(0, 0, 1, 1), new(1, 0, 0, 1), duration));
             root = (ClockGroup)timeline.CreateClock(hasControllableRoot: true);
             controller = root.Controller ?? throw new InvalidOperationException("Original clock is not controllable.");
-            controller.Begin();
-            controller.Pause();
-            // Pause is processed by a real timing tick. Observe its public state,
-            // never assume a sleep/drain implies that it happened. The watchdog
-            // cannot extend the caller's original 60-second overall deadline.
-            var frame = new DispatcherFrame();
-            Exception? failure = null;
-            var poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
-            EventHandler tick = (_, _) =>
+            // Until the first animation is applied, the public timing event is
+            // the clock's only consumer. An unattached, unobserved clock does not
+            // progress merely because a DispatcherTimer reads its properties.
+            root.CurrentTimeInvalidated += OnTimeInvalidated;
+            try
             {
-                try
+                controller.Begin();
+                controller.Pause();
+                // Pause is processed by a real timing tick. Observe its public state,
+                // never assume a sleep/drain implies that it happened. The watchdog
+                // cannot extend the caller's original 60-second overall deadline.
+                var frame = new DispatcherFrame();
+                Exception? failure = null;
+                var poll = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
+                EventHandler tick = (_, _) =>
                 {
-                    CheckSamplerAnimationDeadline(timer);
-                    if (root.IsPaused && root.CurrentState == ClockState.Active) frame.Continue = false;
-                }
-                catch (Exception error) { failure = error; frame.Continue = false; }
-            };
-            poll.Tick += tick;
-            try { poll.Start(); Dispatcher.PushFrame(frame); }
-            finally { poll.Stop(); poll.Tick -= tick; }
-            if (failure != null) { controller.Remove(); throw failure; }
-            Seek(0);
+                    try
+                    {
+                        CheckSamplerAnimationDeadline(timer);
+                        if (root.IsPaused && root.CurrentState == ClockState.Active) frame.Continue = false;
+                    }
+                    catch (Exception error) { failure = error; frame.Continue = false; }
+                };
+                poll.Tick += tick;
+                try { poll.Start(); Dispatcher.PushFrame(frame); }
+                finally { poll.Stop(); poll.Tick -= tick; }
+                if (failure != null) throw failure;
+                Seek(0);
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
         }
 
         public void Seek(int seconds) => controller.SeekAlignedToLastTick(TimeSpan.FromSeconds(seconds), TimeSeekOrigin.BeginTime);
@@ -243,16 +256,23 @@ internal static partial class Program
         public object Describe(int seconds)
         {
             TimeSpan expected = TimeSpan.FromSeconds(seconds);
-            if (!root.IsPaused || root.CurrentState != ClockState.Active || root.CurrentTime != expected ||
+            if (timingNotifications == 0 || !root.IsPaused || root.CurrentState != ClockState.Active || root.CurrentTime != expected ||
                 root.CurrentProgress != seconds / 4.0 || root.CurrentGlobalSpeed != 0 ||
                 Opacity.CurrentTime != expected || Viewport.CurrentTime != expected || Viewbox.CurrentTime != expected)
                 throw new InvalidOperationException("Original clock time moved or was not the requested paused source time.");
-            return new { root.IsPaused, State = root.CurrentState.ToString(), CurrentTimeTicks = root.CurrentTime?.Ticks,
+            return new { TimingNotifications = timingNotifications,
+                root.IsPaused, State = root.CurrentState.ToString(), CurrentTimeTicks = root.CurrentTime?.Ticks,
                 root.CurrentProgress, root.CurrentGlobalSpeed, OpacityTicks = Opacity.CurrentTime?.Ticks,
                 ViewportTicks = Viewport.CurrentTime?.Ticks, ViewboxTicks = Viewbox.CurrentTime?.Ticks };
         }
 
-        public void Dispose() => controller.Remove();
+        private void OnTimeInvalidated(object? sender, EventArgs args) => ++timingNotifications;
+
+        public void Dispose()
+        {
+            root.CurrentTimeInvalidated -= OnTimeInvalidated;
+            controller.Remove();
+        }
     }
 
     private sealed class AnimatedSamplerScene

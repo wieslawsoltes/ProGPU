@@ -17,7 +17,10 @@ the shader sampler request nearest sampling. An inert attached scaling property
 is not used as evidence of source MIL state.
 
 A controllable `ParallelTimeline` owns real `DoubleAnimation` and `RectAnimation`
-clocks. It is paused through the public controller; a bounded dispatcher frame
+clocks. A retained `CurrentTimeInvalidated` observer supplies the timing consumer
+before any clock is attached to the brush, including the original detached
+baseline. At least one actual notification is required and the observer is
+removed during disposal. It is paused through the public controller; a bounded dispatcher frame
 observes actual paused/active state. It does not assume that waiting an arbitrary
 duration has paused the clock. `SeekAlignedToLastTick` selects exactly zero or two
 seconds in a four-second duration. Before and after every render, the reference
@@ -75,6 +78,9 @@ reuse original ProGPU-owned `ImageSamplers.cs` at product authoring base
 - [ClockController.Pause](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.animation.clockcontroller.pause)
   and [Timeline.CreateClock](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.animation.timeline.createclock)
   define actual controllable clock ownership.
+- [Clock's timing-consumer contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.animation.clock)
+  requires an event observer or animated property for a clock to progress.
+  Reading properties from a separate dispatcher timer is not such a consumer.
 - [Animatable.ApplyAnimationClock](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.animation.animatable.applyanimationclock)
   defines property attachment and null removal, not source-base replacement.
 - [Brush.Opacity](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.brush.opacity),
@@ -90,7 +96,10 @@ reuse original ProGPU-owned `ImageSamplers.cs` at product authoring base
 
 ## Status
 
-Authored only. No build, syntax check, test, verifier, original Windows execution,
-GPU work, VM operation or CI dispatch was performed. The final consolidated tip
-must execute these controls alongside both native providers; source clocks and
-authored expected colors alone are not qualification.
+The integrated original Windows run `37764831728` at `5024aa0e2` reached this
+family on both architectures but exhausted the shared deadline while waiting for
+an unattached, unobserved clock to progress. The observer repair preserves that
+deadline, every current/base/time assertion and all 27 full-frame comparisons.
+The reference project compiles on the macOS host with Windows targeting; the
+repaired clock still requires the complete original Windows run. No successful
+animation pixel receipt or native-provider qualification is claimed here.

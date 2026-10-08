@@ -107,9 +107,15 @@ jobs:
             if ((Get-Item -LiteralPath $affinePath).Length -gt 1MB) { throw 'Original affine math receipt exceeds its bound.' }
             $affine = Get-Content -LiteralPath $affinePath -Raw | ConvertFrom-Json
             if ($affine.Schema -ne 1 -or $affine.SourceCommit -cne $env:REFERENCE_COMMIT -or $affine.Architecture -cne '${{ matrix.arch }}' -or $affine.CaseCount -ne 8 -or $affine.Cases.Count -ne 8 -or $affine.AtomicControls -ne 4 -or $affine.Failures.Count -ne 0 -or $affine.QualifiedSdkCases -ne 8 -or $affine.QualifiedNativeCases -ne 0 -or $affine.QualifiedHardwareCases -ne 0) { throw 'Incomplete or misqualified original affine SDK inventory.' }
+            $arithmetic = $affine.ArithmeticControls
+            if ($arithmetic.OriginalDoubleBits.Count -ne 12 -or $arithmetic.Values.Count -ne 8 -or $arithmetic.FloatBits.Count -ne 8 -or $arithmetic.Traits.Count -ne 5 -or $arithmetic.AtomicControls -ne 4 -or $arithmetic.RejectedMatrixBitMutations -ne 1248) { throw 'Original SDK arithmetic or matrix corruption controls are incomplete.' }
+            $expectedBackend = if ('${{ matrix.arch }}' -ceq 'Arm64') { 2 } else { 1 }
+            $expectedArithmetic = if ($expectedBackend -eq 2) { 'A8800000,28800000,40000000,C0000000,C0000000,40000000,28800000,A8800000' } else { '00000000,00000000,40000000,C0000000,C0000000,40000000,00000000,00000000' }
+            if ($arithmetic.Traits[3] -ne $expectedBackend -or ($arithmetic.FloatBits -join ',') -cne $expectedArithmetic) { throw 'Original SDK arithmetic backend or cancellation bits changed.' }
             foreach ($name in @('quarter', 'mirror', 'swap', 'shear', 'oblique', 'mixed-dpi', 'noncommuting', 'canceled-history')) {
               $cases = @($affine.Cases | Where-Object { $_.Name -ceq $name })
               if ($cases.Count -ne 1 -or $cases[0].OriginalDoubleBits.Count -ne 24 -or $cases[0].Values.Count -ne 156 -or $cases[0].FloatBits.Count -ne 156 -or $cases[0].Traits.Count -ne 5) { throw "Missing or incomplete original affine SDK case: $name" }
+              if (($cases[0].Traits -join ',') -cne ($arithmetic.Traits -join ',')) { throw 'Original matrix and arithmetic receipts use different SDK backends.' }
             }
             if ($affine.SdkCompanion.Build.SourceCommit -cne $env:REFERENCE_COMMIT -or $affine.SdkCompanion.Binary.Sha256 -cne $axis.SdkCompanion.Binary.Sha256) { throw 'Affine SDK companion identity differs from the original companion.' }
             $primitivePath = Join-Path $evidence 'transform-primitives.json'
