@@ -436,7 +436,7 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
             int i = (y * (int)TargetWidth + x) * 4;
             // Literal output bands: the oracle uses neither the capture frame
             // matrix nor texture dimensions or rendered source pixels.
-            (byte r, byte g, byte b) = (x < 40, y < 24, changed) switch
+            (int r, int g, int b) = (x < 40, y < 24, changed) switch
             {
                 (true, true, false) => (255, 0, 0),
                 (true, true, true) => (0, 255, 255),
@@ -445,7 +445,9 @@ fn wpf_effect_main(uv: vec2<f32>, inputColor: vec4<f32>) -> vec4<f32> {
                 (false, false, false) => (255, 255, 255),
                 _ => (255, 0, 255)
             };
-            expected[i] = r; expected[i + 1] = g; expected[i + 2] = b;
+            expected[i] = checked((byte)r);
+            expected[i + 1] = checked((byte)g);
+            expected[i + 2] = checked((byte)b);
         }
         return expected;
     }

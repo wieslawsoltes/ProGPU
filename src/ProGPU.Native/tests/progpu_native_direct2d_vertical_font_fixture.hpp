@@ -25,8 +25,12 @@ struct vertical_phantom_expectation final { float top, bottom; };
 inline vertical_phantom_expectation expected_vertical_phantoms(std::size_t instance, std::uint16_t glyph)
 {
     static constexpr std::array<std::array<vertical_phantom_expectation,3U>,5U> values{{
-        {{{0,0},{0,0},{0,0}}}, {{{12,-20},{40,-8},{16,-48}}},
-        {{{24,-40},{80,-16},{32,-96}}}, {{{-6,10},{-20,4},{-8,24}}}, {{{-12,20},{-40,8},{-16,48}}}};
+        {{{0,0},{0,0},{0,0}}},
+        {{{12,-20},{40,-8},{16,-48}}},
+        {{{24,-40},{80,-16},{32,-96}}},
+        {{{-6,10},{-20,4},{-8,24}}},
+        {{{-12,20},{-40,8},{-16,48}}}
+    }};
     return values.at(instance).at(glyph);
 }
 struct vertical_glyph_expectation final {

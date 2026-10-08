@@ -20,7 +20,7 @@ public sealed partial class SourceVisualHitTestTests
     {
         // Paired with native scene 9842 and original VisualMaskInput reference.
         // Mask bounds intentionally have no overlap with the source drawings.
-        using var maskCommands = new DrawingContext();
+        var maskCommands = new DrawingContext();
         maskCommands.DrawRectangle(new SolidColorBrush(Vector4.Zero), null, new Rect(100, 100, 1, 1));
         using var picture = maskCommands.CreatePictureSnapshot();
         var root = new SourceVisual { Opacity = 0 };
@@ -120,7 +120,7 @@ public sealed partial class SourceVisualHitTestTests
     [InlineData(true)]
     public void VisualMaskCapabilityDoesNotAdmitUnknownSourcesOrOtherMappings(bool pictureMask)
     {
-        using var commands = new DrawingContext();
+        var commands = new DrawingContext();
         using var picture = commands.CreatePictureSnapshot();
         SourceVisual[] denied = [new SourceVisual(), new MaskSourceVisual { Effect = new UnmappedEffect() },
             new RequiredMaskCacheSourceVisual()];

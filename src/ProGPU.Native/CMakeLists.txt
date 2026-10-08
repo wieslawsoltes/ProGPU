@@ -1415,6 +1415,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             target_include_directories(
                 progpu_native_webscene_provider_tests PRIVATE
                 "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES}
                 "${PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR}")
             target_include_directories(
                 progpu_native_webscene_provider_tests SYSTEM PRIVATE
@@ -1711,6 +1712,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Backend/progpu_native_geometry_utility.cpp)
     target_compile_features(progpu_native_geometry_utility_tests PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_geometry_utility_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_include_directories(progpu_native_geometry_utility_tests PRIVATE
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
     target_link_libraries(progpu_native_geometry_utility_tests PRIVATE progpu_native_direct2d_core)
     progpu_native_enable_warnings(progpu_native_geometry_utility_tests)
     progpu_native_enable_sanitizers(progpu_native_geometry_utility_tests)
@@ -1761,7 +1764,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             progpu_native_direct2d_webgpu_tests PRIVATE cxx_std_20)
         target_include_directories(
             progpu_native_direct2d_webgpu_tests PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/include")
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
         target_include_directories(
             progpu_native_direct2d_webgpu_tests SYSTEM PRIVATE
             "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
@@ -1882,6 +1886,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         add_executable(progpu_native_direct2d_tests
             tests/progpu_native_direct2d_tests.cpp)
         target_compile_features(progpu_native_direct2d_tests PRIVATE cxx_std_20)
+        target_include_directories(progpu_native_direct2d_tests PRIVATE
+            ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
         target_compile_definitions(progpu_native_direct2d_tests PRIVATE
             NOMINMAX
             WIN32_LEAN_AND_MEAN)

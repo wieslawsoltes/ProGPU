@@ -1,5 +1,5 @@
 using Xunit;
-using Media = System.Windows.Media;
+using WpfMedia = global::System.Windows.Media;
 
 namespace ProGPU.Tests;
 
@@ -20,14 +20,14 @@ public sealed class WpfSourcePenJoinPolicyTests
     [InlineData(2, 3)]
     public void ShimOverloadsRetainFullSourcePolicyAndStrokeSnapshot(int join, int overload)
     {
-        var source = new Media.Pen(Media.Brushes.Black, 2)
+        var source = new WpfMedia.Pen(WpfMedia.Brushes.Black, 2)
         {
-            LineJoin = (Media.PenLineJoin)join,
+            LineJoin = (WpfMedia.PenLineJoin)join,
             MiterLimit = 1,
-            StartLineCap = Media.PenLineCap.Square,
-            EndLineCap = Media.PenLineCap.Triangle,
-            DashCap = Media.PenLineCap.Round,
-            DashStyle = new Media.DashStyle([2, 3], 0.5)
+            StartLineCap = WpfMedia.PenLineCap.Square,
+            EndLineCap = WpfMedia.PenLineCap.Triangle,
+            DashCap = WpfMedia.PenLineCap.Round,
+            DashStyle = new WpfMedia.DashStyle([2, 3], 0.5)
         };
         var bounds = new System.Windows.Rect(5, 7, 20, 30);
         var native = overload switch
@@ -52,7 +52,7 @@ public sealed class WpfSourcePenJoinPolicyTests
         Assert.Equal(new double[] { 2, 3 }, native.DashArray);
         Assert.Equal(0.5, native.DashOffset);
 
-        source.LineJoin = Media.PenLineJoin.Round;
+        source.LineJoin = WpfMedia.PenLineJoin.Round;
         source.DashStyle.Dashes = [9];
         source.Thickness = 9;
         Assert.Equal((Vector.PenLineJoin)join, native.LineJoin);

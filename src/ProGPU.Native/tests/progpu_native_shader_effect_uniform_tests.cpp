@@ -14,11 +14,13 @@ bool check(bool value, int line) {
     if (!value) std::cerr << "shader derivative uniform control failed at " << line << '\n';
     return value;
 }
+}
 #define UV_REQUIRE(value) do { if (!check((value), __LINE__)) return false; } while (false)
 
 #include "progpu_native_shader_affine_frame_controls.hpp"
 #include "progpu_native_source_transform_primitive_controls.hpp"
 
+namespace {
 bool source_sample_frame_arithmetic() {
     using namespace progpu::native::shader_effect;
     const auto bits = [](float value) { return std::bit_cast<std::uint32_t>(value); };

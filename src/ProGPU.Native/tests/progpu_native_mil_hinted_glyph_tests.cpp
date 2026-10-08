@@ -1,6 +1,8 @@
 #include "../src/Mil/progpu_native_mil_hinted_glyphs.hpp"
 #include "../src/Text/Interop/progpu_native_hinted_paragraph_transport_internal.hpp"
+#if defined(PROGPU_NATIVE_FONT_HINTING)
 #include "../src/Text/progpu_native_text_interaction_impl.hpp"
+#endif
 #include "../src/Scene/progpu_native_semantic_state.hpp"
 #include "progpu_native_mil.h"
 #include "progpu_native_text_source_resource.h"

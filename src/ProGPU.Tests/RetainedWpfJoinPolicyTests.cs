@@ -100,12 +100,12 @@ public sealed class RetainedWpfJoinPolicyTests
     }
 
     private static Pen SourcePen(PenLineJoin join) => new(
-        new SolidColorBrush(new(1, 0, 0, 1)), 2, join, 1)
+        new SolidColorBrush(new Vector4(1, 0, 0, 1)), 2, join, 1)
         { UseWpfJoinSemantics = true };
 
     private static GpuPicture Picture(PathGeometry path, Pen? pen) => new(
         [new RenderCommand { Type = RenderCommandType.DrawPath, Path = path, Pen = pen,
-            Brush = pen == null ? new SolidColorBrush(new(1, 0, 0, 1)) : null,
+            Brush = pen == null ? new SolidColorBrush(new Vector4(1, 0, 0, 1)) : null,
             Transform = Matrix4x4.Identity, IsEdgeAliased = true, IsPenThicknessLocal = true,
             GeometryCache = RenderCommandGeometryCache.ForPath(path) }], [], [], [], []);
 

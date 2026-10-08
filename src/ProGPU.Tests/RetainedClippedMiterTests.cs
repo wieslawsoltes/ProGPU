@@ -67,7 +67,7 @@ public sealed class RetainedClippedMiterTests
         var pen = CreatePen(mode, limit);
         using var actual = Picture(pen, Rectangle());
         float radius = mode == 2 ? .5f : 4;
-        using var independent = Picture(null, Ring(radius, limit), new SolidColorBrush(new(1, 0, 0, 1)));
+        using var independent = Picture(null, Ring(radius, limit), new SolidColorBrush(new Vector4(1, 0, 0, 1)));
         if (mode == 0)
         {
             Assert.True(GpuPictureBounds.TryGetBounds(actual, out var actualBounds));
@@ -100,7 +100,7 @@ public sealed class RetainedClippedMiterTests
     }
 
     private static Pen CreatePen(int mode, float limit) => new(
-        new SolidColorBrush(new(1, 0, 0, 1)), mode == 2 ? Pen.HairlineThickness : 8,
+        new SolidColorBrush(new Vector4(1, 0, 0, 1)), mode == 2 ? Pen.HairlineThickness : 8,
         PenLineJoin.Miter, limit, strokeTransformMode: mode == 0 ? PenStrokeTransformMode.Normal : PenStrokeTransformMode.Fixed)
         { ClipMiterAtLimit = true };
 

@@ -2433,12 +2433,12 @@ int main(int argc, char** argv)
     {
         auto* clear_engine = create_engine(gpu);
         progpu::native::tests::verify_native_target_clear(
-            [&](const auto& stream, const progpu_native_scene_header& header,
+            [&](const auto& stream, const progpu_native_scene_metrics& validated,
                 std::uint32_t draws, std::uint32_t submissions,
                 const progpu_native_scene_presentation* presentation,
                 progpu_native_status expected, progpu_native_scene_frame_metrics& metrics) {
-                return render_scene(gpu, clear_engine, nullptr, draws, header.command_count, submissions,
-                    stream, header.scene_id, header.generation, &metrics, 1.0F, presentation, expected);
+                return render_scene(gpu, clear_engine, nullptr, draws, validated.command_count, submissions,
+                    stream, validated.scene_id, validated.generation, &metrics, 1.0F, presentation, expected);
             }, require);
         progpu_native_engine_destroy(clear_engine);
     }

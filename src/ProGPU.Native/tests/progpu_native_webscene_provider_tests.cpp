@@ -3860,12 +3860,12 @@ int main(int argc, char** argv) {
         require(progpu_native_dawn_engine_create(&engine_options, &clear_engine) == PROGPU_NATIVE_STATUS_SUCCESS && clear_engine,
             "target Clear Dawn engine creation failed");
         progpu::native::tests::verify_native_target_clear(
-            [&](const auto& stream, const progpu_native_scene_header& header,
+            [&](const auto& stream, const progpu_native_scene_metrics& validated,
                 std::uint32_t draws, std::uint32_t submissions,
                 const progpu_native_scene_presentation* presentation,
                 progpu_native_status expected, progpu_native_scene_frame_metrics& metrics) {
-                return render_retained_scene(false, stream, header.generation, submissions, header.scene_id,
-                    draws, header.command_count, nullptr, &metrics, 1.0F, presentation, expected,
+                return render_retained_scene(false, stream, validated.generation, submissions, validated.scene_id,
+                    draws, validated.command_count, nullptr, &metrics, 1.0F, presentation, expected,
                     false, 64U, nullptr, clear_engine);
             }, require);
         progpu_native_engine_destroy(clear_engine);

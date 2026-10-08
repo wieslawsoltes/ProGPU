@@ -1,6 +1,6 @@
 #pragma once
 
-#include "progpu_native_scene.hpp"
+#include "progpu_native.h"
 #include "progpu_native_scene_builder.hpp"
 
 #include <array>
@@ -104,13 +104,15 @@ template<class Render, class Require>
 void verify_native_target_clear(Render render, Require require) {
     for (unsigned variant = 0U; variant < 15U; ++variant) {
         const auto bytes = target_clear_scene(variant, require);
-        const auto validated = scene::validate(bytes.data(), bytes.size());
-        require(validated.status == PROGPU_NATIVE_STATUS_SUCCESS, "target Clear wire validation");
+        progpu_native_scene_metrics validated{};
+        validated.struct_size = sizeof(validated);
+        require(progpu_native_scene_validate(bytes.data(), bytes.size(), &validated) ==
+            PROGPU_NATIVE_STATUS_SUCCESS, "target Clear wire validation");
         std::vector<std::uint8_t> cold;
         const progpu_native_scene_presentation mapped{sizeof(mapped), 5U, 7U, 40U, 42U, 1.25F, 1.5F, 0U};
         for (unsigned replay = 0U; replay < 2U; ++replay) {
             progpu_native_scene_frame_metrics metrics{}; metrics.struct_size = sizeof(metrics);
-            const auto pixels = render(bytes, validated.header, validated.draw_count,
+            const auto pixels = render(bytes, validated, validated.draw_count,
                 variant == 8U && replay == 0U ? 2U : 1U,
                 variant == 7U || variant == 14U ? &mapped : nullptr,
                 variant == 9U ? PROGPU_NATIVE_STATUS_UNSUPPORTED : PROGPU_NATIVE_STATUS_SUCCESS, metrics);
@@ -155,7 +157,7 @@ void verify_native_target_clear(Render render, Require require) {
             }
             const std::uint32_t draws = variant == 2U || variant == 4U || variant == 5U ? 3U :
                 variant == 6U ? 5U : variant == 3U ? 0U : 1U;
-            require(metrics.draw_call_count == draws && metrics.command_count == validated.header.command_count &&
+            require(metrics.draw_call_count == draws && metrics.command_count == validated.command_count &&
                 metrics.submission_count == (variant == 8U && replay == 0U ? 2U : 1U),
                 "target Clear actual replay counts differ");
             if (variant <= 1U || variant == 7U || variant >= 10U)
