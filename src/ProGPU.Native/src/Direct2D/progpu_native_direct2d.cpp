@@ -6559,7 +6559,6 @@ public:
         if (!finite_point(baseline_origin) || glyphs == nullptr || foreground == nullptr ||
             glyphs->fontFace == nullptr || !std::isfinite(glyphs->fontEmSize) ||
             glyphs->fontEmSize <= 0.0F ||
-            (glyphs->isSideways != FALSE && glyphs->isSideways != TRUE) ||
             (measuring != DWRITE_MEASURING_MODE_NATURAL &&
                 measuring != DWRITE_MEASURING_MODE_GDI_CLASSIC &&
                 measuring != DWRITE_MEASURING_MODE_GDI_NATURAL)) return fail_invalid_value();

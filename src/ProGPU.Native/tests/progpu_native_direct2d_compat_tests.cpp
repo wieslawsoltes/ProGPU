@@ -1438,7 +1438,7 @@ bool retained_text_source_contract(compat::scene_factory_native* scene_factory)
     std::uint16_t indices[]{7U, 9U};
     float advances[]{9.0F, 10.0F};
     compat::glyph_offset offsets[]{{0.25F, -0.5F}, {-0.25F, 1.0F}};
-    compat::glyph_run run{face.get(), 12.0F, 2U, indices, advances, offsets, 0, 1U};
+    compat::glyph_run run{face.get(), 12.0F, 2U, indices, advances, offsets, -1, 1U};
     const auto record = [&](std::vector<std::byte>& bytes) {
         target->SetTextRenderingParams(parameters.get());
         target->SetTextAntialiasMode(compat::text_antialias_mode::aliased);
@@ -1466,11 +1466,13 @@ bool retained_text_source_contract(compat::scene_factory_native* scene_factory)
         value.offsets[1] = {20.0F, 30.0F};
         value.run->font_em_size = 48.0F;
         value.run->glyph_count = 1U;
+        value.run->is_sideways = 0;
         value.run->bidi_level = 0U;
     };
     if (!record(reentrant) || !same_scene_after_generation_advance(original, reentrant) ||
         face->outline_call_count != 2U || face->last_em_size != 12.0F ||
-        face->last_glyph_count != 2U || face->last_is_right_to_left != 1) return false;
+        face->last_glyph_count != 2U || face->last_is_sideways != -1 ||
+        face->last_is_right_to_left != 1) return false;
 
     source::text_rendering_values values{};
     if (source::capture_text_rendering_values(parameters.get(), values) != com::ok ||

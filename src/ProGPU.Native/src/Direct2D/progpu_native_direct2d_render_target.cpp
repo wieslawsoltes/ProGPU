@@ -5383,8 +5383,7 @@ public:
             if (!can_draw()) return failure_;
             if (glyphs == nullptr || foreground == nullptr || !valid_point(baseline) ||
                 glyphs->font_face_value != retained_source->source()->face.get() ||
-                !std::isfinite(glyphs->font_em_size) || glyphs->font_em_size <= 0.0F ||
-                (glyphs->is_sideways != 0 && glyphs->is_sideways != 1)) {
+                !std::isfinite(glyphs->font_em_size) || glyphs->font_em_size <= 0.0F) {
                 latch(com::invalid_argument);
                 return failure_;
             }
@@ -5501,8 +5500,7 @@ public:
                 !std::isfinite(glyphs->font_em_size) ||
                 glyphs->font_em_size <= 0.0F ||
                 (glyphs->glyph_count != 0U &&
-                    glyphs->glyph_indices == nullptr) ||
-                (glyphs->is_sideways != 0 && glyphs->is_sideways != 1)) {
+                    glyphs->glyph_indices == nullptr)) {
                 latch(com::invalid_argument);
                 return;
             }

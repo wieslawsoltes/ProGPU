@@ -13,6 +13,13 @@ outline rotates left around its original vertical origin before the run's
 baseline, advance and offset translations. The outer source transform remains
 on the retained draw; it is not baked into a second font or used to reshape.
 
+Integrated validation found stale zero-or-one checks in the portable recorder,
+prepared target and Windows command-list adapter. Those COM boundaries now
+retain the original signed BOOL, including `-1`, through capture and callbacks.
+The reentrant source test mutates the caller's value after capture and requires
+the original value at the font callback. The separate numeric C-wire flags keep
+their existing zero-or-one validation.
+
 The strict metric owner is created lazily for sideways requests from the same
 immutable original bytes. Horizontal requests never inspect newly required
 vertical tables. A complete vhea/vmtx pair supplies nominal advance heights,
