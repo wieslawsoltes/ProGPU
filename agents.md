@@ -254,8 +254,10 @@ alias rejection. Metric deltas do not select vertical origins or admit sideways
 source drawing. See docs/native-vertical-metric-variations.md.
 
 Prepared original horizontal glyphs preserve logical source order and every bidi
-level. RTL changes the advance-box origin and directional offset, never outline
-orientation, glyph order or ascender offset. Keep explicit/null and signed
+level. RTL subtracts the current original design width from its pen; positioned
+advances move following pens independently. Never substitute the current caller
+advance for that design width or reflect outlines, reorder glyphs or change
+ascender offsets. Keep explicit/null and signed
 advances, no-ink movement, paired variable origin/metrics and whole-run atomic
 publication. No extra source shaping/font callback or raster policy is admitted.
 Retain independent original Windows and both provider full-frame controls;

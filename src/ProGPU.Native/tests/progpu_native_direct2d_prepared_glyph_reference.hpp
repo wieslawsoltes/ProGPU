@@ -8,10 +8,51 @@
 // loader and DrawGlyphRun own the oracle; no product rasterizer produces it.
 namespace progpu::native::direct2d::tests {
 
+class original_prepared_rectangle_sink final : public ID2D1SimplifiedGeometrySink {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** output) override {
+        if (output == nullptr) return E_POINTER;
+        *output = nullptr;
+        if (id != __uuidof(IUnknown) && id != __uuidof(ID2D1SimplifiedGeometrySink)) return E_NOINTERFACE;
+        *output = static_cast<ID2D1SimplifiedGeometrySink*>(this); AddRef(); return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
+    ULONG STDMETHODCALLTYPE Release() override { return --references_; }
+    void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE) noexcept override {}
+    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {}
+    void STDMETHODCALLTYPE BeginFigure(D2D1_POINT_2F point, D2D1_FIGURE_BEGIN begin) noexcept override {
+        if (open_ || count_ == bounds.size() || begin != D2D1_FIGURE_BEGIN_FILLED) { valid_ = false; return; }
+        bounds[count_++] = {point.x, point.y, point.x, point.y}; open_ = true;
+    }
+    void STDMETHODCALLTYPE AddLines(const D2D1_POINT_2F* points, UINT32 count) noexcept override {
+        if (!open_ || (points == nullptr && count != 0U)) { valid_ = false; return; }
+        auto& box = bounds[count_ - 1U];
+        for (UINT32 i = 0U; i < count; ++i) {
+            box.left = std::min(box.left, points[i].x); box.right = std::max(box.right, points[i].x);
+            box.top = std::min(box.top, points[i].y); box.bottom = std::max(box.bottom, points[i].y);
+        }
+    }
+    void STDMETHODCALLTYPE AddBeziers(const D2D1_BEZIER_SEGMENT*, UINT32) noexcept override { valid_ = false; }
+    void STDMETHODCALLTYPE EndFigure(D2D1_FIGURE_END end) noexcept override {
+        if (!open_ || end != D2D1_FIGURE_END_CLOSED) valid_ = false;
+        open_ = false;
+    }
+    HRESULT STDMETHODCALLTYPE Close() noexcept override { return complete() ? S_OK : E_FAIL; }
+    bool complete() const noexcept { return valid_ && !open_ && count_ == bounds.size() && references_ == 1U; }
+    std::array<D2D1_RECT_F, 2U> bounds{};
+private:
+    ULONG references_ = 1U;
+    std::size_t count_ = 0U;
+    bool open_ = false, valid_ = true;
+};
+
 template<class Require>
 void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
     IDWriteFactory* write_factory, Require require)
 {
+    std::uint32_t pixel_cases = 0U;
+    std::uint32_t placement_failures = 0U;
+    std::uint32_t nominal_failures = 0U;
     for (std::uint32_t origins = 0U; origins < 3U; ++origins) {
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
@@ -138,6 +179,23 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
             if (index % 4U == 3U) sink->EndFigure(compat::figure_end::closed);
         }
         require(sink->Close() == S_OK, "original prepared outline close");
+        // Observe each original source occurrence independently of both the
+        // product decoder and the SDK rasterizer's antialiasing policy.
+        original_prepared_rectangle_sink original_outline;
+        const DWRITE_GLYPH_OFFSET original_offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
+        require(face->GetGlyphRunOutline(run.font_em_size, indices, nominal ? nullptr : advances,
+            original_offsets, 3U, FALSE, right_to_left, &original_outline) == S_OK && original_outline.complete(),
+            "original prepared logical-run outline observation");
+        const auto literal = prepared_pixel_rectangles(origins, nominal, right_to_left);
+        for (std::size_t glyph = 0U; glyph < literal.size(); ++glyph) {
+            const auto& observed = original_outline.bounds[glyph];
+            const auto& expected = literal[glyph];
+            require(observed.left + frame.baseline.x == expected.left &&
+                observed.top + frame.baseline.y == expected.top &&
+                observed.right + frame.baseline.x == expected.right &&
+                observed.bottom + frame.baseline.y == expected.bottom,
+                "original outline occurrence differs from independent design-width/positioned-advance placement");
+        }
         std::array<std::vector<std::uint8_t>, 4U> pixels;
         const std::array paths{prepared_pixel_path::original, prepared_pixel_path::independent_geometry,
             prepared_pixel_path::prepared_geometry, prepared_pixel_path::original_design_advances};
@@ -158,13 +216,23 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
                 (difference / 4U) % 64U, difference / 256U, difference % 4U,
                 unsigned(pixels[0][difference]), unsigned(pixels[index][difference]), unsigned(pixels[1] == pixels[2]));
         }
-        require(pixels[0] == pixels[1] && pixels[0] == pixels[2],
-            "original DrawGlyphRun differs from independent or prepared full-byte placement");
-        if (nominal) require(pixels[0] == pixels[3],
-            "original null advances differ from original explicit horizontal design advances");
+        // Complete the original inventory before rejecting the run. A first
+        // grayscale mismatch otherwise hides later origin, size and RTL
+        // differences, encouraging a fix based on only one source frame.
+        // Structural/native failures still reject immediately through require.
+        ++pixel_cases;
+        if (pixels[0] != pixels[1] || pixels[0] != pixels[2]) ++placement_failures;
+        if (nominal && pixels[0] != pixels[3]) ++nominal_failures;
     }
     }
     }
     }
+    std::fprintf(stderr, "Original prepared glyph cases=%u placement-failures=%u nominal-failures=%u\n",
+        pixel_cases, placement_failures, nominal_failures);
+    require(pixel_cases == 48U, "original prepared glyph pixel inventory changed");
+    require(placement_failures == 0U,
+        "original DrawGlyphRun differs from independent or prepared full-byte placement");
+    require(nominal_failures == 0U,
+        "original null advances differ from original explicit horizontal design advances");
 }
 } // namespace progpu::native::direct2d::tests

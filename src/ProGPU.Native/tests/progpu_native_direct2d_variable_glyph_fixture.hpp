@@ -42,11 +42,12 @@ inline std::array<compat::rectangle_f, 2U> variable_rtl_pixel_rectangles(std::si
     const auto second = expected_variable_glyph(2U, case_index);
     constexpr float scale = 1.0F / 32.0F;
     // Authored logical order is 1,0,2. Each RTL left origin includes its own
-    // advance; the no-ink middle glyph retains its signed/varied advance.
+    // varied design width; positioned advances move the preceding pens. The
+    // no-ink middle glyph retains its signed/varied positioned advance.
     // The source offset -0.75 moves right, not left, in this run direction.
     // Keep this oracle independent of decoded contours/prepared placement.
-    const auto first_pen = nominal ? first.advance * scale : 12.0F;
-    const auto second_pen = nominal ? first.advance * scale + empty.advance * scale + second.advance * scale : 29.0F;
+    const auto first_pen = first.advance * scale;
+    const auto second_pen = (nominal ? first.advance * scale + empty.advance * scale : 9.0F) + second.advance * scale;
     return {{{(first.x_min - first.horizontal_origin) * scale + 56.0F - first_pen,
               28.0F - first.y_max * scale,
               (first.x_max - first.horizontal_origin) * scale + 56.0F - first_pen,
@@ -181,9 +182,9 @@ void verify_variable_glyph_pixels(Render render, Require require)
                 if (right_to_left && instance == 0U && !nominal) {
                     constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
                     require(std::equal(red.begin(), red.end(), cold.data() + (20U * 64U + 48U) * 4U) &&
-                        std::equal(red.begin(), red.end(), cold.data() + (20U * 64U + 30U) * 4U) &&
-                        std::equal(black.begin(), black.end(), cold.data() + (20U * 64U + 40U) * 4U),
-                        "variable RTL absolute first/last logical ink and signed empty-glyph gap");
+                        std::equal(red.begin(), red.end(), cold.data() + (20U * 64U + 35U) * 4U) &&
+                        std::equal(black.begin(), black.end(), cold.data() + (20U * 64U + 30U) * 4U),
+                        "variable RTL absolute logical ink, signed empty-glyph advance and outside background");
                 }
             }
             require(source->axis_values[0].value == variable_font_cases[instance].weight &&

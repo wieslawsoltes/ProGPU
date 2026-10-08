@@ -33,18 +33,19 @@ inline std::array<compat::rectangle_f, 2U> prepared_pixel_rectangles(std::uint32
     bool right_to_left = false)
 {
     if (right_to_left) {
-        // Separate literal RTL oracle. Logical boxes consume explicit24,-3,24
-        // or nominal15.625 advances; the third advanceOffset=-.75 moves right
-        // in physical coordinates without changing the following pen.
+        // Separate literal RTL oracle. Each left-oriented outline starts one
+        // original design width left of its pen (31.25 or 15.625). Caller
+        // advances 24,-3,24 move successive pens independently; the third
+        // advanceOffset=-.75 moves right without changing the following pen.
         // Neither font decoding nor prepared placement supplies these values.
         if (nominal) {
             if (origins == 1U) return {{{45.875F, 5, 55.25F, 17.5F}, {13.875F, 2.5F, 23.25F, 15}}};
             if (origins == 2U) return {{{44.375F, 5, 53.75F, 17.5F}, {15.375F, 2.5F, 24.75F, 15}}};
             return {{{45.375F, 5, 54.75F, 17.5F}, {14.875F, 2.5F, 24.25F, 15}}};
         }
-        if (origins == 1U) return {{{38, 5, 56.75F, 30}, {14.75F, 2.5F, 33.5F, 27.5F}}};
-        if (origins == 2U) return {{{35, 5, 53.75F, 30}, {17.75F, 2.5F, 36.5F, 27.5F}}};
-        return {{{37, 5, 55.75F, 30}, {16.75F, 2.5F, 35.5F, 27.5F}}};
+        if (origins == 1U) return {{{30.75F, 5, 49.5F, 30}, {7.5F, 2.5F, 26.25F, 27.5F}}};
+        if (origins == 2U) return {{{27.75F, 5, 46.5F, 30}, {10.5F, 2.5F, 29.25F, 27.5F}}};
+        return {{{29.75F, 5, 48.5F, 30}, {9.5F, 2.5F, 28.25F, 27.5F}}};
     }
     if (nominal) {
         // Original authored hmtx widths are 500 at em 31.25 / UPM 1000.
@@ -195,7 +196,7 @@ void verify_prepared_glyph_pixels(Render render, Require require)
         }
         if (variant == 0U && origins == 0U && right_to_left) {
             constexpr std::array<std::uint8_t, 4U> black{0, 0, 0, 255}, red{255, 0, 0, 255};
-            const std::uint32_t first = nominal ? 50U : 40U, gap = nominal ? 35U : 36U;
+            const std::uint32_t first = nominal ? 50U : 40U, gap = nominal ? 35U : 29U;
             require(std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + first) * 4U) &&
                 std::equal(red.begin(), red.end(), cold.data() + (10U * 64U + 20U) * 4U) &&
                 std::equal(black.begin(), black.end(), cold.data() + (10U * 64U + gap) * 4U) &&

@@ -679,11 +679,12 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             const float next_pen = pen + advance;
             if (!std::isfinite(next_pen)) return com::invalid_argument;
             const auto offset = original.glyphs.offsets() == nullptr ? compat::glyph_offset{} : original.glyphs.offsets()[index];
-            // An RTL pen starts at the right edge of the glyph's advance box.
-            // Move its left-oriented outline origin, never reflect contours or
-            // reverse occurrences. Advance offsets follow the run direction;
-            // ascender offsets retain their original screen-up direction.
-            const float glyph_pen = right_to_left ? -next_pen : pen;
+            // RTL outline orientation uses this glyph's original design width,
+            // independently of the caller's positioned advance. That advance
+            // moves the next pen, including for empty/zero/negative occurrences.
+            // Original GetGlyphRunOutline controls distinguish the two widths.
+            // Never reflect contours or reverse the logical occurrence order.
+            const float glyph_pen = right_to_left ? -pen - design_advance * scale : pen;
             const float advance_offset = right_to_left ? -offset.advance_offset : offset.advance_offset;
             const float x = original.target.baseline.x + glyph_pen + advance_offset;
             const float y = original.target.baseline.y - offset.ascender_offset;

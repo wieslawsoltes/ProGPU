@@ -374,7 +374,7 @@ using namespace progpu::native::direct2d::tests;
                 "horizontal RTL retains logical run and nominal/explicit advance identity")) return false;
             for (std::size_t glyph = 0U; glyph < 2U; ++glyph) {
                 const float left = nominal ? (glyph == 0U ? -53.375F : -175.875F)
-                    : (glyph == 0U ? -30.875F : -33.375F);
+                    : (glyph == 0U ? -53.375F : -83.875F);
                 const float right = left + 37.5F;
                 const float top = glyph == 0U ? -1.875F : -4.625F;
                 const float bottom = glyph == 0U ? 48.125F : 45.375F;

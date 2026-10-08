@@ -10,8 +10,9 @@ borrow the horizontal RTL arithmetic or admit combined sideways/odd bidi.
 
 The original request owns its logical IDs, explicit-or-null advances, offsets
 and baseline. A left-to-right outline uses the accumulated advance. A
-right-to-left outline starts at the left edge of its current advance box, using
-the negative accumulated advance including that occurrence. Advance offsets
+right-to-left outline starts one original design width to the left of its pen.
+The caller's positioned advance moves the following pen; it does not replace
+the current glyph's design width. Advance offsets
 change sign with the run direction; ascender offsets do not. The existing
 per-glyph design-origin subtraction and em scale retain their order, including
 the paired variable-font origin/advance. Explicit zero and negative advances
@@ -22,8 +23,25 @@ This uses the public [glyph-run direction](https://learn.microsoft.com/en-us/win
 and [logical outline input](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontface-getglyphrunoutline)
 contracts with the existing ProGPU-owned decoder and placement code. The exact
 source placement and arithmetic remain subject to the original Windows controls
-below; those controls have not run. No foreign renderer implementation was read
+below; their full pixel gate remains unresolved. No foreign renderer implementation was read
 or copied.
+
+Integrated original-SDK execution disproved the initial use of the current
+positioned advance as the RTL outline width. At em 62.5, an authored hmtx width
+of 500/1000 gives a design width of 31.25 even when the caller supplies 24. The
+original run's two rectangles begin at 29.75 and 9.5, rather than 37 and 16.75.
+Fifty-four SDK outline controls confirm the design-width rule across three
+bearing inventories, three em sizes, LTR/RTL and explicit, zero/negative or null
+advances. Source IDs, font bytes, advances, offsets and baselines are unchanged.
+
+The shared prepared path now separates these two roles. Independent static and
+variable rectangle expectations use their authored design metrics, and the
+Windows fixture checks each original SDK outline occurrence before comparing
+pixels. It completes all 48 original pixel cases before failing on any remaining
+mismatch, preserving the complete byte comparisons. The Windows ARM64 SDK/WARP
+execution now passes all 48 outline observations and all 24 aliased pixel cases;
+the remaining 18 grayscale mismatches are a separate unresolved gate. All 47
+local stock Metal native tests also pass, including the full GPU corpus.
 
 Complete finite-pen/origin/segment preparation still precedes both cache and run
 publication. A later overflow retains the caller's prior result and existing

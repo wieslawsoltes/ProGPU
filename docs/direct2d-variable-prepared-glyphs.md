@@ -102,15 +102,15 @@ table, transforms, clips and layer inputs are unchanged. A second direction pass
 adds forty RTL configurations over the same four alternatives and five instances,
 using original logical IDs `1,0,2`, bidi level 3 and baseline `(56,28)`. Explicit
 advances are `12,-3,20`; null advances use the independent per-instance design
-table. The third explicit advance differs from the LTR input deliberately so the
-RTL ink regions have a visible gap. The no-ink middle glyph still moves the pen.
+table. The third explicit advance remains distinct from the LTR input; it moves
+the following pen without defining the current outline width. The no-ink middle glyph still moves the pen.
 The original third offset `(-0.75,2.5)` changes its horizontal direction only.
 
-The separate RTL rectangle oracle subtracts each occurrence's cumulative advance
-including its own advance, then applies its independently authored variable
-origin. It does not query the decoder or the prepared run. Both providers consume
+The separate RTL rectangle oracle subtracts the preceding positioned advances
+and the current glyph's independently authored varied design width, then applies
+its independently authored variable origin. It does not query the decoder or the prepared run. Both providers consume
 the shared existing callback with unchanged draw/command/submission assertions,
-comparing every cold/warm/independent RGBA byte. Absolute first/last ink and gap
+comparing every cold/warm/independent RGBA byte. Absolute first/last ink and outside
 samples supplement the original nonempty/background/channel controls. Mutable
 source bytes and axis callbacks are retired before each provider replay, exactly
 as in the LTR fixture.
@@ -125,7 +125,8 @@ queries. These controls use the public [logical outline input](https://learn.mic
 and [directional offset](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ns-dwrite-dwrite_glyph_offset)
 contracts; there is no reordering, reshaping or source-output substitution.
 
-All eighty configurations are authored, not executed. No build, syntax check,
-source verifier, original SDK probe, GPU run or CI was performed for this child.
-The final integrated validation must execute both providers and the independent
-Windows controls without changing existing deadlines, counters or tolerances.
+Integrated local stock Metal execution passes all eighty configurations with
+the corrected design-width origin, including both coverage routes and original
+cold/warm/independent comparisons. Final validation still requires the second
+provider and independent Windows controls without changing deadlines, counters
+or tolerances.
