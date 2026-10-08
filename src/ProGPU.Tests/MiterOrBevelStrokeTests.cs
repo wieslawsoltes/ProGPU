@@ -134,6 +134,9 @@ public sealed class MiterOrBevelStrokeTests
         // This compares the actual retained compositor routes, including cold
         // and warm encodings; it is not a Microsoft raster equivalence claim.
         using var window = new HeadlessWindow(64, 64);
+        // A fractional one-pixel hairline has no fully covered pixel. Keep the
+        // red-coverage witness independent of the compositor's colored clear.
+        window.Compositor.ClearColor = new Vector4(0, 0, 0, 1);
         using var actual = Record(PenLineJoin.MiterOrBevel, limit, mode);
         using var expected = Record(limit == 1 ? PenLineJoin.Bevel : PenLineJoin.Miter, limit, mode);
         Assert.True(GpuPictureBounds.TryGetBounds(actual, out var actualBounds));

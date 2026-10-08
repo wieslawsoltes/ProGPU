@@ -238,7 +238,7 @@ public readonly struct PathCacheKey : IEquatable<PathCacheKey>
     }
 
     private static uint NormalizeSampleGrid(uint value) =>
-        value >= PathAtlas.HighPrecisionCoverageSampleGrid
+        value == 1u ? 1u : value >= PathAtlas.HighPrecisionCoverageSampleGrid
             ? PathAtlas.HighPrecisionCoverageSampleGrid
             : PathAtlas.StandardCoverageSampleGrid;
 }

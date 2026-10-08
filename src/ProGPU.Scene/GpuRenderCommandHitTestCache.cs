@@ -24,6 +24,10 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
     private static float GetDeviceStrokeWidth(Pen pen) =>
         pen.IsHairline ? 1f : pen.Thickness;
 
+    private static bool UsesExplicitStrokeJoins(Pen pen) =>
+        pen.UseWpfJoinSemantics || pen.LineJoin == PenLineJoin.MiterOrBevel ||
+        (pen.ClipMiterAtLimit && pen.LineJoin == PenLineJoin.Miter);
+
     private readonly IPathHitTestCompilationCache? _pathHitTestCompilationCache;
     private readonly List<GpuHitTestPrimitive> _primitives = new();
     private readonly List<GpuPathSegment> _pathSegments = new();
@@ -923,7 +927,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
         CompiledHitTestPath? precompiledPath = null)
     {
         pen.ValidateJoinSemantics();
-        if (pen.UseWpfJoinSemantics)
+        if (UsesExplicitStrokeJoins(pen))
             return TryAddSourcePathStrokePrimitives(path, transform, id, zIndex, pen, localThickness);
         if (!UsesDeviceStrokeWidth(pen) &&
             (HasStrokeCapOverride(path) ||
@@ -1306,8 +1310,14 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder : IDisposable
         Matrix4x4 transform,
         int id,
         float zIndex,
-        Pen pen)
+        Pen pen,
+        bool retainSelectedJoins = true)
     {
+        pen.ValidateJoinSemantics();
+        if (retainSelectedJoins && UsesExplicitStrokeJoins(pen))
+            return TryAddSourcePathStrokePrimitives(path, transform, id, zIndex, pen,
+                GetDeviceStrokeWidth(pen));
+
         var segmentCheckpoint = _pathSegments.Count;
         var primitiveCheckpoint = _primitives.Count;
         if (!TryCompileHitTestPath(path, out var localPath))

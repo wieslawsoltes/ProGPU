@@ -71,8 +71,18 @@ public sealed class RetainedWpfJoinPolicyTests
     [InlineData(PenLineJoin.Miter, false, true)]
     [InlineData(PenLineJoin.Miter, true, true)]
     public void ActualManagedPaintRetainsSourceReversalCoverage(PenLineJoin join, bool smooth, bool dashed)
+        => VerifyManagedPaint(join, smooth, dashed, 4);
+
+    [Theory]
+    [InlineData(PenLineJoin.Miter)]
+    [InlineData(PenLineJoin.Round)]
+    public void SingleSamplePaintRetainsTheSameOriginalCoverage(PenLineJoin join)
+        => VerifyManagedPaint(join, false, false, 1);
+
+    private static void VerifyManagedPaint(PenLineJoin join, bool smooth, bool dashed, uint sampleCount)
     {
-        using var window = new HeadlessWindow(64, 64);
+        using var window = new HeadlessWindow(64, 64,
+            new CompositorOptions { PrimarySampleCount = sampleCount });
         window.Compositor.ClearColor = new(0, 0, 0, 1);
         var pen = SourcePen(join);
         pen.Thickness = 8;
@@ -96,6 +106,10 @@ public sealed class RetainedWpfJoinPolicyTests
         // Explicit overhang and far-corner witnesses supplement the full image.
         Assert.Equal((byte)255, cold[(32 * 64 + 35) * 4]);
         Assert.Equal(round ? (byte)0 : (byte)255, cold[(28 * 64 + 35) * 4]);
+        // Literal polygon witnesses: a shared fan diagonal is interior, while
+        // (35.5,34.5) lies beyond the radius-four fan's final slanted edge.
+        Assert.Equal((byte)255, cold[(32 * 64 + 32) * 4]);
+        Assert.Equal(round ? (byte)0 : (byte)255, cold[(34 * 64 + 35) * 4]);
         window.Content = null;
     }
 

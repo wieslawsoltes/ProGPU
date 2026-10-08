@@ -80,7 +80,7 @@ in the existing internal and geometry-utility executables:
 
 These native controls are source/resource/query checks, not additional native
 GPU pixel qualification. Existing native provider and package gates remain
-required. No builds,
-tests, syntax checks, verifiers, original probes, GPU/UI runs, package checks
-or CI were executed for this slice. This is not full Direct2D/Win2D/Drawing,
+required. Integrated local managed execution and the retained input/coverage
+repairs are recorded in [retained aliased stroke coverage](retained-aliased-stroke-coverage.md).
+This is not full Direct2D/Win2D/Drawing,
 WPF application or cross-provider image qualification.

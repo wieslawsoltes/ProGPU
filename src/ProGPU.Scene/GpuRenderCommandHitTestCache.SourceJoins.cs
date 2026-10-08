@@ -12,7 +12,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
         Vector2 Incoming, Vector2 Outgoing, bool HasIncoming, bool HasOutgoing);
 
     // A multi-segment PathStroke payload rounds internal segment boundaries.
-    // Explicit source joins instead own one flat-ended body per source segment,
+    // Explicit retained joins instead own one flat-ended body per source segment,
     // followed by the actual join triangles. Curve sampling inside a segment,
     // endpoint cap predicates, clips and the retained source frame stay intact.
     private bool TryAddSourcePathStrokePrimitives(PathGeometry path, Matrix4x4 transform,
@@ -40,7 +40,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
                         AppendSourceStrokeRun(run, false, !figure.IsClosed, figure.StartPoint,
                             current, startCap, endCap, transform, id, zIndex, pen, thickness);
                         if (run.Count == 0 && degenerate.HasValue && !figure.IsClosed)
-                            AppendSourceDegenerateCaps(degenerate.Value, startCap, endCap, thickness, transform, id, zIndex);
+                            AppendSourceDegenerateCaps(degenerate.Value, startCap, endCap, pen, thickness, transform, id, zIndex);
                         run.Clear();
                         degenerate = null;
                         current = end;
@@ -61,7 +61,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
                 AppendSourceStrokeRun(run, figure.IsClosed, !figure.IsClosed, figure.StartPoint,
                     current, startCap, endCap, transform, id, zIndex, pen, thickness);
                 if (run.Count == 0 && degenerate.HasValue && !figure.IsClosed)
-                    AppendSourceDegenerateCaps(degenerate.Value, startCap, endCap, thickness, transform, id, zIndex);
+                    AppendSourceDegenerateCaps(degenerate.Value, startCap, endCap, pen, thickness, transform, id, zIndex);
             }
             return true;
         }
@@ -75,12 +75,13 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
     }
 
     private void AppendSourceDegenerateCaps(Vector2 point, PenLineCap startCap, PenLineCap endCap,
-        float thickness, Matrix4x4 transform, int id, float zIndex)
+        Pen pen, float thickness, Matrix4x4 transform, int id, float zIndex)
     {
-        if (!Compositor.RequiresAffineStrokeGeometry(transform))
+        bool deviceWidth = UsesDeviceStrokeWidth(pen);
+        if (deviceWidth || !Compositor.RequiresAffineStrokeGeometry(transform))
         {
             point = Vector2.Transform(point, transform);
-            thickness *= TransformMetrics.GetStrokeScale(transform);
+            if (!deviceWidth) thickness *= TransformMetrics.GetStrokeScale(transform);
             transform = Matrix4x4.Identity;
         }
         AddPrimitive(GpuHitTestPrimitive.LineStroke(id, point, point, thickness,
@@ -97,7 +98,7 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
             // trailing unstroked source segment cleared all join tangents.
             if (close && currentPoint != figureStart)
                 AppendSourceHitBody(currentPoint, new LineSegment(figureStart),
-                    LineGeometryCap.Flat, LineGeometryCap.Flat, thickness, transform, id, zIndex);
+                    PenLineCap.Flat, PenLineCap.Flat, pen, thickness, transform, id, zIndex);
             return;
         }
         int sourceCount = run.Count;
@@ -111,9 +112,9 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
         {
             var segment = run[i];
             AppendSourceHitBody(segment.Start, segment.Segment,
-                caps && i == 0 ? ToLineGeometryCap(startCap) : LineGeometryCap.Flat,
-                caps && i == run.Count - 1 ? ToLineGeometryCap(endCap) : LineGeometryCap.Flat,
-                thickness, transform, id, zIndex);
+                caps && i == 0 ? startCap : PenLineCap.Flat,
+                caps && i == run.Count - 1 ? endCap : PenLineCap.Flat,
+                pen, thickness, transform, id, zIndex);
             if (i > 0 && run[i - 1].HasOutgoing && segment.HasIncoming)
                 AppendSourceHitJoin(pen, thickness, segment.Start, run[i - 1].Outgoing,
                     segment.Incoming, segment.Segment.IsSmoothJoin, transform, id, zIndex);
@@ -125,12 +126,22 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
     }
 
     private void AppendSourceHitBody(Vector2 start, PathSegment segment,
-        LineGeometryCap startCap, LineGeometryCap endCap, float thickness,
+        PenLineCap startCap, PenLineCap endCap, Pen pen, float thickness,
         Matrix4x4 transform, int id, float zIndex)
     {
         var body = new PathGeometry();
-        var figure = new PathFigure(start) { IsFilled = false };
+        var figure = new PathFigure(start) { IsFilled = false,
+            StrokeStartLineCap = startCap, StrokeEndLineCap = endCap };
         figure.Segments.Add(segment); body.Figures.Add(figure);
+        if (UsesDeviceStrokeWidth(pen))
+        {
+            // Reuse the original physical curve/arc compiler for the one body.
+            // Its flat internal ends cannot introduce rounded join coverage.
+            if (!TryAddDevicePathStrokePrimitive(body, transform, id, zIndex, pen,
+                    retainSelectedJoins: false))
+                throw new NotSupportedException("Device stroke input body could not be compiled.");
+            return;
+        }
         if (!Compositor.RequiresAffineStrokeGeometry(transform))
         {
             body = body.CreateTransformed(transform);
@@ -140,23 +151,28 @@ public sealed partial class GpuRenderCommandHitTestCacheBuilder
         if (!TryCompileHitTestPath(body, out var compiled) ||
             !IsFinite(compiled.Min) || !IsFinite(compiled.Max))
             throw new NotSupportedException("Source stroke input body could not be compiled.");
-        AddPathStrokePrimitive(compiled, transform, id, zIndex, thickness, startCap, endCap);
+        AddPathStrokePrimitive(compiled, transform, id, zIndex, thickness,
+            ToLineGeometryCap(startCap), ToLineGeometryCap(endCap));
     }
 
     private void AppendSourceHitJoin(Pen pen, float thickness, Vector2 center,
         Vector2 incoming, Vector2 outgoing, bool smooth, Matrix4x4 transform, int id, float zIndex)
     {
         Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
-        bool affine = Compositor.RequiresAffineStrokeGeometry(transform);
+        bool deviceWidth = UsesDeviceStrokeWidth(pen);
+        bool affine = !deviceWidth && Compositor.RequiresAffineStrokeGeometry(transform);
         if (!affine)
         {
             center = Vector2.Transform(center, transform);
             incoming = Compositor.TransformDirection(incoming, transform);
             outgoing = Compositor.TransformDirection(outgoing, transform);
-            thickness *= TransformMetrics.GetStrokeScale(transform);
+            if (!deviceWidth) thickness *= TransformMetrics.GetStrokeScale(transform);
         }
-        int count = StrokeJoinGeometry.WriteDirectionalJoin(triangles, pen, thickness,
-            center, incoming, outgoing, smooth);
+        int count = pen.UseWpfJoinSemantics || deviceWidth
+            ? StrokeJoinGeometry.WriteDirectionalJoin(triangles, pen, thickness,
+                center, incoming, outgoing, smooth)
+            : StrokeJoinGeometry.WriteLineJoin(triangles, pen, thickness,
+                center - incoming, center, center + outgoing, smooth);
         for (int i = 0; i < count; i++)
         {
             var triangle = triangles[i];

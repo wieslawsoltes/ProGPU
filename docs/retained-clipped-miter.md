@@ -83,8 +83,8 @@ Authored controls comprise:
   cases replayed cold, warm and with an independent engine on each provider;
 - six original-Windows source versus independently authored full-frame cases.
 
-These controls are not executed qualification: no builds,
-tests, syntax checks, verifiers, original probes, GPU/UI/VM runs, package runs
-or CI have been performed. Original pixel/tolerance/transform and final package
+The integrated managed controls now have local execution evidence and retained
+input/coverage repairs described in [retained aliased stroke coverage](retained-aliased-stroke-coverage.md).
+This is not complete qualification. Original pixel/tolerance/transform and final package
 gates remain required; no full Direct2D/Win2D/Drawing or source UI parity is
 claimed.

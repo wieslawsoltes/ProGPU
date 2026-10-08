@@ -8020,7 +8020,7 @@ SceneStateUploadComplete:
                 scaleY,
                 GetSubpixelPhase(coverageTransform.M41 * rasterScale),
                 GetSubpixelPhase(coverageTransform.M42 * rasterScale),
-                cmd.PathSampleGrid,
+                cmd.IsEdgeAliased ? 1u : cmd.PathSampleGrid,
                 subpixelPhaseGrid,
                 quantizeScale);
             if (info.Width > 0 && info.Height > 0)

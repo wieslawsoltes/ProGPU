@@ -75,9 +75,10 @@ The authored producer inventory includes 14 managed writer/paint configurations,
 and 12 shim conversion configurations, plus 14 input/bounds configurations
 (six actual GPU-query cases authored, not run) and seven native-compiler transport
 configurations. The dependent LibreWPF draft authors 13 source adapter
-and recording configurations. These comparisons have not been executed.
-No builds, tests, syntax/source verifiers, new original probes, GPU/UI/VM work or
-manual CI were run. Exact-head final rendering/input, original-Windows comparisons,
+and recording configurations. Integrated local producer execution and subsequent
+coverage repairs are recorded in [retained aliased stroke coverage](retained-aliased-stroke-coverage.md).
+That does not qualify the dependent source adapter or application. Exact-head
+final rendering/input, original-Windows comparisons,
 package consumers and application/platform qualification remain required before
 merge or release. Device-width WPF joins and the independent public source query
 gap are not admitted or reported complete.

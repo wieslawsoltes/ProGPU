@@ -791,6 +791,16 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let signVal = select(-1.0, 1.0, input.cornerRadius > 0.0);
         let offset = miterN * expandedDistance * signVal;
         worldPos = worldPos + offset;
+        if (aliasedEdge) {
+            // Cover the complete endpoint pixel before the MSAA coverage test.
+            // The fragment owns the original flat ends at the pixel center;
+            // extending only the raster quad must not extend the stroke.
+            let lineLength = length(p1 - p0);
+            let direction = safe_normalize(p1 - p0);
+            worldPos = worldPos + direction * strokeExpansionPadding *
+                select(1.0, -1.0, len1 < len2);
+            inShapeSize = vec2<f32>(dot(worldPos - p0, direction), lineLength);
+        }
         texCoord = worldPos;
         gridIndex = signVal * expandedDistance;
     } else if (sType == 5u) {
@@ -1689,7 +1699,6 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             abs(dot(gradient2, atlasCoordDx)) +
                 abs(dot(gradient2, atlasCoordDy)),
             0.0001);
-        let allDistance = max(distance0, max(distance1, distance2));
         let edgeMask = u32(round(input.cornerRadius));
         let ownedInternalEdgeMask = u32(round(input.strokeThickness));
         let internalEdgeTolerance = 0.001;
@@ -1724,7 +1733,10 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             0.0,
             1.0 - smoothstep(-0.5 * fw, 0.5 * fw, exteriorDistance),
             internalInside);
-        let aliasedAlpha = select(0.0, 1.0, allDistance <= 0.0 && internalInside);
+        // Internal fan edges use the same single-owner partition in both
+        // modes. Testing them a second time against zero can reject the owner
+        // while its neighbor also excludes that shared edge, opening a seam.
+        let aliasedAlpha = select(0.0, 1.0, exteriorDistance <= 0.0 && internalInside);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType >= 14u && sType <= 17u) {
         // Antialiased affine stroke segment. color.xy/color.zw/shapeSize and
@@ -1844,6 +1856,10 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let antialiasedAlpha = pow(linearAntialiasedAlpha, 0.7);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
+        if (sType == 3u && aliasedEdge &&
+            (input.shapeSize.x < 0.0 || input.shapeSize.x >= input.shapeSize.y)) {
+            shapeAlpha = 0.0;
+        }
     } else if (sType == 4u) {
         // Path rendering: sample coverage directly from PathAtlas
         let pathAtlasDims = textureDimensions(pathAtlasTexture);

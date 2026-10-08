@@ -104,9 +104,39 @@ public sealed class RetainedClippedMiterTests
         PenLineJoin.Miter, limit, strokeTransformMode: mode == 0 ? PenStrokeTransformMode.Normal : PenStrokeTransformMode.Fixed)
         { ClipMiterAtLimit = true };
 
-    private static GpuPicture Picture(Pen? pen, PathGeometry path, Brush? brush = null) => new(
+    [Theory]
+    [InlineData(0, 1f)]
+    [InlineData(0, 2f)]
+    [InlineData(1, 1f)]
+    [InlineData(1, 2f)]
+    [InlineData(2, 1f)]
+    [InlineData(2, 2f)]
+    public void NonuniformPlacementRetainsLocalOrDeviceJoinWidth(int mode, float limit)
+    {
+        using var window = new HeadlessWindow(64, 64);
+        var transform = Matrix4x4.CreateScale(.75f, 1.25f, 1) *
+            Matrix4x4.CreateTranslation(6, -2, 0);
+        using var picture = Picture(CreatePen(mode, limit), Rectangle(), transform: transform);
+        var corner = Vector2.Transform(new Vector2(50.25f, 10.25f), transform);
+        var outward = mode == 0 ? new Vector2(3, -5) :
+            mode == 1 ? new Vector2(4, -4) : new Vector2(.5f, -.5f);
+        window.Content = new PictureVisual(picture);
+        for (int replay = 0; replay < 2; replay++)
+        {
+            window.Render();
+            Assert.True(window.Compositor.TryHitTestPoint(corner + outward * .6f, out _));
+            Assert.Equal(limit == 2,
+                window.Compositor.TryHitTestPoint(corner + outward * .8f, out _));
+            Assert.False(window.Compositor.TryHitTestPoint(
+                Vector2.Transform(new Vector2(30, 30), transform), out _));
+        }
+        window.Content = null;
+    }
+
+    private static GpuPicture Picture(Pen? pen, PathGeometry path, Brush? brush = null,
+        Matrix4x4? transform = null) => new(
         [new RenderCommand { Type = RenderCommandType.DrawPath, Path = path, Pen = pen, Brush = brush,
-            Transform = Matrix4x4.Identity, IsEdgeAliased = true, IsPenThicknessLocal = pen != null,
+            Transform = transform ?? Matrix4x4.Identity, IsEdgeAliased = true, IsPenThicknessLocal = pen != null,
             GeometryCache = RenderCommandGeometryCache.ForPath(path) }], [], [], [], []);
 
     private static PathGeometry Rectangle()

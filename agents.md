@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Aliased retained lines pad only their raster quads and clip the original flat
+endpoint interval in the shared fragment shader. Preserve single-owner fan edges
+and one-sample aliased path cache identity; do not change source geometry or
+weaken full-frame comparisons to hide MSAA endpoint coverage or internal seams.
+Explicit MiterOrBevel/clipped-Miter input uses flat internal bodies and actual
+selected joins, retaining local versus fixed/hairline frames and rollback.
+See docs/retained-aliased-stroke-coverage.md; managed checks are not native package
+or application qualification.
+
 Retained source WPF pens explicitly select full join semantics; generic pens
 keep their old smooth and reversal behavior. Preserve the raw policy in every
 snapshot/cache/material copy and archive version 8, rejecting lossy older writes.
@@ -46,7 +55,8 @@ undefined-value rejection. Record layouts stay fixed, but new enum semantics
 require matching rebuilt native producers. Legacy generic Miter paint/bounds
 and original Drawing Miter clipping remain separate unfinished work; no parity
 or downstream pin admission follows.
-See docs/retained-miter-or-bevel.md; authored controls remain unexecuted.
+See docs/retained-miter-or-bevel.md and docs/retained-aliased-stroke-coverage.md;
+local execution does not replace the remaining native/source qualification.
 
 Direct2D rectangle strokes apply intrinsic geometry transforms before expanding
 the pen, and caller world transforms afterward. Explicit solid normal styles
