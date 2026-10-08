@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_cff_glyph_fixture.hpp"
+#include "progpu_native_direct2d_cff_translation_fixture.hpp"
 #include "../src/Direct2D/progpu_native_direct2d_cff_source.hpp"
 
 #include <algorithm>
@@ -55,9 +56,10 @@ struct original_cff_source final {
     font_loader loader;
     font_file file;
     font_face5 face;
-    explicit original_cff_source(cff_font_kind kind, std::size_t instance = 0U)
+    explicit original_cff_source(cff_font_kind kind, std::size_t instance = 0U,
+        const cff_font_matrix_control* control = nullptr)
     {
-        stream.bytes = make_cff_font(kind); stream.declared_size = stream.bytes.size();
+        stream.bytes = make_cff_font(kind, control); stream.declared_size = stream.bytes.size();
         loader.stream = &stream; file.loader = &loader; face.files = {&file}; face.declared_count = 1U;
         face.type = 0U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
         face.variable = cff_font_case_count(kind) != 1U;
@@ -241,6 +243,52 @@ bool full_design_runs_and_atomicity()
     rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
     const d2d::original_glyph_target frame{com::pointer<com::unknown>(target.get()), 1U,
         {1, 0, 0, 1, 0, 0}, {0, 0}, {64U, 64U}, 96, 96, {}, compat::text_antialias_mode::aliased};
+    bool controls_valid = true;
+    std::size_t controls = 0U;
+    for_each_cff_translation_control([&](std::size_t, cff_font_kind kind,
+        const cff_font_matrix_control& control, const std::array<bool, 3U>& emits) {
+        original_cff_source original(kind, 0U, &control);
+        std::shared_ptr<const d2d::original_font_capture> source;
+        std::shared_ptr<d2d::prepared_original_font> font;
+        const std::uint16_t indices[]{1U, 0U, 2U};
+        const float advances[]{12, -3, 9};
+        compat::glyph_run run{&original.face, 1024, 3U, indices, advances, nullptr, 0, 0};
+        std::shared_ptr<const d2d::original_glyph_request> request;
+        std::shared_ptr<const d2d::prepared_original_glyph_run> prepared;
+        if (!check(original.capture(source) == com::ok && d2d::prepared_original_font::create(source, font) == com::ok,
+            "source CFF translation controls capture complete owned fonts")) {
+            controls_valid = false; return;
+        }
+        for (const bool nominal : {false, true}) {
+            run.glyph_advances = nominal ? nullptr : advances;
+            if (!check(d2d::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+                    &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok,
+                "source CFF translation controls prepare signed and nominal advances")) {
+                controls_valid = false; return;
+            }
+            std::vector<progpu_native_path_segment> expected;
+            float pen = 0;
+            for (std::size_t occurrence = 0U; occurrence < 3U; ++occurrence) {
+                const auto value = expected_cff_translation_glyph(indices[occurrence], emits);
+                for (std::size_t item = 0U; item < value.count; ++item) {
+                    auto segment = value.segments[item];
+                    const auto point = [&](progpu_native_point p) { return progpu_native_point{p.x + pen, -p.y}; };
+                    segment.p0 = point(segment.p0); segment.p1 = point(segment.p1);
+                    if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                        segment.p2 = point(segment.p2); segment.p3 = point(segment.p3);
+                    }
+                    expected.push_back(segment);
+                }
+                pen += nominal ? value.advance : advances[occurrence];
+            }
+            controls_valid = check(prepared->segments().size() == expected.size() &&
+                (expected.empty() || std::memcmp(prepared->segments().data(), expected.data(),
+                    expected.size() * sizeof(expected[0])) == 0) && font->cached_glyph_count() == 3U,
+                "source CFF Top/selected/inherited FD translation retains exact original ink, pens and contours") && controls_valid;
+        }
+        ++controls;
+    });
+    if (!controls_valid || !check(controls == 235U, "source CFF complete translation boundary inventory")) return false;
     for (const auto kind : cff_pixel_fonts) {
         for (std::size_t instance = 0U; instance < cff_font_case_count(kind); ++instance) {
             original_cff_source original(kind, instance);
@@ -259,7 +307,7 @@ bool full_design_runs_and_atomicity()
                 std::vector<progpu_native_path_segment> expected;
                 float pen = 0;
                 for (std::size_t occurrence = 0U; occurrence < 3U; ++occurrence) {
-                    const auto glyph = expected_cff_glyph(kind, instance, indices[occurrence]);
+                    const auto glyph = expected_source_cff_glyph(kind, instance, indices[occurrence]);
                     for (std::uint32_t index = 0U; index < glyph.count; ++index) {
                         auto segment = glyph.segments[index];
                         const auto point = [&](progpu_native_point p) { return progpu_native_point{p.x + pen, -p.y}; };
@@ -272,7 +320,7 @@ bool full_design_runs_and_atomicity()
                     pen += nominal ? glyph.advance : explicit_advances[occurrence];
                 }
                 if (!check(prepared->segments().size() == expected.size() &&
-                    std::memcmp(prepared->segments().data(), expected.data(), expected.size() * sizeof(expected[0])) == 0 &&
+                    (expected.empty() || std::memcmp(prepared->segments().data(), expected.data(), expected.size() * sizeof(expected[0])) == 0) &&
                     font->cached_glyph_count() == 3U && (prepared->request().glyphs.advances() == nullptr) == nominal,
                     "literal CFF cubic points+FD frames+fixed/varied metrics preserve complete source run")) return false;
                 const auto retained = prepared;

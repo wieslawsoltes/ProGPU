@@ -1,9 +1,10 @@
 # Original CFF/CFF2 prepared-font controls
 
-The original-owned fixture and Windows companion are authored, **not executed**.
-Their inclusion does not qualify DirectWrite, native providers, packages or
-applications. The final integrated stack must run the original Windows gates and
-both native providers without changing existing assertions or deadlines.
+The original-owned fixture and Windows companion now execute in the integrated
+qualification. Their inclusion does not qualify packages or applications, and
+original grayscale differences still fail the test process. The final integrated
+stack must pass the original Windows gates and both native providers with exact
+images and unchanged deadlines.
 
 ## Independent font inventory
 
@@ -84,3 +85,22 @@ Only public format/API specifications define the authored bytes and observations
 and [HVAR](https://learn.microsoft.com/en-us/typography/opentype/spec/hvar).
 Matrix algebra motivates the discriminating cases; the actual original Windows
 result, not that algebra alone, remains the required source-contract gate.
+
+## Original translation observations
+
+Actual `GetGlyphRunOutline` and aliased `DrawGlyphRun` disagree with the initially
+authored mathematical ink assumption for translated CFF1 matrices. All seven
+original font byte arrays remain unchanged. The separate mathematical contour
+table still validates the generic decoder; the source table now retains the
+original Windows no-ink result for the three translated font families. All 22
+original source configurations and their full-frame comparisons remain present.
+
+The additional translation fixture contains 235 controls. Signed binary32
+neighbors around `2^-17`, decimal and integer values, both axes, Top and both FDs,
+an omitted first FD matrix and canceling translations distinguish the source
+conversion and scope. Each face is queried in order 2,0,1,2: 940 original outline
+and aliased-pixel observations, preserving the same original owner across the
+cold and warm queries. The independent native controls check supplied signed
+and absent advances across suppressed and visible glyphs. See the
+[source translation policy](direct2d-cff-prepared-glyphs.md) for the matched
+arithmetic, ownership and remaining qualification limits.

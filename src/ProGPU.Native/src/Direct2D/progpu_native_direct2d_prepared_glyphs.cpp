@@ -345,19 +345,26 @@ struct varied_outline_storage final {
 
 [[nodiscard]] com::result decode_cff_glyph(const text::sfnt_font_view& font,
     original_outline_family family, text::sfnt_cff1_font_view cff1, text::sfnt_cff2_font_view cff2,
-    std::span<const text::sfnt_cff_outline_transform> matrices,
+    std::span<const detail::cff_source_matrix> matrices,
     std::span<const std::int16_t> normalized,
     const text::sfnt_horizontal_metrics_variation_instance& variation,
     std::uint16_t glyph, std::size_t remaining, std::shared_ptr<const decoded_original_glyph>& output)
 {
     std::uint32_t count = 0U, dictionary = 0U;
+    text::sfnt_cff_outline_transform matrix{};
     if (family == original_outline_family::cff1) {
         if (!cff1.fd_select.bytes.empty() &&
             !text::sfnt_cff_data::try_get_font_dictionary(cff1.fd_select, glyph, dictionary))
             return com::invalid_argument;
         if (dictionary >= matrices.size()) return com::invalid_argument;
+        matrix = matrices[dictionary].original;
+        // Source translations converted to zero do not move the outlines.
+        // Nonzero converted translations suppress ink only after full decoding
+        // and metrics validation below; malformed programs never become empty.
+        matrix.dx = 0.0;
+        matrix.dy = 0.0;
         text::sfnt_cff1_outline_requirements requirements{};
-        if (!text::sfnt_cff_data::try_get_outline_requirements(cff1, glyph, matrices[dictionary], requirements))
+        if (!text::sfnt_cff_data::try_get_outline_requirements(cff1, glyph, matrix, requirements))
             return com::invalid_argument;
         count = requirements.path_segment_count;
     } else {
@@ -371,7 +378,7 @@ struct varied_outline_storage final {
     candidate->segments.resize(count);
     std::uint32_t written = 0U;
     const bool decoded = family == original_outline_family::cff1
-        ? text::sfnt_cff_data::try_decode_outline(cff1, glyph, matrices[dictionary], candidate->segments, written)
+        ? text::sfnt_cff_data::try_decode_outline(cff1, glyph, matrix, candidate->segments, written)
         : text::sfnt_cff_data::try_decode_outline(cff2, glyph, normalized, candidate->segments, written);
     if (!decoded || written != count) return com::invalid_argument;
     text::sfnt_horizontal_glyph_metrics base{};
@@ -384,6 +391,8 @@ struct varied_outline_storage final {
         !font.try_get_design_advance_width(glyph, normalized, &variation.advance,
             candidate->horizontal_advance)) return com::invalid_argument;
     if (!std::isfinite(candidate->horizontal_advance)) return com::invalid_argument;
+    if (family == original_outline_family::cff1 && !matrices[dictionary].emits_contours)
+        std::vector<progpu_native_path_segment>{}.swap(candidate->segments);
     output = std::move(candidate);
     return com::ok;
 }
@@ -472,7 +481,7 @@ struct prepared_original_font::state final {
     original_outline_family family = original_outline_family::true_type;
     text::sfnt_cff1_font_view cff1{};
     text::sfnt_cff2_font_view cff2{};
-    std::vector<text::sfnt_cff_outline_transform> cff_matrices;
+    std::vector<detail::cff_source_matrix> cff_matrices;
     std::uint16_t units_per_em = 0U;
     std::uint16_t horizontal_metric_count = 0U;
     std::vector<std::int16_t> normalized_coordinates;

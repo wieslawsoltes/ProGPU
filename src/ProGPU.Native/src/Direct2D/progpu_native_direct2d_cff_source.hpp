@@ -67,6 +67,22 @@ struct cff_source_dictionary final {
     bool cid = false;
 };
 
+struct cff_source_matrix final {
+    text::sfnt_cff_outline_transform original{};
+    bool emits_contours = true;
+};
+
+inline bool cff_source_translation_is_zero(double value) noexcept
+{
+    // Original DirectWrite observations distinguish the two floats immediately
+    // below 2^-17. The matched signed 16.16 arithmetic rounds the absolute float
+    // value after adding one half; the addition itself rounds to float. This is a
+    // source numeric conversion, not a geometric epsilon or matrix inversion.
+    const float scaled = std::abs(static_cast<float>(value)) * 65536.0F;
+    const float rounded = scaled + 0.5F;
+    return rounded < 1.0F;
+}
+
 inline com::result read_cff_source_dictionary(std::span<const std::byte> bytes,
     cff_source_dictionary& output) noexcept
 {
@@ -150,7 +166,7 @@ inline text::sfnt_cff_outline_transform compose_cff_design_matrix(
 }
 
 inline com::result prepare_cff_source_matrices(text::sfnt_cff1_font_view font,
-    std::uint16_t units_per_em, std::vector<text::sfnt_cff_outline_transform>& output)
+    std::uint16_t units_per_em, std::vector<cff_source_matrix>& output)
 {
     if (font.bytes.size() < 4U || font.bytes[1] != std::byte{0}) return com::invalid_argument;
     std::size_t cursor = std::to_integer<std::uint8_t>(font.bytes[2]);
@@ -165,7 +181,7 @@ inline com::result prepare_cff_source_matrices(text::sfnt_cff1_font_view font,
     if (top.cid != (font.font_dictionaries.count != 0U)) return com::invalid_argument;
     if (!top.has_matrix) top.matrix = {0.001, 0.0, 0.0, 0.001, 0.0, 0.0};
     const auto count = std::max(1U, font.font_dictionaries.count);
-    std::vector<text::sfnt_cff_outline_transform> candidate(count);
+    std::vector<cff_source_matrix> candidate(count);
     for (std::uint32_t index = 0U; index < count; ++index) {
         cff_source_dictionary local{}; // Omitted FD matrix inherits the top frame.
         if (font.font_dictionaries.count != 0U) {
@@ -175,8 +191,18 @@ inline com::result prepare_cff_source_matrices(text::sfnt_cff1_font_view font,
             if (com::failed(status)) return status;
             if (local.cid) return com::invalid_argument;
         }
-        candidate[index] = compose_cff_design_matrix(local.matrix, top.matrix, units_per_em);
-        if (!finite_cff_matrix(candidate[index])) return com::invalid_argument;
+        auto& selected = candidate[index];
+        selected.original = compose_cff_design_matrix(local.matrix, top.matrix, units_per_em);
+        if (!finite_cff_matrix(selected.original)) return com::invalid_argument;
+        // The original source emits no ink for a translated Top or selected FD
+        // matrix, including translations which cancel after composition. The
+        // first FD also gates the whole source face, even when another glyph/FD
+        // is requested first. Preserve the full matrix and original bytes.
+        selected.emits_contours = cff_source_translation_is_zero(top.matrix.dx) &&
+            cff_source_translation_is_zero(top.matrix.dy) &&
+            cff_source_translation_is_zero(local.matrix.dx) &&
+            cff_source_translation_is_zero(local.matrix.dy) &&
+            (index == 0U || candidate.front().emits_contours);
     }
     output = std::move(candidate);
     return com::ok;

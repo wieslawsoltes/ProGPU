@@ -3958,8 +3958,8 @@ int main(int argc, char** argv) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);
         }, require);
     progpu::native::direct2d::tests::verify_cff_glyph_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
-            return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header, std::uint32_t draws) {
+            return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, draws, header.command_count);
         }, require);
     progpu::native::direct2d::tests::verify_sideways_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {

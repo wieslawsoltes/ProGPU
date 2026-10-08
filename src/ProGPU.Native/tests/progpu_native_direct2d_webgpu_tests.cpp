@@ -2435,9 +2435,9 @@ int main(int argc, char** argv)
                 1U, header.command_count, 1U, stream, header.scene_id, header.generation);
         }, require);
     progpu::native::direct2d::tests::verify_cff_glyph_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header, std::uint32_t draws) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+                draws, header.command_count, 1U, stream, header.scene_id, header.generation);
         }, require);
     progpu::native::direct2d::tests::verify_sideways_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {

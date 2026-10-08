@@ -26,7 +26,7 @@ void append_independent_cff_contours(compat::geometry_sink* sink, cff_font_kind 
     constexpr std::array<float, 3U> supplied{12, -3, 9};
     float pen = 0;
     for (std::size_t occurrence = 0U; occurrence < glyphs.size(); ++occurrence) {
-        const auto expected = expected_cff_glyph(kind, instance, glyphs[occurrence]);
+        const auto expected = expected_source_cff_glyph(kind, instance, glyphs[occurrence]);
         const float x = 4.0F + pen + (occurrence == 2U ? -0.75F : 0.0F);
         const float y = occurrence == 2U ? 25.5F : 28.0F;
         const auto point = [&](progpu_native_point p) { return compat::point_2f{p.x / 32.0F + x, y - p.y / 32.0F}; };
@@ -146,9 +146,10 @@ void verify_cff_glyph_pixels(Render render, Require require)
                     require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                         "CFF immutable scene export");
                 }
-                const auto cold = render(false, scenes[0], headers[0]);
-                const auto warm = render(false, scenes[0], headers[0]);
-                const auto independent = render(true, scenes[1], headers[1]);
+                const auto draws = cff_source_has_ink(kind) ? 1U : 0U;
+                const auto cold = render(false, scenes[0], headers[0], draws);
+                const auto warm = render(false, scenes[0], headers[0], draws);
+                const auto independent = render(true, scenes[1], headers[1], draws);
                 require(cold.size() == 64U * 64U * 4U && cold == warm && cold == independent,
                     "CFF full-image cold/warm/independent cubic+matrix+advance");
                 bool ink = false;
@@ -157,8 +158,8 @@ void verify_cff_glyph_pixels(Render render, Require require)
                         "CFF untouched channels and opaque alpha");
                     ink = ink || cold[pixel] != 0U;
                 }
-                require(ink && cold[0] == 0U && cold[1] == 0U && cold[2] == 0U && cold[3] == 255U,
-                    "CFF nonempty ink and untouched background");
+                require(ink == cff_source_has_ink(kind) && cold[0] == 0U && cold[1] == 0U && cold[2] == 0U && cold[3] == 255U,
+                    "CFF original source ink admission and untouched background");
                 ++cases;
             }
             require(stream.reads == reads && face.value_reads == values && face.outline_calls == 0U &&

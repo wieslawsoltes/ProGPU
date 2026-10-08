@@ -11,6 +11,14 @@ enum class cff_font_kind {
     cff2_static, cff2_variable_fixed, cff2_variable_hvar
 };
 
+struct cff_font_matrix_control final {
+    std::array<std::array<std::string_view, 6U>, 3U> matrices{{
+        {{"0.0009765625", "0", "0", "0.0009765625", "0", "0"}},
+        {{"1", "0", "0", "1", "0", "0"}},
+        {{"1", "0", "0", "1", "0", "0"}}
+    }};
+};
+
 inline bool cff_font_is_variable(cff_font_kind kind)
 {
     return kind == cff_font_kind::cff2_variable_fixed || kind == cff_font_kind::cff2_variable_hvar;
@@ -25,6 +33,12 @@ inline float cff_font_weight(std::size_t instance)
 {
     constexpr std::array<float, 3U> weights{400, 650, 900};
     return weights.at(instance);
+}
+
+inline bool cff_source_has_ink(cff_font_kind kind)
+{
+    return kind != cff_font_kind::cff1_affine && kind != cff_font_kind::cff1_cid &&
+        kind != cff_font_kind::cff1_cid_inherited;
 }
 
 struct cff_glyph_expectation final {
@@ -80,6 +94,16 @@ inline cff_glyph_expectation expected_cff_glyph(cff_font_kind kind, std::size_t 
         result.segments = glyph == 1U ? rectangle(40,20,280,20,280,380,40,380)
             : curve({60,30},{60,210},{240,330},{300,210},{300,30});
     }
+    return result;
+}
+
+inline cff_glyph_expectation expected_source_cff_glyph(cff_font_kind kind,
+    std::size_t instance, std::uint16_t glyph)
+{
+    auto result = expected_cff_glyph(kind, instance, glyph);
+    // Literal original SDK observation for the unchanged source fonts. Keep the
+    // independent mathematical contour table above for the generic decoder.
+    if (!cff_source_has_ink(kind)) { result.count = 0U; result.segments = {}; }
     return result;
 }
 
@@ -187,7 +211,7 @@ inline bytes item_store(bool advances)
     if (advances) { put16(result, 30U, 64U); put16(result, 32U, 96U); put16(result, 34U, 128U); }
     return result;
 }
-inline bytes font_table(cff_font_kind kind)
+inline bytes font_table(cff_font_kind kind, const cff_font_matrix_control* control = nullptr)
 {
     const bool cff2 = kind >= cff_font_kind::cff2_static;
     const bool cid = kind == cff_font_kind::cff1_cid || kind == cff_font_kind::cff1_cid_inherited;
@@ -195,7 +219,9 @@ inline bytes font_table(cff_font_kind kind)
     struct positions final { std::uint32_t strings = 0U, charset = 0U, fd_array = 0U, fd_select = 0U, store = 0U;
         std::array<std::uint32_t, 2U> private_dict{}; } positions;
     const auto matrix = [&](bytes& target, int fd) {
-        if (fd >= 0) {
+        if (control != nullptr) {
+            for (const auto value : control->matrices[static_cast<std::size_t>(fd + 1)]) real(target, value);
+        } else if (fd >= 0) {
             for (const auto value : {1,0,0,1,fd == 0 ? 8 : 0,fd == 1 ? 16 : 0}) number(target, value);
         } else if (cff2) {
             real(target, "0.00048828125"); number(target, 0); number(target, 0);
@@ -325,7 +351,7 @@ inline bytes names()
 // Adobe 5176/5177 and OpenType CFF2/HVAR formats. No foreign font/engine or
 // product decoder generates fixture bytes or expected paths. Bounded O(F)
 // time/storage in the tiny emitted font; existing TrueType fixture is unchanged.
-inline std::vector<std::byte> make_cff_font(cff_font_kind kind)
+inline std::vector<std::byte> make_cff_font(cff_font_kind kind, const cff_font_matrix_control* control = nullptr)
 {
     using namespace cff_font_wire;
     if (kind < cff_font_kind::cff1_default || kind > cff_font_kind::cff2_variable_hvar)
@@ -361,7 +387,7 @@ inline std::vector<std::byte> make_cff_font(cff_font_kind kind)
         } else if (tag == 0x6E616D65U) value.data = names();
         tables.push_back(std::move(value));
     }
-    tables.push_back({kind >= cff_font_kind::cff2_static ? 0x43464632U : 0x43464620U, font_table(kind)});
+    tables.push_back({kind >= cff_font_kind::cff2_static ? 0x43464632U : 0x43464620U, font_table(kind, control)});
     if (kind == cff_font_kind::cff2_variable_hvar) {
         bytes hvar(20U); put16(hvar, 0U, 1U); put32(hvar, 4U, 20U); append(hvar, item_store(true));
         tables.push_back({0x48564152U, std::move(hvar)});

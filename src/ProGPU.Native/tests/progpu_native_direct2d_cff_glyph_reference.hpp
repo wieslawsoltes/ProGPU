@@ -1,5 +1,7 @@
 #pragma once
 
+#include "progpu_native_direct2d_cff_translation_fixture.hpp"
+
 #include "progpu_native_direct2d_cff_glyph_fixture.hpp"
 #include <bit>
 
@@ -125,6 +127,65 @@ void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWrit
     };
     std::uint64_t generation = 0U;
     std::size_t configurations = 0U;
+    std::size_t translation_controls = 0U;
+    for_each_cff_translation_control([&](std::size_t control_index, cff_font_kind kind,
+        const cff_font_matrix_control& control, const std::array<bool, 3U>& emits) {
+        const auto bytes = make_cff_font(kind, &control);
+        ComPtr<IDWriteFontFile> file;
+        require(loader->CreateInMemoryFontFileReference(write_factory, bytes.data(), static_cast<UINT32>(bytes.size()),
+            nullptr, file.GetAddressOf()) == S_OK, "original CFF translation control file");
+        IDWriteFontFile* files[]{file.Get()};
+        ComPtr<IDWriteFontFace> face;
+        require(write_factory->CreateFontFace(DWRITE_FONT_FACE_TYPE_CFF, 1U, files, 0U,
+            DWRITE_FONT_SIMULATIONS_NONE, face.GetAddressOf()) == S_OK, "original CFF translation control face");
+        // Request FD1 first and again after FD0 to prove the original face-wide
+        // first-FD rule is independent of query order and warm source state.
+        for (const auto glyph : std::array<std::uint16_t, 4U>{2U, 0U, 1U, 2U}) {
+            const auto expected = expected_cff_translation_glyph(glyph, emits);
+            original_cff_outline_sink observed;
+            const float advance = 0;
+            const auto outlined = face->GetGlyphRunOutline(1024, &glyph, &advance, nullptr, 1U, FALSE, FALSE, &observed);
+            const auto closed = observed.Close();
+            const bool matches = outlined == S_OK && closed == S_OK && observed.complete() &&
+                observed.segments().size() == expected.count;
+            if (!matches) std::fprintf(stderr, "Original CFF translation control=%zu kind=%u glyph=%u "
+                "outline=%08lx close=%08lx complete=%u segments=%zu expected=%u\n", control_index,
+                static_cast<unsigned>(kind), static_cast<unsigned>(glyph), static_cast<unsigned long>(outlined),
+                static_cast<unsigned long>(closed), observed.complete() ? 1U : 0U, observed.segments().size(), expected.count);
+            require(matches,
+                "original CFF exact translation conversion and per-FD ink inventory");
+            for (std::size_t segment = 0U; segment < expected.count; ++segment) {
+                const auto& actual = observed.segments()[segment]; const auto& wanted = expected.segments[segment];
+                require(actual.kind == wanted.kind && actual.p0.x == wanted.p0.x && actual.p0.y == wanted.p0.y &&
+                    actual.p1.x == wanted.p1.x && actual.p1.y == wanted.p1.y && actual.p2.x == wanted.p2.x &&
+                    actual.p2.y == wanted.p2.y && actual.p3.x == wanted.p3.x && actual.p3.y == wanted.p3.y,
+                    "original CFF translated-to-zero matrix preserves all original contour coordinates");
+            }
+            context->SetTarget(target.Get()); context->BeginDraw();
+            context->Clear(D2D1::ColorF(0, 0, 0, 1));
+            context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_ALIASED);
+            context->SetTextRenderingParams(parameters.Get());
+            ComPtr<ID2D1SolidColorBrush> brush;
+            require(context->CreateSolidColorBrush(D2D1::ColorF(1, 0, 0, 1), brush.GetAddressOf()) == S_OK,
+                "original CFF translation control brush");
+            const DWRITE_GLYPH_RUN run{face.Get(), 32, 1U, &glyph, &advance, nullptr, FALSE, 0U};
+            context->DrawGlyphRun({4, 28}, &run, brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
+            require(context->EndDraw() == S_OK, "original CFF translation control draw");
+            const auto pixels = copy_pixels();
+            std::size_t ink = 0U;
+            for (std::size_t pixel = 0U; pixel < pixels.size(); pixel += 4U) {
+                require(pixels[pixel] == 0U && pixels[pixel + 1U] == 0U && pixels[pixel + 3U] == 255U,
+                    "original CFF translation control channels and alpha");
+                ink += pixels[pixel + 2U] != 0U;
+            }
+            require(ink == (expected.count == 0U ? 0U : glyph == 1U ? 88U : 42U),
+                "original CFF translation control preserves exact aliased ink inventory");
+        }
+        ++translation_controls;
+    });
+    require(translation_controls == 235U, "original CFF complete translation boundary inventory");
+    std::fprintf(stderr, "Original CFF translation controls=%zu glyph-outline-and-pixel-observations=%zu\n",
+        translation_controls, translation_controls * 4U);
     for (const auto kind : cff_pixel_fonts) {
         const auto bytes = make_cff_font(kind);
         ComPtr<IDWriteFontFile> file;
@@ -205,7 +266,7 @@ void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWrit
             std::array<float,3U> original_advances{};
             for (std::size_t glyph_index = 0U; glyph_index < 3U; ++glyph_index) {
                 const auto glyph = indices[glyph_index];
-                const auto expected = expected_cff_glyph(kind,instance,glyph);
+                const auto expected = expected_source_cff_glyph(kind,instance,glyph);
                 require(static_cast<float>(design_advances[glyph_index]) == expected.advance,
                     "original CFF independent nominal advances, including empty glyph");
                 original_advances[glyph_index] = static_cast<float>(design_advances[glyph_index]) / 32.0F;
@@ -238,7 +299,8 @@ void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWrit
                 std::shared_ptr<const prepared_original_glyph_run> glyphs;
                 require(capture_original_glyph_request(captured,run,compat::measuring_mode::natural,
                     typed_parameters.get(),frame,request) == S_OK && prepared->prepare(request,glyphs) == S_OK &&
-                    (glyphs->request().glyphs.advances() == nullptr) == nominal && glyphs->segments().size() == 7U,
+                    (glyphs->request().glyphs.advances() == nullptr) == nominal &&
+                    glyphs->segments().size() == (cff_source_has_ink(kind) ? 7U : 0U),
                     "original CFF prepared occurrence identity and complete contours");
                 com::pointer<compat::path_geometry> geometry;
                 com::pointer<compat::geometry_sink> sink;
@@ -276,5 +338,6 @@ void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWrit
         }
     }
     require(configurations == 22U, "original CFF full independent configuration inventory");
+    std::fprintf(stderr, "Original CFF complete configurations=%zu\n", configurations);
 }
 } // namespace progpu::native::direct2d::tests
