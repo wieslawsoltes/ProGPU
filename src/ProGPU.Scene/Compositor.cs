@@ -7921,7 +7921,7 @@ SceneStateUploadComplete:
         Matrix4x4 transform,
         uint subpixelPhaseGrid = PathAtlas.DefaultSubpixelPhaseGrid,
         bool quantizeScale = false,
-        float rasterScale = 1f)
+        float rasterScale = 0f)
     {
         SwitchBatch(BatchType.Vector);
         if (cmd.Path == null) return;
@@ -8008,9 +8008,11 @@ SceneStateUploadComplete:
                 scaleX = scaleY = Math.Max(scaleX, scaleY);
             }
 
+            // Ordinary paths own coverage in physical target pixels. Glyph
+            // callers can retain their explicit logical/device raster policy.
             rasterScale = float.IsFinite(rasterScale) && rasterScale > 0f
                 ? rasterScale
-                : 1f;
+                : _currentDpiScale;
             scaleX *= rasterScale;
             scaleY *= rasterScale;
 

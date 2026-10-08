@@ -14,6 +14,17 @@ fixed strokes retain their existing width, transform and targetless behavior.
 Unknown target DPI and unequal-axis hairlines fail explicitly before geometry or
 brush publication; a failed hairline cannot fall back to DPI-unaware `Widen`.
 
+Original SDK bounds queries omit hollow figures even though they contribute
+strokes. The command adapter therefore queries a separate bounds-only SDK path
+from its captured original lines, cubics and figure closures. Filled flags on
+that temporary query expose each centerline; the retained drawing keeps all
+original hollow/closed, gap, dash and smooth-join metadata. The SDK still computes
+actual curve extrema in the requested frame before the existing pen/DPI padding.
+No control-point envelope, widened dash bound or fabricated inverse replaces it.
+An original SDK probe reproduces the hollow-query failure, while eight exact
+literal and failed-output controls pass for the private helper on Windows ARM64.
+The complete command-sink fixture and cross-platform pipeline remain required.
+
 `HasTargetDependentStrokes` (bit 11) reports retained hairline geometry separately
 from `HasTargetDependentMasks`. The C constant feeds the generated native managed
 contract; the public result preserves that flag. A new DPI requires a new

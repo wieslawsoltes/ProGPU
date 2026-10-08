@@ -1793,7 +1793,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             NAME progpu_native_direct2d_webgpu_tests
             COMMAND progpu_native_direct2d_webgpu_tests
                 "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-direct2d-webgpu.ppm")
-        set(_progpu_native_direct2d_webgpu_test_timeout 60)
+        # This aggregate now includes the complete source shader, AA Clear and
+        # layer matrices. Keep every case and every per-readback deadline; the
+        # CTest process budget includes their cumulative cold pipeline work.
+        set(_progpu_native_direct2d_webgpu_test_timeout 180)
         if(WIN32)
             # Cold D3D12 pipeline compilation exceeds five minutes on both
             # Windows ARM64 WARP CI and the Parallels validation adapter. Keep

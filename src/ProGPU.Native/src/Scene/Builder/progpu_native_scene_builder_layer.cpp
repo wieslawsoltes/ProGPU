@@ -887,7 +887,8 @@ bool semantic_scene_builder::push_layer(
     }
     if ((source_opacity || source_mask) &&
         ((source.flags & ~(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
-            PROGPU_NATIVE_SCENE_LAYER_BOUNDS)) != 0U ||
+            PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY)) != 0U ||
          source.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
          (!source_mask && source.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX) ||
          source.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX)) {

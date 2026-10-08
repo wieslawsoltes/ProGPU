@@ -20440,7 +20440,8 @@ struct channel::implementation {
             progpu_native_scene_layer opacity_layer{};
             opacity_layer.struct_size = sizeof(opacity_layer);
             opacity_layer.flags =
-                PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+                PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY;
             opacity_layer.opacity = static_cast<float>(state.opacity);
             opacity_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
             opacity_layer.mask_resource_index =
@@ -22882,7 +22883,8 @@ struct channel::implementation {
             composite_layer.struct_size = sizeof(composite_layer);
             composite_layer.flags =
                 PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
-                PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+                PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY;
             composite_layer.opacity =
                 static_cast<float>(local_visual_opacity);
             composite_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;

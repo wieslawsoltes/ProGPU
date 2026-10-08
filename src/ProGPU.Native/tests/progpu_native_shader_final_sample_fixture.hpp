@@ -79,6 +79,8 @@ void verify_original_shader_final_samples(Render render, Require require) {
                     if(command.kind==PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
                         progpu_native_scene_layer layer{};
                         std::memcpy(&layer,scenes[i].data()+command.payload_offset,sizeof(layer));
+                        if(depth==0U) require((layer.flags & PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY)!=0U,
+                            "source parent lost its explicit linear-byte opacity policy");
                         if(layer.effect_resource_index!=PROGPU_NATIVE_SCENE_NO_INDEX) nested=depth!=0U;
                         ++depth;
                     } else if(command.kind==PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {

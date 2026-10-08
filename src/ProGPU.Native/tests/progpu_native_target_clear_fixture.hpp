@@ -111,6 +111,7 @@ void verify_native_target_clear(Render render, Require require) {
         std::vector<std::uint8_t> cold;
         const progpu_native_scene_presentation mapped{sizeof(mapped), 5U, 7U, 40U, 42U, 1.25F, 1.5F, 0U};
         for (unsigned replay = 0U; replay < 2U; ++replay) {
+            std::fprintf(stderr, "Target Clear begin variant=%u replay=%u\n", variant, replay);
             progpu_native_scene_frame_metrics metrics{}; metrics.struct_size = sizeof(metrics);
             const auto pixels = render(bytes, validated, validated.draw_count,
                 variant == 8U && replay == 0U ? 2U : 1U,

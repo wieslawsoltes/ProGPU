@@ -88,6 +88,13 @@ UV-squared shader, original source/ancestor rectangle clips, AA output-bound
 inflation with ordinary quad coverage, and genuine nested visual-opacity
 targets. The nested cases retain nonzero target origins and non-power-of-two
 viewport extents, draw the shader inside that parent, then apply parent opacity.
+The ordinary MIL source-composite layer explicitly retains linear-byte opacity
+in its layer flags. On linear RGBA8/BGRA8 targets it rounds the stored source
+color and alpha after group opacity, before geometric coverage and blending.
+Generic layer arithmetic and shader UV/constant evaluation remain unchanged.
+An original Windows WPF probe confirms the half-byte boundaries with and without
+BitmapCache (for example stored red 10 at opacity 0.25 becomes 3). The source
+hit-test annotation admits this rendering policy without changing source input.
 Separate padded-input, original ImageBrush and selected derivative-register
 cases check full capture texels and dimensions before final fractional placement.
 Input and secondary sampler ownership are distinct; their cold submissions are

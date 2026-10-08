@@ -2,6 +2,7 @@
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d_core.hpp"
 #include "progpu_native_direct2d_stroke_metrics.hpp"
+#include "progpu_native_direct2d_command_stroke_bounds.hpp"
 #include "progpu_native_direct2d_clear.hpp"
 #include "progpu_native_direct2d_drawing_state.hpp"
 #include "progpu_native_direct2d_path.hpp"
@@ -8592,9 +8593,14 @@ private:
             D2D1_RECT_F geometry_bounds{};
             progpu_native_image_rect bounds{};
             const float miter_extent = std::max(1.0F, style.miter_limit);
+            ComPtr<ID2D1Factory> bounds_factory;
+            geometry->GetFactory(bounds_factory.GetAddressOf());
+            hr = progpu::native::direct2d::detail::command_stroke_centerline_bounds(
+                bounds_factory.Get(), stroke_sink->segments(), stroke_sink->figures(),
+                style.transform_type == D2D1_STROKE_TRANSFORM_TYPE_NORMAL ? nullptr : &transform_,
+                geometry_bounds);
             if (style.transform_type ==
                 D2D1_STROKE_TRANSFORM_TYPE_NORMAL) {
-                hr = geometry->GetBounds(nullptr, &geometry_bounds);
                 const float padding =
                     stroke_width * 0.5F * miter_extent;
                 if (SUCCEEDED(hr)) {
@@ -8605,7 +8611,6 @@ private:
                         geometry_bounds.bottom + padding);
                 }
             } else {
-                hr = geometry->GetBounds(&transform_, &geometry_bounds);
                 // Original portable target bounds: width is one physical
                 // pixel, expressed separately on each target-DIP axis.
                 const bool hairline = style.transform_type == D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE;
@@ -8626,6 +8631,8 @@ private:
                 }
             }
             if (FAILED(hr)) {
+                if (hr == E_OUTOFMEMORY)
+                    return fail(PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER, hr);
                 return E_NOINTERFACE;
             }
             if (!finite_native_rectangle(bounds)) {

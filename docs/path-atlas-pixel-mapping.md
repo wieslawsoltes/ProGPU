@@ -42,6 +42,12 @@ tiles. The existing multi-node MIL ellipse/rounded-clip test covers this distinc
 Native direct fills, like clip nodes, rasterize using the original transform's
 maximum scale multiplied by target DPI, with translation phase in physical
 pixels. Local capture bounds divide by that same scale before final projection.
+Managed ordinary path fills now also use the active target DPI for atlas scale
+and translation phase. Explicit glyph raster policies remain authoritative, and
+the existing retained-command and scene caches already include target DPI.
+The 96-path DPI-2 differential matches all 518,400 pixels byte for byte after
+this change; its opacity companion remains byte-identical. The managed exact-load
+admission remains unchanged, including its separate unit-DPI gate.
 The integrated 96/192-DPI hairline companion checks this with independent filled
 rectangles: a one-physical-pixel fill must not be rasterized as a half-pixel DIP
 tile and then enlarged. The Windows integrated run exposed additional 254/1
