@@ -58,6 +58,11 @@ snapping and all six root properties, effective descendant clipping/opacity,
 ignored consumer transforms, zero scale, null target, negative-origin refill,
 retained empty/childless/refill states and root-versus-descendant scroll clipping.
 Original WPF captures use the same fifteen states with actual source objects.
+The expanded original reference now also includes five nested DrawingImage
+states. Its public API rejects consumer transform objects and nondefault brush
+opacity instead of admitting the native wire's synthetic nondefault values;
+those assignments are explicit atomic rejection controls. Native raw-wire
+coverage of ignored paint metadata does not qualify public source assignment.
 The earlier unexecuted natural-placement and multiplied brush-opacity oracles
 were incorrect and are superseded; no passing observation is being changed.
 

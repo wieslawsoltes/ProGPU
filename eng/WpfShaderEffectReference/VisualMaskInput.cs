@@ -10,7 +10,7 @@ internal static partial class Program
 {
     private sealed record VisualMaskInputCase(string Name, string Mask = "transparent-solid",
         double AncestorOpacity = 0, double LocalOpacity = 1, bool Singular = false,
-        bool Triangle = false, bool ScrollClip = false, bool Detached = false);
+        bool Triangle = false, bool ScrollClip = false, bool GeometryClip = false, bool Detached = false);
 
     private sealed record MaskPointHit(int Owner, double X, double Y);
     private sealed record MaskRegionHit(int Owner, IntersectionDetail Detail)
@@ -34,6 +34,7 @@ internal static partial class Program
             new("transform-restored"),
             new("triangle-source-clip", Triangle: true),
             new("outer-scroll-clip", ScrollClip: true),
+            new("outer-geometry-clip", GeometryClip: true),
             new("clips-restored"),
             new("source-detached", Detached: true),
             new("source-reattached")
@@ -52,7 +53,7 @@ internal static partial class Program
                 ? [[9], [9], [9], [], []]
                 : test.Triangle
                     ? [[9, 1], [9], [9], [], []]
-                    : test.ScrollClip
+                    : test.GeometryClip
                         ? [[9, 1], [9, 7, 1], [], [], []]
                         : [[9, 1], [9, 7, 1], [9], [], []];
             var replays = new List<object>();
@@ -106,11 +107,12 @@ internal static partial class Program
                 scene.AssertIdentity(test);
                 replays.Add(new { Replay = replay, IndependentSource = replay == 2,
                     ActualAncestorOpacity = scene.Root.Opacity, ActualLocalOpacity = scene.Masked.Opacity,
+                    ActualScrollClip = scene.Root.ScrollClip, ActualGeometryClip = scene.Root.Clip?.Bounds,
                     Results = results });
             }
             observations.Add(new { Input = test, Replays = replays });
         }
-        if (observations.Count != 15 || queries != 450)
+        if (observations.Count != 16 || queries != 480)
             throw new InvalidOperationException("Original visual-mask input inventory changed.");
         var receipt = new
         {
@@ -132,12 +134,16 @@ internal static partial class Program
             JsonSerializer.Serialize(file, receipt, new JsonSerializerOptions { WriteIndented = true });
         if (failures.Count != 0)
             throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine("Original visual-mask input: 15 states, 45 replays, 450 point/geometry queries, 0 skipped.");
+        Console.WriteLine("Original visual-mask input: 16 states, 48 replays, 480 point/geometry queries, 0 skipped.");
     }
 
     private sealed class VisualMaskInputRoot : ContainerVisual
     {
-        internal void SetScrollClip(Rect? value) => VisualScrollableAreaClip = value;
+        internal Rect? ScrollClip
+        {
+            get => VisualScrollableAreaClip;
+            set => VisualScrollableAreaClip = value;
+        }
     }
 
     private sealed class VisualMaskInputScene
@@ -148,6 +154,7 @@ internal static partial class Program
         private DrawingVisual Sibling { get; } = new();
         private Brush? selectedMask;
         private Geometry? selectedClip;
+        private Geometry? selectedRootClip;
 
         internal VisualMaskInputScene()
         {
@@ -184,7 +191,9 @@ internal static partial class Program
             Masked.OpacityMask = selectedMask;
             selectedClip = test.Triangle ? TriangleClip() : new RectangleGeometry(new Rect(10, 12, 20, 18));
             Masked.Clip = selectedClip;
-            Root.SetScrollClip(test.ScrollClip ? new Rect(10, 12, 20, 18) : null);
+            Root.ScrollClip = test.ScrollClip ? new Rect(10, 12, 20, 18) : null;
+            selectedRootClip = test.GeometryClip ? new RectangleGeometry(new Rect(10, 12, 20, 18)) : null;
+            Root.Clip = selectedRootClip;
             bool attached = Root.Children.Contains(Masked);
             if (test.Detached && attached) Root.Children.Remove(Masked);
             else if (!test.Detached && !attached) Root.Children.Insert(0, Masked);
@@ -203,6 +212,8 @@ internal static partial class Program
                 !ReferenceEquals(VisualTreeHelper.GetParent(Child), Masked) ||
                 !ReferenceEquals(VisualTreeHelper.GetParent(Masked), test.Detached ? null : Root) ||
                 !ReferenceEquals(Masked.OpacityMask, selectedMask) || !ReferenceEquals(Masked.Clip, selectedClip) ||
+                !ReferenceEquals(Root.Clip, selectedRootClip) ||
+                Root.ScrollClip != (test.ScrollClip ? new Rect(10, 12, 20, 18) : (Rect?)null) ||
                 Root.Opacity != test.AncestorOpacity || Masked.Opacity != test.LocalOpacity)
                 throw new InvalidOperationException("Original retained mask source identity changed.");
         }

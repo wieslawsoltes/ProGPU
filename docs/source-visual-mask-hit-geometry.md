@@ -23,12 +23,16 @@ unchanged; no mask is removed from a rendered frame.
 
 ## Provenance and pairing
 
-Original WPF `381194e`, `PresentationCore/System/Windows/Media/Visual.cs`,
-`HitTestPoint` (2035–2208) and `HitTestGeometry` (2271–2418), traverse actual
-geometry/scroll clips and inverse child transforms without consulting visual
-opacity or opacity-mask brushes. Nonidentity point-effect mapping remains a
-separate operation. The source was used only as observable contract evidence;
-no foreign implementation was copied or adapted.
+The original Microsoft WPF point/geometry probe preserves the actual visual
+owners, coordinates and intersection details through opacity and mask changes.
+Both Windows architectures in reference run `37771176029` measured that the
+protected `VisualScrollableAreaClip` field does not remove an otherwise hittable
+sibling. The probe retains this measured behavior and adds an independent outer
+geometry-clip control, with actual scroll-field readback and geometry identity
+checks. These are separate source properties; their input effects must not be
+inferred from one another. Nonidentity point-effect mapping remains a separate
+operation. Reference evidence comes from executing original public/protected
+APIs, not foreign implementation.
 
 The actual LibreWPF `ProGpuRetainedDrawingVisual` producer opts in over its
 already retained commands. Its additional property can coexist with the old
@@ -50,7 +54,9 @@ failed-index publication. A real compositor fixture exercises the zero-opacity
 early-out and subsequent masked/unmasked visible rendering. Original Windows
 point/region reference controls are an additive companion in the same PR.
 
-No build, syntax check, test, verifier, probe, GPU/UI/VM operation or CI dispatch
-was run. Final original Windows, both provider/package paths and source application
-input remain qualification gates. This does not claim general mask/effect/cache
-parity or fix any unrelated source clipping limitation.
+The original Windows run exposed the incorrect scroll-clip expectation above;
+the expanded 16-state, 48-replay, 480-query inventory passed locally against
+original Microsoft WPF on both Windows architectures. A fresh complete hosted
+reference run, both provider/package paths and source application input remain
+qualification gates. This does not claim general mask/effect/cache parity or fix
+any unrelated source clipping limitation.

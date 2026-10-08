@@ -12,11 +12,11 @@ distinguishes explicit, target and default cache selection. It excludes six oute
 root properties from capture and ignores brush-cache snapping. The fixture sets
 all six excluded properties on states 3–19: offset, transform, clip, blur effect,
 opacity and a fully transparent opacity mask. Descendant clip and opacity remain
-real source state. The original [shader sampler implementation](https://github.com/dotnet/wpf/blob/381194e1ffe4d64fb747556fcaf76e1c34fe9df8/src/Microsoft.DotNet.Wpf/src/WpfGfx/core/resources/ShaderEffect.cpp#L419)
-uses the selected raw cache texture directly. Its normalized shader coordinates
-do not paint the ordinary BitmapCacheBrush over the receiver: consumer brush
-opacity, Transform and RelativeTransform are ignored. The source cache's own
-raster dimensions are independent of the receiving frame.
+real source state. Actual original public API execution rejects assignment of
+Transform and RelativeTransform, including identity Transform objects, and
+rejects nondefault brush Opacity. Both transforms retain their original null
+values and opacity remains one. Reassigning the default opacity is accepted.
+The source cache's own raster dimensions are independent of the receiving frame.
 
 The receiver draws a local 32x24 rectangle at visual offset (8,10), clipped to
 that world rectangle on a 64x64 opaque-black target. The independently authored
@@ -28,8 +28,8 @@ literal bands for the integral-cache profile are:
 | 1 | Target cache scale 2 | Same normalized coverage |
 | 2 | Explicit cache scale 1, snapping enabled | Same normalized coverage |
 | 3 | Six excluded root properties | Same normalized coverage |
-| 4 | Inner clip to green, inner and brush opacity .5 | Green component 128 over the complete receiver; brush opacity ignored |
-| 5 | Relative X .25, absolute Y 2 | Exact state-0 frame; both consumer transforms ignored |
+| 4 | Inner clip to green and inner opacity .5; brush opacity .5 rejected | Green component 128 over the complete receiver; actual brush opacity one |
+| 5 | Relative X .25 and absolute Y 2 assignments rejected | Exact state-0 frame with unchanged null transforms |
 | 6 | Same explicit cache, scale zero | Black |
 | 7 | Genuine null Target, same owned source retained | Black |
 | 8 | Reattach same target; first becomes blue; negative origin | Blue [0,16), green [16,32), full Y [0,24) |
@@ -116,7 +116,13 @@ The three empty/refill states extend the ProGPU-owned fixture at
 `247eda817e9365744046da72996f3c840f7c3853`; they do not synthesize an original
 WPF bounds sideband or infer ordinary cache-allocation policy from shader output.
 
-These are authored expectations, not observed original results. No build, syntax
-check, test, VM, GPU, UI, CI or reference probe has run. Generic cache allocation,
-UIElement automatic wrappers, cyclic sources, arbitrary filtering/DPI, native
-providers, packages and source hosts retain separate final qualification gates.
+Schema 5 records the original setter outcomes and verifies atomic preservation
+of opacity and both transform identities after rejection. Local .NET 10.0.12
+original Microsoft WPF execution passed all 20 ARM64 software-unavailable
+controls. On x64, 18 pixel states passed; the two nested DrawingImage refill
+states 17 and 19 produced entirely black frames, conflicting with the authored
+red/green expectation above. Their full receipts remain failures pending an
+independent source investigation; no pixels or shader qualification are waived.
+Generic cache allocation, UIElement automatic wrappers, cyclic sources,
+arbitrary filtering/DPI, native providers, packages and source hosts retain
+separate final qualification gates.

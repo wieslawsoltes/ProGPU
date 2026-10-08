@@ -45,7 +45,7 @@ internal static partial class Program
         yield return new(2, "cache-sampler-explicit-cache");
         yield return new(3, "cache-sampler-ignored-root-state");
         yield return new(4, "cache-sampler-descendant-clip-opacity");
-        yield return new(5, "cache-sampler-relative-absolute-mapping");
+        yield return new(5, "cache-sampler-rejected-relative-absolute-mapping");
         yield return new(6, "cache-sampler-zero-scale");
         yield return new(7, "cache-sampler-null-target");
         yield return new(8, "cache-sampler-restored-negative-origin");
@@ -93,7 +93,7 @@ internal static partial class Program
                 ReceivingLocalBounds = new Rect(0, 0, 32, 24), ReceivingOffset = new Vector(8, 10),
                 OutputClip = new Rect(8, 10, 32, 24), TargetDpi = 96,
                 SamplerRealization = "selected raw cache texture sampled over normalized shader coordinates",
-                ConsumerBrushOpacityAndTransforms = "ignored by the BitmapCacheBrush shader sampler",
+                ConsumerBrushOpacityAndTransforms = "original transforms and nondefault opacity are rejected; default values remain unchanged",
                 SystemDpiObservation = systemDpiObservation,
                 DpiObservationScope = "current UI-thread GetDpiForSystem; not proof of WPF's historically cached primary DPI",
                 ExpectedFirstArgb = state.Blue ? "FF0000FF" : "FFFF0000", ExpectedSecondArgb = "FF00FF00"
@@ -134,7 +134,7 @@ internal static partial class Program
             if (state.Index is >= 1 and <= 3 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
                 failures.Add($"{state.Name}: cache policy or excluded root state changed logical source output.");
             if (state.Index == 5 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
-                failures.Add("Consumer brush transforms changed the selected raw cache sampler output.");
+                failures.Add("Rejected consumer brush transforms changed the selected raw cache sampler output.");
             if (state.Index == 6) zeroScalePixels = first;
             if (state.Index == 7 && (zeroScalePixels == null || !zeroScalePixels.AsSpan().SequenceEqual(first)))
                 failures.Add("The genuine null target differs from the independently retained zero-scale frame.");
@@ -159,14 +159,14 @@ internal static partial class Program
         CheckSamplerAnimationDeadline(timer);
         var receipt = new
         {
-            Schema = 4, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
+            Schema = 5, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
             OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             PresentationCore = FileIdentity(typeof(BitmapCacheBrush).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             CaseCount = observations.Count, Replays = 60, Cases = observations, Failures = failures,
             SystemDpiObservation = systemDpiObservation,
-            SamplerContract = "raw selected cache texture; consumer brush opacity and transforms excluded",
+            SamplerContract = "raw selected cache texture; original transform/nondefault opacity setters rejected atomically",
             RasterProfile = "literal integral-cache corpus; no fractional/near-integer, device-clamp or historical primary-DPI qualification",
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
             QualifiedShaderCases = unavailable || failures.Count != 0 ? 0 : observations.Count,
@@ -269,8 +269,6 @@ internal static partial class Program
             nestedImageBrush.ImageSource = nestedImage;
             using (DrawingContext drawing = nestedReceiver.RenderOpen())
                 drawing.DrawRectangle(nestedImageBrush, null, new Rect(-4, 4, 8, 12));
-            brush.RelativeTransform = relativeTransform;
-            brush.Transform = absoluteTransform;
             Apply(state);
             effect = new(brush);
             shader = effect.Shader;
@@ -334,9 +332,42 @@ internal static partial class Program
             }
             else group.Clip = null;
             brush.Target = state.Attached ? sampledRoot : null;
-            brush.Opacity = state.BrushOpacity;
             relativeTransform.X = state.RelativeX;
             absoluteTransform.Y = state.AbsoluteY;
+            brushProperties =
+            [
+                ObserveBrushProperty(nameof(Brush.Opacity), () => brush.Opacity = state.BrushOpacity,
+                    mustReject: state.BrushOpacity != 1),
+                RequireRejectedBrushProperty(nameof(Brush.RelativeTransform), () => brush.RelativeTransform = relativeTransform),
+                RequireRejectedBrushProperty(nameof(Brush.Transform), () => brush.Transform = absoluteTransform)
+            ];
+        }
+
+        private sealed record BrushPropertyObservation(string Property, bool Rejected, string? ExceptionType, string? Message);
+        private BrushPropertyObservation[] brushProperties = [];
+
+        private BrushPropertyObservation RequireRejectedBrushProperty(string property, Action assign)
+            => ObserveBrushProperty(property, assign, mustReject: true);
+
+        private BrushPropertyObservation ObserveBrushProperty(string property, Action assign, bool mustReject)
+        {
+            double opacity = brush.Opacity;
+            Transform? relative = brush.RelativeTransform, absolute = brush.Transform;
+            try { assign(); }
+            catch (InvalidOperationException error)
+            {
+                if (brush.Opacity != opacity || !ReferenceEquals(brush.RelativeTransform, relative) ||
+                    !ReferenceEquals(brush.Transform, absolute))
+                    throw new InvalidOperationException("Rejected original cache brush property changed its source.", error);
+                if (!mustReject) throw;
+                return new(property, true, error.GetType().FullName!, error.Message);
+            }
+            if (mustReject)
+                throw new InvalidOperationException($"Original BitmapCacheBrush unexpectedly accepted {property}.");
+            if (brush.Opacity != opacity || !ReferenceEquals(brush.RelativeTransform, relative) ||
+                !ReferenceEquals(brush.Transform, absolute))
+                throw new InvalidOperationException("Original default property assignment changed the cache brush.");
+            return new(property, false, null, null);
         }
 
         internal object Describe(BitmapCacheSamplerState state)
@@ -372,8 +403,9 @@ internal static partial class Program
                 group.Effect != null || group.OpacityMask != null || group.CacheMode != null ||
                 firstGeometry.Rect != state.FirstRectangle || secondGeometry.Rect != state.SecondRectangle ||
                 firstBrush.Color != (state.Blue ? Colors.Blue : Colors.Red) || secondBrush.Color != Colors.Lime ||
-                firstBrush.Opacity != 1 || secondBrush.Opacity != 1 || brush.Opacity != state.BrushOpacity ||
-                !ReferenceEquals(brush.RelativeTransform, relativeTransform) || !ReferenceEquals(brush.Transform, absoluteTransform) ||
+                firstBrush.Opacity != 1 || secondBrush.Opacity != 1 ||
+                brush.RelativeTransform != null || brush.Transform != null ||
+                brush.Opacity != 1 || brushProperties.Length != 3 ||
                 relativeTransform.X != state.RelativeX || relativeTransform.Y != 0 ||
                 absoluteTransform.X != 0 || absoluteTransform.Y != state.AbsoluteY || brush.HasAnimatedProperties ||
                 !ReferenceEquals(receiver.Effect, effect) || !ReferenceEquals(effect.InputBrush, brush) ||
@@ -396,8 +428,8 @@ internal static partial class Program
                 nestedSourceBrush.Color != Colors.Red || nestedSourceBrush.Opacity != 1 ||
                 !ReferenceEquals(nestedCacheBrush.Target, nestedTarget) || !ReferenceEquals(nestedCacheBrush.BitmapCache, nestedCache) ||
                 nestedCache.RenderAtScale != 1 || nestedCache.EnableClearType || nestedCache.SnapsToDevicePixels ||
-                nestedCacheBrush.Opacity != 1 || !nestedCacheBrush.Transform.Value.IsIdentity ||
-                !nestedCacheBrush.RelativeTransform.Value.IsIdentity || nestedCacheBrush.HasAnimatedProperties ||
+                nestedCacheBrush.Opacity != 1 || nestedCacheBrush.Transform != null ||
+                nestedCacheBrush.RelativeTransform != null || nestedCacheBrush.HasAnimatedProperties ||
                 VisualTreeHelper.GetParent(nestedTarget) != null ||
                 nestedTarget.Children.Count != (state.HasNestedSourceLeaf ? 1 : 0) ||
                 (state.HasNestedSourceLeaf && !ReferenceEquals(nestedTarget.Children[0], nestedSourceLeaf)) ||
@@ -442,7 +474,9 @@ internal static partial class Program
                 RootOpacity = sampledRoot.Opacity, RootMask = sampledRoot.OpacityMask == null ? "none" : rootMask.Color.ToString(),
                 RootScrollClip = sampledRoot.ScrollClip, InnerScrollClip = group.ScrollClip,
                 InnerClip = state.InnerClip, InnerOpacity = group.Opacity, BrushOpacity = brush.Opacity,
-                RelativeTransform = relativeTransform.Value, AbsoluteTransform = absoluteTransform.Value,
+                RequestedRelativeTransform = relativeTransform.Value, RequestedAbsoluteTransform = absoluteTransform.Value,
+                ActualRelativeTransform = brush.RelativeTransform?.Value, ActualAbsoluteTransform = brush.Transform?.Value,
+                BrushPropertyAssignments = brushProperties,
                 TargetCacheAttached = state.TargetCache, TargetScale = targetCache.RenderAtScale,
                 ExplicitCacheAttached = state.ExplicitCache, ExplicitScale = explicitCache.RenderAtScale,
                 ExplicitSnapping = explicitCache.SnapsToDevicePixels,
