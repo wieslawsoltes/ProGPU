@@ -207,3 +207,13 @@ These diagnostic entries shorten crash reproduction; they do not replace full
 provider, package or original-source qualification. The separate original
 Microsoft observations above explicitly retain the direct-versus-command-list
 ClearType difference; passing the GPU box model cannot remove that restriction.
+
+The stock fixture also reports an independent raw R8 normalization/blending
+probe after a mask assertion fails. `--unorm-mask-precision` runs this observation
+directly. All 256 authored byte values are sampled at exact texel centers and
+loaded into an RGBA32Float attachment; separate UNORM passes observe filtered,
+loaded and arithmetic coverage under the original foreground/scope alpha.
+Selected values are logged with a scalar comparison. No product mask texture,
+shader or pixel contributes to this probe, and no assertion is waived from its
+observations. This distinguishes texture precision from blend precision when
+investigating a provider difference; it does not qualify a replacement sampler.

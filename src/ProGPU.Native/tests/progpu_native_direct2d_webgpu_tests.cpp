@@ -54,6 +54,7 @@
 
 #include <wgpu.h>
 #include "progpu_native_shader_sampler_gpu_reference.hpp"
+#include "progpu_native_unorm_mask_diagnostics.hpp"
 
 #include <algorithm>
 #include <array>
@@ -2203,6 +2204,27 @@ void verify_explicit_target_storage_clear(const gpu_context& gpu, progpu_native_
         }, require);
 }
 
+void diagnose_mask_precision(const gpu_context& gpu)
+{
+    const progpu::native::tests::sampler_reference_api api{
+#define PROGPU_LOAD_UNORM_PROC(name) wgpu##name,
+        PROGPU_SAMPLER_REFERENCE_PROCS(PROGPU_LOAD_UNORM_PROC)
+#undef PROGPU_LOAD_UNORM_PROC
+    };
+    progpu::native::tests::diagnose_unorm_mask_precision(api, gpu.device, gpu.queue,
+        [&](WGPUBuffer buffer, std::size_t size) {
+            map_request mapped{};
+            wgpuBufferMapAsync(buffer, WGPUMapMode_Read, 0U, size, on_buffer_mapped, &mapped);
+            wait_for_gpu_callback(gpu.device, mapped, "UNORM diagnostic mapping timed out");
+            require(mapped.status == WGPUBufferMapAsyncStatus_Success, "UNORM diagnostic mapping failed");
+            const auto* bytes = static_cast<const std::uint8_t*>(wgpuBufferGetConstMappedRange(buffer, 0U, size));
+            require(bytes != nullptr, "UNORM diagnostic mapped range unavailable");
+            std::vector<std::uint8_t> result(bytes, bytes + size);
+            wgpuBufferUnmap(buffer);
+            return result;
+        }, require);
+}
+
 void verify_explicit_rgb_glyphs(const gpu_context& gpu)
 {
     // Explicit policies are isolated from the ordinary engine and adapter
@@ -2235,7 +2257,11 @@ void verify_explicit_rgb_glyphs(const gpu_context& gpu)
                 test.accepted ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_UNSUPPORTED);
         };
     progpu::native::tests::verify_rgb_glyph_scene_pixels(render_rgb, require);
-    progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
+    progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb,
+        [&](bool condition, const char* message) {
+            if (!condition) diagnose_mask_precision(gpu);
+            require(condition, message);
+        });
     for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
 }
 
@@ -2268,7 +2294,7 @@ int main(int argc, char** argv)
     require(argc == 1 || argc == 2,
         "usage: test [CAPTURE_PPM|--mil-image-brush-only|--mil-image-brush-software|"
         "--mil-viewport3d-only|--target-clear-only|--target-clear-software|--rgb-glyph-only|--rgb-glyph-software|"
-        "--sampled-opacity-only|--sampled-opacity-software|--software-adapter]");
+        "--sampled-opacity-only|--sampled-opacity-software|--unorm-mask-precision|--software-adapter]");
     const auto started = std::chrono::steady_clock::now();
     const auto phase = [&started](const char* name) {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2286,6 +2312,11 @@ int main(int argc, char** argv)
     std::fprintf(stderr, "Native GPU adapter: backend=%s name=%s\n",
         backend_name(gpu.properties.backendType),
         gpu.properties.name == nullptr ? "unknown" : gpu.properties.name);
+    if (argc == 2 && std::strcmp(argv[1], "--unorm-mask-precision") == 0) {
+        diagnose_mask_precision(gpu);
+        release_gpu(gpu);
+        return EXIT_SUCCESS;
+    }
     // A host owns one engine across scene updates. Keep its device-local
     // pipelines alive across fixtures too: recreating them per image repeats
     // expensive cold D3D12 shader compilation, not rendering validation.
