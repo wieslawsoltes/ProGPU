@@ -25,8 +25,9 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
     typed_face.attach(static_cast<compat::font_face*>(original_face_interface));
     std::shared_ptr<const original_font_capture> captured_font;
     require(capture_original_font(typed_face.get(), captured_font) == S_OK && captured_font &&
-        captured_font->face_index == face->GetIndex() && captured_font->face_type == face->GetType() &&
-        captured_font->simulations == face->GetSimulations(), "owned original font capture failed");
+        captured_font->face_index == face->GetIndex() &&
+        captured_font->face_type == static_cast<std::uint32_t>(face->GetType()) &&
+        captured_font->simulations == static_cast<std::uint32_t>(face->GetSimulations()), "owned original font capture failed");
     constexpr std::uint32_t width = 32U, height = 24U, stride = width * 4U;
     struct policy final { float gamma, contrast, level; DWRITE_PIXEL_GEOMETRY geometry; DWRITE_RENDERING_MODE mode; };
     constexpr std::array policies{
