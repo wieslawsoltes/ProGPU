@@ -27,6 +27,13 @@ and an exactly integral final origin; the full E owns implicit input, ImageBrush
 capture, hardware UV normalization and derivative registers. No shader or sampling
 policy changes are needed for this family.
 
+The integrated ordinary MIL matrix path now performs the same original component
+narrowing. In the adversarial pair of `1 + 2^-24` source scales, each component
+narrows to one before composition, so both histories agree and retain version 4.
+The control preserves those original double packets and verifies the exact unit
+scale, original DPI, offsets and capture extent. Fractional placement and the
+other final-sample controls still require their explicit version-5 transport.
+
 Output coverage is a separate original aliased clip, not the outward allocation.
 Original padded edges pass through the visual's own local matrix, its offset,
 then the current ancestor matrix. The traversal retains those separate operands;

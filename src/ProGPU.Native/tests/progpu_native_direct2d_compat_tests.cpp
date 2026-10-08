@@ -1614,18 +1614,23 @@ bool glyph_capture_reentry_contract(compat::scene_factory_native* scene_factory)
         std::uint32_t destroyed = 0U;
         com::pointer<fake_rendering_parameters> parameters;
         parameters.attach(new fake_rendering_parameters(&destroyed));
-        const auto release = [](void* raw) noexcept { static_cast<com::pointer<compat::render_target>*>(raw)->reset(); };
-        if (from_font) {
-            face->on_outline = release;
-            face->outline_context = &target;
-        } else {
-            parameters->on_query = release;
-            parameters->query_context = &target;
-        }
+        const auto release = [](void* raw) noexcept {
+            static_cast<com::pointer<compat::render_target>*>(raw)->reset();
+        };
         const std::uint16_t index = 7U;
         const compat::glyph_run run{face.get(), 12.0F, 1U, &index, nullptr, nullptr, 0, 0U};
         target->SetTextRenderingParams(parameters.get());
         target->BeginDraw();
+        // Arm after setup, preserving the last reference until DrawGlyphRun.
+        // pointer::operator& is an output accessor that releases ownership;
+        // the callback needs the wrapper itself, not that output slot.
+        if (from_font) {
+            face->on_outline = release;
+            face->outline_context = std::addressof(target);
+        } else {
+            parameters->on_query = release;
+            parameters->query_context = std::addressof(target);
+        }
         target->DrawGlyphRun({4, 20}, &run, brush.get(), compat::measuring_mode::natural);
         if (target || face->outline_call_count != 1U) return false;
     }

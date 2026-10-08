@@ -85,16 +85,16 @@ inline vertical_glyph_expectation expected_vertical_glyph(vertical_font_options 
     }
     else if (glyph == 1U) {
         result.x_min = 20; result.y_min = -40; result.x_max = 300; result.y_max = 360;
-        result.horizontal_origin = cff ? 0 : 8; result.horizontal_advance = 600;
-        result.vertical_origin = cff ? 700 : 500; result.vertical_advance = options.compact_metrics ? 900 : 1000;
+        result.horizontal_origin = cff ? 0.0F : 8.0F; result.horizontal_advance = 600;
+        result.vertical_origin = cff ? 700.0F : 500.0F; result.vertical_advance = options.compact_metrics ? 900.0F : 1000.0F;
         result.top_side_bearing = cff ? 340.0F : 140.0F;
         result.bottom_side_bearing = cff ? (options.compact_metrics ? 160.0F : 260.0F)
             : (options.compact_metrics ? 360.0F : 460.0F);
     } else {
         result.x_min = -30; result.y_min = 20; result.x_max = 170; result.y_max = 520;
-        result.horizontal_origin = cff ? 0 : 14; result.horizontal_advance = 700;
-        result.vertical_origin = 600; result.vertical_advance = options.compact_metrics ? 900 : 1100;
-        result.top_side_bearing = 80; result.bottom_side_bearing = options.compact_metrics ? 320 : 520;
+        result.horizontal_origin = cff ? 0.0F : 14.0F; result.horizontal_advance = 700;
+        result.vertical_origin = 600; result.vertical_advance = options.compact_metrics ? 900.0F : 1100.0F;
+        result.top_side_bearing = 80; result.bottom_side_bearing = options.compact_metrics ? 320.0F : 520.0F;
     }
     if (cff2 && options.vvar) {
         static constexpr std::array<std::array<float,3U>,5U> advances{{

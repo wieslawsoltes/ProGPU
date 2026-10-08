@@ -236,7 +236,7 @@ void inspect(std::span<const std::byte> scene, const mil_path_join_case& input, 
                 (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) == 0U,
                 "MIL curved/tile join lost its distinct WPF policy");
             require(((primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) ==
-                (input.smooth ? PROGPU_NATIVE_STROKE_JOIN_ROUND : PROGPU_NATIVE_STROKE_JOIN_MITER),
+                static_cast<std::uint32_t>(input.smooth ? PROGPU_NATIVE_STROKE_JOIN_ROUND : PROGPU_NATIVE_STROKE_JOIN_MITER),
                 "MIL source smooth flag did not select Round");
         }
     }

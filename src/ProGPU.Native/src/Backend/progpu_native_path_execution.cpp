@@ -283,11 +283,19 @@ progpu_native_status render_paths(
                         "A path transform is singular.");
                 }
                 (void)minimum_scale;
-                const float raster_scale = maximum_scale;
+                // Geometry and transforms are in target DIPs; atlas texels are
+                // physical pixels. Rasterize at the complete device scale so
+                // a one-pixel fill is not reduced to a half-pixel source tile
+                // before the final DPI projection enlarges its quad again.
+                const float raster_scale = maximum_scale * frame->dpi_scale;
+                if (!std::isfinite(raster_scale) || raster_scale <= 0.0F) {
+                    return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A path physical raster scale is invalid.");
+                }
                 const float subpixel_x = quantize_subpixel_phase(
-                    path.transform.m31);
+                    path.transform.m31 * frame->dpi_scale);
                 const float subpixel_y = quantize_subpixel_phase(
-                    path.transform.m32);
+                    path.transform.m32 * frame->dpi_scale);
                 native_path_cache_key cache_key{};
                 cache_key.segment_offset = path.segment_offset;
                 cache_key.segment_count = path.segment_count;

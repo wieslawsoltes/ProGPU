@@ -56,7 +56,7 @@ inline bool wpf_path_join_triangles_and_flags()
                         primitive.kind = PROGPU_NATIVE_GEOMETRY_PATH_JOIN;
                         primitive.flags = PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
                             (join << PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT) |
-                            (wpf ? PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS : 0U);
+                            (wpf ? static_cast<std::uint32_t>(PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) : 0U);
                         primitive.p0 = {10, 10};
                         primitive.p1 = {1, 0};
                         primitive.p2 = reversal ? progpu_native_point{-1, 0} : progpu_native_point{0, 1};

@@ -163,7 +163,7 @@ void verify_prepared_glyph_pixels(Render render, Require require)
         std::array<progpu_native_scene_header, 2U> headers{};
         for (std::uint32_t reference = 0U; reference < 2U; ++reference) {
             const compat::scene_render_target_properties properties{64U, 64U, 96, 96, 0x95D1U,
-                1U + (right_to_left ? 48U : 0U) + (nominal ? 24U : 0U) + origins * 8U + variant * 2U + reference};
+                1U + origins * 32U + (right_to_left ? 16U : 0U) + (nominal ? 8U : 0U) + variant * 2U + reference};
             com::pointer<compat::render_target> target;
             com::pointer<compat::scene_render_target_native> scene;
             require(scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&

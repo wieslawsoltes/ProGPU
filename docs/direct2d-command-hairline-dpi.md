@@ -54,9 +54,24 @@ rectangles, comparing every RGBA byte. Four source commands remain distinct in
 the scene; compatible draws merge to one GPU draw and one submission per replay.
 No product dash walker or captured output generates the rectangle oracle.
 
+The integrated original SDK control measured one additional square-cap pixel at
+the exact final dash boundary, for both line and cubic paths at both DPIs on
+Windows ARM64 and x64. The literal square-band oracle now includes that terminal
+zero-length dash. The shared native polyline walker emits its incoming dash cap
+and original source-end cap, matching the existing curve walker. Its capacity,
+render and source-input consumers use the same walk; closed seams are unchanged.
+
+The 192-DPI independent fill exposed a separate path-atlas bug: path raster scale
+and translation phase omitted target DPI. They now use physical units, matching
+the existing clip path implementation. Final quads retain logical coordinates,
+and the unit-DPI-only exact-load gate remains unchanged. This fixes raster input
+resolution rather than changing filtering or accepting approximate pixels.
+
 This source-correctness change also includes the separately scoped
 [WIC interface ownership correction](direct2d-wic-source-query.md): a successful
 query without its interface cannot publish successful bitmap creation.
 
-All new controls are authored only. No compilation, source verifier, original
-SDK execution or native/provider pixel qualification has run for this stack.
+The original SDK four-configuration pixel control ran in the local Windows VM
+on both architectures. The local native provider passed all four configurations,
+including complete cold/warm/independent RGBA comparisons, after these repairs.
+The complete Windows, second-provider, package and application gates remain open.

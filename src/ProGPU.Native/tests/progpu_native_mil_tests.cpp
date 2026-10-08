@@ -21648,7 +21648,11 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     request.dpi_scale_x = request.dpi_scale_y = 1.0;
     const auto compile = [&]() {
         std::span<const std::byte> compiled;
-        PROGPU_REQUIRE(state.build_scene(request, compiled) == status::success);
+        const auto result = state.build_scene(request, compiled);
+        if (result != status::success)
+            std::fprintf(stderr, "Shader sampler source build status=%u dpi=(%g,%g)\n",
+                static_cast<unsigned>(result), request.dpi_scale_x, request.dpi_scale_y);
+        PROGPU_REQUIRE(result == status::success);
         return std::vector<std::byte>(compiled.begin(), compiled.end());
     };
     const auto before = compile();
@@ -21891,6 +21895,7 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     PROGPU_REQUIRE(compile() == before_cycle);
     batch.clear(); append_effect(batch, 0.875F, 1U, 0.0, 8U, 31U);
     PROGPU_REQUIRE(state.apply(batch) == status::success);
+    ++request.request_serial;
     request.dpi_scale_x = request.dpi_scale_y = 2.0;
     const auto image_derivatives = derivative_metadata(compile());
     PROGPU_REQUIRE(image_derivatives.version == 3U && image_derivatives.derivative_register == 31U &&
@@ -21899,6 +21904,7 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     // Non-dyadic inverse scale selects the additive final-device sample wire.
     // Retain the original 1.5-DPI control and its unchanged source constants,
     // while separately proving that the legacy integral v3 route stays v3.
+    ++request.request_serial;
     request.dpi_scale_x = request.dpi_scale_y = 1.5;
     const auto sampled_source = compile();
     const auto sampled_header = read_value<progpu_native_scene_header>(sampled_source, 0U);
@@ -22406,6 +22412,7 @@ bool cache_raster_policy_is_atomic_and_required() {
         PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene));
     PROGPU_REQUIRE(picture_extent(scene) == (std::array{8U,6U}));
     auto request=shader_bitmap_cache_request(0U);
+    ++request.request_serial;
     request.dpi_scale_x=request.dpi_scale_y=2.0;
     progpu_native_mil_scene_build_result result{}; result.struct_size=sizeof(result);
     std::size_t written{};
@@ -22538,10 +22545,16 @@ bool original_shader_bitmap_cache_owns_selected_capture() {
     PROGPU_REQUIRE(build_shader_bitmap_cache(raw,0U,scene)); // explicit source witness, exact sampler only
     append_shader_bitmap_cache_brush(batch,0U,0U);
     PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS && build_shader_bitmap_cache(raw,0U,scene));
+    const auto null_target_scene=scene;
+    const auto null_target_generation=progpu_native_mil_channel_get_resource_generation(raw,5U);
     batch.clear(); packet(batch,command::channel_create_resource,80U,39U);
     append_shader_bitmap_cache_brush(batch,80U,0U);
-    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
-    PROGPU_REQUIRE(rejected(PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE)); // declared is not initialized
+    // A declared visual is not initialized. The canonical brush update rejects
+    // that handle atomically, before a scene build can observe the candidate.
+    PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+    PROGPU_REQUIRE(progpu_native_mil_channel_get_resource_generation(raw,80U) == 0U &&
+        progpu_native_mil_channel_get_resource_generation(raw,5U) == null_target_generation);
+    PROGPU_REQUIRE(build_shader_bitmap_cache(raw,0U,scene) && scene == null_target_scene);
     batch.clear(); append_shader_bitmap_cache_brush(batch,999U,0U);
     PROGPU_REQUIRE(apply() == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
 
@@ -23188,15 +23201,33 @@ bool original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire() 
         PROGPU_REQUIRE(shader_local_legacy_wire(old));
         PROGPU_REQUIRE(progpu::native::scene::validate(old.data(), old.size()).status == PROGPU_NATIVE_STATUS_SUCCESS);
     }
-    // Real source histories now select the explicit v5 contract. All preceding
-    // malformed and downgraded legacy-wire controls remain unchanged.
-    const auto require_sample_frame = [&](const std::vector<std::byte>& bytes) {
+    // Histories needing final-device samples select v5. Individually narrowed
+    // matrix components now also drive ordinary MIL transforms: two ties that
+    // each narrow to one agree with the original float witness and retain v4.
+    // All malformed and downgraded legacy-wire controls remain unchanged.
+    const auto require_sample_frame = [&](const std::vector<std::byte>& bytes, bool narrowed_identity = false) {
         progpu_native_scene_header header{}; std::memcpy(&header, bytes.data(), sizeof(header));
         for (std::uint32_t i = 0U; i < header.resource_count; ++i) {
             progpu_native_scene_resource resource{};
             std::memcpy(&resource, bytes.data() + header.resource_offset + i * header.resource_stride, sizeof(resource));
             if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) continue;
-            if (resource.payload_size != sizeof(progpu_native_scene_shader_effect_samples)) return false;
+            if (narrowed_identity) {
+                if (resource.payload_size != sizeof(progpu_native_scene_shader_effect_capture)) return false;
+                const auto source=read_value<progpu_native_scene_shader_effect_capture>(bytes,resource.payload_offset);
+                const auto& frame=source.frame;
+                return source.version == 4U && validate_capture_frame(frame) &&
+                    frame.source_scale_x == 1.0F && frame.source_scale_y == 1.0F &&
+                    frame.source_offset_x == 2.0F && frame.source_offset_y == 3.0F &&
+                    frame.source_dpi_x == 1.0 && frame.source_dpi_y == 1.0 &&
+                    frame.capture_x == 16 && frame.capture_y == 16 &&
+                    frame.capture_width == 17U && frame.capture_height == 8U &&
+                    progpu::native::scene::validate(bytes.data(),bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+            }
+            if (resource.payload_size != sizeof(progpu_native_scene_shader_effect_samples)) {
+                std::fprintf(stderr, "Expected sampled shader payload: size=%u version=%u\n",
+                    resource.payload_size, read_value<std::uint32_t>(bytes, resource.payload_offset + 4U));
+                return false;
+            }
             progpu_native_scene_shader_effect_samples source{};
             std::memcpy(&source, bytes.data() + resource.payload_offset, sizeof(source));
             if (source.version != 5U || source.input_resource_index >= i ||
@@ -23214,7 +23245,7 @@ bool original_shader_local_frame_owns_proven_history_and_rejects_invalid_wire() 
     PROGPU_REQUIRE(require_sample_frame(scene));
     control.history = shader_local_history::separately_narrowed;
     PROGPU_REQUIRE(build_shader_local_scene(raw, 31U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
-    PROGPU_REQUIRE(require_sample_frame(scene));
+    PROGPU_REQUIRE(require_sample_frame(scene, true));
     control.history = shader_local_history::intermediate_bounds_rounding;
     PROGPU_REQUIRE(build_shader_local_scene(raw, 34U, control, scene) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
     PROGPU_REQUIRE(require_sample_frame(scene));

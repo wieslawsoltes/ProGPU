@@ -159,8 +159,8 @@ void record_clipped_miter_case(compat::factory* factory, compat::render_target* 
                 "clipped miter typed style");
             injected = owned_style.get();
         }
-        const float width = mode == 2U ? 123.0F : 8.0F;
-        if (rectangle) target->DrawRectangle(&source, brush.get(), width, injected);
+        const float requested_width = mode == 2U ? 123.0F : 8.0F;
+        if (rectangle) target->DrawRectangle(&source, brush.get(), requested_width, injected);
         else {
             begin_path();
             sink->BeginFigure({source.left,source.top}, compat::figure_begin::hollow);
@@ -168,7 +168,7 @@ void record_clipped_miter_case(compat::factory* factory, compat::render_target* 
                 {source.right,source.bottom},{source.left,source.bottom}}};
             sink->AddLines(points.data(), 3U); sink->EndFigure(compat::figure_end::closed);
             require(sink->Close() == com::ok, "clipped miter source close");
-            target->DrawGeometry(path.get(), brush.get(), width, injected);
+            target->DrawGeometry(path.get(), brush.get(), requested_width, injected);
         }
     }
     require(target->EndDraw(nullptr,nullptr) == com::ok, "clipped miter source recording");

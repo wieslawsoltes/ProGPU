@@ -33,9 +33,12 @@ inline std::span<const compat::rectangle_f> hairline_dpi_rectangles(std::uint32_
         {8.25F, 16, 10.25F, 17}, {14.25F, 16, 18.25F, 17}, {22.25F, 16, 26.25F, 17},
         {30.25F, 16, 34.25F, 17}, {38.25F, 16, 42.25F, 17}, {46.25F, 16, 50.25F, 17},
         {54.25F, 16, 56.25F, 17}}};
-    static constexpr std::array<compat::rectangle_f, 6U> square{{
+    // Original Microsoft Direct2D retains the terminal zero-length dash at
+    // this exact phase boundary, including its square dash/source-end caps.
+    static constexpr std::array<compat::rectangle_f, 7U> square{{
         {7.75F, 24, 12.75F, 25}, {15.75F, 24, 20.75F, 25}, {23.75F, 24, 28.75F, 25},
-        {31.75F, 24, 36.75F, 25}, {39.75F, 24, 44.75F, 25}, {47.75F, 24, 52.75F, 25}}};
+        {31.75F, 24, 36.75F, 25}, {39.75F, 24, 44.75F, 25}, {47.75F, 24, 52.75F, 25},
+        {55.75F, 24, 56.75F, 25}}};
     static constexpr std::array<compat::rectangle_f, 7U> square_phase{{
         {7.75F, 32, 10.75F, 33}, {13.75F, 32, 18.75F, 33}, {21.75F, 32, 26.75F, 33},
         {29.75F, 32, 34.75F, 33}, {37.75F, 32, 42.75F, 33}, {45.75F, 32, 50.75F, 33},
@@ -121,6 +124,7 @@ template<class Require>
 void hairline_dpi_pixels(std::span<const std::uint8_t> pixels, bool bgra, Require require)
 {
     require(pixels.size() == 64U * 64U * 4U, "hairline DPI frame size differs");
+    std::uint32_t mismatched = 0U;
     for (std::uint32_t y = 0U; y < 64U; ++y) for (std::uint32_t x = 0U; x < 64U; ++x) {
         std::array<std::uint8_t, 4U> expected{0, 0, 0, 255};
         const float px = static_cast<float>(x) + 0.5F, py = static_cast<float>(y) + 0.5F;
@@ -132,15 +136,15 @@ void hairline_dpi_pixels(std::span<const std::uint8_t> pixels, bool bgra, Requir
             }
         }
         const auto* actual = pixels.data() + (y * 64U + x) * 4U;
-        if (!std::equal(expected.begin(), expected.end(), actual))
+        if (!std::equal(expected.begin(), expected.end(), actual) && mismatched++ < 32U)
             std::fprintf(stderr, "Hairline DPI pixel=(%u,%u) actual=%u,%u,%u,%u expected=%u,%u,%u,%u\n", x, y,
                 static_cast<unsigned>(actual[0]), static_cast<unsigned>(actual[1]),
                 static_cast<unsigned>(actual[2]), static_cast<unsigned>(actual[3]),
                 static_cast<unsigned>(expected[0]), static_cast<unsigned>(expected[1]),
                 static_cast<unsigned>(expected[2]), static_cast<unsigned>(expected[3]));
-        require(std::equal(expected.begin(), expected.end(), actual),
-            "hairline DPI phase/cap/width/untouched-pixel or alpha contract differs");
     }
+    if (mismatched != 0U) std::fprintf(stderr, "Hairline DPI mismatched pixels=%u\n", mismatched);
+    require(mismatched == 0U, "hairline DPI phase/cap/width/untouched-pixel or alpha contract differs");
 }
 
 template<class Render, class Require>
@@ -172,6 +176,13 @@ void verify_hairline_dpi_pixels(Render render, Require require)
         const auto cold = render(false, scenes[0], headers[0], dpi / 96.0F);
         const auto warm = render(false, scenes[0], headers[0], dpi / 96.0F);
         const auto independent = render(true, scenes[1], headers[1], dpi / 96.0F);
+        if (cold != warm || cold != independent) {
+            std::fprintf(stderr, "Hairline DPI replay dpi=%g curved=%u cold/warm=%u cold/independent=%u\n",
+                static_cast<double>(dpi), curved ? 1U : 0U, cold == warm ? 1U : 0U, cold == independent ? 1U : 0U);
+            hairline_dpi_pixels(cold, false, require);
+            hairline_dpi_pixels(warm, false, require);
+            hairline_dpi_pixels(independent, false, require);
+        }
         require(cold == warm && cold == independent, "hairline DPI cold/warm/independent coverage differs");
         hairline_dpi_pixels(cold, false, require);
         if (first.empty()) first = cold;

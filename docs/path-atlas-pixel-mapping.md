@@ -34,6 +34,13 @@ Each native clip node binds its own existing 256-byte uniform offset during both
 the path pass and composition; the first node's mapping is never reused for later
 tiles. The existing multi-node MIL ellipse/rounded-clip test covers this distinction.
 
+Native direct fills, like clip nodes, rasterize using the original transform's
+maximum scale multiplied by target DPI, with translation phase in physical
+pixels. Local capture bounds divide by that same scale before final projection.
+The integrated 96/192-DPI hairline companion checks this with independent filled
+rectangles: a one-physical-pixel fill must not be rasterized as a half-pixel DIP
+tile and then enlarged. This does not broaden exact-load admission at other DPIs.
+
 The proof is fixed four-corner work with bounded stack state and no heap allocation.
 There is no extra crossing, readback, upload, GPU submission or pipeline. The
 vector varying gains three flat integers; native clip uniforms grow from 16 to

@@ -260,6 +260,19 @@ inline bool walk_dashed_polyline(
         have_previous_direction = true;
     }
 
+    // An open figure ending exactly as the next visible dash starts retains
+    // that zero-length dash. Pair its incoming dash cap with the source end
+    // cap, as the curve walker does; both capacity and emitted/input geometry
+    // consume this same walk. Closed seams retain their separate join policy.
+    if (!closed && have_previous_direction && (pattern.index & 1U) == 0U &&
+        pattern.distance == 0.0F) {
+        const auto end = point_at(polyline.point_count - 1U);
+        const auto end_cap = (polyline.flags & PROGPU_NATIVE_POLYLINE_END_CAP_MASK) >>
+            PROGPU_NATIVE_POLYLINE_END_CAP_SHIFT;
+        if (!append_cap(pattern.cap, end, previous_direction, true) ||
+            !append_cap(end_cap, end, previous_direction, false)) return false;
+    }
+
     if (closed) {
         if (first_visible && last_visible && have_first_direction &&
             have_previous_direction) {
