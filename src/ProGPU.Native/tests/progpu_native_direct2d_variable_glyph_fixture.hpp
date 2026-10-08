@@ -35,7 +35,8 @@ inline std::array<compat::rectangle_f, 2U> variable_pixel_rectangles(std::size_t
               25.5F - second.y_min * scale}}};
 }
 
-inline std::array<compat::rectangle_f, 2U> variable_rtl_pixel_rectangles(std::size_t case_index, bool nominal)
+inline std::array<compat::rectangle_f, 2U> variable_rtl_pixel_rectangles(std::size_t case_index, bool nominal,
+    variable_font_options options = {})
 {
     const auto first = expected_variable_glyph(1U, case_index);
     const auto empty = expected_variable_glyph(0U, case_index);
@@ -47,7 +48,7 @@ inline std::array<compat::rectangle_f, 2U> variable_rtl_pixel_rectangles(std::si
     // The source offset -0.75 moves right, not left, in this run direction.
     // Keep this oracle independent of decoded contours/prepared placement.
     const auto first_pen = first.advance * scale;
-    const auto second_pen = (nominal ? first.advance * scale + empty.advance * scale : 9.0F) + second.advance * scale;
+    const auto second_pen = (nominal ? first.advance * scale + empty.advance * scale : 9.0F) + expected_variable_source_advance(options, 2U, case_index) * scale;
     return {{{(first.x_min - first.horizontal_origin) * scale + 56.0F - first_pen,
               28.0F - first.y_max * scale,
               (first.x_max - first.horizontal_origin) * scale + 56.0F - first_pen,
@@ -63,7 +64,7 @@ void record_variable_pixel_case(compat::factory* factory, compat::render_target*
     const std::shared_ptr<prepared_original_font>& font, compat::rendering_parameters* parameters,
     std::size_t case_index, bool nominal, std::uint32_t variant, variable_pixel_path path,
     Require require, compat::geometry* prepared_geometry = nullptr, const float* original_design_advances = nullptr,
-    bool right_to_left = false)
+    bool right_to_left = false, variable_font_options options = {})
 {
     require(case_index < variable_font_cases.size() && variant < 3U, "variable pixel inventory");
     const compat::matrix_3x2_f identity{1, 0, 0, 1, 0, 0};
@@ -89,7 +90,7 @@ void record_variable_pixel_case(compat::factory* factory, compat::render_target*
         require(factory->CreatePathGeometry(geometry.put()) == com::ok && geometry->Open(sink.put()) == com::ok,
             "variable independent geometry creation");
         sink->SetFillMode(compat::fill_mode::winding);
-        const auto rectangles = right_to_left ? variable_rtl_pixel_rectangles(case_index, nominal)
+        const auto rectangles = right_to_left ? variable_rtl_pixel_rectangles(case_index, nominal, options)
             : variable_pixel_rectangles(case_index, nominal);
         for (const auto& rectangle : rectangles) {
             sink->BeginFigure({rectangle.left, rectangle.bottom}, compat::figure_begin::filled);
@@ -162,7 +163,7 @@ void verify_variable_glyph_pixels(Render render, Require require)
                         target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "variable source target");
                     record_variable_pixel_case(factory.get(), target.get(), font, &parameters, instance, nominal, variant,
                         reference == 0U ? variable_pixel_path::prepared : variable_pixel_path::independent_geometry,
-                        require, nullptr, nullptr, right_to_left);
+                        require, nullptr, nullptr, right_to_left, options);
                     require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                         "variable immutable scene export");
                 }

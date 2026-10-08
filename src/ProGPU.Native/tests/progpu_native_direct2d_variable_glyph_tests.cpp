@@ -1,5 +1,6 @@
 #include "progpu_native_direct2d_variable_glyph_fixture.hpp"
 #include "progpu_native_text.hpp"
+#include "progpu_native_direct2d_compact_hvar_fixture.hpp"
 
 #include <bit>
 #include <cstdio>
@@ -191,6 +192,76 @@ bool prepared_run_atomicity_and_identity()
     return true;
 }
 
+bool compact_hvar_source_placement()
+{
+    com::pointer<compat::factory> factory;
+    com::pointer<compat::scene_factory_native> scene_factory;
+    com::pointer<compat::render_target> target;
+    const compat::scene_render_target_properties properties{64U, 64U, 96, 96, 0x95D7U, 1U};
+    if (compat::create_factory(factory.put()) != com::ok ||
+        factory.as(compat::scene_factory_native_interface_id, scene_factory) != com::ok ||
+        scene_factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok) return false;
+    rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+    const d2d::original_glyph_target frame{com::pointer<com::unknown>(target.get()), 1U,
+        {1, 0, 0, 1, 0, 0}, {0, 0}, {64U, 64U}, 96, 96, {}, compat::text_antialias_mode::aliased};
+    for (const auto& control : compact_hvar_controls) {
+        original_variable_source original({}, control.weight);
+        original.stream.bytes = make_compact_hvar_control(control.metric_count, control.map_kind);
+        original.stream.declared_size = original.stream.bytes.size();
+        std::shared_ptr<const d2d::original_font_capture> source;
+        std::shared_ptr<d2d::prepared_original_font> font;
+        if (original.capture(source) != com::ok || d2d::prepared_original_font::create(source, font) != com::ok) return false;
+        const auto source_reads = original.stream.reads, axis_reads = original.face.value_reads;
+        original.face.count_result = compat::not_implemented;
+        original.face.values_result = compat::not_implemented;
+        original.stream.bytes.clear();
+        const auto found = std::find_if(variable_font_cases.begin(), variable_font_cases.end(),
+            [&](const auto& item) { return item.weight == control.weight; });
+        if (found == variable_font_cases.end()) return false;
+        const auto case_index = static_cast<std::size_t>(found - variable_font_cases.begin());
+        constexpr std::uint16_t indices[]{2U, 0U, 1U};
+        constexpr float advances[]{20, -7, 8};
+        for (const bool rtl : {false, true}) for (const bool nominal : {false, true}) {
+            const compat::glyph_run run{&original.face, 1000.0F, 3U, indices,
+                nominal ? nullptr : advances, nullptr, 0, rtl ? 1U : 0U};
+            std::shared_ptr<const d2d::original_glyph_request> request;
+            std::shared_ptr<const d2d::prepared_original_glyph_run> glyphs;
+            if (!check(d2d::capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+                &parameters, frame, request) == com::ok && font->prepare(request, glyphs) == com::ok &&
+                glyphs->segments().size() == 8U, "compact HVAR retained original run")) return false;
+            float pen = 0;
+            std::size_t segment_index = 0U;
+            for (std::size_t index = 0U; index < 3U; ++index) {
+                const auto glyph = indices[index];
+                const auto design = expected_variable_glyph(glyph, case_index);
+                const auto source_advance = static_cast<float>(control.advances[glyph]);
+                if (design.has_ink) {
+                    const auto origin = rtl ? -pen - source_advance : pen;
+                    const auto& first = glyphs->segments()[segment_index];
+                    compat::rectangle_f bounds{first.p0.x, first.p0.y, first.p0.x, first.p0.y};
+                    for (std::size_t edge = 0U; edge < 4U; ++edge) {
+                        const auto& segment = glyphs->segments()[segment_index++];
+                        if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) return false;
+                        for (const auto point : {segment.p0, segment.p1}) {
+                            bounds.left = std::min(bounds.left, point.x); bounds.right = std::max(bounds.right, point.x);
+                            bounds.top = std::min(bounds.top, point.y); bounds.bottom = std::max(bounds.bottom, point.y);
+                        }
+                    }
+                    if (!check(bounds.left == design.x_min - design.horizontal_origin + origin &&
+                        bounds.right == design.x_max - design.horizontal_origin + origin &&
+                        bounds.top == -design.y_max && bounds.bottom == -design.y_min,
+                        "compact HVAR original metric/map/contour identity")) return false;
+                }
+                pen += nominal ? source_advance : advances[index];
+            }
+        }
+        if (!check(original.stream.reads == source_reads && original.face.value_reads == axis_reads &&
+            original.face.outline_calls == 0U && original.face.table_calls == 0U && font->cached_glyph_count() == 3U,
+            "compact HVAR cold/warm source retirement without callbacks")) return false;
+    }
+    return true;
+}
+
 bool direct_paired_metrics()
 {
     for (const auto& options : variable_pixel_font_options) {
@@ -238,5 +309,5 @@ bool direct_paired_metrics()
 bool progpu_native_direct2d_variable_glyph_tests()
 {
     return axis_and_table_admission() && exact_float_normalization() &&
-        direct_paired_metrics() && prepared_run_atomicity_and_identity();
+        direct_paired_metrics() && compact_hvar_source_placement() && prepared_run_atomicity_and_identity();
 }

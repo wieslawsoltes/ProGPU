@@ -1,6 +1,7 @@
 #pragma once
 
 #include "progpu_native_direct2d_variable_glyph_fixture.hpp"
+#include "progpu_native_direct2d_compact_hvar_fixture.hpp"
 #include <bit>
 
 // Genuine Windows SDK declarations precede this header. All instances and
@@ -9,8 +10,81 @@
 namespace progpu::native::direct2d::tests {
 
 template<class Require>
+void verify_original_compact_hvar(IDWriteFactory5* factory, IDWriteInMemoryFontFileLoader* loader,
+    ID2D1Factory* drawing_factory, compat::render_target* target, compat::rendering_parameters* parameters,
+    Require require)
+{
+    using Microsoft::WRL::ComPtr;
+    unsigned cases = 0U;
+    for (const auto& control : compact_hvar_controls) {
+        const auto bytes = make_compact_hvar_control(control.metric_count, control.map_kind);
+        ComPtr<IDWriteFontFile> file;
+        require(loader->CreateInMemoryFontFileReference(factory, bytes.data(), static_cast<UINT32>(bytes.size()),
+            nullptr, file.GetAddressOf()) == S_OK, "original compact HVAR independent bytes");
+        IDWriteFontFile* files[]{file.Get()};
+        ComPtr<IDWriteFontFace> base;
+        ComPtr<IDWriteFontFace5> base5, face;
+        ComPtr<IDWriteFontResource> resource;
+        const DWRITE_FONT_AXIS_VALUE axis{DWRITE_FONT_AXIS_TAG_WEIGHT, control.weight};
+        require(factory->CreateFontFace(DWRITE_FONT_FACE_TYPE_TRUETYPE, 1U, files, 0U,
+            DWRITE_FONT_SIMULATIONS_NONE, base.GetAddressOf()) == S_OK && base.As(&base5) == S_OK &&
+            base5->GetFontResource(resource.GetAddressOf()) == S_OK &&
+            resource->CreateFontFace(DWRITE_FONT_SIMULATIONS_NONE, &axis, 1U, face.GetAddressOf()) == S_OK,
+            "original compact HVAR exact instance");
+        constexpr UINT16 indices[]{0U, 1U, 2U};
+        INT32 advances[3]{};
+        require(face->GetDesignGlyphAdvances(3U, indices, advances, FALSE) == S_OK &&
+            std::equal(std::begin(advances), std::end(advances), control.advances.begin()),
+            "original compact HVAR independent source advances");
+        com::pointer<compat::font_face> typed_face;
+        require(face->QueryInterface(compat::font_face_interface_id, reinterpret_cast<void**>(typed_face.put())) == S_OK,
+            "original compact HVAR typed face");
+        std::shared_ptr<const original_font_capture> source;
+        std::shared_ptr<prepared_original_font> prepared;
+        require(capture_original_font(typed_face.get(), source) == S_OK &&
+            prepared_original_font::create(source, prepared) == S_OK, "original compact HVAR retained source");
+        const original_glyph_target frame{com::pointer<com::unknown>(target), 1U,
+            {1, 0, 0, 1, 0, 0}, {0, 0}, {64U, 64U}, 96, 96, {}, compat::text_antialias_mode::aliased};
+        // Reverse the ink IDs around the original empty glyph so its null
+        // advance contributes to a following outline in both directions.
+        constexpr UINT16 run_ids[]{2U, 0U, 1U};
+        for (const bool rtl : {false, true}) {
+            ComPtr<ID2D1PathGeometry> original;
+            ComPtr<ID2D1GeometrySink> sink;
+            require(drawing_factory->CreatePathGeometry(original.GetAddressOf()) == S_OK &&
+                original->Open(sink.GetAddressOf()) == S_OK &&
+                face->GetGlyphRunOutline(1000.0F, run_ids, nullptr, nullptr, 3U, FALSE, rtl, sink.Get()) == S_OK &&
+                sink->Close() == S_OK, "original compact HVAR null-advance outline");
+            D2D1_RECT_F original_bounds{};
+            require(original->GetBounds(nullptr, &original_bounds) == S_OK, "original compact HVAR bounds");
+            const compat::glyph_run run{typed_face.get(), 1000.0F, 3U, run_ids, nullptr, nullptr, 0, rtl ? 1U : 0U};
+            std::shared_ptr<const original_glyph_request> request;
+            std::shared_ptr<const prepared_original_glyph_run> glyphs;
+            require(capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+                parameters, frame, request) == S_OK && prepared->prepare(request, glyphs) == S_OK &&
+                glyphs->segments().size() == 8U, "original compact HVAR prepared occurrences");
+            const auto& first = glyphs->segments()[0U];
+            D2D1_RECT_F actual{first.p0.x, first.p0.y, first.p0.x, first.p0.y};
+            for (const auto& segment : glyphs->segments()) {
+                require(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE, "original compact HVAR line inventory");
+                for (const auto point : {segment.p0, segment.p1}) {
+                    actual.left = std::min(actual.left, point.x); actual.right = std::max(actual.right, point.x);
+                    actual.top = std::min(actual.top, point.y); actual.bottom = std::max(actual.bottom, point.y);
+                }
+            }
+            require(actual.left == original_bounds.left && actual.top == original_bounds.top &&
+                actual.right == original_bounds.right && actual.bottom == original_bounds.bottom,
+                "original compact HVAR complete source/prepared outline bounds");
+        }
+        ++cases;
+    }
+    require(cases == 45U, "original compact HVAR inventory");
+    std::fprintf(stderr, "Original compact HVAR cases=%u outline-comparisons=%u\n", cases, cases * 2U);
+}
+
+template<class Require, class Compare>
 void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
-    IDWriteFactory* write_factory, Require require)
+    IDWriteFactory* write_factory, Require require, Compare compare)
 {
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
@@ -66,6 +140,9 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
         return pixels;
     };
 
+    verify_original_compact_hvar(extended_factory.Get(), loader.Get(), factory.Get(),
+        typed_target.get(), typed_parameters.get(), require);
+
     // Preserve the original forty LTR observations, then request the separate
     // forty RTL runs from genuine SDK instances of the same immutable bytes.
     for (const bool right_to_left : {false, true}) {
@@ -109,21 +186,46 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                         std::bit_cast<std::uint32_t>(observed[index].value),
                     "original variable canonical axis order/tag/bits");
                 if (observed[index].axisTag == DWRITE_FONT_AXIS_TAG_WEIGHT) {
-                    require(!found_weight && std::bit_cast<std::uint32_t>(observed[index].value) ==
-                        std::bit_cast<std::uint32_t>(weight), "original in-range user-coordinate bits");
+                    require(!found_weight, "original unique wght axis");
+                    if (weight != variable_precision_weight)
+                        require(std::bit_cast<std::uint32_t>(observed[index].value) ==
+                            std::bit_cast<std::uint32_t>(weight), "original pixel-instance user-coordinate bits");
                     found_weight = true;
                 }
             }
             require(found_weight, "original actual wght axis not inferred from static descriptors");
         };
 
-        // Fine user coordinates are independently requested and read back by
-        // the SDK. This control does not manufacture a fractional outline or
-        // treat an original INT32 design-advance result as sub-unit precision.
+        // The source for capture is Face5's complete canonical axis result,
+        // not the earlier CreateFontFace request. The original SDK rounds this
+        // fine request before publishing its face. Keep the request unchanged,
+        // preserve every actual source bit above, and independently prove that
+        // a fresh face made from that canonical result reports identical bits.
         {
             ComPtr<IDWriteFontFace5> fine_face;
             std::shared_ptr<const original_font_capture> fine_capture;
             create_instance(variable_precision_weight, fine_face, fine_capture);
+            std::vector<DWRITE_FONT_AXIS_VALUE> canonical(fine_face->GetFontAxisValueCount());
+            require(fine_face->GetFontAxisValues(canonical.data(), static_cast<UINT32>(canonical.size())) == S_OK,
+                "original fine canonical axis observation");
+            ComPtr<IDWriteFontFace5> repeated_face;
+            require(resource->CreateFontFace(DWRITE_FONT_SIMULATIONS_NONE, canonical.data(),
+                static_cast<UINT32>(canonical.size()), repeated_face.GetAddressOf()) == S_OK &&
+                repeated_face->GetFontAxisValueCount() == canonical.size(),
+                "original independent canonical-axis instance");
+            std::vector<DWRITE_FONT_AXIS_VALUE> repeated(canonical.size());
+            require(repeated_face->GetFontAxisValues(repeated.data(), static_cast<UINT32>(repeated.size())) == S_OK,
+                "original independent canonical-axis observation");
+            for (std::size_t axis = 0U; axis < canonical.size(); ++axis) {
+                require(canonical[axis].axisTag == repeated[axis].axisTag &&
+                    std::bit_cast<std::uint32_t>(canonical[axis].value) == std::bit_cast<std::uint32_t>(repeated[axis].value),
+                    "original canonical-axis round-trip tag/order/bits");
+                if (canonical[axis].axisTag == DWRITE_FONT_AXIS_TAG_WEIGHT)
+                    std::fprintf(stderr, "Original fine axis request=%08x Face5=%08x retained=%08x\n",
+                        std::bit_cast<std::uint32_t>(variable_precision_weight),
+                        std::bit_cast<std::uint32_t>(canonical[axis].value),
+                        std::bit_cast<std::uint32_t>(fine_capture->axis_values[axis].value));
+            }
         }
         for (std::size_t case_index = 0U; case_index < variable_font_cases.size(); ++case_index) {
             ComPtr<IDWriteFontFace5> face;
@@ -141,8 +243,12 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                 "original variable design advance query");
             std::array<float, 3U> original_advances{};
             for (std::size_t index = 0U; index < 3U; ++index) {
-                const auto expected = expected_variable_glyph(indices[index], case_index);
-                require(static_cast<float>(design_advances[index]) == expected.advance,
+                const auto expected_advance = expected_variable_source_advance(options, indices[index], case_index);
+                if (static_cast<float>(design_advances[index]) != expected_advance)
+                    std::fprintf(stderr, "Original variable advance hvar=%u compact=%u bearings=%u rtl=%u instance=%zu glyph=%u actual=%d expected=%g\n",
+                        unsigned(options.hvar), unsigned(options.compact_metrics), unsigned(options.side_bearing_maps),
+                        unsigned(right_to_left), case_index, unsigned(indices[index]), design_advances[index], expected_advance);
+                compare(static_cast<float>(design_advances[index]) == expected_advance,
                     "original variable design advances including empty glyph");
                 original_advances[index] = static_cast<float>(design_advances[index]) * (31.25F / 1000.0F);
             }
@@ -194,7 +300,7 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                         (nominal || (retained.glyphs.advances()[0] == 12.0F && retained.glyphs.advances()[1] == -3.0F &&
                                      retained.glyphs.advances()[2] == 20.0F)),
                         "variable RTL retains logical IDs, exact source owner, signed advances and offsets");
-                    const auto expected = variable_rtl_pixel_rectangles(case_index, nominal);
+                    const auto expected = variable_rtl_pixel_rectangles(case_index, nominal, options);
                     require(glyphs->segments().size() == 8U, "variable RTL two original ink occurrences");
                     for (std::size_t occurrence = 0U; occurrence < 2U; ++occurrence) {
                         const auto& first = glyphs->segments()[occurrence * 4U];
@@ -247,12 +353,12 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                 for (std::size_t index = 0U; index < (nominal ? 4U : 3U); ++index) {
                     context->SetTarget(target.Get());
                     record_variable_pixel_case(typed_factory.get(), typed_target.get(), prepared, typed_parameters.get(),
-                        case_index, nominal, variant, paths[index], require, geometry.get(), original_advances.data(), right_to_left);
+                        case_index, nominal, variant, paths[index], require, geometry.get(), original_advances.data(), right_to_left, options);
                     pixels[index] = copy_pixels();
                 }
-                require(pixels[0] == pixels[1] && pixels[0] == pixels[2],
+                compare(pixels[0] == pixels[1] && pixels[0] == pixels[2],
                     "original variable DrawGlyphRun/independent/prepared full-byte mismatch");
-                if (nominal) require(pixels[0] == pixels[3],
+                if (nominal) compare(pixels[0] == pixels[3],
                     "original variable null advance differs from original design advance");
             }
         }

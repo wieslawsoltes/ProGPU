@@ -16,7 +16,9 @@ struct variable_font_case final { float weight; float scalar; };
 inline constexpr std::array<variable_font_case, 5U> variable_font_cases{{
     {400, 0}, {650, 0.75F}, {900, 1}, {250, -0.5F}, {100, -1}}};
 // Three binary32 ULPs above 100: not representable by a signed 16.16 input.
-// Retain this source value, rather than manufacturing a rounded font instance.
+// Raw Face5 controls retain this source value without narrowing. An original
+// SDK factory can canonicalize its request before publishing the actual face;
+// that face's reported values, not this request, own original source capture.
 inline constexpr float variable_precision_weight = 100.00002288818359375F;
 
 struct variable_glyph_expectation final {
@@ -38,6 +40,14 @@ inline variable_glyph_expectation expected_variable_glyph(std::uint16_t glyph, s
         {{{0,0,0,0,-4,460,false}, {5,9,273,393,-4,460,true}, {21,17,289,401,4,476,true}}}
     }};
     return expected.at(case_index).at(glyph);
+}
+
+// Independently observed original DirectWrite source advances. The generic
+// OpenType expectation above retains each glyph's own HVAR/phantom advance.
+inline float expected_variable_source_advance(variable_font_options options,
+    std::uint16_t glyph, std::size_t case_index)
+{
+    return expected_variable_glyph(options.hvar && options.compact_metrics ? 0U : glyph, case_index).advance;
 }
 
 namespace variable_font_wire {

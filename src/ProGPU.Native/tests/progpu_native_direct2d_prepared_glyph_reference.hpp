@@ -46,9 +46,9 @@ private:
     bool open_ = false, valid_ = true;
 };
 
-template<class Require>
+template<class Require, class Compare>
 void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
-    IDWriteFactory* write_factory, Require require)
+    IDWriteFactory* write_factory, Require require, Compare compare)
 {
     std::uint32_t pixel_cases = 0U;
     std::uint32_t placement_failures = 0U;
@@ -230,9 +230,9 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
     std::fprintf(stderr, "Original prepared glyph cases=%u placement-failures=%u nominal-failures=%u\n",
         pixel_cases, placement_failures, nominal_failures);
     require(pixel_cases == 48U, "original prepared glyph pixel inventory changed");
-    require(placement_failures == 0U,
+    compare(placement_failures == 0U,
         "original DrawGlyphRun differs from independent or prepared full-byte placement");
-    require(nominal_failures == 0U,
+    compare(nominal_failures == 0U,
         "original null advances differ from original explicit horizontal design advances");
 }
 } // namespace progpu::native::direct2d::tests

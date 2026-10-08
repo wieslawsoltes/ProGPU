@@ -9,9 +9,9 @@ namespace progpu::native::direct2d::tests {
 // Actual original Windows source calls only. Fractional INT32 metric fields are
 // observations, not a guessed rounding oracle. Full outline/pixel expectations
 // remain the independent precise contour contract and must pass unchanged.
-template<class Require>
+template<class Require, class Compare>
 void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_context,
-    IDWriteFactory* write_factory, Require require)
+    IDWriteFactory* write_factory, Require require, Compare compare)
 {
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
@@ -178,13 +178,14 @@ void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_contex
                     nominal,variant,paths[path],require,path == 3U ? typed_original.get() : geometry.get(),scaled_advances.data());
                 images[path] = pixels();
             }
-            require(images[0].size() == 64U*256U && images[0] == images[1] && images[0] == images[2] && images[0] == images[3],
+            require(images[0].size() == 64U * 256U, "original glyph frame byte inventory");
+            compare(images[0] == images[1] && images[0] == images[2] && images[0] == images[3],
                 "original CFF contour-origin DrawGlyphRun/GetGlyphRunOutline/independent/prepared full-byte mismatch");
-            if (nominal) require(images[0] == images[4], "original CFF null versus actual design advances mismatch");
+            if (nominal) compare(images[0] == images[4], "original CFF null versus actual design advances mismatch");
             context->SetTarget(target.Get());
             record_cff_contour_origin_pixel_case(typed_factory.get(),typed_target.get(),prepared,typed_parameters.get(),fractional,
                 nominal,variant,sideways_pixel_path::original,require);
-            require(images[0] == pixels(), "original CFF contour-origin same-owner warm replay");
+            compare(images[0] == pixels(), "original CFF contour-origin same-owner warm replay");
             bool ink = false;
             for (std::size_t pixel = 0U; pixel < images[0].size(); pixel += 4U) {
                 require(images[0][pixel] == 0U && images[0][pixel+1U] == 0U && images[0][pixel+3U] == 255U,

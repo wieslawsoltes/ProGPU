@@ -8311,18 +8311,32 @@ int main(int argc, char** argv)
 
     progpu::native::direct2d::tests::capture_original_rgb_parameters(context.Get(),
         static_cast<IDWriteFactory*>(dwrite_factory.Get()), font_face.Get(), glyph_indices[0], require);
+    // These fixtures own independent source contexts and finish/read back each
+    // frame before comparing pixels. Collect completed source-value and pixel comparisons
+    // so one AA difference cannot hide later font families. Structural/native
+    // failures retain immediate require; the process still fails below if any
+    // original comparison fails, after normal provider resource retirement.
+    unsigned glyph_comparisons = 0U, glyph_failures = 0U;
+    const auto compare_original_glyph = [&](bool condition, const char* message) {
+        ++glyph_comparisons;
+        if (!condition) {
+            ++glyph_failures;
+            std::fprintf(stderr, "Original glyph comparison %u failed: %s\n",
+                glyph_comparisons, message);
+        }
+    };
     progpu::native::direct2d::tests::verify_original_prepared_glyph_pixels(context.Get(),
-        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
     progpu::native::direct2d::tests::verify_original_variable_glyph_pixels(context.Get(),
-        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
     progpu::native::direct2d::tests::verify_original_cff_glyph_pixels(context.Get(),
-        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
     progpu::native::direct2d::tests::verify_original_sideways_glyph_pixels(context.Get(),
-        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
     progpu::native::direct2d::tests::verify_original_cff_contour_origin_pixels(context.Get(),
-        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
     progpu::native::direct2d::tests::verify_original_variable_sideways_glyph_pixels(context.Get(),
-        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require);
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
 
     // Original Windows command lists retain the actual face, offsets and
     // caller-selected outline rendering parameters. This tests the real
@@ -9739,5 +9753,8 @@ int main(int argc, char** argv)
     factory1.Reset();
     progpu_native_direct2d_surface_destroy(surface);
     RoUninitialize();
+    std::fprintf(stderr, "Original glyph comparisons=%u failures=%u\n",
+        glyph_comparisons, glyph_failures);
+    require(glyph_failures == 0U, "original glyph source-value/full-byte comparisons failed");
     return EXIT_SUCCESS;
 }

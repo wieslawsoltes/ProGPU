@@ -71,8 +71,8 @@ private:
     bool open_ = false, valid_ = true;
 };
 
-template<class Require>
-void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWriteFactory* write_factory, Require require)
+template<class Require, class Compare>
+void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWriteFactory* write_factory, Require require, Compare compare)
 {
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
@@ -267,9 +267,10 @@ void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWrit
                         instance,nominal,variant,paths[path],require,geometry.get(),original_advances.data());
                     pixels[path] = copy_pixels();
                 }
-                require(pixels[0].size() == 64U * 256U && pixels[0] == pixels[1] && pixels[0] == pixels[2],
+                require(pixels[0].size() == 64U * 256U, "original glyph frame byte inventory");
+                compare(pixels[0] == pixels[1] && pixels[0] == pixels[2],
                     "original CFF DrawGlyphRun/independent/prepared full-byte mismatch");
-                if (nominal) require(pixels[0] == pixels[3], "original CFF null versus actual design advance mismatch");
+                if (nominal) compare(pixels[0] == pixels[3], "original CFF null versus actual design advance mismatch");
                 ++configurations;
             }
         }

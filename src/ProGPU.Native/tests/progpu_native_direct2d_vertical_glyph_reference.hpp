@@ -7,9 +7,9 @@ namespace progpu::native::direct2d::tests {
 // Genuine original SDK reference; caller owns the Windows COM/runtime scope.
 // These controls are authored only until the final integrated reference runs.
 // No original metric or output is replaced by a product-side font observation.
-template<class Require>
+template<class Require, class Compare>
 void verify_original_sideways_glyph_pixels(ID2D1DeviceContext* source_context,
-    IDWriteFactory* write_factory, Require require)
+    IDWriteFactory* write_factory, Require require, Compare compare)
 {
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
@@ -187,9 +187,10 @@ void verify_original_sideways_glyph_pixels(ID2D1DeviceContext* source_context,
                     nominal,variant,paths[path],require,geometry.get(),original_advances.data());
                 images[path]=pixels();
             }
-            require(images[0].size() == 64U*256U && images[0] == images[1] && images[0] == images[2],
+            require(images[0].size() == 64U * 256U, "original glyph frame byte inventory");
+            compare(images[0] == images[1] && images[0] == images[2],
                 "original sideways DrawGlyphRun/independent/prepared full-byte mismatch");
-            if (nominal) require(images[0] == images[3], "original sideways null versus actual vertical advance mismatch");
+            if (nominal) compare(images[0] == images[3], "original sideways null versus actual vertical advance mismatch");
             ++configurations;
         }
         }

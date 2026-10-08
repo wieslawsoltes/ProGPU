@@ -184,7 +184,7 @@ struct varied_outline_storage final {
 
 [[nodiscard]] com::result decode_varied_glyph(const text::sfnt_font_view& font,
     std::span<const std::int16_t> normalized, const text::sfnt_horizontal_metrics_variation_instance& variation,
-    varied_outline_storage& scratch, std::uint16_t glyph, std::size_t remaining,
+    std::uint16_t horizontal_metric_count, varied_outline_storage& scratch, std::uint16_t glyph, std::size_t remaining,
     std::shared_ptr<const decoded_original_glyph>& output)
 {
     text::sfnt_varied_glyph_requirements requirements{};
@@ -220,10 +220,15 @@ struct varied_outline_storage final {
     if (!font.try_get_glyph_horizontal_phantom_deltas(glyph, normalized, item_count, left, right,
             scratch.borrow_phantoms())) return com::invalid_argument;
     candidate->horizontal_advance = static_cast<float>(base.advance_width) + (right - left);
-    // HVAR advance has the existing shared precedence. Its region scalars and
-    // optional maps belong to this same immutable axis instance, not a glyph.
-    if (variation.advance.uses_hvar && !font.try_get_design_advance_width(glyph, normalized,
-            &variation.advance, candidate->horizontal_advance, scratch.borrow_phantoms())) return com::invalid_argument;
+    // Original DirectWrite outline placement selects HVAR through the stored
+    // hmtx advance, including its compact repeated tail. Apply the map only
+    // after that selection. Contours, phantoms and bearings keep their real
+    // glyph identity; the generic OpenType metric reader remains unchanged.
+    if (variation.advance.uses_hvar) {
+        const auto advance_glyph = std::min(glyph, static_cast<std::uint16_t>(horizontal_metric_count - 1U));
+        if (!font.try_get_design_advance_width(advance_glyph, normalized,
+                &variation.advance, candidate->horizontal_advance, scratch.borrow_phantoms())) return com::invalid_argument;
+    }
     if (!original.empty()) {
         candidate->horizontal_origin = static_cast<float>(static_cast<std::int32_t>(original.x_min) -
             static_cast<std::int32_t>(base.left_side_bearing)) + left;
@@ -469,6 +474,7 @@ struct prepared_original_font::state final {
     text::sfnt_cff2_font_view cff2{};
     std::vector<text::sfnt_cff_outline_transform> cff_matrices;
     std::uint16_t units_per_em = 0U;
+    std::uint16_t horizontal_metric_count = 0U;
     std::vector<std::int16_t> normalized_coordinates;
     std::vector<float> region_scalars;
     text::sfnt_horizontal_metrics_variation_instance variation{};
@@ -524,6 +530,7 @@ com::result prepared_original_font::create(std::shared_ptr<const original_font_c
         const auto metric_count = static_cast<std::size_t>(horizontal.number_of_horizontal_metrics);
         if (hmtx.bytes.size() < metric_count * 4U + (static_cast<std::size_t>(glyphs) - metric_count) * 2U)
             return com::invalid_argument;
+        candidate->horizontal_metric_count = horizontal.number_of_horizontal_metrics;
         text::sfnt_table_view glyf{}, loca{}, cff1{}, cff2{}, gvar{}, fvar{};
         const bool has_glyf = candidate->font.try_get_table(text::open_type_tag::from_chars('g', 'l', 'y', 'f'), glyf);
         const bool has_loca = candidate->font.try_get_table(text::open_type_tag::from_chars('l', 'o', 'c', 'a'), loca);
@@ -643,7 +650,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
                     : state_->normalized_coordinates.empty()
                     ? decode_glyph(state_->font, glyph, remaining, decoded)
                     : decode_varied_glyph(state_->font, state_->normalized_coordinates, state_->variation,
-                        state_->varied_scratch, glyph, remaining, decoded);
+                        state_->horizontal_metric_count, state_->varied_scratch, glyph, remaining, decoded);
                 if (com::failed(status)) return status;
                 added_segments += decoded->segments.size();
                 additions.emplace(glyph, decoded);

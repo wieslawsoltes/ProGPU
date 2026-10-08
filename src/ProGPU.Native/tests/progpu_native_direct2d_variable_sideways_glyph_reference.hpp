@@ -7,9 +7,9 @@ namespace progpu::native::direct2d::tests {
 
 // Actual original DirectWrite objects, not a mocked face or product metric
 // reader. The instance selector below preserves the SDK's complete axis list.
-template<class Require>
+template<class Require, class Compare>
 void verify_original_variable_sideways_glyph_pixels(ID2D1DeviceContext* source_context,
-    IDWriteFactory* write_factory, Require require)
+    IDWriteFactory* write_factory, Require require, Compare compare)
 {
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
@@ -214,9 +214,10 @@ void verify_original_variable_sideways_glyph_pixels(ID2D1DeviceContext* source_c
                         options,instance,nominal,variant,paths[path],require,geometry.get(),original_advances.data());
                     images[path]=pixels();
                 }
-                require(images[0].size() == 64U*256U && images[0] == images[1] && images[0] == images[2],
+                require(images[0].size() == 64U * 256U, "original glyph frame byte inventory");
+                compare(images[0] == images[1] && images[0] == images[2],
                     "original variable sideways DrawGlyphRun/independent/prepared full-byte mismatch");
-                if (nominal) require(images[0] == images[3], "original variable sideways null/design advance mismatch");
+                if (nominal) compare(images[0] == images[3], "original variable sideways null/design advance mismatch");
                 ++configurations;
             }
         }
