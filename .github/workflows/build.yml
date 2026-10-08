@@ -527,7 +527,7 @@ jobs:
         with:
           name: progpu-direct2d-rgb-reference-${{ matrix.rid }}
           path: '**/direct2d-rgb-reference-*/'
-          if-no-files-found: ${{ success() && 'error' || 'warn' }}
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
 
       - name: Upload native MIL ImageBrush frames
         if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'

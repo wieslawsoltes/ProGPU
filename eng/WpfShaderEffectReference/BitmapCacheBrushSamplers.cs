@@ -412,7 +412,7 @@ internal static partial class Program
                 nestedImageBrush.TileMode != TileMode.None || !nestedImageBrush.Transform.Value.IsIdentity ||
                 !nestedImageBrush.RelativeTransform.Value.IsIdentity || nestedDrawingGroup.Opacity != 1 ||
                 nestedDrawingGroup.ClipGeometry != null || nestedDrawingGroup.OpacityMask != null ||
-                !nestedDrawingGroup.Transform.Value.IsIdentity || nestedImage.HasAnimatedProperties ||
+                nestedDrawingGroup.Transform != null || nestedImage.HasAnimatedProperties ||
                 nestedDrawingGroup.HasAnimatedProperties || nestedImageBrush.HasAnimatedProperties ||
                 nestedSourceLeaf.EmittedEdgeMode != EdgeMode.Aliased ||
                 nestedReceiver.EmittedScalingMode != BitmapScalingMode.NearestNeighbor)

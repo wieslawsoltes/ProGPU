@@ -382,7 +382,7 @@ internal static partial class Program
                 brush.TileMode != state.Tile || brush.Stretch != Stretch.Fill || brush.AlignmentX != AlignmentX.Center ||
                 brush.AlignmentY != AlignmentY.Center || !brush.Transform.Value.IsIdentity ||
                 !brush.RelativeTransform.Value.IsIdentity || group.ClipGeometry != null || group.OpacityMask != null ||
-                !group.Transform.Value.IsIdentity || group.Bounds != expectedBounds ||
+                group.Transform != null || group.Bounds != expectedBounds ||
                 image.Width != (state.Attached && state.HasChildren ? 8 : 0) ||
                 image.Height != (state.Attached && state.HasChildren ? 6 : 0) ||
                 !ReferenceEquals(clip.Clip, clipGeometry) || clipGeometry.Rect != new Rect(8, 10, 32, 24) ||
