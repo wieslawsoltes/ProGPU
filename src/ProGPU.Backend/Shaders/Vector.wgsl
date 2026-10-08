@@ -1439,7 +1439,7 @@ fn box_distance_gradient(
     return vec3<f32>(distance, gradient);
 }
 
-fn vector_fs_main_with_brush_frame(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -> vec4<f32> {
+fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -> vec4<f32> {
     let atlasCoordDx = dpdx(input.texCoord);
     let atlasCoordDy = dpdy(input.texCoord);
     let localBrushCoordDx = dpdx(input.brushCoord);
@@ -2251,20 +2251,16 @@ fn vector_fs_main_with_brush_frame(input: VertexOutput, maskAlpha: f32, targetBr
     return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha * stateOpacity);
 }
 
-fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
-    return vector_fs_main_with_brush_frame(input, maskAlpha, false);
-}
-
 @fragment
 fn fs_mask_target_space(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = vector_fs_main_with_brush_frame(input, 1.0, true);
+    let color = vector_fs_main(input, 1.0, true);
     return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2275,7 +2271,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_main_chain(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy) *
         sample_mask_chain_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2284,13 +2280,13 @@ fn fs_main_chain(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
-    return vector_fs_main(input, 1.0);
+    return vector_fs_main(input, 1.0, false);
 }
 
 @fragment
 fn fs_main_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2299,14 +2295,14 @@ fn fs_main_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_main_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = vector_fs_main(input, 1.0);
+    let color = vector_fs_main(input, 1.0, false);
     return vec4<f32>(color.rgb * color.a, color.a);
 }
 
 @fragment
 fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2316,7 +2312,7 @@ fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = vector_fs_main(input, 1.0);
+    let color = vector_fs_main(input, 1.0, false);
     // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
     return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
