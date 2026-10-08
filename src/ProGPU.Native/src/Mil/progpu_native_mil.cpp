@@ -21575,7 +21575,10 @@ struct channel::implementation {
         if (isolated_opacity) {
             progpu_native_scene_layer layer{};
             layer.struct_size = sizeof(layer);
-            layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+            // A private shader input retains the same source visual opacity
+            // arithmetic as ordinary rendering, before the independent mask.
+            layer.flags = PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+                PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY;
             layer.opacity = static_cast<float>(source_state.opacity);
             layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
             layer.mask_resource_index = opacity_mask;

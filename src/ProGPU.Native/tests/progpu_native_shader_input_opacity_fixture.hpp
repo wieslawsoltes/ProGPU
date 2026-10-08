@@ -126,6 +126,8 @@ void verify_shader_input_opacity(Render render, Require require) {
                     if (opacity.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) continue;
                     require(!masked && opacity.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                         opacity.opacity == (variant == 3U ? .5F : 1.0F), "visual input opacity was duplicated or lost");
+                    require((opacity.flags & PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) != 0U,
+                        "gradient input lost ordinary source visual byte-opacity arithmetic");
                     const auto resource = read_shader_opacity_record<progpu_native_scene_resource>(nested,
                         input.resource_offset + opacity.mask_resource_index * input.resource_stride, require);
                     const auto mask = read_shader_opacity_record<progpu_native_scene_layer_brush_mask>(nested, resource.payload_offset, require);

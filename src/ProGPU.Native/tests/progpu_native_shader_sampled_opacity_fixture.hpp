@@ -153,6 +153,8 @@ void require_shader_sampled_input_ownership(std::span<const std::byte> bytes,
             if (scope.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) continue;
             require(scope.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                 scope.opacity == (test.variant == 3U ? .5F : 1.0F), "sampled input visual opacity was lost/duplicated");
+            require((scope.flags & PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) != 0U,
+                "sampled input lost ordinary source visual byte-opacity arithmetic");
             const auto mask_resource = read_shader_opacity_record<progpu_native_scene_resource>(input,
                 input_header.resource_offset + scope.mask_resource_index * input_header.resource_stride, require);
             require(mask_resource.payload_size == sizeof(progpu_native_scene_layer_picture_mask), "sampled source became a gradient mask");

@@ -61,6 +61,15 @@ uniform layouts, image addressing and ordinary layer shader entries are unchange
 The complete sampled-opacity families still pass on local Metal and Vulkan;
 the Intel Metal and Windows integration runs remain required.
 
+The private version-5 input isolation now retains the same
+`LINEAR_BYTE_OPACITY` flag as ordinary source visuals and older effect inputs.
+Omitting it sent private captures through ordinary floating layer opacity while
+the independently rendered baseline used source byte opacity. Both the gradient
+and sampled-brush fixtures require the flag in the original nested input layer;
+the complete pixel, cold/warm, ownership and submission comparisons are unchanged.
+This compiler change is shared by both native providers and does not alter the
+managed generic compositor's separate ordering contract described below.
+
 The stock native GPU executable accepts `--sampled-opacity-only` or
 `--sampled-opacity-software` for a focused run of the unchanged three source
 families, nine states and cold/warm/independent engines. Default execution calls
