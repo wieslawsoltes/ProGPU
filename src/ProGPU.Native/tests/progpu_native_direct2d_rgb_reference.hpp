@@ -3,8 +3,10 @@
 // Windows-only independent observation. No ProGPU coverage or blend formula is
 // used to produce these bytes. Include after the original SDK/WRL declarations.
 #include <bcrypt.h>
+#include <algorithm>
 #include <atomic>
 #include <bit>
+#include <cstdio>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -277,6 +279,19 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
             context->DrawImage(list.Get());
             require(context->EndDraw() == S_OK, "original RGB command list replay failed");
             const auto replay = copy_pixels();
+            if (replay != direct) {
+                const auto prefix = L"failed-case-" + std::to_wstring(case_id);
+                write_new(prefix + L"-direct.bgra", direct.data(), direct.size());
+                write_new(prefix + L"-command-list.bgra", replay.data(), replay.size());
+                const auto difference = static_cast<std::size_t>(
+                    std::mismatch(direct.begin(), direct.end(), replay.begin()).first - direct.begin());
+                std::fprintf(stderr, "Original RGB mismatch case=%u gamma=%g contrast=%g level=%g geometry=%u mode=%u "
+                    "foreground=(%g,%g,%g,%g) phase=%g pixel=(%zu,%zu) channel=%zu direct=%u replay=%u\n",
+                    case_id, double(selected.gamma), double(selected.contrast), double(selected.level),
+                    unsigned(selected.geometry), unsigned(selected.mode), double(color.r), double(color.g),
+                    double(color.b), double(color.a), double(phase), (difference / 4U) % width,
+                    difference / stride, difference % 4U, unsigned(direct[difference]), unsigned(replay[difference]));
+            }
             require(replay == direct, "original RGB direct and command-list full pixels differ");
             bool ink = false;
             for (std::size_t index = 0U; index < direct.size(); index += 4U)

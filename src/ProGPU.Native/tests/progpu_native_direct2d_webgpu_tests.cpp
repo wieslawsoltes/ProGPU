@@ -2203,13 +2203,49 @@ void verify_explicit_target_storage_clear(const gpu_context& gpu, progpu_native_
         }, require);
 }
 
+void verify_explicit_rgb_glyphs(const gpu_context& gpu)
+{
+    // Explicit policies are isolated from the ordinary engine and adapter
+    // defaults. Both routes retain the real owned scene/layer/readback path.
+    std::array<progpu_native_engine*, 5U> rgb_engines{};
+    const auto rgb_engine = [&](unsigned route) {
+        auto*& selected = rgb_engines[route];
+        if (selected == nullptr) {
+            progpu_native_engine_options options{};
+            options.struct_size = sizeof(options);
+            options.abi_version = PROGPU_NATIVE_ABI_VERSION;
+            options.backend_abi = PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05;
+            options.target_format = route == 4U ? PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM_SRGB
+                : PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM;
+            options.device = reinterpret_cast<std::uintptr_t>(gpu.device);
+            options.queue = reinterpret_cast<std::uintptr_t>(gpu.queue);
+            options.flags = progpu::native::tests::rgb_scene_engine_flags(route);
+            require(progpu_native_engine_create(&options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
+                "RGB retained-scene wgpu engine creation failed");
+        }
+        return selected;
+    };
+    const auto render_rgb =
+        [&](unsigned route, const auto& stream, const progpu_native_scene_header& header,
+            const progpu::native::tests::rgb_scene_case& test, progpu_native_scene_frame_metrics& metrics,
+            std::uint64_t submissions = 1U) {
+            return render_scene(gpu, rgb_engine(route), nullptr, 4U, header.command_count, submissions,
+                stream, header.scene_id, header.generation, &metrics, test.dpi,
+                test.mapped ? &test.presentation : nullptr,
+                test.accepted ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_UNSUPPORTED);
+        };
+    progpu::native::tests::verify_rgb_glyph_scene_pixels(render_rgb, require);
+    progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
+    for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
     require(argc == 1 || argc == 2,
         "usage: test [CAPTURE_PPM|--mil-image-brush-only|--mil-image-brush-software|"
-        "--mil-viewport3d-only|--target-clear-only|--target-clear-software|--software-adapter]");
+        "--mil-viewport3d-only|--target-clear-only|--target-clear-software|--rgb-glyph-only|--rgb-glyph-software|--software-adapter]");
     const auto started = std::chrono::steady_clock::now();
     const auto phase = [&started](const char* name) {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2220,8 +2256,9 @@ int main(int argc, char** argv)
     phase("request adapter");
     const bool software = argc == 2 && std::strcmp(argv[1], "--mil-image-brush-software") == 0;
     const bool clear_software = argc == 2 && std::strcmp(argv[1], "--target-clear-software") == 0;
+    const bool rgb_software = argc == 2 && std::strcmp(argv[1], "--rgb-glyph-software") == 0;
     const bool full_software = argc == 2 && std::strcmp(argv[1], "--software-adapter") == 0;
-    gpu_context gpu = create_gpu(software || clear_software || full_software);
+    gpu_context gpu = create_gpu(software || clear_software || rgb_software || full_software);
     std::fprintf(stderr, "Native GPU adapter: backend=%s name=%s\n",
         backend_name(gpu.properties.backendType),
         gpu.properties.name == nullptr ? "unknown" : gpu.properties.name);
@@ -2234,6 +2271,15 @@ int main(int argc, char** argv)
         // original family, including these same cold/warm Clear cases below.
         verify_explicit_target_storage_clear(gpu, engine);
         phase("explicit target-storage Clear passed");
+        progpu_native_engine_destroy(engine);
+        release_gpu(gpu);
+        return EXIT_SUCCESS;
+    }
+    if (rgb_software || (argc == 2 && std::strcmp(argv[1], "--rgb-glyph-only") == 0)) {
+        // Diagnose the same original scene/mask cases without running the
+        // preceding corpus. Default execution still calls this exact helper.
+        verify_explicit_rgb_glyphs(gpu);
+        phase("explicit RGB retained scene compute/fragment pixels passed");
         progpu_native_engine_destroy(engine);
         release_gpu(gpu);
         return EXIT_SUCCESS;
@@ -2602,40 +2648,7 @@ int main(int argc, char** argv)
             for (auto* selected : family) progpu_native_engine_destroy(selected);
     }
     phase("original sampled source opacity captures passed");
-    {
-        // Explicit policies are isolated from the ordinary engine and adapter
-        // defaults. Both routes retain the real owned scene/layer/readback path.
-        std::array<progpu_native_engine*, 5U> rgb_engines{};
-        const auto rgb_engine = [&](unsigned route) {
-            auto*& selected = rgb_engines[route];
-            if (selected == nullptr) {
-                progpu_native_engine_options options{};
-                options.struct_size = sizeof(options);
-                options.abi_version = PROGPU_NATIVE_ABI_VERSION;
-                options.backend_abi = PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05;
-                options.target_format = route == 4U ? PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM_SRGB
-                    : PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM;
-                options.device = reinterpret_cast<std::uintptr_t>(gpu.device);
-                options.queue = reinterpret_cast<std::uintptr_t>(gpu.queue);
-                options.flags = progpu::native::tests::rgb_scene_engine_flags(route);
-                require(progpu_native_engine_create(&options, &selected) == PROGPU_NATIVE_STATUS_SUCCESS && selected,
-                    "RGB retained-scene wgpu engine creation failed");
-            }
-            return selected;
-        };
-        const auto render_rgb =
-            [&](unsigned route, const auto& stream, const progpu_native_scene_header& header,
-                const progpu::native::tests::rgb_scene_case& test, progpu_native_scene_frame_metrics& metrics,
-                std::uint64_t submissions = 1U) {
-                return render_scene(gpu, rgb_engine(route), nullptr, 4U, header.command_count, submissions,
-                    stream, header.scene_id, header.generation, &metrics, test.dpi,
-                    test.mapped ? &test.presentation : nullptr,
-                    test.accepted ? PROGPU_NATIVE_STATUS_SUCCESS : PROGPU_NATIVE_STATUS_UNSUPPORTED);
-            };
-        progpu::native::tests::verify_rgb_glyph_scene_pixels(render_rgb, require);
-        progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
-        for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
-    }
+    verify_explicit_rgb_glyphs(gpu);
     phase("explicit RGB retained scene compute/fragment pixels passed");
     auto* glyph_reference_engine = create_engine(gpu);
     progpu::native::tests::verify_semantic_glyph_sharing(

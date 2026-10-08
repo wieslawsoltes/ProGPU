@@ -178,3 +178,20 @@ receipt is not evidence. Final hosted execution must retain these directories
 alongside its original process/build provenance; no captures have been executed
 or supplied by this implementation checkpoint. This fixed glyph/phase corpus
 does not by itself cover every rendering mode, font, transform or clip.
+
+## Integrated Windows compiler checks
+
+The pinned stock Windows backend crashed inside `D3DCompiler_47` while compiling
+the unnamed RGB programs. Explicit shader and pipeline names remove that fault
+without changing WGSL, input records, bindings, blending or pixel expectations.
+The original 24 retained-scene cases and 40 mask/phase cases then pass their
+compute/fragment cold/warm checks on Windows ARM64 D3D12 WARP. The complete stock
+Metal GPU corpus also passes with the same change.
+
+`progpu_native_direct2d_webgpu_tests --rgb-glyph-software` runs those same complete
+RGB families on a software adapter; `--rgb-glyph-only` uses the ordinary adapter
+selection. Both call the same helper as the unchanged default full corpus.
+These diagnostic entries shorten crash reproduction; they do not replace full
+provider, package or original-source qualification. In particular, the separate
+original Microsoft direct-versus-command-list RGB byte comparison still fails
+and remains an enforced gate.

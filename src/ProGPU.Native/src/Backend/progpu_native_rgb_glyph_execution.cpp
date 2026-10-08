@@ -34,6 +34,7 @@ bool create_rgb_composite_pipelines(progpu_native_engine& engine, WGPUPipelineLa
         stage.targetCount = 1U;
         stage.targets = &target;
         WGPURenderPipelineDescriptor descriptor{};
+        descriptor.label = webgpu::string_view(names[channel]);
         descriptor.layout = layout;
         descriptor.vertex.module = engine.rgb_glyph_pipelines.composite_shader;
         descriptor.vertex.entryPoint = webgpu::string_view("vs_rgb_composite");
@@ -57,14 +58,19 @@ bool ensure_rgb_pipelines(progpu_native_engine& engine, bool fragment)
     // A failed creation never leaves a partly usable cache. Ordinary glyph
     // pipelines and their R8 atlas remain separate from these RGB resources.
     owned.reset();
-    const auto module = [&](const unsigned char* bytes, std::size_t size) {
+    // Keep nonempty source names through the FXC path. The pinned Windows
+    // backend faults inside D3DCompiler_47 for these unnamed shader modules.
+    const auto module = [&](const unsigned char* bytes, std::size_t size, const char* label) {
         webgpu::wgsl_source source(bytes, size);
         WGPUShaderModuleDescriptor descriptor{};
+        descriptor.label = webgpu::string_view(label);
         descriptor.nextInChain = source.chain();
         return wgpuDeviceCreateShaderModule(engine.device, &descriptor);
     };
-    owned.raster_shader = module(generated::rgb_glyph_rasterizer_wgsl, generated::rgb_glyph_rasterizer_wgsl_size);
-    owned.composite_shader = module(generated::rgb_glyph_composite_wgsl, generated::rgb_glyph_composite_wgsl_size);
+    owned.raster_shader = module(generated::rgb_glyph_rasterizer_wgsl, generated::rgb_glyph_rasterizer_wgsl_size,
+        "ProGPU RGB glyph raster shader");
+    owned.composite_shader = module(generated::rgb_glyph_composite_wgsl, generated::rgb_glyph_composite_wgsl_size,
+        "ProGPU RGB glyph composite shader");
     const auto finish = [&]() {
         if (owned.raster_shader == nullptr || owned.composite_shader == nullptr) return false;
         std::array<WGPUBindGroupLayoutEntry, 5U> raster{};
@@ -92,6 +98,7 @@ bool ensure_rgb_pipelines(progpu_native_engine& engine, bool fragment)
         if (owned.raster_pipeline_layout == nullptr) return false;
         if (!fragment) {
             WGPUComputePipelineDescriptor descriptor{};
+            descriptor.label = webgpu::string_view("ProGPU RGB glyph compute raster pipeline");
             descriptor.layout = owned.raster_pipeline_layout;
             descriptor.compute.module = owned.raster_shader;
             descriptor.compute.entryPoint = webgpu::string_view("cs_rgb");
@@ -107,6 +114,7 @@ bool ensure_rgb_pipelines(progpu_native_engine& engine, bool fragment)
             stage.targetCount = 1U;
             stage.targets = &target;
             WGPURenderPipelineDescriptor descriptor{};
+            descriptor.label = webgpu::string_view("ProGPU RGB glyph fragment raster pipeline");
             descriptor.layout = owned.raster_pipeline_layout;
             descriptor.vertex.module = owned.raster_shader;
             descriptor.vertex.entryPoint = webgpu::string_view("vs_raster_fallback");
