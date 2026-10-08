@@ -1,6 +1,8 @@
 #pragma once
 
 #include "progpu_native_direct2d_prepared_glyph_fixture.hpp"
+#include <algorithm>
+#include <cstdio>
 
 // Windows SDK declarations precede this header. The genuine original font
 // loader and DrawGlyphRun own the oracle; no product rasterizer produces it.
@@ -145,6 +147,16 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
             record_prepared_pixel_case(typed_factory.get(), typed_target.get(), prepared, typed_parameters.get(),
                 variant, paths[index], require, geometry.get(), origins, nominal, nominal_advances.data(), right_to_left);
             pixels[index] = copy_pixels();
+        }
+        for (std::size_t index = 1U; index < path_count; ++index) {
+            if (pixels[0] == pixels[index]) continue;
+            const auto difference = static_cast<std::size_t>(
+                std::mismatch(pixels[0].begin(), pixels[0].end(), pixels[index].begin()).first - pixels[0].begin());
+            std::fprintf(stderr, "Original prepared glyph origins=%u nominal=%u rtl=%u variant=%u path=%zu "
+                "pixel=(%zu,%zu) channel=%zu original=%u comparison=%u independent-prepared-equal=%u\n",
+                origins, unsigned(nominal), unsigned(right_to_left), variant, index,
+                (difference / 4U) % 64U, difference / 256U, difference % 4U,
+                unsigned(pixels[0][difference]), unsigned(pixels[index][difference]), unsigned(pixels[1] == pixels[2]));
         }
         require(pixels[0] == pixels[1] && pixels[0] == pixels[2],
             "original DrawGlyphRun differs from independent or prepared full-byte placement");
