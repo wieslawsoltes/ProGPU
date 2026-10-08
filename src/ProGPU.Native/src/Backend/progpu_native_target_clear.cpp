@@ -11,6 +11,8 @@ bool ensure_target_clear_pipeline(progpu_native_engine& engine) {
     const auto create = [&]() {
         webgpu::wgsl_source source(generated::target_clear_wgsl, generated::target_clear_wgsl_size);
         WGPUShaderModuleDescriptor shader{};
+        // The pinned Windows FXC path requires a nonempty source identity.
+        shader.label = webgpu::string_view("ProGPU target-storage Clear shader");
         shader.nextInChain = source.chain();
         owned.shader = wgpuDeviceCreateShaderModule(engine.device, &shader);
         if (owned.shader == nullptr) return false;
@@ -39,6 +41,7 @@ bool ensure_target_clear_pipeline(progpu_native_engine& engine) {
         fragment.targetCount = 1U;
         fragment.targets = &target;
         WGPURenderPipelineDescriptor pipeline{};
+        pipeline.label = webgpu::string_view("ProGPU target-storage Clear replace pipeline");
         pipeline.layout = owned.pipeline_layout;
         pipeline.vertex.module = owned.shader;
         pipeline.vertex.entryPoint = webgpu::string_view("vs_target_clear");

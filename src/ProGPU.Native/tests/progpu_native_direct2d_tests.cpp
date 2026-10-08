@@ -1248,8 +1248,10 @@ bool approximately_equal(float left, float right, float tolerance) noexcept
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    require(argc == 1 || (argc == 2 && std::strcmp(argv[1], "--software-adapter") == 0),
+        "usage: test [--software-adapter]");
     HRESULT runtime_initialization = RoInitialize(RO_INIT_MULTITHREADED);
     require(SUCCEEDED(runtime_initialization),
         "Windows Runtime initialization failed");
@@ -3393,6 +3395,7 @@ int main()
     options.struct_size = sizeof(options);
     options.flags =
         PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_ALLOW_WARP_FALLBACK;
+    if (argc == 2) options.flags |= PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_FORCE_WARP;
     options.width = 64U;
     options.height = 48U;
     options.dpi_x = 120.0F;

@@ -19,6 +19,20 @@ existing submission-retired raster-resource lease; no target handle escapes,
 and the encoder neither submits, waits nor reads back. Complexity is O(covered
 pixels) GPU work and O(1) command/uniform storage per clear.
 
+The shader and pipeline carry explicit nonempty diagnostic names. The pinned
+Windows provider otherwise crashed in FXC's source-name lookup before the first
+draw. Naming them preserves the exact shader bytes, color, attachment and blend
+state; the 15 original cases now pass both cold and warm replay on Windows ARM64
+D3D12 WARP. Compiler success alone remains insufficient: these controls compare
+the complete pixels and original submission/upload counts.
+
+The native GPU test's `--target-clear-only` and `--target-clear-software` options
+run those same 15 cases for diagnosis. Its `--software-adapter` option runs the
+entire unchanged corpus on a CPU adapter. The Windows Direct2D test accepts the
+same full-corpus software option through the existing FORCE_WARP surface flag.
+Default test execution retains every original family and adapter policy; a
+focused run does not qualify the complete renderer.
+
 The builder now prepares only the source-declared AA clip chain inward of the
 nearest ordinary layer. Each exact unit-opacity rectangular clip reuses existing
 `INITIALIZE_FROM_BACKGROUND` composition. The ordinary owner, if elided, becomes
@@ -74,8 +88,10 @@ edges so raster edge ownership agrees with the source pixel-center clip.
 The stock Metal AA family matches all 204 original Windows ARM64/x64 frames,
 including complete cold/warm RGBA, fractional axes and nested ownership. Raw
 flag rejection, capture-time binary ancestors and copy restoration pass local
-native controls. All 47 local native CTest cases now pass; the extended
-managed/native matrix still fails its retained-path DPI-2 differential. Qualify
+native controls. All 47 local native CTest cases and the complete local Metal
+managed/native build matrix now pass, including the retained-path DPI-2
+differential. Full Windows and package qualification remain required; a local
+Parallels D3D11 run exposes a one-byte AA Clear composition difference. Qualify
 only the final integrated tips, retaining the existing pixel,
 lifetime, package and UI gates. This does not advertise managed
 Canvas routing, general device-context operations or desktop UI parity.

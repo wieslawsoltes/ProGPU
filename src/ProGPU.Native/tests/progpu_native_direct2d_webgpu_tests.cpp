@@ -2191,12 +2191,25 @@ void verify_mil_viewport_clips(const gpu_context& gpu, progpu_native_engine* eng
     }
 }
 
+void verify_explicit_target_storage_clear(const gpu_context& gpu, progpu_native_engine* engine)
+{
+    progpu::native::tests::verify_native_target_clear(
+        [&](const auto& stream, const progpu_native_scene_metrics& validated,
+            std::uint32_t draws, std::uint32_t submissions,
+            const progpu_native_scene_presentation* presentation,
+            progpu_native_status expected, progpu_native_scene_frame_metrics& metrics) {
+            return render_scene(gpu, engine, nullptr, draws, validated.command_count, submissions,
+                stream, validated.scene_id, validated.generation, &metrics, 1.0F, presentation, expected);
+        }, require);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
     require(argc == 1 || argc == 2,
-        "usage: test [CAPTURE_PPM|--mil-image-brush-only|--mil-image-brush-software|--mil-viewport3d-only]");
+        "usage: test [CAPTURE_PPM|--mil-image-brush-only|--mil-image-brush-software|"
+        "--mil-viewport3d-only|--target-clear-only|--target-clear-software|--software-adapter]");
     const auto started = std::chrono::steady_clock::now();
     const auto phase = [&started](const char* name) {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2206,7 +2219,9 @@ int main(int argc, char** argv)
     };
     phase("request adapter");
     const bool software = argc == 2 && std::strcmp(argv[1], "--mil-image-brush-software") == 0;
-    gpu_context gpu = create_gpu(software);
+    const bool clear_software = argc == 2 && std::strcmp(argv[1], "--target-clear-software") == 0;
+    const bool full_software = argc == 2 && std::strcmp(argv[1], "--software-adapter") == 0;
+    gpu_context gpu = create_gpu(software || clear_software || full_software);
     std::fprintf(stderr, "Native GPU adapter: backend=%s name=%s\n",
         backend_name(gpu.properties.backendType),
         gpu.properties.name == nullptr ? "unknown" : gpu.properties.name);
@@ -2214,6 +2229,15 @@ int main(int argc, char** argv)
     // pipelines alive across fixtures too: recreating them per image repeats
     // expensive cold D3D12 shader compilation, not rendering validation.
     progpu_native_engine* engine = create_engine(gpu);
+    if (clear_software || (argc == 2 && std::strcmp(argv[1], "--target-clear-only") == 0)) {
+        // Diagnostic entry only. The default corpus still executes every
+        // original family, including these same cold/warm Clear cases below.
+        verify_explicit_target_storage_clear(gpu, engine);
+        phase("explicit target-storage Clear passed");
+        progpu_native_engine_destroy(engine);
+        release_gpu(gpu);
+        return EXIT_SUCCESS;
+    }
     if (argc == 2 && std::strcmp(argv[1], "--mil-viewport3d-only") == 0) {
         verify_mil_viewport_clips(gpu, engine);
         phase("MIL Viewport3D geometry clips passed");
@@ -2448,14 +2472,7 @@ int main(int argc, char** argv)
     phase("scoped bitmap memory copies passed");
     {
         auto* clear_engine = create_engine(gpu);
-        progpu::native::tests::verify_native_target_clear(
-            [&](const auto& stream, const progpu_native_scene_metrics& validated,
-                std::uint32_t draws, std::uint32_t submissions,
-                const progpu_native_scene_presentation* presentation,
-                progpu_native_status expected, progpu_native_scene_frame_metrics& metrics) {
-                return render_scene(gpu, clear_engine, nullptr, draws, validated.command_count, submissions,
-                    stream, validated.scene_id, validated.generation, &metrics, 1.0F, presentation, expected);
-            }, require);
+        verify_explicit_target_storage_clear(gpu, clear_engine);
         progpu_native_engine_destroy(clear_engine);
     }
     phase("explicit target-storage Clear passed");
@@ -2682,7 +2699,7 @@ int main(int argc, char** argv)
     portable_scene scene = record_scene();
     const std::vector<std::uint8_t> pixels = render_scene(
         gpu, engine, scene.scene_target.get());
-    write_capture(argc == 2 ? argv[1] : nullptr, pixels);
+    write_capture(argc == 2 && !full_software ? argv[1] : nullptr, pixels);
     verify_pixels(pixels);
     phase("Direct2D pixels passed; start stroke transforms");
     verify_stroke_transforms(gpu, engine, scene);
