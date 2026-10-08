@@ -124,5 +124,8 @@ Fifteen focused cases are authored in the existing text and Drawing test project
 for actual combining/supplementary/ligature source ranges, bidi halves, midpoint
 and shared-edge ties, outside hits, blank/CRLF rows, original API shape and aligned
 Drawing results. The existing snapshot-generation case also retains the new result
-through source glyph clearing/regeneration. These additions have **not been built
-or run locally**; full CI and the source editor's native acceptance remain required.
+through source glyph clearing/regeneration. The integrated Release projects build,
+and all 17 snapshot cases and 32 Drawing layout cases pass on macOS arm64. The
+ligature case uses the bundled Noto CJK font's actual `ffi` ligature; Inter's `dlig`
+feature changes those glyphs without joining their source clusters. Full CI and
+the source editor's native acceptance remain required.

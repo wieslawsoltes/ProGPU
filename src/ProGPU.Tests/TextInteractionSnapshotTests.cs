@@ -1,5 +1,6 @@
 using System.Numerics;
 using ProGPU.Fonts.Inter;
+using ProGPU.Fonts.Noto;
 using ProGPU.Text;
 using ProGPU.Text.Shaping;
 using Xunit;
@@ -11,16 +12,34 @@ public sealed class TextInteractionSnapshotTests
     [Theory]
     [InlineData("ax\u0301b", 1, 2)]
     [InlineData("a\U0001F642b", 1, 2)]
-    [InlineData("affib", 1, 3)]
     public void ClusterHitRetainsTheWholeShapedUtf16Range(string text, int start, int length)
     {
         var layout = new TextLayout(text, InterFontFamily.Regular, 24, 300,
             shapingOptions: new TextShapingOptions
             {
-                Direction = ShapingDirection.LeftToRight,
-                Features = [new OpenTypeFeatureSetting("dlig")]
+                Direction = ShapingDirection.LeftToRight
             },
             formattingOptions: new TextLayoutFormattingOptions { EnableFontFallback = false });
+        AssertWholeClusterHit(layout, start, length);
+    }
+
+    [Fact]
+    public void ClusterHitRetainsTheWholeLigatureUtf16Range()
+    {
+        // This bundled font has an actual ffi ligature. Inter's dlig feature
+        // changes f glyphs contextually without combining this UTF-16 range.
+        var layout = new TextLayout("affib", NotoFontFamily.Japanese, 24, 300,
+            shapingOptions: new TextShapingOptions
+            {
+                Direction = ShapingDirection.LeftToRight,
+                Features = [new OpenTypeFeatureSetting("liga")]
+            },
+            formattingOptions: new TextLayoutFormattingOptions { EnableFontFallback = false });
+        AssertWholeClusterHit(layout, 1, 3);
+    }
+
+    private static void AssertWholeClusterHit(TextLayout layout, int start, int length)
+    {
         Assert.Contains(layout.Glyphs, glyph => glyph.Cluster == start);
         Assert.DoesNotContain(layout.Glyphs, glyph => glyph.Cluster > start && glyph.Cluster < start + length);
         TextInteractionSnapshot snapshot = layout.CreateInteractionSnapshot();

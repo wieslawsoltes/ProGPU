@@ -50,7 +50,9 @@ metadata preservation, invalid scalars, empty input and capacity/error ordering.
 They are focused conformance scaffolding, not a claim of complete Unicode test
 corpus coverage or an executed managed/native differential.
 
-**This draft and its new cases have not been built or run locally.**
+The integrated managed project builds in Release, and all 24 authored managed
+cases pass on macOS arm64. The matching native cases compile in the complete
+stock/Dawn `--build-only` payload; they have not been executed locally.
 Native production source, generated data and ordinary wrapping are unchanged.
 Full managed/native conformance and normal upstream gates remain required before
 qualification. This private dependency must not be published as a completed
