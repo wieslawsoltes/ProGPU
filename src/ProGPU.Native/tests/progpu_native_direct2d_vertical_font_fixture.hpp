@@ -87,8 +87,9 @@ inline vertical_glyph_expectation expected_vertical_glyph(vertical_font_options 
         result.x_min = 20; result.y_min = -40; result.x_max = 300; result.y_max = 360;
         result.horizontal_origin = cff ? 0 : 8; result.horizontal_advance = 600;
         result.vertical_origin = cff ? 700 : 500; result.vertical_advance = options.compact_metrics ? 900 : 1000;
-        result.top_side_bearing = cff ? 340 : 140;
-        result.bottom_side_bearing = cff ? (options.compact_metrics ? 160 : 260) : (options.compact_metrics ? 360 : 460);
+        result.top_side_bearing = cff ? 340.0F : 140.0F;
+        result.bottom_side_bearing = cff ? (options.compact_metrics ? 160.0F : 260.0F)
+            : (options.compact_metrics ? 360.0F : 460.0F);
     } else {
         result.x_min = -30; result.y_min = 20; result.x_max = 170; result.y_max = 520;
         result.horizontal_origin = cff ? 0 : 14; result.horizontal_advance = 700;

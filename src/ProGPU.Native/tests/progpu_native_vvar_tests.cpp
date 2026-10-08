@@ -144,14 +144,13 @@ sfnt_vertical_metrics_variation evaluate(const bytes& table, std::uint16_t glyph
     return result;
 }
 
-void invalid_table(const bytes& table) {
+void invalid_font(const bytes& bad_data) {
     const auto good_data = font_bytes(variation_table());
     const auto good_font = view(good_data);
     std::array<float, 3> original_scalars{};
     sfnt_vertical_metrics_variation_instance original{};
     require(good_font.try_prepare_vertical_metrics_variation(positive_half, original_scalars, original));
     const auto before_instance = snapshot(original);
-    const auto bad_data = font_bytes(table);
     const auto bad_font = view(bad_data);
     std::array<float, 3> scalars{-91.0F, -92.0F, -93.0F};
     const auto before_scalars = scalars;
@@ -165,6 +164,38 @@ void invalid_table(const bytes& table) {
     sfnt_vertical_metrics_variation retained{};
     require(good_font.try_get_vertical_metrics_variation(1U, original, retained));
     metric(retained, 15.0F, 3.0F, -4.5F, 10.5F);
+}
+
+void invalid_table(const bytes& table) { invalid_font(font_bytes(table)); }
+
+void malformed_directories() {
+    const auto original = font_bytes(variation_table());
+    for (const auto offset : {0xFFFFFFF0U, static_cast<std::uint32_t>(original.size())}) {
+        auto damaged = original;
+        put32(damaged, 52U, offset);
+        invalid_font(damaged);
+    }
+    auto damaged = original;
+    put32(damaged, 56U, 0xFFFFFFFFU);
+    invalid_font(damaged);
+    // Add a complete fourth record without changing either required table.
+    // Identical duplicate bytes are still ambiguous original source metadata.
+    bytes duplicate(original.size() + 16U);
+    std::copy_n(original.begin(), 60U, duplicate.begin());
+    std::copy(original.begin() + 60U, original.end(), duplicate.begin() + 76U);
+    put16(duplicate, 4U, 4U);
+    put32(duplicate, 20U, 76U);
+    put32(duplicate, 36U, 108U);
+    put32(duplicate, 52U, 144U);
+    std::copy_n(duplicate.begin() + 44U, 16U, duplicate.begin() + 60U);
+    invalid_font(duplicate);
+    // A malformed duplicate may precede or follow the valid record. Neither
+    // the legacy reverse lookup nor a first-match lookup can select it away.
+    for (const auto record : {44U, 60U}) {
+        damaged = duplicate;
+        put32(damaged, record + 8U, 0xFFFFFFF0U);
+        invalid_font(damaged);
+    }
 }
 
 void valid_maps_and_instances() {
@@ -420,6 +451,7 @@ void atomic_ownership_and_aliases() {
 int main() {
     valid_maps_and_instances();
     malformed_tables();
+    malformed_directories();
     atomic_ownership_and_aliases();
     std::puts("strict retained VVAR controls passed");
 }

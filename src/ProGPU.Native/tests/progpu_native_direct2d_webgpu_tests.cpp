@@ -2272,7 +2272,7 @@ int main(int argc, char** argv)
     progpu::native::direct2d::tests::verify_hairline_dpi_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header, float dpi) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                1U, 4U, 1U, stream, header.scene_id, header.generation, nullptr, dpi);
+                4U, 4U, 1U, stream, header.scene_id, header.generation, nullptr, dpi);
         }, require);
     progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {

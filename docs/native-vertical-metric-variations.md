@@ -20,8 +20,11 @@ Prepared reads allocate nothing and perform no font shaping or outline work.
 
 ## Strict new boundary
 
-The VVAR table must use its complete version-1.0 header and a nonzero in-bounds
-store. All coordinates must cover the original fvar axes exactly, in normalized
+The original selected-face directory must contain at most one VVAR record, with
+an in-bounds range. An invalid range is not an absent optional table; duplicate
+records reject even when their bytes agree. This check stays private to VVAR and
+does not change the legacy table lookup policy. The VVAR table must use its
+complete version-1.0 header and a nonzero in-bounds store. All coordinates must cover the original fvar axes exactly, in normalized
 F2Dot14 range. The store's regions and every data subtable are checked, including
 region indices even in unused rows. Every map entry is preflighted, including
 entries beyond the font's glyph count. Reserved map bits, format 1, empty maps,
@@ -59,3 +62,10 @@ null subtables and explicit no-variation indices. Adversarial cases retain
 sentinels across every table truncation, malformed maps/regions/references,
 insufficient scratch, late invalid glyphs, nonfinite cached scalars, aliases,
 foreign byte owners and distinct TTC face indices sharing one directory.
+
+The integrated `40d26c090` CI run exposed an invalid-range/duplicate-directory
+gap through the original sideways-source rejection controls. The repair adds six
+raw directory faults, preserving prior instances, scalar buffers and count
+sentinels. Both native providers use this shared Text implementation; there is
+no corresponding managed VVAR preparation API to change. Complete provider and
+package execution of the repair remains required.

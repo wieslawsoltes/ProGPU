@@ -3925,7 +3925,7 @@ int main(int argc, char** argv) {
     progpu::native::direct2d::tests::verify_hairline_dpi_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header, float dpi) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id,
-                1U, 4U, nullptr, nullptr, dpi);
+                4U, 4U, nullptr, nullptr, dpi);
         }, require);
     progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {

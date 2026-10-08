@@ -59,6 +59,29 @@ struct parsed_vvar final {
     bool has_maps[4]{};
 };
 
+bool strict_vvar_table(const sfnt_font_view& font, sfnt_table_view& result,
+    bool& present) noexcept {
+    const auto bytes = font.data();
+    const auto face = static_cast<std::size_t>(font.face_offset());
+    if (!can_read(bytes, face, 12U)) return false;
+    const auto directory = face + 12U;
+    if (!can_read(bytes, directory, static_cast<std::size_t>(font.table_count()) * 16U)) return false;
+    constexpr auto tag = open_type_tag::from_chars('V', 'V', 'A', 'R');
+    // The legacy table lookup skips invalid ranges and selects one duplicate.
+    // This optional strict boundary must distinguish absence from either fault.
+    for (std::size_t index = 0U; index < font.table_count(); ++index) {
+        const auto record = directory + index * 16U;
+        if (read_u32(bytes, record) != tag.value) continue;
+        if (present) return false;
+        present = true;
+        const auto offset = read_u32(bytes, record + 8U);
+        const auto length = read_u32(bytes, record + 12U);
+        if (!can_read(bytes, offset, length)) return false;
+        result = {tag, read_u32(bytes, record + 4U), bytes.subspan(offset, length)};
+    }
+    return true;
+}
+
 bool valid_reference(sfnt_item_variation_store_view store,
     std::uint16_t outer, std::uint16_t inner) noexcept {
     if (outer == 0xFFFFU && inner == 0xFFFFU) return true;
@@ -128,7 +151,9 @@ bool preflight(const sfnt_font_view& font, std::span<const std::int16_t> coordin
             return fail(error, font_error::invalid_argument);
     }
     sfnt_table_view table{};
-    if (!font.try_get_table(open_type_tag::from_chars('V', 'V', 'A', 'R'), table)) return true;
+    bool present = false;
+    if (!strict_vvar_table(font, table, present)) return fail(error);
+    if (!present) return true;
     sfnt_table_view fvar{};
     if (axes == 0U || !font.try_get_table(open_type_tag::from_chars('f', 'v', 'a', 'r'), fvar) ||
         !can_read(fvar.bytes, 0U, 16U) || read_u32(fvar.bytes, 0U) != 0x00010000U ||

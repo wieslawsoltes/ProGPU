@@ -213,7 +213,8 @@ inline std::vector<std::byte> make_variable_font(variable_font_options options =
     put16(gvar, 12U, 3U); put16(gvar, 14U, 1U); put32(gvar, 16U, 36U);
     for (unsigned glyph = 0U; glyph < 3U; ++glyph) {
         put32(gvar, 20U + glyph * 4U, static_cast<std::uint32_t>(gvar.size() - 36U));
-        const auto data = glyph_variations(glyph); gvar.insert(gvar.end(), data.begin(), data.end());
+        const auto data = glyph_variations(glyph);
+        for (const auto value : data) gvar.push_back(value);
     }
     put32(gvar, 32U, static_cast<std::uint32_t>(gvar.size() - 36U));
     tables.push_back({0x67766172U, std::move(gvar)});

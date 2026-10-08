@@ -69,7 +69,7 @@ inline bool transparent_layer_clear_contract(std::span<const std::byte> bytes,
     progpu_native_scene_layer parent{};
     const bool mask = (variant & 1U) != 0U, clipped = (variant & 16U) != 0U;
     const std::uint32_t flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
-        ((variant & 7U) == 0U ? PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION : 0U);
+        ((variant & 7U) == 0U ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) : 0U);
     if (!read_scene_value(bytes, 0U, header) || header.command_count != source_draws + 5U + (clipped ? 2U : 0U) ||
         !read_scene_value(bytes, header.command_offset, first) ||
         first.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||

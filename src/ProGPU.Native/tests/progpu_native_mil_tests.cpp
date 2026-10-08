@@ -21891,11 +21891,33 @@ bool original_shader_effect_resources_compile_and_reject_atomically() {
     PROGPU_REQUIRE(compile() == before_cycle);
     batch.clear(); append_effect(batch, 0.875F, 1U, 0.0, 8U, 31U);
     PROGPU_REQUIRE(state.apply(batch) == status::success);
-    request.dpi_scale_x = request.dpi_scale_y = 1.5;
+    request.dpi_scale_x = request.dpi_scale_y = 2.0;
     const auto image_derivatives = derivative_metadata(compile());
     PROGPU_REQUIRE(image_derivatives.version == 3U && image_derivatives.derivative_register == 31U &&
         image_derivatives.sampler_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX &&
         image_derivatives.program.constants[0] == 0.875F && image_derivatives.program.constants[124] == 0.0F);
+    // Non-dyadic inverse scale selects the additive final-device sample wire.
+    // Retain the original 1.5-DPI control and its unchanged source constants,
+    // while separately proving that the legacy integral v3 route stays v3.
+    request.dpi_scale_x = request.dpi_scale_y = 1.5;
+    const auto sampled_source = compile();
+    const auto sampled_header = read_value<progpu_native_scene_header>(sampled_source, 0U);
+    std::uint32_t sampled_effects = 0U;
+    for (std::uint32_t i = 0U; i < sampled_header.resource_count; ++i) {
+        const auto resource = read_value<progpu_native_scene_resource>(sampled_source,
+            sampled_header.resource_offset + i * sampled_header.resource_stride);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) continue;
+        PROGPU_REQUIRE(resource.payload_size == sizeof(progpu_native_scene_shader_effect_samples));
+        const auto sampled = read_value<progpu_native_scene_shader_effect_samples>(sampled_source, resource.payload_offset);
+        PROGPU_REQUIRE(sampled.version == 5U && sampled.derivative_register == 31U &&
+            sampled.input_resource_index < i && sampled.sampler_resource_index < i &&
+            sampled.input_resource_index != sampled.sampler_resource_index &&
+            sampled.frame.source_dpi_x == 1.5 && sampled.frame.source_dpi_y == 1.5 &&
+            sampled.frame.capture_width == 48U && sampled.frame.capture_height == 36U &&
+            sampled.program.constants[0] == 0.875F && sampled.program.constants[124] == 0.0F);
+        ++sampled_effects;
+    }
+    PROGPU_REQUIRE(sampled_effects == 1U);
     request.dpi_scale_x = request.dpi_scale_y = 1.0;
     batch.clear(); image_brush(batch); append_effect(batch); // detach the sampled source
     PROGPU_REQUIRE(state.apply(batch) == status::success);

@@ -211,7 +211,8 @@ inline bytes font_table(cff_font_kind kind)
         if (cid) { number(top, 391); number(top, 392); number(top, 0); op(top, 0x0C1EU); }
         if (kind != cff_font_kind::cff1_default) matrix(top, -1);
         if (!cff2) {
-            for (const auto value : {0,0,512,512}) number(top, value); op(top, 5U);
+            for (const auto value : {0,0,512,512}) number(top, value);
+            op(top, 5U);
             offset(top, positions.charset); op(top, 15U);
         }
         offset(top, positions.strings); op(top, 17U);

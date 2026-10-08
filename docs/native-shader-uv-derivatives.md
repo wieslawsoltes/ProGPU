@@ -53,6 +53,13 @@ self/forward picture references, old-reader atomic rejection, selected-register
 precedence, unchanged nonselected registers, and zero/unrepresentable dimensions.
 It is registered in the existing internal target beside the 477 bytecode controls.
 
+The integrated source control now distinguishes the preserved v3 capture at
+DPI 2 from the later final-device v5 path at DPI 1.5. The latter needs the full
+non-dyadic inverse contract; it retains separate input/sampler pictures and an
+exact 48-by-36 capture. Both controls require the original constant at register
+zero and untouched source values at the requested derivative register. This is
+a wire-selection assertion, not a new derivative calculation or pixel waiver.
+
 The paired provider fixture checks every RGBA pixel over cold/warm/independent
 replays. Original authored D3D tokens expose ddx and ddy in separate color
 channels, with DEF-owned opaque alpha. It varies physical width/height, target
