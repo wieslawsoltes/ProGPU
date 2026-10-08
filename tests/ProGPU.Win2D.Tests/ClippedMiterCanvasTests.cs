@@ -2,7 +2,7 @@ using System.Numerics;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
-using Microsoft.UI;
+using Colors = Microsoft.UI.Colors;
 using ProGPU.Scene;
 using ProGPU.Vector;
 using Xunit;
@@ -112,6 +112,9 @@ public sealed class ClippedMiterCanvasTests
     {
         public CanvasDevice Device => device;
         public float Dpi => 96;
+        public float ConvertPixelsToDips(int pixels) => pixels;
+        public int ConvertDipsToPixels(float dips, CanvasDpiRounding dpiRounding) =>
+            CanvasContract.DipsToPixels(dips, Dpi, dpiRounding);
         public Windows.Foundation.Rect DrawingBounds => new(0, 0, 64, 64);
         public GpuPicture? Picture { get; private set; }
         public int EndCount { get; private set; }
