@@ -128,8 +128,14 @@ inline bool snapshot(progpu_native_mil_channel* channel, std::vector<std::byte>&
         4U, 0U, identity, generation, 1.0, 1.0, 0U, generation};
     progpu_native_mil_scene_build_result result{}; result.struct_size = sizeof(result);
     std::size_t size{};
-    if (progpu_native_mil_channel_build_scene_with_request(channel, &request,
-            nullptr, 0U, &size, nullptr, &result) != PROGPU_NATIVE_MIL_STATUS_SUCCESS) return false;
+    const auto measured = progpu_native_mil_channel_build_scene_with_request(channel, &request,
+        nullptr, 0U, &size, nullptr, &result);
+    if (measured != PROGPU_NATIVE_MIL_STATUS_SUCCESS) {
+        std::fprintf(stderr, "MIL PathJoin scene=%llu generation=%llu input=%u measurement status=%u\n",
+            static_cast<unsigned long long>(identity), static_cast<unsigned long long>(generation),
+            unsigned(with_input), unsigned(measured));
+        return false;
+    }
     std::vector<std::byte> candidate(size);
     if (progpu_native_mil_channel_build_scene_with_request(channel, &request,
             candidate.data(), candidate.size(), &size, nullptr, &result) != PROGPU_NATIVE_MIL_STATUS_SUCCESS ||
@@ -261,10 +267,13 @@ void verify_mil_path_join_ownership(Require require) {
         require(paint(channel.get(), tiled, true) && snapshot(channel.get(), scene, 0xC17FU, 2U) && scene != original,
             "MIL retained brush dependency failed to invalidate");
         inspect(scene, input, require);
-        batch.clear(); packet(batch, command::channel_delete_resource, 10U, 73U);
-        require(progpu_native_mil_channel_apply(channel.get(), batch.data(), batch.size(), nullptr) !=
-            PROGPU_NATIVE_MIL_STATUS_SUCCESS, "Referenced original geometry was deleted");
         const auto retained = scene;
+        for (const auto dependency : {std::array{10U, 73U}, std::array{13U, 85U},
+                std::array{11U, tiled ? 80U : 75U}}) {
+            batch.clear(); packet(batch, command::channel_delete_resource, dependency[0], dependency[1]);
+            require(progpu_native_mil_channel_apply(channel.get(), batch.data(), batch.size(), nullptr) ==
+                PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH, "Referenced original geometry, pen or brush was deleted");
+        }
         require(snapshot(channel.get(), scene, 0xC17FU, 2U) && scene == retained,
             "Failed source deletion changed its exact retained generation");
         auto smooth = input; smooth.smooth = true;
@@ -278,6 +287,17 @@ void verify_mil_path_join_ownership(Require require) {
             PROGPU_NATIVE_MIL_STATUS_SUCCESS && snapshot(channel.get(), scene, 0xC17FU, 4U),
             "MIL original path reset failed");
         inspect(scene, input, require);
+        // Detaching the Visual does not release the separately retained drawing.
+        batch.clear(); packet(batch, command::visual_set_content, 7U, 0U);
+        require(progpu_native_mil_channel_apply(channel.get(), batch.data(), batch.size(), nullptr) ==
+            PROGPU_NATIVE_MIL_STATUS_SUCCESS, "MIL original content detachment failed");
+        batch.clear(); packet(batch, command::channel_delete_resource, 10U, 73U);
+        require(progpu_native_mil_channel_apply(channel.get(), batch.data(), batch.size(), nullptr) ==
+            PROGPU_NATIVE_MIL_STATUS_INVALID_GRAPH, "Detached retained drawing lost its geometry dependency");
+        batch.clear(); packet(batch, command::channel_delete_resource, 8U, 43U);
+        packet(batch, command::channel_delete_resource, 10U, 73U);
+        require(progpu_native_mil_channel_apply(channel.get(), batch.data(), batch.size(), nullptr) ==
+            PROGPU_NATIVE_MIL_STATUS_SUCCESS, "Retired drawing did not release its geometry dependency");
     }
 }
 
@@ -287,6 +307,8 @@ void verify_mil_path_join_pixels(Render render, Require require) {
     std::uint64_t identity = 0xC180U;
     for (bool tiled : {false, true}) for (bool reversal : {false, true}) for (bool dashed : {false, true}) {
         const mil_path_join_case input{tiled, reversal, dashed};
+        std::fprintf(stderr, "MIL PathJoin pixels tiled=%u reversal=%u dashed=%u\n",
+            unsigned(tiled), unsigned(reversal), unsigned(dashed));
         auto channel = create(input); require(channel != nullptr, "MIL PathJoin source creation failed");
         std::vector<std::byte> scene;
         require(snapshot(channel.get(), scene, ++identity, 1U), "MIL PathJoin source compilation failed");

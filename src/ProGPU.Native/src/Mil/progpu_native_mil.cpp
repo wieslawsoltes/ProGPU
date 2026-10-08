@@ -22,6 +22,7 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -168,6 +169,115 @@ status validate_render_data_command_framing(
         command_layouts::fixed_header_size(view.kind))
         ? status::success
         : status::malformed_batch;
+}
+
+// Visit only typed native handles from complete retained drawing packets.
+// Time: O(1) per bounded packet; space: O(1), with no resource traversal or allocation.
+template<class Visitor>
+status visit_render_data_dependencies(const command_view& view, Visitor&& visit) {
+    const auto framing = validate_render_data_command_framing(view);
+    if (framing != status::success) return framing;
+    const auto fields = [&](std::initializer_list<std::uint32_t> offsets) {
+        for (const auto offset : offsets) {
+            std::uint32_t dependency{};
+            if (!read_at(view.packet, offset, dependency)) return status::malformed_batch;
+            const auto result = visit(dependency);
+            if (result != status::success) return result;
+        }
+        return status::success;
+    };
+    switch (view.kind) {
+    case command::draw_line: {
+        using layout = command_layouts::draw_line;
+        return fields({layout::h_pen_offset});
+    }
+    case command::draw_line_animate: {
+        using layout = command_layouts::draw_line_animate;
+        return fields({layout::h_pen_offset, layout::h_point0_animations_offset, layout::h_point1_animations_offset});
+    }
+    case command::draw_rectangle: {
+        using layout = command_layouts::draw_rectangle;
+        return fields({layout::h_brush_offset, layout::h_pen_offset});
+    }
+    case command::draw_rectangle_animate: {
+        using layout = command_layouts::draw_rectangle_animate;
+        return fields({layout::h_brush_offset, layout::h_pen_offset, layout::h_rectangle_animations_offset});
+    }
+    case command::draw_rounded_rectangle: {
+        using layout = command_layouts::draw_rounded_rectangle;
+        return fields({layout::h_brush_offset, layout::h_pen_offset});
+    }
+    case command::draw_rounded_rectangle_animate: {
+        using layout = command_layouts::draw_rounded_rectangle_animate;
+        return fields({layout::h_brush_offset, layout::h_pen_offset, layout::h_rectangle_animations_offset, layout::h_radius_x_animations_offset, layout::h_radius_y_animations_offset});
+    }
+    case command::draw_ellipse: {
+        using layout = command_layouts::draw_ellipse;
+        return fields({layout::h_brush_offset, layout::h_pen_offset});
+    }
+    case command::draw_ellipse_animate: {
+        using layout = command_layouts::draw_ellipse_animate;
+        return fields({layout::h_brush_offset, layout::h_pen_offset, layout::h_center_animations_offset, layout::h_radius_x_animations_offset, layout::h_radius_y_animations_offset});
+    }
+    case command::draw_geometry: {
+        using layout = command_layouts::draw_geometry;
+        return fields({layout::h_brush_offset, layout::h_pen_offset, layout::h_geometry_offset});
+    }
+    case command::draw_image: {
+        using layout = command_layouts::draw_image;
+        return fields({layout::h_image_source_offset});
+    }
+    case command::draw_image_animate: {
+        using layout = command_layouts::draw_image_animate;
+        return fields({layout::h_image_source_offset, layout::h_rectangle_animations_offset});
+    }
+    case command::draw_glyph_run: {
+        using layout = command_layouts::draw_glyph_run;
+        return fields({layout::h_foreground_brush_offset, layout::h_glyph_run_offset});
+    }
+    case command::draw_drawing: {
+        using layout = command_layouts::draw_drawing;
+        return fields({layout::h_drawing_offset});
+    }
+    case command::draw_video: {
+        using layout = command_layouts::draw_video;
+        return fields({layout::h_player_offset});
+    }
+    case command::draw_video_animate: {
+        using layout = command_layouts::draw_video_animate;
+        return fields({layout::h_player_offset, layout::h_rectangle_animations_offset});
+    }
+    case command::push_clip: {
+        using layout = command_layouts::push_clip;
+        return fields({layout::h_clip_geometry_offset});
+    }
+    case command::push_opacity_mask: {
+        using layout = command_layouts::push_opacity_mask;
+        return fields({layout::h_opacity_mask_offset});
+    }
+    case command::push_opacity_animate: {
+        using layout = command_layouts::push_opacity_animate;
+        return fields({layout::h_opacity_animations_offset});
+    }
+    case command::push_transform: {
+        using layout = command_layouts::push_transform;
+        return fields({layout::h_transform_offset});
+    }
+    case command::push_guideline_set: {
+        using layout = command_layouts::push_guideline_set;
+        return fields({layout::h_guidelines_offset});
+    }
+    // Legacy BitmapEffect packet fields are managed dependency indices,
+    // not native resource handles. Preserve their existing ignored semantics.
+    case command::push_opacity:
+    case command::push_guideline_y1:
+    case command::push_guideline_y2:
+    case command::push_effect:
+    case command::pop:
+        return status::success;
+    default:
+        return status::unsupported_command;
+    }
 }
 
 bool render_data_contains_compact_guidelines(
@@ -5581,6 +5691,25 @@ struct channel::implementation {
             }
             if (found->second.type != type) {
                 return status::resource_type_mismatch;
+            }
+            // Recorded drawing packets retain their native dependencies even
+            // while detached from a Visual. Delete or replace the owning render
+            // data before retiring one of those resources; never publish a graph
+            // whose next replay discovers a deleted handle.
+            for (const auto& [owner_handle, owner] : resources) {
+                if (owner_handle == handle || owner.type != type_render_data) continue;
+                batch_reader reader(owner.render_data);
+                command_view packet{};
+                for (;;) {
+                    const auto read_status = reader.next(packet);
+                    if (read_status == status::end_of_batch) break;
+                    if (read_status != status::success) return read_status;
+                    const auto dependency_status = visit_render_data_dependencies(packet,
+                        [&](std::uint32_t dependency) {
+                            return dependency == handle ? status::invalid_graph : status::success;
+                        });
+                    if (dependency_status != status::success) return dependency_status;
+                }
             }
             for (const auto& [visual_handle, visual] : visuals) {
                 if (visual_handle != handle &&
@@ -16459,7 +16588,8 @@ struct channel::implementation {
         // then apply the native tile source through an isolated masked layer.
         // Time/space: O(S + D) retained primitives for S segments and D dash
         // pieces; dash traversal is sequential, not an independent CPU pixel loop.
-        const auto paint_tile_pen_mask = [&builder, &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask](
+        const auto paint_tile_pen_mask = [&builder, &resolve_uniform_tile_guidelines, &paint_tile_source_in_mask,
+            &save_state, compile_context](
             const pen_state& pen, const brush_use_state& source_use,
             const render_scope_state& source_state,
             std::span<const progpu_native_geometry_primitive> primitives,
@@ -16507,7 +16637,28 @@ struct channel::implementation {
                     return status::invalid_graph;
             }
             const bool isolate_snapping = source_state.guideline_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX;
-            return paint_tile_source_in_mask(pen.brush_handle, use, state, layer, isolate_snapping);
+            const bool retain_input = compile_context != nullptr && compile_context->records_hit_test_owners();
+            if (retain_input) {
+                // The mask and its material quads are paint implementation details.
+                // Input owns the very same lowered bodies, dash caps and joins,
+                // with their original transforms and inherited source clipping.
+                // Time/space: O(P + S) retained primitives and source segments;
+                // there is no new stroke solve or pixel readback.
+                auto input = state;
+                input.transform = {}; // The lowered primitives already own the complete source mapping.
+                if (!save_state(input, nullptr, true)) return status::invalid_graph;
+                const bool recorded = (primitives.empty() || builder.draw_geometry(primitives, {}, bounds)) &&
+                    (paths.empty() || builder.draw_paths(paths, segments, {}, bounds));
+                const bool restored = builder.restore();
+                if (!recorded || !restored) return status::invalid_graph;
+                // Preserve the existing paint state verbatim while excluding its
+                // storage layer and tile quads from the source input inventory.
+                if (!builder.save(PROGPU_NATIVE_SCENE_NO_INDEX, nullptr, false, false, false, true))
+                    return status::invalid_graph;
+            }
+            const auto painted = paint_tile_source_in_mask(pen.brush_handle, use, state, layer, isolate_snapping);
+            const bool restored = !retain_input || builder.restore();
+            return painted != status::success ? painted : restored ? status::success : status::invalid_graph;
         };
         const auto append_tile_pen = [this, &paint_tile_pen_mask, &append_degenerate_cap_stroke, &resolve_uniform_tile_guidelines](
             const pen_state& pen, const brush_use_state& use,
@@ -21106,158 +21257,11 @@ struct channel::implementation {
                     result = framing_status;
                     break;
                 }
-                const auto append_packet_handle = [&](std::size_t offset) {
-                    std::uint32_t dependency = 0U;
-                    if (result == status::success &&
-                        !read_at(view.packet, offset, dependency)) {
-                        result = status::malformed_batch;
-                    } else if (result == status::success) {
-                        append_if_success(dependency);
-                    }
-                };
-                if (view.kind == command::push_opacity ||
-                    view.kind == command::push_guideline_y1 ||
-                    view.kind == command::push_guideline_y2 ||
-                    view.kind == command::pop) {
-                    continue;
-                } else if (view.kind == command::push_opacity_animate) {
-                    append_packet_handle(
-                        command_layouts::push_opacity_animate::
-                            h_opacity_animations_offset);
-                } else if (view.kind == command::push_opacity_mask) {
-                    append_packet_handle(
-                        command_layouts::push_opacity_mask::
-                            h_opacity_mask_offset);
-                } else if (view.kind == command::push_clip) {
-                    append_packet_handle(
-                        command_layouts::push_clip::h_clip_geometry_offset);
-                } else if (view.kind == command::push_transform) {
-                    append_packet_handle(
-                        command_layouts::push_transform::h_transform_offset);
-                } else if (view.kind == command::push_guideline_set) {
-                    append_packet_handle(
-                        command_layouts::push_guideline_set::
-                            h_guidelines_offset);
-                } else if (view.kind == command::push_effect) {
-                    using layout = command_layouts::push_effect;
-                    std::uint32_t effect_handle = 0U;
-                    std::uint32_t effect_input_handle = 0U;
-                    if (!has_exact_size(view, layout::fixed_size) ||
-                        !read_at(
-                            view.packet,
-                            layout::h_effect_offset,
-                            effect_handle) ||
-                        !read_at(
-                            view.packet,
-                            layout::h_effect_input_offset,
-                            effect_input_handle)) {
-                        result = status::malformed_batch;
-                    } else {
-                        // These are managed-only dependent-resource indices.
-                        // WPF milcore ignores them because legacy BitmapEffect
-                        // execution is disabled, so they are not native cache
-                        // dependencies.
-                        (void)effect_handle;
-                        (void)effect_input_handle;
-                    }
-                } else if (view.kind == command::draw_drawing) {
-                    append_packet_handle(
-                        command_layouts::draw_drawing::h_drawing_offset);
-                } else if (view.kind == command::draw_glyph_run) {
-                    append_packet_handle(
-                        command_layouts::draw_glyph_run::
-                            h_foreground_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_glyph_run::h_glyph_run_offset);
-                } else if (view.kind == command::draw_image) {
-                    append_packet_handle(
-                        command_layouts::draw_image::h_image_source_offset);
-                } else if (view.kind == command::draw_image_animate) {
-                    append_packet_handle(
-                        command_layouts::draw_image_animate::
-                            h_image_source_offset);
-                    append_packet_handle(
-                        command_layouts::draw_image_animate::
-                            h_rectangle_animations_offset);
-                } else if (view.kind == command::draw_line) {
-                    append_packet_handle(
-                        command_layouts::draw_line::h_pen_offset);
-                } else if (view.kind == command::draw_line_animate) {
-                    append_packet_handle(
-                        command_layouts::draw_line_animate::h_pen_offset);
-                    append_packet_handle(
-                        command_layouts::draw_line_animate::
-                            h_point0_animations_offset);
-                    append_packet_handle(
-                        command_layouts::draw_line_animate::
-                            h_point1_animations_offset);
-                } else if (view.kind == command::draw_geometry) {
-                    append_packet_handle(
-                        command_layouts::draw_geometry::h_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_geometry::h_pen_offset);
-                    append_packet_handle(
-                        command_layouts::draw_geometry::h_geometry_offset);
-                } else if (view.kind == command::draw_rectangle) {
-                    append_packet_handle(
-                        command_layouts::draw_rectangle::h_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rectangle::h_pen_offset);
-                } else if (
-                    view.kind == command::draw_rectangle_animate) {
-                    append_packet_handle(
-                        command_layouts::draw_rectangle_animate::
-                            h_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rectangle_animate::h_pen_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rectangle_animate::
-                            h_rectangle_animations_offset);
-                } else if (view.kind == command::draw_ellipse) {
-                    append_packet_handle(
-                        command_layouts::draw_ellipse::h_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_ellipse::h_pen_offset);
-                } else if (view.kind == command::draw_ellipse_animate) {
-                    append_packet_handle(
-                        command_layouts::draw_ellipse_animate::h_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_ellipse_animate::h_pen_offset);
-                    append_packet_handle(
-                        command_layouts::draw_ellipse_animate::
-                            h_center_animations_offset);
-                    append_packet_handle(
-                        command_layouts::draw_ellipse_animate::
-                            h_radius_x_animations_offset);
-                    append_packet_handle(
-                        command_layouts::draw_ellipse_animate::
-                            h_radius_y_animations_offset);
-                } else if (view.kind == command::draw_rounded_rectangle) {
-                    append_packet_handle(
-                        command_layouts::draw_rounded_rectangle::
-                            h_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rounded_rectangle::h_pen_offset);
-                } else if (
-                    view.kind == command::draw_rounded_rectangle_animate) {
-                    append_packet_handle(
-                        command_layouts::draw_rounded_rectangle_animate::
-                            h_brush_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rounded_rectangle_animate::
-                            h_pen_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rounded_rectangle_animate::
-                            h_rectangle_animations_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rounded_rectangle_animate::
-                            h_radius_x_animations_offset);
-                    append_packet_handle(
-                        command_layouts::draw_rounded_rectangle_animate::
-                            h_radius_y_animations_offset);
-                } else {
-                    result = status::unsupported_command;
-                }
+                // External video remains outside cache-content admission;
+                // deletion tracking still owns its typed native handles.
+                result = view.kind == command::draw_video || view.kind == command::draw_video_animate
+                    ? status::unsupported_command
+                    : visit_render_data_dependencies(view, append_dependency);
                 if (result != status::success) {
                     break;
                 }

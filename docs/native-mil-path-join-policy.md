@@ -24,6 +24,21 @@ phase, gap partitions and closed seams. Tile masks retain their own capture
 frame and are not replaced by bounds geometry. The shared compiler's candidate
 publication and rollback behavior remains in place.
 
+When a source input index is requested, tiled strokes retain the original lowered
+bodies, dash caps, joins and filled segments in a separate input scope. Their
+original primitive transforms and source clips are unchanged. The existing mask
+and tile paint commands occupy a render-only scope; mask bounds and tile quads
+are not source hit geometry. No extra stroke solve or pixel readback is used, and
+both native providers consume the same scene and input records.
+
+Retained render-data packets also prevent deletion of their typed native
+dependencies, even after detachment from a Visual. Deleting or replacing the
+owning render data releases those references. Deletion and cache revision use
+one framed handle visitor, retaining ordered cache dependencies and the existing
+exclusion of managed-only legacy BitmapEffect indices. Rejection remains inside
+the original atomic channel transaction. External video remains unadmitted for
+cache rendering even though its native handles receive deletion protection.
+
 Path-stroke material bounds retain existing curve/body/cap measurement and union
 actual WPF PathJoin coverage emitted from the same prepared contours and original
 double dash inputs. The shared renderer's triangle bounds use the same

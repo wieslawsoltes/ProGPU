@@ -27,6 +27,12 @@ not merely independent miter clipping. Keep normal-width source joins 0 through
 Round under the same policy; do not suppress them using a generic writer rule.
 Primitive WPF bit 8 is PathJoin-only and must reach both paint and retained input;
 reject device-width, other-kind and incompatible-join descriptors atomically.
+Tiled stroke input retains the original lowered bodies/caps/joins and source
+clips; the mask and material quads remain render-only. Do not use mask bounds
+as source hit geometry or rerun widening for input. Retained render-data packets
+protect typed native dependencies from deletion even while detached. Share the
+framed handle visitor with cache revision, preserving managed-only legacy effect
+indices and existing external-video cache rejection.
 Reuse the owned stroker and preserve candidate rollback. Material bounds union
 actual emitted join triangles with existing body/cap measurement, using original
 double dash inputs and exact endpoints without AA or blanket inflation. Share
