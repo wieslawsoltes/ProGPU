@@ -668,8 +668,10 @@ using namespace progpu::native::direct2d::tests;
     if (!check(SUCCEEDED(original_face.as(compat::font_face_interface_id, face)), "typed original face")) return false;
     std::shared_ptr<const capture::original_font_capture> font;
     if (!check(capture::capture_original_font(face.get(), font) == com::ok &&
-        font->face_index == original_face->GetIndex() && font->face_type == original_face->GetType() &&
-        font->simulations == original_face->GetSimulations() && font->glyph_count == original_face->GetGlyphCount(),
+        font->face_index == original_face->GetIndex() &&
+        font->face_type == static_cast<std::uint32_t>(original_face->GetType()) &&
+        font->simulations == static_cast<std::uint32_t>(original_face->GetSimulations()) &&
+        font->glyph_count == original_face->GetGlyphCount(),
         "original face metadata")) return false;
     // Exercise the actual SDK ABI independently, including static design
     // attributes. Never infer axes or HasVariations from fvar/file inspection.

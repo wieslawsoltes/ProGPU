@@ -38,8 +38,12 @@ struct source_font final {
     {
         stream.bytes = make_vertical_font(options); stream.declared_size = stream.bytes.size();
         loader.stream = &stream; file.loader = &loader; face.files = {&file}; face.declared_count = 1U;
-        face.type = options.kind == vertical_font_kind::cff ? 0U : 1U;
+        face.type = options.kind == vertical_font_kind::cff || options.kind == vertical_font_kind::cff2_variable ? 0U : 1U;
         face.index = 0U; face.glyph_count = 3U; face.simulations = 0U;
+        face.variable = options.kind == vertical_font_kind::truetype_variable ||
+            options.kind == vertical_font_kind::cff2_variable;
+        face.axes.clear();
+        if (face.variable) face.axes.push_back({0x74686777U, 400.0F});
     }
     com::result capture(std::shared_ptr<const d2d::original_font_capture>& output)
     {

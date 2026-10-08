@@ -19,21 +19,21 @@ public:
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
     ULONG STDMETHODCALLTYPE Release() override { return --references_; } // Scoped by the original synchronous call.
-    void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE mode) override { fill_mode_ = mode; }
-    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT flags) override { flags_ = flags; }
-    void STDMETHODCALLTYPE BeginFigure(D2D1_POINT_2F start, D2D1_FIGURE_BEGIN begin) override
+    void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE mode) noexcept override { fill_mode_ = mode; }
+    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT flags) noexcept override { flags_ = flags; }
+    void STDMETHODCALLTYPE BeginFigure(D2D1_POINT_2F start, D2D1_FIGURE_BEGIN begin) noexcept override
     {
         if (open_ || begin != D2D1_FIGURE_BEGIN_FILLED || figures_ != 0U) valid_ = false;
         start_ = current_ = point(start); open_ = true; ++figures_;
     }
-    void STDMETHODCALLTYPE AddLines(const D2D1_POINT_2F* points, UINT32 count) override
+    void STDMETHODCALLTYPE AddLines(const D2D1_POINT_2F* points, UINT32 count) noexcept override
     {
         if (points == nullptr && count != 0U) { valid_ = false; return; }
         for (UINT32 item = 0U; item < count; ++item) {
             const auto end = point(points[item]); append({current_,end,{},{},PROGPU_NATIVE_PATH_SEGMENT_LINE,0,0,0}); current_ = end;
         }
     }
-    void STDMETHODCALLTYPE AddBeziers(const D2D1_BEZIER_SEGMENT* curves, UINT32 count) override
+    void STDMETHODCALLTYPE AddBeziers(const D2D1_BEZIER_SEGMENT* curves, UINT32 count) noexcept override
     {
         if (curves == nullptr && count != 0U) { valid_ = false; return; }
         for (UINT32 item = 0U; item < count; ++item) {
@@ -42,14 +42,14 @@ public:
             current_ = end;
         }
     }
-    void STDMETHODCALLTYPE EndFigure(D2D1_FIGURE_END end) override
+    void STDMETHODCALLTYPE EndFigure(D2D1_FIGURE_END end) noexcept override
     {
         if (!open_ || end != D2D1_FIGURE_END_CLOSED) valid_ = false;
         if (current_.x != start_.x || current_.y != start_.y)
             append({current_,start_,{},{},PROGPU_NATIVE_PATH_SEGMENT_LINE,0,0,0});
         open_ = false;
     }
-    HRESULT STDMETHODCALLTYPE Close() override { return valid_ && !open_ ? S_OK : E_FAIL; }
+    HRESULT STDMETHODCALLTYPE Close() noexcept override { return valid_ && !open_ ? S_OK : E_FAIL; }
     [[nodiscard]] std::span<const progpu_native_path_segment> segments() const { return {segments_.data(), count_}; }
     [[nodiscard]] bool complete() const { return valid_ && !open_ && references_ == 1U; }
     [[nodiscard]] D2D1_FILL_MODE fill_mode() const { return fill_mode_; }

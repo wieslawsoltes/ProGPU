@@ -191,7 +191,8 @@ void layer_background_regressions(progpu_native_direct2d_surface* surface, ID2D1
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "layer background stream measurement failed");
         std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
-        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+            reinterpret_cast<std::uint8_t*>(bytes.data()), bytes.size(), &result, &hr) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes, variant, clear_layer,
                 summary.draw_count + summary.fill_count),
             "layer background original stream lost typed initialization metadata");
@@ -319,7 +320,8 @@ void transparent_layer_clear_regressions(
             PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER,
             "transparent layer Clear stream measurement failed");
         std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
-        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+            reinterpret_cast<std::uint8_t*>(bytes.data()), bytes.size(), &result, &hr) ==
                 PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK && result.written_bytes == bytes.size() &&
                 result.failure_callback_index == 0U && result.translated_draw_count == source_draws &&
                 fixture::transparent_layer_clear_contract(bytes, variant, source_draws),
@@ -424,7 +426,8 @@ void antialiased_clear_regressions(
         check(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "AA Clear stream measurement failed");
         std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
-        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+            reinterpret_cast<std::uint8_t*>(bytes.data()), bytes.size(), &result, &hr) ==
                 PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK && result.written_bytes == bytes.size() &&
                 result.failure_callback_index == 0U && result.translated_draw_count == source_fills &&
                 fixture::antialiased_clear_contract(bytes, value, source_fills),
@@ -630,7 +633,8 @@ void full_target_clear_regressions(
             require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &accepted, &hr) ==
                 PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "AA Clear source size failed");
             std::vector<std::byte> retained(static_cast<std::size_t>(accepted.required_bytes));
-            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, retained.data(), retained.size(), &accepted, &hr) ==
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+                reinterpret_cast<std::uint8_t*>(retained.data()), retained.size(), &accepted, &hr) ==
                 PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && accepted.failure_callback_index == 0U,
                 "AA Clear source bytes failed");
             progpu_native_scene_header header{};

@@ -2089,6 +2089,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Scene/progpu_native_semantic_state.hpp
         src/Scene/progpu_native_semantic_validation.hpp)
     target_compile_features(progpu_native_internal_tests PRIVATE cxx_std_20)
+    if(WIN32)
+        target_compile_definitions(progpu_native_internal_tests PRIVATE
+            NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
     target_include_directories(progpu_native_internal_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})

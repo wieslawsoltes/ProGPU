@@ -39,7 +39,7 @@ void verify_command_hairline_dpi(progpu_native_direct2d_surface* surface,
         require(factory->CreateStrokeStyle(&properties,dashes.data(),3U,styles[mode].GetAddressOf()) == S_OK,
             "hairline original style1");
     }
-    const D2D1_MATRIX_3X2_F transform{2,0,0,1,0,0.25F};
+    const auto transform = D2D1::Matrix3x2F(2, 0, 0, 1, 0, 0.25F);
     ComPtr<ID2D1PathGeometry> curve;
     ComPtr<ID2D1GeometrySink> geometry_sink;
     require(factory->CreatePathGeometry(curve.GetAddressOf()) == S_OK &&
