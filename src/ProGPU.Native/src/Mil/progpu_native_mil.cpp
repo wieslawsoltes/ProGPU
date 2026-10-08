@@ -21406,7 +21406,8 @@ struct channel::implementation {
         std::span<const progpu_native_scene_clip_path> clip_paths = {},
         std::span<const progpu_native_path_segment> clip_segments = {},
         std::span<const progpu_native_scene_path_boolean_node>
-            clip_boolean_nodes = {}) const {
+            clip_boolean_nodes = {},
+        const affine_2d_double* original_brush_transform = nullptr) const {
         mask_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
         if (brush_handle == 0U) {
             return status::success;
@@ -21416,7 +21417,7 @@ struct channel::implementation {
             bounds_y,
             bounds_width,
             bounds_height,
-            mask_transform};
+            original_brush_transform != nullptr ? *original_brush_transform : mask_transform};
         progpu_native_scene_brush brush{};
         std::vector<progpu_native_scene_gradient_stop> stops;
         const status brush_status = resolve_gradient_scene_brush(
@@ -22429,7 +22430,18 @@ struct channel::implementation {
                 if (frame != nullptr && frame->request.dpi_scale_x != frame->request.dpi_scale_y)
                     return status::unsupported_command;
             }
-            const status opacity_mask_status = add_visual_opacity_mask(
+            // Bitmap snapping moves retained coverage, not the source brush's
+            // world frame. Keep its original inverse beside the snapped mask
+            // geometry, just as composite guidelines keep paint independent.
+            const status opacity_mask_status = !is_sampled_brush(cache_visual.alpha_mask_handle)
+                ? add_gradient_opacity_mask(cache_visual.alpha_mask_handle,
+                    cache_visual.cache_bounds_x, cache_visual.cache_bounds_y,
+                    cache_visual.cache_bounds_width, cache_visual.cache_bounds_height,
+                    mask_transform, builder, opacity_mask_resource_index,
+                    clip_paths.first(state.clip_path_count),
+                    clip_segments.first(state.clip_segment_count),
+                    clip_boolean_nodes.first(state.clip_boolean_node_count), &state.transform)
+                : add_visual_opacity_mask(
                 cache_visual.alpha_mask_handle,
                 cache_visual,
                 mask_state,

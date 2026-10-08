@@ -6642,7 +6642,8 @@ int main()
                 opacity_layer_stream.data() + command.payload_offset,
                 sizeof(translated_layer));
             require(
-                translated_layer.flags == PROGPU_NATIVE_SCENE_LAYER_BOUNDS &&
+                translated_layer.flags == (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                    PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) &&
                     translated_layer.bounds.x ==
                         expected_opacity_layer_left &&
                     translated_layer.bounds.y ==

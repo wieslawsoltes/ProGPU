@@ -363,14 +363,19 @@ enum {
      * Original float bounds map through the actual final DPI/viewport. */
     /* PROGPU_CSHARP_ULONG: SceneLayerAliasedCompositeBounds */
     PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS = 1024ULL,
-    /* Copies the current parent into transient layer storage. On pop, opacity
-     * and mask coverage interpolate parent and completed layer independently of
-     * the completed layer's alpha. This is NOT the existing BACKDROP effect.
+    /* Copies the current parent into transient layer storage. Ordinary pop
+     * keeps SRC_OVER; an explicit axis-area source clip replaces its background.
+     * This is NOT the existing BACKDROP effect.
      * Requires SRC_OVER, no effects/cache/composite state and zero revisions. */
     PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND = 1U << 11U,
     /* Transient opaque intermediate: clear alpha one, preserve it through
      * nested replacements and treat copied background alpha as one. */
-    PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA = 1U << 12U
+    PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA = 1U << 12U,
+    /* Explicit source-layer policy: on linear RGBA8/BGRA8 targets, quantize
+     * premultiplied RGBA after group opacity and before geometric coverage.
+     * Other formats retain their ordinary arithmetic. Requires transient
+     * SRC_OVER with no effects/cache/composite state and zero revisions. */
+    PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY = 1U << 13U
 };
 
 typedef enum progpu_native_image_sampling {

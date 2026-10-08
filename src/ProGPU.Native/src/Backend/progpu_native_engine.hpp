@@ -278,6 +278,7 @@ struct progpu_native_engine {
     WGPURenderPipeline layer_composite_pipeline = nullptr;
     WGPURenderPipeline layer_mask_pipeline = nullptr;
     std::array<WGPURenderPipeline, 4U> layer_coverage_pipelines{};
+    std::array<WGPURenderPipeline, 4U> layer_linear_byte_opacity_pipelines{};
     std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
         layer_rgb_blend_pipelines{};
     std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
@@ -1812,6 +1813,9 @@ struct progpu_native_engine {
         }
         for (auto rgb_pipeline : layer_rgb_blend_pipelines) {
             if (rgb_pipeline != nullptr) wgpuRenderPipelineRelease(rgb_pipeline);
+        }
+        for (auto byte_pipeline : layer_linear_byte_opacity_pipelines) {
+            if (byte_pipeline != nullptr) wgpuRenderPipelineRelease(byte_pipeline);
         }
         for (auto rgb_pipeline : layer_rgb_mask_blend_pipelines) {
             if (rgb_pipeline != nullptr) wgpuRenderPipelineRelease(rgb_pipeline);

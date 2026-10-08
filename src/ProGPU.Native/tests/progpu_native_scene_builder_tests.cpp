@@ -2436,7 +2436,7 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
     layer.bounds = {1, 2, 5, 4};
     for (const auto opaque : {false, true}) {
         layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
-            (opaque ? PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA : 0U);
+            (opaque ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) : 0U);
         for (const auto blend : {PROGPU_NATIVE_BLEND_SRC, PROGPU_NATIVE_BLEND_SRC_OVER}) {
             layer.blend_mode = blend;
             for (const float opacity : {0.0F, 0.5F, 1.0F}) {
@@ -2491,6 +2491,40 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
             actual.height != want.height || actual.drawable != want.drawable) return false;
         const auto current_presentation = cursor.current_presentation();
         if (std::memcmp(&current_presentation, &presentation, sizeof(presentation)) != 0) return false;
+    }
+    return true;
+}
+
+bool semantic_linear_byte_opacity_is_explicit_and_atomic() {
+    auto layer = semantic::semantic_default_layer();
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY;
+    layer.opacity = 0.5F;
+    semantic_scene_builder builder(0x94F8U, 1U);
+    std::vector<std::byte> before;
+    if (!semantic::is_valid_semantic_layer(layer) ||
+        !semantic::supports_mapped_semantic_layer(layer) ||
+        !builder.push_layer(layer) || !builder.pop_layer() || !builder.build(before)) return false;
+    const auto header = read<progpu_native_scene_header>(before, 0U);
+    const auto command = read<progpu_native_scene_command>(before, header.command_offset);
+    const auto retained = read<progpu_native_scene_layer>(before, command.payload_offset);
+    if (retained.flags != layer.flags || retained.opacity != layer.opacity ||
+        scene::validate(before.data(), before.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    for (unsigned defect = 0U; defect < 8U; ++defect) {
+        auto invalid = layer;
+        if (defect == 0U) invalid.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+        if (defect == 1U) invalid.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
+        if (defect == 2U) invalid.flags |= PROGPU_NATIVE_SCENE_LAYER_BACKDROP;
+        if (defect == 3U) invalid.flags |= PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+        if (defect == 4U) invalid.effect_resource_index = 0U;
+        if (defect == 5U) invalid.content_revision = 1U;
+        if (defect == 6U) invalid.composite_revision = 1U;
+        if (defect == 7U) invalid.flags |= 0x80000000U;
+        auto corrupt = before;
+        std::memcpy(corrupt.data() + command.payload_offset, &invalid, sizeof(invalid));
+        if (semantic::is_valid_semantic_layer(invalid) || builder.push_layer(invalid) ||
+            scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        std::vector<std::byte> after;
+        if (!builder.build(after) || after != before) return false;
     }
     return true;
 }

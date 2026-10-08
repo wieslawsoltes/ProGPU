@@ -65,6 +65,7 @@ inline bool layer_background_contract(std::span<const std::byte> bytes, std::uin
         push.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER &&
         read_scene_value(bytes, push.payload_offset, layer) &&
         layer.flags == (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY |
             (variant < 16U ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) : 0U) |
             (variant >= 8U ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) : 0U)) &&
         layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&

@@ -3491,6 +3491,19 @@ bounded cache-root case. Brush coordinates deliberately remain in their
 original target-space frame while the mask geometry deforms, matching WPF's
 shape-snapping boundary. Per-draw masks and general path geometry are unchanged.
 
+The 2026-10-08 integration retains that same paint/coverage separation when
+`BitmapCache.SnapsToDevicePixels` moves the cached origin. MIL now resolves a
+gradient mask's brush against the original source transform while retaining the
+snapped transform only on mask geometry. A source offset of `(0.25,0.25)` no
+longer disappears from its gradient inverse. A paired original Microsoft WPF
+probe on Windows ARM64/x64 retained 32 cold/warm frames across all eight
+cache/snap/guideline combinations; center samples stayed red 65 and blue 192.
+The native structural control checks fractional brush translation independently
+of integer coverage translation, and all 47 local stock native tests pass.
+The independent cached-mask affine reference remains unchanged. This bounded
+source observation is not full-frame Windows/provider/package qualification;
+the extended managed/native matrix still requires completion.
+
 The first implementation is now executable in both the native C++ and managed
 pointer-free builders. Counts are bounded to the canonical UInt16 packet range,
 coordinates must be finite and independently sorted, negative-scale MIL

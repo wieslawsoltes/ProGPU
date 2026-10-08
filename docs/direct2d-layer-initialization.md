@@ -11,8 +11,16 @@ coverage separate from child alpha and retains ordinary source-over. A copied
 translucent background therefore participates again when the source layer pops;
 initialization does not select replacement. Group opacity scales and stores the
 premultiplied source RGBA8 bytes before their alpha weights the destination.
-The existing semantic BACKDROP/effect contract
-is unchanged. New initialization excludes effects, caches, mapped-picture frames
+Both source recorders explicitly retain `LINEAR_BYTE_OPACITY` for this bounded
+linear RGBA8/BGRA8 policy. Generic layer streams and the legacy direct-frame
+compositor keep their original floating group-opacity arithmetic. The required
+flag keeps the 64-byte layer layout, rejects cache/effect/composite-state and
+non-source-over combinations atomically, and preserves other target formats.
+It does not force isolation at unit opacity. Four lazy engine-owned pipeline
+slots distinguish masking and opaque-parent writes; both native providers use
+the same entries and retire those slots with the engine.
+
+The existing semantic BACKDROP/effect contract is unchanged. New initialization excludes effects, caches, mapped-picture frames
 and composite-state relocation until those separate ownership contracts connect.
 
 The common Texture shader keeps this ordinary layer composition on both native

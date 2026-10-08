@@ -74,7 +74,8 @@ edges so raster edge ownership agrees with the source pixel-center clip.
 The stock Metal AA family matches all 204 original Windows ARM64/x64 frames,
 including complete cold/warm RGBA, fractional axes and nested ownership. Raw
 flag rejection, capture-time binary ancestors and copy restoration pass local
-native controls. The standard full run still fails later in a cached gradient
-mask case; qualify only the final integrated tips, retaining the existing pixel,
+native controls. All 47 local native CTest cases now pass; the extended
+managed/native matrix still fails its retained-path DPI-2 differential. Qualify
+only the final integrated tips, retaining the existing pixel,
 lifetime, package and UI gates. This does not advertise managed
 Canvas routing, general device-context operations or desktop UI parity.

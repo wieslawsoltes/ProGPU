@@ -129,9 +129,16 @@ void verify_command_hairline_dpi(progpu_native_direct2d_surface* surface,
         // Destroy caller metadata identity after creation, before any draw.
         target.dpi_x=std::numeric_limits<float>::quiet_NaN(); target.dpi_y=1;
         target.pixel_width=0U; target.pixel_height=0U;
-        require((curved ? sink->DrawGeometry(curve.Get(),brush.Get(),mode == 2U ? 0.0F : 2.0F,styles[mode].Get())
-            : sink->DrawLine({2,8},{20,8},brush.Get(),mode == 2U ? std::numeric_limits<float>::max() : 2.0F,styles[mode].Get()))
-            == S_OK && sink->EndDraw() == S_OK,"hairline owned DPI callback");
+        const auto draw_hr = curved
+            ? sink->DrawGeometry(curve.Get(),brush.Get(),mode == 2U ? 0.0F : 2.0F,styles[mode].Get())
+            : sink->DrawLine({2,8},{20,8},brush.Get(),mode == 2U ? std::numeric_limits<float>::max() : 2.0F,styles[mode].Get());
+        const auto end_hr = draw_hr == S_OK ? sink->EndDraw() : E_PENDING;
+        if (draw_hr != S_OK || end_hr != S_OK) {
+            std::fprintf(stderr, "Hairline callback dpi=%g mode=%u curved=%u draw=0x%08lx end=0x%08lx (end skipped on draw failure)\n",
+                static_cast<double>(dpi), mode, curved ? 1U : 0U,
+                static_cast<unsigned long>(draw_hr), static_cast<unsigned long>(end_hr));
+        }
+        require(draw_hr == S_OK && end_hr == S_OK,"hairline owned DPI callback");
         progpu_native_direct2d_scene_stream_result result{};
         check(serialize(recorder.get(),result),result,mode,dpi,curved);
         std::array<FLOAT,3U> readback{}; styles[mode]->GetDashes(readback.data(),3U);

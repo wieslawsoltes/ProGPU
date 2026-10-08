@@ -4109,6 +4109,38 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderRestrictsLinearByteOpacityToSourceLayers()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        var builder = new NativeSceneStreamBuilder(destination, 84U, 1U,
+            commandCapacity: 2, resourceCapacity: 0);
+        const NativeSceneLayerFlags policy = NativeSceneLayerFlags.LinearByteOpacity;
+        var invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, blendMode: GpuBlendMode.Src);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        foreach (NativeSceneLayerFlags extra in new[] { NativeSceneLayerFlags.Backdrop,
+            NativeSceneLayerFlags.CacheContent, NativeSceneLayerFlags.CompositeState, (NativeSceneLayerFlags)0x80000000U })
+        {
+            invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy | extra);
+            Assert.False(builder.TryPushLayer(1U, invalid));
+        }
+        invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, effectResourceIndex: 0U);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, contentRevision: 1U);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, compositeRevision: 1U);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        var layer = new NativeSceneLayer(opacity: 0.5f, flags: policy);
+        Assert.True(builder.TryPushLayer(1U, layer));
+        Assert.True(builder.TryPopLayer(2U));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(stream[(int)header.CommandOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneLayer>(stream[(int)command.PayloadOffset..]);
+        Assert.Equal(policy, stored.Flags);
+        Assert.Equal(0.5f, stored.Opacity);
+    }
+
+    [Fact]
     public void SemanticSceneBuilderValidatesTypedPerDrawMaskState()
     {
         Span<byte> destination = stackalloc byte[4096];

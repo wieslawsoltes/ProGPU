@@ -5106,6 +5106,10 @@ progpu_native_status render_scene(
                     // Only explicit source AA clips replace their saved backdrop.
                     operation.replace_axis_clip_background = replaces_axis_clip_background(layer);
                     operation.axis_clip_composite = is_byte_axis_clip(layer);
+                    operation.linear_byte_opacity =
+                        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) != 0U &&
+                        (engine->target_format == WGPUTextureFormat_RGBA8Unorm ||
+                         engine->target_format == WGPUTextureFormat_BGRA8Unorm);
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =

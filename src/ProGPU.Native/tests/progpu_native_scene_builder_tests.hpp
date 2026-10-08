@@ -36,6 +36,7 @@ bool semantic_scene_content_hashes_normalize_resource_ordinals();
 bool semantic_scene_content_hashes_preserve_scene_ownership();
 bool semantic_mapped_layers_preserve_bounded_copy_contract();
 bool semantic_aliased_composite_bounds_preserve_pixel_centers();
+bool semantic_linear_byte_opacity_is_explicit_and_atomic();
 bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes();
 bool semantic_scene_builder_records_native_shaped_runs();
 bool semantic_scene_builder_records_color_bitmap_glyphs();

@@ -351,6 +351,7 @@ struct semantic_render_bundle_span {
     bool backdrop = false;
     bool replace_axis_clip_background = false;
     bool axis_clip_composite = false;
+    bool linear_byte_opacity = false;
     bool ignore_alpha = false;
     bool target_ignores_alpha = false;
     // Retained command identity also survives a completely clipped output,

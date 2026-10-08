@@ -5703,6 +5703,28 @@ bool visual_bitmap_cache_applies_gradient_mask_at_composite() {
     PROGPU_REQUIRE(first_stops.front().color.a == 0.0F);
     PROGPU_REQUIRE(first_stops.back().color.a == 1.0F);
 
+    // Pixel-snapped cache coverage must retain the unsnapped source brush.
+    // A separate channel leaves the original radial/warm ownership controls intact.
+    {
+        channel snapped;
+        PROGPU_REQUIRE(snapped.apply(batch) == status::success);
+        PROGPU_REQUIRE(snapped.set_visual_cache_bounds(visual, 0.0, 0.0, 24.0, 18.0) == status::success);
+        std::vector<std::byte> update;
+        append_command(update, command::visual_set_offset, visual, 3.25, 4.25);
+        append_command(update, command::bitmap_cache, cache, 1.0, 0U, 1U, 0U);
+        PROGPU_REQUIRE(snapped.apply(update) == status::success);
+        std::vector<std::byte> bytes;
+        PROGPU_REQUIRE(snapped.build_scene(target, 9019U, 1U, bytes) == status::success);
+        progpu_native_scene_layer layer{};
+        progpu_native_scene_layer_brush_mask mask{};
+        std::vector<progpu_native_scene_gradient_stop> stops;
+        PROGPU_REQUIRE(try_get_cached_layer(bytes, layer));
+        PROGPU_REQUIRE(try_get_brush_mask_resource(bytes, layer.mask_resource_index, mask, stops));
+        PROGPU_REQUIRE(mask.transform.m31 == 3.0F && mask.transform.m32 == 4.0F);
+        PROGPU_REQUIRE(mask.brush.coordinate_transform0[2] == -3.25F &&
+            mask.brush.coordinate_transform1[2] == -4.25F);
+    }
+
     std::vector<std::byte> mask_update;
     append_create(mask_update, radial_mask_brush, 78U);
     append_radial_gradient_brush(

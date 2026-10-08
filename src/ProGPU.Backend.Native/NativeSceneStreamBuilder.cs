@@ -3525,9 +3525,11 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheFant |
             NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile |
             NativeSceneLayerFlags.CacheShared | NativeSceneLayerFlags.AliasedCompositeBounds |
-            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha;
-        bool initializedBackground =
-            (layer.Flags & (NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) != 0;
+            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha |
+            NativeSceneLayerFlags.LinearByteOpacity;
+        bool sourceLayerPolicy =
+            (layer.Flags & (NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha |
+                NativeSceneLayerFlags.LinearByteOpacity)) != 0;
         bool aliasedComposite =
             (layer.Flags & NativeSceneLayerFlags.AliasedCompositeBounds) != 0;
         bool localCache =
@@ -3551,10 +3553,11 @@ public ref struct NativeSceneStreamBuilder
                     layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
                     layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
                     layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&
-            (!initializedBackground ||
+            (!sourceLayerPolicy ||
                 ((layer.Flags & ~(NativeSceneLayerFlags.Bounds |
                         NativeSceneLayerFlags.ForceIsolation |
-                        NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) == 0 &&
+                        NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha |
+                        NativeSceneLayerFlags.LinearByteOpacity)) == 0 &&
                     layer.BlendMode == GpuBlendMode.SrcOver &&
                     layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
                     layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&

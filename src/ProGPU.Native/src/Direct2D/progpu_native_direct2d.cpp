@@ -6972,6 +6972,7 @@ public:
         const progpu_native_scene_layer layer{
             sizeof(progpu_native_scene_layer),
             (has_bounds ? PROGPU_NATIVE_SCENE_LAYER_BOUNDS : 0U) |
+                PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY |
                 ((options & D2D1_LAYER_OPTIONS1_INITIALIZE_FROM_BACKGROUND) != 0U
                     ? PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND : 0U) |
                 ((options & D2D1_LAYER_OPTIONS1_IGNORE_ALPHA) != 0U

@@ -111,6 +111,16 @@ void verify_shader_source_masks(Render render,Require require) {
             const auto submissions=replay==1U?1U:2U;
             const auto pixels=render(replay==2U,scenes[variant],header,dpi,false,submissions,layers,frame,
                 PROGPU_NATIVE_STATUS_SUCCESS);
+            if (pixels != baseline) {
+                const auto count = std::min(pixels.size(), baseline.size());
+                for (std::size_t i = 0U; i < count; ++i) {
+                    if (pixels[i] == baseline[i]) continue;
+                    std::fprintf(stderr, "Source shader mask variant=%u replay=%u pixel=(%zu,%zu) channel=%zu actual=%u expected=%u\n",
+                        variant, replay, (i / 4U) % 128U, (i / 4U) / 128U, i % 4U,
+                        static_cast<unsigned>(pixels[i]), static_cast<unsigned>(baseline[i]));
+                    break;
+                }
+            }
             require(pixels==baseline,"final shader changed exact ordinary-source mask pixels");
             require(frame.submission_count==submissions && frame.command_count==header.command_count &&
                 layers.mask_kind==PROGPU_NATIVE_GROUP_MASK_TEXTURE && layers.effect_count==1U &&

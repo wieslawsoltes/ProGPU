@@ -509,10 +509,12 @@ bool is_valid_semantic_layer(
         PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED |
         PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS |
         PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND |
-        PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA;
-    const bool initialized_background =
+        PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
+        PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY;
+    const bool source_layer_policy =
         (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND |
-            PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA)) != 0U;
+            PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
+            PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY)) != 0U;
     const bool aliased_composite =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U;
     const bool local_cache =
@@ -551,11 +553,12 @@ bool is_valid_semantic_layer(
                 layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                 layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                 layer.content_revision == 0U && layer.composite_revision == 0U)) &&
-        (!initialized_background ||
+        (!source_layer_policy ||
             ((layer.flags & ~(PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
                     PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
                     PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND |
-                    PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA)) == 0U &&
+                    PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
+                    PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY)) == 0U &&
                 layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER &&
                 layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
                 layer.content_revision == 0U && layer.composite_revision == 0U)) &&

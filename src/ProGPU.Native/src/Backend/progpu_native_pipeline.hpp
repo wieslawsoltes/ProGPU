@@ -113,7 +113,8 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     bool masked,
     bool& cache_hit,
     bool coverage_only = false,
-    layer_write_channels channels = layer_write_channels::all);
+    layer_write_channels channels = layer_write_channels::all,
+    bool linear_byte_opacity = false);
 
 bool ensure_advanced_group_blend_source(
     progpu_native_engine& engine,

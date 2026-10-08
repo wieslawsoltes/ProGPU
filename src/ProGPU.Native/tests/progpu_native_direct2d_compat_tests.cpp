@@ -7331,7 +7331,8 @@ int run_tests()
     const auto* native_layer = reinterpret_cast<
         const progpu_native_scene_layer*>(
             layer_scene.data() + push_layer_command->payload_offset);
-    if (native_layer->flags != PROGPU_NATIVE_SCENE_LAYER_BOUNDS ||
+    if (native_layer->flags != (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) ||
         !approximately_equal(native_layer->bounds.x, 0.0F) ||
         !approximately_equal(native_layer->bounds.y, 0.0F) ||
         !approximately_equal(native_layer->bounds.width, 20.0F) ||

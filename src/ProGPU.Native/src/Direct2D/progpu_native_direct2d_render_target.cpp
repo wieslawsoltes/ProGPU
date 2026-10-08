@@ -5890,7 +5890,7 @@ public:
             (has_bounds
                 ? static_cast<std::uint32_t>(
                     PROGPU_NATIVE_SCENE_LAYER_BOUNDS)
-                : 0U) | initialization_flags,
+                : 0U) | initialization_flags | PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY,
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,

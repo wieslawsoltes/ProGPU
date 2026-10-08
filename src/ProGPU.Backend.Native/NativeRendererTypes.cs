@@ -949,14 +949,21 @@ public enum NativeSceneLayerFlags : uint
     AliasedCompositeBounds = (uint)NativeMethods.SceneLayerAliasedCompositeBounds,
 
     /// <summary>
-    /// Initializes transient storage from the parent and interpolates completed
-    /// contents by independent opacity/mask coverage, not by their alpha.
+    /// Initializes transient storage from the parent; ordinary pop keeps source-over.
+    /// Explicit axis-area source clips replace their background through coverage.
     /// Distinct from Backdrop; excludes effects, cache and composite state.
     /// </summary>
     InitializeFromBackground = 1 << 11,
 
     /// <summary>Owns an opaque transient intermediate, including nested replacement.</summary>
-    IgnoreAlpha = 1 << 12
+    IgnoreAlpha = 1 << 12,
+
+    /// <summary>
+    /// Quantizes source group opacity to premultiplied bytes on linear RGBA8/BGRA8
+    /// targets before geometric coverage. Requires transient source-over without
+    /// effects, caches, composite state or revisions. Other formats are unchanged.
+    /// </summary>
+    LinearByteOpacity = 1 << 13
 }
 
 public enum NativeSceneValidationError : uint

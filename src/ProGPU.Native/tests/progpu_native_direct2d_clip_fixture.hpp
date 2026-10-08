@@ -110,7 +110,8 @@ inline bool finite_affine_layer_contract(std::span<const std::byte> bytes,
     progpu_native_scene_layer layer{};
     if (!read(0U, header) || header.command_count != 3U ||
         !read(header.command_offset, command) || command.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
-        !read(command.payload_offset, layer) || layer.flags != PROGPU_NATIVE_SCENE_LAYER_BOUNDS ||
+        !read(command.payload_offset, layer) || layer.flags != (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+            PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) ||
         layer.opacity != 0.625F || layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER) return false;
     if (!geometry && (std::abs(layer.bounds.x - left) > tolerance || std::abs(layer.bounds.y - top) > tolerance ||
         std::abs(layer.bounds.width - (right - left)) > tolerance ||

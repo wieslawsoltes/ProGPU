@@ -905,6 +905,7 @@ bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noex
     constexpr std::uint32_t supported_flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
         PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
         PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
+        PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY |
         PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS;
     const bool aliased_composite =
         (layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U;
@@ -916,7 +917,8 @@ bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noex
             layer.reserved0 == 0U && layer.reserved1 == 0U)) &&
         (layer.blend_mode == PROGPU_NATIVE_BLEND_SRC ||
             layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
-        ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) == 0U ||
+        ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
+            PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY)) == 0U ||
             layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
         layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
         layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
