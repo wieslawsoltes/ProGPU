@@ -3219,6 +3219,11 @@ std::vector<std::uint8_t> render_retained_fixture(const provider_api& api,
 } // namespace
 
 int main(int argc, char** argv) {
+    const auto corpus_started = std::chrono::steady_clock::now();
+    const auto report_phase = [&](const char* label) {
+        const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - corpus_started).count();
+        std::fprintf(stderr, "WebScene phase: %s at %.3f seconds\n", label, seconds);
+    };
     require(argc == 2 || argc == 3,
         "usage: test PROVIDER_DYLIB [CAPTURE_PPM]");
     void* module = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
@@ -3516,6 +3521,13 @@ int main(int argc, char** argv) {
                 PROGPU_NATIVE_STATUS_SUCCESS && picture_engine != nullptr,
             "axis picture Dawn engine creation failed");
     }
+    std::uint64_t retained_calls = 0U;
+    double canvas_seconds = 0.0, render_seconds = 0.0, present_seconds = 0.0;
+    const auto report_retained_cost = [&] {
+        std::fprintf(stderr, "WebScene retained calls=%llu create-canvas=%.3f render=%.3f present=%.3f seconds\n",
+            static_cast<unsigned long long>(retained_calls), canvas_seconds, render_seconds, present_seconds);
+    };
+    report_phase("retained source frames begin");
     const auto render_retained_scene =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions,
             std::uint64_t scene_id, std::uint32_t draws, std::uint32_t commands,
@@ -3539,7 +3551,11 @@ int main(int argc, char** argv) {
                 "sampler Dawn diagnostic physical frame is unsupported");
             const auto target_row_bytes = target_width * 4U;
             auto* picture_engine = diagnostic_engine != nullptr ? diagnostic_engine : picture_engines[reference ? 1U : 0U];
+            if (retained_calls != 0U && retained_calls % 100U == 0U) report_retained_cost();
+            ++retained_calls;
+            const auto canvas_started = std::chrono::steady_clock::now();
             auto* picture_canvas = api.create_canvas(provider, &canvas_configuration, target_width, target_height);
+            canvas_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - canvas_started).count();
             require(picture_canvas != nullptr, "axis picture canvas creation failed");
             std::uintptr_t handle{};
             require(api.acquire(provider, picture_canvas, &handle) == WEBSCENE_GPU_STATUS_SUCCESS && handle != 0U,
@@ -3572,7 +3588,9 @@ int main(int argc, char** argv) {
             std::uint64_t before{};
             require(progpu_native_engine_get_last_submission(picture_engine, &before) == PROGPU_NATIVE_STATUS_SUCCESS,
                 "retained Dawn submission query failed");
+            const auto render_started = std::chrono::steady_clock::now();
             const auto rendered = progpu_native_engine_render_scene(picture_engine, &frame, &metrics);
+            render_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - render_started).count();
             if (expected_status != PROGPU_NATIVE_STATUS_SUCCESS || expect_picture_rejection) {
                 std::uint64_t after{};
                 require(progpu_native_engine_get_last_submission(picture_engine, &after) == PROGPU_NATIVE_STATUS_SUCCESS &&
@@ -3606,10 +3624,12 @@ int main(int argc, char** argv) {
             resolve<WGPUProcTextureRelease>(api, provider, "wgpuTextureRelease")(picture_texture);
             webscene_gpu_external_texture presented{};
             presented.struct_size = sizeof(presented);
+            const auto present_started = std::chrono::steady_clock::now();
             require(api.present(provider, picture_canvas, &presented) == WEBSCENE_GPU_STATUS_SUCCESS &&
                 presented.handle_kind == WEBSCENE_GPU_HANDLE_IOSURFACE &&
                 (presented.flags & WEBSCENE_GPU_EXTERNAL_TEXTURE_GPU_COMPLETE) != 0U,
                 "axis picture Dawn GPU completion failed");
+            present_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - present_started).count();
             auto surface = reinterpret_cast<IOSurfaceRef>(presented.shared_handle);
             require(surface != nullptr && IOSurfaceLock(surface, kIOSurfaceLockReadOnly, nullptr) ==
                 kIOReturnSuccess, "axis picture IOSurface lock failed");
@@ -3882,6 +3902,7 @@ int main(int argc, char** argv) {
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
             return render_retained_scene(reference, stream, generation, submissions, 0x95C3U, 1U, 1U);
         }, require);
+    report_phase("retained shader and bitmap frames complete");
     {
         std::array<progpu_native_engine*, 5U> rgb_engines{};
         const auto rgb_engine = [&](unsigned route) {
@@ -3912,6 +3933,7 @@ int main(int argc, char** argv) {
         progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
         for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
     }
+    report_phase("RGB source frames complete");
     progpu::native::tests::verify_mil_path_join_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header, bool tiled) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id,
@@ -3951,6 +3973,8 @@ int main(int argc, char** argv) {
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);
         }, require);
+    report_retained_cost();
+    report_phase("retained glyph frames complete");
     for (auto* picture_engine : picture_engines) progpu_native_engine_destroy(picture_engine);
     progpu::native::direct2d::tests::verify_owned_bitmap_scene_copy_pixels(d2d_factory.get(),
         [&](d2d::scene_render_target_native* scene, std::uint32_t draws,
