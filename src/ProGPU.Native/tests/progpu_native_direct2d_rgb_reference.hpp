@@ -86,7 +86,7 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
     const auto bits = [](float value) { return std::bit_cast<std::uint32_t>(value); };
     std::ostringstream manifest;
     manifest.imbue(std::locale::classic());
-    manifest << "{\"schema\":1,\"producer\":\"original-Windows-Direct2D\",\"floatEncoding\":\"ieee754-binary32-bits\","
+    manifest << "{\"schema\":2,\"producer\":\"original-Windows-Direct2D\",\"floatEncoding\":\"ieee754-binary32-bits\","
         "\"width\":" << width << ",\"height\":" << height << ",\"stride\":" << stride <<
         ",\"pixelFormat\":\"BGRA8Unorm\",\"alphaMode\":\"IGNORE\",\"dpi\":[" << bits(96) << ',' << bits(96) <<
         "],\"background\":[" << bits(1) << ',' << bits(1) << ',' << bits(1) << ',' << bits(1) <<
@@ -185,6 +185,7 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
         return pixels;
     };
     std::uint32_t case_id = 0U;
+    std::uint32_t cleartype_replay_differences = 0U;
     for (const auto& selected : policies) {
         ComPtr<IDWriteRenderingParams> parameters;
         require(write_factory->CreateCustomRenderingParams(selected.gamma, selected.contrast, selected.level,
@@ -279,26 +280,51 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
             context->DrawImage(list.Get());
             require(context->EndDraw() == S_OK, "original RGB command list replay failed");
             const auto replay = copy_pixels();
-            if (replay != direct) {
+            context->SetTarget(target.Get());
+            context->BeginDraw();
+            context->Clear(D2D1::ColorF(D2D1::ColorF::White));
+            context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            context->SetTextRenderingParams(parameters.Get());
+            context->DrawGlyphRun(baseline, &run, brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
+            require(context->EndDraw() == S_OK, "original RGB grayscale control draw failed");
+            const auto grayscale = copy_pixels();
+            // DrawImage command-list replay is an image route: the original
+            // SDK emits grayscale coverage even though the recorded command
+            // stream preserves the caller's ClearType state and parameters.
+            // Compare every byte with an independently drawn original grayscale
+            // control. Keep the direct ClearType capture separate and never
+            // turn these observations into ClearType replay qualification.
+            if (replay != grayscale) {
                 const auto prefix = L"failed-case-" + std::to_wstring(case_id);
-                write_new(prefix + L"-direct.bgra", direct.data(), direct.size());
+                write_new(prefix + L"-direct-cleartype.bgra", direct.data(), direct.size());
+                write_new(prefix + L"-direct-grayscale.bgra", grayscale.data(), grayscale.size());
                 write_new(prefix + L"-command-list.bgra", replay.data(), replay.size());
                 const auto difference = static_cast<std::size_t>(
-                    std::mismatch(direct.begin(), direct.end(), replay.begin()).first - direct.begin());
-                std::fprintf(stderr, "Original RGB mismatch case=%u gamma=%g contrast=%g level=%g geometry=%u mode=%u "
-                    "foreground=(%g,%g,%g,%g) phase=%g pixel=(%zu,%zu) channel=%zu direct=%u replay=%u\n",
-                    case_id, double(selected.gamma), double(selected.contrast), double(selected.level),
-                    unsigned(selected.geometry), unsigned(selected.mode), double(color.r), double(color.g),
-                    double(color.b), double(color.a), double(phase), (difference / 4U) % width,
-                    difference / stride, difference % 4U, unsigned(direct[difference]), unsigned(replay[difference]));
+                    std::mismatch(grayscale.begin(), grayscale.end(), replay.begin()).first - grayscale.begin());
+                std::fprintf(stderr, "Original RGB command-list/grayscale mismatch case=%u pixel=(%zu,%zu) "
+                    "channel=%zu grayscale=%u replay=%u\n", case_id, (difference / 4U) % width,
+                    difference / stride, difference % 4U, unsigned(grayscale[difference]), unsigned(replay[difference]));
             }
-            require(replay == direct, "original RGB direct and command-list full pixels differ");
+            require(replay == grayscale, "original RGB command-list pixels differ from original grayscale control");
+            const bool cleartype_equal = replay == direct;
+            if (!cleartype_equal) ++cleartype_replay_differences;
+            context->SetTarget(target.Get());
+            context->BeginDraw();
+            context->Clear(D2D1::ColorF(D2D1::ColorF::White));
+            context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+            context->DrawImage(list.Get());
+            require(context->EndDraw() == S_OK, "original RGB warm command-list replay failed");
+            require(copy_pixels() == replay, "original RGB cold/warm command-list full pixels differ");
             bool ink = false;
             for (std::size_t index = 0U; index < direct.size(); index += 4U)
                 ink |= direct[index] != 255U || direct[index + 1U] != 255U || direct[index + 2U] != 255U;
             require(ink, "original RGB glyph produced no observed ink");
             const auto file = "case-" + std::to_string(case_id) + ".bgra";
             write_new(std::wstring(file.begin(), file.end()), direct.data(), direct.size());
+            const auto replay_file = "case-" + std::to_string(case_id) + "-command-list.bgra";
+            const auto grayscale_file = "case-" + std::to_string(case_id) + "-grayscale.bgra";
+            write_new(std::wstring(replay_file.begin(), replay_file.end()), replay.data(), replay.size());
+            write_new(std::wstring(grayscale_file.begin(), grayscale_file.end()), grayscale.data(), grayscale.size());
             if (case_id != 0U) manifest << ',';
             manifest << "{\"id\":" << case_id++ << ",\"file\":\"" << file << "\",\"sha256\":\"" <<
                 digest(direct.data(), direct.size()) << "\",\"gamma\":" << bits(selected.gamma) <<
@@ -306,14 +332,18 @@ void capture_original_rgb_parameters(ID2D1DeviceContext* source, IDWriteFactory*
                 ",\"pixelGeometry\":" << static_cast<unsigned>(selected.geometry) << ",\"renderingMode\":" << static_cast<unsigned>(selected.mode) <<
                 ",\"measuringMode\":0,\"textAntialiasMode\":1,\"baseline\":[" << bits(baseline.x) << ',' << bits(baseline.y) <<
                 "],\"foreground\":[" << bits(color.r) << ',' << bits(color.g) << ',' << bits(color.b) << ',' << bits(color.a) <<
-                "],\"commandListFullBytesEqual\":true}";
+                "],\"commandListFile\":\"" << replay_file << "\",\"commandListSha256\":\"" << digest(replay.data(), replay.size()) <<
+                "\",\"grayscaleControlFile\":\"" << grayscale_file << "\",\"grayscaleControlSha256\":\"" << digest(grayscale.data(), grayscale.size()) <<
+                "\",\"grayscaleControlTextAntialiasMode\":2,\"commandListFullBytesEqual\":" << (cleartype_equal ? "true" : "false") <<
+                ",\"commandListGrayscaleFullBytesEqual\":true,\"commandListColdWarmFullBytesEqual\":true}";
         }
     }
     require(case_id == 54U, "original RGB parameter inventory changed");
-    manifest << "],\"caseCount\":" << case_id << ",\"complete\":true}";
+    manifest << "],\"caseCount\":" << case_id << ",\"directClearTypeCommandListDifferences\":" <<
+        cleartype_replay_differences << ",\"directClearTypeCommandListParityQualified\":false,\"complete\":true}";
     const auto receipt = manifest.str();
     write_new(L"reference.json", receipt.data(), receipt.size());
-    std::wcout << L"Original RGB source receipts: " << directory << L"/reference.json (54 complete cases)\n";
+    std::wcout << L"Original RGB source receipts: " << directory << L"/reference.json (54 complete source observations; no ClearType command-list qualification)\n";
 }
 
 } // namespace progpu::native::direct2d::tests
