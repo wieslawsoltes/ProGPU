@@ -53,6 +53,14 @@ directly into the owned mask picture: cold ordinary replay submits that picture
 and its target, while a shader input adds its own picture. This local evidence
 does not replace Windows, Dawn, package or original WPF qualification.
 
+Explicit linear-byte source-layer opacity recovers the stored RGBA bytes before
+scaling them, then applies the separate geometric mask. Its uniform opacity uses
+a flat varying; interpolation of the same constant or scaling normalized bytes
+before recovery can move an exact half-byte boundary. The vertex buffer and
+uniform layouts, image addressing and ordinary layer shader entries are unchanged.
+The complete sampled-opacity families still pass on local Metal and Vulkan;
+the Intel Metal and Windows integration runs remain required.
+
 ImageBrush, DrawingBrush and VisualBrush opacity now connect through the existing
 `add_spatial_opacity_mask` sampled-brush path. Its original MIL rectangle compiler
 uses the unpadded visual material bounds and `S*p-A` transform in the DPI-1 capture

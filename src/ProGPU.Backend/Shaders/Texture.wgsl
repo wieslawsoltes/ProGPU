@@ -21,6 +21,7 @@ struct VertexOutput {
     @location(4) @interpolate(flat) colorBlendMode: f32,
     @location(5) @interpolate(flat) patchOpacity: f32,
     @location(6) projectiveQ: f32,
+    @location(7) @interpolate(flat) sourceLayerOpacity: f32,
 };
 
 struct Uniforms {
@@ -49,6 +50,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.patchKind = input.patchKind;
     output.colorBlendMode = input.colorBlendMode;
     output.patchOpacity = input.patchOpacity;
+    output.sourceLayerOpacity = input.color.a;
     return output;
 }
 
@@ -577,12 +579,20 @@ fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 fn layer_linear_unorm(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
-    var color = texture_fs_main_with_mask(input, 1.0);
+    var unscaled = input;
+    unscaled.color.r = 1.0;
+    unscaled.color.a = select(1.0, -1.0, input.sourceLayerOpacity < 0.0);
+    var color = texture_fs_main_with_mask(unscaled, 1.0);
     // Group opacity scales the retained premultiplied source bytes before
     // blending. Its quantized alpha owns the complementary destination weight.
     // Geometric coverage remains independent and is applied after that step.
-    if (abs(input.color.a) != 1.0) {
-        color = floor(clamp(color, vec4<f32>(0.0), vec4<f32>(1.0)) * 255.0 + 0.5) / 255.0;
+    // Recover the stored bytes before scaling, and retain the uniform source
+    // opacity without raster interpolation. Either normalized-byte arithmetic
+    // or an interpolated constant can otherwise move an exact half-byte tie.
+    let opacity = abs(input.sourceLayerOpacity);
+    if (opacity != 1.0) {
+        let sourceBytes = floor(clamp(color, vec4<f32>(0.0), vec4<f32>(1.0)) * 255.0 + 0.5);
+        color = floor(sourceBytes * opacity + 0.5) / 255.0;
     }
     return color * maskAlpha;
 }

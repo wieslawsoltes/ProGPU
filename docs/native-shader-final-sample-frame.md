@@ -121,6 +121,17 @@ create a separate mask compositor. Existing span/submission retirement owns the
 mask texture, uniforms and bind group. Program cache identity includes masked
 versus unmasked layout, and the unmasked path does not initialize mask resources.
 
+Ordinary native masked vectors use the existing premultiplied fragment entry
+and source-one blending, matching this final shader path. This keeps source
+color and geometric coverage in the same fragment arithmetic before attachment
+conversion. Straight-color fixed-function blending rounded a half-byte boundary
+differently from premultiplied shader output on Vulkan. Prequantizing the shader
+value instead failed an independent Metal pixel, so that candidate was rejected;
+original bytecode, constants, mask texels and both source inputs remain unchanged.
+All eight source-mask generations pass exact cold, warm and independent replay
+on local Metal and Vulkan. Windows and whole producer/package qualification remain
+separate.
+
 Source admission requires every inherited vector clip to retain a proven basis:
 the existing path's logical-to-device transform must equal the traversal-owned
 original float transform. Unproven history stays unsupported rather than being

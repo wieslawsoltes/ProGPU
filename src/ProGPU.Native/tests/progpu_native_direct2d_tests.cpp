@@ -6136,13 +6136,15 @@ int main()
     require(
         translated_clip_state_count == translated_clip_states.size() &&
             translated_clip_states[0].flags ==
-                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+                (PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                    PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) &&
             translated_clip_states[0].clip_rect.x == 3.0F &&
             translated_clip_states[0].clip_rect.y == 5.0F &&
             translated_clip_states[0].clip_rect.width == 37.5F &&
             translated_clip_states[0].clip_rect.height == 22.5F &&
             translated_clip_states[1].flags ==
-                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+                (PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                    PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) &&
             translated_clip_states[1].clip_rect.x == 15.5F &&
             translated_clip_states[1].clip_rect.y == 12.5F &&
             translated_clip_states[1].clip_rect.width == 25.0F &&
