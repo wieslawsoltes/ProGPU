@@ -42,6 +42,19 @@ fn alpha(position: vec2<f32>) -> f32 {
 @fragment fn manual(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4(vec3(1.0 - alpha(position.xy)), 1.0);
 }
+@fragment fn output_values(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    let a = alpha(position.xy);
+    let value = 1.0 - a;
+    let byte = floor(value * 255.0 + 0.5);
+    return vec4(value, byte / 255.0, byte, a);
+}
+@fragment fn quantized(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+    var bytes = (1.0 - alpha(position.xy)) * 255.0;
+    if (parameters.y == 3.0) {
+        bytes = 255.0 - f32(u32(position.x)) * parameters.x;
+    }
+    return vec4(vec3(floor(bytes + 0.5) / 255.0), 1.0);
+}
 )";
 #if defined(PROGPU_SAMPLER_REFERENCE_DAWN)
     const auto text = [](const char* value) { return WGPUStringView{value, std::strlen(value)}; };
@@ -98,10 +111,12 @@ fn alpha(position: vec2<f32>) -> f32 {
     api.QueueWriteTexture(queue, &upload, ramp.data(), ramp.size(), &pitch, &texture.size);
     std::array<float, 4U> parameters{0.37F * 0.61F, 0, 0, 0};
     std::array<float, 1024U> observed{};
-    std::array<std::array<std::uint8_t, 256U>, 4U> blended{};
-    for (unsigned variant = 0U; variant < 5U; ++variant) {
-        const bool floating = variant == 0U;
+    std::array<float, 1024U> output_values{};
+    std::array<std::array<std::uint8_t, 256U>, 8U> blended{};
+    for (unsigned variant = 0U; variant < 8U; ++variant) {
+        const bool floating = variant == 0U || variant == 5U;
         parameters[1] = variant >= 1U && variant <= 3U ? static_cast<float>(variant - 1U) : 0.0F;
+        if (variant == 7U) parameters[1] = 3.0F;
         api.QueueWriteBuffer(queue, uniform, 0U, parameters.data(), sizeof(parameters));
         texture.format = floating ? WGPUTextureFormat_RGBA32Float : WGPUTextureFormat_RGBA8Unorm;
         texture.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
@@ -117,7 +132,8 @@ fn alpha(position: vec2<f32>) -> f32 {
         color.blend = variant >= 1U && variant <= 3U ? &blend : nullptr;
         WGPUFragmentState fragment{};
         fragment.module = module;
-        fragment.entryPoint = text(floating ? "measure" : variant == 4U ? "manual" : "blend");
+        fragment.entryPoint = text(variant == 0U ? "measure" : variant == 4U ? "manual" :
+            variant == 5U ? "output_values" : variant >= 6U ? "quantized" : "blend");
         fragment.targetCount = 1U;
         fragment.targets = &color;
         WGPURenderPipelineDescriptor pipeline_descriptor{};
@@ -177,8 +193,9 @@ fn alpha(position: vec2<f32>) -> f32 {
         api.QueueSubmit(queue, 1U, &commands);
         const auto bytes = readback(staging, copy_target.layout.bytesPerRow);
         require(bytes.size() == copy_target.layout.bytesPerRow, "UNORM diagnostic readback size differs");
-        if (floating) std::memcpy(observed.data(), bytes.data(), sizeof(observed));
-        else for (std::size_t i = 0U; i < ramp.size(); ++i) blended[variant - 1U][i] = bytes[i * 4U];
+        if (floating) std::memcpy(variant == 0U ? observed.data() : output_values.data(),
+            bytes.data(), sizeof(observed));
+        else for (std::size_t i = 0U; i < ramp.size(); ++i) blended[variant][i] = bytes[i * 4U];
         api.CommandBufferRelease(commands);
         api.RenderPassEncoderRelease(pass);
         api.CommandEncoderRelease(encoder);
@@ -188,14 +205,27 @@ fn alpha(position: vec2<f32>) -> f32 {
         api.TextureViewRelease(target_view);
         api.TextureRelease(target);
     }
-    for (const unsigned value : {0U, 85U, 128U, 170U, 174U, 175U, 176U, 255U}) {
+    std::array<unsigned, 8U> differences{};
+    for (unsigned value = 0U; value < 256U; ++value) {
+        const auto scalar = static_cast<unsigned>(std::floor(255.0 - value * static_cast<double>(parameters[0]) + 0.5));
+        bool different = false;
+        for (const unsigned variant : {1U, 2U, 3U, 4U, 6U, 7U}) {
+            if (blended[variant][value] != scalar) { ++differences[variant]; different = true; }
+        }
+        if (!different && value != 0U && value != 85U && value != 128U && value != 170U &&
+            value != 174U && value != 175U && value != 176U && value != 255U) continue;
         std::fprintf(stderr, "UNORM mask numeric byte=%u alpha=%.9g sample=%.9g load=%.9g "
-            "sampleAlpha=%.9g loadAlpha=%.9g blendSample=%u blendLoad=%u blendExact=%u manualSample=%u scalar=%u\n",
+            "sampleAlpha=%.9g loadAlpha=%.9g blendSample=%u blendLoad=%u blendExact=%u manualSample=%u "
+            "manualFloat=%.9g quantizedFloat=%.9g shaderByte=%.9g quantizedSample=%u quantizedExact=%u scalar=%u\n",
             value, parameters[0], observed[value * 4U], observed[value * 4U + 1U],
-            observed[value * 4U + 2U], observed[value * 4U + 3U], blended[0][value],
-            blended[1][value], blended[2][value], blended[3][value],
-            static_cast<unsigned>(std::floor(255.0 - value * static_cast<double>(parameters[0]) + 0.5)));
+            observed[value * 4U + 2U], observed[value * 4U + 3U], blended[1][value],
+            blended[2][value], blended[3][value], blended[4][value], output_values[value * 4U],
+            output_values[value * 4U + 1U], output_values[value * 4U + 2U],
+            blended[6][value], blended[7][value], scalar);
     }
+    std::fprintf(stderr, "UNORM mask numeric ramp mismatches/256: blendSample=%u blendLoad=%u blendExact=%u "
+        "manualSample=%u quantizedSample=%u quantizedExact=%u\n", differences[1], differences[2],
+        differences[3], differences[4], differences[6], differences[7]);
     std::fflush(stderr);
     api.BufferRelease(staging);
     api.BufferRelease(uniform);

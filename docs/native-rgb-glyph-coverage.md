@@ -217,3 +217,12 @@ Selected values are logged with a scalar comparison. No product mask texture,
 shader or pixel contributes to this probe, and no assertion is waived from its
 observations. This distinguishes texture precision from blend precision when
 investigating a provider difference; it does not qualify a replacement sampler.
+
+The Intel hosted observation normalizes and multiplies byte 175 identically to
+the local ARM Metal observation, but writes 215 instead of the scalar result 216.
+Filtered, loaded and arithmetic coverage all reproduce that difference; an
+unblended `1 - alpha` UNORM write does too. Integer mask loading is therefore not
+a demonstrated repair. Additional raw passes retain the pre-conversion float,
+shader-rounded byte, and explicit byte quantization from both sampled and
+arithmetic coverage. All 256 comparisons are counted. These observations do not
+change the product shader, blending, expected pixels or qualification gates.
