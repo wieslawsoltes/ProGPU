@@ -1,7 +1,8 @@
 // Algorithm: Replace the actual scissored attachment storage with one original
 // premultiplied clear color. Source masks belong to their enclosing layer pop,
 // not this storage operation. No geometry bounds or source transform are used.
-// Time/space: O(P) fragments, O(1) vertices/uniform storage; no sampled resources.
+// Time complexity: O(P) for P scissored fragments; O(1) per fragment.
+// Space complexity: O(1) vertices/uniform storage; no sampled resources.
 @group(0) @binding(0) var<uniform> clearColor: vec4<f32>;
 
 @vertex

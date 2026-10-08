@@ -46,8 +46,9 @@ public sealed class Direct2DInteropContractTests
         string shared = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_clear.hpp");
         foreach (string source in new[] { portable, windows })
         {
-            Assert.Contains("append_clipped_clear(builder_, clip_stack_[clip_depth_ - 1U]", source, StringComparison.Ordinal);
-            Assert.Contains("clip_depth_ != scope_depth_", source, StringComparison.Ordinal);
+            Assert.Contains("append_clipped_clear(builder_, clear_bounds,", source, StringComparison.Ordinal);
+            Assert.Contains("clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U])", source, StringComparison.Ordinal);
+            Assert.Contains("std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_", source, StringComparison.Ordinal);
             Assert.Contains("return scope == scope_axis_aligned_clip", source, StringComparison.Ordinal);
         }
         Assert.Contains("PROGPU_NATIVE_BLEND_SRC", shared, StringComparison.Ordinal);
@@ -511,8 +512,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
         Assert.DoesNotContain("std::abs(dpi_x - dpi_y)", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("wic_source->CopyPixels(", renderTargetSource, StringComparison.Ordinal);
-        Assert.Contains("font_face_value->GetGlyphRunOutline(", renderTargetSource, StringComparison.Ordinal);
-        Assert.Contains("transformed.get(), foreground, nullptr, text_sample_grid", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("retained_face->GetGlyphRunOutline(", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("transformed.get(), retained_foreground.get(), nullptr, text_sample_grid, capture_id", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("text_antialias_mode_ == text_antialias_mode::aliased", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_text_renderer final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("offsetof(text_layout_vtable, draw) == 58U * sizeof(void*)", renderTargetSource, StringComparison.Ordinal);

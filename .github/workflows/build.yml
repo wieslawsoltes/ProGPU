@@ -1572,6 +1572,7 @@ jobs:
         timeout-minutes: 10
         run: |
           ./eng/progpu-install-linux-packages.sh \
+            libc++1 \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \

@@ -6604,7 +6604,8 @@ public:
             if (SUCCEEDED(status)) status = closed;
         }
         ComPtr<ID2D1TransformedGeometry> positioned;
-        const D2D1_MATRIX_3X2_F baseline{1.0F, 0.0F, 0.0F, 1.0F, baseline_origin.x, baseline_origin.y};
+        const D2D1_MATRIX_3X2_F baseline =
+            D2D1::Matrix3x2F::Translation(baseline_origin.x, baseline_origin.y);
         if (SUCCEEDED(status))
             status = factory->CreateTransformedGeometry(path.Get(), &baseline, positioned.GetAddressOf());
         if (SUCCEEDED(status) && !positioned) status = E_FAIL;
@@ -7150,7 +7151,7 @@ private:
         D2D1_STROKE_TRANSFORM_TYPE transform_type =
             D2D1_STROKE_TRANSFORM_TYPE_NORMAL;
         float miter_limit = 10.0F;
-        float dash_offset = 0.0F;
+        double dash_offset = 0.0;
         std::vector<double> dash_intervals;
     };
 
