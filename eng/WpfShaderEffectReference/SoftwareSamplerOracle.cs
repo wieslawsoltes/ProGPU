@@ -2,6 +2,52 @@
 // This is not a ProGPU shader, renderer or portable sampling policy.
 internal static class SoftwareSamplerOracle
 {
+    // Original SOFTWARE shader sampling uses integer device scan positions and
+    // nearest-even conversion of normalized coordinates to texture indices.
+    // This is separate from TileBrush realization and GPU sampler semantics.
+    internal static int ShaderNearestTexel(int column, int frameWidth, int textureWidth)
+    {
+        if (frameWidth <= 0 || textureWidth <= 0) throw new ArgumentOutOfRangeException(nameof(frameWidth));
+        float coordinate = column * (1f / frameWidth) * textureWidth;
+        return (int)Math.Clamp(MathF.Round(coordinate, MidpointRounding.ToEven), 0, textureWidth - 1);
+    }
+
+    internal static bool CacheSamplerFirstBand(int column, uint systemDpi, int cacheScale)
+    {
+        double halfWidth = 8d * systemDpi * cacheScale / 96d;
+        if (halfWidth < 1 || halfWidth != Math.Truncate(halfWidth) || halfWidth > int.MaxValue / 2)
+            throw new InvalidOperationException("Original cache dimensions are outside the integral source profile.");
+        int half = checked((int)halfWidth);
+        return ShaderNearestTexel(column, 32, checked(2 * half)) < half;
+    }
+
+    internal static int VerifyCacheSamplerControls()
+    {
+        int count = 0;
+        void Require(bool condition)
+        {
+            if (!condition) throw new InvalidOperationException("Original cache sampler arithmetic control failed.");
+            ++count;
+        }
+        Require(ShaderNearestTexel(0, 32, 16) == 0);
+        Require(ShaderNearestTexel(14, 32, 16) == 7);
+        Require(ShaderNearestTexel(15, 32, 16) == 8);
+        Require(ShaderNearestTexel(17, 32, 16) == 8);
+        Require(ShaderNearestTexel(19, 32, 16) == 10);
+        Require(ShaderNearestTexel(31, 32, 16) == 15);
+        Require(ShaderNearestTexel(15, 32, 32) == 15);
+        Require(ShaderNearestTexel(16, 32, 32) == 16);
+        Require(ShaderNearestTexel(15, 32, 64) == 30);
+        Require(ShaderNearestTexel(-1, 32, 16) == 0);
+        Require(ShaderNearestTexel(32, 32, 16) == 15);
+        Require(CacheSamplerFirstBand(14, 96, 1));
+        Require(!CacheSamplerFirstBand(15, 96, 1));
+        Require(CacheSamplerFirstBand(15, 96, 2));
+        Require(CacheSamplerFirstBand(15, 192, 1));
+        Require(!CacheSamplerFirstBand(16, 192, 1));
+        return count;
+    }
+
     internal static int Coefficient(float value)
     {
         float scaled = value * 65536f;

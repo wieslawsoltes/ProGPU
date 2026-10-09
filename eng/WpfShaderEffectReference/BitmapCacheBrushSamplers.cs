@@ -64,6 +64,7 @@ internal static partial class Program
 
     private static void CaptureBitmapCacheBrushSamplers(string directory, string commit, bool unavailable, Stopwatch timer)
     {
+        int arithmeticControls = SoftwareSamplerOracle.VerifyCacheSamplerControls();
         uint systemDpiObservation = ObserveCacheSamplerSystemDpi();
         if (systemDpiObservation == 0)
             throw new InvalidOperationException("Original system DPI observation failed.");
@@ -118,7 +119,9 @@ internal static partial class Program
                 var pixels = new byte[64 * 64 * 4];
                 bitmap.CopyPixels(pixels, 64 * 4, 0);
                 SaveSamplerBitmap(directory, state.Name + $".replay-{replay}", bitmap, pixels);
-                try { AssertBitmapCacheSamplerPixels(state, pixels, unavailable); }
+                if (ObserveCacheSamplerSystemDpi() != systemDpiObservation)
+                    throw new InvalidOperationException("Original system DPI changed during cache sampling.");
+                try { AssertBitmapCacheSamplerPixels(state, pixels, unavailable, systemDpiObservation); }
                 catch (InvalidOperationException error) { failures.Add($"Replay {replay}: {error.Message}"); }
                 if (first != null && !first.AsSpan().SequenceEqual(pixels))
                     failures.Add($"{state.Name}: retained/warm/independent-literal pixels differ.");
@@ -131,8 +134,16 @@ internal static partial class Program
                 });
             }
             if (state.Index == 0) defaultPixels = first;
-            if (state.Index is >= 1 and <= 3 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
-                failures.Add($"{state.Name}: cache policy or excluded root state changed logical source output.");
+            if (state.Index is 2 or 3 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
+                failures.Add($"{state.Name}: equal selected cache scale or excluded root state changed source output.");
+            if (state.Index == 1)
+            {
+                bool phaseChanges = !unavailable && Enumerable.Range(0, 32).Any(column =>
+                    SoftwareSamplerOracle.CacheSamplerFirstBand(column, systemDpiObservation, 1) !=
+                    SoftwareSamplerOracle.CacheSamplerFirstBand(column, systemDpiObservation, 2));
+                if (defaultPixels == null || defaultPixels.AsSpan().SequenceEqual(first) == phaseChanges)
+                    failures.Add("Target cache scaling did not preserve the independently expected software sampling phase.");
+            }
             if (state.Index == 5 && (defaultPixels == null || !defaultPixels.AsSpan().SequenceEqual(first)))
                 failures.Add("Rejected consumer brush transforms changed the selected raw cache sampler output.");
             if (state.Index == 6) zeroScalePixels = first;
@@ -159,13 +170,15 @@ internal static partial class Program
         CheckSamplerAnimationDeadline(timer);
         var receipt = new
         {
-            Schema = 5, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
+            Schema = 6, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
             OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             PresentationCore = FileIdentity(typeof(BitmapCacheBrush).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             CaseCount = observations.Count, Replays = 60, Cases = observations, Failures = failures,
             SystemDpiObservation = systemDpiObservation,
+            SoftwareSamplingArithmeticControls = arithmeticControls,
+            SoftwareSamplingPhase = "integer device scan; nearest-even texture index; clamp to selected cache",
             SamplerContract = "raw selected cache texture; original transform/nondefault opacity setters rejected atomically",
             RasterProfile = "literal integral-cache corpus; no fractional/near-integer, device-clamp or historical primary-DPI qualification",
             CaptureMode = unavailable ? "unsupported-software-control" : "shader-pixels",
@@ -179,12 +192,14 @@ internal static partial class Program
         Console.WriteLine($"Original BitmapCacheBrush samplers: 20 states / 60 replays; {(unavailable ? 0 : 20)} shader cases qualified.");
     }
 
-    private static void AssertBitmapCacheSamplerPixels(BitmapCacheSamplerState state, byte[] pixels, bool unavailable)
+    private static void AssertBitmapCacheSamplerPixels(BitmapCacheSamplerState state, byte[] pixels, bool unavailable,
+        uint systemDpi)
     {
         // Independent literal bands for the integral-cache profile. The raw
         // cache texture spans normalized shader coordinates; ordinary brush
-        // placement and opacity do not apply. No product math or observed
-        // original pixels supply the expected frame.
+        // placement and opacity do not apply. The software shader's integer
+        // scan and nearest-even conversion operate on the selected cache's
+        // physical width. No product math or captured pixels supply this frame.
         for (int y = 0; y < 64; ++y) for (int x = 0; x < 64; ++x)
         {
             int selected = -1;
@@ -192,11 +207,13 @@ internal static partial class Program
             if (!unavailable && x >= 8 && x < 40 && y >= 10 && y < 34)
             {
                 int column = x - 8;
+                bool firstBand = SoftwareSamplerOracle.CacheSamplerFirstBand(column, systemDpi,
+                    state.Index == 1 ? 2 : 1);
                 selected = state.Index switch
                 {
-                    0 or 1 or 2 or 3 or 5 or 17 or 19 => column < 16 ? 2 : 1,
+                    0 or 1 or 2 or 3 or 5 or 17 or 19 => firstBand ? 2 : 1,
                     4 => 1,
-                    8 or 11 or 12 or 14 or 15 or 16 or 18 => column < 16 ? 0 : 1,
+                    8 or 11 or 12 or 14 or 15 or 16 or 18 => firstBand ? 0 : 1,
                     6 or 7 or 9 or 10 or 13 => -1,
                     _ => throw new InvalidOperationException("Unknown independent BitmapCacheBrush sampler oracle.")
                 };

@@ -20,19 +20,24 @@ The source cache's own raster dimensions are independent of the receiving frame.
 
 The receiver draws a local 32x24 rectangle at visual offset (8,10), clipped to
 that world rectangle on a 64x64 opaque-black target. The independently authored
-literal bands for the integral-cache profile are:
+software bands below use the independently defined first-band predicate: integer
+receiver-local scan X, normalized by 32, multiplied by the selected physical cache
+width, then nearest-even rounding and edge clamping. At 96 system DPI, scale one
+has 16 source texels and changes band at local X15; scale two has 32 texels and
+changes at X16. At 192 DPI both selected scales change at X16. These software
+coordinates do not select a GPU sampling phase. The integral-cache states are:
 
 | State | Source change | Expected receiver-local coverage |
 | --- | --- | --- |
-| 0 | Default cache | Red [0,16), green [16,32), full Y [0,24) |
-| 1 | Target cache scale 2 | Same normalized coverage |
-| 2 | Explicit cache scale 1, snapping enabled | Same normalized coverage |
+| 0 | Default cache | Red first band, green remaining band, full Y [0,24) |
+| 1 | Target cache scale 2 | Same source colors; independently computed scale-two sampling phase |
+| 2 | Explicit cache scale 1, snapping enabled | Exact state-0 phase and colors |
 | 3 | Six excluded root properties | Same normalized coverage |
 | 4 | Inner clip to green and inner opacity .5; brush opacity .5 rejected | Green component 128 over the complete receiver; actual brush opacity one |
 | 5 | Relative X .25 and absolute Y 2 assignments rejected | Exact state-0 frame with unchanged null transforms |
 | 6 | Same explicit cache, scale zero | Black |
 | 7 | Genuine null Target, same owned source retained | Black |
-| 8 | Reattach same target; first becomes blue; negative origin | Blue [0,16), green [16,32), full Y [0,24) |
+| 8 | Reattach same target; first becomes blue; negative origin | Blue first band, green remaining band, full Y [0,24) |
 | 9 | Remove both leaves from the same attached inner group | Black; same non-null target |
 | 10 | Detach that empty inner group from the same target | Black; same non-null target |
 | 11 | Reattach the same group and ordered leaves | Exact restoration of state 8 |
@@ -41,7 +46,7 @@ literal bands for the integral-cache profile are:
 | 14 | Clear both scroll clips | Exact restoration of state 8 |
 | 15 | Attach a nested empty DrawingImage containing a cache brush with an empty visual target | Same state-8 blue/green frame |
 | 16 | Attach that cache target's retained red leaf; leave the DrawingImage geometry empty | Same state-8 blue/green frame |
-| 17 | Add the retained rectangle to the DrawingImage's GeometryGroup | Red [0,16), green [16,32), full Y [0,24) |
+| 17 | Add the retained rectangle to the DrawingImage's GeometryGroup | Red first band, green remaining band, full Y [0,24) |
 | 18 | Clear that same GeometryGroup, retaining its drawing, brush and source | Same state-8 blue/green frame |
 | 19 | Restore the same rectangle to the same GeometryGroup | Exact restoration of state 17 |
 
@@ -95,14 +100,28 @@ cycle handling or sideband transitions; the paired native/source controls retain
 those separate obligations. This sequence is inside a BitmapCacheBrush shader
 source and does not broaden the direct DrawingImage shader sampler policy.
 
-The target RenderTargetBitmap remains 96 DPI, but that is not proof of the primary
-DPI used by the original cache rasterizer. The fixture records the UI thread's
-GetDpiForSystem value as a diagnostic only; it does not establish WPF's historically
-cached native primary scale and does not drive expected pixels. These literal
-bands assume integral source cache extents (the paired native corpus uses 96 DPI).
-Fractional/near-integer extent rounding, per-axis device clamping and awareness
-transitions require separate original controls. An unexpected output fails the
-literal corpus; it is never used to derive another oracle or relax a tolerance.
+The target RenderTargetBitmap remains 96 DPI while cache allocation uses the
+original primary display scale. Schema 6 records the stable UI-thread
+GetDpiForSystem input and uses it for the explicitly integral cache-profile
+expectation. That query alone is not proof of WPF's historical native DPI cache;
+awareness transitions, fractional/near-integer allocation and device clamping
+remain separate qualification gates. A changed observed DPI aborts the capture.
+
+The software phase follows the original WPF contract: integer shader scan
+positions and nearest-even texture-index conversion. Sixteen independent controls
+cover both ties, adjacent texels, clamping, selected scale and 96/192 DPI. The
+existing 19 TileBrush software arithmetic controls are unchanged. Source reads
+used `ShaderEffect.cpp` for scan origin, `fxjit/PixelShader/pshader.cpp` for sampler
+conversion, and its documented CVTPS2DQ operation. The arithmetic is independently
+expressed; no foreign renderer implementation was copied. The native GPU fixture,
+shader bytes, visual inputs, all 20 states and 60 replays remain unchanged.
+
+Original x64 WPF execution on 2026-10-09 completes both fresh 96 and192 DPI probes.
+All 18 non-nested states pass every BGRA byte in all three replays. States 17 and19
+still fail all replays with black output, so both receipts retain six failures
+and qualify zero complete cache families. The nonempty nested expectations remain
+strict. Earlier ETW controls independently observed 16x12/32x24 baseline cache
+allocations at 96/192 DPI; they do not establish the contents of nested caches.
 
 The original ProGPU identity shader, evidence helpers and retained-source fixture
 structure reuse `ImageSamplers.cs`, `DrawingImageSamplers.cs` and
@@ -126,3 +145,8 @@ independent source investigation; no pixels or shader qualification are waived.
 Generic cache allocation, UIElement automatic wrappers, cyclic sources,
 arbitrary filtering/DPI, native providers, packages and source hosts retain
 separate final qualification gates.
+
+The native ARM64 unavailable-software control also passes all20 states/60 replays
+with the same16 arithmetic controls and zero qualified shaders. Both diagnostic
+builds completed with zero warnings/errors; the workflow YAML parsed. These
+focused results do not substitute for a complete successful reference workflow.
