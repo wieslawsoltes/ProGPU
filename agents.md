@@ -228,11 +228,13 @@ mapping or a different mask family is not an envelope/opacity fallback. Keep
 original wires and final SDK/source/provider qualification separate; see
 docs/native-shader-final-sample-frame.md.
 
-CFF origins without VORG use the retained matrix-transformed/varied contour
-maximum and original vmtx bearing, never a control envelope or int16 clamp.
-Keep derivative degree exact, source rounding unclaimed, VORG precedence and
-whole-run vertical cache publication. CFF2 vOrg variation requires its VORG base,
-not an already-varied contour origin. Preserve original Windows/full-provider
+CFF DirectWrite compatibility origins without VORG use the retained
+matrix-transformed/varied control maximum and original vmtx bearing, matching
+original SDK outline observations. Keep exact curve extrema separate, with
+exact derivative degree and no invented rounding or int16 clamp. Explicit VORG
+retains precedence; the admitted CFF2 source adapter validates but does not apply
+VVAR vOrg deltas, matching original source placement. Keep the generic VVAR
+reader, whole-run cache publication, original font bytes, strict Windows/provider
 controls and the separate missing-table contract; see
 docs/direct2d-cff-contour-origins.md.
 

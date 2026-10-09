@@ -39,6 +39,12 @@ bool contour_origins()
                     result.top_origin == expected && result.bottom_origin == expected - advance &&
                     result.advance_height == advance && result.origin_kind == d2d::original_vertical_origin_kind::cff_contour,
                     "literal cubic maximum plus signed bearing, without envelope or integer rounding")) return false;
+            const double source_expected = glyph == 1U ? (fractional ? 482.0 : 480.0) : 340.0;
+            if (!check(metrics->read_directwrite_outline(glyph, contours, result) == com::ok && result.has_origin &&
+                    result.top_origin == source_expected && result.bottom_origin == source_expected - advance &&
+                    result.advance_height == advance &&
+                    result.origin_kind == d2d::original_vertical_origin_kind::cff_directwrite_controls,
+                    "original DirectWrite source origin remains separate from exact curve bounds")) return false;
             const auto retained = result;
             for (unsigned fault = 0U; fault < 3U; ++fault) {
                 auto malformed = contours;
@@ -49,12 +55,19 @@ bool contour_origins()
                         result.top_origin == retained.top_origin && result.bottom_origin == retained.bottom_origin &&
                         result.has_origin == retained.has_origin && result.origin_kind == retained.origin_kind,
                         "late unsupported/nonfinite curve leaves the complete origin unchanged")) return false;
+                if (!check(metrics->read_directwrite_outline(glyph, malformed, result) == com::invalid_argument &&
+                        result.top_origin == retained.top_origin && result.bottom_origin == retained.bottom_origin &&
+                        result.has_origin == retained.has_origin && result.origin_kind == retained.origin_kind,
+                        "source control-envelope validation also leaves output atomic")) return false;
             }
         }
         d2d::original_vertical_outline_metrics empty{};
         if (!check(metrics->read_outline(0U, {}, empty) == com::ok && !empty.has_origin &&
                 empty.advance_height == 900U && empty.top_side_bearing == 700,
                 "empty CFF advances without fabricated bounds")) return false;
+        if (!check(metrics->read_directwrite_outline(0U, {}, empty) == com::ok && !empty.has_origin &&
+                empty.advance_height == 900U && empty.top_side_bearing == 700,
+                "empty source CFF still consumes its actual advance without ink")) return false;
 
         // Additional algebraic controls isolate derivative degree and endpoint
         // handling. They exercise the reduction, not a claim that these are the
@@ -117,10 +130,10 @@ bool prepared_contour_origins()
                     &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok &&
                     prepared->segments().size() == 4U && font->cached_glyph_count() == 3U,
                     "actual prepared CFF sideways source without VORG, including empty advance")) return false;
-            const float first_end = fractional ? 32.34375F : 32.25F;
-            const float first_control = fractional ? 7.21875F : 7.25F;
-            const float second_end = nominal ? 141.0F : 55.25F;
-            const float second_control = nominal ? 116.0F : 30.25F;
+            const float first_end = fractional ? 38.625F : 38.5F;
+            const float first_control = 13.5F;
+            const float second_end = nominal ? 147.25F : 61.5F;
+            const float second_control = nominal ? 122.25F : 36.5F;
             const std::array<progpu_native_path_segment, 4U> expected{{
                 {{first_end, 67.25F}, {first_control, 67.25F}, {first_control, 49.75F}, {first_end, 49.75F},
                     PROGPU_NATIVE_PATH_SEGMENT_CUBIC, 0, 0, 0},
@@ -134,7 +147,7 @@ bool prepared_contour_origins()
                 if (!check(actual.kind == reference.kind && point(actual.p0, reference.p0) && point(actual.p1, reference.p1) &&
                         (actual.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE ||
                             (point(actual.p2, reference.p2) && point(actual.p3, reference.p3))),
-                        "independent literal CFF cubic endpoints/handles and true origin placement")) return false;
+                        "independent original DirectWrite cubic endpoints/handles and origin placement")) return false;
             }
             std::shared_ptr<const d2d::prepared_original_glyph_run> warm;
             if (!check(font->prepare(request, warm) == com::ok && warm->segments().size() == expected.size() &&

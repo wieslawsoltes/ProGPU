@@ -63,11 +63,11 @@ API failures and invalid inventories remain immediate failures.
 The compact CFF2 family with VVAR origin mapping exposes an additional source
 difference. Across the four nondefault weights, original metrics keep origins
 700/600 for the two ink glyphs while applying the varied vertical advances.
-The independent literal contract instead varies those origins. Both original
-metric orientations report the same difference, and the run-envelope comparisons
-also fail. The complete original table bytes and axis identities pass. These
-observations do not change the generic VVAR reader, source placement policy or
-any expected value.
+Both original metric orientations and original run outlines establish that fixed
+source origin. The DirectWrite adapter and its independent literals now retain
+VORG while continuing to apply the observed varied advances. The generic VVAR
+reader and raw delta assertions are unchanged, as are the complete original font
+bytes, axes, configurations and exact full-frame comparisons.
 
 ## Unresolved numeric observations are not fabricated oracles
 
@@ -83,7 +83,7 @@ matches the product's chosen branch.
 The separate focused CPU observer also owns the exact binary32 coordinate
 650.125 on compact mapped TrueType and compact VORG/origin-mapped CFF2. It records
 original metric/outline results instead of rounding them into this literal
-inventory. Its source authorship is not permission to execute it. No whole-font
+inventory. No whole-font
 or per-pixel CPU fallback, metric clamp, observation filtering or tolerance is
 introduced here.
 
@@ -94,3 +94,10 @@ Relevant primary boundaries remain the public
 [original glyph outline API](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontface-getglyphrunoutline).
 No foreign engine implementation supplies the bytes, literal geometry or metric
 policy.
+
+Validation on 2026-10-09: all49 local macOS ARM64 native CTests pass. The original
+Windows ARM64/MSVC software-adapter run completes1121 strict comparisons with128
+remaining full-byte failures, down from204. All CFF control-point, source-origin,
+variable bearing/origin and run-envelope comparisons pass. Twelve additional
+original-origin assertions retain both metric orientations. This is source
+placement evidence; the remaining pixel failures still reject qualification.

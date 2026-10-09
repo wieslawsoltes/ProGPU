@@ -99,11 +99,11 @@ inline vertical_glyph_expectation expected_vertical_glyph(vertical_font_options 
     if (cff2 && options.vvar) {
         static constexpr std::array<std::array<float,3U>,5U> advances{{
             {{900,1000,1100}},{{932,1048,1164}},{{964,1096,1228}},{{884,976,1068}},{{868,952,1036}}}};
-        static constexpr std::array<std::array<float,3U>,5U> origins{{
-            {{700,700,600}},{{712,740,616}},{{724,780,632}},{{694,680,592}},{{688,660,584}}}};
         result.vertical_advance = advances.at(instance).at(glyph);
         if (options.compact_metrics && glyph != 0U) result.vertical_advance -= glyph == 1U ? 100.0F : 200.0F;
-        if (options.origin_map) result.vertical_origin = origins.at(instance).at(glyph);
+        // These are source-adapter expectations. Original DirectWrite keeps
+        // VORG fixed even with the authored nonzero VVAR origin map; the raw
+        // variation reader has separate tests for its unchanged numeric deltas.
         result.top_side_bearing = result.vertical_origin-result.y_max;
         result.bottom_side_bearing = result.vertical_advance-result.vertical_origin+result.y_min;
     }

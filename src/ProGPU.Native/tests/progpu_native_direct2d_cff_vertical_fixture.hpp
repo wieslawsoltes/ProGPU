@@ -6,7 +6,8 @@ namespace progpu::native::direct2d::tests {
 
 // Two independently authored symmetric cubic arches. Their maxima occur at
 // exactly t=1/2: glyph1=300 (or301.5), glyph2=280. The control points reach
-// 400/402 and380, so a control envelope cannot satisfy the origin oracle.
+// 400/402 and380. They distinguish exact curve extrema from the separately
+// observed DirectWrite source policy without changing the original font bytes.
 inline std::array<progpu_native_path_segment, 2U> cff_vertical_contours(std::uint16_t glyph, bool fractional)
 {
     if (glyph == 1U) return {{{{20, 0}, {20, fractional ? 402.0F : 400.0F},

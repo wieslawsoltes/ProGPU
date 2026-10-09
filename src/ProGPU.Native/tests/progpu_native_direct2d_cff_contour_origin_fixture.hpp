@@ -7,13 +7,14 @@ namespace progpu::native::direct2d::tests {
 
 inline std::array<progpu_native_path_segment,4U> cff_contour_origin_segments(bool fractional, bool nominal)
 {
-    // Literal independent rotated cubics. The design maxima are300/301.5 and
-    // 280, not their400/402/380 control-point envelope. No decoder, extrema
-    // solver or prepared metric calculation supplies this oracle.
-    const float first_endpoint = fractional ? 10.2109375F : 10.1875F;
-    const float first_control = fractional ? 3.9296875F : 3.9375F;
-    const float second_endpoint = nominal ? 37.0F : 20.3125F;
-    const float second_control = nominal ? 30.75F : 14.0625F;
+    // Literal independent original DirectWrite coordinates: the observed
+    // design origins are480/482 and340. Exact curve maxima remain300/301.5
+    // and280 in their separate algebraic controls; no product calculation
+    // supplies these source-placement expectations.
+    const float first_endpoint = fractional ? 11.78125F : 11.75F;
+    const float first_control = 5.5F;
+    const float second_endpoint = nominal ? 38.5625F : 21.875F;
+    const float second_control = nominal ? 32.3125F : 15.625F;
     return {{{{first_endpoint,23.875F},{first_control,23.875F},{first_control,19.5F},{first_endpoint,19.5F},
             PROGPU_NATIVE_PATH_SEGMENT_CUBIC,0,0,0},
         {{first_endpoint,19.5F},{first_endpoint,23.875F},{},{},PROGPU_NATIVE_PATH_SEGMENT_LINE,0,0,0},

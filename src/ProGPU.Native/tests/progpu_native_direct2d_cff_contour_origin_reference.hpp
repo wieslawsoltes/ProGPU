@@ -6,9 +6,10 @@
 
 namespace progpu::native::direct2d::tests {
 
-// Actual original Windows source calls only. Fractional INT32 metric fields are
-// observations, not a guessed rounding oracle. Full outline/pixel expectations
-// remain the independent precise contour contract and must pass unchanged.
+// Actual original Windows source calls only. Literal origins and outline points
+// come from independent SDK observations of these unchanged fonts. The second
+// font has a fractional curve maximum but integral controls and source origin;
+// it does not establish fractional INT32 metric rounding.
 template<class Require, class Compare>
 void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_context,
     IDWriteFactory* write_factory, Require require, Compare compare)
@@ -105,14 +106,16 @@ void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_contex
                 "original CFF contour-origin metric observation");
             for (std::size_t item = 0U; item < indices.size(); ++item) {
                 const auto& value = observed[item];
-                // Retain integer SDK observations without asserting a rounded
-                // version of the fractional301.5 design maximum/origin.
+                // Preserve named original observations beside the strict
+                // source expectations; these are not rounded curve maxima.
                 std::printf("CFF_CONTOUR_ORIGIN_METRICS fractional=%u glyph=%u sideways=%d lsb=%d aw=%u rsb=%d tsb=%d ah=%u bsb=%d origin=%d\n",
                     fractional ? 1U : 0U,static_cast<unsigned>(indices[item]),static_cast<int>(sideways),
                     static_cast<int>(value.leftSideBearing),static_cast<unsigned>(value.advanceWidth),
                     static_cast<int>(value.rightSideBearing),static_cast<int>(value.topSideBearing),
                     static_cast<unsigned>(value.advanceHeight),static_cast<int>(value.bottomSideBearing),static_cast<int>(value.verticalOriginY));
                 require(value.advanceHeight == static_cast<UINT32>(advances[item]), "original CFF vertical advance fields");
+                const std::array<INT32,3U> origins{fractional ? 482 : 480,700,340};
+                compare(value.verticalOriginY == origins[item], "original CFF control-envelope source origin");
             }
         }
         std::shared_ptr<prepared_original_font> prepared;

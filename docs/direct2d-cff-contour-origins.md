@@ -1,69 +1,66 @@
-# CFF vertical origins from retained contours
+# CFF vertical origins and DirectWrite compatibility
 
-The private prepared-original-font consumer can derive an absent CFF/CFF2 VORG
-origin from the actual retained design curves and the original vmtx top side
-bearing. It uses the same selected font, captured axis instance and top/FD matrix
-as outline decoding. No source callback, second glyph decode or source-local
-font substitution is introduced. Existing explicit VORG values retain their
-precedence, and TrueType's stored/varied bounds and phantom points remain separate.
+The prepared-original-font DirectWrite adapter derives an absent CFF/CFF2 VORG
+origin from the maximum selected control-point Y and the original vmtx top side
+bearing. Original Windows `GetGlyphRunOutline` observations establish this source
+placement policy independently of its integer metric query. The adapter reuses
+its exact retained, matrix-transformed/varied contours without another decode,
+source callback or font substitution. Explicit VORG still takes precedence.
+TrueType bounds and phantom handling are unchanged.
 
-## Arithmetic and ownership
+## Separate arithmetic contracts
 
-The new private `read_outline` metric helper reads the existing strict base
-metadata, then reduces each retained line/quadratic/cubic's actual Y extrema.
-Endpoints and interior derivative roots participate; unused control fields do
-not. Derivative degree reduction uses exact zero, not an epsilon. The cubic
-quadratic formula uses a sign-selected numerator and root product to retain
-the smaller root. Evaluation uses double Bernstein interpolation. Float input
-coordinates, coefficient products and subnormal values fit the double range.
-Nonfinite selected points and unsupported kinds fail without partial output.
+`read_directwrite_outline` selects the source control maximum. `read_outline`
+retains the exact natural-curve maximum for callers that need geometric bounds.
+Their result identifies which policy produced the origin. Both validate selected
+points and segment kinds, combine the original bearing in double precision, and
+publish only complete finite results. Neither invents integer rounding or an
+int16 clamp. Empty contours keep their actual advance without fabricated ink.
 
-The original top bearing is added to the double maximum before narrowing the
-retained source origin to float. There is no integer rounding, int16 clamp,
-control-envelope substitution or tolerance-based source admission. This is
-an explicit unrounded natural-outline implementation; it does not establish
-DirectWrite's own intermediate numeric decisions. Empty contours retain their
-real advance without inventing an ink origin.
+The exact curve reduction still includes endpoints and interior derivative roots.
+Derivative degree reduction uses exact zero. The stable quadratic formula and
+double Bernstein evaluation retain the small-root, repeated-root, endpoint and
+subnormal controls. Selecting the DirectWrite policy does not alter those bounds.
 
-The completed origin joins the existing per-font/per-instance vertical cache.
-All new metric and contour entries remain unpublished until the complete run
-succeeds. CFF2 without VORG uses its already-varied outline maximum; a VVAR
-vertical-origin map requires its genuine VORG base and cannot be added to a
-contour-derived origin a second time. VVAR advance-height handling stays paired
-with the same immutable instance. Missing vhea/vmtx synthesis remains separate.
+The completed source origin joins the existing per-font/per-instance vertical
+cache. Metric and contour entries publish only after the complete run succeeds.
+The operation remains O(S) time and O(1) scratch for S retained segments, with no
+repeat reduction on warm glyphs. GPU rasterization, placement SIMD, submission
+ownership and public interfaces are unchanged.
 
-This cold metric operation is bounded O(S) time and O(1) scratch in retained
-segments. Scalar derivative degree/root decisions and interpolation have
-per-curve dependencies; they do not run again on a warm glyph. Existing SIMD
-placement, GPU rasterization, atlas ownership, draws/submissions and device-loss
-policy are unchanged. Both native renderers consume the same source geometry.
-No managed shaping/layout contract, C ABI or public COM slot changes.
+For the admitted CFF2 VORG/VVAR family, original Windows metrics and outlines
+retain VORG across axis instances while varying the vertical advance. The source
+adapter therefore validates the VVAR origin map but does not add its delta.
+The generic VVAR reader and its numeric tests remain unchanged. An origin map
+without the required original VORG base remains rejected; missing vertical-table
+synthesis is a separate contract.
 
-## Source contracts and controls
+## Independent source evidence
 
-[OpenType vmtx](https://learn.microsoft.com/en-us/typography/opentype/spec/vmtx)
-defines the maximum-plus-bearing origin. The
-[VORG specification](https://learn.microsoft.com/en-us/typography/opentype/spec/vorg)
-explicitly distinguishes direct origins from bounds calculated with different
-data types and rounding decisions. [CFF2](https://learn.microsoft.com/en-us/typography/opentype/spec/cff2)
-defines its line/cubic outline representation. The implementation derives the
-Bernstein derivative algebra directly; no foreign engine implementation was
-used. Existing ProGPU Direct2D path bounds at parent fd53fdbeb were inspected,
-but their epsilon degree reduction and immediate float bounds were not adopted.
-The retained outline/run-transform separation and cross-engine applicability
-remain those recorded in [sideways placement](direct2d-sideways-glyph-placement.md).
+The unchanged two-arch fonts distinguish curve maxima 300/301.5 and 280 from
+control maxima 400/402 and 380. Original horizontal and sideways SDK outlines
+at em1000 and em15.625 establish source origins 480/482 and340. The second font's
+curve maximum is fractional, but its controls and observed origin are integral;
+this does not establish a general fractional INT32 rounding rule.
 
-Independently authored original CFF fonts contain two cubic arches whose control
-points extend beyond their real maxima. One maximum is300 or301.5, the other280;
-their bearings produce origins380/381.5 and240. Literal source geometry checks
-actual prepared cubic endpoints/handles, explicit/null advances, an empty middle
-glyph and warm owner reuse. Separate algebraic controls retain quadratic and
-linear derivatives, both stable-root branches, a repeated root, endpoint roots,
-subnormal geometry and late malformed input. A zero-bearing control ensures
-the subnormal result is not hidden by ordinary bearing addition.
+Literal prepared coordinates now follow those original observations, while the
+separate algebraic tests still require exact curve origins 380/381.5 and240.
+The original font writer, full source bytes, explicit/null advances, empty middle
+glyph, raw BOOL values and three reference frames are unchanged. Both providers
+retain cold/warm full-byte comparisons and ownership controls. See the
+[original reference inventory](direct2d-cff-contour-origin-reference.md).
 
-All controls are authored, not executed. Original SDK metric/outline observations
-and exact original/provider full-frame comparisons remain required before this
-source family is qualified. The focused font observer is not authorized to run
-yet. Builds, tests, verifiers, CI and GPU/UI execution remain deferred; no original
-rounding or application/package parity is claimed.
+The policy is based on original SDK observations, not another renderer's code.
+The [vmtx](https://learn.microsoft.com/en-us/typography/opentype/spec/vmtx),
+[VORG](https://learn.microsoft.com/en-us/typography/opentype/spec/vorg), and
+[VVAR](https://learn.microsoft.com/en-us/typography/opentype/spec/vvar)
+specifications describe the underlying tables; source compatibility decisions
+remain explicit at the DirectWrite adapter boundary. Full Windows pixel,
+provider/package and application qualification are separate gates.
+
+Validation on 2026-10-09: all49 local macOS ARM64 native CTests pass. The original
+Windows ARM64/MSVC software-adapter run completes1121 strict comparisons with128
+remaining full-byte failures, down from204. All CFF control-point, source-origin,
+variable bearing/origin and run-envelope comparisons pass. Twelve additional
+original-origin assertions retain both metric orientations. This is source
+placement evidence; the remaining pixel failures still reject qualification.

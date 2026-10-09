@@ -10,7 +10,7 @@
 namespace progpu::native::direct2d {
 
 enum class original_vertical_origin_kind : std::uint8_t {
-    unavailable, true_type_bounds, cff_vorg, cff_contour
+    unavailable, true_type_bounds, cff_vorg, cff_contour, cff_directwrite_controls
 };
 
 struct original_vertical_glyph_metrics final {
@@ -22,9 +22,9 @@ struct original_vertical_glyph_metrics final {
     original_vertical_origin_kind origin_kind = original_vertical_origin_kind::unavailable;
 };
 
-// Bounds of the actual retained design contours, not their control-point
-// envelope or a rounded/clamped int16 glyph box. No source rounding policy is
-// encoded in this private intermediate result.
+// Retained outline-origin result. origin_kind distinguishes exact curve bounds
+// from the explicit DirectWrite control-envelope policy. Neither path encodes
+// a rounded/clamped int16 glyph box.
 struct original_vertical_outline_metrics final {
     double top_origin = 0.0, bottom_origin = 0.0;
     std::uint16_t advance_height = 0U;
@@ -59,7 +59,16 @@ public:
     [[nodiscard]] com::result read_outline(std::uint16_t glyph,
         std::span<const progpu_native_path_segment> contours,
         original_vertical_outline_metrics& output) const noexcept;
+    // DirectWrite compatibility only: original GetGlyphRunOutline observations
+    // use the selected control-point maximum plus vmtx bearing when VORG is
+    // absent. Keep that source policy separate from exact curve bounds above.
+    [[nodiscard]] com::result read_directwrite_outline(std::uint16_t glyph,
+        std::span<const progpu_native_path_segment> contours,
+        original_vertical_outline_metrics& output) const noexcept;
 private:
+    [[nodiscard]] com::result read_outline_metrics(std::uint16_t glyph,
+        std::span<const progpu_native_path_segment> contours, bool directwrite_controls,
+        original_vertical_outline_metrics& output) const noexcept;
     struct state;
     explicit retained_original_vertical_metrics(std::unique_ptr<state> value) noexcept;
     std::unique_ptr<state> state_;

@@ -35,12 +35,8 @@ inline std::array<compat::rectangle_f, 2U> variable_sideways_pixel_rectangles(
     const bool cff = options.kind == vertical_font_kind::cff2_variable;
     if (cff) {
         result = {{{9.5625F,19.5F,15.8125F,23.875F}, {4.5F,20.3125F,12.3125F,23.4375F}}};
-        if (options.origin_map) {
-            constexpr std::array<float, 5U> first_shift{0,0.625F,1.25F,-0.3125F,-0.625F};
-            constexpr std::array<float, 5U> second_shift{0,0.25F,0.5F,-0.125F,-0.25F};
-            result[0].left += first_shift.at(instance); result[0].right += first_shift.at(instance);
-            result[1].left += second_shift.at(instance); result[1].right += second_shift.at(instance);
-        }
+        // Original DirectWrite retains these VORG origins across all five
+        // instances, including the font with a nonzero VVAR vOrg map.
     }
     const float pen = nominal ? ((cff && !options.vvar ? 29.6875F : variable_pen.at(instance)) -
         (options.compact_metrics ? 1.5625F : 0.0F)) : 13.0F;

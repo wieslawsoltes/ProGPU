@@ -72,13 +72,18 @@ double cubic_value(double p0, double p1, double p2, double p3, double t) noexcep
     return (1.0 - t) * left + t * right;
 }
 
-bool include_contour_top(const progpu_native_path_segment& segment, double& top) noexcept
+bool include_contour_top(const progpu_native_path_segment& segment, double& top, bool directwrite_controls) noexcept
 {
     if (segment.kind > PROGPU_NATIVE_PATH_SEGMENT_CUBIC) return false;
     const std::array points{segment.p0, segment.p1, segment.p2, segment.p3};
     const auto count = static_cast<std::size_t>(segment.kind) + 2U;
     for (std::size_t index = 0U; index < count; ++index)
         if (!std::isfinite(points[index].x) || !std::isfinite(points[index].y)) return false;
+    if (directwrite_controls) {
+        for (std::size_t index = 0U; index < count; ++index)
+            top = std::max(top, static_cast<double>(points[index].y));
+        return true;
+    }
     const double p0 = segment.p0.y, p1 = segment.p1.y, p2 = segment.p2.y, p3 = segment.p3.y;
     top = std::max(top, std::max(p0, static_cast<double>(points[count - 1U].y)));
     if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE) return true;
@@ -246,6 +251,20 @@ com::result retained_original_vertical_metrics::read_outline(std::uint16_t glyph
     std::span<const progpu_native_path_segment> contours,
     original_vertical_outline_metrics& output) const noexcept
 {
+    return read_outline_metrics(glyph, contours, false, output);
+}
+
+com::result retained_original_vertical_metrics::read_directwrite_outline(std::uint16_t glyph,
+    std::span<const progpu_native_path_segment> contours,
+    original_vertical_outline_metrics& output) const noexcept
+{
+    return read_outline_metrics(glyph, contours, true, output);
+}
+
+com::result retained_original_vertical_metrics::read_outline_metrics(std::uint16_t glyph,
+    std::span<const progpu_native_path_segment> contours, bool directwrite_controls,
+    original_vertical_outline_metrics& output) const noexcept
+{
     if (state_->true_type) return compat::not_implemented;
     original_vertical_glyph_metrics base{};
     const auto status = read_base(glyph, base);
@@ -261,12 +280,13 @@ com::result retained_original_vertical_metrics::read_outline(std::uint16_t glyph
     } else if (!contours.empty()) {
         double top = -std::numeric_limits<double>::infinity();
         for (const auto& segment : contours)
-            if (!include_contour_top(segment, top)) return com::invalid_argument;
+            if (!include_contour_top(segment, top, directwrite_controls)) return com::invalid_argument;
         candidate.top_origin = top + static_cast<double>(base.top_side_bearing);
         candidate.bottom_origin = candidate.top_origin - static_cast<double>(base.advance_height);
         if (!std::isfinite(candidate.top_origin) || !std::isfinite(candidate.bottom_origin)) return com::invalid_argument;
         candidate.has_origin = true;
-        candidate.origin_kind = original_vertical_origin_kind::cff_contour;
+        candidate.origin_kind = directwrite_controls ? original_vertical_origin_kind::cff_directwrite_controls
+            : original_vertical_origin_kind::cff_contour;
     }
     output = candidate;
     return com::ok;

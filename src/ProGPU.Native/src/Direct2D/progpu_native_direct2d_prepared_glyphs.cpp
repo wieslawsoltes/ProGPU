@@ -263,12 +263,12 @@ struct varied_outline_storage final {
     decoded_original_vertical_glyph candidate{static_cast<float>(base.advance_height),
         static_cast<float>(base.top_origin), base.has_origin};
     if (!candidate.has_origin && family != original_outline_family::true_type) {
-        // CFF has no stored glyf box. Reuse this exact decoded/matrix-transformed
-        // outline once, not a control envelope, a second decode or a source
-        // callback. The cached source float is narrowed only after double
-        // Bezier extrema and the original top bearing have been combined.
+        // CFF has no stored glyf box. The original DirectWrite outline API
+        // derives this origin from its control envelope and vmtx bearing.
+        // Reuse the exact decoded/matrix-transformed outline; generic curve
+        // extrema remain independent of this source compatibility policy.
         original_vertical_outline_metrics contour_metrics{};
-        const auto contour_status = vertical.source->read_outline(glyph, decoded.segments, contour_metrics);
+        const auto contour_status = vertical.source->read_directwrite_outline(glyph, decoded.segments, contour_metrics);
         if (com::failed(contour_status)) return contour_status;
         candidate.top_origin = static_cast<float>(contour_metrics.top_origin);
         candidate.has_origin = contour_metrics.has_origin;
@@ -299,13 +299,12 @@ struct varied_outline_storage final {
         // override a real gvar phantom or mapped top side bearing.
     } else if (family == original_outline_family::cff2) {
         if (delta.uses_vvar) candidate.advance_height += delta.advance_height;
-        // VVAR vOrg is a delta from an original VORG value, not from the current
-        // varied contour maximum. Without that base it would vary an already
-        // varied origin a second time; the required source data is missing.
+        // Keep the original VORG base required by this admitted mapped family.
         if (delta.has_vertical_origin_y && !base.has_origin) return com::invalid_argument;
-        if (candidate.has_origin && delta.has_vertical_origin_y) candidate.top_origin += delta.vertical_origin_y;
-        // CFF2 has no gvar phantoms. Without VORG, the current contour maximum
-        // already reflects outline variation; vmtx bearing remains separate.
+        // Original DirectWrite metrics and outlines retain VORG across these
+        // axis instances even when VVAR contains a nonzero vOrg map. Validate
+        // that map through the unchanged reader, but do not apply it here.
+        // CFF2 has no gvar phantoms; an absent VORG uses the current controls.
     }
     if (!std::isfinite(candidate.advance_height) || !std::isfinite(candidate.top_origin)) return com::invalid_argument;
     if (!decoded.segments.empty() && !candidate.has_origin) return compat::not_implemented;
