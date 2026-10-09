@@ -46,7 +46,7 @@ coordinates do not select a GPU sampling phase. The integral-cache states are:
 | 14 | Clear both scroll clips | Exact restoration of state 8 |
 | 15 | Attach a nested empty DrawingImage containing a cache brush with an empty visual target | Same state-8 blue/green frame |
 | 16 | Attach that cache target's retained red leaf; leave the DrawingImage geometry empty | Same state-8 blue/green frame |
-| 17 | Add the retained rectangle to the DrawingImage's GeometryGroup | Red first band, green remaining band, full Y [0,24) |
+| 17 | Add the retained rectangle to the DrawingImage's GeometryGroup | Black: re-entry updates the explicit cache while the shared inner group is already entered |
 | 18 | Clear that same GeometryGroup, retaining its drawing, brush and source | Same state-8 blue/green frame |
 | 19 | Restore the same rectangle to the same GeometryGroup | Exact restoration of state 17 |
 
@@ -88,8 +88,9 @@ children and the image bounds are exactly empty. The cache brush keeps its
 original target, explicit scale-one cache and initially detached red source leaf.
 State 16 attaches that leaf while the image remains empty. States 17–19 mutate
 only membership of the original `(0,0,8,12)` RectangleGeometry in the retained
-GeometryGroup, so visible red replaces the outer source's blue half only while
-the image has real geometry. No substitute bitmap, zero-area stand-in or fake
+GeometryGroup. The originally authored red/green expectation for states 17 and 19
+was unexecuted. Original software execution instead exposes the cache re-entry
+interaction described below. No substitute bitmap, zero-area stand-in or fake
 positive drawing bound is supplied.
 
 The fixture checks the nested image, drawing, geometry, brush, cache and visual
@@ -116,12 +117,53 @@ conversion, and its documented CVTPS2DQ operation. The arithmetic is independent
 expressed; no foreign renderer implementation was copied. The native GPU fixture,
 shader bytes, visual inputs, all 20 states and 60 replays remain unchanged.
 
-Original x64 WPF execution on 2026-10-09 completes both fresh 96 and192 DPI probes.
-All 18 non-nested states pass every BGRA byte in all three replays. States 17 and19
-still fail all replays with black output, so both receipts retain six failures
-and qualify zero complete cache families. The nonempty nested expectations remain
-strict. Earlier ETW controls independently observed 16x12/32x24 baseline cache
-allocations at 96/192 DPI; they do not establish the contents of nested caches.
+Schema 7 corrects the two nested expectations from original source behavior,
+without changing any of the original twenty source states or shader bytes. The
+cache set updates the target cache before the distinct explicit brush cache.
+When painting the nested BitmapCacheBrush, another cache-update pass can start.
+The active target cache rejects recursive update, but the explicit cache has not
+yet been entered. Its source walk skips the inner visual group that is already
+being traversed by the target cache. That explicit cache therefore remains
+transparent; its shader sample leaves the opaque black background unchanged.
+This inference follows the original cache-update and graph-walk contracts and
+is independently discriminated by the controls below. It is not a generic rule
+that a nested DrawingImage is empty or unsupported.
+
+| Re-entry control | Independently expected software output |
+| --- | --- |
+| Original target plus explicit caches | Black |
+| Explicit brush cache only | Red/green at scale-one sampling phase |
+| Target cache only | Red/green at scale-two sampling phase |
+| Default cache only | Red/green at scale-one sampling phase |
+| Same BitmapCache object assigned to target and explicit brush | Black; the two cache slots still exist |
+| Equal scale-one values on distinct cache modes | Black; matching dimensions do not merge the two cache slots |
+| Nested receiver moved outside the inner group, as its next sibling | Blue/green; the entered nested leaf is omitted, while the sibling group is traversable |
+
+Every control retains all original nested image/drawing/cache resources, source
+rectangles, shader bytes and six excluded root properties. Typed construction
+changes only the stated cache attachment, scale or parent edge; no reflection or
+substitute bitmap participates. Complete identity/property checks run before and
+after three replays, including an independent literal instance. Every BGRA byte
+and retained/warm/literal equality remains strict. States 17 and 19 additionally
+match the independently retained null-target frame. The new inventory is seven
+controls and 21 replays, alongside the unchanged 20 states and 60 replays. Native
+and hardware qualification counts are explicitly zero.
+
+The source explanation uses `CMilVisualCacheSet::Update`,
+`CMilVisualCache::Update`, `CMilBitmapCacheBrushDuce::GetBrushRealizationInternal`
+and `CGraphIterator::Walk` from the original .NET WPF source. These reads establish
+ordering and entered-node semantics; no foreign implementation is copied.
+Earlier diagnostic controls also moved all leaves directly below the cache root
+and placed a white sibling outside the active inner group. Their blue/green and
+partial-white outputs distinguished traversal suppression from a global shader
+or allocation failure at both 96 and 192 DPI. Independent ETW observations showed
+nonzero cache allocations and updates; allocations alone never proved contents.
+
+This is a bounded original SoftwareOnly observation. The native authored nested
+fixture still expects ordinary red/green capture and does not inherit this
+software implementation interaction. That native/provider comparison, hardware
+behavior and source-host admission remain unqualified; passing these original
+controls does not claim parity for them.
 
 The original ProGPU identity shader, evidence helpers and retained-source fixture
 structure reuse `ImageSamplers.cs`, `DrawingImageSamplers.cs` and
@@ -136,17 +178,17 @@ The three empty/refill states extend the ProGPU-owned fixture at
 WPF bounds sideband or infer ordinary cache-allocation policy from shader output.
 
 Schema 5 records the original setter outcomes and verifies atomic preservation
-of opacity and both transform identities after rejection. Local .NET 10.0.12
-original Microsoft WPF execution passed all 20 ARM64 software-unavailable
-controls. On x64, 18 pixel states passed; the two nested DrawingImage refill
-states 17 and 19 produced entirely black frames, conflicting with the authored
-red/green expectation above. Their full receipts remain failures pending an
-independent source investigation; no pixels or shader qualification are waived.
-Generic cache allocation, UIElement automatic wrappers, cyclic sources,
-arbitrary filtering/DPI, native providers, packages and source hosts retain
-separate final qualification gates.
+of opacity and both transform identities after rejection. Earlier schema5/6
+receipts preserved the two nested failures while the source interaction was
+unknown; schema7 supersedes their authored nested expectations with the explicit
+source-walk controls above. Generic cache allocation, UIElement wrappers, real
+cyclic source graphs, arbitrary filtering/DPI, native providers, packages and
+source hosts retain separate qualification gates.
 
-The native ARM64 unavailable-software control also passes all20 states/60 replays
-with the same16 arithmetic controls and zero qualified shaders. Both diagnostic
-builds completed with zero warnings/errors; the workflow YAML parsed. These
-focused results do not substitute for a complete successful reference workflow.
+Local original Microsoft WPF validation on 2026-10-09 passed all 20 states/60
+replays and all 7 controls/21 replays at each of 96 and 192 DPI on x64. The ARM64
+software-unavailable control passed the same complete inventory and qualified
+zero shader or re-entry cases. All 180 original-state captures were byte-identical
+to the saved schema 6 evidence across these three executions. The reference
+build had zero warnings/errors, and the workflow YAML parsed. These focused
+captures do not substitute for a complete successful hosted reference workflow.

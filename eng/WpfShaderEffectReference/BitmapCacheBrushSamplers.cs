@@ -13,6 +13,11 @@ using System.Windows.Threading;
 
 internal static partial class Program
 {
+    private enum BitmapCacheReentryControl
+    {
+        Original, ExplicitOnly, TargetOnly, DefaultOnly, SameCacheMode, EqualScales, NestedSibling
+    }
+
     private sealed record BitmapCacheSamplerState(int Index, string Name)
     {
         public bool TargetCache => Index >= 1;
@@ -97,7 +102,8 @@ internal static partial class Program
                 ConsumerBrushOpacityAndTransforms = "original transforms and nondefault opacity are rejected; default values remain unchanged",
                 SystemDpiObservation = systemDpiObservation,
                 DpiObservationScope = "current UI-thread GetDpiForSystem; not proof of WPF's historically cached primary DPI",
-                ExpectedFirstArgb = state.Blue ? "FF0000FF" : "FFFF0000", ExpectedSecondArgb = "FF00FF00"
+                SourceFirstArgb = state.Blue ? "FF0000FF" : "FFFF0000", SourceSecondArgb = "FF00FF00",
+                SoftwareCacheReentryOmitsEnteredGroup = state.Index is 17 or 19
             };
             using (var file = new FileStream(Path.Combine(directory, state.Name + ".input.json"), FileMode.CreateNew))
                 JsonSerializer.Serialize(file, input, new JsonSerializerOptions { WriteIndented = true });
@@ -162,20 +168,27 @@ internal static partial class Program
             if (state.Index is 15 or 16 or 18 && (filledPixels == null || !filledPixels.AsSpan().SequenceEqual(first)))
                 failures.Add($"{state.Name}: a genuinely empty nested DrawingImage changed the retained outer source frame.");
             if (state.Index == 17) nestedFilledPixels = first;
+            if (state.Index is 17 or 19 && (nullTargetPixels == null || !nullTargetPixels.AsSpan().SequenceEqual(first)))
+                failures.Add($"{state.Name}: original re-entry did not preserve the independently retained transparent-sampler frame.");
             if (state.Index == 19 && (nestedFilledPixels == null || !nestedFilledPixels.AsSpan().SequenceEqual(first)))
-                failures.Add("Refilling the same nested DrawingImage owners did not restore their nonempty frame.");
+                failures.Add("Refilling the same nested DrawingImage owners did not restore their original re-entry frame.");
             observations.Add(new { state.Name, Input = input, Replays = replays });
         }
         if (observations.Count != 20) throw new InvalidOperationException("Original BitmapCacheBrush sampler inventory changed.");
+        List<object> reentryControls = CaptureBitmapCacheReentryControls(directory, unavailable,
+            systemDpiObservation, timer, failures);
         CheckSamplerAnimationDeadline(timer);
         var receipt = new
         {
-            Schema = 6, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
+            Schema = 7, SourceCommit = commit, CaseFamily = "owned-bitmap-cache-brush-shader-sampler",
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
             OsArchitecture = RuntimeInformation.OSArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             PresentationCore = FileIdentity(typeof(BitmapCacheBrush).Assembly.Location),
             Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             CaseCount = observations.Count, Replays = 60, Cases = observations, Failures = failures,
+            ReentryControlCount = reentryControls.Count, ReentryReplays = 21, ReentryControls = reentryControls,
+            QualifiedReentryControls = unavailable || failures.Count != 0 ? 0 : reentryControls.Count,
+            SoftwareReentryNoInkStates = new[] { 17, 19 }, QualifiedNativeCases = 0, QualifiedHardwareCases = 0,
             SystemDpiObservation = systemDpiObservation,
             SoftwareSamplingArithmeticControls = arithmeticControls,
             SoftwareSamplingPhase = "integer device scan; nearest-even texture index; clamp to selected cache",
@@ -189,7 +202,7 @@ internal static partial class Program
             "bitmap-cache-brush-samplers.json" : "bitmap-cache-brush-samplers.failed.json"), FileMode.CreateNew))
             JsonSerializer.Serialize(file, receipt, new JsonSerializerOptions { WriteIndented = true });
         if (failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, failures));
-        Console.WriteLine($"Original BitmapCacheBrush samplers: 20 states / 60 replays; {(unavailable ? 0 : 20)} shader cases qualified.");
+        Console.WriteLine($"Original BitmapCacheBrush samplers: 20 states / 60 replays, 7 re-entry controls / 21 replays; {(unavailable ? 0 : 20)} software shader cases qualified.");
     }
 
     private static void AssertBitmapCacheSamplerPixels(BitmapCacheSamplerState state, byte[] pixels, bool unavailable,
@@ -211,10 +224,14 @@ internal static partial class Program
                     state.Index == 1 ? 2 : 1);
                 selected = state.Index switch
                 {
-                    0 or 1 or 2 or 3 or 5 or 17 or 19 => firstBand ? 2 : 1,
+                    0 or 1 or 2 or 3 or 5 => firstBand ? 2 : 1,
                     4 => 1,
                     8 or 11 or 12 or 14 or 15 or 16 or 18 => firstBand ? 0 : 1,
-                    6 or 7 or 9 or 10 or 13 => -1,
+                    // The nested brush re-enters cache updates while the
+                    // target cache is traversing the inner group. The distinct
+                    // explicit cache skips that entered group. Paired controls
+                    // below independently retain positive nested rendering.
+                    6 or 7 or 9 or 10 or 13 or 17 or 19 => -1,
                     _ => throw new InvalidOperationException("Unknown independent BitmapCacheBrush sampler oracle.")
                 };
             }
@@ -266,11 +283,16 @@ internal static partial class Program
         private readonly VisualSamplerDrawingVisual receiver = new() { Offset = new(8, 10) };
         private readonly SamplerContainerVisual outputClip = new(nearest: true);
         private readonly RectangleGeometry outputClipGeometry = new(new Rect(8, 10, 32, 24));
+        private readonly BitmapCacheReentryControl reentryControl;
         private int index;
         public ContainerVisual Root { get; } = new();
 
-        internal OriginalBitmapCacheSamplerScene(BitmapCacheSamplerState state)
+        internal OriginalBitmapCacheSamplerScene(BitmapCacheSamplerState state,
+            BitmapCacheReentryControl reentryControl = BitmapCacheReentryControl.Original)
         {
+            if (reentryControl != BitmapCacheReentryControl.Original && state.Index != 17)
+                throw new InvalidOperationException("Cache re-entry controls require the original filled nested state.");
+            this.reentryControl = reentryControl;
             using (DrawingContext drawing = first.RenderOpen()) drawing.DrawGeometry(firstBrush, null, firstGeometry);
             using (DrawingContext drawing = second.RenderOpen()) drawing.DrawGeometry(secondBrush, null, secondGeometry);
             group.Children.Add(first);
@@ -303,7 +325,7 @@ internal static partial class Program
 
         internal void Advance(BitmapCacheSamplerState state)
         {
-            if (state.Index != index + 1)
+            if (reentryControl != BitmapCacheReentryControl.Original || state.Index != index + 1)
                 throw new InvalidOperationException("Original BitmapCacheBrush source mutation order changed.");
             Apply(state);
         }
@@ -330,8 +352,14 @@ internal static partial class Program
             firstGeometry.Rect = state.FirstRectangle;
             secondGeometry.Rect = state.SecondRectangle;
             firstBrush.Color = state.Blue ? Colors.Blue : Colors.Red;
-            sampledRoot.CacheMode = state.TargetCache ? targetCache : null;
-            brush.BitmapCache = state.ExplicitCache ? explicitCache : null;
+            if (reentryControl == BitmapCacheReentryControl.NestedSibling)
+            {
+                group.Children.Remove(nestedReceiver);
+                sampledRoot.Children.Add(nestedReceiver);
+            }
+            targetCache.RenderAtScale = reentryControl == BitmapCacheReentryControl.EqualScales ? 1 : 2;
+            sampledRoot.CacheMode = SelectedTargetCache(state);
+            brush.BitmapCache = SelectedExplicitCache(state);
             explicitCache.RenderAtScale = state.ExplicitScale;
             sampledRoot.Offset = state.IgnoredRootState ? new(101, 103) : default;
             sampledRoot.Transform = state.IgnoredRootState ? rootTransform : null;
@@ -363,6 +391,19 @@ internal static partial class Program
         private sealed record BrushPropertyObservation(string Property, bool Rejected, string? ExceptionType, string? Message);
         private BrushPropertyObservation[] brushProperties = [];
 
+        private BitmapCache? SelectedTargetCache(BitmapCacheSamplerState state) => reentryControl switch
+        {
+            BitmapCacheReentryControl.ExplicitOnly or BitmapCacheReentryControl.DefaultOnly => null,
+            BitmapCacheReentryControl.SameCacheMode => explicitCache,
+            _ => state.TargetCache ? targetCache : null
+        };
+
+        private BitmapCache? SelectedExplicitCache(BitmapCacheSamplerState state) => reentryControl switch
+        {
+            BitmapCacheReentryControl.TargetOnly or BitmapCacheReentryControl.DefaultOnly => null,
+            _ => state.ExplicitCache ? explicitCache : null
+        };
+
         private BrushPropertyObservation RequireRejectedBrushProperty(string property, Action assign)
             => ObserveBrushProperty(property, assign, mustReject: true);
 
@@ -390,20 +431,23 @@ internal static partial class Program
         internal object Describe(BitmapCacheSamplerState state)
         {
             Rect observedBounds = VisualTreeHelper.GetDescendantBounds(sampledRoot);
+            bool nestedSibling = reentryControl == BitmapCacheReentryControl.NestedSibling;
             if (index != state.Index || !ReferenceEquals(brush.Target, state.Attached ? sampledRoot : null) ||
-                VisualTreeHelper.GetParent(sampledRoot) != null || sampledRoot.Children.Count != (state.HasGroup ? 1 : 0) ||
+                VisualTreeHelper.GetParent(sampledRoot) != null || sampledRoot.Children.Count != (state.HasGroup ? nestedSibling ? 2 : 1 : 0) ||
                 (state.HasGroup && !ReferenceEquals(sampledRoot.Children[0], group)) ||
+                (nestedSibling && !ReferenceEquals(sampledRoot.Children[1], nestedReceiver)) ||
                 !ReferenceEquals(VisualTreeHelper.GetParent(group), state.HasGroup ? sampledRoot : null) ||
-                group.Children.Count != (state.HasLeaves ? state.HasNestedImage ? 3 : 2 : 0) ||
+                group.Children.Count != (state.HasLeaves ? state.HasNestedImage && !nestedSibling ? 3 : 2 : 0) ||
                 (state.HasLeaves && (!ReferenceEquals(group.Children[0], first) || !ReferenceEquals(group.Children[1], second))) ||
-                (state.HasNestedImage && !ReferenceEquals(group.Children[2], nestedReceiver)) ||
-                !ReferenceEquals(VisualTreeHelper.GetParent(nestedReceiver), state.HasNestedImage ? group : null) ||
+                (state.HasNestedImage && !nestedSibling && !ReferenceEquals(group.Children[2], nestedReceiver)) ||
+                !ReferenceEquals(VisualTreeHelper.GetParent(nestedReceiver), state.HasNestedImage ? nestedSibling ? sampledRoot : group : null) ||
                 !ReferenceEquals(VisualTreeHelper.GetParent(first), state.HasLeaves ? group : null) ||
                 !ReferenceEquals(VisualTreeHelper.GetParent(second), state.HasLeaves ? group : null) ||
                 (state.EmptyTarget && !observedBounds.IsEmpty) ||
-                !ReferenceEquals(sampledRoot.CacheMode, state.TargetCache ? targetCache : null) ||
-                !ReferenceEquals(brush.BitmapCache, state.ExplicitCache ? explicitCache : null) ||
-                targetCache.RenderAtScale != 2 || targetCache.EnableClearType || targetCache.SnapsToDevicePixels ||
+                !ReferenceEquals(sampledRoot.CacheMode, SelectedTargetCache(state)) ||
+                !ReferenceEquals(brush.BitmapCache, SelectedExplicitCache(state)) ||
+                targetCache.RenderAtScale != (reentryControl == BitmapCacheReentryControl.EqualScales ? 1 : 2) ||
+                targetCache.EnableClearType || targetCache.SnapsToDevicePixels ||
                 explicitCache.RenderAtScale != state.ExplicitScale || explicitCache.EnableClearType || !explicitCache.SnapsToDevicePixels ||
                 sampledRoot.Offset != (state.IgnoredRootState ? new Vector(101, 103) : default) ||
                 !ReferenceEquals(sampledRoot.Transform, state.IgnoredRootState ? rootTransform : null) ||
@@ -469,7 +513,8 @@ internal static partial class Program
             return new
             {
                 CurrentState = index, AttachedOriginalTarget = state.Attached, SourceRootChildCount = sampledRoot.Children.Count,
-                InnerChildOrder = state.HasLeaves ? state.HasNestedImage
+                ReentryControl = reentryControl.ToString(), NestedLeafIsRootSibling = nestedSibling,
+                InnerChildOrder = state.HasLeaves ? state.HasNestedImage && !nestedSibling
                     ? new[] { "first", "second", "nested-image" } : new[] { "first", "second" } : Array.Empty<string>(),
                 state.HasGroup, state.HasLeaves, state.EmptyTarget,
                 state.HasNestedImage, state.HasNestedSourceLeaf, state.HasNestedImageGeometry,
@@ -494,10 +539,10 @@ internal static partial class Program
                 RequestedRelativeTransform = relativeTransform.Value, RequestedAbsoluteTransform = absoluteTransform.Value,
                 ActualRelativeTransform = brush.RelativeTransform?.Value, ActualAbsoluteTransform = brush.Transform?.Value,
                 BrushPropertyAssignments = brushProperties,
-                TargetCacheAttached = state.TargetCache, TargetScale = targetCache.RenderAtScale,
-                ExplicitCacheAttached = state.ExplicitCache, ExplicitScale = explicitCache.RenderAtScale,
+                TargetCacheAttached = sampledRoot.CacheMode != null, TargetScale = ((BitmapCache?)sampledRoot.CacheMode)?.RenderAtScale,
+                ExplicitCacheAttached = brush.BitmapCache != null, ExplicitScale = brush.BitmapCache?.RenderAtScale,
                 ExplicitSnapping = explicitCache.SnapsToDevicePixels,
-                SelectedPolicy = state.ExplicitCache ? "explicit-brush" : state.TargetCache ? "target" : "default",
+                SelectedPolicy = brush.BitmapCache != null ? "explicit-brush" : sampledRoot.CacheMode != null ? "target" : "default",
                 SamplerPlacement = "raw cache texture over normalized shader coordinates; no ordinary brush mapping"
             };
         }
