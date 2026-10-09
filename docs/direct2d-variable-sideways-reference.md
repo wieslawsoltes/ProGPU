@@ -1,9 +1,9 @@
 # Original variable-sideways font reference
 
-This companion is authored, **not executed**. It does not claim original SDK,
-GPU, package or application qualification. All execution remains deferred to the
-final integrated stack; the prior Rotate/Skew-only probe permission does not
-authorize a font probe. The original 24 static sideways controls are unchanged.
+Integrated original Windows ARM64 execution now completes all 80 configurations.
+The original metric and pixel comparisons still fail, so this is not source,
+GPU, package or application qualification. The original 24 static sideways
+controls are unchanged.
 
 ## Strict independent inventory
 
@@ -53,6 +53,21 @@ geometry and the native prepared geometry rasterized by the original target.
 Null-advance cases include an additional original draw using advances returned
 by the original SDK query. Raw BOOL values 1/-1, source logical order, offsets,
 original face identity and the absence of an advance array remain observable.
+
+Successful original calls and complete structural validation precede numeric
+comparisons. Metric values, outline bounds and full frames contribute to the
+existing final failure total, so the first source difference no longer hides
+later fonts or instances. Every failed comparison still rejects the process;
+API failures and invalid inventories remain immediate failures.
+
+The compact CFF2 family with VVAR origin mapping exposes an additional source
+difference. Across the four nondefault weights, original metrics keep origins
+700/600 for the two ink glyphs while applying the varied vertical advances.
+The independent literal contract instead varies those origins. Both original
+metric orientations report the same difference, and the run-envelope comparisons
+also fail. The complete original table bytes and axis identities pass. These
+observations do not change the generic VVAR reader, source placement policy or
+any expected value.
 
 ## Unresolved numeric observations are not fabricated oracles
 

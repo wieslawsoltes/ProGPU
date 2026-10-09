@@ -130,10 +130,15 @@ void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_contex
                     "original CFF contour-origin direct cubic inventory");
                 for (std::size_t segment = 0U; segment < 2U; ++segment) {
                     const auto& actual = observed.segments()[segment]; const auto& expected = wanted[item+segment];
+                    require(actual.kind == expected.kind, "original CFF contour-origin exact segment kind");
                     const auto equal = [&](progpu_native_point point, progpu_native_point target_point) {
                         return point.x+4+(item == 0U ? 0.0F : prior_pen) == target_point.x && -point.y+20 == target_point.y;
                     };
-                    require(actual.kind == expected.kind && equal(actual.p0,expected.p0) && equal(actual.p1,expected.p1) &&
+                    // The original call and complete segment inventory were
+                    // validated above. Collect this exact value comparison so
+                    // one origin mismatch cannot hide later source families;
+                    // the enclosing runner still fails if any comparison fails.
+                    compare(equal(actual.p0,expected.p0) && equal(actual.p1,expected.p1) &&
                         (actual.kind != PROGPU_NATIVE_PATH_SEGMENT_CUBIC || (equal(actual.p2,expected.p2) && equal(actual.p3,expected.p3))),
                         "original CFF precise contour-origin literal control points");
                 }
@@ -196,5 +201,6 @@ void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_contex
         }
     }
     require(configurations == 12U, "original CFF contour-origin full configuration inventory");
+    std::fprintf(stderr, "Original CFF contour-origin complete configurations=%zu\n", configurations);
 }
 } // namespace progpu::native::direct2d::tests

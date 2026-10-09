@@ -29,6 +29,18 @@ still strict: if the original implementation disagrees at final execution, that
 is a real pending contract to diagnose, not a tolerance waiver or a claim that
 observing metrics qualified the renderer.
 
-All previous static, variable, horizontal and sideways controls are retained.
-These new controls are authored only: no build, test, syntax check, verifier,
-SDK probe, renderer/GPU/VM execution or workflow dispatch was performed.
+Integrated original Windows ARM64 execution now completes all 12 configurations.
+The unchanged first arch produces source origin 480 (482 for the second font),
+while the literal tight-curve contract requires 380 (381.5). Independent original
+horizontal and sideways outline observations confirm that the difference is in
+source placement, not the retained font bytes or a rounded metric display.
+The source-origin policy remains unresolved; no literal, font or product
+arithmetic has changed to conceal the difference.
+
+After a successful original call and complete segment validation, exact control
+point comparisons now contribute to the existing final failure total. This lets
+the remaining original font families execute in the same run. Native/API and
+structural failures still stop immediately, and any collected comparison failure
+still rejects the process after normal resource retirement. All previous static,
+variable, horizontal, sideways and full-byte controls remain required. The
+completed inventory is diagnostic evidence, not source or package qualification.

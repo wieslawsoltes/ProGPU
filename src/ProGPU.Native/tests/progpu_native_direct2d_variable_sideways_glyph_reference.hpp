@@ -2,6 +2,7 @@
 
 #include "progpu_native_direct2d_variable_sideways_glyph_fixture.hpp"
 #include <bit>
+#include <cstdio>
 
 namespace progpu::native::direct2d::tests {
 
@@ -139,20 +140,34 @@ void verify_original_variable_sideways_glyph_pixels(ID2D1DeviceContext* source_c
                 const auto expected=expected_vertical_glyph(options,instance,indices[item]);
                 // These five original coordinates produce integral authored
                 // metrics. No float-to-design-integer rounding rule is chosen.
-                require(static_cast<float>(horizontal_advances[item]) == expected.horizontal_advance &&
+                // Original calls have completed successfully. Keep every
+                // value comparison in the final failure total while allowing
+                // all original font/instance configurations to execute.
+                compare(static_cast<float>(horizontal_advances[item]) == expected.horizontal_advance &&
                     static_cast<float>(vertical_advances[item]) == expected.vertical_advance,
                     "original variable h/v advances including no-ink movement");
                 original_advances[item]=static_cast<float>(vertical_advances[item])/64.0F;
                 for (const auto* observed : {&ordinary_metrics[item],&sideways_metrics[item]}) {
-                    require(static_cast<float>(observed->advanceWidth) == expected.horizontal_advance &&
+                    compare(static_cast<float>(observed->advanceWidth) == expected.horizontal_advance &&
                         static_cast<float>(observed->advanceHeight) == expected.vertical_advance,
                         "original variable integral design advance fields");
                     if (expected.count != 0U) {
-                        require(static_cast<float>(observed->leftSideBearing) == expected.x_min-expected.horizontal_origin &&
+                        const bool equal = static_cast<float>(observed->leftSideBearing) == expected.x_min-expected.horizontal_origin &&
                             static_cast<float>(observed->topSideBearing) == expected.top_side_bearing &&
                             static_cast<float>(observed->bottomSideBearing) == expected.bottom_side_bearing &&
-                            static_cast<float>(observed->verticalOriginY) == expected.vertical_origin,
-                            "original variable independent bearings/origins");
+                            static_cast<float>(observed->verticalOriginY) == expected.vertical_origin;
+                        if (!equal) {
+                            std::fprintf(stderr, "Original variable sideways metrics cff=%u compact=%u vvar=%u side-maps=%u origin-map=%u "
+                                "instance=%zu glyph=%u orientation=%u actual=(%d,%d,%d,%d) expected=(%.9g,%.9g,%.9g,%.9g)\n",
+                                unsigned(cff), unsigned(options.compact_metrics), unsigned(options.vvar),
+                                unsigned(options.side_bearing_maps), unsigned(options.origin_map), instance,
+                                unsigned(indices[item]), unsigned(observed == &sideways_metrics[item]),
+                                int(observed->leftSideBearing), int(observed->topSideBearing),
+                                int(observed->bottomSideBearing), int(observed->verticalOriginY),
+                                expected.x_min-expected.horizontal_origin, expected.top_side_bearing,
+                                expected.bottom_side_bearing, expected.vertical_origin);
+                        }
+                        compare(equal, "original variable independent bearings/origins");
                     }
                 }
             }
@@ -199,8 +214,9 @@ void verify_original_variable_sideways_glyph_pixels(ID2D1DeviceContext* source_c
                     "original variable sideways direct outline extraction");
                 D2D1_RECT_F actual_bounds{};
                 const auto boxes=variable_sideways_pixel_rectangles(options,instance,nominal);
-                require(original_geometry->GetBounds(nullptr,&actual_bounds) == S_OK &&
-                    actual_bounds.left == std::min(boxes[0].left,boxes[1].left)-4 &&
+                require(original_geometry->GetBounds(nullptr,&actual_bounds) == S_OK,
+                    "original variable sideways actual run geometry bounds");
+                compare(actual_bounds.left == std::min(boxes[0].left,boxes[1].left)-4 &&
                     actual_bounds.top == std::min(boxes[0].top,boxes[1].top)-20 &&
                     actual_bounds.right == std::max(boxes[0].right,boxes[1].right)-4 &&
                     actual_bounds.bottom == std::max(boxes[0].bottom,boxes[1].bottom)-20,
@@ -223,5 +239,6 @@ void verify_original_variable_sideways_glyph_pixels(ID2D1DeviceContext* source_c
         }
     }
     require(configurations == 80U, "original variable sideways independent configuration inventory");
+    std::fprintf(stderr, "Original variable sideways complete configurations=%zu\n", configurations);
 }
 } // namespace progpu::native::direct2d::tests
