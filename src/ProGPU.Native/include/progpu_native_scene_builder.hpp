@@ -419,6 +419,18 @@ public:
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
 
+    // Own an immutable copy of the existing vertex-mesh wire payload and its
+    // optional brush map. Publication is atomic after complete layout, vertex
+    // and index validation; caller spans are never retained.
+    bool draw_vertex_meshes(
+        std::span<const progpu_native_scene_vertex_mesh> meshes,
+        std::span<const progpu_native_scene_mesh_vertex> vertices,
+        std::span<const std::uint16_t> indices,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
     bool draw_strokes(
         std::span<const progpu_native_scene_stroke> strokes,
         std::span<const progpu_native_point> points,

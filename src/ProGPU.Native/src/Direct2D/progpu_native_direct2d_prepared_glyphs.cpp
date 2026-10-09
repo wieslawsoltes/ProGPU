@@ -681,6 +681,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             occurrences.push_back(std::move(decoded));
         }
         candidate->segments_.reserve(output_segments);
+        candidate->occurrences_.reserve(original.glyphs.count());
         const bool right_to_left = (original.bidi_level & 1U) != 0U;
         float pen = 0.0F;
         for (std::uint32_t index = 0U; index < original.glyphs.count(); ++index) {
@@ -706,6 +707,7 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
             if (!std::isfinite(x) || !std::isfinite(y)) return com::invalid_argument;
             const float vertical_origin_x = sideways ? occurrences[index]->horizontal_origin +
                 occurrences[index]->horizontal_advance * 0.5F : 0.0F;
+            const auto first_segment = static_cast<std::uint32_t>(candidate->segments_.size());
             for (auto segment : occurrences[index]->segments) {
                 const bool placed = sideways
                     ? place_sideways_segment(segment, scale, x, y, vertical_origin_x,
@@ -715,6 +717,8 @@ com::result prepared_original_font::prepare(std::shared_ptr<const original_glyph
                     return com::invalid_argument;
                 candidate->segments_.push_back(segment);
             }
+            candidate->occurrences_.push_back({first_segment,
+                static_cast<std::uint32_t>(candidate->segments_.size()) - first_segment});
             pen = next_pen;
         }
         // Complete run preflight precedes both cache and output publication.

@@ -3950,6 +3950,10 @@ int main(int argc, char** argv) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id,
                 4U, 4U, nullptr, nullptr, dpi);
         }, require);
+    progpu::native::direct2d::tests::verify_prepared_glyph_coverage_pixels(
+        [&](const auto& stream, const progpu_native_scene_header& header) {
+            return render_retained_scene(false, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);
+        }, require);
     progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
         [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
             return render_retained_scene(reference, stream, header.generation, 1U, header.scene_id, 1U, header.command_count);

@@ -77,6 +77,69 @@ bool equal_closed_isolation_builders(semantic_scene_builder& actual, semantic_sc
 
 } // namespace
 
+bool semantic_scene_builder_vertex_mesh_is_owned_and_atomic() {
+    semantic_scene_builder builder(0xD2D75U, 17U);
+    std::uint32_t brush = 0U, state_index = 0U;
+    auto state = semantic_scene_builder::identity_state();
+    state.opacity = .5F;
+    if (!builder.add_solid_brush({.2F, .4F, .8F, 1.F}, 1.F, brush) ||
+        !builder.add_state(state, state_index)) return false;
+    std::array<progpu_native_scene_mesh_vertex, 3U> vertices{{
+        {{2, 3}, {5, 7}, {1, 1, 1, 0}},
+        {{11, 3}, {17, 7}, {1, 1, 1, 1}},
+        {{2, 13}, {5, 19}, {1, 1, 1, .5F}}}};
+    std::array<std::uint16_t, 3U> indices{2, 0, 1};
+    progpu_native_scene_vertex_mesh mesh{};
+    mesh.struct_size = sizeof(mesh);
+    mesh.flags = PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED;
+    mesh.color_blend_mode = 5U; // Existing mesh source-in, not layer blend numbering.
+    mesh.vertex_count = 3U; mesh.index_count = 3U;
+    mesh.transform = semantic_scene_builder::identity_transform();
+    mesh.transform.m31 = 4.F;
+    const auto original_vertices = vertices;
+    const auto original_indices = indices;
+    const auto original_mesh = mesh;
+    const auto original_brush = brush;
+    if (!builder.draw_vertex_meshes({&mesh, 1U}, vertices, indices, {&brush, 1U},
+        {6, 3, 9, 10}, state_index)) return false;
+    vertices = {}; indices = {}; mesh = {}; brush = 999U;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto validated = scene::validate(bytes.data(), bytes.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS || validated.draw_count != 1U ||
+        validated.header.command_count != 1U) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, validated.header.command_offset);
+    const auto resource = read<progpu_native_scene_resource>(bytes,
+        validated.header.resource_offset + command.resource_index * sizeof(progpu_native_scene_resource));
+    const auto brushes = read<progpu_native_scene_draw_brushes>(bytes, command.payload_offset);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH || command.state_index != state_index ||
+        command.bounds_x != 6 || command.bounds_height != 10 || resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH ||
+        resource.generation != 17U || resource.payload_size != sizeof(original_mesh) ||
+        resource.auxiliary_size != sizeof(original_vertices) + sizeof(original_indices) || brushes.brush_count != 1U ||
+        read<std::uint32_t>(bytes, command.payload_offset + sizeof(brushes)) != original_brush ||
+        std::memcmp(bytes.data() + resource.payload_offset, &original_mesh, sizeof(original_mesh)) != 0 ||
+        std::memcmp(bytes.data() + resource.auxiliary_offset, original_vertices.data(), sizeof(original_vertices)) != 0 ||
+        std::memcmp(bytes.data() + resource.auxiliary_offset + sizeof(original_vertices),
+            original_indices.data(), sizeof(original_indices)) != 0) return false;
+    for (unsigned invalid = 0U; invalid < 7U; ++invalid) {
+        mesh = original_mesh; vertices = original_vertices; indices = original_indices; brush = original_brush;
+        switch (invalid) {
+            case 0: mesh.vertex_offset = 1U; break;
+            case 1: mesh.index_count = 2U; break;
+            case 2: indices[1] = 3U; break;
+            case 3: vertices[2].position.x = std::numeric_limits<float>::infinity(); break;
+            case 4: vertices[2].texture_coordinate.y = std::numeric_limits<float>::quiet_NaN(); break;
+            case 5: mesh.reserved[1] = 1U; break;
+            default: brush = 999U; break;
+        }
+        if (builder.draw_vertex_meshes({&mesh, 1U}, vertices, indices, {&brush, 1U},
+                {6, 3, 9, 10}, state_index)) return false;
+        std::vector<std::byte> after;
+        if (!builder.build(after) || after != bytes) return false;
+    }
+    return true;
+}
+
 bool semantic_scene_builder_target_clear_is_owned_and_atomic() {
     static_assert(PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET == 5U);
     semantic_scene_builder builder(0x96D0U, 1U);

@@ -9,14 +9,34 @@ namespace progpu::native::direct2d {
 
 class prepared_original_font;
 
+struct prepared_original_glyph_occurrence final {
+    std::uint32_t first_segment = 0U;
+    std::uint32_t segment_count = 0U;
+};
+
+// Separate immutable raster output. Original positioned contours and no-ink
+// occurrences remain in the prepared run; coverage never repairs source data.
+struct prepared_original_glyph_coverage final {
+    std::vector<progpu_native_scene_vertex_mesh> meshes;
+    std::vector<progpu_native_scene_mesh_vertex> vertices;
+    progpu_native_image_rect bounds{};
+};
+
 class prepared_original_glyph_run final {
 public:
     [[nodiscard]] const original_glyph_request& request() const noexcept { return *request_; }
     [[nodiscard]] std::span<const progpu_native_path_segment> segments() const noexcept { return segments_; }
+    [[nodiscard]] std::span<const prepared_original_glyph_occurrence> occurrences() const noexcept { return occurrences_; }
+    // Bounded, disjoint convex contour coverage in the original physical frame.
+    // S_FALSE leaves output untouched and selects the existing general path.
+    // Failures likewise publish nothing. This is private same-build transport.
+    [[nodiscard]] com::result prepare_coverage(compat::factory* owner,
+        prepared_original_glyph_coverage& output) const noexcept;
 private:
     friend class prepared_original_font;
     std::shared_ptr<const original_glyph_request> request_;
     std::vector<progpu_native_path_segment> segments_;
+    std::vector<prepared_original_glyph_occurrence> occurrences_;
 };
 
 // Owns one parsed original face and bounded, lazy design-outline cache. It never

@@ -2245,6 +2245,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_is_deterministic_and_valid());
     require(progpu::native::tests::
+        semantic_scene_builder_vertex_mesh_is_owned_and_atomic());
+    require(progpu::native::tests::
         semantic_scene_builder_rgb_transport_is_owned_and_atomic());
     require(progpu::native::tests::
         semantic_scene_builder_target_clear_is_owned_and_atomic());

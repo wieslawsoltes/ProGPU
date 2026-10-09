@@ -525,6 +525,88 @@ using namespace progpu::native::direct2d::tests;
     return true;
 }
 
+[[nodiscard]] bool prepared_coverage_contracts()
+{
+    com::pointer<compat::factory> factory;
+    if (compat::create_factory(factory.put()) != com::ok) return false;
+    font_stream stream; stream.bytes = progpu::native::tests::make_hint_fault_font();
+    stream.declared_size = stream.bytes.size();
+    font_loader loader; loader.stream = &stream;
+    font_file file; file.loader = &loader;
+    font_face face; face.files[0] = &file; face.declared_count = 1U;
+    face.type = 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+    std::shared_ptr<const capture::original_font_capture> source;
+    std::shared_ptr<capture::prepared_original_font> font;
+    if (capture::capture_original_font(&face, source) != com::ok ||
+        capture::prepared_original_font::create(source, font) != com::ok) return false;
+    rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+    const std::uint16_t indices[]{1U, 0U, 2U};
+    const float advances[]{24, -3, 9};
+    const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
+    const compat::glyph_run run{&face, 62.5F, 3U, indices, advances, offsets, 0, 2U};
+    capture::original_glyph_target frame{com::pointer<com::unknown>(factory.get()), 1U,
+        {1, 0, 0, 1, 0, 0}, {3.1875F, 30.8125F}, {64U, 64U}, 96, 96, {}, compat::text_antialias_mode::grayscale};
+    std::shared_ptr<const capture::original_glyph_request> request;
+    std::shared_ptr<const capture::prepared_original_glyph_run> prepared;
+    const auto prepare = [&](const auto& original_run) {
+        return capture::capture_original_glyph_request(source, original_run, compat::measuring_mode::natural,
+            &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok;
+    };
+    for (const float dpi : {96.F, 192.F}) {
+        frame.dpi_x = frame.dpi_y = dpi;
+        for (const bool aliased : {false, true}) {
+            frame.antialias = aliased ? compat::text_antialias_mode::aliased : compat::text_antialias_mode::grayscale;
+            if (!prepare(run)) return false;
+            const auto occurrences = prepared->occurrences();
+            if (!check(occurrences.size() == 3U && occurrences[0].first_segment == 0U && occurrences[0].segment_count == 4U &&
+                occurrences[1].first_segment == 4U && occurrences[1].segment_count == 0U &&
+                occurrences[2].first_segment == 4U && occurrences[2].segment_count == 4U,
+                "coverage retains exact positioned and no-ink occurrence ranges")) return false;
+            const auto original_segments = std::vector(prepared->segments().begin(), prepared->segments().end());
+            capture::prepared_original_glyph_coverage cold, warm;
+            if (!check(prepared->prepare_coverage(factory.get(), cold) == com::ok &&
+                prepared->prepare_coverage(factory.get(), warm) == com::ok && cold.meshes.size() == 2U &&
+                cold.vertices.size() == (aliased ? 12U : 84U) && warm.vertices.size() == cold.vertices.size() &&
+                std::memcmp(cold.vertices.data(), warm.vertices.data(), cold.vertices.size()*sizeof(cold.vertices[0])) == 0 &&
+                std::memcmp(original_segments.data(), prepared->segments().data(), original_segments.size()*sizeof(original_segments[0])) == 0,
+                "coverage is immutable and deterministic without changing original source segments")) return false;
+            const float fringe = aliased ? 0.F : 48.F/dpi;
+            if (!check(cold.bounds.x == 4.F-fringe && cold.bounds.y == 2.5F-fringe &&
+                cold.bounds.width == 39.F+2*fringe && cold.bounds.height == 27.5F+2*fringe,
+                "coverage uses literal source bounds and half a physical pixel at both DPIs")) return false;
+            for (const auto& vertex : cold.vertices) {
+                if (!check(vertex.texture_coordinate.x == vertex.position.x && vertex.texture_coordinate.y == vertex.position.y &&
+                    (vertex.color.a == 0 || vertex.color.a == 1), "coverage paint frame and edge values")) return false;
+            }
+            if (!check(prepared->prepare_coverage(nullptr, cold) == com::invalid_argument &&
+                std::memcmp(cold.vertices.data(), warm.vertices.data(), cold.vertices.size()*sizeof(cold.vertices[0])) == 0,
+                "failed coverage publication retains the previous complete mesh")) return false;
+        }
+    }
+    frame.dpi_x = frame.dpi_y = 96;
+    frame.antialias = compat::text_antialias_mode::grayscale;
+    if (!prepare(run)) return false;
+    capture::prepared_original_glyph_coverage retained;
+    if (prepared->prepare_coverage(factory.get(), retained) != com::ok) return false;
+    const auto original_vertices = retained.vertices;
+    const float overlapping_advances[]{10, 0, 9};
+    auto overlapping = run; overlapping.glyph_advances = overlapping_advances;
+    if (!prepare(overlapping) || !check(prepared->prepare_coverage(factory.get(), retained) == com::false_result &&
+        retained.vertices.size() == original_vertices.size() &&
+        std::memcmp(retained.vertices.data(), original_vertices.data(), original_vertices.size()*sizeof(original_vertices[0])) == 0,
+        "overlapping original contours retain the general source path and previous mesh")) return false;
+    frame.transform = {0, 0, 0, 1, 0, 0};
+    if (!prepare(run) || !check(prepared->prepare_coverage(factory.get(), retained) == com::false_result &&
+        std::memcmp(retained.vertices.data(), original_vertices.data(), original_vertices.size()*sizeof(original_vertices[0])) == 0,
+        "singular source frame is never repaired with an invented inverse")) return false;
+    frame.transform = {1, 0, 0, 1, 0, 0};
+    auto tiny = run; tiny.font_em_size = 1.F; tiny.glyph_count = 1U;
+    if (!prepare(tiny) || !check(prepared->prepare_coverage(factory.get(), retained) == com::false_result &&
+        std::memcmp(retained.vertices.data(), original_vertices.data(), original_vertices.size()*sizeof(original_vertices[0])) == 0,
+        "collapsed inset coverage cannot publish overlapping fan triangles")) return false;
+    return true;
+}
+
 [[nodiscard]] bool prepared_nominal_contracts()
 {
     com::pointer<compat::factory> factory;
@@ -726,6 +808,7 @@ bool progpu_native_direct2d_font_capture_tests()
     if (!original_axis_contracts()) return false;
     if (!prepared_source_contracts()) return false;
     if (!prepared_origin_contracts()) return false;
+    if (!prepared_coverage_contracts()) return false;
     if (!prepared_nominal_contracts()) return false;
 #if defined(_WIN32)
     if (!original_windows_contract()) return false;

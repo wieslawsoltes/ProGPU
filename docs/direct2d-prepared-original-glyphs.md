@@ -1,5 +1,97 @@
 # Prepared original glyphs in the native recorder
 
+## Coverage preparation under qualification
+
+`prepared_original_glyph_run::prepare_coverage` is an explicit, private preparation
+step for disjoint convex contours. It is not yet selected by `DrawOwnedGlyphRun`.
+The original recorder and original Windows pixel comparisons remain unchanged
+while this step undergoes provider and source qualification.
+
+The prepared run now owns one segment range per original occurrence, including
+zero-length ranges for no-ink glyphs. Coverage preparation retains those ranges
+and the original positioned segments. It uses the existing native path
+`Simplify(LINES)` implementation in `progpu_native_direct2d_path.cpp`, with a
+tolerance derived from the captured physical affine frame. It then quantizes
+flattened endpoints relative to each original control hull. Quantizing source
+control points before flattening is a different algorithm and is not used.
+
+The measured source cache bands start at 75 and scale by powers of two. Their
+selection uses the maximum singular value of the original physical transform;
+the endpoint grid is one eighth of that canonical em. This is coverage metadata,
+not a changed font em, source advance, offset, outline or brush domain. Independent
+DPI axes enter the physical transform once. Translation affects positions only.
+Aliased contours become ordinary triangles; grayscale contours carry an inner
+fan and half-physical-pixel edge ramps. Paint coordinates remain in target DIPs.
+GPU triangle interpolation performs pixel coverage; there is no CPU pixel raster,
+readback, new font query, shader-program inspection or foreign implementation.
+
+Preparation publishes only a complete owned batch. Unsupported AA modes,
+overlapping contour bounds, nonconvex/multiply wound contours, singular frames,
+collapsed inset edges and unrepresentable arithmetic leave the previous output
+untouched. The existing general geometry path remains the caller's separate
+choice. A zero determinant is exact; there is no epsilon or invented inverse.
+The batch is bounded by 1,048,576 vertices. For C contours and V emitted vertices,
+the overlap sweep is O(C log C), and mesh assembly is O(V) with amortized growth,
+in addition to the existing bounded native subdivision. Storage is O(S+C+V),
+where S is the retained positioned segment count. Quantization and position/
+direction projection use NEON, SSE2 or Wasm SIMD; ordered contour topology uses
+dependent walks. Unsupported-intrinsics builds retain the scalar reference math.
+
+The C++ scene builder's `draw_vertex_meshes` owns the complete existing mesh wire
+payload, vertices, indices and optional brush map before publishing one command.
+It shares the renderer's wire validator and preserves the original state index.
+Header and module consumers use the same implementation. Both native providers
+already consume this wire kind through their shared semantic mesh compiler and
+canonical `Vector.wgsl`; neither the wire layout nor shader changes here.
+
+The managed `VertexMesh2D`/`DrawVertexMesh` path already owns corresponding data.
+No managed original DirectWrite source-font preparation capability exists, so
+this private source capture step has no managed entry point to update. Shared
+mesh rendering and source-independent text formatting keep their existing paths.
+This does not qualify managed source replay or select WPF Display formatting.
+
+Research separates retained layout from coverage: [SkParagraph's public model](https://skia.org/docs/user/modules/quickstart/),
+[Parley's retained layout](https://docs.rs/parley/latest/parley/layout/struct.Layout.html)
+and [HarfBuzz shape-plan ownership](https://harfbuzz.github.io/shaping-plans-and-caching.html)
+support retaining original shaping inputs without re-shaping during raster work.
+[Direct2D realizations](https://learn.microsoft.com/en-us/windows/win32/direct2d/geometry-realizations-overview)
+and [Win2D geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasGeometry.htm)
+inform reusable geometry, but do not promise DrawGlyphRun pixel equivalence.
+[WebRender's retained scene model](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+supports keeping existing scene ownership and demand-driven upload. [Skia's raster discussion](https://skia.org/docs/dev/design/raster_tragedy/)
+and [Vello's explicit AA choices](https://docs.rs/vello/latest/vello/enum.AaConfig.html)
+reinforce keeping source coverage, transfer and hinting separate; substituting
+area/MSAA results or guessed gamma is rejected. No implementation text from
+these projects is used.
+
+The independently authored diagnostic with ProGPU's existing flattener passes
+all 1,121 original comparisons while preserving all 1,351 original source
+capture hashes. Only 306 comparison frames use its independent GPU triangles;
+overlap/layer cases still use SDK geometry. These are diagnostic results, not
+qualification of the new preparation API or the actual recorder. Remaining
+gates include complete source/provider bytes, general contour topology,
+halfway quantization policy, physical-frame replay, brushes/clips/layers,
+cross-architecture packages, warm counters and application performance.
+
+The preparation API subsequently supplied 157 comparison frames to the Windows
+diagnostic, still with 1,121 passing comparisons and all original hashes
+unchanged. Those exact serialized scenes were also replayed cold/warm through
+both native providers on physical Apple M3 Pro hardware: 314 frames per provider,
+identical provider/cold/warm bytes, and zero warm vertex/index/coverage uploads.
+156 of the 157 distinct frames match the Windows capture exactly. The remaining
+variable-font frame differs by one red byte at pixel (12,25): native 127 versus
+original 128. This is an open qualification failure, with no added tolerance.
+The explicit paired-provider regression also checks source-observed 149/75 edge
+bytes after all source owners end. It caught and now guards the distinct mesh
+source-in selector (5), which must not use the layer-composite enum value (3).
+
+The current local native suite passes all 49 tests; the C++ import consumer and
+native contract checks pass. These results cover the additive preparation and
+serialization seam. They neither enable recorder selection nor clear the
+existing whole-producer Windows reference failures.
+
+## Original font and recorder ownership
+
 The private `prepared_glyph_target` capability connects an owned original font
 request to the actual portable Direct2D recorder. It is an explicit same-build
 C++ source path, not a changed `ID2D1RenderTarget` vtable, installed COM API, C ABI

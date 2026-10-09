@@ -6,6 +6,22 @@
 import progpu.native.scene_builder;
 
 int main() {
+    {
+        progpu::native::semantic_scene_builder mesh_builder(9851U, 1U);
+        progpu::native::progpu_native_scene_vertex_mesh mesh{};
+        mesh.struct_size = sizeof(mesh);
+        mesh.flags = progpu::native::PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED;
+        mesh.topology = progpu::native::PROGPU_NATIVE_VERTEX_MESH_TRIANGLES;
+        mesh.color_blend_mode = 5U; // Mesh source-in uses its original wire numbering.
+        mesh.vertex_count = 3U;
+        mesh.transform = mesh_builder.identity_transform();
+        const std::array<progpu::native::progpu_native_scene_mesh_vertex, 3U> vertices{{
+            {{0, 0}, {0, 0}, {1, 1, 1, 0}},
+            {{8, 0}, {8, 0}, {1, 1, 1, 1}},
+            {{0, 8}, {0, 8}, {1, 1, 1, 1}}}};
+        if (!mesh_builder.draw_vertex_meshes({&mesh, 1U}, vertices, {}, {}, {0, 0, 8, 8}) ||
+            mesh_builder.required_stream_size() == 0U) return 1;
+    }
     static_assert(progpu::native::PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL == 4U);
     {
         progpu::native::semantic_scene_builder shader_builder(9840U, 1U);

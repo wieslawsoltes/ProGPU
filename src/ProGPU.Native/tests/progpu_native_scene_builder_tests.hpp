@@ -4,6 +4,7 @@
 namespace progpu::native::tests {
 
 bool semantic_scene_builder_is_deterministic_and_valid();
+bool semantic_scene_builder_vertex_mesh_is_owned_and_atomic();
 bool semantic_scene_builder_rgb_transport_is_owned_and_atomic();
 bool semantic_scene_builder_target_clear_is_owned_and_atomic();
 bool semantic_scene_builder_target_clear_preserves_input_owners();

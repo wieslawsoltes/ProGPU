@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp"
+#include "progpu_native_scene_builder.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_font_source_fixture.hpp"
 #include "progpu_native_hint_fault_fixture.hpp"
@@ -208,5 +209,53 @@ void verify_prepared_glyph_pixels(Render render, Require require)
     require(stream.reads == reads && face.outline_calls == 0U && face.table_calls == 0U && font->cached_glyph_count() == 3U,
         "prepared repeated draw must reuse original context without source callbacks");
     }
+}
+// Explicit preparation seam only: ordinary recorder selection remains gated.
+// Original Windows source receipts independently fix these fractional edge
+// values. They catch confusing mesh color blend numbering with layer blending.
+template<class Render, class Require>
+void verify_prepared_glyph_coverage_pixels(Render render, Require require)
+{
+    std::vector<std::byte> bytes;
+    progpu_native_scene_header header{};
+    {
+        font_stream stream; stream.bytes = prepared_pixel_font(0U); stream.declared_size = stream.bytes.size();
+        font_loader loader; loader.stream = &stream;
+        font_file file; file.loader = &loader;
+        font_face face; face.files[0] = &file; face.declared_count = 1U;
+        face.type = 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+        std::shared_ptr<const original_font_capture> source;
+        std::shared_ptr<prepared_original_font> font;
+        com::pointer<compat::factory> factory;
+        require(compat::create_factory(factory.put()) == com::ok && capture_original_font(&face, source) == com::ok &&
+            prepared_original_font::create(source, font) == com::ok, "coverage mesh original font ownership");
+        rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+        original_glyph_target frame{com::pointer<com::unknown>(factory.get()), 1U,
+            prepared_pixel_transform(1U), prepared_pixel_baseline(false), {64U, 64U}, 96, 96, {}, compat::text_antialias_mode::grayscale};
+        const std::uint16_t indices[]{1U, 0U, 2U};
+        const float advances[]{24, -3, 24};
+        const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
+        const compat::glyph_run run{&face, 62.5F, 3U, indices, advances, offsets, 0, 2U};
+        std::shared_ptr<const original_glyph_request> request;
+        std::shared_ptr<const prepared_original_glyph_run> prepared;
+        prepared_original_glyph_coverage coverage;
+        require(capture_original_glyph_request(source, run, compat::measuring_mode::natural,
+            &parameters, frame, request) == com::ok && font->prepare(request, prepared) == com::ok &&
+            prepared->prepare_coverage(factory.get(), coverage) == com::ok, "complete prepared coverage mesh");
+        semantic_scene_builder builder(0x95D228U, 1U);
+        std::uint32_t brush = 0U;
+        require(builder.add_solid_brush({1, 0, 0, 1}, 1, brush), "coverage source brush");
+        const std::vector<std::uint32_t> brushes(coverage.meshes.size(), brush);
+        require(builder.draw_vertex_meshes(coverage.meshes, coverage.vertices, {}, brushes, coverage.bounds) &&
+            builder.build(bytes) && read_scene_value(bytes, 0U, header), "retained coverage mesh serialization");
+    } // Font, source request, prepared output and builder end before replay.
+    const auto cold = render(bytes, header), warm = render(bytes, header);
+    require(cold.size() == 64U*64U*4U && cold == warm, "coverage mesh cold/warm exact pixels");
+    const auto pixel = [&](unsigned x, unsigned y, std::uint8_t red) {
+        const auto offset = (y*64U+x)*4U;
+        return cold[offset] == red && cold[offset+1U] == 0U && cold[offset+2U] == 0U && cold[offset+3U] == 255U;
+    };
+    require(pixel(0, 0, 0) && pixel(10, 10, 255) && pixel(5, 5, 149) &&
+        pixel(24, 3, 149) && pixel(43, 3, 75), "original source interior/background/fractional coverage bytes");
 }
 } // namespace progpu::native::direct2d::tests
