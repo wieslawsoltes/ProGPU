@@ -15,18 +15,36 @@ struct rgb_instance final {
 };
 static_assert(sizeof(rgb_instance) == 48U);
 
+// Disjoint physical cells retain ordered references to the original glyphs.
+// One fragment owns every blend at its pixel, including overlapping glyphs;
+// hardware blend/UNORM conversion cannot round an intermediate channel for us.
+struct rgb_composite_cell final {
+    std::uint32_t origin[2];
+    std::uint32_t extent[2];
+    std::uint32_t first, count;
+    std::uint32_t reserved[2];
+};
+static_assert(sizeof(rgb_composite_cell) == 32U);
+
+struct rgb_composite_frame final {
+    float extent[2];
+    float render_origin[2];
+    std::uint32_t backdrop_origin[2];
+    std::uint32_t reserved[2];
+};
+static_assert(sizeof(rgb_composite_frame) == 32U);
+
 bool create_rgb_composite_pipelines(progpu_native_engine& engine, WGPUPipelineLayout layout,
     std::array<WGPURenderPipeline, 3U>& pipelines, const std::array<const char*, 3U>& names)
 {
     constexpr std::array<WGPUColorWriteMask, 3U> masks{
         WGPUColorWriteMask_Red, WGPUColorWriteMask_Green, WGPUColorWriteMask_Blue};
-    WGPUBlendState blend{};
-    blend.color = {WGPUBlendOperation_Add, WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha};
-    blend.alpha = {WGPUBlendOperation_Add, WGPUBlendFactor_Zero, WGPUBlendFactor_One};
     for (std::size_t channel = 0U; channel < names.size(); ++channel) {
         WGPUColorTargetState target{};
         target.format = engine.target_format;
-        target.blend = &blend;
+        // The shader reads the actual owned destination and rounds each
+        // original source contribution. Channel masks preserve target alpha.
+        target.blend = nullptr;
         target.writeMask = masks[channel];
         WGPUFragmentState stage{};
         stage.module = engine.rgb_glyph_pipelines.composite_shader;
@@ -127,19 +145,28 @@ bool ensure_rgb_pipelines(progpu_native_engine& engine, bool fragment)
             owned.fragment = wgpuDeviceCreateRenderPipeline(engine.device, &descriptor);
             if (owned.fragment == nullptr) return false;
         }
-        std::array<WGPUBindGroupLayoutEntry, 3U> composite{};
+        std::array<WGPUBindGroupLayoutEntry, 6U> composite{};
         composite[0].binding = 0U;
         composite[0].visibility = WGPUShaderStage_Fragment;
         composite[0].texture.sampleType = WGPUTextureSampleType_UnfilterableFloat;
         composite[0].texture.viewDimension = WGPUTextureViewDimension_2D;
         composite[1].binding = 1U;
-        composite[1].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+        composite[1].visibility = WGPUShaderStage_Fragment;
         composite[1].buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
         composite[1].buffer.minBindingSize = sizeof(rgb_instance);
         composite[2].binding = 2U;
         composite[2].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
         composite[2].buffer.type = WGPUBufferBindingType_Uniform;
-        composite[2].buffer.minBindingSize = 16U;
+        composite[2].buffer.minBindingSize = sizeof(rgb_composite_frame);
+        composite[3] = composite[0];
+        composite[3].binding = 3U;
+        composite[4] = composite[1];
+        composite[4].binding = 4U;
+        composite[4].visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+        composite[4].buffer.minBindingSize = sizeof(rgb_composite_cell);
+        composite[5] = composite[1];
+        composite[5].binding = 5U;
+        composite[5].buffer.minBindingSize = sizeof(std::uint32_t);
         WGPUBindGroupLayoutDescriptor composite_layout{};
         composite_layout.entryCount = composite.size();
         composite_layout.entries = composite.data();
@@ -195,7 +222,7 @@ bool ensure_rgb_mask_pipelines(progpu_native_engine& engine, bool chained)
 } // namespace
 
 progpu_native_status encode_linear_rgb_glyphs(
-    progpu_native_engine& engine, WGPUTextureView target,
+    progpu_native_engine& engine, WGPUTexture target_texture, WGPUTextureView target,
     std::uint32_t target_width, std::uint32_t target_height,
     bool target_ignores_alpha, const rgb_glyph_policy& policy,
     const rgb_glyph_scissor& scissor,
@@ -208,7 +235,7 @@ progpu_native_status encode_linear_rgb_glyphs(
     // Admission is deliberately distinct from original DWrite rendering modes.
     // No unsupported gamma, contrast, intermediate ClearTypeLevel, sRGB target,
     // translucent background or CPU raster preference is silently normalized.
-    if (engine.semantic_encoder == nullptr || target == nullptr || !target_ignores_alpha ||
+    if (engine.semantic_encoder == nullptr || target_texture == nullptr || target == nullptr || !target_ignores_alpha ||
         (mask_binding != nullptr && mask_chain_binding != nullptr) ||
         target_width == 0U || target_height == 0U || target_width > native_max_atlas_size ||
         target_height > native_max_atlas_size || glyphs.empty() || glyphs.size() > 65536U || segments.empty() ||
@@ -302,6 +329,82 @@ progpu_native_status encode_linear_rgb_glyphs(
             row_height = std::max(row_height, glyph.height);
         }
         const auto atlas_height = y + row_height;
+        // Clip only composition membership, never the original sample frame or
+        // atlas. Copy the bounding rectangle of the actual visible glyph tiles,
+        // not the whole target and never an inferred background color.
+        const auto clipped = [&](const rgb_glyph_tile& glyph) {
+            return std::array<std::int32_t, 4U>{
+                std::max(glyph.target_x, static_cast<std::int32_t>(scissor.x)),
+                std::max(glyph.target_y, static_cast<std::int32_t>(scissor.y)),
+                std::min(glyph.target_x + static_cast<std::int32_t>(glyph.width),
+                    static_cast<std::int32_t>(scissor.x + scissor.width)),
+                std::min(glyph.target_y + static_cast<std::int32_t>(glyph.height),
+                    static_cast<std::int32_t>(scissor.y + scissor.height))};
+        };
+        std::uint32_t left = target_width, top = target_height, right = 0U, bottom = 0U;
+        for (const auto& glyph : glyphs) {
+            const auto rect = clipped(glyph);
+            if (rect[0] >= rect[2] || rect[1] >= rect[3]) continue;
+            left = std::min(left, static_cast<std::uint32_t>(rect[0]));
+            top = std::min(top, static_cast<std::uint32_t>(rect[1]));
+            right = std::max(right, static_cast<std::uint32_t>(rect[2]));
+            bottom = std::max(bottom, static_cast<std::uint32_t>(rect[3]));
+        }
+        constexpr std::uint32_t cell_size = 16U;
+        const bool visible = left < right && top < bottom;
+        const auto first_column = visible ? left / cell_size : 0U;
+        const auto first_row = visible ? top / cell_size : 0U;
+        const auto columns = visible ? (right - 1U) / cell_size - first_column + 1U : 0U;
+        const auto rows = visible ? (bottom - 1U) / cell_size - first_row + 1U : 0U;
+        std::vector<rgb_composite_cell> cells(columns * rows);
+        for (std::uint32_t row = 0U; row < rows; ++row) {
+            for (std::uint32_t column = 0U; column < columns; ++column) {
+                auto& cell = cells[row * columns + column];
+                const auto cell_x = (first_column + column) * cell_size;
+                const auto cell_y = (first_row + row) * cell_size;
+                cell.origin[0] = std::max(left, cell_x);
+                cell.origin[1] = std::max(top, cell_y);
+                cell.extent[0] = std::min(right, cell_x + cell_size) - cell.origin[0];
+                cell.extent[1] = std::min(bottom, cell_y + cell_size) - cell.origin[1];
+            }
+        }
+        const auto visit_cells = [&](const rgb_glyph_tile& glyph, const auto& visit) {
+            const auto rect = clipped(glyph);
+            if (rect[0] >= rect[2] || rect[1] >= rect[3]) return;
+            const auto x0 = static_cast<std::uint32_t>(rect[0]) / cell_size - first_column;
+            const auto y0 = static_cast<std::uint32_t>(rect[1]) / cell_size - first_row;
+            const auto x1 = static_cast<std::uint32_t>(rect[2] - 1) / cell_size - first_column;
+            const auto y1 = static_cast<std::uint32_t>(rect[3] - 1) / cell_size - first_row;
+            for (auto row = y0; row <= y1; ++row)
+                for (auto column = x0; column <= x1; ++column) visit(row * columns + column);
+        };
+        for (const auto& glyph : glyphs)
+            visit_cells(glyph, [&](std::uint32_t index) { ++cells[index].count; });
+        const auto storage_limit = std::min(engine.max_buffer_size, std::uint64_t{128U * 1024U * 1024U});
+        std::uint64_t reference_count = 0U;
+        for (auto& cell : cells) {
+            cell.first = static_cast<std::uint32_t>(reference_count);
+            reference_count += cell.count;
+            if (reference_count > storage_limit / sizeof(std::uint32_t))
+                return engine.fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT, "RGB glyph cell references exceed the storage budget.");
+        }
+        if (cells.size() * sizeof(rgb_composite_cell) > storage_limit)
+            return engine.fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT, "RGB glyph cells exceed the storage budget.");
+        // Nonempty binding storage is required even for a zero-instance draw.
+        std::vector<std::uint32_t> references(std::max<std::uint64_t>(1U, reference_count));
+        std::vector<std::uint32_t> cursors(cells.size());
+        for (std::uint32_t index = 0U; index < glyphs.size(); ++index)
+            visit_cells(glyphs[index], [&](std::uint32_t cell) {
+                references[cells[cell].first + cursors[cell]++] = index;
+            });
+        cells.erase(std::remove_if(cells.begin(), cells.end(),
+            [](const rgb_composite_cell& cell) { return cell.count == 0U; }), cells.end());
+        const auto cell_count = static_cast<std::uint32_t>(cells.size());
+        if (cells.empty()) cells.emplace_back();
+        const auto backdrop_x = visible ? left : scissor.x;
+        const auto backdrop_y = visible ? top : scissor.y;
+        const auto backdrop_width = visible ? right - left : 1U;
+        const auto backdrop_height = visible ? bottom - top : 1U;
         std::vector<std::byte> uniform_bytes(glyphs.size() * 256U);
         for (std::size_t index = 0U; index < uniforms.size(); ++index)
             std::memcpy(uniform_bytes.data() + index * 256U, &uniforms[index], sizeof(gpu_glyph_uniforms));
@@ -328,13 +431,16 @@ progpu_native_status encode_linear_rgb_glyphs(
         };
         const std::array<std::uint32_t, 4U> raster_policy{
             policy.pixel_geometry, static_cast<std::uint32_t>(policy.filter_model), 0U, 0U};
-        const std::array<float, 4U> frame{static_cast<float>(target_width), static_cast<float>(target_height), 0.0F, 0.0F};
+        const rgb_composite_frame frame{{static_cast<float>(target_width), static_cast<float>(target_height)},
+            {0.0F, 0.0F}, {backdrop_x, backdrop_y}, {0U, 0U}};
         if (!upload(resources.uniforms, uniform_bytes.data(), uniform_bytes.size(), WGPUBufferUsage_Uniform) ||
             !upload(resources.records, records.data(), records.size() * sizeof(gpu_glyph_record), WGPUBufferUsage_Storage) ||
             !upload(resources.segments, segments.data(), segments.size_bytes(), WGPUBufferUsage_Storage) ||
             !upload(resources.rgb_policy, raster_policy.data(), sizeof(raster_policy), WGPUBufferUsage_Uniform) ||
             !upload(resources.rgb_instances, instances.data(), instances.size() * sizeof(rgb_instance), WGPUBufferUsage_Storage) ||
-            !upload(resources.rgb_frame, frame.data(), sizeof(frame), WGPUBufferUsage_Uniform) ||
+            !upload(resources.rgb_cells, cells.data(), cells.size() * sizeof(rgb_composite_cell), WGPUBufferUsage_Storage) ||
+            !upload(resources.rgb_references, references.data(), references.size() * sizeof(std::uint32_t), WGPUBufferUsage_Storage) ||
+            !upload(resources.rgb_frame, &frame, sizeof(frame), WGPUBufferUsage_Uniform) ||
             (!fragment && !upload(resources.coverage, nullptr, staging_bytes, WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc)))
             return engine.fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY, "RGB glyph batch storage could not be allocated.");
         WGPUTextureDescriptor texture{};
@@ -349,6 +455,15 @@ progpu_native_status encode_linear_rgb_glyphs(
             resources.rgb_coverage_view = wgpuTextureCreateView(resources.rgb_coverage, nullptr);
         if (resources.rgb_coverage_view == nullptr)
             return engine.fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY, "RGB glyph coverage storage could not be allocated.");
+        texture.label = webgpu::string_view("ProGPU RGB glyph owned destination snapshot");
+        texture.size = {backdrop_width, backdrop_height, 1U};
+        texture.format = engine.target_format;
+        texture.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+        resources.rgb_backdrop = wgpuDeviceCreateTexture(engine.device, &texture);
+        if (resources.rgb_backdrop != nullptr)
+            resources.rgb_backdrop_view = wgpuTextureCreateView(resources.rgb_backdrop, nullptr);
+        if (resources.rgb_backdrop_view == nullptr)
+            return engine.fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY, "RGB glyph destination snapshot could not be allocated.");
         std::array<WGPUBindGroupEntry, 5U> entries{{
             {nullptr, 0U, resources.uniforms, 0U, sizeof(gpu_glyph_uniforms), nullptr, nullptr},
             {nullptr, 1U, resources.records, 0U, records.size() * sizeof(gpu_glyph_record), nullptr, nullptr},
@@ -361,10 +476,13 @@ progpu_native_status encode_linear_rgb_glyphs(
         binding.entryCount = fragment ? 4U : 5U;
         binding.entries = entries.data();
         resources.bind_group = wgpuDeviceCreateBindGroup(engine.device, &binding);
-        const std::array<WGPUBindGroupEntry, 3U> composite_entries{{
+        const std::array<WGPUBindGroupEntry, 6U> composite_entries{{
             {nullptr, 0U, nullptr, 0U, 0U, nullptr, resources.rgb_coverage_view},
             {nullptr, 1U, resources.rgb_instances, 0U, instances.size() * sizeof(rgb_instance), nullptr, nullptr},
-            {nullptr, 2U, resources.rgb_frame, 0U, sizeof(frame), nullptr, nullptr}}};
+            {nullptr, 2U, resources.rgb_frame, 0U, sizeof(frame), nullptr, nullptr},
+            {nullptr, 3U, nullptr, 0U, 0U, nullptr, resources.rgb_backdrop_view},
+            {nullptr, 4U, resources.rgb_cells, 0U, cells.size() * sizeof(rgb_composite_cell), nullptr, nullptr},
+            {nullptr, 5U, resources.rgb_references, 0U, references.size() * sizeof(std::uint32_t), nullptr, nullptr}}};
         binding.layout = engine.rgb_glyph_pipelines.composite_layout;
         binding.entryCount = composite_entries.size();
         binding.entries = composite_entries.data();
@@ -423,6 +541,15 @@ progpu_native_status encode_linear_rgb_glyphs(
                 wgpuCommandEncoderCopyBufferToTexture(engine.semantic_encoder, &source, &destination, &extent);
             }
         }
+        webgpu::image_copy_texture source{};
+        source.texture = target_texture;
+        source.origin = {backdrop_x, backdrop_y, 0U};
+        source.aspect = WGPUTextureAspect_All;
+        webgpu::image_copy_texture destination{};
+        destination.texture = resources.rgb_backdrop;
+        destination.aspect = WGPUTextureAspect_All;
+        const WGPUExtent3D backdrop_extent{backdrop_width, backdrop_height, 1U};
+        wgpuCommandEncoderCopyTextureToTexture(engine.semantic_encoder, &source, &destination, &backdrop_extent);
         WGPURenderPassColorAttachment attachment{};
         webgpu::initialize_color_attachment(attachment);
         attachment.view = target;
@@ -444,12 +571,13 @@ progpu_native_status encode_linear_rgb_glyphs(
         }
         for (auto pipeline : pipelines) {
             wgpuRenderPassEncoderSetPipeline(pass, pipeline);
-            wgpuRenderPassEncoderDraw(pass, 6U, static_cast<std::uint32_t>(instances.size()), 0U, 0U);
+            wgpuRenderPassEncoderDraw(pass, 6U, cell_count, 0U, 0U);
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
         metrics.vertex_upload_bytes = records.size() * sizeof(gpu_glyph_record) +
-            segments.size_bytes() + instances.size() * sizeof(rgb_instance);
+            segments.size_bytes() + instances.size() * sizeof(rgb_instance) +
+            cells.size() * sizeof(rgb_composite_cell) + references.size() * sizeof(std::uint32_t);
         metrics.uniform_upload_bytes = uniform_bytes.size() + sizeof(raster_policy) + sizeof(frame);
         metrics.draw_calls = 3U + (fragment ? static_cast<std::uint32_t>(glyphs.size()) : 0U);
         return PROGPU_NATIVE_STATUS_SUCCESS;

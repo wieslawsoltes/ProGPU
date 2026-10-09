@@ -30,6 +30,11 @@ struct rgb_scene_case final {
     bool mapped{};
     bool accepted{true};
     progpu_native_scene_presentation presentation{};
+    // Additive destination controls leave the original 24 scene cases and
+    // 40 mask/phase inputs byte-for-byte unchanged.
+    progpu_native_color background{1, 1, 1, 1};
+    bool mixed_foreground{};
+    std::int32_t tile_offset_x{}, tile_offset_y{};
 };
 
 inline rgb_scene_case rgb_scene_case_for(unsigned variant) {
@@ -78,6 +83,21 @@ inline std::array<progpu_native_scene_rgb_glyph_tile, 4U> rgb_scene_tiles(const 
         progpu_native_scene_rgb_glyph_tile{0U, 8U, 8U, 0U, -1, -5, 1, 0.25F,
             static_cast<std::int32_t>(16.0F * test.dpi), origin + 10,
             {0, 1, 0, test.foreground_alpha}}};
+    if (test.mixed_foreground) {
+        constexpr std::array<progpu_native_color, 4U> colors{{
+            {17.0F / 255, 193.0F / 255, 43.0F / 255, 1},
+            {227.0F / 255, 61.0F / 255, 149.0F / 255, 1},
+            {103.0F / 255, 19.0F / 255, 211.0F / 255, 1},
+            {71.0F / 255, 167.0F / 255, 31.0F / 255, 1}}};
+        for (std::size_t i = 0U; i < tiles.size(); ++i) {
+            tiles[i].foreground = colors[i];
+            tiles[i].foreground.a = test.foreground_alpha;
+        }
+    }
+    for (auto& tile : tiles) {
+        tile.target_x += test.tile_offset_x;
+        tile.target_y += test.tile_offset_y;
+    }
     if (test.reversed) std::swap(tiles[0], tiles[1]);
     return tiles;
 }
@@ -175,7 +195,7 @@ bool build_rgb_scene_fixture(const rgb_scene_case& test, std::uint64_t generatio
         return builder.save(state_resource) &&
             builder.draw_rgb_glyph_run(glyph_resource, draw, glyphs, layer.bounds) && builder.restore();
     };
-    if (!rectangle(layer.bounds, {1, 1, 1, 1}) ||
+    if (!rectangle(layer.bounds, test.background) ||
         !draw_rgb(std::span(tiles).first(3U)) ||
         !rectangle({16, 8, 4, 24}, {0, 0, 1, 1})) return fail("ordered prefix");
     draw.glyph_count = 1U;
@@ -234,7 +254,10 @@ std::vector<std::uint8_t> rgb_scene_expected(const rgb_scene_case& test, Require
             std::copy(color.begin(), color.end(), pixels.begin() + static_cast<std::ptrdiff_t>(offset));
         }
     };
-    fill(left, top, right, bottom, {255U, 255U, 255U});
+    fill(left, top, right, bottom, {
+        static_cast<std::uint8_t>(std::floor(test.background.r * 255.0 + 0.5)),
+        static_cast<std::uint8_t>(std::floor(test.background.g * 255.0 + 0.5)),
+        static_cast<std::uint8_t>(std::floor(test.background.b * 255.0 + 0.5))});
     const auto tiles = rgb_scene_tiles(test);
     const auto paint = [&](const progpu_native_scene_rgb_glyph_tile& tile) {
         const int dx = static_cast<int>(test.translation * test.dpi) + viewport_x;
@@ -345,6 +368,52 @@ void verify_rgb_glyph_scene_pixels(Render render, Require require) {
         require(render(route, stream, header, unsupported, metrics).empty() &&
             metrics.submission_count == 0U && metrics.draw_call_count == 0U,
             "RGB CPU/sRGB policy silently selected another renderer or submitted");
+    }
+}
+
+// The independent rectangle/sample oracle performs each original source blend
+// in double precision. It has no spatial-cell, snapshot, or shader dependency.
+// These inputs exercise arbitrary existing colors, source overlap/order,
+// target-local clipping, empty composition, cell seams, DPI and viewport origin.
+template<class Render, class Require>
+void verify_rgb_glyph_destination_pixels(Render render, Require require) {
+    for (unsigned variant = 0U; variant < 8U; ++variant) {
+        auto test = rgb_scene_case_for(variant == 5U ? 11U : variant == 6U ? 12U : 1U);
+        test.variant = 200U + variant;
+        test.background = {37.0F / 255, 109.0F / 255, 193.0F / 255, 1};
+        test.mixed_foreground = true;
+        test.opacity = 0.61F;
+        test.foreground_alpha = 0.37F;
+        test.reversed = variant == 1U;
+        test.tile_offset_x = variant == 2U ? 3 : variant == 3U ? -5 : variant == 4U ? 40 : 0;
+        test.tile_offset_y = variant == 2U ? 2 : variant == 3U ? -5 : 0;
+        test.clip = variant == 7U;
+        const auto expected = rgb_scene_expected(test, require);
+        std::vector<std::byte> stream;
+        progpu_native_scene_header header{};
+        require(build_rgb_scene_fixture(test, 200U + variant, stream, header),
+            "RGB destination fixture construction failed");
+        for (unsigned route = 0U; route < 2U; ++route) {
+            for (unsigned replay = 0U; replay < 2U; ++replay) {
+                progpu_native_scene_frame_metrics metrics{};
+                metrics.struct_size = sizeof(metrics);
+                const auto pixels = render(route, stream, header, test, metrics);
+                if (pixels != expected) {
+                    std::size_t first{};
+                    while (first < std::min(pixels.size(), expected.size()) && pixels[first] == expected[first]) ++first;
+                    std::fprintf(stderr, "RGB destination mismatch variant=%u route=%u replay=%u byte=%zu "
+                        "actual=%u expected=%u\n", variant, route, replay, first,
+                        first < pixels.size() ? pixels[first] : 999U,
+                        first < expected.size() ? expected[first] : 999U);
+                }
+                require(pixels == expected, "RGB actual destination/source-order pixels differ from independent blends");
+                require(metrics.command_count == 6U && metrics.draw_call_count == (route == 0U ? 9U : 13U) &&
+                    metrics.submission_count == 1U && metrics.coverage_staging_bytes == 0U &&
+                    metrics.vertex_upload_bytes > 0U && metrics.uniform_upload_bytes > 0U,
+                    "RGB destination composition changed original batch/submission accounting");
+            }
+        }
+        std::fprintf(stderr, "RGB destination variant=%u: compute/fragment cold/warm exact full pixels\n", variant);
     }
 }
 

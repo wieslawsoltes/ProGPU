@@ -3931,6 +3931,7 @@ int main(int argc, char** argv) {
             };
         progpu::native::tests::verify_rgb_glyph_scene_pixels(render_rgb, require);
         progpu::native::tests::verify_rgb_glyph_mask_scene_pixels(render_rgb, require);
+        progpu::native::tests::verify_rgb_glyph_destination_pixels(render_rgb, require);
         for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
     }
     report_phase("RGB source frames complete");

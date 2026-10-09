@@ -42,16 +42,18 @@ public class ShaderResourceTests
         string source = ShaderResource.Load(typeof(Shaders), "GlyphRgbComposite.wgsl");
         string sharedMasks = ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl");
         Assert.Equal(string.Concat(sharedMasks, "\n", source), Shaders.GlyphRgbCompositeShader);
-        Assert.Contains("coverage[channel] * glyph.foreground.a", source, StringComparison.Ordinal);
-        Assert.Contains("textureLoad(rgbCoverage, pixel, 0).rgb", source, StringComparison.Ordinal);
-        Assert.Contains("rgb_channel_output(input, 0u)", source, StringComparison.Ordinal);
-        Assert.Contains("rgb_channel_output(input, 1u)", source, StringComparison.Ordinal);
-        Assert.Contains("rgb_channel_output(input, 2u)", source, StringComparison.Ordinal);
+        Assert.Contains("coverage * glyph.foreground.a", source, StringComparison.Ordinal);
+        Assert.Contains("textureLoad(rgbCoverage, pixel, 0)[channel]", source, StringComparison.Ordinal);
+        Assert.Contains("textureLoad(rgbBackdrop, backdropPixel, 0)[channel]", source, StringComparison.Ordinal);
+        Assert.Contains("destination = floor(value + 0.5)", source, StringComparison.Ordinal);
+        Assert.Contains("rgb_channel_output(input, 0u, 1.0, 1.0)", source, StringComparison.Ordinal);
+        Assert.Contains("rgb_channel_output(input, 1u, 1.0, 1.0)", source, StringComparison.Ordinal);
+        Assert.Contains("rgb_channel_output(input, 2u, 1.0, 1.0)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("textureSample", source, StringComparison.Ordinal);
         Assert.DoesNotContain("pow(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("max(", source, StringComparison.Ordinal);
-        Assert.Contains("source.a * sample_mask_alpha(input.position.xy)", source, StringComparison.Ordinal);
-        Assert.Contains("source.a * sample_mask_chain_alpha(input.position.xy)", source, StringComparison.Ordinal);
+        Assert.Contains("let primary = sample_mask_alpha(input.position.xy)", source, StringComparison.Ordinal);
+        Assert.Contains("let chain = sample_mask_chain_alpha(input.position.xy)", source, StringComparison.Ordinal);
         Assert.Contains("renderOrigin: vec2<f32>", source, StringComparison.Ordinal);
         foreach (string channel in new[] { "red", "green", "blue" })
         {
@@ -63,7 +65,8 @@ public class ShaderResourceTests
         string execution = File.ReadAllText(Path.Combine(root, "src", "ProGPU.Native", "src", "Backend",
             "progpu_native_rgb_glyph_execution.cpp"));
         Assert.Contains("WGPUColorWriteMask_Red, WGPUColorWriteMask_Green, WGPUColorWriteMask_Blue", execution, StringComparison.Ordinal);
-        Assert.Contains("WGPUBlendFactor_SrcAlpha, WGPUBlendFactor_OneMinusSrcAlpha", execution, StringComparison.Ordinal);
+        Assert.Contains("target.blend = nullptr", execution, StringComparison.Ordinal);
+        Assert.Contains("source.texture = target_texture", execution, StringComparison.Ordinal);
         Assert.Contains("progpu_native_engine::raster_resource_lease lease(engine, true)", execution, StringComparison.Ordinal);
         Assert.Contains("engine.dispatch_compute(pass, engine.rgb_glyph_pipelines.compute", execution, StringComparison.Ordinal);
         Assert.DoesNotContain("wgpuQueueSubmit", execution, StringComparison.Ordinal);

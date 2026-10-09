@@ -18,10 +18,13 @@ The compute and compatible fragment entries execute the same canonical function.
 The first lane admits only gamma 1, contrast 0, ClearType level 1 and normalized
 straight foreground RGBA, on an original proven opaque single-sample UNORM target.
 It rejects forced CPU preferences, sRGB targets and unimplemented parameter
-policies. Three instanced draws write R, G and B separately, blending each
-channel's own coverage times foreground opacity against that destination channel.
-They preserve source order independently per channel and never modify target
-alpha. No max-channel alpha, destination copy, per-glyph submission, CPU pixels,
+policies. Three instanced draws write R, G and B separately against an immutable
+GPU snapshot of the actual owned destination. Disjoint physical cells walk their
+original glyph occurrences in source order, blending each channel's own coverage
+times foreground opacity and rounding each intermediate result to a byte before
+the next glyph. Final byte-normalized writes disable hardware blending and retain
+the separate channel write masks, so target alpha is never modified. No
+max-channel alpha, invented background, per-glyph copy/submission, CPU pixels,
 readback or nonlinear correction substitute is used.
 
 Both native providers compile the same execution translation unit and shader
@@ -30,8 +33,8 @@ shader accessors expose the identical canonical programs but do not register an
 RGB path in the managed compositor. Its actual retained command/resource adapter
 and matched GPU fixtures are still required before that consumer is admitted.
 
-Pipeline objects are lazy and engine-owned. Batch buffers and RGBA coverage
-textures enter the existing real-submission raster-resource retirement lease and
+Pipeline objects are lazy and engine-owned. Batch buffers, RGBA coverage and
+destination-snapshot textures enter the existing real-submission raster-resource retirement lease and
 GPU memory inventory. Trace events identify the owned RGB compute pipeline but
 do not report completion. All input validation and buffer/atlas bounds precede
 encoding. Failure after encoding requires the caller to discard its current
@@ -40,12 +43,21 @@ borrows only the engine's current target under its lock: it is not a foreign
 texture-view ABI, and a source adapter must preserve actual clips, transform,
 opacity and target ownership before calling it.
 
-For G glyphs, S supplied segments and P raster pixels, bounded CPU packing is
-O(G + S) time and O(G) scratch; GPU winding work is O(P·S) with three fixed 8×8
-integrals and fixed private sample lanes. The current private batch admits at
+For G glyphs, S supplied segments, P raster pixels, C candidate 16×16 physical
+cells and R glyph/cell intersections, bounded CPU packing is O(G + S + C + R)
+time and O(G + C + R) scratch. Counts/prefixes and stable source-order insertion
+avoid a per-cell scan over the entire glyph batch. GPU winding work is O(P·S)
+with three fixed 8×8 integrals and fixed private sample lanes; composition is
+O(256·R) per channel with one coverage load only inside each original tile.
+One CopyTextureToTexture copies the visible tiles' physical bounding rectangle
+before composition; for B pixels it costs O(B) GPU storage/bandwidth and no
+additional submission. Empty composition still encodes the three actual
+zero-instance draws with minimal nonempty bindings. The current private batch admits at
 most 65,536 tiles, 1,048,576 segments and a 4096² atlas; a failed bounded shelf is
 an error, not a fallback. Buffer bindings stay inside the original device limit
-and portable storage-binding limit. Raster work is batched in one compute or
+and portable storage-binding limit. Target bounds cap the cell grid at 65,536
+cells and the snapshot at 4096² pixels; reference storage is independently checked
+against the device and 128 MiB portable binding limits. Raster work is batched in one compute or
 fragment pass followed by one three-draw composition pass. Retained atlas reuse
 and final cold/warm performance qualification remain follow-on work.
 
@@ -226,3 +238,49 @@ a demonstrated repair. Additional raw passes retain the pre-conversion float,
 shader-rounded byte, and explicit byte quantization from both sampled and
 arithmetic coverage. All 256 comparisons are counted. These observations do not
 change the product shader, blending, expected pixels or qualification gates.
+
+## Explicit destination-byte composition
+
+The Intel UNORM observation motivated the destination-aware composition above.
+The private encoder now receives the actual semantic layer texture and its
+matching view under the original engine lock. Replay still proves opacity from
+that live materialized slot. Its existing CopySrc usage permits a GPU snapshot;
+no texture is inferred from a view, foreign handle, root clear or ancestor.
+Only the union of visible tile bounds is copied, preserving physical target-local
+placement, source scissor and BGRA/RGBA format. Atlas packing and sample inputs
+are unchanged.
+
+Cells are disjoint and clip to that same rectangle. Each cell retains all
+intersecting glyph indices in original order; the shader checks each original
+tile's half-open bounds before loading coverage. This preserves intermediate
+byte rounding at overlaps instead of blending every glyph against the same
+stale background. The byte rule is nearest integer with upward half ties for
+this explicitly selected box model. The independent existing tests continue
+to reject ambiguous halfway inputs rather than assert an original DirectWrite
+tie policy. Primary and continuation mask helpers execute before the divergent
+glyph loop so their original derivatives/filtering remain defined. Their
+values multiply each original coverage once, in the original operation order.
+
+The implementation provenance is the original ProGPU RGB encoder, semantic
+layer ownership, shared text-mask shader and independent rectangle/sample
+oracle. No external renderer implementation was consulted or imported. Both
+native providers compile the same changed encoder and shader. The managed
+accessor assembles that identical shader with the original mask helpers; the
+managed compositor has no admitted RGB replay consumer and therefore no
+parallel destination encoder to change. Source/ABI controls do not qualify it.
+
+The original 24 scene and 40 mask/phase cases and their exact full-byte,
+submission and draw-count gates remain unchanged. Eight additive destination
+cases cover nonwhite colors, nonbinary foregrounds, reversed overlaps, cell
+seams, clipping, fully off-target tiles, DPI and viewport origin. Both providers
+use the same independent double-precision sequential-blend oracle for these
+cases. Validation and performance results must identify the exact integrated
+revision and provider; this change alone does not qualify Intel, Windows,
+packages or ordinary DirectWrite ClearType.
+
+Local macOS ARM64 Release validation passes all 49 native tests, including the
+stock RGBA corpus (12.52 s) and Dawn/WebScene BGRA corpus (7.15 s), and all 34
+managed shader-resource checks. Both providers execute all original and additive
+RGB controls. These are complete-test durations, not isolated blend benchmarks
+or a performance-improvement claim. Hosted Intel/Windows and exact producer
+package qualification remain required.

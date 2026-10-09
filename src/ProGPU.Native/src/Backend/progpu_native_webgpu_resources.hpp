@@ -101,9 +101,13 @@ struct path_raster_resources {
     // glyph raster storage, never a frame counter or temporary host lifetime.
     WGPUBuffer rgb_policy = nullptr;
     WGPUBuffer rgb_instances = nullptr;
+    WGPUBuffer rgb_cells = nullptr;
+    WGPUBuffer rgb_references = nullptr;
     WGPUBuffer rgb_frame = nullptr;
     WGPUTexture rgb_coverage = nullptr;
     WGPUTextureView rgb_coverage_view = nullptr;
+    WGPUTexture rgb_backdrop = nullptr;
+    WGPUTextureView rgb_backdrop_view = nullptr;
     WGPUBindGroup rgb_composite = nullptr;
 
     path_raster_resources() = default;
@@ -112,10 +116,14 @@ struct path_raster_resources {
 
     ~path_raster_resources() {
         if (rgb_composite != nullptr) wgpuBindGroupRelease(rgb_composite);
+        if (rgb_backdrop_view != nullptr) wgpuTextureViewRelease(rgb_backdrop_view);
+        if (rgb_backdrop != nullptr) wgpuTextureRelease(rgb_backdrop);
         if (rgb_coverage_view != nullptr) wgpuTextureViewRelease(rgb_coverage_view);
         if (rgb_coverage != nullptr) wgpuTextureRelease(rgb_coverage);
         release_buffer(rgb_policy);
         release_buffer(rgb_instances);
+        release_buffer(rgb_cells);
+        release_buffer(rgb_references);
         release_buffer(rgb_frame);
         if (bind_group != nullptr) {
             wgpuBindGroupRelease(bind_group);

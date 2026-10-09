@@ -6412,7 +6412,8 @@ progpu_native_status render_scene(
                     return fail_replay("An RGB glyph replay packet lost its actual opaque target.");
                 const auto& packet = *operation.rgb_glyphs;
                 rgb_glyph_metrics rgb_metrics{};
-                const auto rgb_status = encode_linear_rgb_glyphs(*engine, target_view(operation.target_layer),
+                const auto& rgb_target = engine->semantic_layer_slots[operation.target_layer];
+                const auto rgb_status = encode_linear_rgb_glyphs(*engine, rgb_target.texture, rgb_target.view,
                     operation.target_width, operation.target_height, true, packet.policy,
                     {operation.clip_x, operation.clip_y, operation.clip_width, operation.clip_height},
                     operation.mask_bind_group, operation.mask_chain_bind_group,

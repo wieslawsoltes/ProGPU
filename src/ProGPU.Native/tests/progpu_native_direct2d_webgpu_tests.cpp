@@ -2262,6 +2262,7 @@ void verify_explicit_rgb_glyphs(const gpu_context& gpu)
             if (!condition) diagnose_mask_precision(gpu);
             require(condition, message);
         });
+    progpu::native::tests::verify_rgb_glyph_destination_pixels(render_rgb, require);
     for (auto* selected : rgb_engines) progpu_native_engine_destroy(selected);
 }
 

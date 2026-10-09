@@ -44,12 +44,13 @@ struct rgb_glyph_metrics final {
 // Encode into the current owned semantic encoder, borrowing its live target.
 // Target opacity and physical integral placement must already be source-proven.
 // The caller holds the engine lock and supplies its current single-sample target
-// in engine.target_format with these exact dimensions. This is not a foreign
+// texture and its matching view in engine.target_format with these exact
+// dimensions; the owned texture must retain CopySrc usage. This is not a foreign
 // texture-view ABI. No source clip/transform may be silently discarded at call-in.
 // Reject CPU raster preferences; no local submit, wait, fallback or readback.
 // Successful encoding is not a completion or public source-admission claim.
 progpu_native_status encode_linear_rgb_glyphs(
-    progpu_native_engine& engine, WGPUTextureView target,
+    progpu_native_engine& engine, WGPUTexture target_texture, WGPUTextureView target,
     std::uint32_t target_width, std::uint32_t target_height,
     bool target_ignores_alpha, const rgb_glyph_policy& policy,
     const rgb_glyph_scissor& scissor,
