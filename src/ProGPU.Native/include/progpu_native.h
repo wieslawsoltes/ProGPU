@@ -245,7 +245,9 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH = 25,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN = 26,
     /* Explicit physical RGB coverage, not an implicit DirectWrite mode. */
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN = 27
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN = 27,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE = 28,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH = 29
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -1773,6 +1775,27 @@ typedef struct progpu_native_scene_rgb_glyph_tile {
     int32_t target_y;
     progpu_native_color foreground;
 } progpu_native_scene_rgb_glyph_tile;
+
+/* DRAW_SOURCE_COVERAGE uses the existing VERTEX_MESH resource with physical
+ * positions, independent original target-DIP paint coordinates and binary vertex
+ * coverage. Its payload is the usual draw_brushes prefix and exact mesh brush
+ * indices followed by this versioned frame. Ordinary meshes remain unchanged.
+ * Replay retains this DPI and full source viewport; only integral physical state
+ * translation is admitted. Clipped/degenerate triangle admission is explicit.
+ * DRAW_SOURCE_PATH uses PATH_BATCH with closed physical line contours, identity
+ * path transforms, 8x8 coverage, white color and the same exact frame suffix.
+ * It retains independent target-DIP paint and rejects changed presentation. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneSourceCoverageFrame */
+typedef struct progpu_native_scene_source_coverage_frame {
+    uint32_t struct_size;
+    uint32_t version;
+    float dpi_scale_x;
+    float dpi_scale_y;
+    uint32_t pixel_width;
+    uint32_t pixel_height;
+    uint32_t flags;
+    uint32_t reserved;
+} progpu_native_scene_source_coverage_frame;
 
 /* Dedicated direct glyph-paint GPU ABI. Legacy glyph/style records do not
  * consume this record. Texture mode is the original managed texture enum

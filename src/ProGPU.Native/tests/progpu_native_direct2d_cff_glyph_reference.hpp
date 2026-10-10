@@ -76,6 +76,7 @@ private:
 template<class Require, class Compare>
 void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWriteFactory* write_factory, Require require, Compare compare)
 {
+    std::uint32_t original_frame = 129U;
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
     require(write_factory->QueryInterface(IID_PPV_ARGS(extended_factory.GetAddressOf())) == S_OK,
@@ -330,8 +331,10 @@ void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWrit
                     pixels[path] = copy_pixels();
                 }
                 require(pixels[0].size() == 64U * 256U, "original glyph frame byte inventory");
-                compare(pixels[0] == pixels[1] && pixels[0] == pixels[2],
-                    "original CFF DrawGlyphRun/independent/prepared full-byte mismatch");
+                compare(original_glyph_reference_matches_bgra(pixels[0], original_frame++),
+                    "original DrawGlyphRun changed from its complete independent source receipt");
+                compare(pixels[1] == pixels[2],
+                    "original CFF FillGeometry independent/prepared full-byte mismatch");
                 if (nominal) compare(pixels[0] == pixels[3], "original CFF null versus actual design advance mismatch");
                 ++configurations;
             }
@@ -339,5 +342,6 @@ void verify_original_cff_glyph_pixels(ID2D1DeviceContext* source_context, IDWrit
     }
     require(configurations == 22U, "original CFF full independent configuration inventory");
     std::fprintf(stderr, "Original CFF complete configurations=%zu\n", configurations);
+    require(original_frame == 151U, "complete original cff_glyph receipt inventory");
 }
 } // namespace progpu::native::direct2d::tests

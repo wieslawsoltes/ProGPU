@@ -86,6 +86,7 @@ template<class Require, class Compare>
 void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
     IDWriteFactory* write_factory, Require require, Compare compare)
 {
+    std::uint32_t original_frame = 49U;
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
     require(write_factory->QueryInterface(IID_PPV_ARGS(extended_factory.GetAddressOf())) == S_OK,
@@ -356,13 +357,16 @@ void verify_original_variable_glyph_pixels(ID2D1DeviceContext* source_context,
                         case_index, nominal, variant, paths[index], require, geometry.get(), original_advances.data(), right_to_left, options);
                     pixels[index] = copy_pixels();
                 }
-                compare(pixels[0] == pixels[1] && pixels[0] == pixels[2],
-                    "original variable DrawGlyphRun/independent/prepared full-byte mismatch");
+                compare(original_glyph_reference_matches_bgra(pixels[0], original_frame++),
+                    "original DrawGlyphRun changed from its complete independent source receipt");
+                compare(pixels[1] == pixels[2],
+                    "original variable FillGeometry independent/prepared full-byte mismatch");
                 if (nominal) compare(pixels[0] == pixels[3],
                     "original variable null advance differs from original design advance");
             }
         }
     }
     }
+    require(original_frame == 129U, "complete original variable_glyph receipt inventory");
 }
 } // namespace progpu::native::direct2d::tests

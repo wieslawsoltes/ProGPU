@@ -5,7 +5,7 @@
 
 namespace progpu::native::direct2d::tests {
 
-enum class sideways_pixel_path { original, prepared, independent_geometry, prepared_geometry, original_design_advances };
+enum class sideways_pixel_path { original, prepared, independent_geometry, prepared_geometry, original_design_advances, prepared_outline };
 
 inline std::array<compat::rectangle_f, 2U> sideways_pixel_rectangles(vertical_font_options options, bool nominal)
 {
@@ -73,7 +73,9 @@ void record_sideways_pixel_case(compat::factory* factory, compat::render_target*
         const compat::glyph_run run{font->source()->face.get(), 15.625F, 3U, indices, selected,
             offsets, variant == 1U ? -1 : 1, 2U};
         const compat::point_2f baseline{4, 20};
-        if (path == sideways_pixel_path::original || design_reference)
+        if (path == sideways_pixel_path::prepared_outline)
+            draw_prepared_outline_geometry(factory, target, font, parameters, baseline, run, brush.get(), require);
+        else if (path == sideways_pixel_path::original || design_reference)
             target->DrawGlyphRun(baseline, &run, brush.get(), compat::measuring_mode::natural);
         else {
             com::pointer<prepared_glyph_target> prepared;
@@ -90,6 +92,7 @@ void record_sideways_pixel_case(compat::factory* factory, compat::render_target*
 template<class Render, class Require>
 void verify_sideways_glyph_pixels(Render render, Require require)
 {
+    std::uint32_t original_frame = 151U;
     std::uint64_t generation = 0U;
     for (const bool cff : {false, true}) {
     for (const bool compact : {false, true}) {
@@ -113,24 +116,22 @@ void verify_sideways_glyph_pixels(Render render, Require require)
             factory.as(compat::scene_factory_native_interface_id, scene_factory) == com::ok, "sideways source factory");
         for (const bool nominal : {false, true}) {
         for (std::uint32_t variant = 0U; variant < 3U; ++variant) {
-            std::array<std::vector<std::byte>, 2U> scenes;
-            std::array<progpu_native_scene_header, 2U> headers{};
-            for (std::size_t reference = 0U; reference < 2U; ++reference) {
+            std::array<std::vector<std::byte>, 3U> scenes;
+            std::array<progpu_native_scene_header, 3U> headers{};
+            for (std::size_t reference = 0U; reference < 3U; ++reference) {
                 const compat::scene_render_target_properties properties{64U, 64U, 96, 96, 0x95D4U, ++generation};
                 com::pointer<compat::render_target> target;
                 com::pointer<compat::scene_render_target_native> scene;
                 require(scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
                     target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "sideways scene target");
                 record_sideways_pixel_case(factory.get(), target.get(), font, &parameters, options, nominal, variant,
-                    reference == 0U ? sideways_pixel_path::prepared : sideways_pixel_path::independent_geometry, require);
+                    reference == 0U ? sideways_pixel_path::prepared : reference == 1U
+                        ? sideways_pixel_path::independent_geometry : sideways_pixel_path::prepared_outline, require);
                 require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                     "sideways immutable source scene");
             }
-            const auto cold = render(false, scenes[0], headers[0]);
-            const auto warm = render(false, scenes[0], headers[0]);
-            const auto independent = render(true, scenes[1], headers[1]);
-            require(cold.size() == 64U * 64U * 4U && cold == warm && cold == independent,
-                "sideways full-byte cold/warm/independent source frame");
+            const auto cold = verify_original_glyph_frame(render, require, original_frame, scenes, headers);
+            original_frame += 1U;
             if (variant == 0U) {
                 constexpr std::array<std::uint8_t, 4U> red{255, 0, 0, 255}, black{0, 0, 0, 255};
                 const std::uint32_t first_x = cff ? 12U : 9U;
@@ -146,5 +147,6 @@ void verify_sideways_glyph_pixels(Render render, Require require)
             "sideways warm replay retains exact original owner without source callbacks");
     }
     }
+    require(original_frame == 175U, "complete original sideways_glyph frame inventory");
 }
 } // namespace progpu::native::direct2d::tests

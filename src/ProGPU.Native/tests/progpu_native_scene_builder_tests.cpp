@@ -6,6 +6,7 @@
 #include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_vertex_mesh.hpp"
 
 #include <array>
 #include <cstring>
@@ -138,6 +139,134 @@ bool semantic_scene_builder_vertex_mesh_is_owned_and_atomic() {
         if (!builder.build(after) || after != bytes) return false;
     }
     return true;
+}
+
+bool semantic_scene_builder_source_coverage_is_owned_and_atomic() {
+    static_assert(sizeof(progpu_native_scene_source_coverage_frame) == 32U);
+    semantic_scene_builder builder(0xD2D230U, 1U);
+    std::uint32_t brush{};
+    if (!builder.add_solid_brush({1, 0, 0, .5F}, .75F, brush)) return false;
+    progpu_native_scene_source_coverage_frame frame{sizeof(frame), 1U, 2.F, 1.25F, 64U, 64U, 0U, 0U};
+    std::array<progpu_native_scene_mesh_vertex, 3U> vertices{{
+        {{2, 5}, {1, 4}, {1, 1, 1, 1}}, {{10, 5}, {5, 4}, {1, 1, 1, 0}}, {{2, 15}, {1, 12}, {1, 1, 1, 0}}}};
+    progpu_native_scene_vertex_mesh mesh{};
+    mesh.struct_size = sizeof(mesh); mesh.flags = PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED;
+    mesh.vertex_count = 3U; mesh.color_blend_mode = 5U; mesh.transform = builder.identity_transform();
+    const auto original_frame = frame;
+    const auto original_vertices = vertices;
+    const auto original_mesh = mesh;
+    if (!builder.draw_source_coverage({&mesh, 1U}, vertices, {&brush, 1U}, {1, 4, 4, 8}, frame)) return false;
+    frame = {}; vertices = {}; mesh = {};
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto valid = scene::validate(bytes.data(), bytes.size());
+    if (valid.status != PROGPU_NATIVE_STATUS_SUCCESS || valid.draw_count != 1U) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, valid.header.command_offset);
+    const auto resource = read<progpu_native_scene_resource>(bytes,
+        valid.header.resource_offset + command.resource_index * valid.header.resource_stride);
+    const auto frame_offset = command.payload_offset + command.payload_size - sizeof(frame);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
+        command.payload_size != sizeof(progpu_native_scene_draw_brushes) + sizeof(brush) + sizeof(frame) ||
+        std::memcmp(bytes.data() + frame_offset, &original_frame, sizeof(frame)) != 0 ||
+        std::memcmp(bytes.data() + resource.auxiliary_offset, original_vertices.data(), sizeof(vertices)) != 0) return false;
+    std::vector<std::byte> unaligned(bytes.size() + 1U);
+    std::memcpy(unaligned.data() + 1U, bytes.data(), bytes.size());
+    if (scene::validate(unaligned.data() + 1U, bytes.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    for (unsigned variant = 0U; variant < 16U; ++variant) {
+        frame = original_frame; vertices = original_vertices; mesh = original_mesh;
+        switch (variant) {
+            case 0: frame.struct_size -= 4U; break;
+            case 1: frame.version = 2U; break;
+            case 2: frame.dpi_scale_x = 0; break;
+            case 3: frame.dpi_scale_y = std::numeric_limits<float>::infinity(); break;
+            case 4: frame.pixel_width = 0; break;
+            case 5: frame.pixel_height = 16385U; break;
+            case 6: frame.flags = 1U; break;
+            case 7: frame.reserved = 1U; break;
+            case 8: vertices[0].color.a = .5F; break;
+            case 9: vertices[0].texture_coordinate.x += 1.F; break;
+            case 10: vertices[0].position.x = -1.F; vertices[0].texture_coordinate.x = -.5F; break;
+            case 11: mesh.transform.m31 = 1.F; break;
+            case 12: mesh.flags = 0U; break;
+            case 13: mesh.color_blend_mode = 3U; break;
+            case 14: mesh.index_count = 3U; break;
+            default: mesh.topology = PROGPU_NATIVE_VERTEX_MESH_TRIANGLE_STRIP; break;
+        }
+        if (builder.draw_source_coverage({&mesh, 1U}, vertices, {&brush, 1U}, {1, 4, 4, 8}, frame)) return false;
+        std::vector<std::byte> after;
+        if (!builder.build(after) || after != bytes) return false;
+        auto corrupt = bytes;
+        std::memcpy(corrupt.data() + frame_offset, &frame, sizeof(frame));
+        std::memcpy(corrupt.data() + resource.auxiliary_offset, vertices.data(), sizeof(vertices));
+        std::memcpy(corrupt.data() + resource.payload_offset, &mesh, sizeof(mesh));
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    }
+    // Frame metadata participates in retained identity even when geometry bytes
+    // are identical. A cached page cannot carry a prior target's admission.
+    auto changed = bytes;
+    frame = original_frame; ++frame.pixel_width;
+    std::memcpy(changed.data() + frame_offset, &frame, sizeof(frame));
+    if (scene::validate(changed.data(), changed.size()).status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        semantic::compute_content_hashes(bytes.data(), valid.header, 1U).analytic ==
+        semantic::compute_content_hashes(changed.data(), valid.header, 1U).analytic) return false;
+    // Explicit SIMD packing is compared with scalar source-coordinate addition.
+    for (const auto offset : std::array<progpu_native_point, 3>{{{0, 0}, {11, -3}, {-1, 24}}}) {
+        std::vector<vector_vertex> packed; std::vector<std::uint32_t> indices;
+        append_source_coverage(original_mesh, original_vertices.data(), offset.x, offset.y, .5F, 7.F, packed, indices);
+        if (packed.size() != 3U || indices.size() != 3U) return false;
+        for (std::size_t k = 0U; k < 3U; ++k) {
+            const auto& v = packed[k]; const auto& source = original_vertices[k];
+            if (v.position[0] != source.position.x + offset.x || v.position[1] != source.position.y + offset.y ||
+                v.texture_coordinate[0] != source.texture_coordinate.x || v.texture_coordinate[1] != source.texture_coordinate.y ||
+                v.corner_radius != 1.F || v.stroke_thickness != .5F || v.brush_index != 7.F || v.shape_type != 1026.F ||
+                indices[k] != k) return false;
+        }
+    }
+    return true;
+}
+
+
+bool semantic_scene_builder_source_paths_are_owned_and_atomic() {
+    semantic_scene_builder builder(0xD2D237U,1U);std::uint32_t brush{};
+    if(!builder.add_solid_brush({1,0,0,1},1,brush))return false;
+    progpu_native_scene_source_coverage_frame frame{sizeof(frame),1U,2.F,1.25F,64U,64U,0U,0U};
+    std::array<progpu_native_path_segment,3> segments{{
+        {{2,5},{10,5},{},{},0U,0U,0U,0U},{{10,5},{2,15},{},{},0U,0U,0U,0U},{{2,15},{2,5},{},{},0U,0U,0U,0U}}};
+    progpu_native_scene_path_fill path{0U,3U,0U,0U,2,5,10,15,{1,1,1,1},builder.identity_transform(),0U,8U};
+    const auto original_frame=frame;const auto original_path=path;const auto original_segments=segments;
+    if(!builder.draw_source_paths({&path,1U},segments,{&brush,1U},{1,4,4,8},frame))return false;
+    path={};frame={};segments={};std::vector<std::byte> bytes;
+    if(!builder.build(bytes))return false;
+    const auto valid=scene::validate(bytes.data(),bytes.size());if(valid.status!=PROGPU_NATIVE_STATUS_SUCCESS)return false;
+    const auto command=read<progpu_native_scene_command>(bytes,valid.header.command_offset);
+    const auto resource=read<progpu_native_scene_resource>(bytes,valid.header.resource_offset+command.resource_index*valid.header.resource_stride);
+    const auto frame_offset=command.payload_offset+command.payload_size-sizeof(frame);
+    if(command.kind!=PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH||
+        std::memcmp(bytes.data()+frame_offset,&original_frame,sizeof(frame))||
+        std::memcmp(bytes.data()+resource.auxiliary_offset,original_segments.data(),sizeof(segments)))return false;
+    std::vector<std::byte> unaligned(bytes.size()+1U);std::memcpy(unaligned.data()+1U,bytes.data(),bytes.size());
+    if(scene::validate(unaligned.data()+1U,bytes.size()).status!=PROGPU_NATIVE_STATUS_SUCCESS)return false;
+    for(unsigned variant=0;variant<19;++variant){
+        frame=original_frame;path=original_path;segments=original_segments;
+        switch(variant){
+            case 0:frame.struct_size-=4;break;case 1:frame.version=2;break;case 2:frame.dpi_scale_x=0;break;
+            case 3:frame.dpi_scale_y=std::numeric_limits<float>::infinity();break;case 4:frame.pixel_width=0;break;
+            case 5:frame.pixel_height=16385;break;case 6:frame.flags=1;break;case 7:frame.reserved=1;break;
+            case 8:path.sample_grid=1;break;case 9:path.transform.m31=1;break;case 10:path.color.a=.5F;break;
+            case 11:path.boolean_node_offset=1;break;case 12:path.segment_offset=1;break;
+            case 13:segments[0].p0.x+=.03125F;break;case 14:segments[0].kind=PROGPU_NATIVE_PATH_SEGMENT_CUBIC;break;
+            case 15:segments[0].pad1=1;break;case 16:segments[0].p1.x+=.0625F;break;
+            case 17:segments[2].p1.y+=.0625F;break;default:path.min_x=3;break;
+        }
+        if(builder.draw_source_paths({&path,1U},segments,{&brush,1U},{1,4,4,8},frame))return false;
+        std::vector<std::byte> after;if(!builder.build(after)||after!=bytes)return false;
+        auto corrupt=bytes;std::memcpy(corrupt.data()+frame_offset,&frame,sizeof(frame));
+        std::memcpy(corrupt.data()+resource.payload_offset,&path,sizeof(path));std::memcpy(corrupt.data()+resource.auxiliary_offset,segments.data(),sizeof(segments));
+        if(scene::validate(corrupt.data(),corrupt.size()).status==PROGPU_NATIVE_STATUS_SUCCESS)return false;
+    }
+    auto changed=bytes;frame=original_frame;++frame.pixel_width;std::memcpy(changed.data()+frame_offset,&frame,sizeof(frame));
+    return scene::validate(changed.data(),changed.size()).status==PROGPU_NATIVE_STATUS_SUCCESS&&
+        semantic::compute_content_hashes(bytes.data(),valid.header,1U).path!=semantic::compute_content_hashes(changed.data(),valid.header,1U).path;
 }
 
 bool semantic_scene_builder_target_clear_is_owned_and_atomic() {

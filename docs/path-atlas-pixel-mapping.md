@@ -92,6 +92,31 @@ composition occurs once at managed type initialization or native build time.
 
 ## Qualification
 
+### Exact line-edge classification
+
+The shared path shader also admits an exact integer half-plane comparison when
+both original line endpoints and every row sample are exact multiples of 1/16.
+All scaled coordinates must lie in [-16383,16383]. Coordinate differences are
+therefore at most 32766 and each signed product fits `i32`. The shader compares
+the two products directly, retaining strict X crossings and half-open Y ranges.
+It does not round coordinates or change the sample grid. Other coordinates use
+the existing floating-point intersection. Curves, Boolean operations and signed
+winding retain the same shared traversal.
+
+This avoids dividing at a sample exactly on an edge, where a rounded reciprocal
+can move the intersection across that sample. Four-lane integer arithmetic adds
+constant work and no storage, dispatch, submission or managed/native crossing.
+This is a precision fix; it makes no performance claim.
+
+Both native provider fixtures include 14 original/reversed line cases on cold
+and warm frames. Their independent rational scanline oracle sorts intersections
+and fills sample spans. It covers negative endpoints, the signed-product limit,
+and coordinates outside the integer bound or off the admitted lattice. Separate
+Windows captures and both Metal providers expose the original on-edge failures.
+This arithmetic admission does not itself implement Direct2D curve subdivision
+or its source-coordinate conversion policy; those require separate transport and
+qualification. Windows product/package and application checks remain required.
+
 Matched managed/native admission tests reject every bad corner and axis, nonfinite
 coordinates, fractional phase, unequal offsets, scale, reflection and rotation.
 Managed and native GPU fixtures compare all channels against independent scalar

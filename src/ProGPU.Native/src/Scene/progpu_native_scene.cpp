@@ -6,6 +6,8 @@
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
 #include "progpu_native_semantic_rgb_glyph.hpp"
+#include "progpu_native_vertex_mesh.hpp"
+#include "progpu_native_source_path.hpp"
 #include "progpu_native_shader_effect_resource.hpp"
 
 #include <algorithm>
@@ -99,18 +101,19 @@ bool is_known_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET ||
         (kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN);
+            kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH);
 }
 
 bool is_draw_command(std::uint32_t kind) noexcept {
     return kind >= PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
-        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN;
+        kind <= PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH;
 }
 
 std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
     switch (command_kind) {
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC:
             return PROGPU_NATIVE_SCENE_RESOURCE_ANALYTIC_BATCH;
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH:
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH:
             return PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN:
@@ -123,7 +126,8 @@ std::uint32_t expected_resource_kind(std::uint32_t command_kind) noexcept {
             return PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH:
             return PROGPU_NATIVE_SCENE_RESOURCE_POINT_BATCH;
-        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH:
+        case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE:
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH:
             return PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH;
         case PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH:
             return PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH;
@@ -1377,14 +1381,15 @@ validation_result validate(
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                     command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH ||
                     command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
                     command.kind ==
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
-                    command.kind ==
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
                     command.kind ==
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
-                if (command.payload_size == 0U) {
+                if (command.payload_size == 0U && command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE && command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
                     ++draw_count;
                     payload_bytes += command.payload_size;
                     continue;
@@ -1397,8 +1402,8 @@ validation_result validate(
                         : command.kind ==
                                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH
                             ? sizeof(progpu_native_scene_point_batch)
-                        : command.kind ==
-                                PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH
+                        : (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE)
                             ? sizeof(progpu_native_scene_vertex_mesh)
                         : command.kind ==
                                 PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH
@@ -1425,6 +1430,16 @@ validation_result validate(
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                         brush_error_offset);
                 }
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
+                std::uint32_t source_error_offset = command.payload_offset;
+                if (!validate_source_path_draw(bytes, header, command, source_error_offset))
+                    return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, source_error_offset);
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
+                std::uint32_t source_error_offset = command.payload_offset;
+                if (!validate_source_coverage_draw(bytes, header, command, source_error_offset))
+                    return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, source_error_offset);
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
                 std::uint32_t rgb_error_offset = command.payload_offset;

@@ -3,9 +3,134 @@
 ## Coverage preparation under qualification
 
 `prepared_original_glyph_run::prepare_coverage` is an explicit, private preparation
-step for disjoint convex contours. It is not yet selected by `DrawOwnedGlyphRun`.
-The original recorder and original Windows pixel comparisons remain unchanged
-while this step undergoes provider and source qualification.
+step for disjoint convex contours. The current unpublished recorder experiment
+selects it from `DrawOwnedGlyphRun` in root, binary-clip and full-viewport plain
+opacity-layer scopes, with full physical viewport containment and a non-bitmap
+brush. Every enclosing layer must have complete original viewport bounds, no
+mask and no initialization flag. Partial layers, antialiased clips and unsupported
+coverage retain the existing geometry path. The original Windows
+inputs and captured pixels remain unchanged; recorder qualification is incomplete.
+The current recorder also selects the bounded source-path policy described
+below for grayscale glyphs that cannot use convex coverage. Its complete local
+inventory now matches all 278 original Windows images on both native Metal
+providers, with identical cold/warm pixels and zero warm uploads. The earlier
+12 general-path failures are resolved. The paired test inventories now separate
+glyph coverage from ordinary geometry coverage, as described below. All 49 local
+native tests pass, and the original Windows ARM64 WARP suite passes 1,399 glyph
+comparisons. The published whole producer Build and packages remain unqualified.
+
+### Independent glyph and geometry comparisons
+
+The original fixtures contain 266 source configurations and 12 additional
+same-owner warm CFF captures, for 278 complete Microsoft glyph images. Fresh
+unchanged SDK captures confirm that all 266 independent/prepared geometry pairs
+are byte-identical, including the actual `GetGlyphRunOutline` controls. In 145
+configurations, genuine `DrawGlyphRun` and genuine `FillGeometry` produce different
+coverage despite identical positioned contours. Requiring those different APIs
+to produce the same image was an invalid coverage-policy assertion.
+
+The tests retain the complete source inventories, original font bytes, literal
+independent contours, measured origins/advances and all exact pixel gates. Each
+native provider now records three independent source scenes: actual
+`DrawOwnedGlyphRun`, literal `FillGeometry`, and `FillGeometry` of the actual
+prepared contours. The glyph image must match every byte of its original SDK
+receipt. Both geometry images must match each other under the same fill policy.
+All three paths run cold and warm with actual provider metrics and zero warm
+vertex, index or coverage uploads. Source callback/cache and absolute-pixel
+controls remain in place. No generic geometry policy changes to satisfy a glyph
+comparison, and no pixel tolerance or exception list is introduced.
+
+The shared `progpu_native_direct2d_original_glyph_reference.hpp` stores all 278
+unchanged original images losslessly. It verifies every source blue/green/alpha
+byte before RGBA conversion and shares only identical immutable reference data.
+Its complete BGRA digest records provenance; it contains no product-rendered
+pixels. The original Windows tests recheck all 278 images on each run, retain
+the independent/prepared SDK geometry comparisons, and preserve actual
+null-versus-design-advance and same-owner warm comparisons. The former 1,121
+comparisons plus the 278 explicit receipts now pass 1,399/1,399 on ARM64 WARP.
+
+The complete local native suite passes 49/49 on physical Apple M3 Pro, including
+both wgpu-native and Dawn. The rebuilt stock native D3D12 renderer also passes
+the entire WebGPU aggregate on Windows ARM64 with Microsoft Basic Render Driver,
+including every original glyph image and the independent geometry controls. Its
+cold run takes about 890 seconds, within the unchanged 900-second Windows
+aggregate deadline; the small margin is not a performance qualification. The
+actual wgpu-native DLL matches the pinned Silk.NET 2.23.0 ARM64 payload exactly.
+The separate Windows default Parallels adapter run
+still rejects an earlier AA Clear byte (`191` versus `192`); the explicit WARP
+pass does not qualify that adapter. Exact final Windows providers, other
+architectures, whole producer packages and application behavior remain gates.
+
+### Original physical source paths
+
+`prepare_original_path_coverage` consumes the retained, original
+`CUBICS_AND_LINES` snapshot and actual target transform/DPI. It owns a new physical
+line snapshot; original font bytes, glyph positions, cubic controls and source
+geometry stay unchanged. It is separate from convex glyph preparation and from
+ordinary geometry draws. The existing root, binary-clip and full-target plain
+opacity-layer admission applies. Bitmap paint, masks and partial layers retain
+their existing paths.
+
+Independent Windows observations of 64 line controls and 32 curve controls
+established the bounded policy: transform the original controls using binary32
+source arithmetic, apply the actual DPI axes once, and round physical controls
+toward positive infinity on a 1/16 grid. Cubics use dyadic intervals whose width
+squared times the largest absolute component of the original second derivative
+at both interval endpoints is at most 1.5. Doubling an interval requires alignment
+to that dyadic boundary. Evaluated endpoints use `floor(value * 16 + .5) / 16`.
+Neither a fixed subdivision count nor the existing `Simplify(.25)` policy matched
+the independent inventory. Mathematically equivalent quadratic conversion is not
+a substitute for the original SDK's exact cubic control values.
+
+This is an original implementation from observed API behavior and the analytic
+Bezier derivative, without consulting foreign implementation code. NEON, SSE2
+and Wasm SIMD retain independent coordinate lanes. Interval selection and original
+contour validation are ordered dependent walks. A separately written recursive
+scalar oracle checks all emitted segment bytes for 768 transformed cases, with
+negative controls and independent DPI axes. Exact threshold and rejection controls
+preserve prior output, including a disconnected contour whose endpoints would
+otherwise quantize to the same location.
+
+Preparation is bounded by 1,048,576 original/emitted segments, finite physical
+coordinates within +/-16,384 and a bounded atlas extent. It rejects unsupported
+segment kinds, nonclosed original contours, singular transforms and invalid
+frames before publication. Work and storage are O(S + V), for S original and V
+derived segments. It computes no CPU pixel coverage and adds no source callback,
+readback or per-segment GPU submission.
+
+`draw_source_paths` emits command 29 using the unchanged path resource layout.
+Its mandatory brush map ends in the same exact 32-byte version 1 physical frame
+used by command 28. The source path requires white color, identity transform,
+eight samples per axis, closed 1/16-grid line contours, complete ordered segment
+ranges and no Boolean program. Header and module consumers share atomic builder
+validation; raw wire reads accept unaligned storage and validate every range.
+The exact frame is part of retained path identity.
+
+Both native providers retain physical atlas coverage independently of the
+target-DIP brush domain. The shared vector shader places the atlas directly in
+the actual physical viewport and loads its exact pixel; it does not multiply
+presentation DPI again. Replay requires the original per-axis DPI, viewport and
+an integral physical state translation. Per-point guidelines and changed frames
+remain unsupported. A closed path's complete atlas can cross the target edge;
+binary scissoring clips it without changing paint coordinates. Convex source
+triangles retain their stricter containment requirement. Both providers compare
+solid/gradient paint, state and brush opacity, binary clips, anisotropic DPI,
+positive/negative integral placement and failed-frame recovery against separate
+ordinary mesh controls.
+
+The actual rebuilt Windows recorder produces 278 scenes whose complete output
+matches the unchanged Microsoft captures on both native Metal backends. The
+production helper and command also pass all 374 frames including the 96 added
+independent path controls. All cold/warm pairs and both provider byte streams
+agree, with zero warm vertex/index/coverage uploads. This qualifies that bounded
+local inventory only. It does not replace the whole successful producer Build,
+Windows GPU execution, package validation, or source application qualification.
+
+The managed Scene API has no original DirectWrite font preparation capability;
+it must not infer this policy from ordinary geometry. Raw native replay owns the
+new command and validation. Both native providers and the shared managed/native
+shader source use the same coverage implementation; generic path behavior and
+managed source selection are unchanged.
 
 The prepared run now owns one segment range per original occurrence, including
 zero-length ranges for no-ink glyphs. Coverage preparation retains those ranges
@@ -21,13 +146,19 @@ the endpoint grid is one eighth of that canonical em. This is coverage metadata,
 not a changed font em, source advance, offset, outline or brush domain. Independent
 DPI axes enter the physical transform once. Translation affects positions only.
 Aliased contours become ordinary triangles; grayscale contours carry an inner
-fan and half-physical-pixel edge ramps. Paint coordinates remain in target DIPs.
-GPU triangle interpolation performs pixel coverage; there is no CPU pixel raster,
-readback, new font query, shader-program inspection or foreign implementation.
+fan and half-physical-pixel edge ramps. Each edge strip uses the diagonal selected
+by the original contour winding, before physical transformation. The two windings
+then retain the same geometric triangles; an arbitrary diagonal changes coverage
+because the four coverage vertices need not form one plane. Paint coordinates
+remain in target DIPs.
+An explicit GPU fragment plane performs pixel coverage from the original physical
+triangle and binary endpoint coverages. There is no CPU pixel raster, readback,
+new font query, shader-program inspection or foreign implementation.
 
 Preparation publishes only a complete owned batch. Unsupported AA modes,
-overlapping contour bounds, nonconvex/multiply wound contours, singular frames,
-collapsed inset edges and unrepresentable arithmetic leave the previous output
+grayscale contours without separated physical bounds, aliased contours without
+separation in either original-control or physical bounds, nonconvex/multiply
+wound contours, singular frames, collapsed inset edges and unrepresentable arithmetic leave the previous output
 untouched. The existing general geometry path remains the caller's separate
 choice. A zero determinant is exact; there is no epsilon or invented inverse.
 The batch is bounded by 1,048,576 vertices. For C contours and V emitted vertices,
@@ -41,13 +172,46 @@ The C++ scene builder's `draw_vertex_meshes` owns the complete existing mesh wir
 payload, vertices, indices and optional brush map before publishing one command.
 It shares the renderer's wire validator and preserves the original state index.
 Header and module consumers use the same implementation. Both native providers
-already consume this wire kind through their shared semantic mesh compiler and
-canonical `Vector.wgsl`; neither the wire layout nor shader changes here.
+consume this wire kind through their shared semantic mesh compiler. Ordinary
+mesh interpolation, resource layout and vertex layout remain unchanged.
+
+`draw_source_coverage` adds command 28 with that same mesh resource and a mandatory
+brush map followed by a 32-byte version 1 frame. The frame owns both exact DPI
+axes and the complete original physical viewport. Mesh positions retain original
+physical pixels; paint coordinates retain the original target DIPs. Validation
+requires triangles, binary coverage, white vertex RGB, the existing mesh source-in
+selector and an identity mesh transform. Whole validation precedes publication,
+including capacities, frame flags, brush indices and alignment-safe raw reads.
+The frame participates in compiled analytic identity. Generic meshes are never
+classified as source coverage from their colors or dimensions.
+
+Both native providers pack each original triangle's three physical corners and
+coverage bits into their shared 56-byte vector layout. Point translation uses
+NEON/SSE2/Wasm SIMD with the bounded scalar reference on other architectures.
+The canonical `Vector.wgsl` source-coverage branch receives flat metadata and
+evaluates the plane at the actual fragment position after nearest-even snapping
+to 1/256 physical pixels. Native pass uniforms carry the actual viewport extent;
+independent target-DIP brush coordinates and state opacity remain separate.
+This follows the public [D3D11.3 coordinate snapping and fixed-point rules,
+sections 3.2.4 and 3.4.1](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm).
+[WGSL interpolation qualifiers](https://www.w3.org/TR/WGSL/#interpolation)
+do not specify that source lattice: changing only perspective to linear did not
+fix the measured difference. Generic vertex-color interpolation is unchanged.
+
+Replay requires the captured viewport/DPI and exact integral physical state
+translation. Every original triangle must fit the actual target before drawing;
+changed DPI, fractional placement, per-point guidelines and target-created
+clipping decline before GPU submission. Original binary scissors still apply.
+Offscreen clipping and changed-frame replay need their own source qualification.
+There is no identity inverse, tolerance, added wait or per-triangle submission.
 
 The managed `VertexMesh2D`/`DrawVertexMesh` path already owns corresponding data.
 No managed original DirectWrite source-font preparation capability exists, so
-this private source capture step has no managed entry point to update. Shared
-mesh rendering and source-independent text formatting keep their existing paths.
+this private capture has no corresponding managed recorder to select it. Managed
+interop declares the exact command value and generated frame layout for raw
+native transport; managed `Scene` does not infer or emit this policy. The canonical
+shader is shared by both native providers and managed rendering, while managed
+ordinary meshes retain their existing interpretation and uniforms.
 This does not qualify managed source replay or select WPF Display formatting.
 
 Research separates retained layout from coverage: [SkParagraph's public model](https://skia.org/docs/user/modules/quickstart/),
@@ -70,25 +234,117 @@ capture hashes. Only 306 comparison frames use its independent GPU triangles;
 overlap/layer cases still use SDK geometry. These are diagnostic results, not
 qualification of the new preparation API or the actual recorder. Remaining
 gates include complete source/provider bytes, general contour topology,
-halfway quantization policy, physical-frame replay, brushes/clips/layers,
-cross-architecture packages, warm counters and application performance.
+general physical-frame replay, source brush/layer integration,
+cross-architecture packages and application performance.
 
 The preparation API subsequently supplied 157 comparison frames to the Windows
 diagnostic, still with 1,121 passing comparisons and all original hashes
 unchanged. Those exact serialized scenes were also replayed cold/warm through
 both native providers on physical Apple M3 Pro hardware: 314 frames per provider,
 identical provider/cold/warm bytes, and zero warm vertex/index/coverage uploads.
-156 of the 157 distinct frames match the Windows capture exactly. The remaining
-variable-font frame differs by one red byte at pixel (12,25): native 127 versus
-original 128. This is an open qualification failure, with no added tolerance.
+The original generic interpolation matched 156/157 distinct frames: one variable
+frame produced red 127 instead of 128 at (12,25). Explicit retained source coverage
+now matches **157/157 complete original frames** on both native Metal providers,
+including that pixel, with identical cold/warm bytes and zero warm vertex/index/
+coverage uploads. Original vertices, clips and Windows capture bytes are unchanged;
+no comparison tolerance was added. The combined original capture SHA-256 is
+`d03c5985f95680e97f89256d64ddfdaad73d5aca3f6e113207eb03892f549e9d`.
+Both providers' cold/warm aggregate SHA-256 is
+`531c0b1e70817dd668f5d9e03d6c9d60aeb844b27d07fc5efa2ddf8a82140eca`.
 The explicit paired-provider regression also checks source-observed 149/75 edge
 bytes after all source owners end. It caught and now guards the distinct mesh
 source-in selector (5), which must not use the layer-composite enum value (3).
 
-The current local native suite passes all 49 tests; the C++ import consumer and
-native contract checks pass. These results cover the additive preparation and
-serialization seam. They neither enable recorder selection nor clear the
-existing whole-producer Windows reference failures.
+Before recorder selection, the local native suite passed all 49 tests; the C++ import consumer and
+native contract checks pass. Both native providers additionally exercise exact
+anisotropic DPI, independent gradient paint coordinates, brush/state opacity,
+binary clips and integral placement against an ordinary-mesh control. Changed
+DPI, viewport, fractional translation and incomplete target containment reject
+before submission/upload; a later original frame still succeeds. Raw tests check
+unaligned caller reads, sixteen invalid wire/builder inputs, immutable frame
+ownership, SIMD packing and frame-sensitive retained identity. The managed shader
+and interop selection passes 166 tests on recheck (an initial allocation-count test
+failed with 5,288 bytes versus 0). These results cover the additive preparation and
+serialization seam. They do not clear the existing whole-producer Windows
+reference failures.
+
+The actual recorder experiment exports 278 scenes from the original Windows
+requests, including original font bytes, glyph arrays, brush properties,
+transforms, clips and layers. Both native Metal providers exactly match all 225
+complete original captures that select source coverage, cold and warm. This
+includes all 159 previously admitted frames and 66 newly admitted layer frames.
+The 53 geometry fallbacks retain 12 mismatching frames (399 differing bytes per
+provider, maximum difference 24); every cold/warm pair is identical. Both
+providers produce identical bytes throughout the complete inventory.
+An initial diagnostic omitted clips in five families; its results are retained
+as invalid evidence, and the corrected run preserves all 1,351 original capture
+hashes. No source input, expected byte or comparison tolerance changed.
+
+A separate diagnostic identified a general-path filtering difference: rasterizing
+in local coordinates and subsequently shearing the coverage texture alters the
+original physical edge. The recorder now projects its private filled-path
+snapshot through the actual draw transform before coverage rasterization, using
+target DIPs and an identity path placement. Lines and cubic controls retain their
+original topology; this does not introduce curve flattening or pixel sampling on
+the CPU. NEON/SSE2/Wasm transform independent point pairs in O(S) time and O(1)
+additional space, with the explicit scalar reference on unsupported targets.
+Source path objects are untouched. Original draw/brush transforms still determine
+gradient coordinates and opacity masks; bitmap-brush masks retain their separate
+representation. Exactly singular transforms preserve the existing rejection path.
+Independent DPI presentation and later picture transforms remain separate from
+this capture-time target mapping.
+
+This fixes all six remaining static-font frames, preserving every previously
+matching frame and all 225 source-coverage scene bytes. Complete original Microsoft
+references for those six frames fail before the projection change and pass on
+both providers afterward, cold and warm with source owners retired. Separate
+literal world-geometry/brush controls preserve spatial gradients, brush/layer
+opacity, binary clips and independent DPI axes. All 278 frames retain zero warm
+vertex/index/coverage uploads. The remaining failures are eight variable-font
+overlap frames and four curved CFF frames; no sampling-phase workaround is used.
+The actual recorder currently passes 47 of 49 local native tests: both
+provider suites still reject the original full-byte glyph/independent-geometry
+comparison. Those assertions remain intact. Added compatibility controls cover
+root/binary-clip/full-layer selection, partial-layer/AA-clip/incomplete-viewport fallback, immutable
+brush/frame snapshots, warm source-cache reuse and reentrant DPI invalidation.
+They pass on macOS ARM64 and Windows ARM64; Windows internal controls also pass.
+
+The aliased contour sweep accepts separation in either the original control-hull
+basis or the physical basis, after exact singular rejection. Grayscale requires
+separated physical bounds: two sheared source-disjoint controls whose physical
+bounds overlap use the original whole-path policy instead. This retains every
+previously matching frame and admits two additional sheared aliased cases.
+It preserves independent contour draws when their antialiasing fringes overlap:
+rejecting emitted-fringe overlap incorrectly lost seven original matching frames,
+and that experiment was removed. Original overlapping outlines still decline.
+The 225 selected frames retain zero warm vertex/index/coverage uploads on both
+providers. The two original native glyph/geometry assertions still fail; they
+have not been replaced or relaxed.
+
+Independent Windows layer controls retain each original request and capture it
+at 25%, 50%, 75% and 100% layer opacity, plus 100% without a layer. All 80 original
+half-opacity frames are byte-identical to the added 50% controls. All 80 opaque
+layer captures are byte-identical to the corresponding no-layer captures.
+Quarter- and half-opacity colors exactly follow byte rounding of the original
+opaque captures. The three-quarter controls differ by one byte at some rounding
+ties and do not establish a general composition policy. The winding-selected
+edge-strip diagonal matches all 66 opaque layer controls on the independent GPU
+diagnostic and removes its remaining failures: 1,121 comparisons pass, with 434
+comparison frames using independent GPU triangles. Other comparisons still use
+SDK geometry. Reversed-contour controls preserve the same result and all 1,351
+original capture hashes. This is diagnostic evidence, not a reduction of the
+unchanged published 1,121/128 source reference gate.
+
+The paired native-provider regression retains the complete original Microsoft
+opaque and half-opacity captures as lossless run-length encoded reference data.
+It compares every byte for both original contour windings, cold and warm, after
+the font/preparation/builder owners end. The new regression failed before the
+diagonal correction and now passes in both providers. Plain full-frame layers
+reuse the existing linear-byte-opacity compositor without changing shader
+rounding. Recorder controls also cover nested full-frame layers and reject
+partial layers and opacity-brush masks. The later paired coverage-policy controls
+above resolve the two glyph/geometry assertions while retaining independent
+geometry and original glyph images; whole-product qualification remains open.
 
 ## Original font and recorder ownership
 

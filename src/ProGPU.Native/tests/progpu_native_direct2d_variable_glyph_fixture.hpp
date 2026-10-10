@@ -6,7 +6,7 @@
 
 namespace progpu::native::direct2d::tests {
 
-enum class variable_pixel_path { original, prepared, independent_geometry, prepared_geometry, original_design_advances };
+enum class variable_pixel_path { original, prepared, independent_geometry, prepared_geometry, original_design_advances, prepared_outline };
 
 inline constexpr std::array<variable_font_options, 4U> variable_pixel_font_options{{
     {false, false, false}, {false, false, true}, {true, false, false}, {true, true, true}}};
@@ -108,7 +108,9 @@ void record_variable_pixel_case(compat::factory* factory, compat::render_target*
         const compat::glyph_run run{font->source()->face.get(), 31.25F, 3U, indices,
             design_reference ? original_design_advances : nominal ? nullptr : advances, offsets, 0, right_to_left ? 3U : 2U};
         const compat::point_2f baseline{right_to_left ? 56.0F : 4.0F, 28};
-        if (path == variable_pixel_path::original || design_reference) {
+        if (path == variable_pixel_path::prepared_outline) {
+            draw_prepared_outline_geometry(factory, target, font, parameters, baseline, run, brush.get(), require);
+        } else if (path == variable_pixel_path::original || design_reference) {
             target->DrawGlyphRun(baseline, &run, brush.get(), compat::measuring_mode::natural);
         } else {
             com::pointer<prepared_glyph_target> prepared;
@@ -125,6 +127,7 @@ void record_variable_pixel_case(compat::factory* factory, compat::render_target*
 template<class Render, class Require>
 void verify_variable_glyph_pixels(Render render, Require require)
 {
+    std::uint32_t original_frame = 49U;
     com::pointer<compat::factory> factory;
     com::pointer<compat::scene_factory_native> scene_factory;
     require(compat::create_factory(factory.put()) == com::ok &&
@@ -153,25 +156,23 @@ void verify_variable_glyph_pixels(Render render, Require require)
             stream.bytes.assign(16U, std::byte{0});
             for (const bool nominal : {false, true}) {
                 const auto variant = static_cast<std::uint32_t>((instance + (nominal ? 1U : 0U)) % 3U);
-                std::array<std::vector<std::byte>, 2U> scenes;
-                std::array<progpu_native_scene_header, 2U> headers{};
-                for (std::uint32_t reference = 0U; reference < 2U; ++reference) {
+                std::array<std::vector<std::byte>, 3U> scenes;
+                std::array<progpu_native_scene_header, 3U> headers{};
+                for (std::uint32_t reference = 0U; reference < 3U; ++reference) {
                     const compat::scene_render_target_properties properties{64U, 64U, 96, 96, 0x95D5U, ++generation};
                     com::pointer<compat::render_target> target;
                     com::pointer<compat::scene_render_target_native> scene;
                     require(scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
                         target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "variable source target");
                     record_variable_pixel_case(factory.get(), target.get(), font, &parameters, instance, nominal, variant,
-                        reference == 0U ? variable_pixel_path::prepared : variable_pixel_path::independent_geometry,
+                        reference == 0U ? variable_pixel_path::prepared : reference == 1U
+                        ? variable_pixel_path::independent_geometry : variable_pixel_path::prepared_outline,
                         require, nullptr, nullptr, right_to_left, options);
                     require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                         "variable immutable scene export");
                 }
-                const auto cold = render(false, scenes[0], headers[0]);
-                const auto warm = render(false, scenes[0], headers[0]);
-                const auto independent = render(true, scenes[1], headers[1]);
-                require(cold.size() == 64U * 64U * 4U && cold == warm && cold == independent,
-                    "variable whole-image cold/warm/independent contours+origin+advance");
+                const auto cold = verify_original_glyph_frame(render, require, original_frame, scenes, headers);
+                original_frame += 1U;
                 bool has_ink = false;
                 for (std::size_t pixel = 0U; pixel < cold.size(); pixel += 4U) {
                     require(cold[pixel + 1U] == 0U && cold[pixel + 2U] == 0U && cold[pixel + 3U] == 255U,
@@ -195,5 +196,6 @@ void verify_variable_glyph_pixels(Render render, Require require)
         }
     }
     }
+    require(original_frame == 129U, "complete original variable_glyph frame inventory");
 }
 } // namespace progpu::native::direct2d::tests

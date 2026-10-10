@@ -3158,6 +3158,9 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneMeshVertex>());
         Assert.Equal(12U, (uint)NativeSceneResourceKind.VertexMesh);
         Assert.Equal(22U, (uint)NativeSceneCommandKind.DrawVertexMesh);
+        Assert.Equal(28U, (uint)NativeSceneCommandKind.DrawSourceCoverage);
+        Assert.Equal(29U, (uint)NativeSceneCommandKind.DrawSourcePath);
+        Assert.Equal(32, Unsafe.SizeOf<NativeMethods.SceneSourceCoverageFrame>());
         Assert.Equal(160, Unsafe.SizeOf<NativeSceneStroke>());
         Assert.Equal(13U, (uint)NativeSceneResourceKind.StrokeBatch);
         Assert.Equal(16U, (uint)NativeSceneResourceKind.HitTestIndex);

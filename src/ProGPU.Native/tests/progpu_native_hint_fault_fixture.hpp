@@ -17,7 +17,7 @@ namespace progpu::native::tests {
 // Algorithm: fixed three-glyph table assembly and independent table/file checksums.
 // Time/space: O(F), F = small authored fixture bytes; not a product font builder.
 inline std::vector<std::byte> make_hint_fault_font(std::int16_t first_bearing = 13,
-    std::int16_t second_bearing = 13, bool compact_metrics = false)
+    std::int16_t second_bearing = 13, bool compact_metrics = false, bool reverse_contours = false)
 {
     using bytes = std::vector<std::byte>;
     const auto put16 = [](bytes& data, std::size_t offset, std::uint16_t value) {
@@ -52,8 +52,12 @@ inline std::vector<std::byte> make_hint_fault_font(std::int16_t first_bearing = 
         std::size_t cursor = 14U;
         for (const auto instruction : program) result[cursor++] = static_cast<std::byte>(instruction);
         for (std::size_t point = 0U; point < 4U; ++point) result[cursor++] = std::byte{1};
-        constexpr std::array<std::int16_t, 4> x_deltas{13, 300, 0, -300};
-        constexpr std::array<std::int16_t, 4> y_deltas{13, 0, 400, 0};
+        // Additional winding control only; every existing call preserves its
+        // exact original byte inventory and faulty/valid instruction programs.
+        const std::array<std::int16_t, 4> x_deltas = reverse_contours
+            ? std::array<std::int16_t, 4>{13, 0, 300, 0} : std::array<std::int16_t, 4>{13, 300, 0, -300};
+        const std::array<std::int16_t, 4> y_deltas = reverse_contours
+            ? std::array<std::int16_t, 4>{13, 400, 0, -400} : std::array<std::int16_t, 4>{13, 0, 400, 0};
         for (const auto delta : x_deltas) {
             put16(result, cursor, static_cast<std::uint16_t>(delta));
             cursor += 2U;

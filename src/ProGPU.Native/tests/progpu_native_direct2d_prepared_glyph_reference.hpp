@@ -50,6 +50,7 @@ template<class Require, class Compare>
 void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
     IDWriteFactory* write_factory, Require require, Compare compare)
 {
+    std::uint32_t original_frame = 1U;
     std::uint32_t pixel_cases = 0U;
     std::uint32_t placement_failures = 0U;
     std::uint32_t nominal_failures = 0U;
@@ -206,22 +207,14 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
                 variant, paths[index], require, geometry.get(), origins, nominal, nominal_advances.data(), right_to_left);
             pixels[index] = copy_pixels();
         }
-        for (std::size_t index = 1U; index < path_count; ++index) {
-            if (pixels[0] == pixels[index]) continue;
-            const auto difference = static_cast<std::size_t>(
-                std::mismatch(pixels[0].begin(), pixels[0].end(), pixels[index].begin()).first - pixels[0].begin());
-            std::fprintf(stderr, "Original prepared glyph origins=%u nominal=%u rtl=%u variant=%u path=%zu "
-                "pixel=(%zu,%zu) channel=%zu original=%u comparison=%u independent-prepared-equal=%u\n",
-                origins, unsigned(nominal), unsigned(right_to_left), variant, index,
-                (difference / 4U) % 64U, difference / 256U, difference % 4U,
-                unsigned(pixels[0][difference]), unsigned(pixels[index][difference]), unsigned(pixels[1] == pixels[2]));
-        }
+        compare(original_glyph_reference_matches_bgra(pixels[0], original_frame++),
+            "original DrawGlyphRun changed from its complete independent source receipt");
         // Complete the original inventory before rejecting the run. A first
-        // grayscale mismatch otherwise hides later origin, size and RTL
+        // source mismatch otherwise hides later origin, size and RTL
         // differences, encouraging a fix based on only one source frame.
         // Structural/native failures still reject immediately through require.
         ++pixel_cases;
-        if (pixels[0] != pixels[1] || pixels[0] != pixels[2]) ++placement_failures;
+        if (pixels[1] != pixels[2]) ++placement_failures;
         if (nominal && pixels[0] != pixels[3]) ++nominal_failures;
     }
     }
@@ -231,8 +224,9 @@ void verify_original_prepared_glyph_pixels(ID2D1DeviceContext* source_context,
         pixel_cases, placement_failures, nominal_failures);
     require(pixel_cases == 48U, "original prepared glyph pixel inventory changed");
     compare(placement_failures == 0U,
-        "original DrawGlyphRun differs from independent or prepared full-byte placement");
+        "original FillGeometry differs between independent and prepared full-byte placement");
     compare(nominal_failures == 0U,
         "original null advances differ from original explicit horizontal design advances");
+    require(original_frame == 49U, "complete original prepared_glyph receipt inventory");
 }
 } // namespace progpu::native::direct2d::tests

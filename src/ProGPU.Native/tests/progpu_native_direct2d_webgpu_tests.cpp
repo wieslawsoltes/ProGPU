@@ -40,6 +40,7 @@
 #include "progpu_native_direct2d_scoped_source_copy_fixture.hpp"
 #include "progpu_native_direct2d_bitmap_destination_fixture.hpp"
 #include "progpu_native_direct2d_prepared_glyph_fixture.hpp"
+#include "progpu_native_direct2d_source_path_glyph_fixture.hpp"
 #include "progpu_native_direct2d_variable_glyph_fixture.hpp"
 #include "progpu_native_direct2d_cff_glyph_fixture.hpp"
 #include "progpu_native_direct2d_sideways_glyph_fixture.hpp"
@@ -2371,6 +2372,12 @@ int main(int argc, char** argv)
                 PROGPU_NATIVE_STATUS_SUCCESS, false, extent);
         }, require);
     phase("exact path pixel mapping passed");
+    progpu::native::tests::verify_exact_line_winding(
+        [&](const auto& stream, const progpu_native_scene_header& header, progpu_native_scene_frame_metrics& metrics) {
+            return render_scene(gpu, engine, nullptr, 1U, header.command_count, 1U,
+                stream, header.scene_id, header.generation, &metrics);
+        }, require);
+
     auto* picture_reference_engine = create_engine(gpu);
     const auto render_picture =
         [&](bool reference, const auto& stream, std::uint64_t generation, std::uint64_t submissions) {
@@ -2425,40 +2432,63 @@ int main(int argc, char** argv)
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
                 4U, 4U, 1U, stream, header.scene_id, header.generation, nullptr, dpi);
         }, require);
+    progpu::native::direct2d::tests::verify_source_coverage_frames(
+        [&](const auto& stream, const progpu_native_scene_header& header, float dpi,
+            const progpu_native_scene_presentation& presentation, progpu_native_status expected) {
+            return render_scene(gpu, engine, nullptr, 1U, header.command_count, 1U,
+                stream, header.scene_id, header.generation, nullptr, dpi, &presentation, expected);
+        }, require);
     progpu::native::direct2d::tests::verify_prepared_glyph_coverage_pixels(
         [&](const auto& stream, const progpu_native_scene_header& header) {
             return render_scene(gpu, engine, nullptr, 1U, header.command_count, 1U,
                 stream, header.scene_id, header.generation);
         }, require);
+    progpu::native::direct2d::tests::verify_filled_path_projection_pixels(
+        [&](const auto& stream, const progpu_native_scene_header& header, float dpi,
+            const progpu_native_scene_presentation& presentation) {
+            return render_scene(gpu, engine, nullptr, 1U, header.command_count, 1U,
+                stream, header.scene_id, header.generation, nullptr, dpi, &presentation);
+        }, require);
+    progpu::native::direct2d::tests::verify_original_path_glyph_pixels(
+        [&](const auto& stream, const progpu_native_scene_header& header, progpu_native_scene_frame_metrics& metrics) {
+            return render_scene(gpu, engine, nullptr, 1U, header.command_count, 1U,
+                stream, header.scene_id, header.generation, &metrics);
+        }, require);
     progpu::native::direct2d::tests::verify_prepared_glyph_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t draws, progpu_native_scene_frame_metrics& metrics) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+                draws, header.command_count, 1U, stream, header.scene_id, header.generation, &metrics);
         }, require);
     progpu::native::direct2d::tests::verify_variable_glyph_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t draws, progpu_native_scene_frame_metrics& metrics) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+                draws, header.command_count, 1U, stream, header.scene_id, header.generation, &metrics);
         }, require);
     progpu::native::direct2d::tests::verify_cff_glyph_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header, std::uint32_t draws) {
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t draws, progpu_native_scene_frame_metrics& metrics) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                draws, header.command_count, 1U, stream, header.scene_id, header.generation);
+                draws, header.command_count, 1U, stream, header.scene_id, header.generation, &metrics);
         }, require);
     progpu::native::direct2d::tests::verify_sideways_glyph_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t draws, progpu_native_scene_frame_metrics& metrics) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+                draws, header.command_count, 1U, stream, header.scene_id, header.generation, &metrics);
         }, require);
     progpu::native::direct2d::tests::verify_variable_sideways_glyph_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t draws, progpu_native_scene_frame_metrics& metrics) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+                draws, header.command_count, 1U, stream, header.scene_id, header.generation, &metrics);
         }, require);
     progpu::native::direct2d::tests::verify_cff_contour_origin_pixels(
-        [&](bool reference, const auto& stream, const progpu_native_scene_header& header) {
+        [&](bool reference, const auto& stream, const progpu_native_scene_header& header,
+            std::uint32_t draws, progpu_native_scene_frame_metrics& metrics) {
             return render_scene(gpu, reference ? prepared_reference_engine : engine, nullptr,
-                1U, header.command_count, 1U, stream, header.scene_id, header.generation);
+                draws, header.command_count, 1U, stream, header.scene_id, header.generation, &metrics);
         }, require);
     progpu_native_engine_destroy(prepared_reference_engine);
     phase("per-axis picture pixels passed");

@@ -837,6 +837,20 @@ internal static unsafe partial class NativeMethods
         internal NativeColor ClearColor;
     }
 
+    // Native source: progpu_native_scene_source_coverage_frame.
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct SceneSourceCoverageFrame
+    {
+        internal uint StructSize;
+        internal uint Version;
+        internal float DpiScaleX;
+        internal float DpiScaleY;
+        internal uint PixelWidth;
+        internal uint PixelHeight;
+        internal uint Flags;
+        internal uint Reserved;
+    }
+
     // Native source: progpu_native_scene_presentation.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct ScenePresentation

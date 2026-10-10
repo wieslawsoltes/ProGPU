@@ -14,6 +14,7 @@ template<class Require, class Compare>
 void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_context,
     IDWriteFactory* write_factory, Require require, Compare compare)
 {
+    std::uint32_t original_frame = 175U;
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
     require(write_factory->QueryInterface(IID_PPV_ARGS(extended_factory.GetAddressOf())) == S_OK,
@@ -187,13 +188,18 @@ void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_contex
                 images[path] = pixels();
             }
             require(images[0].size() == 64U * 256U, "original glyph frame byte inventory");
-            compare(images[0] == images[1] && images[0] == images[2] && images[0] == images[3],
-                "original CFF contour-origin DrawGlyphRun/GetGlyphRunOutline/independent/prepared full-byte mismatch");
+            compare(original_glyph_reference_matches_bgra(images[0], original_frame++),
+                "original DrawGlyphRun changed from its complete independent source receipt");
+            compare(images[1] == images[2] && images[1] == images[3],
+                "original CFF contour-origin FillGeometry GetGlyphRunOutline/independent/prepared full-byte mismatch");
             if (nominal) compare(images[0] == images[4], "original CFF null versus actual design advances mismatch");
             context->SetTarget(target.Get());
             record_cff_contour_origin_pixel_case(typed_factory.get(),typed_target.get(),prepared,typed_parameters.get(),fractional,
                 nominal,variant,sideways_pixel_path::original,require);
-            compare(images[0] == pixels(), "original CFF contour-origin same-owner warm replay");
+            const auto warm_pixels = pixels();
+            compare(images[0] == warm_pixels, "original CFF contour-origin same-owner warm replay");
+            compare(original_glyph_reference_matches_bgra(warm_pixels, original_frame++),
+                "original CFF warm DrawGlyphRun changed from its complete independent source receipt");
             bool ink = false;
             for (std::size_t pixel = 0U; pixel < images[0].size(); pixel += 4U) {
                 require(images[0][pixel] == 0U && images[0][pixel+1U] == 0U && images[0][pixel+3U] == 255U,
@@ -205,5 +211,6 @@ void verify_original_cff_contour_origin_pixels(ID2D1DeviceContext* source_contex
     }
     require(configurations == 12U, "original CFF contour-origin full configuration inventory");
     std::fprintf(stderr, "Original CFF contour-origin complete configurations=%zu\n", configurations);
+    require(original_frame == 199U, "complete original cff_contour_origin receipt inventory");
 }
 } // namespace progpu::native::direct2d::tests

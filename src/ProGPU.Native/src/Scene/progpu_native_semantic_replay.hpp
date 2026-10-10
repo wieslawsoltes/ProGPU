@@ -30,6 +30,14 @@ struct semantic_analytic_page {
     std::vector<semantic_analytic_draw> draws;
 };
 
+struct semantic_source_path {
+    bool physical = false;
+    float offset_x = 0.F;
+    float offset_y = 0.F;
+    float dpi_x = 1.F;
+    float dpi_y = 1.F;
+};
+
 struct semantic_path_page {
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;
@@ -37,6 +45,7 @@ struct semantic_path_page {
     std::uint32_t target_height = 0U;
     bool cache_valid = false;
     std::vector<progpu_native_scene_path_fill> paths;
+    std::vector<semantic_source_path> source_frames;
     std::vector<progpu_native_path_segment> segments;
     std::vector<progpu_native_scene_path_boolean_node> boolean_nodes;
     std::vector<std::uint32_t> brush_indices;

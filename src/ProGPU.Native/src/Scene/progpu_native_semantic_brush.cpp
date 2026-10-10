@@ -144,7 +144,7 @@ bool validate_draw_brushes(
     std::uint32_t& error_offset) noexcept {
     error_offset = command.payload_offset;
     if (command.payload_size == 0U) {
-        return true;
+        return command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE && command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH;
     }
     if (bytes == nullptr ||
         command.payload_size < sizeof(progpu_native_scene_draw_brushes)) {
@@ -154,7 +154,8 @@ bool validate_draw_brushes(
         bytes,
         command.payload_offset);
     const std::uint64_t expected_size = sizeof(draw) +
-        static_cast<std::uint64_t>(draw.brush_count) * sizeof(std::uint32_t);
+        static_cast<std::uint64_t>(draw.brush_count) * sizeof(std::uint32_t) +
+        ((command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE || command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) ? sizeof(progpu_native_scene_source_coverage_frame) : 0U);
     if (draw.struct_size != sizeof(draw) || draw.reserved != 0U ||
         draw.brush_count == 0U || draw.brush_count != expected_count ||
         draw.brush_count > PROGPU_NATIVE_SCENE_MAX_DRAW_BRUSH_INDICES ||
@@ -219,11 +220,12 @@ bool compile_brush_page(
             }
             if ((!painted && command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
                     command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH &&
                     command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH &&
-                    command.kind !=
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) ||
                 command.payload_size == 0U) {
@@ -253,8 +255,8 @@ bool compile_brush_page(
                 // Vertex-color blending must receive the retained brush at
                 // its source opacity. The mesh carries semantic state opacity
                 // separately and applies it after the selected blend mode.
-                const float opacity = command.kind ==
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH
+                const float opacity = (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE)
                     ? 1.0F
                     : state.opacity;
                 const brush_variant_key key{

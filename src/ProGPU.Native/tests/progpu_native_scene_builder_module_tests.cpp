@@ -21,6 +21,20 @@ int main() {
             {{0, 8}, {0, 8}, {1, 1, 1, 1}}}};
         if (!mesh_builder.draw_vertex_meshes({&mesh, 1U}, vertices, {}, {}, {0, 0, 8, 8}) ||
             mesh_builder.required_stream_size() == 0U) return 1;
+        progpu::native::progpu_native_scene_source_coverage_frame coverage_frame{
+            sizeof(coverage_frame), 1U, 1.F, 1.F, 8U, 8U, 0U, 0U};
+        unsigned int coverage_brush{};
+        if (!mesh_builder.add_solid_brush({1, 0, 0, 1}, 1, coverage_brush) ||
+            !mesh_builder.draw_source_coverage({&mesh, 1U}, vertices, {&coverage_brush, 1U}, {0, 0, 8, 8}, coverage_frame)) return 1;
+        const std::array<progpu::native::progpu_native_path_segment, 3U> segments{{
+            {{0, 0}, {8, 0}, {}, {}, progpu::native::PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+            {{8, 0}, {0, 8}, {}, {}, progpu::native::PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+            {{0, 8}, {0, 0}, {}, {}, progpu::native::PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}}};
+        progpu::native::progpu_native_scene_path_fill path{};
+        path.segment_count = segments.size(); path.max_x = path.max_y = 8;
+        path.sample_grid = 8U; path.color = {1, 1, 1, 1}; path.transform = mesh_builder.identity_transform();
+        if (!mesh_builder.draw_source_paths({&path, 1U}, segments, {&coverage_brush, 1U},
+                {0, 0, 8, 8}, coverage_frame)) return 1;
     }
     static_assert(progpu::native::PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL == 4U);
     {

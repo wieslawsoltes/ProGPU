@@ -17,6 +17,26 @@
 
 namespace progpu::native::execution {
 
+namespace {
+// Captured source coverage may retain its physical sampling lattice through an
+// integral placement and an unchanged viewport/DPI generation only. Target-local
+// origin is subtracted in pixels. No inverse, inferred DPI, epsilon or new shape.
+bool source_coverage_placement(const progpu_native_scene_source_coverage_frame& captured,
+    const progpu_native_scene_state& state, const semantic_scissor& target,
+    const progpu_native_scene_presentation& presentation, float& x, float& y) noexcept {
+    if (!valid_source_coverage_frame(captured) ||
+        captured.dpi_scale_x != presentation.dpi_scale_x || captured.dpi_scale_y != presentation.dpi_scale_y ||
+        captured.pixel_width != presentation.viewport_width || captured.pixel_height != presentation.viewport_height ||
+        state.transform.m11 != 1.0F || state.transform.m12 != 0.0F || state.transform.m21 != 0.0F || state.transform.m22 != 1.0F)
+        return false;
+    const double px = double(state.transform.m31 * captured.dpi_scale_x) + presentation.viewport_x - double(target.x);
+    const double py = double(state.transform.m32 * captured.dpi_scale_y) + presentation.viewport_y - double(target.y);
+    if (!std::isfinite(px) || !std::isfinite(py) || px != std::floor(px) || py != std::floor(py) ||
+        px < -16384.0 || px > 16384.0 || py < -16384.0 || py > 16384.0) return false;
+    x = static_cast<float>(px); y = static_cast<float>(py); return true;
+}
+}
+
 progpu_native_status render_scene(
     progpu_native_engine* engine,
     const progpu_native_scene_frame* frame,
@@ -881,7 +901,7 @@ progpu_native_status render_scene(
         }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind >
-                PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
             continue;
         }
         const bool per_point_guidelines =
@@ -1183,6 +1203,7 @@ progpu_native_status render_scene(
                 }
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE:
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH: {
                 valid = span_is_multiple(
                     resource.payload_size,
@@ -1205,6 +1226,22 @@ progpu_native_status render_scene(
                 const auto* source_vertices = reinterpret_cast<
                     const progpu_native_scene_mesh_vertex*>(
                         bytes + resource.auxiliary_offset);
+                float source_x = 0.0F, source_y = 0.0F;
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
+                    progpu_native_scene_source_coverage_frame captured{};
+                    std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                    if (!source_coverage_placement(captured, source_state, target_extent,
+                            preflight_target_cursor.current_presentation(), source_x, source_y))
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Source coverage requires its original physical viewport/DPI and integral state translation.");
+                    for (std::size_t v = 0U; v < source_vertex_count; ++v) {
+                        const auto p = source_vertices[v].position;
+                        if (p.x + source_x < 0.0F || p.y + source_y < 0.0F ||
+                            p.x + source_x > target_extent.width || p.y + source_y > target_extent.height)
+                            return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                                "Source coverage triangles require complete physical target containment before clip-created vertex admission.");
+                    }
+                }
                 for (std::size_t mesh_index = 0U;
                      valid && budget_valid && mesh_index < mesh_count;
                      ++mesh_index) {
@@ -1220,7 +1257,7 @@ progpu_native_status render_scene(
                     if (!valid) {
                         break;
                     }
-                    apply_semantic_transform(mesh, state);
+                    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) apply_semantic_transform(mesh, state);
                     std::size_t vertex_count = 0U;
                     std::size_t index_count = 0U;
                     valid = progpu::native::is_valid_vertex_mesh(
@@ -1333,7 +1370,18 @@ progpu_native_status render_scene(
                 }
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH:
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
+                const bool source_path = command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH;
+                if (source_path) {
+                    progpu_native_scene_source_coverage_frame captured{};
+                    std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                    float x{},y{};
+                    if (!source_coverage_placement(captured, source_state, target_extent,
+                            preflight_target_cursor.current_presentation(), x, y))
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Source paths require their original physical viewport/DPI and integral state translation.");
+                }
                 std::uint64_t path_count = 0U;
                 std::uint64_t segment_count = 0U;
                 std::uint64_t boolean_node_count = 0U;
@@ -1402,7 +1450,7 @@ progpu_native_status render_scene(
                     if (brush == nullptr) {
                         apply_semantic_state(path, state);
                     } else {
-                        apply_semantic_transform(path, state);
+                        if (!source_path) apply_semantic_transform(path, state);
                         apply_path_material(path, *brush);
                     }
                     std::uint64_t path_coverage_bytes = 0U;
@@ -1764,8 +1812,8 @@ progpu_native_status render_scene(
                             : command.kind ==
                                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH
                                 ? "point-batch"
-                            : command.kind ==
-                                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH
+                            : (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                                command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE)
                                 ? "vertex-mesh"
                             : command.kind ==
                                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH
@@ -1801,11 +1849,12 @@ progpu_native_status render_scene(
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
             ++semantic_analytic_draw_count;
             semantic_analytic_vertex_bytes += compiled_vertex_bytes;
             semantic_analytic_index_bytes += compiled_index_bytes;
-        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH || command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
             std::uint64_t path_count = 0U;
             std::uint64_t segment_count = 0U;
             std::uint64_t boolean_node_count = 0U;
@@ -2189,19 +2238,17 @@ progpu_native_status render_scene(
                  ++index) {
                 const auto command = read_command(index);
                 const auto target_extent = target_cursor.advance(command);
+                const auto source_state = state_cursor.advance(command);
                 const auto state = localize_semantic_state(
-                    state_cursor.advance(command),
-                    target_extent,
-                    target_cursor.current_presentation(),
-                    frame->dpi_scale);
+                    source_state, target_extent, target_cursor.current_presentation(), frame->dpi_scale);
                 if (command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH &&
-                    command.kind !=
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
                     continue;
@@ -2350,8 +2397,8 @@ progpu_native_status render_scene(
                                 "A preflighted semantic point-batch payload could not be compiled.");
                         }
                     }
-                } else if (command.kind ==
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
+                } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
                     const std::size_t mesh_count = resource.payload_size /
                         sizeof(progpu_native_scene_vertex_mesh);
                     const auto* meshes = reinterpret_cast<
@@ -2392,6 +2439,17 @@ progpu_native_status render_scene(
                             return engine->fail(
                                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                                 "A validated semantic vertex-mesh brush map could not be resolved.");
+                        }
+                        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
+                            progpu_native_scene_source_coverage_frame captured{};
+                            std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                            float source_x{}, source_y{};
+                            if (!source_coverage_placement(captured, source_state, target_extent,
+                                    target_cursor.current_presentation(), source_x, source_y))
+                                return engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR, "A preflighted source coverage frame changed during compilation.");
+                            append_source_coverage(mesh, source_vertices, source_x, source_y, state.opacity,
+                                static_cast<float>(brush_index), engine->vertices, engine->indices);
+                            continue;
                         }
                         apply_semantic_transform(mesh, state);
                         if (!progpu::native::append_vertex_mesh(
@@ -2554,6 +2612,7 @@ progpu_native_status render_scene(
         semantic_path_page.draws.size() == semantic_path_draw_count;
     if (semantic_path_draw_count != 0U && !semantic_path_page_hit) {
         std::vector<progpu_native_scene_path_fill> compiled_paths;
+        std::vector<semantic_source_path> compiled_source_frames;
         std::vector<progpu_native_path_segment> compiled_segments;
         std::vector<progpu_native_scene_path_boolean_node>
             compiled_boolean_nodes;
@@ -2562,6 +2621,7 @@ progpu_native_status render_scene(
         try {
             compiled_paths.reserve(
                 static_cast<std::size_t>(semantic_path_count));
+            compiled_source_frames.reserve(static_cast<std::size_t>(semantic_path_count));
             compiled_segments.reserve(
                 static_cast<std::size_t>(semantic_path_segment_count));
             compiled_boolean_nodes.reserve(
@@ -2588,8 +2648,17 @@ progpu_native_status render_scene(
                     target_extent,
                     target_cursor.current_presentation(),
                     frame->dpi_scale);
-                if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+                if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH && command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
                     continue;
+                }
+                semantic_source_path source_frame{};
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
+                    progpu_native_scene_source_coverage_frame captured{};
+                    std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                    if (!source_coverage_placement(captured, target_state, target_extent,
+                            target_cursor.current_presentation(), source_frame.offset_x, source_frame.offset_y))
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED, "Source path placement changed after preflight.");
+                    source_frame.physical = true; source_frame.dpi_x = captured.dpi_scale_x; source_frame.dpi_y = captured.dpi_scale_y;
                 }
                 const auto resource = read_resource(command.resource_index);
                 const std::size_t path_start = compiled_paths.size();
@@ -2661,7 +2730,10 @@ progpu_native_status render_scene(
                     }
                     const bool per_point_guidelines =
                         state_cursor.has_per_point_guidelines(target_state);
-                    if (brush == nullptr && !per_point_guidelines) {
+                    if (source_frame.physical) {
+                        path.transform = {1,0,0,1,source_frame.offset_x,source_frame.offset_y};
+                        apply_path_material(path, *brush);
+                    } else if (brush == nullptr && !per_point_guidelines) {
                         apply_semantic_state(path, state);
                     } else if (brush == nullptr) {
                         path.color.a *= state.opacity;
@@ -2750,6 +2822,7 @@ progpu_native_status render_scene(
                         path.boolean_node_offset += boolean_node_start;
                     }
                     compiled_paths.push_back(path);
+                    compiled_source_frames.push_back(source_frame);
                     compiled_brush_indices.push_back(brush_index);
                 }
                 compiled_draws.push_back({
@@ -2761,7 +2834,7 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic path packed page could not be compiled.");
         }
-        if (compiled_paths.size() != semantic_path_count ||
+        if (compiled_source_frames.size() != semantic_path_count || compiled_paths.size() != semantic_path_count ||
             compiled_segments.size() != semantic_path_segment_count ||
             compiled_boolean_nodes.size() !=
                 semantic_path_boolean_node_count ||
@@ -2772,6 +2845,7 @@ progpu_native_status render_scene(
                 "The semantic path packed-page budget did not match compilation.");
         }
         semantic_path_page.paths = std::move(compiled_paths);
+        semantic_path_page.source_frames = std::move(compiled_source_frames);
         semantic_path_page.segments = std::move(compiled_segments);
         semantic_path_page.boolean_nodes =
             std::move(compiled_boolean_nodes);
@@ -5380,7 +5454,7 @@ progpu_native_status render_scene(
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind >
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
                 continue;
             }
             auto scissor = resolve_semantic_target_scissor(
@@ -5510,8 +5584,8 @@ progpu_native_status render_scene(
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
                         command.kind ==
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
-                        command.kind ==
-                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                        command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                        command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
                         command.kind ==
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH)
                     ? static_cast<std::uint32_t>(
@@ -5596,6 +5670,7 @@ progpu_native_status render_scene(
                     }
                     break;
                 }
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE:
                 case PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH: {
                     if (semantic_analytic_draw_index >=
                         semantic_analytic_page.draws.size()) {
@@ -5646,7 +5721,8 @@ progpu_native_status render_scene(
                     }
                     break;
                 }
-                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH:
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
                     if (semantic_path_draw_index >=
                         semantic_path_page.draws.size()) {
                         return fail_bundle(engine->fail(

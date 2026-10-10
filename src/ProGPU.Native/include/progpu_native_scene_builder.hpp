@@ -431,6 +431,16 @@ public:
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
 
+    // Explicit original physical coverage; binary vertex alpha is interpolated
+    // from flat triangle metadata on the source's 1/256 pixel raster lattice.
+    bool draw_source_coverage(
+        std::span<const progpu_native_scene_vertex_mesh> meshes,
+        std::span<const progpu_native_scene_mesh_vertex> vertices,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        const progpu_native_scene_source_coverage_frame& frame,
+        std::uint32_t state_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
     bool draw_strokes(
         std::span<const progpu_native_scene_stroke> strokes,
         std::span<const progpu_native_point> points,
@@ -477,6 +487,16 @@ public:
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    // Explicit closed physical contours and source presentation, independent of
+    // ordinary path transforms and target-DIP brush coordinates.
+    bool draw_source_paths(
+        std::span<const progpu_native_scene_path_fill> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        const progpu_native_scene_source_coverage_frame& frame,
+        std::uint32_t state_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
 
     bool draw_paths(
         std::span<const progpu_native_scene_path_fill> paths,
@@ -568,6 +588,22 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    bool draw_paths_core(
+        std::span<const progpu_native_scene_path_fill> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index,
+        std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+        const progpu_native_scene_source_coverage_frame* frame) noexcept;
+    bool draw_vertex_meshes_core(
+        std::span<const progpu_native_scene_vertex_mesh> meshes,
+        std::span<const progpu_native_scene_mesh_vertex> vertices,
+        std::span<const std::uint16_t> indices,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index,
+        const progpu_native_scene_source_coverage_frame* frame) noexcept;
     template<class Copy>
     bool copy_image_outside_clips(Copy&& copy) noexcept;
     bool append_image_copy_commands(

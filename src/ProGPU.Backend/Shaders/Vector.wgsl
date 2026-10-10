@@ -1,6 +1,6 @@
 // Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, nine-neighbor affine rectangular fixed-device dot grids, derivative-mapped affine minor/major line grids, affine pattern-space hatch families, fixed 8x8 tiles, and bounded path gradients; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
 // Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; path-gradient fragments test at most 128 retained boundary edges; affine rectangular fixed-device dots evaluate exactly nine neighboring lattice centers, while affine minor/major line grids evaluate two line families with fixed work; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most five signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
-// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record. Path coverage uses one integer texel load for a proven pixel translation, otherwise one filtered sample; the vertex output carries three flat integers without changing the vertex buffer layout.
+// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record. Path coverage uses one integer texel load for a proven pixel translation, otherwise one filtered sample; the vertex output carries three flat path integers plus six flat source-triangle coordinates and one coverage bit mask without changing the vertex buffer layout. Explicit source scalar coverage evaluates one snapped triangle plane with fixed O(1) arithmetic and no texture access.
 struct Uniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
@@ -180,6 +180,9 @@ struct VertexOutput {
     @location(8) @interpolate(flat) localStrokeMode: f32,
     @location(9) brushCoord: vec2<f32>,
     @location(10) @interpolate(flat) pathPixelMapping: vec3<i32>,
+    @location(11) @interpolate(flat) sourceTriangle01: vec4<f32>,
+    @location(12) @interpolate(flat) sourceTriangle2: vec2<f32>,
+    @location(13) @interpolate(flat) sourceCoverageBits: u32,
 };
 
 const PROGPU_TWO_PI: f32 = 6.28318530718;
@@ -368,7 +371,51 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         sType = u32(round(encodedShapeType - 100.0));
     }
 
+    if (sType == 27u) {
+        // Source path coverage is an original physical atlas. The retained
+        // target-DIP brush coordinates are independent of raster placement.
+        let extent = -uniforms.pad1;
+        if (isStatic || useGpuTransforms || any(extent <= vec2<f32>(0.0))) {
+            output.position = vec4<f32>(2.0, 2.0, 0.0, 1.0);
+            output.localStrokeMode = -1.0;
+            return output;
+        }
+        output.position = vec4<f32>(input.position * (vec2<f32>(2.0, -2.0) / extent) +
+            vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+        output.color = input.color;
+        output.texCoord = input.texCoord;
+        output.brushCoord = input.shapeSize;
+        output.shapeSize = input.shapeSize;
+        output.brushIndex = input.brushIndex;
+        output.cornerRadius = 1.0;
+        output.shapeType = 4.0;
+        output.pathPixelMapping = vec3<i32>(vec2<i32>(input.texCoord - input.position), 1);
+        return output;
+    }
 
+    if (sType == 26u) {
+        // Explicit source coverage only. Native pass creation supplies negative
+        // actual physical viewport dimensions; positive pad1 remains the static
+        // stroke-scale cache. Source state/DPI/containment was preflighted.
+        let extent = -uniforms.pad1;
+        if (isStatic || useGpuTransforms || any(extent <= vec2<f32>(0.0))) {
+            output.position = vec4<f32>(2.0, 2.0, 0.0, 1.0);
+            output.localStrokeMode = -1.0;
+            return output;
+        }
+        output.position = vec4<f32>(input.position * (vec2<f32>(2.0, -2.0) / extent) +
+            vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+        output.sourceTriangle01 = input.color;
+        output.sourceTriangle2 = input.shapeSize;
+        output.sourceCoverageBits = u32(input.cornerRadius);
+        output.color = vec4<f32>(1.0);
+        output.texCoord = input.texCoord;
+        output.brushCoord = input.texCoord;
+        output.brushIndex = input.brushIndex;
+        output.strokeThickness = input.strokeThickness;
+        output.shapeType = 1026.0;
+        return output;
+    }
 
     var inPos = input.position;
     var inTexCoord = input.texCoord;
@@ -1439,6 +1486,42 @@ fn box_distance_gradient(
     return vec3<f32>(distance, gradient);
 }
 
+// Explicit original source raster policy, independent of generic mesh color
+// interpolation. D3D11.3 sections3.2.4/3.4.1 use exactly eight fractional bits
+// after viewport mapping; nearest-even handles exact signed halfway coordinates.
+// O(1) arithmetic/storage, no texture reads. Original vertices are not modified.
+fn source_raster_snap(p: vec2<f32>) -> vec2<f32> {
+    let scaled = p * 256.0;
+    let lower = floor(scaled);
+    let fraction = scaled - lower;
+    let odd = (vec2<u32>(abs(lower)) & vec2<u32>(1u)) != vec2<u32>(0u);
+    let upward = (fraction > vec2<f32>(0.5)) | ((fraction == vec2<f32>(0.5)) & odd);
+    return select(lower, lower + vec2<f32>(1.0), upward) / 256.0;
+}
+
+fn source_raster_cross(a: vec2<f32>, b: vec2<f32>) -> f32 {
+    return a.x * b.y - a.y * b.x;
+}
+
+fn source_triangle_coverage(input: VertexOutput) -> f32 {
+    let bits = input.sourceCoverageBits;
+    if (bits == 0u) { return 0.0; }
+    if (bits == 7u) { return 1.0; }
+    let a = source_raster_snap(input.sourceTriangle01.xy);
+    let b = source_raster_snap(input.sourceTriangle01.zw);
+    let c = source_raster_snap(input.sourceTriangle2);
+    let e0 = b - a;
+    let e1 = c - a;
+    let area = source_raster_cross(e0, e1);
+    if (area == 0.0) { return 0.0; }
+    let r = input.position.xy - a;
+    let ca = f32(bits & 1u);
+    let cb = f32((bits >> 1u) & 1u);
+    let cc = f32((bits >> 2u) & 1u);
+    return clamp(ca + ((cb - ca) * source_raster_cross(r, e1) +
+        (cc - ca) * source_raster_cross(e0, r)) / area, 0.0, 1.0);
+}
+
 fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -> vec4<f32> {
     let atlasCoordDx = dpdx(input.texCoord);
     let atlasCoordDy = dpdy(input.texCoord);
@@ -1486,6 +1569,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -
     }
 
     var shapeAlpha: f32 = 1.0;
+    if (sType == 26u) { shapeAlpha = source_triangle_coverage(input); }
     if (sType == 0u && input.strokeThickness <= 0.0) {
         let edgeDistance = abs(input.texCoord) - input.shapeSize * 0.5;
         let edgeWidth = max(
@@ -2236,7 +2320,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -
     let brush = brushes[u32(round(input.brushIndex))];
     let useBrushSolidColor = sType == 5u || sType == 6u ||
         (sType >= 12u && sType <= 18u) ||
-        sType == 22u || sType == 23u || sType == 24u;
+        sType == 22u || sType == 23u || sType == 24u || sType == 26u;
     var finalColor = sample_registered_material(
         brush, input.color, useBrushSolidColor, evalCoord, evalCoordDx, evalCoordDy);
 
@@ -2247,7 +2331,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -
     // Vertex meshes apply semantic state opacity after brush/vertex blending.
     // Applying it to the brush first is not equivalent for Porter-Duff and
     // advanced color blend modes. Other shapes retain their existing alpha.
-    let stateOpacity = select(1.0, clamp(input.strokeThickness, 0.0, 1.0), sType == 18u);
+    let stateOpacity = select(1.0, clamp(input.strokeThickness, 0.0, 1.0), sType == 18u || sType == 26u);
     return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha * stateOpacity);
 }
 

@@ -96,13 +96,36 @@ bool semantic_scene_builder::draw_vertex_meshes(
     std::span<const std::uint32_t> brush_indices,
     progpu_native_image_rect bounds,
     std::uint32_t state_resource_index) noexcept {
+    return draw_vertex_meshes_core(meshes, vertices, indices, brush_indices, bounds, state_resource_index, nullptr);
+}
+
+bool semantic_scene_builder::draw_source_coverage(
+    std::span<const progpu_native_scene_vertex_mesh> meshes,
+    std::span<const progpu_native_scene_mesh_vertex> vertices,
+    std::span<const std::uint32_t> brush_indices,
+    progpu_native_image_rect bounds,
+    const progpu_native_scene_source_coverage_frame& frame,
+    std::uint32_t state_resource_index) noexcept {
+    return draw_vertex_meshes_core(meshes, vertices, {}, brush_indices, bounds, state_resource_index, &frame);
+}
+
+bool semantic_scene_builder::draw_vertex_meshes_core(
+    std::span<const progpu_native_scene_vertex_mesh> meshes,
+    std::span<const progpu_native_scene_mesh_vertex> vertices,
+    std::span<const std::uint16_t> indices,
+    std::span<const std::uint32_t> brush_indices,
+    progpu_native_image_rect bounds,
+    std::uint32_t state_resource_index,
+    const progpu_native_scene_source_coverage_frame* frame) noexcept {
     // Algorithm: reuse the renderer's exact wire validator, then copy the
     // complete batch before publishing either resource or command. O(M+V+I)
     // validation/copy time and O(M+V+I) retained storage; no per-mesh command.
     const std::uint64_t auxiliary_size =
         static_cast<std::uint64_t>(vertices.size_bytes()) + indices.size_bytes();
     std::size_t vertex_count = 0U, index_count = 0U;
-    if (meshes.empty() || !finite_rect(bounds) ||
+    if ((frame && (!valid_source_coverage_frame(*frame) || brush_indices.size() != meshes.size() ||
+            !indices.empty() || vertices.size() > 1048576U)) ||
+        meshes.empty() || !finite_rect(bounds) ||
         !implementation_->valid_state_index(state_resource_index) ||
         (!brush_indices.empty() && brush_indices.size() != meshes.size()) ||
         meshes.size_bytes() > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
@@ -115,7 +138,8 @@ bool semantic_scene_builder::draw_vertex_meshes(
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     for (const auto& mesh : meshes) {
-        if (!is_valid_vertex_mesh(mesh, vertices.data(), vertices.size(), indices.size())) {
+        if (!is_valid_vertex_mesh(mesh, vertices.data(), vertices.size(), indices.size()) ||
+            (frame && !valid_source_coverage_mesh(mesh, vertices.data(), vertices.size(), *frame))) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
         for (const auto index : indices.subspan(mesh.index_offset, mesh.index_count)) {
@@ -147,7 +171,7 @@ bool semantic_scene_builder::draw_vertex_meshes(
         }
         implementation::command_entry command{};
         command.record.struct_size = sizeof(command.record);
-        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH;
+        command.record.kind = frame ? PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE : PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH;
         command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
         command.record.command_id = implementation_->commands.size() + 1U;
         command.record.state_index = state_resource_index;
@@ -161,10 +185,11 @@ bool semantic_scene_builder::draw_vertex_meshes(
                 sizeof(progpu_native_scene_draw_brushes),
                 implementation_->brush_resource_index,
                 static_cast<std::uint32_t>(brush_indices.size()), 0U};
-            command.payload.resize(sizeof(draw) + brush_indices.size_bytes());
+            command.payload.resize(sizeof(draw) + brush_indices.size_bytes() + (frame ? sizeof(*frame) : 0U));
             std::memcpy(command.payload.data(), &draw, sizeof(draw));
             std::memcpy(command.payload.data() + sizeof(draw),
                 brush_indices.data(), brush_indices.size_bytes());
+            if (frame) std::memcpy(command.payload.data() + sizeof(draw) + brush_indices.size_bytes(), frame, sizeof(*frame));
         }
         implementation_->resources.push_back(std::move(resource));
         implementation_->commands.push_back(std::move(command));

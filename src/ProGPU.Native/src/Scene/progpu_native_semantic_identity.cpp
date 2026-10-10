@@ -380,6 +380,7 @@ bool is_analytic_command(std::uint32_t kind) noexcept {
         kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+        kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
         kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH;
 }
 
@@ -512,6 +513,11 @@ semantic_content_hashes compute_content_hashes(
                 scope_depth);
             analytic_commands = append_command(
                 analytic_commands, bytes, header, command, false);
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
+                analytic_commands = append_fnv1a64(analytic_commands,
+                    bytes + command.payload_offset + command.payload_size - sizeof(progpu_native_scene_source_coverage_frame),
+                    sizeof(progpu_native_scene_source_coverage_frame));
+            }
             analytic_commands = append_effective_state(
                 analytic_commands, bytes, header, effective_state_index);
             brush_commands = append_brush_mapping(
@@ -521,11 +527,16 @@ semantic_content_hashes compute_content_hashes(
                 index,
                 command,
                 effective_state_index);
-        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH || command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
             path_commands = append_active_layers(
                 path_commands, bytes, header, active_scopes, scope_depth);
             path_commands = append_command(
                 path_commands, bytes, header, command, false);
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
+                path_commands = append_fnv1a64(path_commands,
+                    bytes + command.payload_offset + command.payload_size - sizeof(progpu_native_scene_source_coverage_frame),
+                    sizeof(progpu_native_scene_source_coverage_frame));
+            }
             path_commands = append_effective_state(
                 path_commands, bytes, header, effective_state_index);
             brush_commands = append_brush_mapping(

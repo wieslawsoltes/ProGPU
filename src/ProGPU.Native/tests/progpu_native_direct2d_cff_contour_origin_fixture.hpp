@@ -82,7 +82,9 @@ void record_cff_contour_origin_pixel_case(compat::factory* factory, compat::rend
         require(!design_reference || (nominal && original_design_advances != nullptr), "actual original vertical advances required");
         const auto* selected = design_reference ? original_design_advances : nominal ? nullptr : advances;
         const compat::glyph_run run{font->source()->face.get(),15.625F,3U,indices,selected,offsets,variant == 1U ? -1 : 1,2U};
-        if (path == sideways_pixel_path::original || design_reference)
+        if (path == sideways_pixel_path::prepared_outline)
+            draw_prepared_outline_geometry(factory, target, font, parameters, {4, 20}, run, brush.get(), require);
+        else if (path == sideways_pixel_path::original || design_reference)
             target->DrawGlyphRun({4,20},&run,brush.get(),compat::measuring_mode::natural);
         else {
             com::pointer<prepared_glyph_target> prepared;
@@ -99,6 +101,7 @@ void record_cff_contour_origin_pixel_case(compat::factory* factory, compat::rend
 template<class Render, class Require>
 void verify_cff_contour_origin_pixels(Render render, Require require)
 {
+    std::uint32_t original_frame = 175U;
     std::uint64_t generation = 0U;
     for (const bool fractional : {false,true}) {
         font_stream stream; stream.bytes = make_cff_vertical_font(fractional); stream.declared_size = stream.bytes.size();
@@ -115,22 +118,22 @@ void verify_cff_contour_origin_pixels(Render render, Require require)
         require(compat::create_factory(factory.put()) == com::ok &&
             factory.as(compat::scene_factory_native_interface_id,scenes) == com::ok, "CFF contour-origin factory");
         for (const bool nominal : {false,true}) for (std::uint32_t variant = 0U; variant < 3U; ++variant) {
-            std::array<std::vector<std::byte>,2U> bytes;
-            std::array<progpu_native_scene_header,2U> headers{};
-            for (std::size_t reference = 0U; reference < 2U; ++reference) {
+            std::array<std::vector<std::byte>,3U> bytes;
+            std::array<progpu_native_scene_header,3U> headers{};
+            for (std::size_t reference = 0U; reference < 3U; ++reference) {
                 const compat::scene_render_target_properties properties{64U,64U,96,96,0x95E1U,++generation};
                 com::pointer<compat::render_target> target; com::pointer<compat::scene_render_target_native> scene;
                 require(scenes->CreateSceneRenderTarget(&properties,target.put()) == com::ok &&
                     target.as(compat::scene_render_target_native_interface_id,scene) == com::ok, "CFF contour-origin target");
                 record_cff_contour_origin_pixel_case(factory.get(),target.get(),font,&parameters,fractional,nominal,variant,
-                    reference == 0U ? sideways_pixel_path::prepared : sideways_pixel_path::independent_geometry,require);
+                    reference == 0U ? sideways_pixel_path::prepared : reference == 1U
+                        ? sideways_pixel_path::independent_geometry : sideways_pixel_path::prepared_outline,require);
                 require(export_copy_scene(scene.get(),bytes[reference]) && read_scene_value(bytes[reference],0U,headers[reference]),
                     "CFF contour-origin immutable scene");
             }
-            const auto cold = render(false,bytes[0],headers[0]); const auto warm = render(false,bytes[0],headers[0]);
-            const auto independent = render(true,bytes[1],headers[1]);
-            require(cold.size() == 64U*256U && cold == warm && cold == independent,
-                "CFF contour-origin full-byte cold/warm/independent frame");
+            const auto cold = verify_original_glyph_frame(render, require, original_frame, bytes, headers,
+                1U, original_frame + 1U);
+            original_frame += 2U;
             bool ink = false;
             for (std::size_t pixel = 0U; pixel < cold.size(); pixel += 4U) {
                 require(cold[pixel+1U] == 0U && cold[pixel+2U] == 0U && cold[pixel+3U] == 255U,
@@ -141,5 +144,6 @@ void verify_cff_contour_origin_pixels(Render render, Require require)
         require(stream.reads == reads && face.outline_calls == 0U && face.table_calls == 0U && font->cached_glyph_count() == 3U,
             "CFF contour-origin retained warm ownership without new source calls");
     }
+    require(original_frame == 199U, "complete original cff_contour_origin frame inventory");
 }
 } // namespace progpu::native::direct2d::tests

@@ -11,6 +11,7 @@ template<class Require, class Compare>
 void verify_original_sideways_glyph_pixels(ID2D1DeviceContext* source_context,
     IDWriteFactory* write_factory, Require require, Compare compare)
 {
+    std::uint32_t original_frame = 151U;
     using Microsoft::WRL::ComPtr;
     ComPtr<IDWriteFactory5> extended_factory;
     require(write_factory->QueryInterface(IID_PPV_ARGS(extended_factory.GetAddressOf())) == S_OK,
@@ -188,8 +189,10 @@ void verify_original_sideways_glyph_pixels(ID2D1DeviceContext* source_context,
                 images[path]=pixels();
             }
             require(images[0].size() == 64U * 256U, "original glyph frame byte inventory");
-            compare(images[0] == images[1] && images[0] == images[2],
-                "original sideways DrawGlyphRun/independent/prepared full-byte mismatch");
+            compare(original_glyph_reference_matches_bgra(images[0], original_frame++),
+                "original DrawGlyphRun changed from its complete independent source receipt");
+            compare(images[1] == images[2],
+                "original sideways FillGeometry independent/prepared full-byte mismatch");
             if (nominal) compare(images[0] == images[3], "original sideways null versus actual vertical advance mismatch");
             ++configurations;
         }
@@ -197,5 +200,6 @@ void verify_original_sideways_glyph_pixels(ID2D1DeviceContext* source_context,
     }
     }
     require(configurations == 24U, "original sideways static TT/CFF full configuration inventory");
+    require(original_frame == 175U, "complete original sideways_glyph receipt inventory");
 }
 } // namespace progpu::native::direct2d::tests

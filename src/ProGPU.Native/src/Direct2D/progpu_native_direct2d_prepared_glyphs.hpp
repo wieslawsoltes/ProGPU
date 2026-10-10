@@ -20,7 +20,22 @@ struct prepared_original_glyph_coverage final {
     std::vector<progpu_native_scene_vertex_mesh> meshes;
     std::vector<progpu_native_scene_mesh_vertex> vertices;
     progpu_native_image_rect bounds{};
+    progpu_native_scene_source_coverage_frame frame{};
 };
+
+// General source raster preparation is distinct from the convex glyph policy.
+// It owns derived physical line contours, preserving original source storage.
+// S_FALSE and failures leave output untouched; no pixel coverage is computed.
+struct prepared_original_path_coverage final {
+    std::vector<progpu_native_path_segment> segments;
+    progpu_native_scene_path_fill path{};
+};
+[[nodiscard]] com::result prepare_original_path_coverage(
+    std::span<const progpu_native_path_segment> source,
+    const compat::matrix_3x2_f& transform,
+    const progpu_native_scene_source_coverage_frame& frame,
+    std::uint32_t fill_rule,
+    prepared_original_path_coverage& output) noexcept;
 
 class prepared_original_glyph_run final {
 public:

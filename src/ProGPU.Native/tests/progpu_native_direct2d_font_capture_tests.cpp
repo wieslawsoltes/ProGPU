@@ -3,6 +3,7 @@
 #include "progpu_native_hint_fault_fixture.hpp"
 #include "progpu_native_direct2d_font_source_fixture.hpp"
 #include "progpu_native_direct2d_font_axis_fixture.hpp"
+#include "progpu_native_direct2d_source_path_fixture.hpp"
 
 #include <array>
 #include <bit>
@@ -445,6 +446,108 @@ using namespace progpu::native::direct2d::tests;
     return true;
 }
 
+[[nodiscard]] bool prepared_coverage_recorder_contracts()
+{
+    font_stream stream; stream.bytes = progpu::native::tests::make_hint_fault_font();
+    stream.declared_size = stream.bytes.size();
+    font_loader loader; loader.stream = &stream;
+    font_file file; file.loader = &loader;
+    font_face face; face.files[0] = &file; face.declared_count = 1U;
+    face.type = 1U; face.index = 0U; face.simulations = 0U; face.glyph_count = 3U;
+    std::shared_ptr<const capture::original_font_capture> source;
+    std::shared_ptr<capture::prepared_original_font> font;
+    if (capture::capture_original_font(&face, source) != com::ok ||
+        capture::prepared_original_font::create(source, font) != com::ok) return false;
+    const auto source_reads = stream.reads;
+    face.count_result = compat::not_implemented;
+    com::pointer<compat::factory> factory;
+    com::pointer<compat::scene_factory_native> scene_factory;
+    com::pointer<compat::render_target> target;
+    com::pointer<compat::scene_render_target_native> scene;
+    com::pointer<capture::prepared_glyph_target> recorder;
+    constexpr compat::scene_render_target_properties properties{64U, 64U, 96, 96, 8443U, 1U};
+    if (compat::create_factory(factory.put()) != com::ok ||
+        factory.as(compat::scene_factory_native_interface_id, scene_factory) != com::ok ||
+        scene_factory->CreateSceneRenderTarget(&properties, target.put()) != com::ok ||
+        target.as(compat::scene_render_target_native_interface_id, scene) != com::ok ||
+        target.as(capture::prepared_glyph_target_id, recorder) != com::ok) return false;
+    rendering_parameters parameters; parameters.mode = compat::rendering_mode::outline;
+    struct clear_parameters final {
+        compat::render_target* target;
+        ~clear_parameters() { target->SetTextRenderingParams(nullptr); }
+    } clear{target.get()};
+    target->SetTextRenderingParams(&parameters);
+    com::pointer<compat::solid_color_brush> brush;
+    constexpr compat::color_f ink{0.25F, 0.5F, 0.75F, 0.5F};
+    if (target->CreateSolidColorBrush(&ink, nullptr, brush.put()) != com::ok) return false;
+    const std::uint16_t indices[]{1U, 0U, 2U};
+    const compat::glyph_offset offsets[]{{0, 0}, {0, 0}, {-0.75F, 2.5F}};
+    const compat::glyph_run run{&face, 31.25F, 3U, indices, nullptr, offsets, 0, 2U};
+    constexpr compat::rectangle_f clip{9, 8, 46, 38};
+    constexpr compat::layer_parameters layer{{0, 0, 64, 64}, nullptr, compat::antialias_mode::aliased,
+        {1, 0, 0, 1, 0, 0}, 0.5F, nullptr, compat::layer_options::none};
+    for (const auto antialias : {compat::text_antialias_mode::aliased, compat::text_antialias_mode::grayscale}) {
+        for (unsigned scope = 0U; scope < 8U; ++scope) {
+            for (unsigned repeat = 0U; repeat < 2U; ++repeat) {
+                target->BeginDraw(); target->SetTextAntialiasMode(antialias);
+                if (scope == 1U || scope == 3U) target->PushAxisAlignedClip(&clip,
+                    scope == 1U ? compat::antialias_mode::aliased : compat::antialias_mode::per_primitive);
+                auto scoped_layer = layer;
+                if (scope == 5U) scoped_layer.content_bounds = clip;
+                if (scope == 7U) scoped_layer.opacity_brush = brush.get();
+                if (scope == 2U || scope >= 5U) target->PushLayer(&scoped_layer, nullptr);
+                if (scope == 6U) target->PushLayer(&layer, nullptr);
+                const compat::point_2f baseline{scope == 4U ? -10.F : 3.59375F, 17.90625F};
+                if (!check(recorder->DrawOwnedGlyphRun(font, baseline, &run, brush.get(),
+                    compat::measuring_mode::natural) == com::ok, "source coverage recorder draw")) return false;
+                if (scope == 6U) target->PopLayer();
+                if (scope == 2U || scope >= 5U) target->PopLayer();
+                if (scope == 1U || scope == 3U) target->PopAxisAlignedClip();
+                if (target->EndDraw(nullptr, nullptr) != com::ok) return false;
+                std::vector<std::byte> bytes(static_cast<std::size_t>(scene->GetRequiredSceneSize()));
+                std::uint64_t written{};
+                if (scene->BuildScene(bytes.data(), bytes.size(), &written) != com::ok || written != bytes.size()) return false;
+                progpu_native_scene_header header{}; std::memcpy(&header, bytes.data(), sizeof(header));
+                unsigned coverage_draws{}, path_draws{}, source_paths{};
+                for (unsigned i = 0U; i < header.command_count; ++i) {
+                    progpu_native_scene_command command{};
+                    std::memcpy(&command, bytes.data() + header.command_offset + i * header.command_stride, sizeof(command));
+                    if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) ++path_draws;
+                    if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) ++source_paths;
+                    else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) ++coverage_draws;
+                    else continue;
+                    progpu_native_scene_source_coverage_frame frame{};
+                    std::memcpy(&frame, bytes.data() + command.payload_offset + command.payload_size - sizeof(frame), sizeof(frame));
+                    if (!check(frame.struct_size == sizeof(frame) && frame.version == 1U &&
+                        frame.dpi_scale_x == 1.F && frame.dpi_scale_y == 1.F &&
+                        frame.pixel_width == 64U && frame.pixel_height == 64U && !frame.flags && !frame.reserved,
+                        "recorder retains complete original coverage frame")) return false;
+                }
+                const bool coverage_scope = scope < 3U || scope == 6U;
+                const bool source_path = scope == 4U && antialias == compat::text_antialias_mode::grayscale;
+                if (!check(coverage_draws == (coverage_scope ? 1U : 0U) && source_paths == (source_path ? 1U : 0U) &&
+                    path_draws == (coverage_scope || source_path ? 0U : 1U),
+                    "source coverage retains whole targets and closed off-target paths while keeping mask/layer gates")) return false;
+                const auto immutable = bytes;
+                brush->SetOpacity(repeat == 0U ? 0.25F : 1.F);
+                if (!check(scene->BuildScene(bytes.data(), bytes.size(), &written) == com::ok && bytes == immutable,
+                    "retained coverage owns brush/frame independently of later source mutation")) return false;
+            }
+        }
+    }
+    parameters.context = target.get();
+    parameters.callback = +[](void* value) noexcept { static_cast<compat::render_target*>(value)->SetDpi(192, 192); };
+    target->BeginDraw();
+    if (!check(recorder->DrawOwnedGlyphRun(font, {3.59375F, 17.90625F}, &run, brush.get(),
+        compat::measuring_mode::natural) == compat::wrong_state &&
+        target->EndDraw(nullptr, nullptr) == compat::wrong_state, "coverage capture rejects reentrant DPI mutation")) return false;
+    parameters.callback = nullptr;
+    compat::scene_render_target_summary summary{}; scene->GetSummary(&summary);
+    return check(summary.draw_count == 0U && stream.reads == source_reads &&
+        face.outline_calls == 0U && face.table_calls == 0U && font->cached_glyph_count() == 3U,
+        "coverage recorder keeps original source cache and publishes no invalidated draw");
+}
+
 [[nodiscard]] bool prepared_origin_contracts()
 {
     com::pointer<compat::factory> factory;
@@ -575,7 +678,7 @@ using namespace progpu::native::direct2d::tests;
                 cold.bounds.width == 39.F+2*fringe && cold.bounds.height == 27.5F+2*fringe,
                 "coverage uses literal source bounds and half a physical pixel at both DPIs")) return false;
             for (const auto& vertex : cold.vertices) {
-                if (!check(vertex.texture_coordinate.x == vertex.position.x && vertex.texture_coordinate.y == vertex.position.y &&
+                if (!check(vertex.texture_coordinate.x == vertex.position.x / (dpi/96.F) && vertex.texture_coordinate.y == vertex.position.y / (dpi/96.F) &&
                     (vertex.color.a == 0 || vertex.color.a == 1), "coverage paint frame and edge values")) return false;
             }
             if (!check(prepared->prepare_coverage(nullptr, cold) == com::invalid_argument &&
@@ -589,6 +692,27 @@ using namespace progpu::native::direct2d::tests;
     capture::prepared_original_glyph_coverage retained;
     if (prepared->prepare_coverage(factory.get(), retained) != com::ok) return false;
     const auto original_vertices = retained.vertices;
+    // A common invertible shear can overlap target-axis rectangles while the
+    // actual original contours remain separated in the source basis.
+    frame.transform = {1, 0.25F, -0.125F, 1, 7, 9};
+    for (const auto antialias : {compat::text_antialias_mode::aliased, compat::text_antialias_mode::grayscale}) {
+        frame.antialias = antialias;
+        capture::prepared_original_glyph_coverage affine;
+        if (!prepare(run)) return false;
+        const bool aliased = antialias == compat::text_antialias_mode::aliased;
+        const auto status = prepared->prepare_coverage(factory.get(), affine);
+        if (!check(aliased ? status == com::ok && affine.meshes.size() == 2U
+                : status == com::false_result && affine.meshes.empty() && affine.vertices.empty(),
+            "overlapping physical bounds retain the original distinct aliased/grayscale source policies")) return false;
+    }
+    frame.transform = {1, 0, 0, 1, 0, 0};
+    frame.antialias = compat::text_antialias_mode::grayscale;
+    const float fringe_advances[]{23, -3, 9};
+    auto fringe_overlap = run; fringe_overlap.glyph_advances = fringe_advances;
+    capture::prepared_original_glyph_coverage fringe;
+    if (!prepare(fringe_overlap) || !check(prepared->prepare_coverage(factory.get(), fringe) == com::ok &&
+        fringe.meshes.size() == 2U && fringe.vertices.size() == original_vertices.size(),
+        "separate original contours preserve independently composited overlapping AA fringes")) return false;
     const float overlapping_advances[]{10, 0, 9};
     auto overlapping = run; overlapping.glyph_advances = overlapping_advances;
     if (!prepare(overlapping) || !check(prepared->prepare_coverage(factory.get(), retained) == com::false_result &&
@@ -807,6 +931,8 @@ bool progpu_native_direct2d_font_capture_tests()
     if (!source_contracts()) return false;
     if (!original_axis_contracts()) return false;
     if (!prepared_source_contracts()) return false;
+    if (!prepared_coverage_recorder_contracts()) return false;
+    if (!capture::tests::source_path_preparation_contracts(check)) return false;
     if (!prepared_origin_contracts()) return false;
     if (!prepared_coverage_contracts()) return false;
     if (!prepared_nominal_contracts()) return false;

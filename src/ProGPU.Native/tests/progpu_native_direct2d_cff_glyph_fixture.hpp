@@ -6,7 +6,7 @@
 
 namespace progpu::native::direct2d::tests {
 
-enum class cff_pixel_path { original, prepared, independent_geometry, prepared_geometry, original_design_advances };
+enum class cff_pixel_path { original, prepared, independent_geometry, prepared_geometry, original_design_advances, prepared_outline };
 inline constexpr std::array cff_pixel_fonts{cff_font_kind::cff1_default, cff_font_kind::cff1_affine,
     cff_font_kind::cff1_cid, cff_font_kind::cff1_cid_inherited, cff_font_kind::cff2_static,
     cff_font_kind::cff2_variable_fixed, cff_font_kind::cff2_variable_hvar};
@@ -91,7 +91,9 @@ void record_cff_pixel_case(compat::factory* factory, compat::render_target* targ
         require(!design || (nominal && original_design_advances != nullptr), "original CFF design advances required");
         const compat::glyph_run run{font->source()->face.get(), static_cast<float>(cff_font_units(kind)) / 32.0F,
             3U, indices, design ? original_design_advances : nominal ? nullptr : advances, offsets, 0, 2U};
-        if (path == cff_pixel_path::original || design) {
+        if (path == cff_pixel_path::prepared_outline) {
+            draw_prepared_outline_geometry(factory, target, font, parameters, {4, 28}, run, brush.get(), require);
+        } else if (path == cff_pixel_path::original || design) {
             target->DrawGlyphRun({4, 28}, &run, brush.get(), compat::measuring_mode::natural);
         } else {
             com::pointer<prepared_glyph_target> prepared;
@@ -108,6 +110,7 @@ void record_cff_pixel_case(compat::factory* factory, compat::render_target* targ
 template<class Render, class Require>
 void verify_cff_glyph_pixels(Render render, Require require)
 {
+    std::uint32_t original_frame = 129U;
     com::pointer<compat::factory> factory;
     com::pointer<compat::scene_factory_native> scene_factory;
     require(compat::create_factory(factory.put()) == com::ok &&
@@ -133,25 +136,23 @@ void verify_cff_glyph_pixels(Render render, Require require)
             face.axes[0].value = -12345; stream.bytes.assign(16U, std::byte{0});
             for (const bool nominal : {false, true}) {
                 const auto variant = static_cast<std::uint32_t>((instance + (nominal ? 1U : 0U)) % 3U);
-                std::array<std::vector<std::byte>, 2U> scenes;
-                std::array<progpu_native_scene_header, 2U> headers{};
-                for (std::uint32_t reference = 0U; reference < 2U; ++reference) {
+                std::array<std::vector<std::byte>, 3U> scenes;
+                std::array<progpu_native_scene_header, 3U> headers{};
+                for (std::uint32_t reference = 0U; reference < 3U; ++reference) {
                     const compat::scene_render_target_properties properties{64U, 64U, 96, 96, 0x95D8U, ++generation};
                     com::pointer<compat::render_target> target;
                     com::pointer<compat::scene_render_target_native> scene;
                     require(scene_factory->CreateSceneRenderTarget(&properties, target.put()) == com::ok &&
                         target.as(compat::scene_render_target_native_interface_id, scene) == com::ok, "CFF source target");
                     record_cff_pixel_case(factory.get(), target.get(), font, &parameters, kind, instance, nominal, variant,
-                        reference == 0U ? cff_pixel_path::prepared : cff_pixel_path::independent_geometry, require);
+                        reference == 0U ? cff_pixel_path::prepared : reference == 1U
+                        ? cff_pixel_path::independent_geometry : cff_pixel_path::prepared_outline, require);
                     require(export_copy_scene(scene.get(), scenes[reference]) && read_scene_value(scenes[reference], 0U, headers[reference]),
                         "CFF immutable scene export");
                 }
                 const auto draws = cff_source_has_ink(kind) ? 1U : 0U;
-                const auto cold = render(false, scenes[0], headers[0], draws);
-                const auto warm = render(false, scenes[0], headers[0], draws);
-                const auto independent = render(true, scenes[1], headers[1], draws);
-                require(cold.size() == 64U * 64U * 4U && cold == warm && cold == independent,
-                    "CFF full-image cold/warm/independent cubic+matrix+advance");
+                const auto cold = verify_original_glyph_frame(render, require, original_frame, scenes, headers, draws);
+                original_frame += 1U;
                 bool ink = false;
                 for (std::size_t pixel = 0U; pixel < cold.size(); pixel += 4U) {
                     require(cold[pixel + 1U] == 0U && cold[pixel + 2U] == 0U && cold[pixel + 3U] == 255U,
@@ -168,5 +169,6 @@ void verify_cff_glyph_pixels(Render render, Require require)
         }
     }
     require(cases == 22U, "CFF independent source configuration count");
+    require(original_frame == 151U, "complete original cff_glyph frame inventory");
 }
 } // namespace progpu::native::direct2d::tests

@@ -30,6 +30,9 @@
     (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #include <emmintrin.h>
 #define PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2 1
+#elif defined(__wasm_simd128__)
+#include <wasm_simd128.h>
+#define PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_WASM 1
 #endif
 
 namespace progpu::native::direct2d::compat::detail {
@@ -588,6 +591,61 @@ public:
         return fill_mode_ == fill_mode::alternate
             ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
             : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    }
+
+    // Capture the actual draw mapping before GPU coverage rasterization. The
+    // existing mesh/brush compiler consumes target DIPs; late texture projection
+    // must not turn a sheared aliased edge into filtered local atlas coverage.
+    // O(S) in-place work in this private closed snapshot, two independent points
+    // per SIMD batch. Original curves and fill topology are not flattened here.
+    [[nodiscard]] bool project_to_target(const matrix_3x2_f& transform) noexcept
+    {
+        if (!closed_ || com::failed(failure_) || !core::valid_transform(&transform)) return false;
+        const auto pair = [&](progpu_native_point& first, progpu_native_point& second) {
+            alignas(16) float values[]{first.x, first.y, second.x, second.y};
+            alignas(16) const float a[]{transform.m11, transform.m12, transform.m11, transform.m12};
+            alignas(16) const float b[]{transform.m21, transform.m22, transform.m21, transform.m22};
+            alignas(16) const float translation[]{transform.m31, transform.m32, transform.m31, transform.m32};
+#if defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_NEON)
+            const auto input = vld1q_f32(values);
+            const auto x = vcombine_f32(vdup_lane_f32(vget_low_f32(input), 0), vdup_lane_f32(vget_high_f32(input), 0));
+            const auto y = vcombine_f32(vdup_lane_f32(vget_low_f32(input), 1), vdup_lane_f32(vget_high_f32(input), 1));
+            vst1q_f32(values, vaddq_f32(vaddq_f32(vmulq_f32(x, vld1q_f32(a)),
+                vmulq_f32(y, vld1q_f32(b))), vld1q_f32(translation)));
+#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2)
+            const auto input = _mm_load_ps(values);
+            const auto x = _mm_shuffle_ps(input, input, _MM_SHUFFLE(2, 2, 0, 0));
+            const auto y = _mm_shuffle_ps(input, input, _MM_SHUFFLE(3, 3, 1, 1));
+            _mm_store_ps(values, _mm_add_ps(_mm_add_ps(_mm_mul_ps(x, _mm_load_ps(a)),
+                _mm_mul_ps(y, _mm_load_ps(b))), _mm_load_ps(translation)));
+#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_WASM)
+            const auto input = wasm_v128_load(values);
+            const auto x = wasm_i32x4_shuffle(input, input, 0, 0, 2, 2);
+            const auto y = wasm_i32x4_shuffle(input, input, 1, 1, 3, 3);
+            wasm_v128_store(values, wasm_f32x4_add(wasm_f32x4_add(wasm_f32x4_mul(x, wasm_v128_load(a)),
+                wasm_f32x4_mul(y, wasm_v128_load(b))), wasm_v128_load(translation)));
+#else
+            // Explicit scalar reference on targets without supported intrinsics.
+            const float x[]{first.x, first.x, second.x, second.x};
+            const float y[]{first.y, first.y, second.y, second.y};
+            for (std::size_t lane = 0U; lane < 4U; ++lane)
+                values[lane] = x[lane] * a[lane] + y[lane] * b[lane] + translation[lane];
+#endif
+            if (!std::all_of(std::begin(values), std::end(values), [](float value) { return std::isfinite(value); }))
+                return false;
+            first = {values[0], values[1]}; second = {values[2], values[3]};
+            return true;
+        };
+        for (auto& segment : segments_) {
+            if (!pair(segment.p0, segment.p1)) return false;
+            if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                if (!pair(segment.p2, segment.p3)) return false;
+            } else if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+                auto unused = segment.p2;
+                if (!pair(segment.p2, unused)) return false;
+            } else if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) return false;
+        }
+        return true;
     }
 
 private:
@@ -5378,6 +5436,7 @@ public:
         rendering_parameters* source_parameters = nullptr;
         direct2d::original_glyph_target target;
         std::uint64_t capture_id = 0U;
+        bool source_coverage_scope = false;
         {
             const std::lock_guard lock(mutex_);
             if (!can_draw()) return failure_;
@@ -5413,6 +5472,21 @@ public:
             // command-list unit/blend capability is inferred here.
             target.units = unit_mode::dips;
             target.blend = primitive_blend::source_over;
+            // Binary clips retain the original target frame. Plain opacity
+            // layers may retain it too, provided every materialized ancestor
+            // covers that complete frame. Masks and backdrop initialization
+            // keep their existing geometry path and separate qualification.
+            source_coverage_scope = true;
+            for (std::size_t i = 0U; i < scope_depth_; ++i) {
+                if (scope_stack_[i] == scope_axis_aligned_clip) continue;
+                const auto bounds = layer_clear_bounds_[i];
+                if (scope_stack_[i] != scope_opacity_layer || !layer_source_coverage_[i] ||
+                    bounds.x > 0.F || bounds.y > 0.F ||
+                    (double(bounds.x) + bounds.width) * dpi_x_ / 96.0 < pixel_width_ ||
+                    (double(bounds.y) + bounds.height) * dpi_y_ / 96.0 < pixel_height_) {
+                    source_coverage_scope = false; break;
+                }
+            }
             glyph_capture_active_ = true;
             prepared_glyph_capture_active_ = true;
             capture_id = ++glyph_capture_id_;
@@ -5452,6 +5526,47 @@ public:
         result = retained_source->prepare(std::move(request), prepared);
         if (com::failed(result)) return fail_capture(result);
         if (prepared->segments().empty()) return com::ok;
+        if (source_coverage_scope) {
+            direct2d::prepared_original_glyph_coverage coverage;
+            result = prepared->prepare_coverage(owner_.get(), coverage);
+            if (com::failed(result)) return fail_capture(result);
+            const bool contained = target.pixels.width > 0U && target.pixels.height > 0U &&
+                target.pixels.width <= 16384U && target.pixels.height <= 16384U &&
+                std::all_of(coverage.vertices.begin(), coverage.vertices.end(), [&](const auto& vertex) {
+                    return vertex.position.x >= 0.F && vertex.position.y >= 0.F &&
+                        vertex.position.x <= target.pixels.width && vertex.position.y <= target.pixels.height;
+                });
+            if (result == com::ok && !coverage.meshes.empty() && contained) {
+                // Bitmap brushes retain their original image/geometry path.
+                // Probe before consuming the capture lease or publishing data.
+                com::pointer<bitmap_brush> bitmap;
+                const auto query = retained_foreground->QueryInterface(bitmap_brush_interface_id,
+                    reinterpret_cast<void**>(bitmap.put()));
+                const auto bitmap_status = classify_resource_query(query, bitmap.get());
+                if (com::failed(bitmap_status)) return fail_capture(bitmap_status);
+                if (bitmap_status == com::false_result) {
+                    try {
+                        std::vector<std::uint32_t> brushes(coverage.meshes.size());
+                        const std::lock_guard lock(mutex_);
+                        if (!glyph_capture_active_ || glyph_capture_id_ != capture_id) {
+                            latch(wrong_state); return failure_;
+                        }
+                        glyph_capture_active_ = false;
+                        if (!can_draw()) return failure_;
+                        std::uint32_t brush_index{};
+                        if (!add_brush(retained_foreground.get(), brush_index)) return failure_;
+                        std::fill(brushes.begin(), brushes.end(), brush_index);
+                        if (!builder_.draw_source_coverage(coverage.meshes, coverage.vertices, brushes,
+                                coverage.bounds, coverage.frame)) {
+                            latch(builder_failure()); return failure_;
+                        }
+                        ++draw_count_;
+                        return failure_;
+                    } catch (const std::bad_alloc&) { return fail_capture(com::out_of_memory); }
+                    catch (...) { return fail_capture(failure); }
+                }
+            }
+        }
         path_geometry* raw_path = nullptr;
         result = detail::create_native_fill_geometry(owner_.get(), prepared->segments(), fill_mode::winding, &raw_path);
         com::pointer<path_geometry> path;
@@ -5465,8 +5580,11 @@ public:
         // and all current clip/layer scopes once under the same generation lease.
         // Preparation uses owned cached nominal metrics only when source advances
         // are absent. No source font callback, font lookup or hinting occurs.
+        const progpu_native_scene_source_coverage_frame source_frame{sizeof(progpu_native_scene_source_coverage_frame),1U,
+            target.dpi_x/96.F,target.dpi_y/96.F,target.pixels.width,target.pixels.height,0U,0U};
         draw_filled_geometry(path.get(), retained_foreground.get(), nullptr,
-            target.antialias == text_antialias_mode::aliased ? 1U : 8U, capture_id);
+            target.antialias == text_antialias_mode::aliased ? 1U : 8U, capture_id,
+            source_coverage_scope && target.antialias == text_antialias_mode::grayscale ? &source_frame : nullptr);
         const std::lock_guard lock(mutex_);
         return failure_;
     }
@@ -5910,6 +6028,8 @@ public:
             0, 0, static_cast<float>(pixel_width_) * 96.0F / dpi_x_,
             static_cast<float>(pixel_height_) * 96.0F / dpi_y_};
         layer_initialization_[scope_depth_] = initialization_flags;
+        layer_source_coverage_[scope_depth_] = mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+            initialization_flags == 0U;
         scope_stack_[scope_depth_] = scope_opacity_layer;
         ++scope_depth_;
     }
@@ -6259,6 +6379,7 @@ public:
         scope_depth_ = 0U;
         clip_stack_.fill({});
         scope_stack_.fill(scope_none);
+        layer_source_coverage_.fill(false);
         failure_ = com::ok;
         begun_ = true;
         ended_ = false;
@@ -7806,7 +7927,8 @@ private:
         brush* brush_value,
         brush* opacity_brush,
         std::uint32_t sample_grid = 0U,
-        std::uint64_t glyph_capture_id = 0U) noexcept
+        std::uint64_t glyph_capture_id = 0U,
+        const progpu_native_scene_source_coverage_frame* source_frame = nullptr) noexcept
     {
         const std::lock_guard lock(mutex_);
         if (glyph_capture_id != 0U) {
@@ -7929,17 +8051,45 @@ private:
                 return;
             }
         }
+        if (source_frame != nullptr && sample_grid == 8U) {
+            direct2d::prepared_original_path_coverage coverage;
+            result = direct2d::prepare_original_path_coverage(segments,transform_,*source_frame,sink->native_fill_rule(),coverage);
+            if (com::failed(result)) { latch(result); return; }
+            if (result == com::ok) {
+                const progpu_native_image_rect bounds{target_bounds.left,target_bounds.top,
+                    target_bounds.right-target_bounds.left,target_bounds.bottom-target_bounds.top};
+                if (!builder_.draw_source_paths({&coverage.path,1U},coverage.segments,{&brush_index,1U},bounds,*source_frame,state_index)) {
+                    latch(builder_failure()); return;
+                }
+                ++draw_count_; return;
+            }
+        }
+        // Paths and gradient paint already use target-DIP coordinates. Project
+        // the private geometry snapshot before rasterization while retaining the
+        // original draw/brush mapping for paint and opacity masks. Bitmap masks
+        // above keep their separate representation. Exact singular mappings
+        // retain their original rejection path; no identity inverse is invented.
+        auto path_transform = native_transform();
+        auto path_bounds = local_bounds;
+        const double determinant = static_cast<double>(transform_.m11) * transform_.m22 -
+            static_cast<double>(transform_.m12) * transform_.m21;
+        if (determinant != 0.0 && (transform_.m11 != 1.F || transform_.m12 != 0.F ||
+            transform_.m21 != 0.F || transform_.m22 != 1.F || transform_.m31 != 0.F || transform_.m32 != 0.F)) {
+            if (!sink->project_to_target(transform_)) { latch(com::invalid_argument); return; }
+            path_transform = {1, 0, 0, 1, 0, 0};
+            path_bounds = target_bounds;
+        }
         const progpu_native_scene_path_fill path{
             0U,
             segments.size(),
             0U,
             0U,
-            local_bounds.left,
-            local_bounds.top,
-            local_bounds.right,
-            local_bounds.bottom,
+            path_bounds.left,
+            path_bounds.top,
+            path_bounds.right,
+            path_bounds.bottom,
             {1.0F, 1.0F, 1.0F, 1.0F},
-            native_transform(),
+            path_transform,
             sink->native_fill_rule(),
             sample_grid};
         const progpu_native_image_rect bounds{
@@ -9376,6 +9526,7 @@ private:
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_stack_{};
     std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_{};
     std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_initialization_{};
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_source_coverage_{};
     std::size_t clip_depth_ = 0U;
     std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;

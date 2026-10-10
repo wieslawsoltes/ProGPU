@@ -724,7 +724,10 @@ public enum NativeSceneCommandKind : uint
     DrawLine3DBatch = 24,
     DrawMesh3DBatch = 25,
     DrawPaintedGlyphRun = 26,
-    DrawRgbGlyphRun = 27
+    DrawRgbGlyphRun = 27,
+    /// <summary>Native-owned source triangles with explicit physical raster-frame metadata.</summary>
+    DrawSourceCoverage = 28,
+    DrawSourcePath = 29
 }
 
 public enum NativeMesh3DTopology : uint
