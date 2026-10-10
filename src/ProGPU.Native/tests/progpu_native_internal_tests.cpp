@@ -7,6 +7,9 @@
 #include "progpu_native_geometry_dash.hpp"
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_geometry_stroke.hpp"
+#include "progpu_native_miter_or_bevel_fixture.hpp"
+#include "progpu_native_clipped_miter_fixture.hpp"
+#include "progpu_native_wpf_path_join_fixture.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_semantic_budget.hpp"
@@ -1631,6 +1634,24 @@ void semantic_presentation_layers_keep_independent_device_domains() {
         }
     }
 
+    // Explicit binary clips use exact physical pixel centers. Keep the legacy
+    // outward-rounded grid above independent, including its original policy.
+    state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+    state.clip_rect = {1.25F, 2.5F, 6.0F, 4.0F};
+    require(resolve_semantic_scissor(state, 200U, 160U, presentation) ==
+        scissor{15U, 24U, 12U, 12U, true});
+    const progpu_native_scene_presentation identity{
+        sizeof(identity), 0U, 0U, 100U, 80U, 1.0F, 1.0F, 0U};
+    for (const float edge : {std::nextafter(4.5F, 0.0F), 4.5F,
+            std::nextafter(4.5F, 10.0F)}) {
+        state.clip_rect = {edge, 2.5F, 10.0F, 4.0F};
+        const auto first = edge > 4.5F ? 5U : 4U;
+        const auto last = static_cast<std::uint32_t>(std::ceil(
+            static_cast<double>(edge + 10.0F) - 0.5));
+        require(resolve_semantic_scissor(state, 200U, 160U, identity) ==
+            scissor{first, 2U, last - first, 4U, true});
+    }
+
     std::array<std::byte, sizeof(progpu_native_scene_layer)> storage{};
     auto layer = semantic_default_layer();
     layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
@@ -2189,6 +2210,11 @@ bool run_shader_effect_arithmetic_tests();
 bool run_shader_effect_uniform_tests();
 
 int main() {
+    require(progpu::native::tests::miter_or_bevel_join_triangles_and_masks());
+    require(progpu::native::tests::miter_or_bevel_semantic_resources());
+    require(progpu::native::tests::clipped_miter_triangles_and_flags());
+    require(progpu::native::tests::wpf_path_join_triangles_and_flags());
+    require(progpu::native::tests::wpf_path_join_semantic_atomic());
     require(run_shader_effect_translation_tests());
     require(run_shader_effect_arithmetic_tests());
     require(run_shader_effect_uniform_tests());
@@ -2219,7 +2245,42 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_is_deterministic_and_valid());
     require(progpu::native::tests::
+        semantic_scene_builder_vertex_mesh_is_owned_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_source_coverage_is_owned_and_atomic());
+    require(progpu::native::tests::semantic_scene_builder_source_paths_are_owned_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_rgb_transport_is_owned_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_target_clear_is_owned_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_target_clear_preserves_input_owners());
+    require(progpu::native::tests::
         semantic_scene_builder_append_capacity_is_amortized_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_rejects_missing_layer_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_prepares_exact_aa_owner_chain());
+    require(progpu::native::tests::
+        semantic_scene_builder_axis_clip_area_is_explicit_and_atomic());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_rejects_nonclip_chain_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_clear_counts_open_and_historical_children());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_promotes_nearest_layer());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_preserves_materialized_layers());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_preserves_ordinary_elision());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_tracks_depth_across_pop_and_reset());
+    require(progpu::native::tests::
+        semantic_scene_builder_isolation_rejects_historical_depth_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_copies_outside_clips_atomically());
+    require(progpu::native::tests::
+        semantic_scene_builder_moves_sources_outside_clips_atomically());
     require(progpu::native::tests::
         semantic_scene_builder_bounds_composite_only_guidelines());
     require(progpu::native::tests::
@@ -2250,6 +2311,10 @@ int main() {
         semantic_scene_content_hashes_preserve_scene_ownership());
     require(progpu::native::tests::
         semantic_mapped_layers_preserve_bounded_copy_contract());
+    require(progpu::native::tests::
+        semantic_aliased_composite_bounds_preserve_pixel_centers());
+    require(progpu::native::tests::
+        semantic_linear_byte_opacity_is_explicit_and_atomic());
     require(progpu::native::tests::
         semantic_scene_builder_shares_glyph_segments_across_raster_sizes());
     require(progpu::native::tests::

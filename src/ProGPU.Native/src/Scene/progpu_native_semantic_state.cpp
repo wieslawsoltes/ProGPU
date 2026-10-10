@@ -2,6 +2,7 @@
 
 #include "progpu_native_geometry.hpp"
 #include "progpu_native_scene.hpp"
+#include "progpu_native_shader_effect_resource.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -574,6 +575,10 @@ scissor resolve_semantic_scissor(const progpu_native_scene_state& state,
     if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U) {
         return result;
     }
+    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) != 0U) {
+        return resolve_semantic_aliased_composite_scissor(state.clip_rect,
+            {0U, 0U, target_width, target_height, true}, presentation);
+    }
     const auto& clip = state.clip_rect;
     const auto edges = presentation_clip_edges(clip, presentation);
     const float left = std::clamp(
@@ -755,6 +760,51 @@ scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
     return clipped;
 }
 
+bool try_resolve_semantic_axis_clip_pixel_bounds(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    std::array<float, 4U>& result) noexcept {
+    if (!std::isfinite(presentation.dpi_scale_x) || presentation.dpi_scale_x <= 0.0F ||
+        !std::isfinite(presentation.dpi_scale_y) || presentation.dpi_scale_y <= 0.0F ||
+        !std::isfinite(bounds.x) || !std::isfinite(bounds.y) ||
+        !std::isfinite(bounds.width) || bounds.width < 0.0F ||
+        !std::isfinite(bounds.height) || bounds.height < 0.0F) return false;
+    auto projected = presentation_clip_edges(bounds, presentation);
+    for (std::size_t index = 0U; index < projected.size(); ++index) {
+        const double local = static_cast<double>(projected[index]) -
+            (index % 2U == 0U ? target.x : target.y);
+        if (!std::isfinite(local) || std::abs(local) > std::numeric_limits<float>::max()) return false;
+        projected[index] = static_cast<float>(local);
+    }
+    result = projected;
+    return true;
+}
+
+scissor resolve_semantic_aliased_composite_scissor(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation) noexcept {
+    // Pixel i is covered iff left <= i + 0.5 < right, hence both ends of
+    // the integer half-open interval are ceil(edge - 0.5). Keep the original
+    // float projection; double subtraction avoids rounding an adjacent float
+    // back onto the exact midpoint. No epsilon or allocation-bound inference.
+    const auto edges = presentation_clip_edges(bounds, presentation);
+    const auto pixel_boundary = [](float edge) noexcept {
+        return static_cast<std::uint32_t>(std::clamp(std::ceil(static_cast<double>(edge) - 0.5),
+            0.0, static_cast<double>(std::numeric_limits<std::uint32_t>::max())));
+    };
+    const auto left = pixel_boundary(edges[0]);
+    const auto top = pixel_boundary(edges[1]);
+    const auto right = pixel_boundary(edges[2]);
+    const auto bottom = pixel_boundary(edges[3]);
+    if (right <= left || bottom <= top) return {0U, 0U, 0U, 0U, false};
+    auto clipped = intersect_semantic_scissors({left, top, right - left, bottom - top, true},
+        {presentation.viewport_x, presentation.viewport_y,
+            presentation.viewport_width, presentation.viewport_height, true});
+    clipped = intersect_semantic_scissors(clipped, target);
+    if (!clipped.drawable) return {0U, 0U, 0U, 0U, false};
+    clipped.x -= target.x;
+    clipped.y -= target.y;
+    return clipped;
+}
+
 void localize_semantic_point(float& x, float& y, const scissor& target,
     const progpu_native_scene_presentation& presentation, float raster_dpi) noexcept {
     if (presentation.dpi_scale_x == raster_dpi && presentation.dpi_scale_y == raster_dpi &&
@@ -853,9 +903,22 @@ bool try_resolve_semantic_mask_uv(const progpu_native_affine_2d& transform,
 
 bool supports_mapped_semantic_layer(const progpu_native_scene_layer& layer) noexcept {
     constexpr std::uint32_t supported_flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+        PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
+        PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY |
+        PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS;
+    const bool aliased_composite =
+        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U;
     return (layer.flags & ~supported_flags) == 0U &&
+        (!aliased_composite || (layer.flags == (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) &&
+            layer.blend_mode == PROGPU_NATIVE_BLEND_SRC && layer.opacity == 1.0F &&
+            layer.content_revision == 0U && layer.composite_revision == 0U &&
+            layer.reserved0 == 0U && layer.reserved1 == 0U)) &&
         (layer.blend_mode == PROGPU_NATIVE_BLEND_SRC ||
+            layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
+        ((layer.flags & (PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA |
+            PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY)) == 0U ||
             layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) &&
         layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
         layer.effect_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -936,10 +999,25 @@ scissor semantic_layer_target_cursor::advance(
         scope_materialized_[scope_depth_++] = materialized;
         if (materialized) {
             auto presentation = current_presentation();
+            progpu_native_scene_shader_sample_frame sample_frame{};
+            const bool sampled = shader_effect::layer_output_frame(bytes_, layer, sample_frame);
             const bool local_cache =
                 (layer.flags &
                     PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE) != 0U;
-            if (local_cache) {
+            if (sampled) {
+                // Only final output is target-clipped; retained input and UVs
+                // still span the independent complete scale-space picture.
+                const auto edge = [](std::int64_t value) {
+                    return static_cast<std::uint32_t>(std::clamp<std::int64_t>(value, 0,
+                        std::numeric_limits<std::uint32_t>::max()));
+                };
+                const auto left = edge(static_cast<std::int64_t>(sample_frame.output_x) + presentation.viewport_x);
+                const auto top = edge(static_cast<std::int64_t>(sample_frame.output_y) + presentation.viewport_y);
+                const auto right = edge(static_cast<std::int64_t>(sample_frame.output_x) + sample_frame.output_width + presentation.viewport_x);
+                const auto bottom = edge(static_cast<std::int64_t>(sample_frame.output_y) + sample_frame.output_height + presentation.viewport_y);
+                extents_[materialized_depth_] = intersect_semantic_scissors(current(),
+                    {left, top, right - left, bottom - top, right > left && bottom > top});
+            } else if (local_cache) {
                 const auto local_extent = [](float value, float dpi_scale) noexcept {
                     const double pixels = std::ceil(
                         static_cast<double>(value) * dpi_scale);
@@ -970,6 +1048,8 @@ scissor semantic_layer_target_cursor::advance(
                 extents_[materialized_depth_] =
                     intersect_semantic_scissors(parent, declared);
             }
+            ignores_alpha_[materialized_depth_] =
+                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
             presentations_[materialized_depth_++] = presentation;
         }
     } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
@@ -990,6 +1070,10 @@ progpu_native_scene_presentation semantic_layer_target_cursor::current_presentat
     return materialized_depth_ == 0U
         ? frame_presentation_
         : presentations_[materialized_depth_ - 1U];
+}
+
+bool semantic_layer_target_cursor::current_ignores_alpha() const noexcept {
+    return materialized_depth_ != 0U && ignores_alpha_[materialized_depth_ - 1U];
 }
 
 } // namespace progpu::native::semantic

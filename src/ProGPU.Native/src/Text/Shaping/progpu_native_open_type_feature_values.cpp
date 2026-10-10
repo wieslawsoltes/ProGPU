@@ -36,6 +36,13 @@ bool contains_feature(
         features.end();
 }
 
+bool is_run_feature_enabled(const open_type_shape_run_options& options, open_type_tag tag) noexcept {
+    bool enabled = std::find(options.requested_features.begin(), options.requested_features.end(), tag) != options.requested_features.end();
+    for (const auto& setting : options.feature_settings)
+        if (setting.tag == tag && setting.start == 0U && setting.end == 0xFFFFFFFFU) enabled = setting.value != 0U;
+    return enabled;
+}
+
 bool has_feature_settings(
     const open_type_shape_run_options& options,
     open_type_tag feature) noexcept {

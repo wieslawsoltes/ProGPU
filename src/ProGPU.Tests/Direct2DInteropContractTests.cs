@@ -9,6 +9,57 @@ namespace ProGPU.Tests;
 public sealed class Direct2DInteropContractTests
 {
     [Fact]
+    public void HairlineTargetDependencyHasItsOwnGeneratedFlagAndPublicResult()
+    {
+        Assert.Equal(1UL << 11, NativeMethods.Direct2DSceneStreamHasTargetDependentStrokes);
+        Assert.Equal(NativeMethods.Direct2DSceneStreamHasTargetDependentStrokes,
+            (ulong)ProGpuDirect2DSceneStreamFlags.HasTargetDependentStrokes);
+        var result = new ProGpuDirect2DSceneStreamResult(
+            ProGpuDirect2DSceneStreamFlags.HasTargetDependentStrokes, 0, 0, 0, 0, 0, 0, 0,
+            ProGpuDirect2DSceneStreamFailureReason.None, default, 1, 1);
+        Assert.True(result.HasTargetDependentStrokes);
+        Assert.Equal(0U, (uint)(result.Flags & ProGpuDirect2DSceneStreamFlags.HasTargetDependentMasks));
+        Assert.False((result with { Flags = ProGpuDirect2DSceneStreamFlags.HasTargetDependentMasks }).HasTargetDependentStrokes);
+    }
+
+    [Fact]
+    public void WindowsAndPortableHairlinesShareOriginalDashArithmetic()
+    {
+        string windows = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d.cpp");
+        string portable = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_render_target.cpp");
+        Assert.Contains("direct2d_core::scale_hairline_dashes(", windows, StringComparison.Ordinal);
+        Assert.Contains("core::scale_hairline_dashes(style.dash_intervals, style.dash_offset, dpi_x_)", portable, StringComparison.Ordinal);
+        Assert.Contains("target_dpi_x_ != target_dpi_y_", windows, StringComparison.Ordinal);
+        Assert.Contains("if (!allow_widen)", windows, StringComparison.Ordinal);
+        Assert.Contains("has_target_dependent_strokes_ = false;", windows, StringComparison.Ordinal);
+        // The native wire reader passes the original flags value through,
+        // rather than reconstructing only the previously known bits.
+        string conversion = ReadRepoFile("src", "ProGPU.Direct2D", "ProGpuDirect2DNative.cs");
+        Assert.Contains("Flags, RequiredBytes, WrittenBytes, CommandCount, ResourceCount,", conversion, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClippedClearUsesSharedReplacementAndKeepsUnsupportedScopeGates()
+    {
+        string portable = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_render_target.cpp");
+        string windows = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d.cpp");
+        string shared = ReadRepoFile("src", "ProGPU.Native", "src", "Direct2D", "progpu_native_direct2d_clear.hpp");
+        foreach (string source in new[] { portable, windows })
+        {
+            Assert.Contains("append_clipped_clear(builder_, clear_bounds,", source, StringComparison.Ordinal);
+            Assert.Contains("clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U])", source, StringComparison.Ordinal);
+            Assert.Contains("std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_", source, StringComparison.Ordinal);
+            Assert.Contains("return scope == scope_axis_aligned_clip", source, StringComparison.Ordinal);
+        }
+        Assert.Contains("PROGPU_NATIVE_BLEND_SRC", shared, StringComparison.Ordinal);
+        Assert.Contains("semantic_scene_builder::identity_transform()", shared, StringComparison.Ordinal);
+        Assert.DoesNotContain("builder.reset", shared, StringComparison.Ordinal);
+        Assert.Contains("if (recorded) ++draw_count_", portable, StringComparison.Ordinal);
+        Assert.Contains("clipped_clear_pixels(clipped_system", ReadRepoFile("src", "ProGPU.Native", "tests",
+            "progpu_native_direct2d_differential_tests.cpp"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RecorderTargetUsesGeneratedNativeLayoutAndIndependentDpi()
     {
         Assert.Equal(24, Unsafe.SizeOf<NativeDirect2DTargetExtent>());
@@ -461,8 +512,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("builder_.draw_geometry", renderTargetSource, StringComparison.Ordinal);
         Assert.DoesNotContain("std::abs(dpi_x - dpi_y)", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("wic_source->CopyPixels(", renderTargetSource, StringComparison.Ordinal);
-        Assert.Contains("font_face_value->GetGlyphRunOutline(", renderTargetSource, StringComparison.Ordinal);
-        Assert.Contains("transformed.get(), foreground, nullptr, text_sample_grid", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("retained_face->GetGlyphRunOutline(", renderTargetSource, StringComparison.Ordinal);
+        Assert.Contains("transformed.get(), retained_foreground.get(), nullptr, text_sample_grid, capture_id", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("text_antialias_mode_ == text_antialias_mode::aliased", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("class portable_text_renderer final", renderTargetSource, StringComparison.Ordinal);
         Assert.Contains("offsetof(text_layout_vtable, draw) == 58U * sizeof(void*)", renderTargetSource, StringComparison.Ordinal);

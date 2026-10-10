@@ -175,11 +175,27 @@ public:
         std::uint32_t storage_flags,
         std::span<const std::byte> pixels,
         const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Same storage copy outside active clip-only SAVE frames. Suspends and
+    // restores their exact owned state indices in one append transaction.
+    // Rejects layers, transforms, masks, guidelines and input/owner scopes;
+    // every pre-existing command, resource and stack entry survives failure.
+    bool copy_image_from_memory_outside_clips(
+        const progpu_native_scene_image_draw& image,
+        std::uint32_t storage_flags,
+        std::span<const std::byte> pixels,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
     // Consume a staging builder and move its selected owned image into an
     // atomic SRC copy. Accepts uploaded or picture images, not external handles.
     // The staging builder is consumed even on failure; destination history is
     // unchanged on failure. No second payload/scene byte copy is performed.
     bool copy_image_from_builder(
+        semantic_scene_builder source,
+        std::uint32_t source_resource_index,
+        const progpu_native_scene_image_draw& image,
+        const progpu_native_scene_image_color_matrix* color_matrix = nullptr) noexcept;
+    // Same owned-resource move outside clip-only SAVE frames, sharing the
+    // memory-copy transaction and exclusions. Source is consumed on failure.
+    bool copy_image_from_builder_outside_clips(
         semantic_scene_builder source,
         std::uint32_t source_resource_index,
         const progpu_native_scene_image_draw& image,
@@ -255,6 +271,8 @@ public:
         std::span<const progpu_native_scene_color_glyph_bitmap> bitmaps,
         std::span<const std::byte> rgba_pixels,
         std::uint32_t& resource_index) noexcept;
+    bool add_axis_aligned_clip_mask(progpu_native_image_rect bounds,
+        std::uint32_t& resource_index) noexcept;
     bool add_rounded_rectangle_mask(
         const progpu_native_scene_layer_mask& mask,
         std::uint32_t& resource_index) noexcept;
@@ -328,6 +346,19 @@ public:
         const progpu_native_scene_shader_effect_derivatives& effect,
         std::span<const std::byte> bytecode,
         std::uint32_t& resource_index) noexcept;
+    bool add_shader_effect(
+        const progpu_native_scene_shader_effect_capture& effect,
+        std::span<const std::byte> bytecode,
+        std::uint32_t& resource_index) noexcept;
+    bool add_shader_effect(
+        const progpu_native_scene_shader_effect_samples& effect,
+        std::span<const std::byte> bytecode,
+        std::uint32_t& resource_index) noexcept;
+
+    bool add_shader_effect(
+        const progpu_native_scene_shader_effect_affine& effect,
+        std::span<const std::byte> bytecode,
+        std::uint32_t& resource_index) noexcept;
 
     // Optional source-owned local rectangle replaces input coverage for this
     // complete save/restore scope, including nested render-only content. The
@@ -351,12 +382,28 @@ public:
         bool empty_point_region = false,
         bool render_only = false) noexcept;
     bool restore() noexcept;
+
+    // Replace the actual current target through its binary clip. Source
+    // transform/opacity/guidelines do not affect this storage operation.
+    bool clear_target(const progpu_native_color& color) noexcept;
     bool add_tile_composite(const progpu_native_scene_tile_composite& tile,
         std::uint32_t& resource_index) noexcept;
     bool push_layer(const progpu_native_scene_layer& layer,
         scene_layer_hit_test_mode hit_test_mode = scene_layer_hit_test_mode::unspecified,
         const progpu_native_affine_2d* source_content_to_parent = nullptr) noexcept;
     bool pop_layer() noexcept;
+    // Give the innermost open layer its own storage before a destination-
+    // replacing operation. Already materialized layers are unchanged. Existing
+    // closed child scopes participate in the capacity preflight; no command is
+    // changed on failure. Ordinary layers remain eligible for elision until used.
+    bool isolate_current_layer() noexcept;
+    // Source-proven AA clip scopes, counted inward of the nearest ordinary
+    // source layer, need their original parent pixels before storage Clear.
+    // SAVE scopes do not own storage. Atomically initialize these clips from
+    // background and isolate the ordinary owner, when present; never promote
+    // older AA scopes across that owner. Closed and open child peaks count.
+    bool prepare_antialiased_clear_layers(std::uint32_t antialiased_layer_count,
+        bool has_ordinary_owner) noexcept;
 
     bool draw_analytic(
         std::span<const progpu_native_analytic_primitive> primitives,
@@ -371,6 +418,28 @@ public:
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    // Own an immutable copy of the existing vertex-mesh wire payload and its
+    // optional brush map. Publication is atomic after complete layout, vertex
+    // and index validation; caller spans are never retained.
+    bool draw_vertex_meshes(
+        std::span<const progpu_native_scene_vertex_mesh> meshes,
+        std::span<const progpu_native_scene_mesh_vertex> vertices,
+        std::span<const std::uint16_t> indices,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index =
+            PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    // Explicit original physical coverage; binary vertex alpha is interpolated
+    // from flat triangle metadata on the source's 1/256 pixel raster lattice.
+    bool draw_source_coverage(
+        std::span<const progpu_native_scene_vertex_mesh> meshes,
+        std::span<const progpu_native_scene_mesh_vertex> vertices,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        const progpu_native_scene_source_coverage_frame& frame,
+        std::uint32_t state_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
 
     bool draw_strokes(
         std::span<const progpu_native_scene_stroke> strokes,
@@ -418,6 +487,16 @@ public:
         progpu_native_image_rect bounds,
         std::uint32_t state_resource_index =
             PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
+    // Explicit closed physical contours and source presentation, independent of
+    // ordinary path transforms and target-DIP brush coordinates.
+    bool draw_source_paths(
+        std::span<const progpu_native_scene_path_fill> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        const progpu_native_scene_source_coverage_frame& frame,
+        std::uint32_t state_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
 
     bool draw_paths(
         std::span<const progpu_native_scene_path_fill> paths,
@@ -469,6 +548,16 @@ public:
             PROGPU_NATIVE_SCENE_NO_INDEX,
         const progpu_native_image_rect* local_ink_bounds = nullptr) noexcept;
 
+    // Explicit physical RGB transport over the same owned outline resource.
+    // Descriptor/tiles are copied atomically. Runtime opacity, DPI and source
+    // state admission remain authoritative; this does not select ClearType.
+    bool draw_rgb_glyph_run(
+        std::uint32_t glyph_resource_index,
+        const progpu_native_scene_rgb_glyph_draw& descriptor,
+        std::span<const progpu_native_scene_rgb_glyph_tile> glyphs,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX) noexcept;
+
     bool draw_shaped_text_run(
         std::uint32_t glyph_resource_index,
         std::span<const text::shaping_glyph> shaped_glyphs,
@@ -499,6 +588,24 @@ public:
     static progpu_native_scene_state identity_state() noexcept;
 
 private:
+    bool draw_paths_core(
+        std::span<const progpu_native_scene_path_fill> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index,
+        std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+        const progpu_native_scene_source_coverage_frame* frame) noexcept;
+    bool draw_vertex_meshes_core(
+        std::span<const progpu_native_scene_vertex_mesh> meshes,
+        std::span<const progpu_native_scene_mesh_vertex> vertices,
+        std::span<const std::uint16_t> indices,
+        std::span<const std::uint32_t> brush_indices,
+        progpu_native_image_rect bounds,
+        std::uint32_t state_resource_index,
+        const progpu_native_scene_source_coverage_frame* frame) noexcept;
+    template<class Copy>
+    bool copy_image_outside_clips(Copy&& copy) noexcept;
     bool append_image_copy_commands(
         std::uint32_t resource_index,
         const progpu_native_scene_image_draw& image,

@@ -418,7 +418,8 @@ public ref struct NativeSceneStreamBuilder
             NativePolylineFlags.Hairline |
             NativePolylineFlags.FixedDeviceStroke |
             NativePolylineFlags.Closed |
-            NativePolylineFlags.WpfJoinSemantics;
+            NativePolylineFlags.WpfJoinSemantics |
+            NativePolylineFlags.ClipMiterAtLimit;
         ulong expectedPoints = 0U;
         ulong expectedDoubles = 0U;
         foreach (ref readonly NativeSceneStroke stroke in strokes)
@@ -431,7 +432,9 @@ public ref struct NativeSceneStreamBuilder
                 (uint)stroke.StartCap > (uint)NativeStrokeCap.Triangle ||
                 (uint)stroke.EndCap > (uint)NativeStrokeCap.Triangle ||
                 (uint)stroke.DashCap > (uint)NativeStrokeCap.Triangle ||
-                (uint)stroke.LineJoin > (uint)NativeStrokeJoin.Round ||
+                (uint)stroke.LineJoin > (uint)NativeStrokeJoin.MiterOrBevel ||
+                ((stroke.Flags & NativePolylineFlags.ClipMiterAtLimit) != 0 &&
+                    stroke.LineJoin != NativeStrokeJoin.Miter) ||
                 !IsFinite(stroke.Color) || !IsFinite(stroke.Transform) ||
                 !float.IsFinite(stroke.StrokeThickness) ||
                 !float.IsFinite(stroke.MiterLimit) ||
@@ -985,7 +988,7 @@ public ref struct NativeSceneStreamBuilder
         resourceIndex = NativeMethods.SceneNoIndex;
         const NativeSceneStateFlags knownFlags =
             NativeSceneStateFlags.ClipRect | NativeSceneStateFlags.Mask |
-            NativeSceneStateFlags.GuidelineSet;
+            NativeSceneStateFlags.GuidelineSet | NativeSceneStateFlags.ClipPixelCenters;
         bool hasClip = (state.Flags & NativeSceneStateFlags.ClipRect) != 0;
         bool hasMask = (state.Flags & NativeSceneStateFlags.Mask) != 0;
         bool hasGuidelines =
@@ -1007,6 +1010,7 @@ public ref struct NativeSceneStreamBuilder
             : state.GuidelineResourceIndex == 0U;
         if (state.StructSize != Unsafe.SizeOf<NativeSceneState>() ||
             (state.Flags & ~knownFlags) != 0 ||
+            ((state.Flags & NativeSceneStateFlags.ClipPixelCenters) != 0 && !hasClip) ||
             !state.HasCanonicalReservedFields || !IsFinite(state.Transform) ||
             !float.IsFinite(state.Opacity) ||
             state.Opacity is < 0f or > 1f ||
@@ -1980,6 +1984,34 @@ public ref struct NativeSceneStreamBuilder
     public bool TryPopLayer(ulong commandId) =>
         TryPopControl(NativeSceneCommandKind.PopLayer, commandId, isLayer: true);
 
+    /// <summary>
+    /// Replaces the active target with the original straight color. Source
+    /// transforms, opacity and guidelines are ignored; binary clips remain.
+    /// Per-draw masks require an enclosing layer and reject at native preflight.
+    /// </summary>
+    public bool TryClearTarget(ulong commandId, Vector4 color,
+        uint stateIndex = NativeMethods.SceneNoIndex)
+    {
+        if (_built || _commandCount == _commandCapacity ||
+            commandId == 0U || commandId <= _lastCommandId ||
+            !IsFinite(color) || color.W < 0f || color.W > 1f ||
+            !HasUsableCommandState(stateIndex, allowPerPoint: true))
+            return false;
+        // All publication checks precede the arena write; rejected arguments
+        // cannot consume a command ID, stack entry or caller-owned bytes.
+        int originalArenaSize = _arenaSize;
+        if (!TryWriteArena(MemoryMarshal.AsBytes(MemoryMarshal.CreateReadOnlySpan(ref color, 1)),
+                out uint offset))
+            return false;
+        if (!TryWriteControl(NativeSceneCommandKind.ClearTarget, commandId,
+                stateIndex, offset, checked((uint)Unsafe.SizeOf<Vector4>())))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
+
     public bool TryDrawAnalytic(
         ulong commandId,
         uint resourceIndex,
@@ -2293,6 +2325,49 @@ public ref struct NativeSceneStreamBuilder
             bounds,
             payload,
             stateIndex);
+
+    /// <summary>Copies an explicit physical RGB run without inferring target opacity or source rendering mode.</summary>
+    public bool TryDrawRgbGlyphRun(ulong commandId, uint resourceIndex,
+        NativeImageRect bounds, in NativeSceneRgbGlyphDraw descriptor,
+        scoped ReadOnlySpan<NativeSceneRgbGlyphTile> glyphs, uint stateIndex = uint.MaxValue)
+    {
+        NativeSceneRgbGlyphDraw original = descriptor;
+        ReadOnlySpan<byte> glyphBytes = MemoryMarshal.AsBytes(glyphs);
+        if (_built || _commandCount == _commandCapacity || !original.IsCanonical ||
+            (uint)glyphs.Length != original.GlyphCount || commandId == 0U || commandId <= _lastCommandId ||
+            resourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(resourceIndex, NativeSceneResourceKind.GlyphRun) ||
+            ResourceHasFlags(resourceIndex, NativeSceneRecordFlags.ColorGlyphBitmaps) ||
+            !HasUsableCommandState(stateIndex, allowPerPoint: false) || !IsFiniteBounds(bounds) ||
+            glyphBytes.Overlaps(_destination)) return false;
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(_destination.Slice(
+            _resourceOffset + checked((int)resourceIndex) * ResourceSize, ResourceSize));
+        uint outlineSize = (uint)Unsafe.SizeOf<NativeSceneGlyphOutline>();
+        uint segmentSize = (uint)Unsafe.SizeOf<NativePathSegment>();
+        uint outlineCount = resource.PayloadSize / outlineSize;
+        if (resource.PayloadSize % outlineSize != 0U || outlineCount is 0U or > 65536U ||
+            resource.AuxiliarySize == 0U || resource.AuxiliarySize % segmentSize != 0U ||
+            resource.AuxiliarySize / segmentSize > 1048576U) return false;
+        ulong pixels = 0U;
+        foreach (ref readonly var glyph in glyphs)
+        {
+            if (!glyph.IsCanonical(outlineCount)) return false;
+            pixels += (ulong)glyph.Width * glyph.Height;
+            if (pixels > 4096U * 4096U) return false;
+        }
+        int relativeOffset = checked((int)Align8(_arenaSize));
+        int prefixSize = Unsafe.SizeOf<NativeSceneRgbGlyphDraw>();
+        int payloadSize = checked(prefixSize + glyphBytes.Length);
+        int end = checked(relativeOffset + payloadSize);
+        if (_arenaOffset + (long)end > _destination.Length) return false;
+        uint payloadOffset = (uint)(_arenaOffset + relativeOffset);
+        // Every possible admission/capacity error is resolved before writing.
+        Write((int)payloadOffset, original);
+        glyphBytes.CopyTo(_destination.Slice((int)payloadOffset + prefixSize, glyphBytes.Length));
+        _arenaSize = end;
+        return TryWriteDrawCommand(NativeSceneCommandKind.DrawRgbGlyphRun, commandId,
+            resourceIndex, bounds, payloadOffset, (uint)payloadSize, stateIndex, NativeSceneRecordFlags.Required);
+    }
 
     /// <summary>Paints each original occurrence directly, without a union mask.</summary>
     public bool TryDrawPaintedGlyphRun(ulong commandId, uint resourceIndex,
@@ -3186,6 +3261,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneResourceKind.GlyphRun,
             NativeSceneCommandKind.DrawPaintedGlyphRun =>
                 NativeSceneResourceKind.GlyphRun,
+            NativeSceneCommandKind.DrawRgbGlyphRun =>
+                NativeSceneResourceKind.GlyphRun,
             NativeSceneCommandKind.DrawImage =>
                 NativeSceneResourceKind.Image,
             NativeSceneCommandKind.DrawGeometry =>
@@ -3274,7 +3351,9 @@ public ref struct NativeSceneStreamBuilder
                 (uint)brush.Interpolation >
                     (uint)NativeSceneGradientInterpolation.ScRgb ||
                 (!hatchSet && baseSpread >
-                    (uint)NativeSceneGradientSpread.Decal) ||
+                    (uint)NativeSceneGradientSpread.PadUnitInterval) ||
+                (!hatchSet && baseSpread == (uint)NativeSceneGradientSpread.PadUnitInterval &&
+                    brush.Kind is not (NativeSceneBrushKind.LinearGradient or NativeSceneBrushKind.RadialGradient)) ||
                 (conicalOutsideColor && !conical) ||
                 (padOutsideColors && (!gradient || baseSpread !=
                     (uint)NativeSceneGradientSpread.Pad)))
@@ -3445,7 +3524,14 @@ public ref struct NativeSceneStreamBuilder
             NativeSceneLayerFlags.CacheNearest |
             NativeSceneLayerFlags.CacheFant |
             NativeSceneLayerFlags.CompositeState | NativeSceneLayerFlags.CacheTile |
-            NativeSceneLayerFlags.CacheShared;
+            NativeSceneLayerFlags.CacheShared | NativeSceneLayerFlags.AliasedCompositeBounds |
+            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha |
+            NativeSceneLayerFlags.LinearByteOpacity;
+        bool sourceLayerPolicy =
+            (layer.Flags & (NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha |
+                NativeSceneLayerFlags.LinearByteOpacity)) != 0;
+        bool aliasedComposite =
+            (layer.Flags & NativeSceneLayerFlags.AliasedCompositeBounds) != 0;
         bool localCache =
             (layer.Flags & NativeSceneLayerFlags.CacheLocalSpace) != 0;
         bool explicitCompositeState =
@@ -3461,6 +3547,20 @@ public ref struct NativeSceneStreamBuilder
             float.IsFinite(layer.Opacity) &&
             layer.Opacity is >= 0f and <= 1f &&
             (uint)layer.BlendMode <= (uint)GpuBlendMode.Modulate &&
+            (!aliasedComposite ||
+                (layer.Flags == (NativeSceneLayerFlags.Bounds | NativeSceneLayerFlags.AliasedCompositeBounds) &&
+                    layer.BlendMode == GpuBlendMode.Src && layer.Opacity == 1f &&
+                    layer.MaskResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&
+            (!sourceLayerPolicy ||
+                ((layer.Flags & ~(NativeSceneLayerFlags.Bounds |
+                        NativeSceneLayerFlags.ForceIsolation |
+                        NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha |
+                        NativeSceneLayerFlags.LinearByteOpacity)) == 0 &&
+                    layer.BlendMode == GpuBlendMode.SrcOver &&
+                    layer.EffectResourceIndex == NativeMethods.SceneNoIndex &&
+                    layer.ContentRevision == 0 && layer.CompositeRevision == 0)) &&
             (!explicitCompositeState ||
                 (!localCache && RequiresMaterialization(layer))) &&
             ((layer.Flags & NativeSceneLayerFlags.CacheShared) == 0 || localCache) &&
@@ -3529,6 +3629,10 @@ public ref struct NativeSceneStreamBuilder
 
     private static bool IsValidLayerMask(in NativeSceneLayerMask mask)
     {
+        const uint axisClipFlag = (uint)NativeSceneLayerMaskFlags.AxisClipArea;
+        bool exactClip = (mask.Flags & axisClipFlag) == 0U ||
+            (mask.Transform == Matrix3x2.Identity && mask.Opacity == 1f &&
+             mask.CornerRadiiX == Vector4.Zero && mask.CornerRadiiY == Vector4.Zero);
         bool finiteRadii =
             IsFiniteNonnegative(mask.CornerRadiiX) &&
             IsFiniteNonnegative(mask.CornerRadiiY);
@@ -3538,7 +3642,7 @@ public ref struct NativeSceneStreamBuilder
             out Matrix3x2 inverse) && IsFinite(inverse);
         return mask.StructSize == Unsafe.SizeOf<NativeSceneLayerMask>() &&
             mask.Kind == NativeSceneLayerMaskKind.RoundedRectangle &&
-            mask.Flags == 0U && mask.HasCanonicalReservedFields &&
+            (mask.Flags & ~axisClipFlag) == 0U && exactClip && mask.HasCanonicalReservedFields &&
             IsFinitePositive(mask.Bounds) &&
             IsFinite(mask.Transform) && float.IsFinite(determinant) &&
             MathF.Abs(determinant) > 0.000001f && inverseIsRepresentable &&
@@ -3937,7 +4041,8 @@ public ref struct NativeSceneStreamBuilder
     private static bool RequiresMaterialization(in NativeSceneLayer layer) =>
         (layer.Flags & (NativeSceneLayerFlags.Backdrop |
             NativeSceneLayerFlags.ForceIsolation |
-            NativeSceneLayerFlags.CacheContent)) != 0 ||
+            NativeSceneLayerFlags.CacheContent |
+            NativeSceneLayerFlags.InitializeFromBackground | NativeSceneLayerFlags.IgnoreAlpha)) != 0 ||
         layer.Opacity != 1f ||
         layer.BlendMode != GpuBlendMode.SrcOver ||
         layer.MaskResourceIndex != NativeMethods.SceneNoIndex ||

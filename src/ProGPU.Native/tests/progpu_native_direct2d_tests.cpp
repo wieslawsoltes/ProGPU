@@ -2,9 +2,16 @@
 #include "progpu_native_direct2d_compat.hpp"
 #include "progpu_native_direct2d_clip_fixture.hpp"
 #include "progpu_native_direct2d_brush_fixture.hpp"
+#include "progpu_native_direct2d_gradient_stop_fixture.hpp"
 #include "progpu_native_direct2d_clear_fixture.hpp"
+#include "progpu_native_direct2d_clipped_clear_fixture.hpp"
+#include "progpu_native_direct2d_layer_background_fixture.hpp"
+#include "progpu_native_direct2d_layer_clear_fixture.hpp"
+#include "progpu_native_direct2d_aa_clear_fixture.hpp"
 #include "progpu_native_direct2d_copy_fixture.hpp"
 #include "progpu_native_direct2d_owned_bitmap_fixture.hpp"
+#include "progpu_native_direct2d_rectangle_stroke_fixture.hpp"
+#include "progpu_native_direct2d_default_transformed_stroke_fixture.hpp"
 #include "progpu_native.h"
 
 #include <d2d1_3.h>
@@ -25,7 +32,17 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <utility>
 #include <vector>
+#include "progpu_native_direct2d_rgb_reference.hpp"
+#include "progpu_native_direct2d_prepared_glyph_reference.hpp"
+#include "progpu_native_direct2d_variable_glyph_reference.hpp"
+#include "progpu_native_direct2d_cff_glyph_reference.hpp"
+#include "progpu_native_direct2d_vertical_glyph_reference.hpp"
+#include "progpu_native_direct2d_cff_contour_origin_reference.hpp"
+#include "progpu_native_direct2d_variable_sideways_glyph_reference.hpp"
+#include "progpu_native_direct2d_command_hairline_reference.hpp"
+#include "progpu_native_direct2d_clipped_miter_reference.hpp"
 
 using Microsoft::WRL::ComPtr;
 using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
@@ -97,10 +114,336 @@ void require(bool condition, const char* message)
     }
 }
 
+void layer_background_regressions(progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "layer background original context failed");
+    context->SetDpi(96, 96);
+    ComPtr<ID2D1Factory> factory;
+    context->GetFactory(factory.GetAddressOf());
+    const auto target_properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96, 96);
+    const auto read_properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        target_properties.pixelFormat, 96, 96);
+    ComPtr<ID2D1Bitmap1> target, readback;
+    require(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &target_properties, target.GetAddressOf()) == S_OK &&
+        context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &read_properties, readback.GetAddressOf()) == S_OK,
+        "layer background original target/readback failed");
+    for (const bool clear_layer : {false, true}) for (std::uint32_t variant = 0U; variant < 24U; ++variant) {
+        const auto record = [&] {
+            return fixture::record_layer_background(reinterpret_cast<compat::render_target*>(context.Get()),
+                reinterpret_cast<compat::factory*>(factory.Get()), variant,
+                [&](const compat::layer_parameters1& parameters) {
+                    const D2D1_LAYER_PARAMETERS1 original{
+                        {parameters.content_bounds.left, parameters.content_bounds.top,
+                            parameters.content_bounds.right, parameters.content_bounds.bottom},
+                        reinterpret_cast<ID2D1Geometry*>(parameters.geometric_mask), D2D1_ANTIALIAS_MODE_ALIASED,
+                        D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr,
+                        static_cast<D2D1_LAYER_OPTIONS1>(fixture::layer_background_options(variant))};
+                    context->PushLayer(&original, nullptr);
+                }, clear_layer);
+        };
+        context->SetTarget(target.Get());
+        require(record() == S_OK, "layer background original Windows draw failed");
+        context->SetTarget(nullptr);
+        require(readback->CopyFromBitmap(nullptr, target.Get(), nullptr) == S_OK,
+            "layer background original pixel copy failed");
+        D2D1_MAPPED_RECT mapped{};
+        require(readback->Map(D2D1_MAP_OPTIONS_READ, &mapped) == S_OK,
+            "layer background original pixel map failed");
+        std::vector<std::uint8_t> pixels(64U * 256U);
+        for (std::size_t row = 0U; row < 64U; ++row)
+            std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
+        require(readback->Unmap() == S_OK && fixture::layer_background_pixels(pixels, 64U, variant, true, clear_layer),
+            "layer background original Windows full bytes differ from independent expected pixels");
+
+        ComPtr<ID2D1CommandList> list;
+        require(context->CreateCommandList(list.GetAddressOf()) == S_OK,
+            "layer background original command list failed");
+        context->SetTarget(list.Get());
+        require(record() == S_OK && list->Close() == S_OK, "layer background original list recording failed");
+        context->SetTarget(nullptr);
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        std::int32_t hr = E_FAIL;
+        // Original command lists can discard overwritten draws. Count their
+        // real callbacks independently; do not make source-call count an oracle.
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        require(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "layer background independent original callback inventory failed");
+        require(progpu_native_direct2d_scene_recorder_create(0xBC00U + variant, 1U, nullptr, &recorder, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "layer background recorder failed");
+        void* raw_sink = nullptr;
+        require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "layer background sink failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        require(list->Stream(sink.Get()) == S_OK, "layer background original stream translation failed");
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "layer background stream measurement failed");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+            reinterpret_cast<std::uint8_t*>(bytes.data()), bytes.size(), &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::layer_background_contract(bytes, variant, clear_layer,
+                summary.draw_count + summary.fill_count),
+            "layer background original stream lost typed initialization metadata");
+        sink.Reset();
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
+void transparent_layer_clear_regressions(
+    progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "transparent layer Clear original context failed");
+    context->SetDpi(96, 96);
+    ComPtr<ID2D1Factory> factory;
+    context->GetFactory(factory.GetAddressOf());
+    const auto target_properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96, 96);
+    const auto read_properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+        target_properties.pixelFormat, 96, 96);
+    ComPtr<ID2D1Bitmap1> target, readback;
+    require(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &target_properties, target.GetAddressOf()) == S_OK &&
+        context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0U, &read_properties, readback.GetAddressOf()) == S_OK,
+        "transparent layer Clear original target/readback failed");
+
+    // Exercise the original APIs independently. A legacy layer is a real
+    // ID2D1Layer resource, not OPTIONS1 reinterpreted as the older enum/vtable.
+    for (const bool legacy : {true, false}) for (std::uint32_t variant = 0U; variant < 32U; ++variant) {
+        const auto check = [legacy, variant](bool condition, const char* message) {
+            if (!condition) {
+                std::cerr << "transparent layer Clear api=" << (legacy ? "legacy" : "OPTIONS1_NONE")
+                    << " variant=" << variant << '\n';
+                fail(message);
+            }
+        };
+        ComPtr<ID2D1Layer> layer;
+        if (legacy) check(context->CreateLayer(nullptr, layer.GetAddressOf()) == S_OK,
+            "transparent layer Clear original legacy layer creation failed");
+        const auto record = [&] {
+            return fixture::record_transparent_layer_clear(
+                reinterpret_cast<compat::render_target*>(context.Get()),
+                reinterpret_cast<compat::factory*>(factory.Get()), variant,
+                [&](const compat::layer_parameters& parameters) {
+                    check(parameters.options == compat::layer_options::none,
+                        "transparent layer Clear source unexpectedly requested initialized content");
+                    const D2D1_RECT_F bounds{parameters.content_bounds.left, parameters.content_bounds.top,
+                        parameters.content_bounds.right, parameters.content_bounds.bottom};
+                    const auto& source_transform = parameters.mask_transform;
+                    const D2D1_MATRIX_3X2_F mask_transform = D2D1::Matrix3x2F(
+                        source_transform.m11, source_transform.m12, source_transform.m21,
+                        source_transform.m22, source_transform.m31, source_transform.m32);
+                    auto* geometry = reinterpret_cast<ID2D1Geometry*>(parameters.geometric_mask);
+                    auto* opacity_brush = reinterpret_cast<ID2D1Brush*>(parameters.opacity_brush);
+                    const auto antialias = static_cast<D2D1_ANTIALIAS_MODE>(parameters.mask_antialias_mode);
+                    if (legacy) {
+                        const D2D1_LAYER_PARAMETERS original{bounds, geometry, antialias,
+                            mask_transform, parameters.opacity, opacity_brush, D2D1_LAYER_OPTIONS_NONE};
+                        static_cast<ID2D1RenderTarget*>(context.Get())->PushLayer(&original, layer.Get());
+                    } else {
+                        const D2D1_LAYER_PARAMETERS1 original{bounds, geometry, antialias,
+                            mask_transform, parameters.opacity, opacity_brush, D2D1_LAYER_OPTIONS1_NONE};
+                        context->PushLayer(&original, nullptr);
+                    }
+                });
+        };
+
+        std::vector<std::uint8_t> first_pixels;
+        for (std::uint32_t replay = 0U; replay < 2U; ++replay) {
+            context->SetTarget(target.Get());
+            check(record() == S_OK, "transparent layer Clear original Windows draw failed");
+            context->SetTarget(nullptr);
+            check(readback->CopyFromBitmap(nullptr, target.Get(), nullptr) == S_OK,
+                "transparent layer Clear original pixel copy failed");
+            D2D1_MAPPED_RECT mapped{};
+            check(readback->Map(D2D1_MAP_OPTIONS_READ, &mapped) == S_OK,
+                "transparent layer Clear original pixel map failed");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t row = 0U; row < 64U; ++row)
+                std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
+            check(readback->Unmap() == S_OK, "transparent layer Clear original pixel unmap failed");
+            check(fixture::transparent_layer_clear_pixels(pixels, 64U, variant, true),
+                "transparent layer Clear original Windows full bytes differ from independent expected pixels");
+            if (replay == 0U) first_pixels = std::move(pixels);
+            else check(pixels == first_pixels,
+                "transparent layer Clear original reused target/layer changed full bytes");
+        }
+
+        ComPtr<ID2D1CommandList> list;
+        check(context->CreateCommandList(list.GetAddressOf()) == S_OK,
+            "transparent layer Clear original command list failed");
+        context->SetTarget(list.Get());
+        check(record() == S_OK && list->Close() == S_OK,
+            "transparent layer Clear original list recording failed");
+        context->SetTarget(nullptr);
+        std::int32_t hr = E_FAIL;
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        // Original command lists may discard overwritten child draws. Preserve
+        // their actual callback inventory instead of assuming source-call count.
+        check(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "transparent layer Clear original callback inventory failed");
+        const auto source_draws = summary.draw_count + summary.fill_count;
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        check(progpu_native_direct2d_scene_recorder_create(0xBE00U + variant + (legacy ? 0U : 32U),
+                1U, nullptr, &recorder, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "transparent layer Clear recorder failed");
+        void* raw_sink = nullptr;
+        check(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK,
+            "transparent layer Clear sink failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        check(list->Stream(sink.Get()) == S_OK,
+            "transparent layer Clear original stream translation failed");
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER,
+            "transparent layer Clear stream measurement failed");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+            reinterpret_cast<std::uint8_t*>(bytes.data()), bytes.size(), &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK && result.written_bytes == bytes.size() &&
+                result.failure_callback_index == 0U && result.translated_draw_count == source_draws &&
+                fixture::transparent_layer_clear_contract(bytes, variant, source_draws),
+            "transparent layer Clear original stream lost captured layer/clip/clear semantics");
+        sink.Reset();
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
+void antialiased_clear_regressions(
+    progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    require(fixture::antialiased_clear_area_contract(), "AA Clear independent pixel-area arithmetic changed");
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "AA Clear original context failed");
+    for (const bool legacy : {true, false}) for (unsigned index = 0; index < fixture::aa_clear_cases.size(); ++index) {
+        const auto& value = fixture::aa_clear_cases[index];
+        if (legacy && value.ignore_alpha) continue;
+        const auto check = [legacy, index](bool condition, const char* message) {
+            if (!condition) {
+                std::cerr << "AA Clear original api=" << (legacy ? "legacy" : "OPTIONS1") << " case=" << index << '\n';
+                fail(message);
+            }
+        };
+        context->SetDpi(96 * value.dpi_x, 96 * value.dpi_y);
+        const auto properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            96 * value.dpi_x, 96 * value.dpi_y);
+        const auto read_properties = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            properties.pixelFormat, 96 * value.dpi_x, 96 * value.dpi_y);
+        ComPtr<ID2D1Bitmap1> target, readback;
+        check(context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0, &properties, target.GetAddressOf()) == S_OK &&
+            context->CreateBitmap(D2D1::SizeU(64, 64), nullptr, 0, &read_properties, readback.GetAddressOf()) == S_OK,
+            "AA Clear original bitmap creation failed");
+        ComPtr<ID2D1Layer> layer;
+        if (legacy) check(context->CreateLayer(nullptr, layer.GetAddressOf()) == S_OK,
+            "AA Clear original legacy layer creation failed");
+        const auto record = [&] {
+            return fixture::record_antialiased_clear(reinterpret_cast<compat::render_target*>(context.Get()), value,
+                [&](const compat::layer_parameters& parameters, bool opaque) {
+                    const D2D1_RECT_F bounds{parameters.content_bounds.left, parameters.content_bounds.top,
+                        parameters.content_bounds.right, parameters.content_bounds.bottom};
+                    if (legacy) {
+                        check(!opaque, "AA Clear attempted unavailable legacy IGNORE_ALPHA");
+                        const D2D1_LAYER_PARAMETERS original{bounds, nullptr, D2D1_ANTIALIAS_MODE_ALIASED,
+                            D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr, D2D1_LAYER_OPTIONS_NONE};
+                        static_cast<ID2D1RenderTarget*>(context.Get())->PushLayer(&original, layer.Get());
+                    } else {
+                        const D2D1_LAYER_PARAMETERS1 original{bounds, nullptr, D2D1_ANTIALIAS_MODE_ALIASED,
+                            D2D1::Matrix3x2F::Identity(), parameters.opacity, nullptr,
+                            opaque ? D2D1_LAYER_OPTIONS1_IGNORE_ALPHA : D2D1_LAYER_OPTIONS1_NONE};
+                        context->PushLayer(&original, nullptr);
+                    }
+                });
+        };
+        std::vector<std::uint8_t> cold;
+        for (unsigned replay = 0; replay < 2U; ++replay) {
+            context->SetTarget(target.Get());
+            check(record() == S_OK, "AA Clear original Windows draw failed");
+            context->SetTarget(nullptr);
+            check(readback->CopyFromBitmap(nullptr, target.Get(), nullptr) == S_OK, "AA Clear original copy failed");
+            D2D1_MAPPED_RECT mapped{};
+            check(readback->Map(D2D1_MAP_OPTIONS_READ, &mapped) == S_OK, "AA Clear original map failed");
+            std::vector<std::uint8_t> pixels(64U * 256U);
+            for (std::size_t row = 0; row < 64U; ++row)
+                std::memcpy(pixels.data() + row * 256U, mapped.bits + row * mapped.pitch, 256U);
+            check(readback->Unmap() == S_OK, "AA Clear original unmap failed");
+            check(fixture::antialiased_clear_pixels(pixels, value, true),
+                "AA Clear original Windows differs from independent full-byte area/composition expectation");
+            if (replay == 0U) cold = std::move(pixels);
+            else check(pixels == cold, "AA Clear original reused target changed full bytes");
+        }
+        // The original command list owns the callback inventory: it may omit a
+        // fully overwritten draw. Never manufacture the source-call count.
+        ComPtr<ID2D1CommandList> list;
+        check(context->CreateCommandList(list.GetAddressOf()) == S_OK, "AA Clear original list creation failed");
+        context->SetTarget(list.Get());
+        check(record() == S_OK && list->Close() == S_OK, "AA Clear original list recording failed");
+        context->SetTarget(nullptr);
+        std::int32_t hr = E_FAIL;
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        check(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS, &summary, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK, "AA Clear original callback inventory failed");
+        const auto source_fills = summary.draw_count + summary.fill_count;
+        progpu_native_direct2d_scene_recorder* recorder = nullptr;
+        check(progpu_native_direct2d_scene_recorder_create(0xAC80U + index + (legacy ? 0U : 32U), 1U, nullptr,
+            &recorder, &hr) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK, "AA Clear recorder failed");
+        void* raw_sink = nullptr;
+        check(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK, "AA Clear sink failed");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        check(list->Stream(sink.Get()) == S_OK, "AA Clear original stream translation failed");
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "AA Clear stream measurement failed");
+        std::vector<std::byte> bytes(static_cast<std::size_t>(result.required_bytes));
+        check(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+            reinterpret_cast<std::uint8_t*>(bytes.data()), bytes.size(), &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && hr == S_OK && result.written_bytes == bytes.size() &&
+                result.failure_callback_index == 0U && result.translated_draw_count == source_fills &&
+                fixture::antialiased_clear_contract(bytes, value, source_fills),
+            "AA Clear original stream lost captured scopes, target replacement or callback counts");
+        sink.Reset();
+        progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
 void full_target_clear_regressions(
     progpu_native_direct2d_surface* surface, ID2D1DeviceContext* source_context)
 {
     namespace fixture = progpu::native::direct2d::tests;
+    layer_background_regressions(surface, source_context);
+    transparent_layer_clear_regressions(surface, source_context);
+    antialiased_clear_regressions(surface, source_context);
     ComPtr<ID2D1Device> device;
     source_context->GetDevice(device.GetAddressOf());
     ComPtr<ID2D1DeviceContext> context;
@@ -189,7 +532,65 @@ void full_target_clear_regressions(
                 "clear retained discarded resources or changed subsequent transform/AA/brush values");
         }
     }
-    for (unsigned variant = 0U; variant < 4U; ++variant) {
+    for (const bool streamed : {false, true}) {
+        for (const bool null_clear : {false, true}) for (const bool fractional : {false, true}) {
+            progpu_native_direct2d_scene_recorder* recorder = nullptr;
+            int32_t hr = E_FAIL;
+            require(progpu_native_direct2d_scene_recorder_create(7103U, 1U, nullptr, &recorder, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "clipped Clear recorder creation failed");
+            void* raw_sink = nullptr;
+            require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "clipped Clear sink acquisition failed");
+            ComPtr<ID2D1CommandSink1> sink;
+            sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+            if (streamed) {
+                ComPtr<ID2D1CommandList> list;
+                require(context->CreateCommandList(list.GetAddressOf()) == S_OK, "clipped Clear native command list failed");
+                context->SetTarget(list.Get());
+                require(fixture::record_clipped_clear(reinterpret_cast<compat::render_target*>(context.Get()), null_clear, false, fractional) == S_OK &&
+                    list->Close() == S_OK, "clipped Clear original Windows recording failed");
+                context->SetTarget(nullptr);
+                require(list->Stream(sink.Get()) == S_OK, "clipped Clear original Windows stream translation failed");
+            } else {
+                const D2D1_COLOR_F red{1, 0, 0, 1}, blue{0, 0, 1, 1};
+                ComPtr<ID2D1SolidColorBrush> before, after;
+                require(context->CreateSolidColorBrush(&red, nullptr, before.GetAddressOf()) == S_OK &&
+                    context->CreateSolidColorBrush(&blue, nullptr, after.GetAddressOf()) == S_OK,
+                    "clipped Clear callback brushes failed");
+                const D2D1_MATRIX_3X2_F identity = D2D1::Matrix3x2F(1, 0, 0, 1, 0, 0);
+                const D2D1_MATRIX_3X2_F capture = D2D1::Matrix3x2F(2, 0, 0, 2, 4, 6);
+                const D2D1_MATRIX_3X2_F singular = D2D1::Matrix3x2F(0, 0, 0, 0, 99, 88);
+                const D2D1_MATRIX_3X2_F suffix = D2D1::Matrix3x2F(1, 0, 0, 1, 2, 3);
+                const D2D1_RECT_F whole{0, 0, 64, 64}, first{2, 3, 14, 15}, last{0, 0, 3, 4};
+                const D2D1_RECT_F second = fractional ? D2D1_RECT_F{12.75F, 14.75F, 23.75F, 25.75F}
+                                                    : D2D1_RECT_F{12, 14, 24, 26};
+                require(sink->BeginDraw() == S_OK && sink->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED) == S_OK &&
+                    sink->SetTransform(&identity) == S_OK && sink->Clear(nullptr) == S_OK &&
+                    sink->FillRectangle(&whole, before.Get()) == S_OK && sink->SetTransform(&capture) == S_OK &&
+                    sink->PushAxisAlignedClip(&first, D2D1_ANTIALIAS_MODE_ALIASED) == S_OK &&
+                    sink->SetTransform(&identity) == S_OK &&
+                    sink->PushAxisAlignedClip(&second, D2D1_ANTIALIAS_MODE_ALIASED) == S_OK &&
+                    sink->SetTransform(&singular) == S_OK && sink->Clear(null_clear ? nullptr : &clear) == S_OK &&
+                    sink->PopAxisAlignedClip() == S_OK && sink->PopAxisAlignedClip() == S_OK &&
+                    sink->SetTransform(&suffix) == S_OK && sink->FillRectangle(&last, after.Get()) == S_OK &&
+                    sink->EndDraw() == S_OK, "clipped Clear callback recording failed");
+            }
+            progpu_native_direct2d_scene_stream_result result{};
+            result.struct_size = sizeof(result);
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER && result.translated_draw_count == 2U &&
+                result.clear_color.alpha == 0 && result.failure_callback_index == 0U,
+                "clipped Clear changed leading clear or original draw callback counts");
+            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(result.required_bytes));
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && fixture::clipped_clear_contract(
+                    std::as_bytes(std::span(bytes)), null_clear, false, false, fractional),
+                "clipped Clear lost original commands or captured clip frame");
+            sink.Reset();
+            progpu_native_direct2d_scene_recorder_destroy(recorder);
+        }
+    }
+    for (unsigned variant = 0U; variant < 5U; ++variant) {
         progpu_native_direct2d_scene_recorder* recorder = nullptr;
         int32_t hr = E_FAIL;
         require(progpu_native_direct2d_scene_recorder_create(7102U, 1U, nullptr, &recorder, &hr) ==
@@ -200,18 +601,58 @@ void full_target_clear_regressions(
         ComPtr<ID2D1CommandSink1> sink;
         sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
         require(sink->BeginDraw() == S_OK, "negative clear begin failed");
-        if (variant < 2U) require(sink->PushAxisAlignedClip(&rectangle, variant == 0U
-                ? D2D1_ANTIALIAS_MODE_ALIASED : D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) == S_OK,
-            "negative clear clip setup failed");
-        else if (variant == 2U) {
-            const D2D1_LAYER_PARAMETERS1 layer{rectangle, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+        if (variant < 2U) {
+            require(sink->PushAxisAlignedClip(&rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) == S_OK,
+                "negative clear clip setup failed");
+            if (variant == 0U) require(sink->PushAxisAlignedClip(&rectangle, D2D1_ANTIALIAS_MODE_ALIASED) == S_OK,
+                "negative clear nested aliased clip setup failed");
+        }
+        else if (variant == 2U || variant == 4U) {
+            // Finite transparent layers now admit Clear. An unbounded layer
+            // still cannot establish replacement coverage in this recorder,
+            // which was created without target dimensions/DPI metadata.
+            const float maximum = (std::numeric_limits<float>::max)();
+            const D2D1_RECT_F unbounded{-maximum, -maximum, maximum, maximum};
+            const D2D1_LAYER_PARAMETERS1 layer{unbounded, nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
                 D2D1::Matrix3x2F::Identity(), 0.5F, nullptr, D2D1_LAYER_OPTIONS1_NONE};
             require(sink->PushLayer(&layer, nullptr) == S_OK, "negative clear layer setup failed");
+            if (variant == 4U) require(sink->PushAxisAlignedClip(&rectangle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) == S_OK,
+                "bounded AA child of unknown owner setup failed");
         } else {
             const D2D1_COLOR_F invalid{std::numeric_limits<float>::quiet_NaN(), 0, 0, 1};
             require(sink->Clear(&invalid) == E_INVALIDARG, "invalid clear color was accepted");
         }
-        require(FAILED(sink->Clear(&clear)) && FAILED(sink->EndDraw()), "scoped/failed Clear was revived");
+        if (variant < 2U || variant == 4U) {
+            require(sink->Clear(&clear) == S_OK && sink->PopAxisAlignedClip() == S_OK,
+                "bounded AA Clear did not replace the actual current target");
+            if (variant == 0U) require(sink->PopAxisAlignedClip() == S_OK, "AA Clear outer clip pop failed");
+            if (variant == 4U) require(sink->PopLayer() == S_OK, "AA Clear unknown owner pop failed");
+            require(sink->EndDraw() == S_OK, "AA Clear source transaction failed");
+            progpu_native_direct2d_scene_stream_result accepted{};
+            accepted.struct_size = sizeof(accepted);
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &accepted, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER, "AA Clear source size failed");
+            std::vector<std::byte> retained(static_cast<std::size_t>(accepted.required_bytes));
+            require(progpu_native_direct2d_scene_recorder_build_stream(recorder,
+                reinterpret_cast<std::uint8_t*>(retained.data()), retained.size(), &accepted, &hr) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && accepted.failure_callback_index == 0U,
+                "AA Clear source bytes failed");
+            progpu_native_scene_header header{};
+            require(fixture::read_scene_value(retained, 0U, header) && header.command_count == (variant == 1U ? 3U : 5U),
+                "AA Clear source scope inventory changed");
+            unsigned clears{};
+            for (unsigned i = 0; i < header.command_count; ++i) {
+                progpu_native_scene_command command{};
+                require(fixture::read_scene_value(retained, header.command_offset + std::uint64_t{i} * header.command_stride,
+                    command), "AA Clear source command unreadable");
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) ++clears;
+            }
+            require(clears == 1U, "AA Clear source did not retain exactly one storage replacement");
+            sink.Reset();
+            progpu_native_direct2d_scene_recorder_destroy(recorder);
+            continue;
+        }
+        require(FAILED(sink->Clear(&clear)) && FAILED(sink->EndDraw()), "unbounded/failed Clear was revived");
         std::array<std::uint8_t, 64U> bytes;
         bytes.fill(0x5a);
         const auto before = bytes;
@@ -219,12 +660,113 @@ void full_target_clear_regressions(
         result.struct_size = sizeof(result);
         require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) !=
                 PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && bytes == before && result.written_bytes == 0U &&
-            result.failure_callback_index == (variant < 3U ? 2U : 1U) &&
+            result.failure_callback_index == (variant == 0U ? 3U : variant < 3U ? 2U : 1U) &&
             result.failure_reason == static_cast<std::uint32_t>(variant < 3U
                 ? PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_OPERATION
                 : PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_INVALID_VALUE),
             "clear changed the first failure index/reason or published a partial scene");
         progpu_native_direct2d_scene_recorder_destroy(recorder);
+    }
+}
+
+void gradient_stop_order_regressions(ID2D1DeviceContext* source_context)
+{
+    namespace fixture = progpu::native::direct2d::tests;
+    ComPtr<ID2D1Device> device;
+    source_context->GetDevice(device.GetAddressOf());
+    ComPtr<ID2D1DeviceContext> context;
+    require(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, context.GetAddressOf()) == S_OK,
+        "gradient order context creation");
+    for (const bool streamed : {false, true}) for (const bool radial : {false, true})
+    for (const bool clamp : {false, true})
+    for (unsigned coordinate_case = 0U; coordinate_case <= fixture::gradient_coordinate_cases.size(); ++coordinate_case) {
+        std::array<D2D1_GRADIENT_STOP, 6U> stops{};
+        for (std::size_t i = 0; i < stops.size(); ++i) {
+            const auto& source = fixture::unordered_gradient_stops[i];
+            stops[i] = {source.position, {source.color.red, source.color.green, source.color.blue, source.color.alpha}};
+        }
+        ComPtr<ID2D1GradientStopCollection1> collection;
+        require(context->CreateGradientStopCollection(stops.data(), static_cast<UINT32>(stops.size()),
+            D2D1_COLOR_SPACE_SRGB, D2D1_COLOR_SPACE_SRGB, D2D1_BUFFER_PRECISION_8BPC_UNORM,
+            clamp ? D2D1_EXTEND_MODE_CLAMP : D2D1_EXTEND_MODE_MIRROR,
+            D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT, collection.GetAddressOf()) == S_OK,
+            "original GetGradientStops1 unordered collection");
+        std::array<D2D1_GRADIENT_STOP, 6U> returned{};
+        collection->GetGradientStops1(returned.data(), static_cast<UINT32>(returned.size()));
+        require(std::memcmp(stops.data(), returned.data(), sizeof(stops)) == 0,
+            "original GetGradientStops1 changed input order/value");
+        ComPtr<ID2D1LinearGradientBrush> linear_brush;
+        ComPtr<ID2D1RadialGradientBrush> radial_brush;
+        ID2D1Brush* brush{};
+        if (radial) {
+            const D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES properties{{16, 16}, {0, 0}, 12, 12};
+            require(context->CreateRadialGradientBrush(&properties, nullptr, collection.Get(),
+                radial_brush.GetAddressOf()) == S_OK, "gradient order radial source");
+            brush = radial_brush.Get();
+        } else {
+            const D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES properties{{0, 0}, {16, 0}};
+            require(context->CreateLinearGradientBrush(&properties, nullptr, collection.Get(),
+                linear_brush.GetAddressOf()) == S_OK, "gradient order linear source");
+            brush = linear_brush.Get();
+        }
+        D2D1_MATRIX_3X2_F draw_transform = D2D1::Matrix3x2F(1, 0, 0, 1, 0, 0);
+        if (coordinate_case != 0U) {
+            const D2D1_MATRIX_3X2_F brush_transform = D2D1::Matrix3x2F(1, 0, 0, 1, 4, 0);
+            brush->SetTransform(&brush_transform);
+            const auto& input = fixture::gradient_coordinate_cases[coordinate_case - 1U].draw;
+            draw_transform = D2D1::Matrix3x2F(input.m11, input.m12, input.m21, input.m22, input.m31, input.m32);
+        }
+        progpu_native_direct2d_scene_recorder* recorder{};
+        int32_t hr = E_FAIL;
+        require(progpu_native_direct2d_scene_recorder_create(7103U, 1U, nullptr, &recorder, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "gradient order recorder");
+        void* raw_sink{};
+        require(progpu_native_direct2d_scene_recorder_get_command_sink(recorder, &raw_sink, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "gradient order sink");
+        ComPtr<ID2D1CommandSink1> sink;
+        sink.Attach(static_cast<ID2D1CommandSink1*>(raw_sink));
+        ComPtr<ID2D1CommandList> list;
+        const D2D1_RECT_F rectangle{0, 0, 32, 32};
+        if (streamed) {
+            require(context->CreateCommandList(list.GetAddressOf()) == S_OK, "gradient order command list");
+            context->SetTarget(list.Get()); context->BeginDraw(); context->SetTransform(draw_transform);
+            context->FillRectangle(&rectangle, brush);
+            if (coordinate_case != 0U) {
+                context->DrawLine({0, 0}, {32, 32}, brush, 2, nullptr);
+                context->FillRectangle(&rectangle, brush);
+            }
+            require(context->EndDraw() == S_OK && list->Close() == S_OK, "gradient order source recording");
+            context->SetTarget(nullptr);
+            require(list->Stream(sink.Get()) == S_OK, "gradient order actual command stream");
+        } else {
+            require(sink->BeginDraw() == S_OK && sink->SetTransform(&draw_transform) == S_OK &&
+                sink->FillRectangle(&rectangle, brush) == S_OK, "gradient order direct callback translation");
+            if (coordinate_case != 0U) require(sink->DrawLine({0, 0}, {32, 32}, brush, 2, nullptr) == S_OK &&
+                sink->FillRectangle(&rectangle, brush) == S_OK, "gradient mixed-frame direct callbacks");
+            require(sink->EndDraw() == S_OK, "gradient order direct callback completion");
+        }
+        collection->GetGradientStops1(returned.data(), static_cast<UINT32>(returned.size()));
+        require(std::memcmp(stops.data(), returned.data(), sizeof(stops)) == 0,
+            "command translation modified original source collection");
+        list.Reset(); linear_brush.Reset(); radial_brush.Reset(); collection.Reset();
+        progpu_native_direct2d_scene_stream_result result{};
+        result.struct_size = sizeof(result);
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, nullptr, 0U, &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER && result.translated_draw_count == (coordinate_case == 0U ? 1U : 3U),
+            "gradient order stream measurement");
+        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(result.required_bytes));
+        require(progpu_native_direct2d_scene_recorder_build_stream(recorder, bytes.data(), bytes.size(), &result, &hr) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS, "gradient order snapshot publication");
+        if (coordinate_case == 0U) require(fixture::gradient_stop_snapshot(std::as_bytes(std::span(bytes)),
+            clamp ? PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL : PROGPU_NATIVE_SCENE_GRADIENT_REFLECT),
+            "GetGradientStops1 canonical stable snapshot/ownership");
+        else {
+            const std::array<bool, 3U> local_coordinates{true, false, true};
+            require(fixture::gradient_coordinate_snapshot(std::as_bytes(std::span(bytes)), local_coordinates,
+                fixture::gradient_coordinate_cases[coordinate_case - 1U], true),
+                "original brush cache mixed local/target coordinate identity");
+        }
+        sink.Reset(); progpu_native_direct2d_scene_recorder_destroy(recorder);
     }
 }
 
@@ -706,8 +1248,10 @@ bool approximately_equal(float left, float right, float tolerance) noexcept
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    require(argc == 1 || (argc == 2 && std::strcmp(argv[1], "--software-adapter") == 0),
+        "usage: test [--software-adapter]");
     HRESULT runtime_initialization = RoInitialize(RO_INIT_MULTITHREADED);
     require(SUCCEEDED(runtime_initialization),
         "Windows Runtime initialization failed");
@@ -1463,6 +2007,50 @@ int main()
                 system_rectangle_widening_sink.Get()) == S_OK &&
             system_rectangle_widening_sink->Close() == S_OK,
         "system Direct2D rectangle oracle creation failed");
+    // The original rectangle and separately authored path run through the real
+    // Microsoft factory; neither result is manufactured by the portable stroker.
+    const auto original_solid_rectangles =
+        progpu::native::direct2d::tests::verify_rectangle_solid_strokes(
+            reinterpret_cast<compat::factory*>(system_rectangle_factory.Get()), require);
+    const auto native_solid_rectangles =
+        progpu::native::direct2d::tests::verify_rectangle_solid_strokes(
+            reinterpret_cast<compat::factory*>(compat_base_factory.Get()), require);
+    progpu::native::com::pointer<compat::factory> portable_solid_factory;
+    require(compat::create_factory(portable_solid_factory.put()) == S_OK,
+        "portable solid rectangle oracle factory creation failed");
+    const auto portable_solid_rectangles =
+        progpu::native::direct2d::tests::verify_rectangle_solid_strokes(
+            portable_solid_factory.get(), require);
+    for (std::size_t index = 0U; index < original_solid_rectangles.size(); ++index) {
+        const auto& original = original_solid_rectangles[index];
+        for (const auto* actual : {&native_solid_rectangles[index], &portable_solid_rectangles[index]}) {
+            require(progpu::native::direct2d::tests::matching_solid_stroke_bounds(
+                    index / 5U, index % 5U, actual->bounds, original.bounds) &&
+                progpu::native::direct2d::tests::matching_solid_stroke_bounds(
+                    index / 5U, index % 5U, actual->path_bounds, original.path_bounds) &&
+                actual->contains == original.contains &&
+                actual->widened_contains == original.widened_contains,
+                "solid rectangle bounds/hit/widened-region differ from original Direct2D");
+        }
+    }
+    const auto original_default_transformed =
+        progpu::native::direct2d::tests::verify_default_transformed_strokes(
+            reinterpret_cast<compat::factory*>(system_rectangle_factory.Get()), require);
+    const auto native_default_transformed =
+        progpu::native::direct2d::tests::verify_default_transformed_strokes(
+            reinterpret_cast<compat::factory*>(compat_base_factory.Get()), require);
+    const auto portable_default_transformed =
+        progpu::native::direct2d::tests::verify_default_transformed_strokes(
+            portable_solid_factory.get(), require);
+    require(progpu::native::direct2d::tests::same_default_transformed_stroke_observations(
+            original_default_transformed, native_default_transformed) &&
+        progpu::native::direct2d::tests::same_default_transformed_stroke_observations(
+            original_default_transformed, portable_default_transformed),
+        "default transformed rectangle bounds/hit/sink transcript differ from original Direct2D");
+    progpu::native::direct2d::tests::verify_default_transformed_stroke_rejections(
+        reinterpret_cast<compat::factory*>(compat_base_factory.Get()), require);
+    progpu::native::direct2d::tests::verify_default_transformed_stroke_rejections(
+        portable_solid_factory.get(), require, true);
     D2D1_RECT_F system_widened_bounds{};
     D2D1_RECT_F system_outline_bounds{};
     D2D1_RECT_F system_widening_bounds{};
@@ -2807,6 +3395,7 @@ int main()
     options.struct_size = sizeof(options);
     options.flags =
         PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_ALLOW_WARP_FALLBACK;
+    if (argc == 2) options.flags |= PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_FORCE_WARP;
     options.width = 64U;
     options.height = 48U;
     options.dpi_x = 120.0F;
@@ -5066,11 +5655,14 @@ int main()
     recorder_hint.fill_count = 4U;
     recorder_hint.total_command_count = 9U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
+    const progpu_native_direct2d_target_extent direct_target{
+        sizeof(progpu_native_direct2d_target_extent), descriptor.width, descriptor.height, 0U, 96.0F, 96.0F};
     native_hresult = E_FAIL;
     require(
-        progpu_native_direct2d_scene_recorder_create(
+        progpu_native_direct2d_scene_recorder_create_for_target(
             7002U,
             10U,
+            &direct_target,
             &recorder_hint,
             &direct_recorder,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
@@ -5406,7 +5998,11 @@ int main()
     direct_recorder = nullptr;
 
     mutable_brush_regressions(context.Get());
+    gradient_stop_order_regressions(context.Get());
     full_target_clear_regressions(surface, context.Get());
+    progpu::native::direct2d::tests::verify_command_hairline_dpi(surface, context.Get(), require);
+    progpu::native::direct2d::tests::verify_original_hairline_dpi_pixels(context.Get(), require);
+    progpu::native::direct2d::tests::verify_original_clipped_miter_pixels(context.Get(), require);
 
     {
         ComPtr<ID2D1PathGeometry> line_geometry;
@@ -5420,7 +6016,7 @@ int main()
         require(line_sink->Close() == S_OK, "styled line reference close failed");
         const auto record = [&](bool primitive, unsigned shape, ID2D1StrokeStyle* style, bool aliased) {
             progpu_native_direct2d_scene_recorder* recorder = nullptr;
-            require(progpu_native_direct2d_scene_recorder_create(7013U, 1U, nullptr,
+            require(progpu_native_direct2d_scene_recorder_create_for_target(7013U, 1U, &direct_target, nullptr,
                 &recorder, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
                 "styled primitive recorder creation failed");
             void* raw_sink = nullptr;
@@ -5543,13 +6139,15 @@ int main()
     require(
         translated_clip_state_count == translated_clip_states.size() &&
             translated_clip_states[0].flags ==
-                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+                (PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                    PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) &&
             translated_clip_states[0].clip_rect.x == 3.0F &&
             translated_clip_states[0].clip_rect.y == 5.0F &&
             translated_clip_states[0].clip_rect.width == 37.5F &&
             translated_clip_states[0].clip_rect.height == 22.5F &&
             translated_clip_states[1].flags ==
-                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+                (PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
+                    PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) &&
             translated_clip_states[1].clip_rect.x == 15.5F &&
             translated_clip_states[1].clip_rect.y == 12.5F &&
             translated_clip_states[1].clip_rect.width == 25.0F &&
@@ -5572,18 +6170,12 @@ int main()
                 PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
             translated_brushes[1].color_interpolation_mode ==
                 PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB &&
-            std::abs(
-                translated_brushes[1].coordinate_transform0[0] - 0.8F) <
-                0.0001F &&
-            std::abs(
-                translated_brushes[1].coordinate_transform0[2] + 6.4F) <
-                0.0001F &&
-            std::abs(
-                translated_brushes[1].coordinate_transform1[1] -
-                    (4.0F / 3.0F)) < 0.0001F &&
-            std::abs(
-                translated_brushes[1].coordinate_transform1[2] +
-                    (14.0F / 3.0F)) < 0.0001F &&
+            // This recorded rectangle evaluates paint in its original local
+            // frame; its draw transform is retained by the analytic vertices.
+            translated_brushes[1].coordinate_transform0[0] == 1.0F &&
+            translated_brushes[1].coordinate_transform0[2] == -4.0F &&
+            translated_brushes[1].coordinate_transform1[1] == 1.0F &&
+            translated_brushes[1].coordinate_transform1[2] == 2.0F &&
             translated_brushes[2].type ==
                 PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
             translated_brushes[2].stop_count == 2U &&
@@ -6055,7 +6647,8 @@ int main()
                 opacity_layer_stream.data() + command.payload_offset,
                 sizeof(translated_layer));
             require(
-                translated_layer.flags == PROGPU_NATIVE_SCENE_LAYER_BOUNDS &&
+                translated_layer.flags == (PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                    PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) &&
                     translated_layer.bounds.x ==
                         expected_opacity_layer_left &&
                     translated_layer.bounds.y ==
@@ -6729,13 +7322,10 @@ int main()
             0U,
             &background_layer_scene,
             &native_hresult) ==
-                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
-            native_hresult == E_NOTIMPL &&
-            background_layer_scene.failure_reason ==
-                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
-            background_layer_scene.failure_callback_index != 0U &&
-            background_layer_scene.written_bytes == 0U,
-        "Direct2D background-initialized layer did not fail closed");
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            background_layer_scene.failure_callback_index == 0U &&
+            background_layer_scene.written_bytes == 0U && background_layer_scene.required_bytes != 0U,
+        "Direct2D background-initialized layer translation failed");
 
     for (const bool with_opacity : {false, true}) {
         void* aliased_mask_layer_list_value = nullptr;
@@ -6988,8 +7578,9 @@ int main()
     context->SetTransform(D2D1::Matrix3x2F::Identity());
     const D2D1_RECT_F clip_fractional = {0.25F, 0.5F, 10.75F, 12.5F};
     const D2D1_RECT_F clip_child = {4.0F, 5.0F, 25.0F, 25.0F};
+    const D2D1_RECT_F clip_parent = {6.0F, 7.0F, 24.0F, 24.0F};
     context->PushAxisAlignedClip(
-        &scene_outer_clip,
+        &clip_parent,
         D2D1_ANTIALIAS_MODE_ALIASED);
     context->SetTransform(D2D1::Matrix3x2F(1.0F, 0.5F, 0.0F, 1.0F, 2.0F, 3.0F));
     context->PushAxisAlignedClip(
@@ -7717,6 +8308,105 @@ int main()
         {0.0F, 0.0F},
         {0.5F, 0.0F}
     };
+
+    progpu::native::direct2d::tests::capture_original_rgb_parameters(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), font_face.Get(), glyph_indices[0], require);
+    // These fixtures own independent source contexts and finish/read back each
+    // frame before comparing pixels. Collect completed source-value and pixel comparisons
+    // so one AA difference cannot hide later font families. Structural/native
+    // failures retain immediate require; the process still fails below if any
+    // original comparison fails, after normal provider resource retirement.
+    unsigned glyph_comparisons = 0U, glyph_failures = 0U;
+    const auto compare_original_glyph = [&](bool condition, const char* message) {
+        ++glyph_comparisons;
+        if (!condition) {
+            ++glyph_failures;
+            std::fprintf(stderr, "Original glyph comparison %u failed: %s\n",
+                glyph_comparisons, message);
+        }
+    };
+    progpu::native::direct2d::tests::verify_original_prepared_glyph_pixels(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
+    progpu::native::direct2d::tests::verify_original_variable_glyph_pixels(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
+    progpu::native::direct2d::tests::verify_original_cff_glyph_pixels(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
+    progpu::native::direct2d::tests::verify_original_sideways_glyph_pixels(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
+    progpu::native::direct2d::tests::verify_original_cff_contour_origin_pixels(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
+    progpu::native::direct2d::tests::verify_original_variable_sideways_glyph_pixels(context.Get(),
+        static_cast<IDWriteFactory*>(dwrite_factory.Get()), require, compare_original_glyph);
+
+    // Original Windows command lists retain the actual face, offsets and
+    // caller-selected outline rendering parameters. This tests the real
+    // DrawGlyphRun callback, not a synthetic FillGeometry replacement.
+    ComPtr<IDWriteRenderingParams> outline_parameters;
+    require(SUCCEEDED(static_cast<IDWriteFactory*>(dwrite_factory.Get())->CreateCustomRenderingParams(
+            2.2F, 0.75F, 0.5F, DWRITE_PIXEL_GEOMETRY_BGR,
+            DWRITE_RENDERING_MODE_OUTLINE, outline_parameters.GetAddressOf())),
+        "original outline rendering parameters failed");
+    for (std::uint32_t variant = 0U; variant < 4U; ++variant) {
+        void* raw_list = nullptr;
+        require(progpu_native_direct2d_surface_create_command_list(surface, &raw_list, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK,
+            "outline glyph command-list creation failed");
+        ComPtr<ID2D1CommandList> list;
+        list.Attach(static_cast<ID2D1CommandList*>(raw_list));
+        require(progpu_native_direct2d_surface_begin_command_list_draw(surface, list.Get()) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+            "outline glyph command-list begin failed");
+        const bool aliased = (variant & 1U) != 0U;
+        const DWRITE_GLYPH_OFFSET original_offsets[]{{0.25F, -0.5F}, {-0.25F, 1.0F}};
+        const DWRITE_GLYPH_RUN original_run{font_face.Get(), 24.0F, 2U, glyph_indices,
+            glyph_advances, original_offsets, FALSE, (variant >> 1U)};
+        context->SetTransform(D2D1::Matrix3x2F::Identity());
+        context->SetTextAntialiasMode(aliased ? D2D1_TEXT_ANTIALIAS_MODE_ALIASED : D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+        context->SetTextRenderingParams(outline_parameters.Get());
+        context->DrawGlyphRun({32.0F, 28.0F}, &original_run, solid_brush.Get(), DWRITE_MEASURING_MODE_NATURAL);
+        require(progpu_native_direct2d_surface_end_command_list_draw(surface, &command_tag1,
+                &command_tag2, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK,
+            "original outline glyph command-list end failed");
+        progpu_native_direct2d_command_stream_summary summary{};
+        summary.struct_size = sizeof(summary);
+        require(progpu_native_direct2d_command_list_get_stream_summary(surface, list.Get(),
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+                &summary, &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                native_hresult == S_OK && summary.text_draw_count == 1U &&
+                summary.unsupported_operation_count == 0U &&
+                (summary.flags & PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS) != 0U,
+            "original outline glyph source inventory changed");
+        progpu_native_direct2d_scene_stream_result translated{};
+        translated.struct_size = sizeof(translated);
+        require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                7116U + variant, 1U, nullptr, 0U, &translated, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+                translated.failure_reason == PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+                translated.translated_draw_count == 1U && translated.written_bytes == 0U,
+            "original outline glyph source measure failed");
+        std::vector<std::uint8_t> stream(static_cast<std::size_t>(translated.required_bytes));
+        require(progpu_native_direct2d_command_list_build_scene_stream(surface, list.Get(),
+                7116U + variant, 1U, stream.data(), stream.size(), &translated, &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS && native_hresult == S_OK &&
+                translated.written_bytes == stream.size(),
+            "original outline glyph source write failed");
+        progpu_native_scene_header header{};
+        std::memcpy(&header, stream.data(), sizeof(header));
+        bool saw_path = false;
+        for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+            progpu_native_scene_resource resource{};
+            std::memcpy(&resource, stream.data() + header.resource_offset + index * header.resource_stride, sizeof(resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) continue;
+            progpu_native_scene_path_fill path{};
+            std::memcpy(&path, stream.data() + resource.payload_offset, sizeof(path));
+            require(path.sample_grid == (aliased ? 1U : 8U) && path.segment_count != 0U,
+                "outline glyph text AA or actual contour capture changed");
+            saw_path = true;
+        }
+        require(saw_path, "outline glyph source published no contour resource");
+    }
+    context->SetTextRenderingParams(nullptr);
+    context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);
 
     constexpr char svg_xml[] =
         "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'>"
@@ -9063,5 +9753,8 @@ int main()
     factory1.Reset();
     progpu_native_direct2d_surface_destroy(surface);
     RoUninitialize();
+    std::fprintf(stderr, "Original glyph comparisons=%u failures=%u\n",
+        glyph_comparisons, glyph_failures);
+    require(glyph_failures == 0U, "original glyph source-value/full-byte comparisons failed");
     return EXIT_SUCCESS;
 }

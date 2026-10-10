@@ -5,6 +5,32 @@ namespace ProGPU.Backend.Native;
 
 internal static unsafe partial class NativeMilMethods
 {
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BitmapCacheRasterPolicy
+    {
+        internal uint StructSize;
+        internal uint Version;
+        internal uint Flags;
+        internal uint Reserved;
+        internal float PrimaryDpiScaleX;
+        internal float PrimaryDpiScaleY;
+        internal uint MaximumTextureWidth;
+        internal uint MaximumTextureHeight;
+        internal ulong SourceRevision;
+    }
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapCacheBrushRasterPolicy(nint channel, uint handle, BitmapCacheRasterPolicy* policy);
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_cache_brush_empty_source")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapCacheBrushEmptySource(nint channel, uint brushHandle, uint visualHandle);
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_apply_with_source_glyph_resources")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus ApplyWithSourceGlyphResources(nint channel,
+        byte* batch, nuint batchSize, NativeMethods.HintedGlyphResourceInput* resources, uint resourceCount,
+        NativeMilHintedGlyphBinding* bindings, uint bindingCount, uint* positionedIndices, uint positionedIndexCount);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_last_hinted_batch_metrics")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial BatchMetrics GetLastHintedBatchMetrics(nint channel);
@@ -181,6 +207,10 @@ internal static unsafe partial class NativeMilMethods
         double width,
         double height);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_image_empty_source")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetDrawingImageEmptySource(nint channel, uint imageHandle, uint drawingHandle);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_group_bounds")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetDrawingGroupBounds(
@@ -205,6 +235,10 @@ internal static unsafe partial class NativeMilMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetPointHitRectangles(nint channel,
         NativeMilPointHitRectangle* rectangles, nuint count);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_source_empty_bounds")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetVisualSourceEmptyBounds(nint channel, uint handle);
 
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_visibilities")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -335,6 +369,18 @@ internal static unsafe partial class NativeMilMethods
 
 internal static unsafe partial class NativeMilDawnMethods
 {
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapCacheBrushRasterPolicy(nint channel, uint handle, NativeMilMethods.BitmapCacheRasterPolicy* policy);
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_cache_brush_empty_source")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapCacheBrushEmptySource(nint channel, uint brushHandle, uint visualHandle);
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_apply_with_source_glyph_resources")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus ApplyWithSourceGlyphResources(nint channel,
+        byte* batch, nuint batchSize, NativeMethods.HintedGlyphResourceInput* resources, uint resourceCount,
+        NativeMilHintedGlyphBinding* bindings, uint bindingCount, uint* positionedIndices, uint positionedIndexCount);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_get_last_hinted_batch_metrics")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilMethods.BatchMetrics GetLastHintedBatchMetrics(nint channel);
@@ -434,6 +480,10 @@ internal static unsafe partial class NativeMilDawnMethods
         double width,
         double height);
 
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_image_empty_source")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetDrawingImageEmptySource(nint channel, uint imageHandle, uint drawingHandle);
+
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_drawing_group_bounds")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetDrawingGroupBounds(
@@ -458,6 +508,10 @@ internal static unsafe partial class NativeMilDawnMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetPointHitRectangles(nint channel,
         NativeMilPointHitRectangle* rectangles, nuint count);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_source_empty_bounds")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetVisualSourceEmptyBounds(nint channel, uint handle);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_visual_visibilities")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

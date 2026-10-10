@@ -90,8 +90,8 @@ progpu_native_status render_paths(
     const bool semantic_materials =
         engine->semantic_path_materials_active;
     if (semantic_materials &&
-        engine->semantic_path_cache.brush_indices.size() !=
-            frame->path_count) {
+        (engine->semantic_path_cache.brush_indices.size() != frame->path_count ||
+         engine->semantic_path_cache.source_frames.size() != frame->path_count)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The semantic path brush map does not match the retained path page.");
@@ -272,6 +272,7 @@ progpu_native_status render_paths(
                         "A path range, bound, transform, fill rule, or sample grid is invalid.");
                 }
                 expected_boolean_node_offset += path.boolean_node_count;
+                const auto source_frame = semantic_materials ? engine->semantic_path_cache.source_frames[index] : semantic_source_path{};
                 float maximum_scale = 0.0F;
                 float minimum_scale = 0.0F;
                 if (!progpu::native::try_get_stroke_scales(
@@ -283,11 +284,19 @@ progpu_native_status render_paths(
                         "A path transform is singular.");
                 }
                 (void)minimum_scale;
-                const float raster_scale = maximum_scale;
-                const float subpixel_x = quantize_subpixel_phase(
-                    path.transform.m31);
-                const float subpixel_y = quantize_subpixel_phase(
-                    path.transform.m32);
+                // Geometry and transforms are in target DIPs; atlas texels are
+                // physical pixels. Rasterize at the complete device scale so
+                // a one-pixel fill is not reduced to a half-pixel source tile
+                // before the final DPI projection enlarges its quad again.
+                const float raster_scale = source_frame.physical ? 1.F : maximum_scale * frame->dpi_scale;
+                if (!std::isfinite(raster_scale) || raster_scale <= 0.0F) {
+                    return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                        "A path physical raster scale is invalid.");
+                }
+                const float subpixel_x = source_frame.physical ? 0.F : quantize_subpixel_phase(
+                    path.transform.m31 * frame->dpi_scale);
+                const float subpixel_y = source_frame.physical ? 0.F : quantize_subpixel_phase(
+                    path.transform.m32 * frame->dpi_scale);
                 native_path_cache_key cache_key{};
                 cache_key.segment_offset = path.segment_offset;
                 cache_key.segment_count = path.segment_count;
@@ -561,7 +570,8 @@ progpu_native_status render_paths(
                         local_points[corner].y,
                         vertex.position[0],
                         vertex.position[1]);
-                    device_points[corner] = {vertex.position[0], vertex.position[1]};
+                    device_points[corner] = {vertex.position[0] * frame->dpi_scale,
+                        vertex.position[1] * frame->dpi_scale};
                     std::memcpy(
                         vertex.color,
                         &path.color,
@@ -573,12 +583,19 @@ progpu_native_status render_paths(
                     vertex.shape_size[1] = local_points[corner].y;
                     vertex.corner_radius = 1.0F;
                     vertex.shape_type = 4.0F;
+                    if (source_frame.physical) {
+                        device_points[corner] = {vertex.position[0],vertex.position[1]};
+                        vertex.shape_size[0] = local_points[corner].x / source_frame.dpi_x;
+                        vertex.shape_size[1] = local_points[corner].y / source_frame.dpi_y;
+                        vertex.shape_type = 27.F;
+                    }
                     engine->path_vertices.push_back(vertex);
                 }
-                if (frame->dpi_scale == 1.0F &&
+                if (!source_frame.physical && exact_path_pixel_projection(frame->dpi_scale) &&
                     exact_path_pixel_mapping(device_points, atlas_points)) {
                     for (std::size_t corner = 0U; corner < 4U; ++corner)
-                        engine->path_vertices[vertex_start + corner].stroke_thickness = -1.0F;
+                        engine->path_vertices[vertex_start + corner].stroke_thickness =
+                            frame->dpi_scale == 1.0F ? -1.0F : -2.0F;
                 }
                 engine->path_indices.insert(
                     engine->path_indices.end(),

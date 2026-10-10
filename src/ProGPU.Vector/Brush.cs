@@ -313,7 +313,9 @@ public enum PenLineJoin
 {
     Miter = 0,
     Bevel = 1,
-    Round = 2
+    Round = 2,
+    /// <summary>Uses a miter within the limit and a bevel beyond it, independently of WPF join policy.</summary>
+    MiterOrBevel = 3
 }
 
 public enum PenLineCap
@@ -354,6 +356,28 @@ public class Pen
     public float Thickness { get; set; }
     public PenLineJoin LineJoin { get; set; }
     public float MiterLimit { get; set; }
+    /// <summary>
+    /// Clips an overflowing Miter join at its centerline-relative miter limit.
+    /// Defaults to false and has no effect on other joins or reversal policy.
+    /// </summary>
+    public bool ClipMiterAtLimit { get; set; }
+    /// <summary>
+    /// Retains source WPF clipping, reversal and smooth-to-Round join behavior.
+    /// Defaults to false. Requires normal-width Miter, Bevel or Round strokes;
+    /// device-width and MiterOrBevel combinations are not admitted.
+    /// </summary>
+    public bool UseWpfJoinSemantics { get; set; }
+
+    internal void ValidateJoinSemantics()
+    {
+        if (UseWpfJoinSemantics && (IsHairline ||
+            StrokeTransformMode != PenStrokeTransformMode.Normal ||
+            (uint)LineJoin > (uint)PenLineJoin.Round))
+        {
+            throw new NotSupportedException(
+                "WPF join semantics require a normal-width Miter, Bevel or Round pen.");
+        }
+    }
     public PenLineCap StartLineCap { get; set; }
     public PenLineCap EndLineCap { get; set; }
     public PenLineCap DashCap { get; set; }
@@ -387,6 +411,8 @@ public class Pen
             Thickness = Thickness,
             LineJoin = LineJoin,
             MiterLimit = MiterLimit,
+            ClipMiterAtLimit = ClipMiterAtLimit,
+            UseWpfJoinSemantics = UseWpfJoinSemantics,
             StartLineCap = StartLineCap,
             EndLineCap = EndLineCap,
             DashCap = DashCap,

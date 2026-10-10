@@ -1558,6 +1558,8 @@ public unsafe partial class Compositor : IDisposable
 
         public bool? SuppressesClearType { get; set; }
 
+        public EffectCaptureFrame? CaptureFrame { get; set; }
+
         public GpuTexture? Temporary { get; private set; }
 
         public GpuTexture? Destination { get; private set; }
@@ -3627,6 +3629,7 @@ DynamicBufferUploadComplete:
         // have no parent chain. Retire entries that were not reached by this
         // compilation before deciding whether the new scene is cacheable.
         SweepUnusedEffectTextures(root, externalLayers, activeToolTip);
+        SweepOwnedShaderTargets();
         CaptureCompiledScene(
             root,
             width,
@@ -4889,6 +4892,9 @@ SceneStateUploadComplete:
                 while (effectTextureEnumerator.MoveNext())
                 {
                     var fe = effectTextureEnumerator.Current.Key;
+                    // Owned target generations retire through their independent
+                    // cache/draw leases, never this borrowed-visual sweep.
+                    if (fe is PreparedOwnedShaderVisual) continue;
                     if (!IsAttachedToAnyActiveRoot(fe, mainRoot, externalLayers, activeToolTip))
                     {
                         AddRemovalItem(ref detached, ref detachedCount, _effectTextures.Count, fe);
@@ -5519,7 +5525,8 @@ SceneStateUploadComplete:
         Matrix4x4 parentTransform,
         Vector2? offsetOverride,
         bool includeLocalTransform = true,
-        bool includeLocalVisualState = true)
+        bool includeLocalVisualState = true,
+        bool includeLocalOpacityOnly = false)
     {
         // Ownership checks reject retained-tree cycles when children are
         // attached. Keep a separate corruption guard here, but allow the
@@ -5543,7 +5550,8 @@ SceneStateUploadComplete:
                 parentTransform,
                 offsetOverride,
                 includeLocalTransform,
-                includeLocalVisualState);
+                includeLocalVisualState,
+                includeLocalOpacityOnly);
         }
         finally
         {
@@ -5556,7 +5564,8 @@ SceneStateUploadComplete:
         Matrix4x4 parentTransform,
         Vector2? offsetOverride,
         bool includeLocalTransform,
-        bool includeLocalVisualState)
+        bool includeLocalVisualState,
+        bool includeLocalOpacityOnly)
     {
         // DrawingContext command storage can change without invalidating its owning
         // visual, so populated drawing visuals cannot participate in compiled-scene
@@ -5574,7 +5583,9 @@ SceneStateUploadComplete:
             return;
         }
 
-        if ((includeLocalVisualState && node.Opacity <= 0.0001f)
+        bool sourceShaderOutput = node.Effect is WpfShaderEffect { CaptureSourceVisualOpacity: true } &&
+            !_elementsRenderingEffects.Contains(node);
+        if (((includeLocalVisualState || includeLocalOpacityOnly) && node.Opacity <= 0.0001f && !sourceShaderOutput)
             || _activeOpacity <= 0.0001f)
         {
             if (Options.EnableGpuHitTesting && !_suspendHitTestCacheWrites &&
@@ -5594,7 +5605,14 @@ SceneStateUploadComplete:
 
         if (UsesLayerCache(node) && !_elementsRenderingLayers.Contains(node))
         {
-            ApplyAndDrawLayer(node, parentTransform);
+            // A source shader captures cached content in its input frame too.
+            // The cache retains its own storage/raster policy; only its final
+            // placement and root opacity scope belong to this private capture.
+            Matrix4x4? inputTransform = includeLocalOpacityOnly
+                ? Matrix4x4.CreateTranslation(offsetOverride.GetValueOrDefault().X,
+                    offsetOverride.GetValueOrDefault().Y, 0f) * parentTransform
+                : null;
+            ApplyAndDrawLayer(node, parentTransform, inputTransform, includeLocalOpacityOnly);
             return;
         }
 
@@ -5608,7 +5626,9 @@ SceneStateUploadComplete:
 
         var visualScope = includeLocalVisualState
             ? PushVisualCompositeScope(node, globalTransform, parentTransform)
-            : VisualCompositeScope.None;
+            : includeLocalOpacityOnly
+                ? PushVisualOpacityScope(node, globalTransform)
+                : VisualCompositeScope.None;
 
         AddVisualHitTestBounds(node, globalTransform);
         bool compileLocalCommands = !IsLocalRenderOutsideActiveClip(node, globalTransform);
@@ -6528,6 +6548,11 @@ SceneStateUploadComplete:
              visualIndex++)
         {
             Visual visual = embeddedVisuals[visualIndex];
+            if (visual is OwnedShaderEffectRecording ownedShader)
+            {
+                PrepareOwnedShaderEffect(ownedShader);
+                continue;
+            }
             if (visual.Effect != null &&
                 !_elementsRenderingEffects.Contains(visual))
             {
@@ -6558,6 +6583,12 @@ SceneStateUploadComplete:
 
         try
         {
+            if (visual is OwnedShaderEffectRecording ownedShader)
+            {
+                TrackEmbeddedVisual(visual);
+                CompileOwnedShaderEffect(ownedShader, parentTransform);
+                return;
+            }
             // Live cached sources can replace their recording here. Track the
             // resulting version, not the pre-capture version, so the next stable
             // frame does not incur a synthetic embedded-visual cache miss.
@@ -6608,7 +6639,11 @@ SceneStateUploadComplete:
                 command.Pen.DashCap,
                 command.Pen.DashArray,
                 command.Pen.DashOffset,
-                command.Pen.StrokeTransformMode);
+                command.Pen.StrokeTransformMode)
+            {
+                ClipMiterAtLimit = command.Pen.ClipMiterAtLimit,
+                UseWpfJoinSemantics = command.Pen.UseWpfJoinSemantics
+            };
         }
     }
 
@@ -6649,7 +6684,11 @@ SceneStateUploadComplete:
             command.Pen.DashCap,
             command.Pen.DashArray,
             command.Pen.DashOffset,
-            command.Pen.StrokeTransformMode);
+            command.Pen.StrokeTransformMode)
+        {
+            ClipMiterAtLimit = command.Pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = command.Pen.UseWpfJoinSemantics
+        };
     }
 
     private static Brush? TransformCommandBrush(Brush? brush, Matrix4x4 inverseCommandTransform)
@@ -6761,8 +6800,8 @@ SceneStateUploadComplete:
 
         bool hasFill = cmd.Brush != null;
         var stroke = ResolveStrokeCompileState(cmd, transform);
-        bool hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
-        bool hasStroke = stroke.IsValid && !hasDashedStroke;
+        bool hasPathStroke = stroke.IsValid && (cmd.Pen!.HasDashPattern || cmd.Pen.UseWpfJoinSemantics);
+        bool hasStroke = stroke.IsValid && !hasPathStroke;
         bool useSolidRectPipeline = ActiveCompilationContext == null &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
             (!hasStroke || cmd.Pen!.Brush is SolidColorBrush) &&
@@ -6867,7 +6906,7 @@ SceneStateUploadComplete:
             }
         }
 
-        if (hasDashedStroke)
+        if (hasPathStroke)
         {
             var strokePath = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
@@ -7882,7 +7921,7 @@ SceneStateUploadComplete:
         Matrix4x4 transform,
         uint subpixelPhaseGrid = PathAtlas.DefaultSubpixelPhaseGrid,
         bool quantizeScale = false,
-        float rasterScale = 1f)
+        float rasterScale = 0f)
     {
         SwitchBatch(BatchType.Vector);
         if (cmd.Path == null) return;
@@ -7969,9 +8008,11 @@ SceneStateUploadComplete:
                 scaleX = scaleY = Math.Max(scaleX, scaleY);
             }
 
+            // Ordinary paths own coverage in physical target pixels. Glyph
+            // callers can retain their explicit logical/device raster policy.
             rasterScale = float.IsFinite(rasterScale) && rasterScale > 0f
                 ? rasterScale
-                : 1f;
+                : _currentDpiScale;
             scaleX *= rasterScale;
             scaleY *= rasterScale;
 
@@ -7981,7 +8022,7 @@ SceneStateUploadComplete:
                 scaleY,
                 GetSubpixelPhase(coverageTransform.M41 * rasterScale),
                 GetSubpixelPhase(coverageTransform.M42 * rasterScale),
-                cmd.PathSampleGrid,
+                cmd.IsEdgeAliased ? 1u : cmd.PathSampleGrid,
                 subpixelPhaseGrid,
                 quantizeScale);
             if (info.Width > 0 && info.Height > 0)
@@ -9381,7 +9422,11 @@ CompilePathStroke:
             pen.DashCap,
             pen.DashCap,
             pen.DashCap,
-            strokeTransformMode: pen.StrokeTransformMode);
+            strokeTransformMode: pen.StrokeTransformMode)
+        {
+            ClipMiterAtLimit = pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = pen.UseWpfJoinSemantics
+        };
     }
 
     private static Pen CreatePenWithThickness(Pen pen, float localThickness)
@@ -9396,7 +9441,11 @@ CompilePathStroke:
             pen.DashCap,
             pen.DashArray,
             pen.DashOffset,
-            pen.StrokeTransformMode);
+            pen.StrokeTransformMode)
+        {
+            ClipMiterAtLimit = pen.ClipMiterAtLimit,
+            UseWpfJoinSemantics = pen.UseWpfJoinSemantics
+        };
     }
 
     private static int CountStrokeSegmentJoinTriangleBudget(PathFigure figure)
@@ -9933,7 +9982,7 @@ CompilePathStroke:
         indicesSpan[currentIndexCount++] = index + 3;
     }
 
-    private static bool RequiresAffineStrokeGeometry(Matrix4x4 transform)
+    internal static bool RequiresAffineStrokeGeometry(Matrix4x4 transform)
     {
         var axisX = new Vector2(transform.M11, transform.M12);
         var axisY = new Vector2(transform.M21, transform.M22);
@@ -10216,6 +10265,7 @@ CompilePathStroke:
                 penBrushIdx,
                 pen.LineJoin,
                 pen.MiterLimit,
+                pen.ClipMiterAtLimit,
                 localJoinPoint,
                 localIncomingDirection,
                 localOutgoingDirection,
@@ -10280,15 +10330,12 @@ CompilePathStroke:
     {
         Span<StrokeJoinTriangle> localTriangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
-        int localTriangleCount = StrokeJoinGeometry.WriteLineJoin(
-            localTriangles,
-            pen.LineJoin,
-            localThickness,
-            pen.MiterLimit,
-            localJoinPoint - localIncomingDirection,
-            localJoinPoint,
-            localJoinPoint + localOutgoingDirection,
-            isSmoothJoin);
+        int localTriangleCount = pen.UseWpfJoinSemantics
+            ? StrokeJoinGeometry.WriteDirectionalJoin(localTriangles, pen, localThickness,
+                localJoinPoint, localIncomingDirection, localOutgoingDirection, isSmoothJoin)
+            : StrokeJoinGeometry.WriteLineJoin(localTriangles, pen, localThickness,
+                localJoinPoint - localIncomingDirection, localJoinPoint,
+                localJoinPoint + localOutgoingDirection, isSmoothJoin);
 
         var generatedTriangles = localTriangles[..localTriangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
@@ -10299,7 +10346,7 @@ CompilePathStroke:
                 Vector2.Transform(localTriangle.P1, transform),
                 Vector2.Transform(localTriangle.P2, transform));
             var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
-                pen.LineJoin,
+                pen.UseWpfJoinSemantics && isSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
                 generatedTriangles.Length,
                 triangleIndex);
             AppendStrokeTriangleVertices(
@@ -10450,6 +10497,7 @@ CompilePathStroke:
         float penBrushIdx,
         PenLineJoin lineJoin,
         float miterLimit,
+        bool clipMiterAtLimit,
         Vector2 localJoinPoint,
         Vector2 localIncomingDirection,
         Vector2 localOutgoingDirection,
@@ -10478,9 +10526,11 @@ CompilePathStroke:
         var index = (uint)currentVertexCount;
         var resolvedJoin = lineJoin switch
         {
+            PenLineJoin.Miter => PenLineJoin.Miter,
             PenLineJoin.Bevel => PenLineJoin.Bevel,
             PenLineJoin.Round => PenLineJoin.Round,
-            _ => PenLineJoin.Miter
+            PenLineJoin.MiterOrBevel => PenLineJoin.MiterOrBevel,
+            _ => throw new ArgumentOutOfRangeException(nameof(lineJoin))
         };
         var resolvedMiterLimit = float.IsFinite(miterLimit) && miterLimit >= 1f
             ? miterLimit
@@ -10491,7 +10541,7 @@ CompilePathStroke:
                 (float)resolvedJoin,
                 resolvedMiterLimit,
                 index,
-                0f),
+                resolvedJoin == PenLineJoin.Miter && clipMiterAtLimit ? 1f : 0f),
             incomingDirection,
             penBrushIdx,
             outgoingDirection,
@@ -10612,21 +10662,17 @@ CompilePathStroke:
     {
         Span<StrokeJoinTriangle> triangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
-        int triangleCount = StrokeJoinGeometry.WriteLineJoin(
-            triangles,
-            pen.LineJoin,
-            thickness,
-            pen.MiterLimit,
-            joinPoint - incomingDirection,
-            joinPoint,
-            joinPoint + outgoingDirection,
-            isSmoothJoin);
+        int triangleCount = pen.UseWpfJoinSemantics
+            ? StrokeJoinGeometry.WriteDirectionalJoin(triangles, pen, thickness,
+                joinPoint, incomingDirection, outgoingDirection, isSmoothJoin)
+            : StrokeJoinGeometry.WriteLineJoin(triangles, pen, thickness,
+                joinPoint - incomingDirection, joinPoint, joinPoint + outgoingDirection, isSmoothJoin);
 
         var generatedTriangles = triangles[..triangleCount];
         for (var triangleIndex = 0; triangleIndex < generatedTriangles.Length; triangleIndex++)
         {
             var edgeMasks = GetStrokeJoinTopologyEdgeMasks(
-                pen.LineJoin,
+                pen.UseWpfJoinSemantics && isSmoothJoin ? PenLineJoin.Round : pen.LineJoin,
                 generatedTriangles.Length,
                 triangleIndex);
             AppendStrokeTriangleVertices(
@@ -10836,11 +10882,14 @@ CompilePathStroke:
         {
             return (7u, 0u);
         }
-        if (lineJoin == PenLineJoin.Miter && triangleCount == 2)
+        if ((lineJoin is PenLineJoin.Miter or PenLineJoin.MiterOrBevel) && triangleCount == 2)
         {
             return (3u, triangleIndex == 0 ? 4u : 0u);
         }
 
+        // The clipped-miter three-triangle fan shares the round fan's ordering:
+        // center, preceding outer point, following outer point. Own each fan
+        // diagonal once, retaining the existing first/last radial-edge policy.
         uint exterior = 2u;
         if (triangleIndex == 0)
         {
@@ -11058,12 +11107,12 @@ CompilePathStroke:
             isStart: false);
     }
 
-    private static Vector2 TransformDirection(Vector2 direction, Matrix4x4 transform)
+    internal static Vector2 TransformDirection(Vector2 direction, Matrix4x4 transform)
     {
         return Vector2.Transform(direction, transform) - Vector2.Transform(Vector2.Zero, transform);
     }
 
-    private static bool TryGetPathSegmentStartDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
+    internal static bool TryGetPathSegmentStartDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
     {
         switch (segment)
         {
@@ -11099,7 +11148,7 @@ CompilePathStroke:
         }
     }
 
-    private static bool TryGetPathSegmentEndDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
+    internal static bool TryGetPathSegmentEndDirection(PathSegment segment, Vector2 segmentStart, out Vector2 direction)
     {
         switch (segment)
         {
@@ -11227,7 +11276,7 @@ CompilePathStroke:
         return float.IsFinite(value.X) && float.IsFinite(value.Y);
     }
 
-    private static bool TryGetPathSegmentEndPoint(PathSegment segment, out Vector2 endPoint)
+    internal static bool TryGetPathSegmentEndPoint(PathSegment segment, out Vector2 endPoint)
     {
         switch (segment)
         {
@@ -11347,6 +11396,7 @@ CompilePathStroke:
 
     internal static bool IsRenderableStroke(Pen? pen)
     {
+        pen?.ValidateJoinSemantics();
         return pen != null &&
             float.IsFinite(pen.Thickness) &&
             (pen.IsHairline || pen.Thickness > 0f);
@@ -12526,7 +12576,7 @@ CompilePathStroke:
     {
         SwitchBatch(BatchType.Vector);
         var stroke = ResolveStrokeCompileState(cmd, transform);
-        var hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
+        var hasPathStroke = stroke.IsValid && (cmd.Pen!.HasDashPattern || cmd.Pen.UseWpfJoinSemantics);
         int startIndex = _vectorVerticesList.Count;
         var center = cmd.Position2;
         var rx = cmd.RadiusX;
@@ -12569,7 +12619,7 @@ CompilePathStroke:
             indexSpan[5] = idxStart + 3;
         }
 
-        if (stroke.IsValid && !hasDashedStroke)
+        if (stroke.IsValid && !hasPathStroke)
         {
             var pen = cmd.Pen!;
             float pad = stroke.LocalBoundsThickness / 2f + antialiasPadding;
@@ -12618,7 +12668,7 @@ CompilePathStroke:
             }
         }
 
-        if (hasDashedStroke)
+        if (hasPathStroke)
         {
             var strokePath = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
@@ -12673,8 +12723,8 @@ CompilePathStroke:
         }
 
         bool hasFill = cmd.Brush != null;
-        bool hasDashedStroke = stroke.IsValid && cmd.Pen!.HasDashPattern;
-        bool hasStroke = stroke.IsValid && !hasDashedStroke;
+        bool hasPathStroke = stroke.IsValid && (cmd.Pen!.HasDashPattern || cmd.Pen.UseWpfJoinSemantics);
+        bool hasStroke = stroke.IsValid && !hasPathStroke;
         bool isSolidRoundedCandidate = ActiveCompilationContext == null &&
             (hasFill || hasStroke) &&
             (!hasFill || cmd.Brush is SolidColorBrush) &&
@@ -12787,7 +12837,7 @@ CompilePathStroke:
             }
         }
 
-        if (hasDashedStroke)
+        if (hasPathStroke)
         {
             var strokePath = cmd.GeometryCache?.StrokePath ??
                 RenderCommandGeometryCache.CreatePrimitiveStrokePath(cmd);
@@ -15515,6 +15565,7 @@ CompilePathStroke:
             _atlas.Dispose();
             _pathAtlas.Dispose();
             ReleaseAllRetainedResources();
+            DisposeOwnedShaderTargets();
 
             lock (_registeredExtensions)
             {
@@ -16874,6 +16925,7 @@ CompilePathStroke:
     {
         var effect = fe.Effect;
         if (effect == null) return;
+        bool captureSourceOpacity = effect is WpfShaderEffect { CaptureSourceVisualOpacity: true };
 
         float paddingX = 0f;
         float paddingY = 0f;
@@ -16894,37 +16946,62 @@ CompilePathStroke:
         }
         else if (effect is WpfShaderEffect shaderEffect)
         {
-            float padding = MathF.Ceiling(MathF.Max(0f, shaderEffect.Padding));
+            float padding = EffectCaptureFrame.ResolveShaderPadding(shaderEffect.Padding);
             paddingX = padding;
             paddingY = padding;
         }
 
         if (fe.EffectRasterPadding is { } requestedPadding)
         {
-            float padding = float.IsFinite(requestedPadding)
-                ? MathF.Max(0f, requestedPadding)
-                : 0f;
+            float padding = EffectCaptureFrame.ResolveRasterPadding(requestedPadding);
             paddingX = padding;
             paddingY = padding;
         }
 
         Rect contentBounds = fe.EffectContentBounds ??
             new Rect(Vector2.Zero, fe.Size);
-        if (contentBounds.IsEmpty)
-            return;
-
-        var paddedRect = new Rect(
-            contentBounds.X - paddingX,
-            contentBounds.Y - paddingY,
-            contentBounds.Width + paddingX * 2f,
-            contentBounds.Height + paddingY * 2f);
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
-        float logicalWidth = MathF.Max(1f, paddedRect.Width);
-        float logicalHeight = MathF.Max(1f, paddedRect.Height);
-        uint logicalRenderWidth = (uint)MathF.Ceiling(logicalWidth);
-        uint logicalRenderHeight = (uint)MathF.Ceiling(logicalHeight);
-        uint w = (uint)MathF.Ceiling(logicalWidth * dpiScale);
-        uint h = (uint)MathF.Ceiling(logicalHeight * dpiScale);
+        EffectCaptureFrame captureFrame;
+        if (effect is WpfShaderEffect { SourceCapture: { } sourceCapture })
+        {
+            bool valid;
+            if (fe.EffectRasterPadding.HasValue)
+            {
+                // An explicit legacy override keeps its original scalar frame.
+                valid = EffectCaptureFrame.TryCreateSource(sourceCapture, fe.EffectSourceTranslation ?? Vector2.Zero,
+                    fe.EffectRasterPadding, dpiScale, out captureFrame);
+            }
+            else
+            {
+                // Use the exact projection and viewport of this actual target,
+                // including nested offscreen targets. Semantic DPI and the final
+                // visual affine transform are independent of this capture basis.
+                GetRootRenderTargetSize(_currentWidth, _currentHeight, out uint targetWidth, out uint targetHeight);
+                var viewport = NormalizeRenderTargetViewport(
+                    _explicitRenderTargetViewport ?? RenderTargetViewport.Full(targetWidth, targetHeight),
+                    targetWidth, targetHeight);
+                valid = EffectCaptureFrame.TryResolveSourcePixelsPerUnit(_currentProjection, viewport, out var pixelsPerUnit);
+                captureFrame = default;
+                if (valid)
+                    valid = EffectCaptureFrame.TryCreateSource(sourceCapture, fe.EffectSourceTranslation ?? Vector2.Zero,
+                        pixelsPerUnit, dpiScale, out captureFrame);
+            }
+            if (!valid)
+                throw new InvalidOperationException("Source effect input capture has invalid or unrepresentable source bounds, padding or dimensions.");
+        }
+        else
+        {
+            if (contentBounds.IsEmpty) return;
+            if (!EffectCaptureFrame.TryCreateResolved(contentBounds, paddingX, paddingY, dpiScale, out captureFrame))
+                throw new InvalidOperationException("Effect input capture has nonfinite or unrepresentable bounds or dimensions.");
+        }
+        Rect paddedRect = captureFrame.PaddedBounds;
+        float logicalWidth = captureFrame.LogicalWidth;
+        float logicalHeight = captureFrame.LogicalHeight;
+        uint logicalRenderWidth = captureFrame.LogicalRenderWidth;
+        uint logicalRenderHeight = captureFrame.LogicalRenderHeight;
+        uint w = captureFrame.PixelWidth;
+        uint h = captureFrame.PixelHeight;
 
         bool hasCached = _effectTextures.TryGetValue(fe, out var textures);
         int effectCacheKey = effect.GetRenderCacheKey();
@@ -16933,6 +17010,8 @@ CompilePathStroke:
             fe.IsDirty ||
             !hasCachedEffectKey ||
             cachedEffectKey != effectCacheKey ||
+            textures!.CaptureFrame is not { } previousFrame ||
+            !previousFrame.HasSameCapture(captureFrame) ||
             textures!.SuppressesClearType != _suppressCachedClearType ||
             textures!.Source.Width != w ||
             textures.Source.Height != h;
@@ -16960,6 +17039,7 @@ CompilePathStroke:
             var activeTextures = textures!;
             // Only a fully rendered and filtered result may qualify for reuse.
             activeTextures.SuppressesClearType = null;
+            activeTextures.CaptureFrame = null;
             if (effect is BlurEffect blurResources && blurResources.BlurRadius > 0.01f)
             {
                 activeTextures.EnsureTemporary(_context, w, h, TextureFormat.Rgba8Unorm);
@@ -17003,16 +17083,19 @@ CompilePathStroke:
             _elementsRenderingEffects.Add(fe);
             try
             {
-                // 1. Render the subtree of fe offscreen centered into textures.Source (offset by padding)
+                // Keep text/snapping/effect DPI semantics while projecting the
+                // exact raster extent, not its integer bookkeeping ceiling.
                 RenderOffscreen(
                     fe,
                     logicalRenderWidth,
                     logicalRenderHeight,
                     activeTextures.Source,
-                    -paddedRect.Position,
+                    -(captureFrame.HasPhysicalOrigin ? captureFrame.RasterBounds.Position : paddedRect.Position),
                     dpiScale,
                     includeRootTransform: false,
-                    includeRootVisualState: false);
+                    includeRootVisualState: false,
+                    logicalExtent: captureFrame.HasPhysicalOrigin ? captureFrame.ProjectionExtent : null,
+                    includeRootOpacityOnly: captureSourceOpacity);
             }
             finally
             {
@@ -17082,6 +17165,7 @@ CompilePathStroke:
             }
 
             _effectCacheKeys[fe] = effectCacheKey;
+            activeTextures.CaptureFrame = captureFrame;
             activeTextures.SuppressesClearType = _suppressCachedClearType;
         }
 
@@ -17093,7 +17177,8 @@ CompilePathStroke:
 
         var cachedTextures = textures!;
         var compositeTransform = fe.GetLocalTransform() * parentTransform;
-        var compositeScope = PushVisualCompositeScope(fe, compositeTransform, parentTransform);
+        var compositeScope = PushVisualCompositeScope(fe, compositeTransform, parentTransform,
+            includeOpacity: !captureSourceOpacity);
         try
         {
             // Draw the cached texture onto the main swapchain.
@@ -17126,7 +17211,8 @@ CompilePathStroke:
             }
             else if (fe.Effect is WpfShaderEffect shaderEffect)
             {
-                DrawWpfShaderEffectOnMain(fe, shaderEffect, cachedTextures.Source, paddedRect, compositeTransform);
+                DrawWpfShaderEffectOnMain(fe, shaderEffect, cachedTextures.Source, paddedRect, compositeTransform,
+                    captureFrame.TextureUvBounds, captureFrame.HasPhysicalOrigin ? captureFrame.OutputEdges : null);
             }
             else if (fe.Effect is ColorMatrixEffect colorMatrixEffect)
             {
@@ -17157,18 +17243,19 @@ CompilePathStroke:
         fe.IsDirty = false;
     }
 
-    private void ApplyAndDrawLayer(Visual node, Matrix4x4 parentTransform)
+    private void ApplyAndDrawLayer(Visual node, Matrix4x4 parentTransform,
+        Matrix4x4? compositeTransformOverride = null, bool opacityOnly = false)
     {
         if (!TryCaptureSourceCompositeInput(node, parentTransform))
         {
-            ApplyAndDrawLayerCore(node, parentTransform);
+            ApplyAndDrawLayerCore(node, parentTransform, compositeTransformOverride, opacityOnly);
             return;
         }
         bool savedSuspendHitTestCacheWrites = _suspendHitTestCacheWrites;
         _suspendHitTestCacheWrites = true;
         try
         {
-            ApplyAndDrawLayerCore(node, parentTransform);
+            ApplyAndDrawLayerCore(node, parentTransform, compositeTransformOverride, opacityOnly);
         }
         finally
         {
@@ -17176,13 +17263,14 @@ CompilePathStroke:
         }
     }
 
-    private void ApplyAndDrawLayerCore(Visual node, Matrix4x4 parentTransform)
+    private void ApplyAndDrawLayerCore(Visual node, Matrix4x4 parentTransform,
+        Matrix4x4? compositeTransformOverride, bool opacityOnly)
     {
         if (!EnsureLayerTexture(node)) return;
 
         float dpiScale = _currentDpiScale > 0f ? _currentDpiScale : 1f;
         var controlRect = new Rect(Vector2.Zero, node.Size);
-        var compositeTransform = node.GetLocalTransform() * parentTransform;
+        var compositeTransform = compositeTransformOverride ?? node.GetLocalTransform() * parentTransform;
         if (node.LayerCacheSnapsToDevicePixels)
         {
             Vector2 topLeft = Vector2.Transform(
@@ -17198,7 +17286,9 @@ CompilePathStroke:
                 -snap.Y,
                 0f);
         }
-        var compositeScope = PushVisualCompositeScope(node, compositeTransform, parentTransform);
+        var compositeScope = opacityOnly
+            ? PushVisualOpacityScope(node, compositeTransform)
+            : PushVisualCompositeScope(node, compositeTransform, parentTransform);
         try
         {
             // Draw the cached layer texture onto the main swapchain.
@@ -17479,7 +17569,8 @@ CompilePathStroke:
     private VisualCompositeScope PushVisualCompositeScope(
         Visual node,
         Matrix4x4 compositeTransform,
-        Matrix4x4 parentTransform)
+        Matrix4x4 parentTransform,
+        bool includeOpacity = true)
     {
         var scope = VisualCompositeScope.None;
         if (node.ClipBounds.HasValue)
@@ -17559,6 +17650,15 @@ CompilePathStroke:
             scope |= VisualCompositeScope.GeometryClip;
         }
 
+        if (includeOpacity)
+            scope |= PushVisualOpacityScope(node, compositeTransform);
+
+        return scope;
+    }
+
+    private VisualCompositeScope PushVisualOpacityScope(Visual node, Matrix4x4 compositeTransform)
+    {
+        var scope = VisualCompositeScope.None;
         if (node.Opacity < 1.0f)
         {
             PushOpacityValue(node.Opacity);
@@ -17677,14 +17777,26 @@ CompilePathStroke:
         Rect localRect,
         Matrix4x4 parentTransform,
         int hitTestId = 0,
-        GpuBlendMode? blendMode = null)
+        GpuBlendMode? blendMode = null,
+        Rect? sourceRect = null,
+        Vector4? outputEdges = null)
     {
         var cmd = new RenderCommand
         {
             Type = RenderCommandType.DrawTexture,
             Texture = texture,
-            Rect = localRect
+            Rect = localRect,
+            SrcRect = sourceRect ?? default
         };
+        if (outputEdges is { } edges)
+        {
+            cmd.HasTextureDestinationQuad = true;
+            cmd.TextureDestination0 = new Vector2(edges.X, edges.Y);
+            cmd.TextureDestination1 = new Vector2(edges.Z, edges.Y);
+            cmd.TextureDestination2 = new Vector2(edges.Z, edges.W);
+            cmd.TextureDestination3 = new Vector2(edges.X, edges.W);
+            cmd.TextureDestinationProjectiveWeights = Vector4.One;
+        }
         if (hitTestId != 0)
         {
             AddHitTestCommand(cmd, parentTransform, hitTestId);
@@ -17714,12 +17826,19 @@ CompilePathStroke:
         WpfShaderEffect effect,
         GpuTexture sourceTexture,
         Rect localRect,
-        Matrix4x4 parentTransform)
+        Matrix4x4 parentTransform,
+        Vector4 textureUvBounds,
+        Vector4? outputEdges)
     {
         var pipeline = GetExtension(CompositorBuiltInExtensions.WpfShaderEffect);
         if (pipeline == null)
         {
-            DrawTextureOnMain(sourceTexture, localRect, parentTransform, visual.HitTestId);
+            Rect? sourceRect = textureUvBounds == new Vector4(0, 0, 1, 1) ? null :
+                new Rect(textureUvBounds.X * sourceTexture.Width, textureUvBounds.Y * sourceTexture.Height,
+                    (textureUvBounds.Z - textureUvBounds.X) * sourceTexture.Width,
+                    (textureUvBounds.W - textureUvBounds.Y) * sourceTexture.Height);
+            DrawTextureOnMain(sourceTexture, localRect, parentTransform, visual.HitTestId,
+                sourceRect: sourceRect, outputEdges: outputEdges);
             return;
         }
 
@@ -17744,6 +17863,8 @@ CompilePathStroke:
         }
 
         effect.UpdateDrawParameters(parameters, sourceTexture, localRect);
+        parameters.TextureUvBounds = textureUvBounds;
+        parameters.OutputEdges = outputEdges;
 
         var cmd = new RenderCommand
         {
@@ -17902,7 +18023,8 @@ CompilePathStroke:
         bool loadExistingContents = false,
         bool includeRootTransform = true,
         bool includeRootVisualState = true,
-        Vector2? logicalExtent = null)
+        Vector2? logicalExtent = null,
+        bool includeRootOpacityOnly = false)
     {
         _compiledSceneReusable = false;
         lock (_offscreenRenderLock)
@@ -17941,7 +18063,8 @@ CompilePathStroke:
                             loadExistingContents,
                             includeRootTransform,
                             includeRootVisualState,
-                            logicalExtent);
+                            logicalExtent,
+                            includeRootOpacityOnly);
                         break;
                     }
                     catch (PathAtlasCapacityExceededException)
@@ -17969,7 +18092,11 @@ CompilePathStroke:
                 _offscreenRenderDepth--;
                 if (ownsOffscreenFrame)
                 {
-                    ReleaseFrameRetainedResourcesPreserving(offscreenFailure);
+                    try
+                    {
+                        if (offscreenFailure is null) SweepOwnedShaderTargets();
+                    }
+                    finally { ReleaseFrameRetainedResourcesPreserving(offscreenFailure); }
                     _frameNumber++;
                     EvictUnusedBindGroups();
                 }
@@ -17988,7 +18115,8 @@ CompilePathStroke:
         bool loadExistingContents,
         bool includeRootTransform,
         bool includeRootVisualState,
-        Vector2? logicalExtent)
+        Vector2? logicalExtent,
+        bool includeRootOpacityOnly)
     {
         long totalStartTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
         using var currentContextScope = WgpuContext.PushCurrent(_context);
@@ -18107,7 +18235,8 @@ CompilePathStroke:
             Matrix4x4.Identity,
             rootTranslation,
             includeRootTransform,
-            includeRootVisualState);
+            includeRootVisualState,
+            includeRootOpacityOnly);
 
         CommitPendingDrawCalls();
         long compileEndTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();

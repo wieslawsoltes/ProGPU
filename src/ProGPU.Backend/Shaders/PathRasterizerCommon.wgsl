@@ -196,6 +196,50 @@ fn add_crossing(
         samplePositionsX.high < vec4<f32>(intersectX));
 }
 
+// Compare the original line half-plane exactly when its endpoints and every
+// sample lie on a bounded 1/16 grid. Division may round an on-edge sample to the
+// other side, including at an original endpoint. Signed products and their
+// difference fit i32: coordinates are at most 16383, deltas at most 32766.
+// Other mappings retain the ordinary floating-point intersection below.
+fn add_exact_line_crossing(
+    winding: ptr<function, WindingRow>,
+    samples: SampleRow,
+    sampleY: f32,
+    a: vec2<f32>,
+    b: vec2<f32>,
+    direction: i32) -> bool {
+    let qa = a * 16.0;
+    let qb = b * 16.0;
+    let qy = sampleY * 16.0;
+    let qlow = samples.low * 16.0;
+    let qhigh = samples.high * 16.0;
+    if (any(abs(qa) > vec2<f32>(16383.0)) ||
+        any(abs(qb) > vec2<f32>(16383.0)) || abs(qy) > 16383.0 ||
+        any(abs(qlow) > vec4<f32>(16383.0)) ||
+        any(abs(qhigh) > vec4<f32>(16383.0))) { return false; }
+    let ia = vec2<i32>(qa);
+    let ib = vec2<i32>(qb);
+    let iy = i32(qy);
+    let low = vec4<i32>(qlow);
+    let high = vec4<i32>(qhigh);
+    if (any(qa != vec2<f32>(ia)) || any(qb != vec2<f32>(ib)) ||
+        qy != f32(iy) || any(qlow != vec4<f32>(low)) ||
+        any(qhigh != vec4<f32>(high))) { return false; }
+    let delta = ib - ia;
+    let left = vec4<i32>(delta.x * (iy - ia.y));
+    let rightLow = vec4<i32>(delta.y) * (low - vec4<i32>(ia.x));
+    let rightHigh = vec4<i32>(delta.y) * (high - vec4<i32>(ia.x));
+    var crossesLow = left < rightLow;
+    var crossesHigh = left < rightHigh;
+    if (direction > 0) {
+        crossesLow = left > rightLow;
+        crossesHigh = left > rightHigh;
+    }
+    (*winding).low += select(vec4<i32>(0), vec4<i32>(direction), crossesLow);
+    (*winding).high += select(vec4<i32>(0), vec4<i32>(direction), crossesHigh);
+    return true;
+}
+
 fn winding_is_inside(winding: i32, fill_rule: u32) -> bool {
     return select(
         winding != 0,
@@ -330,12 +374,18 @@ fn row_winding_impl(
             }
             if (A.y <= sampleY) {
                 if (B.y > sampleY) {
+                    if (add_exact_line_crossing(&winding, samplePositionsX, sampleY, A, B, 1)) {
+                        continue;
+                    }
                     let t = (sampleY - A.y) / (B.y - A.y);
                     let intersectX = A.x + t * (B.x - A.x);
                     add_crossing(&winding, samplePositionsX, intersectX, 1);
                 }
             } else {
                 if (B.y <= sampleY) {
+                    if (add_exact_line_crossing(&winding, samplePositionsX, sampleY, A, B, -1)) {
+                        continue;
+                    }
                     let t = (sampleY - A.y) / (B.y - A.y);
                     let intersectX = A.x + t * (B.x - A.x);
                     add_crossing(&winding, samplePositionsX, intersectX, -1);

@@ -17,6 +17,17 @@ namespace {
 using detail::read_i16;
 using detail::read_u32;
 
+// 10^n = 2^n * 5^n; through n=22, the odd factor 5^n fits in
+// binary64's 53-bit significand. Every multiplication here is therefore exact.
+// This is not a claim of correctly rounded parsing for arbitrary long decimal
+// significands; their existing digit accumulation and range policy stay intact.
+constexpr auto exact_decimal_powers = [] {
+    std::array<double, 23U> values{};
+    values[0] = 1.0;
+    for (std::size_t index = 1U; index < values.size(); ++index) values[index] = values[index - 1U] * 10.0;
+    return values;
+}();
+
 void set_error(font_error* destination, font_error value) noexcept {
     if (destination != nullptr) {
         *destination = value;
@@ -128,7 +139,16 @@ bool try_parse_real(
         }
     }
     const auto scale = exponent - fractional_digits;
-    result = significand * std::pow(10.0, static_cast<double>(scale));
+    // Dividing by an exact positive integer avoids first rounding its
+    // reciprocal. In particular, 48828125/10^11 is exactly 1/2048;
+    // 48828125 * rounded(10^-11) need not produce that same binary64 value.
+    if (scale < 0 && scale >= -22) {
+        result = significand / exact_decimal_powers[static_cast<std::size_t>(-scale)];
+    } else if (scale >= 0 && scale <= 22) {
+        result = significand * exact_decimal_powers[static_cast<std::size_t>(scale)];
+    } else {
+        result = significand * std::pow(10.0, static_cast<double>(scale));
+    }
     if (negative) {
         result = -result;
     }

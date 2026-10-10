@@ -8,7 +8,7 @@ namespace ProGPU.Backend.Native;
 /// <summary>
 /// Writes canonical, DWORD-aligned WPF DUCE/MIL channel batches.
 /// </summary>
-public sealed class NativeMilBatchBuilder
+public sealed partial class NativeMilBatchBuilder
 {
     private readonly ArrayBufferWriter<byte> _writer;
 
@@ -1649,7 +1649,14 @@ public sealed class NativeMilBatchBuilder
     public void SetTransformGroup(uint handle, ReadOnlySpan<uint> children)
     {
         ValidateHandle(handle);
+        if (children.Length > (1 << 20))
+            throw new ArgumentOutOfRangeException(nameof(children));
         int childrenSize = checked(children.Length * sizeof(uint));
+        // A late invalid child must not append a partial packet to this writer.
+        // Preserve duplicates and original ordering; graph cycles are channel
+        // validation, not grounds for silently rewriting this list.
+        foreach (uint child in children)
+            ValidateHandle(child);
         Span<byte> packet = NativeMilBatchEncoding.Allocate(
             _writer,
             NativeMilCommand.TransformGroup,
@@ -1658,7 +1665,6 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, (uint)childrenSize);
         for (int index = 0; index < children.Length; ++index)
         {
-            ValidateHandle(children[index]);
             WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
         }
     }
@@ -3344,8 +3350,11 @@ internal static class NativeMilCommand
     internal const uint ScaleTransform3D = 0x69;
     internal const uint RotateTransform3D = 0x6a;
     internal const uint MatrixTransform3D = 0x6b;
+    internal const uint PixelShader = 0x6c;
+    internal const uint ImplicitInputBrush = 0x6d;
     internal const uint BlurEffect = 0x6e;
     internal const uint DropShadowEffect = 0x6f;
+    internal const uint ShaderEffect = 0x70;
     internal const uint DrawingImage = 0x71;
     internal const uint TransformGroup = 0x72;
     internal const uint TranslateTransform = 0x73;

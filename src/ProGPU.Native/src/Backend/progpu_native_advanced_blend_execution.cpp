@@ -58,6 +58,9 @@ bool create_advanced_blend_pipeline(progpu_native_engine& engine) {
         entries[index].texture.viewDimension = WGPUTextureViewDimension_2D;
         entries[index].texture.multisampled = false;
     }
+    // Pattern reads are textureLoad-only, including the R32Float layer coverage
+    // attachment. No float32-filterable feature or sampler is required.
+    entries[2].texture.sampleType = WGPUTextureSampleType_UnfilterableFloat;
     entries[3].binding = 3U;
     entries[3].visibility = WGPUShaderStage_Fragment;
     entries[3].buffer.type = WGPUBufferBindingType_Uniform;
@@ -176,6 +179,40 @@ WGPURenderPassEncoder begin_pass(
     return wgpuCommandEncoderBeginRenderPass(encoder, &descriptor);
 }
 
+bool ensure_layer_coverage(progpu_native_engine& engine, std::uint32_t width, std::uint32_t height) {
+    auto& slot = engine.semantic_layer_coverage_slot;
+    if (slot.texture != nullptr && slot.view != nullptr && slot.width == width && slot.height == height)
+        return true;
+    WGPUTextureDescriptor descriptor{};
+    descriptor.label = webgpu::string_view("ProGPU independent floating layer coverage");
+    descriptor.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding;
+    descriptor.dimension = WGPUTextureDimension_2D;
+    descriptor.size = {width, height, 1U};
+    descriptor.format = WGPUTextureFormat_R32Float;
+    descriptor.mipLevelCount = 1U;
+    descriptor.sampleCount = 1U;
+    WGPUTexture texture = wgpuDeviceCreateTexture(engine.device, &descriptor);
+    if (texture == nullptr) return false;
+    WGPUTextureView view = wgpuTextureCreateView(texture, nullptr);
+    if (view == nullptr) {
+        wgpuTextureDestroy(texture);
+        wgpuTextureRelease(texture);
+        return false;
+    }
+    if (slot.view != nullptr) wgpuTextureViewRelease(slot.view);
+    if (slot.texture != nullptr) {
+        wgpuTextureDestroy(slot.texture);
+        wgpuTextureRelease(slot.texture);
+    }
+    slot.texture = texture;
+    slot.view = view;
+    slot.width = width;
+    slot.height = height;
+    ++slot.generation;
+    ++engine.semantic_layer_allocation_count;
+    return true;
+}
+
 bool draw_texture_quad(
     progpu_native_engine& engine,
     WGPURenderPassEncoder pass,
@@ -229,6 +266,7 @@ bool prepare_semantic_advanced_blend_resources(
     std::uint32_t source_width,
     std::uint32_t source_height,
     std::uint32_t operation_count,
+    bool needs_layer_coverage,
     float dpi_scale,
     std::uint64_t& uploaded_uniform_bytes) {
     uploaded_uniform_bytes = 0U;
@@ -237,6 +275,7 @@ bool prepare_semantic_advanced_blend_resources(
     }
     if (!create_advanced_blend_pipeline(engine) ||
         !ensure_uniform_buffer(engine, operation_count) ||
+        (needs_layer_coverage && !ensure_layer_coverage(engine, source_width, source_height)) ||
         !ensure_semantic_texture_slot(
             engine,
             engine.semantic_root_slot,
@@ -284,7 +323,10 @@ bool create_semantic_advanced_blend_binding(
     if (destination_view == nullptr ||
         engine.semantic_advanced_source_slot.view == nullptr ||
         engine.semantic_advanced_blend_uniform_buffer == nullptr ||
-        engine.semantic_advanced_blend_layout == nullptr) {
+        engine.semantic_advanced_blend_layout == nullptr ||
+        ((operation.replace_axis_clip_background || operation.axis_clip_composite) &&
+            (operation.source_layer >= engine.semantic_layer_slots.size() ||
+                engine.semantic_layer_coverage_slot.view == nullptr))) {
         return false;
     }
     const std::uint64_t offset = operation.advanced_uniform_offset;
@@ -298,12 +340,15 @@ bool create_semantic_advanced_blend_binding(
         offset,
         &uniforms,
         sizeof(uniforms));
+    const WGPUTextureView source_view = (operation.replace_axis_clip_background || operation.axis_clip_composite)
+        ? engine.semantic_layer_slots[operation.source_layer].view
+        : engine.semantic_advanced_source_slot.view;
     const std::array<WGPUBindGroupEntry, 4U> entries{{
         {nullptr, 0U, nullptr, 0U, 0U, nullptr, destination_view},
-        {nullptr, 1U, nullptr, 0U, 0U, nullptr,
-            engine.semantic_advanced_source_slot.view},
+        {nullptr, 1U, nullptr, 0U, 0U, nullptr, source_view},
         {nullptr, 2U, nullptr, 0U, 0U, nullptr,
-            engine.semantic_advanced_source_slot.view},
+            (operation.replace_axis_clip_background || operation.axis_clip_composite) ? engine.semantic_layer_coverage_slot.view
+                : engine.semantic_advanced_source_slot.view},
         {nullptr, 3U, engine.semantic_advanced_blend_uniform_buffer,
             offset, sizeof(uniforms), nullptr, nullptr}
     }};
@@ -346,10 +391,12 @@ bool encode_semantic_advanced_blend(
             engine,
             PROGPU_NATIVE_BLEND_SRC,
             masked,
-            ignored_cache_hit);
+            ignored_cache_hit,
+            (operation.replace_axis_clip_background || operation.axis_clip_composite));
     WGPURenderPassEncoder pass = begin_pass(
         encoder,
-        engine.semantic_advanced_source_slot.view,
+        (operation.replace_axis_clip_background || operation.axis_clip_composite) ? engine.semantic_layer_coverage_slot.view
+            : engine.semantic_advanced_source_slot.view,
         WGPULoadOp_Clear,
         "ProGPU semantic advanced-blend source resolve");
     if (pass == nullptr) {
@@ -408,7 +455,9 @@ bool encode_semantic_advanced_blend(
             engine,
             PROGPU_NATIVE_BLEND_SRC,
             false,
-            copy_cache_hit);
+            copy_cache_hit,
+            false,
+            operation.target_ignores_alpha ? layer_write_channels::rgb : layer_write_channels::all);
     pass = begin_pass(
         encoder,
         parent_view,

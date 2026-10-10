@@ -255,6 +255,19 @@ progpu_native_mil_channel_set_drawing_image_bounds(
     double width,
     double height);
 /*
+ * Records source-known empty DrawingImage bounds and retains the actual Drawing
+ * as an ownership-only edge. Both handles must be initialized in this channel;
+ * the image's canonical drawing must be zero and drawing_handle must be nonzero.
+ * No drawing pixels or positive allocation bounds are synthesized. Canonical
+ * DrawingImage updates clear this witness. Positive bounds require that update
+ * first; all rejected calls leave state and resource generations unchanged.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_drawing_image_empty_source(
+    progpu_native_mil_channel* channel,
+    uint32_t image_handle,
+    uint32_t drawing_handle);
+/*
  * Binds exact local DrawingGroup content bounds for spatial opacity-mask
  * mapping and bounded group composition. Canonical MIL carries child handles
  * but not this Drawing-derived metadata.
@@ -281,6 +294,42 @@ progpu_native_mil_channel_set_visual_cache_bounds(
     double y,
     double width,
     double height);
+/*
+ * Records explicit source-known empty descendant bounds for a live TYPE_VISUAL.
+ * Preserves its topology and invalidates previous positive bounds. Ordinary
+ * cache bounds remain strictly positive; setting them clears this empty witness.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_visual_source_empty_bounds(
+    progpu_native_mil_channel* channel,
+    uint32_t handle);
+/* Version 1 independent source raster inputs, copied into the exact initialized
+ * TYPE_BITMAPCACHEBRUSH. Original primary-display scales retain float bits;
+ * limits come from the actual owned renderer. Revision is nonzero. Flags and
+ * reserved are zero. No receiving DPI/default limit or raster pixels inferred. */
+typedef struct progpu_native_mil_bitmap_cache_raster_policy {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t flags;
+    uint32_t reserved;
+    float primary_dpi_scale_x;
+    float primary_dpi_scale_y;
+    uint32_t maximum_texture_width;
+    uint32_t maximum_texture_height;
+    uint64_t source_revision;
+} progpu_native_mil_bitmap_cache_raster_policy;
+
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_cache_brush_raster_policy(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    const progpu_native_mil_bitmap_cache_raster_policy* policy);
+/* Retains an initialized explicitly empty 2D source Visual for a brush whose
+ * canonical paint target is zero. Ownership only: no ordinary empty allocation.
+ * Every canonical brush update clears this witness; input is never borrowed. */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_cache_brush_empty_source(
+    progpu_native_mil_channel* channel, uint32_t brush_handle, uint32_t visual_handle);
 /* Atomically replaces all point overrides. Handles must be strictly increasing;
  * zero count clears them. The source snapshot is copied before return. */
 PROGPU_NATIVE_API progpu_native_mil_status

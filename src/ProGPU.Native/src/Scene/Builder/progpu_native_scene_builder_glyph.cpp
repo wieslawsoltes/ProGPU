@@ -1,6 +1,7 @@
 #include "progpu_native_scene_builder_internal.hpp"
 
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_semantic_rgb_glyph.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -169,6 +170,55 @@ bool semantic_scene_builder::add_color_glyph_bitmaps(
         resource_index = static_cast<std::uint32_t>(
             implementation_->resources.size());
         implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::draw_rgb_glyph_run(
+    std::uint32_t glyph_resource_index,
+    const progpu_native_scene_rgb_glyph_draw& descriptor,
+    std::span<const progpu_native_scene_rgb_glyph_tile> glyphs,
+    progpu_native_image_rect bounds,
+    std::uint32_t state_resource_index) noexcept {
+    if (!semantic::valid_rgb_glyph_descriptor(descriptor) || glyphs.size() != descriptor.glyph_count ||
+        !finite_rect(bounds) || glyph_resource_index >= implementation_->resources.size() ||
+        !implementation_->valid_state_index(state_resource_index) ||
+        implementation_->commands.size() >= PROGPU_NATIVE_SCENE_MAX_COMMANDS)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    const auto& resource = implementation_->resources[glyph_resource_index];
+    if (resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN ||
+        (resource.record.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U ||
+        resource.glyph_outline_count == 0U || resource.glyph_outline_count > 65536U ||
+        resource.auxiliary.size() / sizeof(progpu_native_path_segment) > 1048576U)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    std::uint64_t pixels = 0U;
+    for (const auto& glyph : glyphs) {
+        pixels += std::uint64_t{glyph.width} * glyph.height;
+        if (!semantic::valid_rgb_glyph_tile(glyph, resource.glyph_outline_count) || pixels > 4096U * 4096U)
+            return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    try {
+        scene_builder_detail::reserve_append(implementation_->commands, 1U);
+        implementation::command_entry command{};
+        command.record.struct_size = sizeof(command.record);
+        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN;
+        command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.record.command_id = implementation_->commands.size() + 1U;
+        command.record.state_index = state_resource_index;
+        command.record.resource_index = glyph_resource_index;
+        command.record.bounds_x = bounds.x;
+        command.record.bounds_y = bounds.y;
+        command.record.bounds_width = bounds.width;
+        command.record.bounds_height = bounds.height;
+        command.payload.resize(sizeof(descriptor) + glyphs.size_bytes());
+        std::memcpy(command.payload.data(), &descriptor, sizeof(descriptor));
+        std::memcpy(command.payload.data() + sizeof(descriptor), glyphs.data(), glyphs.size_bytes());
+        implementation_->commands.push_back(std::move(command));
         implementation_->error = scene_build_error::none;
         return true;
     } catch (const std::bad_alloc&) {

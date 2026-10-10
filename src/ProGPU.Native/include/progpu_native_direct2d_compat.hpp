@@ -312,6 +312,9 @@ inline constexpr com::guid scene_render_target_native_interface_id{
     0x12A5U,
     0x4200U,
     {0x93U, 0x4CU, 0x34U, 0x56U, 0x8FU, 0xF9U, 0xD8U, 0xE8U}};
+inline constexpr com::guid scene_layer_options_native_interface_id{
+    0x658A462DU, 0x6C6CU, 0x4771U,
+    {0xB4U, 0x9DU, 0x93U, 0xC8U, 0x6FU, 0x04U, 0x6DU, 0xC2U}};
 
 enum class fill_mode : std::uint32_t {
     alternate = 0U,
@@ -435,6 +438,13 @@ enum class compatible_render_target_options : std::uint32_t {
 enum class layer_options : std::uint32_t {
     none = 0U,
     initialize_for_cleartype = 1U
+};
+
+// D2D1_LAYER_OPTIONS1 is a different contract, not an alias of legacy OPTIONS.
+enum class layer_options1 : std::uint32_t {
+    none = 0U,
+    initialize_from_background = 1U,
+    ignore_alpha = 2U
 };
 
 enum class gamma : std::uint32_t {
@@ -614,6 +624,16 @@ struct layer_parameters final {
     float opacity;
     brush* opacity_brush;
     layer_options options;
+};
+
+struct layer_parameters1 final {
+    rectangle_f content_bounds;
+    geometry* geometric_mask;
+    antialias_mode mask_antialias_mode;
+    matrix_3x2_f mask_transform;
+    float opacity;
+    brush* opacity_brush;
+    layer_options1 options;
 };
 
 struct simplified_geometry_sink : com::unknown {
@@ -1091,6 +1111,15 @@ struct scene_render_target_native : com::unknown {
         std::uint64_t* bytes_written) const noexcept = 0;
     virtual void PROGPU_NATIVE_COM_CALL GetSummary(
         scene_render_target_summary* summary) const noexcept = 0;
+};
+
+// Optional portable OPTIONS1 entrypoint, leaving ID2D1RenderTarget's original
+// vtable and legacy INITIALIZE_FOR_CLEARTYPE identity untouched. PopLayer and
+// EndDraw/error tags remain those of the owning render_target.
+struct scene_layer_options_native : com::unknown {
+    virtual void PROGPU_NATIVE_COM_CALL PushLayer1(
+        const layer_parameters1* parameters,
+        layer* layer_value) noexcept = 0;
 };
 
 struct path_geometry : geometry {

@@ -359,6 +359,75 @@ bool semantic_scene_builder::copy_image_from_memory(
     return false;
 }
 
+template<class Copy>
+bool semantic_scene_builder::copy_image_outside_clips(Copy&& copy) noexcept {
+    const auto depth = implementation_->stack_depth;
+    if (depth == 0U) return copy();
+    if (!implementation_->hit_test_owners.empty())
+        return implementation_->fail(scene_build_error::invalid_state);
+    // Validate every live frame before appending anything. The suspension is
+    // only for aliased clip-only scopes, never materialized drawing/history or
+    // source input scopes whose ranges would need a separate ownership model.
+    for (std::uint32_t i = 0U; i < depth; ++i) {
+        const auto index = implementation_->stack_state_indices[i];
+        if (implementation_->stack_kinds[i] != 1U ||
+            implementation_->hit_rectangle_stack[i] != 0U ||
+            implementation_->input_only_stack[i] != 0U ||
+            implementation_->render_only_stack[i] != 0U ||
+            index >= implementation_->resources.size() ||
+            !implementation_->valid_state_index(index))
+            return implementation_->fail(scene_build_error::invalid_state);
+        progpu_native_scene_state state{};
+        std::memcpy(&state, implementation_->resources[index].payload.data(), sizeof(state));
+        const auto clip_flags = state.flags & ~PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+        if (clip_flags != PROGPU_NATIVE_SCENE_STATE_CLIP_RECT || state.opacity != 1.0F ||
+            state.transform.m11 != 1.0F || state.transform.m12 != 0.0F ||
+            state.transform.m21 != 0.0F || state.transform.m22 != 1.0F ||
+            state.transform.m31 != 0.0F || state.transform.m32 != 0.0F)
+            return implementation_->fail(scene_build_error::invalid_state);
+    }
+    const auto command_count = implementation_->commands.size();
+    const auto resource_count = implementation_->resources.size();
+    const auto maximum_depth = implementation_->maximum_stack_depth;
+    const auto states = implementation_->stack_state_indices;
+    const auto kinds = implementation_->stack_kinds;
+    bool success = true;
+    for (std::uint32_t i = 0U; i < depth && success; ++i) success = restore();
+    if (success) success = copy();
+    for (std::uint32_t i = 0U; i < depth && success; ++i) success = save(states[i]);
+    if (success) return true;
+    // All old frames were clip-only: restore/save cannot modify hit ranges.
+    // The SRC layer separates the copy from prior batching. Rollback therefore
+    // owns only new vector tails and bounded stack metadata, not old history.
+    implementation_->commands.resize(command_count);
+    implementation_->resources.resize(resource_count);
+    implementation_->stack_depth = depth;
+    implementation_->materialized_layer_depth = 0U;
+    implementation_->maximum_stack_depth = maximum_depth;
+    implementation_->stack_state_indices = states;
+    implementation_->stack_kinds = kinds;
+    return false;
+}
+
+bool semantic_scene_builder::copy_image_from_memory_outside_clips(
+    const progpu_native_scene_image_draw& image,
+    std::uint32_t storage_flags,
+    std::span<const std::byte> pixels,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    return copy_image_outside_clips([&]() noexcept {
+        return copy_image_from_memory(image, storage_flags, pixels, color_matrix);
+    });
+}
+
+bool semantic_scene_builder::copy_image_from_builder_outside_clips(
+    semantic_scene_builder source, std::uint32_t source_resource_index,
+    const progpu_native_scene_image_draw& image,
+    const progpu_native_scene_image_color_matrix* color_matrix) noexcept {
+    return copy_image_outside_clips([&]() noexcept {
+        return copy_image_from_builder(std::move(source), source_resource_index, image, color_matrix);
+    });
+}
+
 bool semantic_scene_builder::copy_image_from_builder(
     semantic_scene_builder source, std::uint32_t source_resource_index,
     const progpu_native_scene_image_draw& image,

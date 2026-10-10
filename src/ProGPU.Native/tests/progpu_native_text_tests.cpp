@@ -14,6 +14,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <span>
@@ -8607,6 +8608,108 @@ void unicode_line_breaks_feed_native_layout_without_allocation() {
     require(breaks[14U] == text_line_break_kind::prohibited);
     require(breaks[15U] == text_line_break_kind::opportunity);
     require(breaks.back() == text_line_break_kind::mandatory);
+
+    // Paired with the internal managed resolver fixtures. These are default
+    // UAX #14 boundaries, not Windows EDIT word-selection expectations.
+    constexpr std::array<std::uint8_t, 17U> expected_all{
+        0U, 1U, 0U, 0U, 2U, 0U, 0U, 0U, 1U, 1U, 1U, 0U, 0U, 1U, 0U, 1U, 2U};
+    for (std::size_t index = 0U; index < breaks.size(); ++index) {
+        require(static_cast<std::uint8_t>(breaks[index]) == expected_all[index]);
+    }
+
+    const auto check_default = [](std::u32string_view text,
+                                  std::initializer_list<std::uint8_t> expected) {
+        require(text.size() == expected.size());
+        std::vector<unicode_scalar> scalars{};
+        std::uint32_t source = 0U;
+        for (const char32_t code_point : text) {
+            const auto length = static_cast<std::uint16_t>(code_point > 0xFFFFU ? 2U : 1U);
+            scalars.push_back(unicode_scalar{static_cast<std::uint32_t>(code_point), source, length});
+            source += length;
+        }
+        const auto original = scalars;
+        std::vector<unicode_line_break_class> scratch(text.size() + 2U,
+            static_cast<unicode_line_break_class>(255U));
+        std::vector<text_line_break_kind> output(text.size() + 2U,
+            static_cast<text_line_break_kind>(255U));
+        unicode_error failure = unicode_error::none;
+        require(try_resolve_unicode_line_breaks(scalars, scratch, output, &failure));
+        require(failure == unicode_error::none);
+        std::size_t index = 0U;
+        for (const auto expected_break : expected) {
+            require(static_cast<std::uint8_t>(output[index]) == expected_break);
+            require(scalars[index].code_point == original[index].code_point &&
+                scalars[index].input_index == original[index].input_index &&
+                scalars[index].input_length == original[index].input_length);
+            ++index;
+        }
+        for (; index < output.size(); ++index) {
+            require(static_cast<std::uint8_t>(output[index]) == 255U);
+            require(static_cast<std::uint8_t>(scratch[index]) == 255U);
+        }
+    };
+    check_default(U"\r\r\n", {2U, 0U, 2U});
+    check_default(U"a\u00A0b\u202Fc", {0U, 0U, 0U, 0U, 2U});
+    check_default(U"a\u2603b\U0001F600c", {1U, 1U, 1U, 1U, 2U});
+    check_default(U"\u201Ca\u201D b", {0U, 0U, 0U, 1U, 2U});
+    check_default(U"\U0001F1E6\u0301\U0001F1E7\U0001F1E8", {0U, 0U, 1U, 2U});
+    check_default(U"\U0001F466\U0001F3FB", {0U, 2U});
+    check_default(U"\U0001F466\u200D\U0001F466", {0U, 0U, 2U});
+    check_default(U"\u1100\u1161\u11A8X", {0U, 0U, 1U, 2U});
+    check_default(U"\u0E01\u0E31", {0U, 2U});
+    check_default(U"", {});
+
+    for (const auto invalid : {0xD800U, 0xDFFFU, 0x110000U, UINT32_MAX}) {
+        require(get_unicode_line_break_class(invalid) == unicode_line_break_class::unknown);
+        const std::array<unicode_scalar, 2U> invalid_input{
+            unicode_scalar{0x41U, 7U, 1U}, unicode_scalar{invalid, 8U, 1U}};
+        std::array<unicode_line_break_class, 2U> invalid_scratch{};
+        invalid_scratch.fill(static_cast<unicode_line_break_class>(255U));
+        std::array<text_line_break_kind, 2U> invalid_output{};
+        invalid_output.fill(static_cast<text_line_break_kind>(255U));
+        require(!try_resolve_unicode_line_breaks(invalid_input, invalid_scratch, invalid_output, &error));
+        require(error == unicode_error::invalid_argument);
+        require(invalid_scratch[0U] == unicode_line_break_class::alphabetic);
+        require(static_cast<std::uint8_t>(invalid_scratch[1U]) == 255U);
+        require(std::ranges::all_of(invalid_output, [](auto item) {
+            return static_cast<std::uint8_t>(item) == 255U;
+        }));
+    }
+    for (const bool short_scratch : {false, true}) {
+        const std::array<unicode_scalar, 2U> invalid_input{
+            unicode_scalar{0xD800U, 0U, 1U}, unicode_scalar{0x41U, 1U, 1U}};
+        std::array<unicode_line_break_class, 2U> invalid_scratch{};
+        invalid_scratch.fill(static_cast<unicode_line_break_class>(255U));
+        std::array<text_line_break_kind, 2U> invalid_output{};
+        invalid_output.fill(static_cast<text_line_break_kind>(255U));
+        require(!try_resolve_unicode_line_breaks(invalid_input,
+            std::span<unicode_line_break_class>{invalid_scratch}.first(short_scratch ? 1U : 2U),
+            std::span<text_line_break_kind>{invalid_output}.first(short_scratch ? 2U : 1U), &error));
+        require(error == unicode_error::insufficient_buffer);
+        require(std::ranges::all_of(invalid_scratch, [](auto item) {
+            return static_cast<std::uint8_t>(item) == 255U;
+        }));
+        require(std::ranges::all_of(invalid_output, [](auto item) {
+            return static_cast<std::uint8_t>(item) == 255U;
+        }));
+    }
+
+    // Decoded order, not source-unit metadata, owns this core's resolution.
+    // UTF-16 decoder and transport admission remain separate contracts.
+    const std::array<unicode_scalar, 3U> source_metadata{
+        unicode_scalar{0x41U, 7U, 1U}, unicode_scalar{0x1F600U, 8U, 2U},
+        unicode_scalar{0x42U, 10U, 1U}};
+    const std::array<unicode_scalar, 3U> other_metadata{
+        unicode_scalar{0x41U, 99U, 0U}, unicode_scalar{0x1F600U, 0U, 1U},
+        unicode_scalar{0x42U, 3U, 8U}};
+    std::array<unicode_line_break_class, 3U> metadata_scratch{};
+    std::array<text_line_break_kind, 3U> metadata_output{}, other_output{};
+    require(try_resolve_unicode_line_breaks(source_metadata, metadata_scratch, metadata_output, &error));
+    require(try_resolve_unicode_line_breaks(other_metadata, metadata_scratch, other_output, &error));
+    require(metadata_output == other_output);
+    require(metadata_output[0U] == text_line_break_kind::opportunity &&
+        metadata_output[1U] == text_line_break_kind::opportunity &&
+        metadata_output[2U] == text_line_break_kind::mandatory);
 
     breaks.fill(text_line_break_kind::mandatory);
     require(!try_resolve_unicode_line_breaks(

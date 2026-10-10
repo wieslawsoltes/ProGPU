@@ -305,7 +305,10 @@ bool encode_semantic_layer_composite(
         engine,
         operation.blend_mode,
         masked,
-        blend_pipeline_cache_hit);
+        blend_pipeline_cache_hit,
+        false,
+        operation.target_ignores_alpha ? layer_write_channels::rgb : layer_write_channels::all,
+        operation.linear_byte_opacity);
     WGPUBindGroup target_uniform_group =
         operation.target_layer == PROGPU_NATIVE_SCENE_NO_INDEX
         ? engine.layer_uniform_bind_group

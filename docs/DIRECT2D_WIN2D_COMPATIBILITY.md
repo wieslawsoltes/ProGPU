@@ -649,6 +649,37 @@ pixels. Windows tests call both ordinary and A8
 compatible sources through the actual SDK
 `ID2D1RenderTarget::CreateSharedBitmap` vtable.
 
+The portable bitmap-sharing boundary treats the private storage query's HRESULT
+as authoritative. Only `E_NOINTERFACE` with a null interface selects the existing
+scene-target alternative. A failed query with an owned nonnull interface returns
+that exact failure and releases the interface through the existing COM RAII
+owner; it cannot become a successful bitmap. Success with a null interface returns
+`E_NOTIMPL` without trying another representation. The alternative scene query
+likewise preserves failures and releases any returned interface before returning.
+No IID, vtable, bitmap alias, format, DPI, pixel-copy or scene-generation contract
+changes.
+
+Portable drawing and brush-family probes likewise fall through only for
+`E_NOINTERFACE` with null. `DrawBitmap`, nested bitmap-brush sources, ordinary
+and opacity-mask brush classification, and `FillOpacityMask` preserve genuine
+failures and release failed nonnull outputs; their successful-null queries fail
+with `E_FAIL`. Existing terminal absent-family errors and the first latched draw
+error remain intact. See [draw resource query ownership](direct2d-draw-resource-query.md)
+for the authored failure, reference-balance, recovery and genuine-resource
+controls. This does not change the bitmap-sharing error contract above.
+
+Thirteen authored raw fault controls exercise both queries, exact HRESULTs,
+null publication, no downstream bitmap metadata/copy access, no first-query
+fallback after malformed responses, balanced actual owned source/scene/factory
+references, and byte-identical recorded target scenes. The fixture reuses actual
+ProGPU interfaces rather than fabricating a private vtable; its fault injection
+is an owned boundary policy, not an original Microsoft behavior claim for broken
+COM or a ProGPU-private IID. Existing valid upload/locked/compatible-source
+sharing and alias mutation controls are unchanged. These additions are source
+only: no build, syntax check, test, verifier, probe, GPU/UI/VM execution or CI
+dispatch was performed. Final integrated native/provider/package validation
+remains required.
+
 `CreateSharedBitmap(IID_IWICBitmapLock, ...)` is now a second typed ownership
 lane. The installed portable header carries the canonical four-method lock
 vtable and IID, so a real Windows lock or an ABI-compatible portable provider
@@ -828,16 +859,16 @@ Triangle order and count are deliberately not compared because Direct2D does
 not make its valid diagonalization an API contract. Ambiguous topology and
 the existing bounded normalization limits still fail closed transactionally.
 
-Portable nondegenerate rectangle geometry also implements exact
+The retained default-stroke portable nondegenerate rectangle lane implements exact
 `GetWidenedBounds` for the default stroke and same-factory solid stroke
 styles. The stroke expands in local geometry space and the caller transform
 is applied afterward, matching Direct2D ordering for nonuniform affine
 transforms. An axis-preserving `ID2D1TransformedGeometry` first materializes
 its intrinsic rectangle transform, then widens by the unscaled stroke width,
 then applies the caller world transform; this avoids incorrectly scaling the
-stroke with the intrinsic geometry transform. Dashed styles, degenerate
-rectangles, and non-axis-preserving transformed rectangles continue to fail
-closed until their cap/run/offset bounds share the retained stroke compiler.
+stroke with the intrinsic geometry transform. Dashed styles and degenerate
+rectangles remain outside this lane. Explicit solid styles additionally use the
+shared ordered-path implementation described below.
 The native fixture compares both base and transformed results through genuine
 system Direct2D pointers on Windows.
 
@@ -845,8 +876,8 @@ The same default-stroke rectangle lane now implements
 `StrokeContainsPoint`. It tests the exact transformed outer miter rectangle
 and excludes only the strict transformed inner rectangle, so both centered
 stroke boundaries remain included. Non-finite input is rejected; non-null
-styles, degenerate rectangles, and singular transforms fail closed until the
-shared styled-offset implementation is available. Portable and Windows
+styles previously failed closed; their bounded solid-style route is described
+below. Degenerate rectangles and singular transforms remain separate. Portable and Windows
 system-Direct2D fixtures compare edge and center points for both base and
 intrinsically transformed rectangles.
 
@@ -854,12 +885,31 @@ Default-stroke nondegenerate rectangles now also implement `Widen` into a
 caller-owned simplified geometry sink. Base rectangles reproduce Direct2D's
 alternate-fill pair of closed outer and inner miter contours. Positive
 axis-aligned intrinsic transformed rectangles reproduce Direct2D's single
-winding-fill, force-unstroked open contour, including its explicit bridge
+winding-fill open contour, including its explicit bridge
 segments; the caller transform is applied only after widening. The Windows
 oracle compares fill mode, segment flags, figure kinds, closure, and every
-emitted point against system Direct2D. Zero width, explicit styles, degenerate
-rectangles, and transformed cases with a collapsed inner contour or reflected,
-swapped-axis, or general-affine intrinsic transforms remain fail closed.
+emitted point against system Direct2D. The existing zero-width base rectangle
+still emits its two closed contours; the existing transformed default zero-width
+path emits winding fill with no figures. Degenerate rectangles and unsupported
+default transformed cases retain their existing gates.
+Neither transformed default case emits `SetSegmentFlags`; the old test sink's
+initial force-unstroked value is retained caller state, not an emitted flag.
+
+Explicit same-factory **solid, normal-transform, positive-width** rectangle
+strokes now reuse owned path `GetWidenedBounds`, `StrokeContainsPoint`, and `Widen`
+for miter, bevel, round, and miter-or-bevel joins. The source TL/TR/BR/BL contour
+is retained through intrinsic transforms, including reflection and shear, before
+stroke expansion; the caller world transform follows the stroke. Both portable
+geometry and Windows compatibility wrappers use the same implementation. Newly
+authored CPU and original-Windows controls are not executed or qualified. Dashed
+rectangle phase, new fixed/hairline behavior, explicit zero-width hit/widening,
+and degenerate admission remain excluded. The Windows transformed **null/default**
+wrapper now shares the existing materialized-rectangle bounds/hit and specialized
+Widen helpers for direct rectangles with positive diagonal intrinsic transforms.
+It no longer applies that intrinsic scale to the pen in this lane. Other default
+source/transform families retain their older fallback and remain outside this
+correction; see [default transformed strokes](direct2d-default-transformed-strokes.md).
+See [solid rectangle strokes](direct2d-rectangle-solid-strokes.md).
 
 Nondegenerate rectangles now implement `CompareWithGeometry` against
 same-factory rectangles and bounded transformed-rectangle chains. The current
@@ -1599,13 +1649,17 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   scoped opacity layers with exact rectangle or path-geometry clips; layers
   must close LIFO and cannot cross a `Flush`, so malformed retained stacks fail
   before native submission;
-- mutable `CanvasStrokeStyle` state for start/end/dash caps, miter/bevel/round
+- mutable `CanvasStrokeStyle` state for start/end/dash caps, miter/bevel/round/miter-or-bevel
   joins, miter limit, standard or custom dash patterns, dash offset, normal,
   fixed, and hairline transform behavior. Each style caches its last immutable
   typed `Pen` realization and invalidates that cache on mutation, so repeated
   ArcOptions-style drawing is allocation-free after warmup. Custom dashes take
-  precedence over the standard dash enum. `MiterOrBevel` fails closed until it
-  has a distinct retained semantic;
+  precedence over the standard dash enum. `MiterOrBevel` retains explicit join
+  value 3 through geometry, device-width paint and native transport; matching
+  rebuilt producers and final qualification are required (see
+  [retained-miter-or-bevel.md](retained-miter-or-bevel.md)). `Miter` selects the
+  separate retained `ClipMiterAtLimit` policy rather than inheriting generic
+  bevel-overflow paint; see [retained-clipped-miter.md](retained-clipped-miter.md);
 - typed `ICanvasBrush`, `CanvasSolidColorBrush`,
   `CanvasLinearGradientBrush`, `CanvasRadialGradientBrush`, and
   `CanvasImageBrush` resources plus color/HDR gradient-stop DTOs. Primitive,
@@ -1674,7 +1728,7 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, portable Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file decoding, buffer creation and updates, `MiterOrBevel`, geometry
+Bitmap file decoding, buffer creation and updates, geometry
 query/stroke/outline operations,
 command-list/effect image brushes, opacity
 brush layers, text formats/layouts, effects, sprite batches, and XAML controls
@@ -2112,7 +2166,13 @@ with the prior target-space clip. The translator records that intersection as
 a native scene-state resource and emits balanced save/restore commands, so
 later transform changes cannot move an already-pushed clip. The admitted depth
 is the native scene maximum of 64; overflow has an explicit capacity failure.
-Clear inside a clip and unbalanced pops fail closed.
+At that checkpoint Clear inside a clip and unbalanced pops failed closed. The
+later [clipped Clear contract](direct2d-full-target-clear.md) admits only an
+all-aliased clip stack through a bounded shared SRC layer, preserving captured
+target coordinates, earlier history and null/straight/IGNORE-alpha semantics.
+Antialiased clip/source-layer Clear and unbalanced pops remain rejected. The
+paired provider and original Windows fixtures require hosted execution; this
+does not broaden managed CanvasCommandList or mapped-picture admission.
 
 Direct2D per-primitive clip antialiasing remains rejected with a typed
 unsupported-state result because ProGPU rectangle clips currently resolve to
@@ -4100,6 +4160,12 @@ claim about native Direct2D's permitted calls.
 
 ## Implementation-first checkpoint: bitmap and compatible-target source copies
 
+An additive implementation-first lane now covers compatible-target memory
+replacement during active captured aliased axis-aligned clips. It preserves the
+root-only old builder API and other copy-scope failures; see
+[storage copies with active aliased clips](direct2d-scoped-memory-copies.md) for
+the exact atomic transaction and pending paired-provider/original-Windows gates.
+
 Native compatible bitmap destinations now implement `CopyFromBitmap` and
 `CopyFromRenderTarget` through the private typed image-source contract. Bitmap
 sources include owned uploads, WIC lock-backed/shared views and compatible target
@@ -5261,6 +5327,13 @@ backdrop, effects, layer masks and retained 3D remain unsupported. Their source
 metadata and bounds are never ignored or replaced by ordinary isolation. The
 old uniform rendering path is unchanged, including all format and mixed-DPI
 history restrictions. This does not claim general mapped-layer compatibility.
+
+The same transient SRC_OVER path retains an explicitly requested `IGNORE_ALPHA`
+target. Its original opaque clear/composition behavior and actual innermost
+target identity remain authoritative for RGB glyph replay. This flag does not
+admit background initialization or any excluded layer feature. Integrated stock
+Metal controls preserve every pixel through a nonzero mapped viewport; Windows,
+the second provider and whole producer/package qualification remain separate.
 
 Authored controls cover policy rejection, nested physical extents with a nonzero
 viewport, and both native providers' exact all-pixel comparison against an

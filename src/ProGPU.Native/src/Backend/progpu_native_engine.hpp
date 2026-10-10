@@ -110,6 +110,8 @@ struct progpu_native_engine {
     std::uint32_t path_atlas_size = native_initial_atlas_size;
     std::uint32_t path_atlas_generation = 0U;
     WGPUShaderModule glyph_raster_shader = nullptr;
+    progpu::native::rgb_glyph_pipeline_resources rgb_glyph_pipelines;
+    progpu::native::target_clear_pipeline_resources target_clear_pipelines;
     WGPUComputePipeline glyph_raster_pipeline = nullptr;
     WGPUBindGroupLayout glyph_raster_layout = nullptr;
     WGPUPipelineLayout glyph_raster_pipeline_layout = nullptr;
@@ -275,6 +277,12 @@ struct progpu_native_engine {
     bool image_gpu_cache_valid = false;
     WGPURenderPipeline layer_composite_pipeline = nullptr;
     WGPURenderPipeline layer_mask_pipeline = nullptr;
+    std::array<WGPURenderPipeline, 4U> layer_coverage_pipelines{};
+    std::array<WGPURenderPipeline, 4U> layer_linear_byte_opacity_pipelines{};
+    std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
+        layer_rgb_blend_pipelines{};
+    std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
+        layer_rgb_mask_blend_pipelines{};
     std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
         layer_blend_pipelines{};
     std::array<WGPURenderPipeline, PROGPU_NATIVE_BLEND_MODULATE + 1U>
@@ -523,6 +531,7 @@ struct progpu_native_engine {
         semantic_cached_layer_identities{};
     semantic_layer_slot semantic_root_slot{};
     semantic_layer_slot semantic_advanced_source_slot{};
+    semantic_layer_slot semantic_layer_coverage_slot{};
     semantic_layer_slot semantic_advanced_output_slot{};
     WGPUBuffer semantic_layer_vertex_buffer = nullptr;
     std::uint64_t semantic_layer_vertex_buffer_size = 0U;
@@ -628,6 +637,7 @@ struct progpu_native_engine {
             {path_split_signed_coverage_pipeline, "path_signed_pack"},
             {path_split_boolean_combine_pipeline, "path_boolean_combine"},
             {glyph_raster_pipeline, "glyph"},
+            {rgb_glyph_pipelines.compute, "glyph_rgb"},
             {effect_blur_horizontal_pipeline, "blur_horizontal"},
             {effect_blur_vertical_pipeline, "blur_vertical"},
             {effect_drop_shadow_pipeline, "drop_shadow"},
@@ -1420,6 +1430,7 @@ struct progpu_native_engine {
         }
         release_slot(semantic_root_slot);
         release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_layer_coverage_slot);
         release_slot(semantic_advanced_output_slot);
         if (semantic_effect_uniform_buffer != nullptr) {
             wgpuBufferDestroy(semantic_effect_uniform_buffer);
@@ -1571,6 +1582,7 @@ struct progpu_native_engine {
         };
         release_slot(semantic_root_slot);
         release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_layer_coverage_slot);
         release_slot(semantic_advanced_output_slot);
     }
 
@@ -1588,6 +1600,7 @@ struct progpu_native_engine {
         }
         release_slot(semantic_root_slot);
         release_slot(semantic_advanced_source_slot);
+        release_slot(semantic_layer_coverage_slot);
         release_slot(semantic_advanced_output_slot);
     }
 
@@ -1792,6 +1805,20 @@ struct progpu_native_engine {
         }
         if (layer_mask_pipeline != nullptr) {
             wgpuRenderPipelineRelease(layer_mask_pipeline);
+        }
+        for (auto coverage_pipeline : layer_coverage_pipelines) {
+            if (coverage_pipeline != nullptr) {
+                wgpuRenderPipelineRelease(coverage_pipeline);
+            }
+        }
+        for (auto rgb_pipeline : layer_rgb_blend_pipelines) {
+            if (rgb_pipeline != nullptr) wgpuRenderPipelineRelease(rgb_pipeline);
+        }
+        for (auto byte_pipeline : layer_linear_byte_opacity_pipelines) {
+            if (byte_pipeline != nullptr) wgpuRenderPipelineRelease(byte_pipeline);
+        }
+        for (auto rgb_pipeline : layer_rgb_mask_blend_pipelines) {
+            if (rgb_pipeline != nullptr) wgpuRenderPipelineRelease(rgb_pipeline);
         }
         for (auto mask_blend_pipeline : layer_mask_blend_pipelines) {
             if (mask_blend_pipeline != nullptr) {
@@ -2014,6 +2041,8 @@ struct progpu_native_engine {
         if (glyph_raster_pipeline != nullptr) {
             wgpuComputePipelineRelease(glyph_raster_pipeline);
         }
+        rgb_glyph_pipelines.reset();
+        target_clear_pipelines.reset();
         if (glyph_raster_fallback_pipeline != nullptr) {
             wgpuRenderPipelineRelease(glyph_raster_fallback_pipeline);
         }

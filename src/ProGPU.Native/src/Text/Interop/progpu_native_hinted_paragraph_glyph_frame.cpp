@@ -1,4 +1,5 @@
 #include "progpu_native_hinted_paragraph_glyph_frame.hpp"
+#include "progpu_native_hinted_source_fitting.hpp"
 #include "progpu_native_owned_allocation_internal.hpp"
 
 #include <algorithm>
@@ -32,11 +33,14 @@ bool same_scalar(const unicode_scalar& a, const unicode_scalar& b) noexcept {
         a.canonical_combining_class == b.canonical_combining_class && a.reserved == b.reserved && a.script == b.script;
 }
 
-bool same_logical_glyph(const shaping_glyph& logical, const shaping_glyph& original) noexcept {
+bool same_logical_glyph(const shaping_glyph& logical, const shaping_glyph& original,
+    hinted_source_advance_policy policy) noexcept {
+    shaping_glyph fitting{};
+    if (!project_hinted_source_advance(original, policy, fitting)) return false;
     return original.advance_y != INT32_MIN && original.offset_y != INT32_MIN &&
         logical.glyph_id == original.glyph_id && logical.code_point == original.code_point &&
         logical.cluster == original.cluster && logical.flags == original.flags &&
-        logical.advance_x == original.advance_x && logical.advance_y == -original.advance_y &&
+        logical.advance_x == fitting.advance_x && logical.advance_y == -original.advance_y &&
         logical.offset_x == original.offset_x && logical.offset_y == -original.offset_y;
 }
 
@@ -54,6 +58,7 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
         paragraph.shaping_input.size() != scalar_count || paragraph.scalar_levels.size() != scalar_count ||
         paragraph.line_break_classes.size() != scalar_count || paragraph.scalar_breaks.size() != scalar_count ||
         paragraph.source_metrics.size() != paragraph.styles.size() || paragraph.device_styles.size() != paragraph.styles.size() ||
+        (!paragraph.source_styles.empty() && paragraph.source_styles.size() != paragraph.styles.size()) ||
         paragraph.logical_owners.size() != logical_count || paragraph.logical_bidi_levels.size() != logical_count ||
         paragraph.logical_cluster_ends.size() != logical_count || paragraph.logical_font_indices.size() != logical_count ||
         paragraph.logical_source_scales.size() != logical_count || paragraph.glyph_scales.size() != logical_count ||
@@ -61,6 +66,26 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
         (!paragraph.justification_classes.empty() && paragraph.justification_classes.size() != logical_count) ||
         paragraph.positioned_owners.size() != positioned_count || paragraph.bidi_levels.size() != positioned_count ||
         paragraph.cluster_ends.size() != positioned_count || paragraph.lines.size() != paragraph.line_origins.size()) return false;
+    if (paragraph.has_source_geometry) {
+        if (paragraph.source_styles.size() != paragraph.styles.size() ||
+            paragraph.source_style_metrics.size() != paragraph.styles.size() ||
+            paragraph.source_item_metrics.size() != logical_count || paragraph.source_logical_metrics.size() != logical_count ||
+            paragraph.source_glyphs.size() != positioned_count || paragraph.source_lines.size() != paragraph.lines.size() ||
+            !std::isfinite(paragraph.source_maximum_width) || paragraph.source_maximum_width < 0.0 ||
+            !std::isfinite(paragraph.source_line_height) || paragraph.source_line_height < 0.0 ||
+            static_cast<float>(paragraph.source_maximum_width) != paragraph.layout.maximum_width ||
+            static_cast<float>(paragraph.source_line_height) != paragraph.layout.line_height ||
+            paragraph.layout.alignment == PROGPU_NATIVE_TEXT_ALIGNMENT_JUSTIFY) return false;
+        if (!std::isfinite(paragraph.source_minimum_intrinsic_width) || paragraph.source_minimum_intrinsic_width < 0.0 ||
+            !std::isfinite(paragraph.source_maximum_intrinsic_width) || paragraph.source_maximum_intrinsic_width < 0.0 ||
+            (!paragraph.has_source_intrinsic_widths && (paragraph.source_minimum_intrinsic_width != 0.0 ||
+                paragraph.source_maximum_intrinsic_width != 0.0))) return false;
+        if (logical_count != 0U && (paragraph.source_fitting == nullptr ||
+            !validate_hinted_source_fitting(paragraph, *paragraph.source_fitting))) return false;
+    } else if (!paragraph.source_style_metrics.empty() || !paragraph.source_item_metrics.empty() ||
+        !paragraph.source_logical_metrics.empty() || !paragraph.source_glyphs.empty() || !paragraph.source_lines.empty() ||
+        paragraph.has_source_intrinsic_widths || paragraph.source_minimum_intrinsic_width != 0.0 ||
+        paragraph.source_maximum_intrinsic_width != 0.0) return false;
     std::uint64_t source_end = 0U;
     for (std::size_t i = 0U; i < scalar_count; ++i) {
         const auto& source = paragraph.source_input[i];
@@ -91,6 +116,19 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             !std::isfinite(device.logical_units_per_physical_pixel / 64.0F) || device.logical_units_per_physical_pixel / 64.0F <= 0.0F ||
             !std::isfinite(metric.ascent) || metric.ascent < 0.0F || !std::isfinite(metric.descent) || metric.descent < 0.0F ||
             !std::isfinite(metric.ascent + metric.descent)) return false;
+        if (!paragraph.source_styles.empty()) {
+            hinted_source_device_selection selected{};
+            if (!resolve_hinted_source_device(paragraph.source_styles[i], selected) ||
+                device.x_pixels_per_em_26_6 != selected.pixels_per_em_26_6 ||
+                device.y_pixels_per_em_26_6 != selected.pixels_per_em_26_6 ||
+                device.logical_units_per_physical_pixel != selected.logical_units_per_physical_pixel) return false;
+        }
+        if (paragraph.has_source_geometry) {
+            const auto source = paragraph.source_style_metrics[i];
+            if (!std::isfinite(source.ascent) || source.ascent < 0.0 ||
+                !std::isfinite(source.descent) || source.descent < 0.0 ||
+                static_cast<float>(source.ascent) != metric.ascent || static_cast<float>(source.descent) != metric.descent) return false;
+        }
         style_end += style.scalar_count;
     }
     if (style_end != scalar_count) return false;
@@ -117,6 +155,9 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             identity.policy != device.policy || identity.x_phase_26_6 != device.x_phase_26_6 || identity.y_phase_26_6 != device.y_phase_26_6 ||
             identity.variation_coordinates_16_16 != device.variation_coordinates_16_16 || run.bidi_level < 0 || run.bidi_level > 125 ||
             run.generation->direction != ((run.bidi_level & 1) == 0 ? shaping_direction::left_to_right : shaping_direction::right_to_left)) return false;
+        if (!paragraph.source_styles.empty() && (identity.device_frame.units_per_em == 0U ||
+            static_cast<float>(paragraph.source_styles[run.style_index].em_size) /
+                static_cast<float>(identity.device_frame.units_per_em) != run.source_scale)) return false;
         for (std::size_t i = 0U; i < run.scalar_count; ++i)
             if (!same_scalar(run.generation->shaping_input[i], paragraph.shaping_input[next_scalar + i]) ||
                 paragraph.scalar_levels[next_scalar + i].level != run.bidi_level) return false;
@@ -132,7 +173,8 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
                         static_cast<std::uint32_t>(original), descriptor} ||
                     descriptor >= run.generation->source_descriptor_count || descriptor >= run.generation->batch->glyphs.size() ||
                     run.generation->batch->glyphs[descriptor].glyph_index != glyph.glyph_id ||
-                    !same_logical_glyph(glyph, run.generation->glyphs[original]) || glyph.cluster < 0 ||
+                    !same_logical_glyph(glyph, run.generation->glyphs[original], paragraph.source_styles.empty()
+                        ? hinted_source_advance_policy::unchanged : paragraph.source_styles[run.style_index].advance_policy) || glyph.cluster < 0 ||
                     paragraph.logical_cluster_ends[logical] <= glyph.cluster ||
                     paragraph.logical_bidi_levels[logical] != run.bidi_level || paragraph.logical_font_indices[logical] != run.font_index ||
                     paragraph.logical_source_scales[logical] != run.source_scale ||
@@ -141,6 +183,15 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
                     static_cast<std::uint8_t>(paragraph.breaks_after[logical]) > static_cast<std::uint8_t>(text_line_break_kind::mandatory) ||
                     (!paragraph.justification_classes.empty() && static_cast<std::uint8_t>(paragraph.justification_classes[logical]) >
                         static_cast<std::uint8_t>(text_justification_class::word_space))) return false;
+                if (paragraph.has_source_geometry) {
+                    const auto projected = paragraph.source_logical_metrics[logical];
+                    const auto source_item = paragraph.source_item_metrics[logical];
+                    const auto source_style = paragraph.source_style_metrics[run.style_index];
+                    const auto expected = paragraph.source_fitting->metrics[logical];
+                    if (projected.advance_x != expected.advance_x || projected.advance_y != expected.advance_y ||
+                        projected.offset_x != expected.offset_x || projected.offset_y != expected.offset_y ||
+                        source_item.ascent != source_style.ascent || source_item.descent != source_style.descent) return false;
+                }
             }
             return true;
         };
@@ -171,6 +222,16 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             !std::isfinite(glyph.x) || !std::isfinite(glyph.y) || !std::isfinite(glyph.advance_x) || !std::isfinite(glyph.advance_y) ||
             !finite(progpu_native_point{glyph.x + glyph.advance_x, glyph.y + glyph.advance_y}) ||
             !finite(progpu_native_point{glyph.x + logical_origin.x, glyph.y + logical_origin.y})) return false;
+        if (paragraph.has_source_geometry) {
+            const auto source = paragraph.source_glyphs[i];
+            const auto original = paragraph.source_logical_metrics[logical];
+            if (!std::isfinite(source.x) || !std::isfinite(source.y) ||
+                source.cluster != glyph.cluster ||
+                source.advance_x != original.advance_x || source.advance_y != original.advance_y ||
+                static_cast<float>(source.x) != glyph.x || static_cast<float>(source.y) != glyph.y ||
+                static_cast<float>(source.advance_x) != glyph.advance_x || static_cast<float>(source.advance_y) != glyph.advance_y)
+                return false;
+        }
     }
     std::size_t covered = 0U;
     for (std::size_t i = 0U; i < paragraph.lines.size(); ++i) {
@@ -180,6 +241,15 @@ bool valid_paragraph(const hinted_paragraph_generation& paragraph,
             !std::isfinite(line.height) || line.height < 0.0F || !std::isfinite(paragraph.line_origins[i]) ||
             (line.flags & ~static_cast<std::uint8_t>(positioned_text_line_flags::right_to_left_justified)) != 0U ||
             line.reserved1 != 0U || line.reserved2 != 0U) return false;
+        if (paragraph.has_source_geometry) {
+            const auto source = paragraph.source_lines[i];
+            if (!std::isfinite(source.width) || source.width < 0.0 || !std::isfinite(source.top) || source.top < 0.0 ||
+                source.glyph_start != line.glyph_start || source.glyph_count != line.glyph_count ||
+                !std::isfinite(source.height) || source.height < 0.0 || !std::isfinite(source.baseline_offset) || source.baseline_offset < 0.0 ||
+                source.baseline_y != source.top + source.baseline_offset || !std::isfinite(source.origin_x) ||
+                static_cast<float>(source.width) != line.width || static_cast<float>(source.baseline_y) != line.baseline_y ||
+                static_cast<float>(source.height) != line.height || static_cast<float>(source.origin_x) != paragraph.line_origins[i]) return false;
+        }
         covered += line.glyph_count;
     }
     return covered == positioned_count;

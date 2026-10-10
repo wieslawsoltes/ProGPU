@@ -24,6 +24,7 @@ public static class StrokePathGeometry
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
 
         widenedPath = new PathGeometry { FillRule = FillRule.Nonzero };
         var sink = new GeometrySink(widenedPath);
@@ -37,6 +38,7 @@ public static class StrokePathGeometry
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(pen);
+        pen.ValidateJoinSemantics();
 
         contains = false;
         if (!IsFinite(point))
@@ -120,7 +122,8 @@ public static class StrokePathGeometry
             var line = (LineSegment)segment;
             if (line.IsStroked)
             {
-                AppendRunSegment(ref run, current, line.Point, pen.StartLineCap, suppressStartCap: false, pen, thickness, ref sink);
+                AppendRunSegment(ref run, current, line.Point, pen.StartLineCap,
+                    suppressStartCap: false, line.IsSmoothJoin, pen, thickness, ref sink);
             }
             else
             {
@@ -136,7 +139,8 @@ public static class StrokePathGeometry
 
         if (figure.IsClosed)
         {
-            AppendRunSegment(ref run, current, figure.StartPoint, pen.StartLineCap, suppressStartCap: true, pen, thickness, ref sink);
+            AppendRunSegment(ref run, current, figure.StartPoint, pen.StartLineCap,
+                suppressStartCap: true, isSmoothJoin: false, pen, thickness, ref sink);
             FinishClosedRun(ref run, pen, thickness, ref sink);
         }
         else
@@ -171,6 +175,7 @@ public static class StrokePathGeometry
                     line.Point,
                     figure.IsClosed,
                     atFigureStart,
+                    line.IsSmoothJoin,
                     intervals,
                     ref patternIndex,
                     ref distanceInPattern,
@@ -202,6 +207,7 @@ public static class StrokePathGeometry
                 figure.StartPoint,
                 closedFigure: true,
                 atFigureStart: false,
+                isSmoothJoin: false,
                 intervals,
                 ref patternIndex,
                 ref distanceInPattern,
@@ -222,7 +228,8 @@ public static class StrokePathGeometry
                 Vector2.DistanceSquared(run.Current, figure.StartPoint) <= Epsilon * Epsilon)
             {
                 EmitRunStartCap(run, thickness, ref sink);
-                EmitJoin(run.Previous, run.Current, delayedStart.Next, pen, thickness, ref sink);
+                EmitJoin(run.Previous, run.Current, delayedStart.Next,
+                    delayedStart.SmoothJoin, pen, thickness, ref sink);
                 run = default;
                 delayedStart = default;
             }
@@ -243,6 +250,7 @@ public static class StrokePathGeometry
         Vector2 end,
         bool closedFigure,
         bool atFigureStart,
+        bool isSmoothJoin,
         ReadOnlySpan<float> intervals,
         ref int patternIndex,
         ref float distanceInPattern,
@@ -284,6 +292,7 @@ public static class StrokePathGeometry
                     dashEnd,
                     startsAtFigureStart ? pen.StartLineCap : pen.DashCap,
                     suppressStartCap: closedFigure && startsAtFigureStart,
+                    isSmoothJoin: isSmoothJoin && distance == 0f,
                     pen,
                     thickness,
                     ref sink);
@@ -305,6 +314,7 @@ public static class StrokePathGeometry
         Vector2 end,
         PenLineCap startCap,
         bool suppressStartCap,
+        bool isSmoothJoin,
         Pen pen,
         float thickness,
         ref TSink sink)
@@ -322,11 +332,11 @@ public static class StrokePathGeometry
                 FinishRun(ref run, pen.DashCap, thickness, ref sink);
             }
 
-            run = new StrokeRun(start, end, startCap, suppressStartCap);
+            run = new StrokeRun(start, end, startCap, suppressStartCap, isSmoothJoin);
         }
         else
         {
-            EmitJoin(run.Previous, run.Current, end, pen, thickness, ref sink);
+            EmitJoin(run.Previous, run.Current, end, isSmoothJoin, pen, thickness, ref sink);
             run.Previous = run.Current;
             run.Current = end;
         }
@@ -360,7 +370,7 @@ public static class StrokePathGeometry
 
         if (run.SuppressStartCap)
         {
-            delayedStart = new DelayedStartCap(run.Start, run.FirstNext, run.StartCap);
+            delayedStart = new DelayedStartCap(run.Start, run.FirstNext, run.StartCap, run.FirstSmoothJoin);
         }
         else
         {
@@ -381,7 +391,7 @@ public static class StrokePathGeometry
 
         if (Vector2.DistanceSquared(run.Current, run.Start) <= Epsilon * Epsilon)
         {
-            EmitJoin(run.Previous, run.Current, run.FirstNext, pen, thickness, ref sink);
+            EmitJoin(run.Previous, run.Current, run.FirstNext, run.FirstSmoothJoin, pen, thickness, ref sink);
         }
         else
         {
@@ -432,6 +442,7 @@ public static class StrokePathGeometry
         Vector2 previous,
         Vector2 join,
         Vector2 next,
+        bool isSmoothJoin,
         Pen pen,
         float thickness,
         ref TSink sink)
@@ -440,12 +451,15 @@ public static class StrokePathGeometry
         Span<StrokeJoinTriangle> triangles = stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
         int count = StrokeJoinGeometry.WriteLineJoin(
             triangles,
-            pen.LineJoin,
+            pen,
             thickness,
-            pen.MiterLimit,
             previous,
             join,
-            next);
+            next,
+            // Generic widening historically ignores smooth metadata rather
+            // than suppressing its joins. Only the explicit source policy
+            // selects the typed writer's smooth-to-Round behavior.
+            isSmoothJoin: pen.UseWpfJoinSemantics && isSmoothJoin);
         for (int index = 0; index < count && !sink.IsComplete; index++)
         {
             StrokeJoinTriangle triangle = triangles[index];
@@ -568,7 +582,8 @@ public static class StrokePathGeometry
 
     private struct StrokeRun
     {
-        public StrokeRun(Vector2 start, Vector2 firstNext, PenLineCap startCap, bool suppressStartCap)
+        public StrokeRun(Vector2 start, Vector2 firstNext, PenLineCap startCap,
+            bool suppressStartCap, bool firstSmoothJoin)
         {
             Start = start;
             FirstNext = firstNext;
@@ -576,11 +591,13 @@ public static class StrokePathGeometry
             Current = firstNext;
             StartCap = startCap;
             SuppressStartCap = suppressStartCap;
+            FirstSmoothJoin = firstSmoothJoin;
             Active = true;
         }
 
         public bool Active;
         public bool SuppressStartCap;
+        public bool FirstSmoothJoin;
         public Vector2 Start;
         public Vector2 FirstNext;
         public Vector2 Previous;
@@ -590,15 +607,17 @@ public static class StrokePathGeometry
 
     private struct DelayedStartCap
     {
-        public DelayedStartCap(Vector2 start, Vector2 next, PenLineCap cap)
+        public DelayedStartCap(Vector2 start, Vector2 next, PenLineCap cap, bool smoothJoin)
         {
             Start = start;
             Next = next;
             Cap = cap;
+            SmoothJoin = smoothJoin;
             HasValue = true;
         }
 
         public bool HasValue;
+        public bool SmoothJoin;
         public Vector2 Start;
         public Vector2 Next;
         public PenLineCap Cap;

@@ -6,6 +6,21 @@ namespace ProGPU.Backend;
 public static class NativePopupWindow
 {
     /// <summary>
+    /// Reports the session-owned pointer gate only for an actual live owned Cocoa
+    /// popup and its exact attached input context, on the creating thread. This
+    /// includes hidden ownerless preparation; Bind/Show retain their separate
+    /// live-owner checks. It does not claim current input permission, renderer
+    /// qualification, source scroll support or automatic source modal admission.
+    /// A foreign provider or a detached/replaced context never supplies this proof.
+    /// </summary>
+    public static bool SupportsModalInput(IWindow popup, Silk.NET.Input.IInputContext input)
+    {
+        ArgumentNullException.ThrowIfNull(popup);
+        ArgumentNullException.ThrowIfNull(input);
+        return popup is CocoaPopupWindow owned && owned.SupportsModalInput(input);
+    }
+
+    /// <summary>
     /// Creates a source-scheduled Cocoa popup whose hidden panel and render view
     /// may exist before its owner is known. No native input or Show is admitted
     /// until a live owner is bound with TryBindCocoaOwner. The callback must wake

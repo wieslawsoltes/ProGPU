@@ -13,6 +13,9 @@ const state = {
   context: null,
   adapter: null,
   device: null,
+  deviceGeneration: 0,
+  textureLimitsDevice: null,
+  textureLimitsLost: true,
   format: null,
   encoder: null,
   renderPass: null,
@@ -2786,7 +2789,55 @@ function downloadBytes(name, source, length) {
   queueMicrotask(() => URL.revokeObjectURL(url));
 }
 
-async function initializeGpu(request, canvas, executionMode, diagnostics) {
+// A device token is private runtime identity, never a caller capability record
+// or a Silk pointer. No generation is reused after replacement or failed init.
+function beginTextureLimitsInitialization() {
+  state.textureLimitsDevice = null;
+  state.textureLimitsLost = true;
+  if (state.deviceGeneration >= Number.MAX_SAFE_INTEGER) {
+    throw new RangeError('Browser device generation is exhausted.');
+  }
+  return ++state.deviceGeneration;
+}
+
+function publishTextureLimitsDevice(device, generation) {
+  if (generation !== state.deviceGeneration || device !== state.device) return false;
+  state.textureLimitsDevice = device;
+  state.textureLimitsLost = false;
+  const invalidate = () => {
+    if (generation === state.deviceGeneration && state.textureLimitsDevice === device) {
+      state.textureLimitsLost = true;
+    }
+  };
+  // Both loss and intentional destruction settle GPUDevice.lost. Keep this
+  // separate from the existing user-facing recovery/reload notification.
+  device.lost.then(invalidate, invalidate);
+  return true;
+}
+
+function getTextureLimitsGeneration() {
+  // Worker replies currently have no synchronous generation/liveness proof.
+  // Never mistake a prior main-realm device for the worker dispatcher device.
+  return !state.worker && state.device !== null &&
+    state.textureLimitsDevice === state.device && !state.textureLimitsLost
+    ? state.deviceGeneration : 0;
+}
+
+function getTextureDimension2D(generation) {
+  if (!Number.isSafeInteger(generation) || generation <= 0 ||
+      generation !== getTextureLimitsGeneration()) return 0;
+  const device = state.device;
+  let maximum;
+  try { maximum = device.limits.maxTextureDimension2D; }
+  catch { return 0; }
+  // Recheck ownership after the getter; never publish a partial/stale result.
+  return device === state.device && generation === getTextureLimitsGeneration() &&
+    Number.isInteger(maximum) && maximum > 0 && maximum <= 0xffffffff
+    ? maximum : 0;
+}
+
+async function initializeGpu(request, canvas, executionMode, diagnostics,
+  deviceGeneration = beginTextureLimitsInitialization()) {
   if (!globalThis.navigator?.gpu) {
     return {
       isSupported: false,
@@ -2817,6 +2868,9 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
       else globalThis.setTimeout(() => globalThis.location?.reload(), 250);
     }
   });
+  if (deviceGeneration !== state.deviceGeneration) {
+    throw new Error('The browser device initialization was superseded.');
+  }
   state.adapter = webGpu.adapter;
   state.device = webGpu.device;
   state.format = webGpu.format;
@@ -2827,6 +2881,7 @@ async function initializeGpu(request, canvas, executionMode, diagnostics) {
     diagnostics.push('Full profile downgraded: bgra8unorm-storage is unavailable; dependent Wavefront storage output is disabled.');
   }
   state.context.configure({ device: state.device, format: state.format, alphaMode: 'premultiplied' });
+  publishTextureLimitsDevice(state.device, deviceGeneration);
 
   const adapterInfo = state.adapter.info;
   return {
@@ -2900,6 +2955,7 @@ function flushWorkerPackets() {
 }
 
 async function initialize(requestJson) {
+  const deviceGeneration = beginTextureLimitsInitialization();
   const request = JSON.parse(requestJson);
   const diagnostics = [];
   const executionMode = chooseExecutionMode(request, diagnostics);
@@ -2933,7 +2989,7 @@ async function initialize(requestJson) {
   if (request.syncReadbackMode === 'IsolatedWorkerOnly') {
     diagnostics.push('Synchronous readback is disabled because the active dispatcher is not an isolated worker.');
   }
-  return JSON.stringify(await initializeGpu(request, state.canvas, executionMode, diagnostics));
+  return JSON.stringify(await initializeGpu(request, state.canvas, executionMode, diagnostics, deviceGeneration));
 }
 
 function requireResource(handle) {
@@ -4166,7 +4222,7 @@ if (isDispatcherWorker) {
   initializeDiagnosticsVisibility();
   publishBrowserMediaCapabilities();
   runtime = await dotnet.withEnvironmentVariables(readBenchmarkEnvironment()).create();
-  runtime.setModuleImports('progpu-browser', { initialize, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, configureBrowserMediaAudioWorkletEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getBrowserMediaAudioWorkletNodeCreationCount, runBrowserMediaAudioWorkletSignalSmoke, getBrowserMediaAudioWorkletSignalMaximumError, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
+  runtime.setModuleImports('progpu-browser', { initialize, getTextureLimitsGeneration, getTextureDimension2D, dispatch, dispatchUpload, mapBuffer, copyMappedBuffer, writeMappedBuffer, releaseMappedBuffer, nextAnimationFrame, writeCanvasMetrics, drainInputEvents, setCanvasCursor, requestCanvasPointerLock, exitCanvasPointerLock, configureTextInput, hideTextInput, setClipboardText, getClipboardText, setClipboardRichText, getClipboardRtf, getClipboardHtml, pickStorage, usesNativeSaveStoragePicker, getPickedStorageLength, copyPickedStorage, clearPickedStorage, writePickedStorageText, writePickedStorageBytes, downloadText, downloadBytes, startStageBrowserMediaSource, copyStagedBrowserMediaSource, clearStagedBrowserMediaSource, cancelStagedBrowserMediaSource, startBrowserMediaCompositionExport, startBrowserMediaCompositionThumbnails, copyBrowserMediaCompositionThumbnail, clearBrowserMediaCompositionThumbnails, cancelBrowserMediaCompositionExport, createBrowserMedia, playBrowserMedia, pauseBrowserMedia, seekBrowserMedia, setBrowserMediaRate, setBrowserMediaLooping, setBrowserMediaAudio, setBrowserMediaTimedMetadataMode, configureBrowserMediaAudioEffect, configureBrowserMediaAudioWorkletEffect, removeAllBrowserMediaAudioEffects, copyBrowserMediaFrame, disposeBrowserMedia, getBrowserMediaElementCount, getBrowserMediaAudioWorkletNodeCreationCount, runBrowserMediaAudioWorkletSignalSmoke, getBrowserMediaAudioWorkletSignalMaximumError, getDiagnosticsVisible, setDiagnosticsVisible, setStatus, updateCounters });
   const browserExports = await runtime.getAssemblyExports('ProGPU.Browser.dll');
   state.dispatchImmediatePointer = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchImmediatePointer;
   state.dispatchTextInput = browserExports.ProGPU.Browser.BrowserInputDispatcher.DispatchTextInput;

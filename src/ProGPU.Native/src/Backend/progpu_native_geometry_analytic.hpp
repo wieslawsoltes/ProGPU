@@ -42,7 +42,13 @@ inline bool append_analytic_primitive(
             std::min(primitive.width, primitive.height) * 0.5F);
     }
     const float stroke_padding = primitive.stroke_thickness * 0.5F;
-    const float padding = antialias_padding + stroke_padding;
+    // Aliased rectangle fills need no coverage fringe. Their original four
+    // transformed edges let the rasterizer own exact top/left pixel centers;
+    // a padded quad plus interpolated SDF can leak its right/bottom boundary.
+    const bool aliased_fill_rectangle = primitive.kind == PROGPU_NATIVE_PRIMITIVE_RECTANGLE &&
+        primitive.stroke_thickness == 0.0F &&
+        (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U;
+    const float padding = aliased_fill_rectangle ? 0.0F : antialias_padding + stroke_padding;
     const float half_width = primitive.width * 0.5F;
     const float half_height = primitive.height * 0.5F;
     const float left = primitive.x - padding;

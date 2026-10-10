@@ -9,6 +9,7 @@
 
 #include "progpu_native.h"
 #include "progpu_native_text_hinting.h"
+#include "progpu_native_text_source_resource.h"
 #include "progpu_native_mil_commands.generated.hpp"
 
 namespace progpu::native::mil {
@@ -104,6 +105,14 @@ struct scene_build_result {
     std::uint64_t stream_bytes{};
 };
 
+struct bitmap_cache_raster_policy {
+    float primary_dpi_scale_x{};
+    float primary_dpi_scale_y{};
+    std::uint32_t maximum_texture_width{};
+    std::uint32_t maximum_texture_height{};
+    std::uint64_t source_revision{};
+};
+
 class batch_reader final {
 public:
     explicit batch_reader(std::span<const std::byte> bytes) noexcept;
@@ -138,6 +147,12 @@ public:
     status apply_with_hinted_glyph_resources(
         std::span<const std::byte> bytes,
         std::span<const progpu_native_hinted_glyph_resource_view> resources,
+        std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+        std::span<const std::uint32_t> positioned_indices) noexcept;
+
+    status apply_with_source_glyph_resources(
+        std::span<const std::byte> bytes,
+        std::span<const progpu_native_hinted_glyph_resource_input> resources,
         std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
         std::span<const std::uint32_t> positioned_indices) noexcept;
 
@@ -215,6 +230,11 @@ public:
         double width,
         double height) noexcept;
 
+    // Retains a source-known empty Drawing behind the canonical zero paint
+    // handle. Requires initialized owners; canonical image updates clear it.
+    status set_drawing_image_empty_source(std::uint32_t image_handle,
+        std::uint32_t drawing_handle) noexcept;
+
     // Binds exact source-built DrawingGroup content bounds used for retained
     // spatial opacity-mask mapping and bounded group composition.
     status set_drawing_group_bounds(
@@ -234,6 +254,15 @@ public:
         double y,
         double width,
         double height) noexcept;
+    // Retains a live Visual with explicit source-known empty descendant bounds.
+    // This is not a cache allocation or a replacement null Visual handle.
+    status set_visual_source_empty_bounds(std::uint32_t handle) noexcept;
+    // Independent source/device inputs for raw BitmapCacheBrush shader capture.
+    // No receiving-window DPI or default texture limit is inferred.
+    status set_bitmap_cache_brush_raster_policy(std::uint32_t handle,
+        const bitmap_cache_raster_policy& policy) noexcept;
+    status set_bitmap_cache_brush_empty_source(std::uint32_t brush_handle,
+        std::uint32_t visual_handle) noexcept;
     status set_point_hit_rectangles(
         std::span<const progpu_native_mil_point_hit_rectangle> rectangles) noexcept;
     status set_visual_visibilities(
@@ -324,6 +353,12 @@ private:
     struct implementation;
     struct build_cache;
     explicit channel(std::unique_ptr<implementation> implementation) noexcept;
+    status apply_glyph_resource_inputs(
+        std::span<const std::byte> bytes,
+        std::span<const progpu_native_hinted_glyph_resource_view> legacy_resources,
+        std::span<const progpu_native_hinted_glyph_resource_input> source_resources,
+        std::span<const progpu_native_mil_hinted_glyph_binding> bindings,
+        std::span<const std::uint32_t> positioned_indices) noexcept;
     status build_scene_core(
         const implementation& source,
         std::uint32_t target_handle,

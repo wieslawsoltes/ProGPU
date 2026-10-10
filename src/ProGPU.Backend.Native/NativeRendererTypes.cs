@@ -242,7 +242,8 @@ public enum NativeStrokeJoin : uint
 {
     Miter = 0,
     Bevel = 1,
-    Round = 2
+    Round = 2,
+    MiterOrBevel = 3
 }
 
 public enum NativePathSegmentKind : uint
@@ -435,7 +436,11 @@ public enum NativeGeometryPrimitiveFlags : uint
     Hairline = 1U << 1,
     FixedDeviceStroke = 1U << 2,
     StartCapMask = 3U << 3,
-    EndCapMask = 3U << 5
+    EndCapMask = 3U << 5,
+    /// <summary>Clips a PathJoin/Miter corner at the limit without WPF reversal behavior.</summary>
+    ClipMiterAtLimit = 1U << 7,
+    /// <summary>Retains WPF clipping/reversal on normal-width PathJoin kinds 0..2.</summary>
+    WpfJoinSemantics = 1U << 8
 }
 
 [Flags]
@@ -449,7 +454,9 @@ public enum NativePolylineFlags : uint
     EndCapMask = 3U << 5,
     JoinMask = 3U << 7,
     Closed = 1U << 9,
-    WpfJoinSemantics = 1U << 10
+    WpfJoinSemantics = 1U << 10,
+    /// <summary>Clips Miter overflow independently of the WPF reversal policy.</summary>
+    ClipMiterAtLimit = 1U << 11
 }
 
 [Flags]
@@ -668,7 +675,9 @@ public enum NativeSceneGradientSpread : uint
     Pad = 0,
     Reflect = 1,
     Repeat = 2,
-    Decal = 3
+    Decal = 3,
+    /// <summary>Clamps linear/radial gradient coordinates to [0, 1] before sampling original stops.</summary>
+    PadUnitInterval = 4
 }
 
 public enum NativeSceneGradientInterpolation : uint
@@ -689,12 +698,21 @@ public enum NativeSceneLayerMaskKind : uint
     Picture = 8
 }
 
+[Flags]
+public enum NativeSceneLayerMaskFlags : uint
+{
+    None = 0,
+    AxisClipArea = 1
+}
+
 public enum NativeSceneCommandKind : uint
 {
     Save = 1,
     Restore = 2,
     PushLayer = 3,
     PopLayer = 4,
+    /// <summary>Replaces active target storage through its binary clip.</summary>
+    ClearTarget = 5,
     DrawAnalytic = 16,
     DrawPath = 17,
     DrawGlyphRun = 18,
@@ -705,7 +723,11 @@ public enum NativeSceneCommandKind : uint
     DrawStrokeBatch = 23,
     DrawLine3DBatch = 24,
     DrawMesh3DBatch = 25,
-    DrawPaintedGlyphRun = 26
+    DrawPaintedGlyphRun = 26,
+    DrawRgbGlyphRun = 27,
+    /// <summary>Native-owned source triangles with explicit physical raster-frame metadata.</summary>
+    DrawSourceCoverage = 28,
+    DrawSourcePath = 29
 }
 
 public enum NativeMesh3DTopology : uint
@@ -833,7 +855,9 @@ public enum NativeSceneStateFlags : uint
     None = 0,
     ClipRect = 1U << 0,
     Mask = 1U << 1,
-    GuidelineSet = 1U << 2
+    GuidelineSet = 1U << 2,
+    /// <summary>Use exact physical pixel centers for the enabled clip rectangle.</summary>
+    ClipPixelCenters = 1U << 3
 }
 
 [Flags]
@@ -919,7 +943,30 @@ public enum NativeSceneLayerFlags : uint
     /// All consumers of an owner must opt in and agree on content revision and
     /// raster extent. Recursive ownership is invalid; composite state may differ.
     /// </summary>
-    CacheShared = 1U << 9
+    CacheShared = 1U << 9,
+    /// <summary>
+    /// Limits final SRC replacement to physical pixel centers in the original
+    /// bounds, independently of texture allocation. Requires exactly Bounds
+    /// plus this flag, opacity one, no mask/effect, and zero revisions.
+    /// </summary>
+    AliasedCompositeBounds = (uint)NativeMethods.SceneLayerAliasedCompositeBounds,
+
+    /// <summary>
+    /// Initializes transient storage from the parent; ordinary pop keeps source-over.
+    /// Explicit axis-area source clips replace their background through coverage.
+    /// Distinct from Backdrop; excludes effects, cache and composite state.
+    /// </summary>
+    InitializeFromBackground = 1 << 11,
+
+    /// <summary>Owns an opaque transient intermediate, including nested replacement.</summary>
+    IgnoreAlpha = 1 << 12,
+
+    /// <summary>
+    /// Quantizes source group opacity to premultiplied bytes on linear RGBA8/BGRA8
+    /// targets before geometric coverage. Requires transient source-over without
+    /// effects, caches, composite state or revisions. Other formats are unchanged.
+    /// </summary>
+    LinearByteOpacity = 1 << 13
 }
 
 public enum NativeSceneValidationError : uint
@@ -1492,6 +1539,81 @@ internal readonly struct NativeSceneGlyphDraw
     private readonly uint Reserved1;
 }
 
+/// <summary>Explicit outline integration model, not a DirectWrite rendering mode.</summary>
+public enum NativeRgbGlyphFilter : uint
+{
+    FullPixelBox8X8 = 1
+}
+
+/// <summary>Retained physical RGB draw policy. Does not assert target opacity or select source ClearType.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneRgbGlyphDraw
+{
+    public NativeSceneRgbGlyphDraw(uint glyphCount, NativeRgbGlyphFilter filterModel,
+        uint pixelGeometry, float gamma, float enhancedContrast, float clearTypeLevel, float dpiScale)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneRgbGlyphDraw>();
+        GlyphCount = glyphCount; FilterModel = filterModel; PixelGeometry = pixelGeometry;
+        Gamma = gamma; EnhancedContrast = enhancedContrast; ClearTypeLevel = clearTypeLevel;
+        DpiScale = dpiScale; Reserved0 = Reserved1 = 0U;
+    }
+
+    public readonly uint StructSize;
+    public readonly uint GlyphCount;
+    public readonly NativeRgbGlyphFilter FilterModel;
+    public readonly uint PixelGeometry;
+    public readonly float Gamma;
+    public readonly float EnhancedContrast;
+    public readonly float ClearTypeLevel;
+    public readonly float DpiScale;
+    private readonly uint Reserved0;
+    private readonly uint Reserved1;
+
+    internal bool IsCanonical => StructSize == 40U && GlyphCount is > 0U and <= 65536U &&
+        FilterModel == NativeRgbGlyphFilter.FullPixelBox8X8 && PixelGeometry <= 2U &&
+        Gamma == 1f && EnhancedContrast == 0f && ClearTypeLevel == 1f &&
+        float.IsFinite(DpiScale) && DpiScale > 0f && Reserved0 == 0U && Reserved1 == 0U;
+}
+
+/// <summary>One original outline occurrence with its physical raster frame and straight foreground.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct NativeSceneRgbGlyphTile
+{
+    public NativeSceneRgbGlyphTile(uint outlineIndex, uint width, uint height,
+        float xStart, float yStart, float scale, float subpixelX,
+        int targetX, int targetY, Vector4 foreground)
+    {
+        OutlineIndex = outlineIndex; Width = width; Height = height; Reserved = 0U;
+        XStart = xStart; YStart = yStart; Scale = scale; SubpixelX = subpixelX;
+        TargetX = targetX; TargetY = targetY; Foreground = foreground;
+    }
+
+    public readonly uint OutlineIndex;
+    public readonly uint Width;
+    public readonly uint Height;
+    private readonly uint Reserved;
+    public readonly float XStart;
+    public readonly float YStart;
+    public readonly float Scale;
+    public readonly float SubpixelX;
+    public readonly int TargetX;
+    public readonly int TargetY;
+    public readonly Vector4 Foreground;
+
+    internal bool IsCanonical(uint outlineCount) => OutlineIndex < outlineCount && Reserved == 0U &&
+        Width is > 0U and <= 4096U && Height is > 0U and <= 4096U &&
+        TargetX is >= -4096 and <= 4096 && TargetY is >= -4096 and <= 4096 &&
+        float.IsFinite(XStart) && float.IsFinite(YStart) && float.IsFinite(Scale) && Scale > 0f &&
+        float.IsFinite(SubpixelX) && Unit(Foreground.X) && Unit(Foreground.Y) &&
+        Unit(Foreground.Z) && Unit(Foreground.W) &&
+        float.IsFinite(((XStart - 1f / 3f) + 0.0625f - SubpixelX) / Scale) &&
+        float.IsFinite(((XStart + (float)(Width - 1U) + 1f / 3f) + 0.9375f - SubpixelX) / Scale) &&
+        float.IsFinite(-(YStart + 0.0625f) / Scale) &&
+        float.IsFinite(-(YStart + (float)(Height - 1U) + 0.9375f) / Scale);
+
+    private static bool Unit(float value) => float.IsFinite(value) && value is >= 0f and <= 1f;
+}
+
 /// <summary>Exact direct glyph paint record; legacy text styles are independent.</summary>
 [StructLayout(LayoutKind.Explicit, Size = 96)]
 public readonly struct NativeSceneGlyphPaint
@@ -2041,6 +2163,14 @@ public readonly struct NativeSceneLayer
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct NativeSceneLayerMask
 {
+    /// <summary>Exact physical pixel coverage of a target-axis source clip.</summary>
+    public static NativeSceneLayerMask CreateAxisAlignedClip(NativeImageRect bounds)
+        => new(bounds, NativeSceneLayerMaskFlags.AxisClipArea);
+
+    private NativeSceneLayerMask(NativeImageRect bounds, NativeSceneLayerMaskFlags flags)
+        : this(bounds, Matrix3x2.Identity, Vector4.Zero, Vector4.Zero)
+        => Flags = (uint)flags;
+
     public NativeSceneLayerMask(
         NativeImageRect bounds,
         Matrix3x2 transform,
@@ -3218,6 +3348,15 @@ public readonly struct NativeGeometryPrimitive
             throw new ArgumentOutOfRangeException(nameof(startCap));
         if ((uint)endCap > (uint)NativeStrokeCap.Triangle)
             throw new ArgumentOutOfRangeException(nameof(endCap));
+        if ((flags & NativeGeometryPrimitiveFlags.ClipMiterAtLimit) != 0 &&
+            (kind != NativeGeometryPrimitiveKind.PathJoin || startCap != NativeStrokeCap.Flat))
+            throw new ArgumentException("Miter clipping requires a PathJoin with the Miter kind.", nameof(flags));
+        if ((flags & NativeGeometryPrimitiveFlags.WpfJoinSemantics) != 0 &&
+            (kind != NativeGeometryPrimitiveKind.PathJoin ||
+                (uint)startCap > (uint)NativeStrokeJoin.Round ||
+                (flags & (NativeGeometryPrimitiveFlags.Hairline |
+                    NativeGeometryPrimitiveFlags.FixedDeviceStroke)) != 0))
+            throw new ArgumentException("WPF joins require a normal-width PathJoin with kind 0, 1 or 2.", nameof(flags));
         Kind = kind;
         Flags = (flags & ~(
                 NativeGeometryPrimitiveFlags.StartCapMask |
@@ -3456,8 +3595,11 @@ public readonly struct NativePolyline
             throw new ArgumentOutOfRangeException(nameof(startCap));
         if ((uint)endCap > (uint)NativeStrokeCap.Triangle)
             throw new ArgumentOutOfRangeException(nameof(endCap));
-        if ((uint)lineJoin > (uint)NativeStrokeJoin.Round)
+        if ((uint)lineJoin > (uint)NativeStrokeJoin.MiterOrBevel)
             throw new ArgumentOutOfRangeException(nameof(lineJoin));
+        if ((flags & NativePolylineFlags.ClipMiterAtLimit) != 0 &&
+            lineJoin != NativeStrokeJoin.Miter)
+            throw new ArgumentException("Miter clipping requires the Miter join kind.", nameof(flags));
 
         PointOffset = pointOffset;
         PointCount = pointCount;

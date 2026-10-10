@@ -211,7 +211,9 @@ inline void classify_join_triangle_edges(
         exterior_mask = 0x7U;
         return;
     }
-    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER && triangle_count == 2U) {
+    if ((join == PROGPU_NATIVE_STROKE_JOIN_MITER ||
+            join == PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL) &&
+        triangle_count == 2U) {
         exterior_mask = 0x3U;
         owned_internal_mask = triangle_index == 0U ? 0x4U : 0U;
         return;
@@ -685,7 +687,9 @@ inline bool is_valid_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
-        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
+        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS;
     if (primitive.kind > PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
         !is_finite(primitive.p0) || !is_finite(primitive.p1) ||
         !is_finite(primitive.p2) || !is_finite(primitive.p3) ||
@@ -719,7 +723,13 @@ inline bool is_valid_geometry_primitive(
                 ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) == 0U &&
             primitive.stroke_thickness == 0.0F;
     }
-    if ((primitive.flags & ~all_line_flags) != 0U) {
+    const bool use_wpf_join_semantics = (primitive.flags &
+        PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U;
+    if ((primitive.flags & ~all_line_flags) != 0U ||
+        (use_wpf_join_semantics && primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN) ||
+        ((primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U &&
+            (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
+                (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) != 0U))) {
         return false;
     }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC &&
@@ -749,7 +759,8 @@ inline bool is_valid_geometry_primitive(
         const std::uint32_t join =
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
                 PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
-        if (join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
+        if (join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
+            (use_wpf_join_semantics && join > PROGPU_NATIVE_STROKE_JOIN_ROUND) ||
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK) != 0U ||
             !(primitive.p3.x >= 1.0F) || primitive.p3.y != 0.0F) {
             return false;
@@ -760,6 +771,7 @@ inline bool is_valid_geometry_primitive(
     const bool fixed_device = (primitive.flags &
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE) != 0U;
     if ((hairline && fixed_device) ||
+        (use_wpf_join_semantics && (hairline || fixed_device)) ||
         (hairline && primitive.stroke_thickness != 0.0F) ||
         (!hairline && primitive.stroke_thickness <= 0.0F)) {
         return false;
@@ -836,6 +848,18 @@ inline bool geometry_primitive_capacity(
     return true;
 }
 
+struct path_join_bounds {
+    float left{};
+    float top{};
+    float right{};
+    float bottom{};
+};
+
+inline bool try_get_path_join_bounds(
+    const progpu_native_geometry_primitive& primitive,
+    path_join_bounds& output,
+    bool& has_coverage) noexcept;
+
 inline bool append_cpu_join(
     std::uint32_t join,
     float thickness,
@@ -848,7 +872,8 @@ inline bool append_cpu_join(
     bool aliased,
     std::vector<vector_vertex>& vertices,
     std::vector<std::uint32_t>& indices,
-    bool use_wpf_join_semantics = false);
+    bool use_wpf_join_semantics = false,
+    bool clip_miter_at_limit = false);
 
 inline void append_device_join(
     std::uint32_t join,
@@ -860,7 +885,8 @@ inline void append_device_join(
     float brush_index,
     bool aliased,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices);
+    std::vector<std::uint32_t>& indices,
+    bool clip_miter_at_limit = false);
 
 inline bool append_geometry_primitive(
     const progpu_native_geometry_primitive& primitive,
@@ -872,7 +898,9 @@ inline bool append_geometry_primitive(
         PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |
         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK |
-        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK;
+        PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT |
+        PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS;
     if (!is_valid_geometry_primitive(primitive) ||
         !std::isfinite(brush_index) || brush_index < 0.0F) {
         return false;
@@ -1079,6 +1107,8 @@ inline bool append_geometry_primitive(
         const std::uint32_t join =
             (primitive.flags & PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
                 PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+        const bool clip_miter_at_limit = (primitive.flags &
+            PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U;
         if (hairline || fixed_device) {
             append_device_join(
                 join,
@@ -1090,7 +1120,8 @@ inline bool append_geometry_primitive(
                 brush_index,
                 aliased,
                 vertices,
-                indices);
+                indices,
+                clip_miter_at_limit);
             return true;
         }
         return append_cpu_join(
@@ -1112,7 +1143,9 @@ inline bool append_geometry_primitive(
             brush_index,
             aliased,
             vertices,
-            indices);
+            indices,
+            (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U,
+            clip_miter_at_limit);
     }
 
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
@@ -1599,12 +1632,19 @@ inline std::size_t create_join_triangles(
     const progpu_native_point& join_point,
     progpu_native_point incoming,
     progpu_native_point outgoing,
-    bool use_wpf_join_semantics = false) noexcept {
-    if (!try_normalize(incoming, {}, incoming) ||
+    bool use_wpf_join_semantics = false,
+    bool clip_miter_at_limit = false) noexcept {
+    if (join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL ||
+        !try_normalize(incoming, {}, incoming) ||
         !try_normalize(outgoing, {}, outgoing) ||
         !std::isfinite(thickness) || thickness <= 0.0001F) {
         return 0U;
     }
+    // This explicit join retains bevel overflow and reversal behavior even
+    // when the source otherwise requests WPF's clipped-miter policy.
+    use_wpf_join_semantics = use_wpf_join_semantics &&
+        join != PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL;
+    clip_miter_at_limit = clip_miter_at_limit && join == PROGPU_NATIVE_STROKE_JOIN_MITER;
     const float turn = cross_product(incoming, outgoing);
     if (!std::isfinite(turn)) {
         return 0U;
@@ -1677,7 +1717,8 @@ inline std::size_t create_join_triangles(
         triangles[0] = {previous_outer, join_point, next_outer};
         return 1U;
     }
-    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER) {
+    if (join == PROGPU_NATIVE_STROKE_JOIN_MITER ||
+        join == PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL) {
         progpu_native_point miter{};
         const float resolved_limit =
             std::isfinite(miter_limit) && miter_limit >= 1.0F
@@ -1695,11 +1736,11 @@ inline std::size_t create_join_triangles(
                 radius * resolved_limit + 0.0001F;
         triangles[0] = {previous_outer, join_point, next_outer};
         if (!has_miter) {
-            if (!use_wpf_join_semantics) {
+            if (!use_wpf_join_semantics && !clip_miter_at_limit) {
                 return 1U;
             }
-            // WPF's public Miter join clips the outer corner at the nominal
-            // miter-limit distance instead of falling back to a bevel.
+            // Clip at the centerline half-width/limit plane. Selecting this
+            // overflow law does not opt into WPF's separate reversal behavior.
             const float dot = incoming.x * outgoing.x +
                 incoming.y * outgoing.y;
             const float denominator = radius * std::sqrt(
@@ -1768,6 +1809,75 @@ inline std::size_t create_join_triangles(
     return segment_count;
 }
 
+// Allocation extents come from the same owned normal-width triangles as paint,
+// not from AA-expanded quad vertices or a second miter/reversal approximation.
+// Retain endpoints separately: reconstructing right/bottom from a rounded width
+// can lose actual coverage before MIL chooses its tile capture allocation.
+inline bool try_get_path_join_bounds(
+    const progpu_native_geometry_primitive& primitive,
+    path_join_bounds& output,
+    bool& has_coverage) noexcept {
+    if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
+        (primitive.flags & (PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
+            PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE)) != 0U ||
+        !is_valid_geometry_primitive(primitive)) {
+        return false;
+    }
+    float maximum_scale = 0.0F;
+    float minimum_scale = 0.0F;
+    if (!try_get_stroke_scales(primitive.transform, maximum_scale, minimum_scale)) {
+        return false;
+    }
+    const bool affine = requires_affine_stroke_geometry(primitive.transform);
+    const float thickness = affine ? primitive.stroke_thickness
+        : primitive.stroke_thickness * maximum_scale;
+    if (!std::isfinite(thickness)) return false;
+    const auto center = affine ? primitive.p0 : transformed_point(primitive.transform, primitive.p0);
+    const auto incoming = affine ? primitive.p1 : transformed_direction(primitive.transform, primitive.p1);
+    const auto outgoing = affine ? primitive.p2 : transformed_direction(primitive.transform, primitive.p2);
+    if (!is_finite(center) || !is_finite(incoming) || !is_finite(outgoing)) return false;
+    const std::uint32_t join = (primitive.flags &
+        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >> PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+    std::array<stroke_triangle, 8U> triangles{};
+    const std::size_t count = create_join_triangles(
+        triangles, join, thickness, primitive.p3.x,
+        center, incoming, outgoing,
+        (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS) != 0U,
+        (primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT) != 0U);
+    path_join_bounds candidate{};
+    bool found = false;
+    for (std::size_t index = 0U; index < count; ++index) {
+        auto triangle = triangles[index];
+        if (affine) {
+            triangle.p0 = transformed_point(primitive.transform, triangle.p0);
+            triangle.p1 = transformed_point(primitive.transform, triangle.p1);
+            triangle.p2 = transformed_point(primitive.transform, triangle.p2);
+        }
+        if (!is_finite(triangle.p0) || !is_finite(triangle.p1) ||
+            !is_finite(triangle.p2)) return false;
+        // Match append_stroke_triangle's admission of actual coverage.
+        const float edge0_x = triangle.p1.x - triangle.p0.x;
+        const float edge0_y = triangle.p1.y - triangle.p0.y;
+        const float edge1_x = triangle.p2.x - triangle.p0.x;
+        const float edge1_y = triangle.p2.y - triangle.p0.y;
+        const float area = edge0_x * edge1_y - edge0_y * edge1_x;
+        if (!std::isfinite(area)) return false;
+        if (std::abs(area) <= 0.0001F) continue;
+        const float left = std::min({triangle.p0.x, triangle.p1.x, triangle.p2.x});
+        const float top = std::min({triangle.p0.y, triangle.p1.y, triangle.p2.y});
+        const float right = std::max({triangle.p0.x, triangle.p1.x, triangle.p2.x});
+        const float bottom = std::max({triangle.p0.y, triangle.p1.y, triangle.p2.y});
+        candidate = found ? path_join_bounds{
+            std::min(candidate.left, left), std::min(candidate.top, top),
+            std::max(candidate.right, right), std::max(candidate.bottom, bottom)}
+            : path_join_bounds{left, top, right, bottom};
+        found = true;
+    }
+    output = candidate;
+    has_coverage = found;
+    return true;
+}
+
 inline bool append_cpu_join(
     std::uint32_t join,
     float thickness,
@@ -1780,7 +1890,8 @@ inline bool append_cpu_join(
     bool aliased,
     std::vector<vector_vertex>& vertices,
     std::vector<std::uint32_t>& indices,
-    bool use_wpf_join_semantics) {
+    bool use_wpf_join_semantics,
+    bool clip_miter_at_limit) {
     std::array<stroke_triangle, 8U> triangles{};
     const std::size_t count = create_join_triangles(
         triangles,
@@ -1790,7 +1901,8 @@ inline bool append_cpu_join(
         join_point,
         incoming,
         outgoing,
-        use_wpf_join_semantics);
+        use_wpf_join_semantics,
+        clip_miter_at_limit);
     for (std::size_t index = 0U; index < count; ++index) {
         std::uint32_t exterior_mask = 0U;
         std::uint32_t owned_internal_mask = 0U;
@@ -1830,7 +1942,8 @@ inline void append_device_join(
     float brush_index,
     bool aliased,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices) {
+    std::vector<std::uint32_t>& indices,
+    bool clip_miter_at_limit) {
     const std::uint32_t base = static_cast<std::uint32_t>(vertices.size());
     vector_vertex descriptor{};
     descriptor.position[0] = join_point.x;
@@ -1841,6 +1954,8 @@ inline void append_device_join(
         ? miter_limit
         : 1.0F;
     descriptor.color[2] = static_cast<float>(base);
+    descriptor.color[3] = clip_miter_at_limit && join == PROGPU_NATIVE_STROKE_JOIN_MITER
+        ? 1.0F : 0.0F;
     descriptor.texture_coordinate[0] = incoming.x;
     descriptor.texture_coordinate[1] = incoming.y;
     descriptor.brush_index = brush_index;

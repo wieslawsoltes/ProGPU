@@ -1,5 +1,288 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Aliased retained lines pad only their raster quads and clip the original flat
+endpoint interval in the shared fragment shader. Preserve single-owner fan edges
+and one-sample aliased path cache identity; do not change source geometry or
+weaken full-frame comparisons to hide MSAA endpoint coverage or internal seams.
+Explicit MiterOrBevel/clipped-Miter input uses flat internal bodies and actual
+selected joins, retaining local versus fixed/hairline frames and rollback.
+See docs/retained-aliased-stroke-coverage.md; managed checks are not native package
+or application qualification.
+
+Retained source WPF pens explicitly select full join semantics; generic pens
+keep their old smooth and reversal behavior. Preserve the raw policy in every
+snapshot/cache/material copy and archive version 8, rejecting lossy older writes.
+Normal source joins 0 through 2 use shared clipping/reversal and smooth-to-Round geometry;
+device-width and incompatible descriptors reject. Source input must not retain
+implicitly rounded internal body ends behind explicit joins. Share original
+tangents, affine/conformal frames, gap/cap/closed-seam metadata and effective
+Round edge ownership with paint and material bounds. Actual WPF adapters require
+the matching rebuilt producer, not a pretend capability on qualified old pins.
+Public source Geometry stroke queries have an independent transport gap. See
+docs/retained-source-wpf-joins.md; authored comparisons are not qualification.
+
+Native MIL curved/smooth and tiled path strokes retain full WPF join policy,
+not merely independent miter clipping. Keep normal-width source joins 0 through
+2, actual tangent/capture frames, dash gaps and closed seams. Smooth joins force
+Round under the same policy; do not suppress them using a generic writer rule.
+Primitive WPF bit 8 is PathJoin-only and must reach both paint and retained input;
+reject device-width, other-kind and incompatible-join descriptors atomically.
+Tiled stroke input retains the original lowered bodies/caps/joins and source
+clips; the mask and material quads remain render-only. Do not use mask bounds
+as source hit geometry or rerun widening for input. Retained render-data packets
+protect typed native dependencies from deletion even while detached. Share the
+framed handle visitor with cache revision, preserving managed-only legacy effect
+indices and existing external-video cache rejection.
+Reuse the owned stroker and preserve candidate rollback. Material bounds union
+actual emitted join triangles with existing body/cap measurement, using original
+double dash inputs and exact endpoints without AA or blanket inflation. Share
+the corrected painted extent with relative mapping and tile allocation; retain
+absolute mapping and source ownership. Record layout stability does not make
+the new flag compatible with old producers. See
+docs/native-mil-path-join-policy.md; authored controls are not qualification.
+
+Clipped-miter source policy is an independent retained Pen flag, effective only
+for Miter0. Preserve false generic defaults, raw intent in every pen/cache/archive
+snapshot, closed seams and the separate WPF reversal policy. Win2D Miter selects
+the owned centerline-relative clip; do not infer GDI+'s inner-corner plane.
+True-policy paint/hit must match existing clipped bounds, including actual
+fixed/hairline device joins; preserve legacy generic bounds in this scoped fix.
+Emit native flags only on supported Miter0
+records and reject contradictory wire descriptors. Version7 archives retain the
+flag; older reads default false and lossy old-version writes fail. No pin/default
+or qualification change follows. See docs/retained-clipped-miter.md.
+
+Explicit retained MiterOrBevel uses join value 3 through source pens, managed
+bounds/outlines/hit geometry, device shaders and native scene/query transport.
+Keep under-limit miter and over-limit bevel independent of WPF clipping and
+reversal policy; do not alias it to legacy Miter or expand the MIL WPF enum.
+Preserve complete join cache identity, cap/dash/frame policies and atomic
+undefined-value rejection. Record layouts stay fixed, but new enum semantics
+require matching rebuilt native producers. Legacy generic Miter paint/bounds
+and original Drawing Miter clipping remain separate unfinished work; no parity
+or downstream pin admission follows.
+See docs/retained-miter-or-bevel.md and docs/retained-aliased-stroke-coverage.md;
+local execution does not replace the remaining native/source qualification.
+
+Direct2D rectangle strokes apply intrinsic geometry transforms before expanding
+the pen, and caller world transforms afterward. Explicit solid normal styles
+reuse the ordered path stroker; null/default positive-diagonal direct rectangles
+reuse their original materialized-rectangle helpers in both compatibility paths.
+Preserve the default transformed Widen transcript: one winding/open figure and
+26 lines, no segment-flags callback, and winding-only zero width. Caller sink
+flags are not emitted state. Do not substitute generic closed contours or infer
+new dashed, reflected/sheared default, nested-source or device-DPI admission.
+See docs/direct2d-default-transformed-strokes.md; authored controls are not parity.
+
+Owned nested shader scopes remain ordered picture commands with independent
+source/recording leases. Prepare immutable parameter/sampler generations only at
+the actual target boundary, before encoding the consumer draw; nested sampler
+realization uses its own physical target, never an eager outer frame. Keep
+per-target private capture textures and parameters so a later target cannot alter
+earlier drawcalls. Publish candidates atomically, retain frame leases through
+eviction and use existing context retirement; borrowed constructors stay borrowed.
+No AddChild reorder, source-UI callback during drawing or per-pixel CPU effect.
+See docs/owned-nested-shader-effects.md; authored controls are not qualification.
+
+Managed source ShaderEffect captures share one immutable original-bounds and
+four-padding descriptor between implicit input and framed samplers. Narrow the
+original far endpoints separately, inflate each edge independently and apply the
+source host's actual rebase only after computing the extent. Keep raw cache
+sampler dimensions independent, exact descriptor/cache identity, source opacity
+and final clips. The explicit vector frame uses actual projection/viewport XY,
+signed outward physical origins and full input textures, retaining semantic DPI
+separately for text/snapping. Project the exact floating raster extent, never its
+integer bookkeeping ceiling; final direct shader UVs and independent output
+edges stay paired. Keep complete frame identity through cache reuse and command
+translation. Preserve legacy scalar/raster-override paths; do not infer a source
+affine capture basis or claim original fractional/affine pixel qualification.
+See docs/managed-source-effect-capture.md.
+
+ShaderEffect padding transport preserves all four original double values,
+including invalid metadata and signed zero. Consumers validate before source
+dependency callbacks or packet publication; never sanitize invalid padding to
+zero, clamp it into admission or replace asymmetric axes with their maximum.
+The existing native padding packet/capture contract owns numeric and render-frame
+admission. Neutral transport is not managed/native image qualification.
+See docs/source-shader-padding-transport.md.
+
+Known-empty DrawingImage shader-source closures retain the actual initialized
+drawing through a typed ownership-only edge while canonical paint stays drawing
+zero. Empty-source publication clears stale positive bounds; canonical updates
+clear the edge, and positive bounds cannot silently discard it. Republish the
+actual canonical drawing before returning to positive content. Preserve nested
+ownership, revisions, deletion/cycle checks, atomic candidates and reused wrapper
+dependencies in both traversal orders before empty-paint shortcuts. Do not invent
+positive bounds, equate unavailable metadata with empty, or expand the separate
+direct DrawingImage sampler policy. Original pixels, provider/package controls
+and source-host qualification remain independent required gates.
+
+BitmapCacheBrush shader samplers own the selected raw cache texture, not an
+ordinary brush painted over the receiving frame. Ignore consumer brush opacity,
+Transform and RelativeTransform only on this shader path. Retain explicit/target/
+default cache identity, actual source bounds and independent sampler dimensions.
+Exclude the root's six outer properties and ScrollableAreaClip from cache paint;
+descendant state, selected-cache ownership and mixed-resource cycle guards remain.
+Preserve original float edge/raster arithmetic, actual primary-scale provenance,
+live device limits and coherent source/device generations; never infer receiving-
+window DPI or default caps. Missing metadata is not an empty source. Null, proven
+empty and zero-scale realizations own a transparent one-texel sampler only after
+the required policy/ownership preflight. Retain capture resources and exact texture
+identity through retirement; ordinary cache admission and input-frame checks stay
+separate. See docs/bitmap-cache-raster-policy-contract.md and
+docs/native-shader-bitmap-cache-samplers.md. Authored controls are not qualification.
+
+Portable shared-bitmap queries use HRESULT as the capability decision, not a
+nonnull output left by a failed private-interface query. Retain failure-owned
+interfaces under RAII and preserve their exact error; only E_NOINTERFACE with
+null output permits the existing scene-source alternative. Success without an
+interface fails closed and does not select fallback. Preserve valid aliases and
+recorded scene bytes; malformed owned-provider controls are not Microsoft COM
+parity evidence. See docs/DIRECT2D_WIN2D_COMPATIBILITY.md.
+
+Source visual opacity masks may be input-neutral only through the producer's
+explicit SourceOpacityMaskPreservesHitGeometry contract. Keep the default false,
+actual source geometry/clip frames, ownership and singular-transform behavior;
+never inspect mask alpha/bounds to manufacture input. Effect mapping and required
+cache-source gates remain independent. Rebuild the source adapter against the
+qualified producer before claiming the new interface dispatch. See
+docs/source-visual-mask-hit-geometry.md; authored controls are not qualification.
+
+Explicit axis-clip area masks retain identity source mapping, zero radii and unit
+opacity. Project original four edges through actual per-axis DPI/viewport and
+localize physical target origin before pixel overlap; never divide by DPI and
+multiply back or replace rectangular corner area with rounded-distance AA.
+Ordinary flags-zero rounded masks stay unchanged. Preserve wire rejection,
+analytic-chain flags, all shared shader consumers and independent original
+Windows/source pixels; authored math is not qualification. See
+docs/native-axis-clip-coverage.md.
+
+Target-storage Clear is an explicit retained operator, not an analytic rectangle
+or source-over transparent draw. Preserve actual attachment identity, straight
+color, source order and exact pixel-center binary clips; source transforms and
+opacity do not move this operation. AA source clips initialize from background
+only inward of the nearest ordinary layer, whose original opacity/mask/policy
+survive. Preflight open and historical child depth atomically without counting
+live AA children twice. AA allocation stays outward-rounded and its coverage
+applies once at pop; no readback, fabricated extent or source hit primitive.
+See docs/native-target-storage-clear.md; source admission remains unqualified
+until final original Windows/full-provider/package gates pass.
+
+Typed source transforms retain each original resource's double parameters and
+ordered child identities. Never replace primitive/group history with a flattened
+matrix witness. Capture once per source identity, reject cycles/depth/counts
+before channel publication and validate all group handles before writer mutation.
+Matrix-only providers remain distinct. Rotation/skew construction requires the
+original primitive arithmetic, not host trig relabeled as proof. See
+docs/source-transform-resources.md.
+
+Affine ShaderEffect frames retain all original float XY coefficients and the
+independent scale-space input lattice. Keep full homogeneous residual/projection,
+mirrored orientation, actual parent target and all derivative components; never
+resample evaluated effects or replace a transformed clip with its envelope.
+Version 6 has a distinct wire, reader and shader layout; v1–v5 contracts remain
+independent. Actual source transform history must be witnessed per push, not
+reconstructed from a final double aggregate. Named rotation/skew constructors
+need their own original primitive proof. See docs/native-shader-affine-frame.md.
+
+Retained RGB glyph replay keeps the explicit box model separate from original
+DirectWrite modes. Prove opacity from the actual materialized target, never a
+root clear or ancestor. Preserve original sampling phase, exact two-axis DPI,
+integral physical translation, target-local scissor and source opacity. Per-draw
+masks reuse the original retained mask builders and shared text-mask shader;
+multiply each channel's coverage once, retaining picture and analytic-chain
+ownership, never an envelope. Reject unproven frames rather than selecting
+scalar coverage. Retain source order
+between ordinary bundles and submission-owned GPU resources. Report actual cold
+and warm uploads/draws; packet retention is not coverage retention or modern
+ClearType qualification. See docs/native-rgb-glyph-coverage.md.
+
+Source shader opacity ordering is explicit immutable WpfShaderEffect metadata,
+not a generic compositor default. Capture original root opacity/mask before
+bytecode while keeping geometry clips on the output; zero root alpha cannot
+erase a constant-output shader. Preserve ordinary ancestor alpha, cached input
+placement, typed mask ownership and effect cache identity. Do not duplicate
+opacity or rewrite other effect ordering. See docs/source-shader-opacity-order.md;
+the source adapter must opt in and final qualification remains required.
+
+Native ShaderEffect spatial gradient opacity applies inside the retained input
+capture before bytecode evaluation, never as final shader coverage. Reuse the
+typed gradient mask, original unpadded brush bounds and scale-space source
+transform; keep complete padding/UV extent independent. Brush opacity and
+visual opacity apply once through the existing inner layer. Sampled ImageBrush,
+DrawingBrush and VisualBrush opacity use their original owned nested capture
+in the same scale-space frame, with active-resource/depth guards and source
+sampling intact; do not import final residual/viewport placement into the mask.
+Unproven frames and unsupported original brush contracts remain gated. See
+docs/native-shader-input-opacity.md; authored controls are not qualification.
+
+Version-5 native ShaderEffect output evaluates original bytecode on the actual
+parent target's device samples, retaining the full homogeneous source residual,
+target-dependent projection and independent complete input capture. Never filter
+an evaluated effect image as a fractional-placement substitute. Exact typed
+source vector clips retain their curves, Boolean topology and inherited frame;
+the shared rasterizer's retained coverage is loaded at the same final device
+pixel and applied once after shader evaluation. Preserve span/submission-owned
+mask leases, masked program identity and the unmasked lazy path. Unproven source
+mapping or a different mask family is not an envelope/opacity fallback. Keep
+original wires and final SDK/source/provider qualification separate; see
+docs/native-shader-final-sample-frame.md.
+
+CFF DirectWrite compatibility origins without VORG use the retained
+matrix-transformed/varied control maximum and original vmtx bearing, matching
+original SDK outline observations. Keep exact curve extrema separate, with
+exact derivative degree and no invented rounding or int16 clamp. Explicit VORG
+retains precedence; the admitted CFF2 source adapter validates but does not apply
+VVAR vOrg deltas, matching original source placement. Keep the generic VVAR
+reader, whole-run cache publication, original font bytes, strict Windows/provider
+controls and the separate missing-table contract; see
+docs/direct2d-cff-contour-origins.md.
+
+Prepared sideways source glyphs retain raw BOOL and logical order. Use the same
+owned static vertical metrics and rotate each contour about its real vertical
+origin before run offsets; never rotate the pen, substitute horizontal advance,
+or invent an empty-glyph ink origin. Lazy vertical metadata must not alter
+horizontal source admission. Preserve whole-run/cache publication, retained
+outer transforms, SIMD/scalar arithmetic and original provider/reference gates.
+Missing metrics, variable vertical origins and combined sideways/odd bidi remain
+separate contracts. See docs/direct2d-sideways-glyph-placement.md.
+
+Neutral VVAR instances borrow exact immutable font bytes/face and cached original
+normalized-instance scalars. Keep strict VVAR preflight separate from legacy
+HVAR acceptance, rejecting duplicate or out-of-range selected-face VVAR records
+rather than treating them as an absent optional table. Keep optional-map absence distinct from zero variation, and null
+subtables/no-variation indices valid. Preserve atomic outputs, caller tails and
+alias rejection. Metric deltas do not select vertical origins or admit sideways
+source drawing. See docs/native-vertical-metric-variations.md.
+
+Prepared original horizontal glyphs preserve logical source order and every bidi
+level. RTL subtracts the current original design width from its pen; positioned
+advances move following pens independently. Never substitute the current caller
+advance for that design width or reflect outlines, reorder glyphs or change
+ascender offsets. Keep explicit/null and signed
+advances, no-ink movement, paired variable origin/metrics and whole-run atomic
+publication. No extra source shaping/font callback or raster policy is admitted.
+Retain independent original Windows and both provider full-frame controls;
+authored direction controls are not source UI or package qualification. See
+docs/direct2d-horizontal-glyph-direction.md.
+
+Version-4 native ShaderEffect captures retain original local float edges and a
+traversal-owned root-DPI/per-push float witness. Allocate floor(min)/ceil(max) in
+scale space, preserving complete UV/derivative extent and integral residual
+placement. Never infer source history from a final aggregate, discard the new
+frame in an older reader, round a residual into admission or substitute managed
+ceil(extent) sizing. The initial exact bounded diagonal-inverse proof is internal;
+general non-dyadic decomposition and fractional final placement remain required
+implementation contracts. Keep v1-v3 gates/bytes and source/pixel qualification
+separate. See docs/native-shader-local-capture-frame.md.
+
+Native ShaderEffect padding retains original packet doubles, inflates local float
+edges before the admitted positive-axis transform, and leaves zero-padding
+arithmetic unchanged. Preserve complete capture/UV/derivative and final-clip
+ownership; do not turn outward allocation rounding into fractional admission.
+See docs/native-shader-capture-padding.md; source and pixel qualification remain
+separate from packet acceptance.
+
 Flagged native visual BitmapScalingMode Unspecified preserves inherited sampling;
 only a genuinely unspecified ancestry uses the Linear default. Preserve actual
 visual-field propagation and same-owner reset semantics: an attached property on
@@ -8,6 +291,22 @@ Keep shader sampling separate from ImageBrush realization, original independent
 reference inputs and paired cold/warm ownership controls. See
 docs/native-shader-sampler-render-options.md; SoftwareOnly reference evidence does
 not qualify hardware filtering or repeated-source addressing.
+
+Effect input sizing shares the pure Scene EffectCaptureFrame with source sampler
+adapters. Preserve original float padded bounds separately from minimum-one
+logical extent, float multiplication before physical ceiling, and fractional
+raster-padding overrides. Keep actual DPI explicit and invalid/overflow output
+atomic; no texture/device ownership or native capture admission belongs here.
+See docs/effect-capture-frame.md; arithmetic checks are not shader pixel parity.
+
+Compatible-target bitmap memory copies may suspend only captured aliased
+axis-aligned clip SAVE scopes. Storage replacement ignores the drawing transform;
+subsequent draws retain original capture-time clips, transform and tags. Preserve
+balanced original-state restoration, atomic appended-tail rollback and full-write
+history replacement; geometric/AA/opacity/input scopes remain rejected. Ordinary
+owned-bitmap storage and other copy APIs keep their own admission. Require paired
+provider pixels and actual Windows active-copy observations before qualification.
+See docs/direct2d-scoped-memory-copies.md.
 
 ShaderEffect UV derivative registers use explicit version-3 metadata while
 preserving v1/v2 layouts. The native binding writes the selected register after
@@ -24,8 +323,14 @@ over the complete physical implicit-input extent at zero origin, preserving the
 actual brush opacity, tile addressing, transform and source sampling. Never use
 alpha-mask semantics, intrinsic image extent, managed textures or device handles
 as a substitute. Keep same-channel bitmap ownership, graph/deletion/revision
-checks, exact engine leases and submission retirement. Unsupported animated or
-external sources and fractional captures stay closed; see
+checks, exact engine leases and submission retirement. ImageBrush opacity and
+Viewport/Viewbox animation consume their retained typed current-value resources
+through the same capture; missing values and invalid opacity fail before even
+empty capture publication. Animated Matrix/Scale/Translate and ordered transform
+groups reuse their retained current-value resolver and dependency generations;
+any animated mapping containing named Rotate/Skew stays closed. Wholly-static
+named transforms retain legacy unqualified arithmetic, not new numeric admission.
+External sources stay closed; later versioned capture contracts retain their independent gates. See
 docs/native-shader-image-samplers.md. Source/ABI checks are not GPU or UI parity.
 
 Native WPF shader effects retain original validated bytecode and constant values,
@@ -110,6 +415,15 @@ half-open shared edges and derivatives before discard. Both renderers must use
 the matching vertex count. Folded/near-singular edges, multisampling and complete
 provider/package pixels remain explicit gates; shader compilation is not parity.
 
+Source Display capture retains original double em/DPI separately from explicit
+physical-em and advance policies. Preserve immutable raw post-GPOS generations,
+source/descriptor/bidi identity and unsafe flags while deriving fitting metrics.
+One matching advance corpus does not establish midpoint, offset, wrapping or
+caret policy. Precise source geometry must come from the original native writer,
+not float promotion or source-side division/snapping. Keep public raw ABIs and
+Display activation unchanged until the complete paired source contract qualifies.
+See docs/native-source-display-text.md.
+
 Paired Display probes preserve original Microsoft glyph/run receipts and separate
 raw signed hinted slots from full source-context shaping and positioned output.
 Keep exact source DPI and original 26.6 values beside float render projections;
@@ -145,8 +459,28 @@ subsequent drawing state and independent exported snapshots. Preserve cumulative
 Windows translated-draw/callback/failure accounting; retained scene counts describe
 only surviving content. Keep public clear RGBA straight, honor actual IGNORE alpha,
 and premultiply once at ordinary scene submission. Compatible picture conversion
-remains independent. Scoped Clear and failed recordings remain explicit rejection.
+remains independent. An all-aliased clip stack records bounded SRC replacement in
+its captured target frame, preserving history and ignoring the later transform.
+Keep fractional physical coverage, retained DPI-history accounting and both native
+producers paired; failed recordings still reject. AA axis clips use the separate
+target-storage/background-preservation contract, not this analytic SRC path.
 See docs/direct2d-full-target-clear.md; metadata fixtures are not pixel qualification.
+
+Direct2D transparent-layer Clear requires actual isolated layer storage before
+its nested SRC replacement. Promote only the innermost live layer and only for
+nonempty replacement, preserving captured bounds, source state and mask/opacity
+at pop. Preflight historical closed-child materialized depth before changing the
+retained push command; ordinary draw-only layers keep their elision. Known target
+metrics remain mandatory for unbounded command-stream layers. Keep legacy and
+OPTIONS1_NONE source paths paired with original Windows and both-provider pixels;
+authored controls do not qualify an unexecuted stack.
+
+Aliased clipped SRC replacement carries explicit final composite bounds, distinct
+from outward-rounded layer storage. Preserve original float edges, actual per-axis
+DPI/viewport, half-open pixel-center coverage and parent-target localization.
+Never infer replacement coverage from source alpha or erase transparent allocation
+margins. Keep the flag bounded to transient SRC without masks/effects/cache/state,
+paired native/managed wire validation and unchanged strict Windows/GPU pixels.
 
 Direct2D ordinary scene copies require explicit immutable pixel-format admission
 through the separate formatted factory capability. Keep legacy UNKNOWN targets

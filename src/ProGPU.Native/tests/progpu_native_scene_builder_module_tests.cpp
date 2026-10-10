@@ -7,6 +7,37 @@ import progpu.native.scene_builder;
 
 int main() {
     {
+        progpu::native::semantic_scene_builder mesh_builder(9851U, 1U);
+        progpu::native::progpu_native_scene_vertex_mesh mesh{};
+        mesh.struct_size = sizeof(mesh);
+        mesh.flags = progpu::native::PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED;
+        mesh.topology = progpu::native::PROGPU_NATIVE_VERTEX_MESH_TRIANGLES;
+        mesh.color_blend_mode = 5U; // Mesh source-in uses its original wire numbering.
+        mesh.vertex_count = 3U;
+        mesh.transform = mesh_builder.identity_transform();
+        const std::array<progpu::native::progpu_native_scene_mesh_vertex, 3U> vertices{{
+            {{0, 0}, {0, 0}, {1, 1, 1, 0}},
+            {{8, 0}, {8, 0}, {1, 1, 1, 1}},
+            {{0, 8}, {0, 8}, {1, 1, 1, 1}}}};
+        if (!mesh_builder.draw_vertex_meshes({&mesh, 1U}, vertices, {}, {}, {0, 0, 8, 8}) ||
+            mesh_builder.required_stream_size() == 0U) return 1;
+        progpu::native::progpu_native_scene_source_coverage_frame coverage_frame{
+            sizeof(coverage_frame), 1U, 1.F, 1.F, 8U, 8U, 0U, 0U};
+        unsigned int coverage_brush{};
+        if (!mesh_builder.add_solid_brush({1, 0, 0, 1}, 1, coverage_brush) ||
+            !mesh_builder.draw_source_coverage({&mesh, 1U}, vertices, {&coverage_brush, 1U}, {0, 0, 8, 8}, coverage_frame)) return 1;
+        const std::array<progpu::native::progpu_native_path_segment, 3U> segments{{
+            {{0, 0}, {8, 0}, {}, {}, progpu::native::PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+            {{8, 0}, {0, 8}, {}, {}, progpu::native::PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+            {{0, 8}, {0, 0}, {}, {}, progpu::native::PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}}};
+        progpu::native::progpu_native_scene_path_fill path{};
+        path.segment_count = segments.size(); path.max_x = path.max_y = 8;
+        path.sample_grid = 8U; path.color = {1, 1, 1, 1}; path.transform = mesh_builder.identity_transform();
+        if (!mesh_builder.draw_source_paths({&path, 1U}, segments, {&coverage_brush, 1U},
+                {0, 0, 8, 8}, coverage_frame)) return 1;
+    }
+    static_assert(progpu::native::PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL == 4U);
+    {
         progpu::native::semantic_scene_builder shader_builder(9840U, 1U);
         progpu::native::progpu_native_scene_shader_effect shader{};
         unsigned int resource = 123U;
@@ -210,6 +241,16 @@ int main() {
         after_failed_copy_written != before_copy_written || before_copy != after_failed_copy) return 1;
     progpu::native::semantic_scene_builder canonical_copy(9006U);
     image.flags = 0U;
+    auto clip_state = progpu::native::semantic_scene_builder::identity_state();
+    clip_state.flags = progpu::native::PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    clip_state.clip_rect = {4, 4, 8, 8};
+    unsigned int clip_index{};
+    progpu::native::semantic_scene_builder scoped_source(9010U);
+    progpu::native::semantic_scene_builder scoped_destination(9011U);
+    if (!scoped_source.add_r8_image(2U, 2U, 2U, coverage, staged_index) ||
+        !scoped_destination.add_state(clip_state, clip_index) || !scoped_destination.save(clip_index) ||
+        !scoped_destination.copy_image_from_builder_outside_clips(std::move(scoped_source), staged_index, image) ||
+        !scoped_destination.restore()) return 1;
     if (!canonical_copy.copy_image_from_memory(image, progpu::native::PROGPU_NATIVE_SCENE_IMAGE_R8, coverage)) return 1;
     progpu::native::scene_full_image_copy full_image{};
     if (!canonical_copy.try_get_full_image_copy(image.destination_rect, 2U, 2U, full_image) ||

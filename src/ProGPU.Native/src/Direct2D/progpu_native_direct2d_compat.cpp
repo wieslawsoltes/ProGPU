@@ -333,7 +333,7 @@ using rectangle_vertices = std::array<point_2f, 4U>;
 
 [[nodiscard]] com::result create_rectangle_path_geometry(
     factory* owner,
-    const rectangle_f& rectangle,
+    const rectangle_vertices& vertices,
     com::pointer<path_geometry>& path) noexcept
 {
     path_geometry* raw_path = nullptr;
@@ -349,16 +349,74 @@ using rectangle_vertices = std::array<point_2f, 4U>;
     if (com::failed(status)) {
         return status;
     }
-    const std::array<point_2f, 3U> points{{
-        {rectangle.right, rectangle.top},
-        {rectangle.right, rectangle.bottom},
-        {rectangle.left, rectangle.bottom}}};
     sink->SetFillMode(fill_mode::winding);
-    sink->BeginFigure(
-        {rectangle.left, rectangle.top}, figure_begin::filled);
-    sink->AddLines(points.data(), static_cast<std::uint32_t>(points.size()));
+    sink->BeginFigure(vertices[0U], figure_begin::filled);
+    sink->AddLines(vertices.data() + 1U, 3U);
     sink->EndFigure(figure_end::closed);
     return sink->Close();
+}
+
+[[nodiscard]] com::result create_rectangle_path_geometry(
+    factory* owner,
+    const rectangle_f& rectangle,
+    com::pointer<path_geometry>& path) noexcept
+{
+    return create_rectangle_path_geometry(owner, rectangle_vertices{{
+        {rectangle.left, rectangle.top}, {rectangle.right, rectangle.top},
+        {rectangle.right, rectangle.bottom}, {rectangle.left, rectangle.bottom}}}, path);
+}
+
+// The path stroker owns solid cap/join arithmetic. Only its normal, positive-width
+// contract is selected here; legacy rectangle/default and target-dependent modes
+// keep their existing routes. A base-only style has normal transformation policy.
+[[nodiscard]] com::result select_solid_rectangle_path(
+    factory* owner,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    bool& selected) noexcept
+{
+    selected = false;
+    if (style == nullptr) {
+        return com::ok;
+    }
+    if (!std::isfinite(stroke_width) || stroke_width < 0.0F ||
+        !std::isfinite(flattening_tolerance) || flattening_tolerance <= 0.0F ||
+        !core::valid_transform(world_transform)) {
+        return com::invalid_argument;
+    }
+    factory* raw_factory = nullptr;
+    style->GetFactory(&raw_factory);
+    com::pointer<factory> style_factory;
+    style_factory.attach(raw_factory);
+    if (style_factory.get() != owner) {
+        return wrong_factory;
+    }
+    if (style->GetDashStyle() != dash_style::solid || stroke_width == 0.0F) {
+        return com::ok;
+    }
+    com::pointer<stroke_style1> extended;
+    const com::result query = style->QueryInterface(
+        stroke_style1_interface_id, reinterpret_cast<void**>(extended.put()));
+    if (com::failed(query)) {
+        if (query != com::no_interface || extended) {
+            return query;
+        }
+    } else {
+        if (!extended) {
+            return failure;
+        }
+        const stroke_transform_type mode = extended->GetStrokeTransformType();
+        if (mode > stroke_transform_type::hairline) {
+            return com::invalid_argument;
+        }
+        if (mode != stroke_transform_type::normal) {
+            return com::ok;
+        }
+    }
+    selected = true;
+    return com::ok;
 }
 
 struct orthogonal_edge final {
@@ -1173,6 +1231,26 @@ template <std::size_t Capacity>
         rectangle.bottom <= rectangle.top) {
         return not_implemented;
     }
+    bool selected = false;
+    const com::result selection = select_solid_rectangle_path(
+        owner, stroke_width, style, world_transform, flattening_tolerance, selected);
+    if (com::failed(selection)) {
+        return selection;
+    }
+    if (selected) {
+        com::pointer<path_geometry> path;
+        const com::result creation = create_rectangle_path_geometry(owner, rectangle, path);
+        if (com::failed(creation)) {
+            return creation;
+        }
+        rectangle_f candidate{};
+        const com::result status = path->GetWidenedBounds(
+            stroke_width, style, world_transform, flattening_tolerance, &candidate);
+        if (com::succeeded(status)) {
+            *bounds = candidate;
+        }
+        return status;
+    }
     const double half_width = static_cast<double>(stroke_width) * 0.5;
     const std::array<double, 4U> expanded{
         static_cast<double>(rectangle.left) - half_width,
@@ -1218,6 +1296,7 @@ template <std::size_t Capacity>
 }
 
 [[nodiscard]] com::result rectangle_stroke_contains_point_impl(
+    factory* owner,
     const rectangle_f& rectangle,
     point_2f point,
     float stroke_width,
@@ -1236,6 +1315,26 @@ template <std::size_t Capacity>
         flattening_tolerance <= 0.0F ||
         !core::valid_transform(world_transform)) {
         return com::invalid_argument;
+    }
+    bool selected = false;
+    const com::result selection = select_solid_rectangle_path(
+        owner, stroke_width, style, world_transform, flattening_tolerance, selected);
+    if (com::failed(selection)) {
+        return selection;
+    }
+    if (selected && rectangle.right > rectangle.left && rectangle.bottom > rectangle.top) {
+        com::pointer<path_geometry> path;
+        const com::result creation = create_rectangle_path_geometry(owner, rectangle, path);
+        if (com::failed(creation)) {
+            return creation;
+        }
+        std::int32_t candidate = 0;
+        const com::result status = path->StrokeContainsPoint(
+            point, stroke_width, style, world_transform, flattening_tolerance, &candidate);
+        if (com::succeeded(status)) {
+            *contains = candidate;
+        }
+        return status;
     }
     if (style != nullptr || rectangle.right <= rectangle.left ||
         rectangle.bottom <= rectangle.top) {
@@ -1304,6 +1403,7 @@ template <std::size_t Capacity>
 }
 
 [[nodiscard]] com::result widen_rectangle_impl(
+    factory* owner,
     const rectangle_f& rectangle,
     float stroke_width,
     stroke_style* style,
@@ -1319,6 +1419,18 @@ template <std::size_t Capacity>
         flattening_tolerance <= 0.0F ||
         !core::valid_transform(world_transform)) {
         return com::invalid_argument;
+    }
+    bool selected = false;
+    const com::result selection = select_solid_rectangle_path(
+        owner, stroke_width, style, world_transform, flattening_tolerance, selected);
+    if (com::failed(selection)) {
+        return selection;
+    }
+    if (selected && rectangle.right > rectangle.left && rectangle.bottom > rectangle.top) {
+        com::pointer<path_geometry> path;
+        const com::result creation = create_rectangle_path_geometry(owner, rectangle, path);
+        return com::failed(creation) ? creation : path->Widen(
+            stroke_width, style, world_transform, flattening_tolerance, sink);
     }
     if (style != nullptr || rectangle.right <= rectangle.left ||
         rectangle.bottom <= rectangle.top) {
@@ -1379,7 +1491,7 @@ template <std::size_t Capacity>
     return com::ok;
 }
 
-[[nodiscard]] com::result widen_transformed_rectangle(
+[[nodiscard]] com::result widen_transformed_rectangle_impl(
     const rectangle_f& rectangle,
     float stroke_width,
     stroke_style* style,
@@ -1713,6 +1825,7 @@ public:
         std::int32_t* contains) const noexcept override
     {
         return detail::rectangle_stroke_contains_point(
+            owner_.get(),
             geometry_.rectangle(),
             point,
             stroke_width,
@@ -1870,6 +1983,7 @@ public:
         simplified_geometry_sink* sink) const noexcept override
     {
         return detail::widen_rectangle(
+            owner_.get(),
             geometry_.rectangle(),
             stroke_width,
             style,
@@ -1970,6 +2084,22 @@ public:
             return com::pointer_error;
         }
         *bounds = {};
+        com::pointer<path_geometry> styled_path;
+        const com::result style_result = detail::create_transformed_rectangle_stroke_path(
+            owner_.get(), source_.get(), transform_, stroke_width, style,
+            world_transform, flattening_tolerance, styled_path.put());
+        if (com::failed(style_result)) {
+            return style_result;
+        }
+        if (styled_path) {
+            rectangle_f candidate{};
+            const com::result result = styled_path->GetWidenedBounds(
+                stroke_width, style, world_transform, flattening_tolerance, &candidate);
+            if (com::succeeded(result)) {
+                *bounds = candidate;
+            }
+            return result;
+        }
         rectangle_f transformed_rectangle{};
         const com::result rectangle_result =
             get_axis_preserving_rectangle(&transformed_rectangle);
@@ -1997,12 +2127,32 @@ public:
             return com::pointer_error;
         }
         *contains = 0;
+        if (style != nullptr && (!std::isfinite(point.x) || !std::isfinite(point.y))) {
+            return com::invalid_argument;
+        }
+        com::pointer<path_geometry> styled_path;
+        const com::result style_result = detail::create_transformed_rectangle_stroke_path(
+            owner_.get(), source_.get(), transform_, stroke_width, style,
+            world_transform, flattening_tolerance, styled_path.put());
+        if (com::failed(style_result)) {
+            return style_result;
+        }
+        if (styled_path) {
+            std::int32_t candidate = 0;
+            const com::result result = styled_path->StrokeContainsPoint(
+                point, stroke_width, style, world_transform, flattening_tolerance, &candidate);
+            if (com::succeeded(result)) {
+                *contains = candidate;
+            }
+            return result;
+        }
         rectangle_f transformed_rectangle{};
         const com::result rectangle_result =
             get_axis_preserving_rectangle(&transformed_rectangle);
         return com::failed(rectangle_result)
             ? rectangle_result
             : detail::rectangle_stroke_contains_point(
+                  owner_.get(),
                   transformed_rectangle,
                   point,
                   stroke_width,
@@ -2181,6 +2331,22 @@ public:
         float flattening_tolerance,
         simplified_geometry_sink* sink) const noexcept override
     {
+        if (style != nullptr) {
+            if (sink == nullptr) {
+                return com::pointer_error;
+            }
+            com::pointer<path_geometry> styled_path;
+            const com::result style_result = detail::create_transformed_rectangle_stroke_path(
+                owner_.get(), source_.get(), transform_, stroke_width, style,
+                world_transform, flattening_tolerance, styled_path.put());
+            if (com::failed(style_result)) {
+                return style_result;
+            }
+            if (styled_path) {
+                return styled_path->Widen(
+                    stroke_width, style, world_transform, flattening_tolerance, sink);
+            }
+        }
         if (transform_.m12 != 0.0F || transform_.m21 != 0.0F ||
             transform_.m11 <= 0.0F || transform_.m22 <= 0.0F) {
             return not_implemented;
@@ -2190,7 +2356,7 @@ public:
             get_axis_preserving_rectangle(&transformed_rectangle);
         return com::failed(rectangle_result)
             ? rectangle_result
-            : widen_transformed_rectangle(
+            : detail::widen_transformed_rectangle(
                   transformed_rectangle,
                   stroke_width,
                   style,
@@ -2227,6 +2393,13 @@ private:
             return com::pointer_error;
         }
         *transformed_rectangle = {};
+        if (transform_.m12 == 0.0F && transform_.m21 == 0.0F &&
+            transform_.m11 > 0.0F && transform_.m22 > 0.0F) {
+            bool selected = false;
+            const com::result status = detail::try_get_default_transformed_rectangle(
+                owner_.get(), source_.get(), transform_, transformed_rectangle, &selected);
+            return com::failed(status) ? status : selected ? com::ok : not_implemented;
+        }
         const bool axis_preserving =
             (transform_.m12 == 0.0F && transform_.m21 == 0.0F) ||
             (transform_.m11 == 0.0F && transform_.m22 == 0.0F);
@@ -2631,6 +2804,7 @@ com::result get_rectangle_widened_bounds(
 }
 
 com::result rectangle_stroke_contains_point(
+    factory* owner,
     const rectangle_f& rectangle,
     point_2f point,
     float stroke_width,
@@ -2640,6 +2814,7 @@ com::result rectangle_stroke_contains_point(
     std::int32_t* contains) noexcept
 {
     return rectangle_stroke_contains_point_impl(
+        owner,
         rectangle,
         point,
         stroke_width,
@@ -2677,6 +2852,7 @@ com::result outline_rectangle(
 }
 
 com::result widen_rectangle(
+    factory* owner,
     const rectangle_f& rectangle,
     float stroke_width,
     stroke_style* style,
@@ -2685,12 +2861,121 @@ com::result widen_rectangle(
     simplified_geometry_sink* sink) noexcept
 {
     return widen_rectangle_impl(
+        owner,
         rectangle,
         stroke_width,
         style,
         world_transform,
         flattening_tolerance,
         sink);
+}
+
+com::result create_transformed_rectangle_stroke_path(
+    factory* owner,
+    geometry* source,
+    const matrix_3x2_f& intrinsic,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    path_geometry** value) noexcept
+{
+    if (value == nullptr) {
+        return com::pointer_error;
+    }
+    *value = nullptr;
+    bool selected = false;
+    const com::result selection = select_solid_rectangle_path(
+        owner, stroke_width, style, world_transform, flattening_tolerance, selected);
+    if (com::failed(selection) || !selected) {
+        return selection;
+    }
+    rectangle_vertices vertices{};
+    const com::result extraction = get_rectangle_vertices(
+        owner, source, &intrinsic, 0U, &vertices);
+    if (extraction == not_implemented) {
+        return com::ok;
+    }
+    if (com::failed(extraction)) {
+        return extraction;
+    }
+    // An exactly collapsed centerline is not new rectangle admission. Retain the
+    // original ordered vertices (including reflected orientation), never a bbox.
+    if (edge_cross(vertices[0U], vertices[1U], vertices[3U]) == 0.0) {
+        return not_implemented;
+    }
+    com::pointer<path_geometry> path;
+    const com::result creation = create_rectangle_path_geometry(owner, vertices, path);
+    if (com::succeeded(creation)) {
+        *value = path.detach();
+    }
+    return creation;
+}
+
+com::result try_get_default_transformed_rectangle(
+    factory* owner,
+    geometry* source,
+    const matrix_3x2_f& intrinsic,
+    rectangle_f* rectangle,
+    bool* selected) noexcept
+{
+    if (rectangle == nullptr || selected == nullptr) {
+        return com::pointer_error;
+    }
+    *rectangle = {};
+    *selected = false;
+    if (owner == nullptr || source == nullptr) {
+        return com::pointer_error;
+    }
+    if (!core::valid_transform(&intrinsic)) {
+        return com::invalid_argument;
+    }
+    if (intrinsic.m12 != 0.0F || intrinsic.m21 != 0.0F ||
+        intrinsic.m11 <= 0.0F || intrinsic.m22 <= 0.0F) {
+        return com::ok;
+    }
+    factory* raw_factory = nullptr;
+    source->GetFactory(&raw_factory);
+    com::pointer<factory> source_factory;
+    source_factory.attach(raw_factory);
+    if (source_factory.get() != owner) {
+        return wrong_factory;
+    }
+    com::pointer<rectangle_geometry> source_rectangle;
+    const com::result query = source->QueryInterface(
+        rectangle_geometry_interface_id, reinterpret_cast<void**>(source_rectangle.put()));
+    if (com::failed(query)) {
+        return query == com::no_interface && !source_rectangle ? com::ok : query;
+    }
+    if (!source_rectangle) {
+        return failure;
+    }
+    rectangle_f original{};
+    source_rectangle->GetRect(&original);
+    rectangle_f candidate{};
+    const com::result status = core::rectangle_geometry(original).bounds(&intrinsic, &candidate);
+    if (com::failed(status)) {
+        return status;
+    }
+    if (original.right <= original.left || original.bottom <= original.top ||
+        candidate.right <= candidate.left || candidate.bottom <= candidate.top) {
+        return not_implemented;
+    }
+    *rectangle = candidate;
+    *selected = true;
+    return com::ok;
+}
+
+com::result widen_transformed_rectangle(
+    const rectangle_f& rectangle,
+    float stroke_width,
+    stroke_style* style,
+    const matrix_3x2_f* world_transform,
+    float flattening_tolerance,
+    simplified_geometry_sink* sink) noexcept
+{
+    return widen_transformed_rectangle_impl(rectangle, stroke_width, style,
+        world_transform, flattening_tolerance, sink);
 }
 
 } // namespace detail

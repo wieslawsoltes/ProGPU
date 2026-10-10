@@ -305,6 +305,43 @@ add_custom_command(
     VERBATIM)
 set(generated_text_shader
     "${generated_directory}/TextWgsl.generated.hpp")
+set(generated_rgb_glyph_rasterizer_shader "${generated_directory}/GlyphRgbRasterizerWgsl.generated.hpp")
+set(generated_rgb_glyph_composite_shader "${generated_directory}/GlyphRgbCompositeWgsl.generated.hpp")
+set(generated_target_clear_shader "${generated_directory}/TargetClearWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_target_clear_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TargetClear.wgsl"
+        "-DOUTPUT=${generated_target_clear_shader}"
+        "-DSYMBOL=target_clear_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TargetClear.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    VERBATIM)
+add_custom_command(
+    OUTPUT "${generated_rgb_glyph_rasterizer_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DPREFIX_INPUT=${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbRasterizer.wgsl"
+        "-DOUTPUT=${generated_rgb_glyph_rasterizer_shader}"
+        "-DSYMBOL=rgb_glyph_rasterizer_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbRasterizer.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    VERBATIM)
+add_custom_command(
+    OUTPUT "${generated_rgb_glyph_composite_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbComposite.wgsl"
+        "-DOUTPUT=${generated_rgb_glyph_composite_shader}"
+        "-DSYMBOL=rgb_glyph_composite_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRgbComposite.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/TextMaskCommon.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    VERBATIM)
 add_custom_command(
     OUTPUT "${generated_text_shader}"
     COMMAND "${CMAKE_COMMAND}"
@@ -391,6 +428,32 @@ add_custom_command(
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the original WPF bytecode effect capture template"
+    VERBATIM)
+set(generated_wpf_bytecode_sample_effect_shader
+    "${generated_directory}/WpfBytecodeSampleEffectWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_wpf_bytecode_sample_effect_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl"
+        "-DOUTPUT=${generated_wpf_bytecode_sample_effect_shader}"
+        "-DSYMBOL=wpf_bytecode_sample_effect_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the retained final-device WPF bytecode effect template"
+    VERBATIM)
+set(generated_wpf_bytecode_affine_effect_shader
+    "${generated_directory}/WpfBytecodeAffineEffectWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_wpf_bytecode_affine_effect_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl"
+        "-DOUTPUT=${generated_wpf_bytecode_affine_effect_shader}"
+        "-DSYMBOL=wpf_bytecode_affine_effect_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the retained affine WPF bytecode effect template"
     VERBATIM)
 set(generated_texture_gaussian_blur_shader
     "${generated_directory}/TextureGaussianBlurWgsl.generated.hpp")
@@ -622,11 +685,16 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_path_signed_winding_evaluate_shader}"
         "${generated_path_signed_winding_coverage_shader}"
         "${generated_glyph_rasterizer_shader}"
+        "${generated_rgb_glyph_rasterizer_shader}"
+        "${generated_rgb_glyph_composite_shader}"
+        "${generated_target_clear_shader}"
         "${generated_text_shader}"
         "${generated_hinted_glyph_paint_shader}"
         "${generated_texture_shader}"
         "${generated_image_effect_shader}"
         "${generated_wpf_bytecode_effect_shader}"
+        "${generated_wpf_bytecode_sample_effect_shader}"
+        "${generated_wpf_bytecode_affine_effect_shader}"
         "${generated_texture_gaussian_blur_shader}"
         "${generated_texture_gaussian_blur_unfilterable_shader}"
         "${generated_clip_compose_shader}"
@@ -640,6 +708,8 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_hit_test_readback_shader}")
 
 set(PROGPU_NATIVE_BACKEND_SOURCES
+    src/Backend/progpu_native_rgb_glyph_execution.cpp
+    src/Backend/progpu_native_target_clear.cpp
     src/Backend/progpu_native_geometry_utility.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
@@ -712,6 +782,10 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_shader_effect_execution.cpp
     src/Scene/progpu_native_shader_effect_execution.hpp
     src/Scene/progpu_native_shader_effect_resource.hpp
+    src/Scene/progpu_native_shader_capture_frame.hpp
+    src/Scene/progpu_native_shader_sample_frame.hpp
+    src/Scene/progpu_native_shader_affine_frame.hpp
+    src/Scene/progpu_native_source_transform_primitive.hpp
     src/Scene/progpu_native_shader_effect_uniforms.hpp
     src/Scene/progpu_native_semantic_image_blur_resources.cpp
     src/Scene/progpu_native_semantic_image_resources.hpp
@@ -838,13 +912,18 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_edit_word_boundaries.cpp
     "${generated_unicode_normalization_source}"
     src/Text/Font/progpu_native_hinted_transport.cpp
+    src/Text/Font/progpu_native_hinted_source_policy.cpp
+    src/Text/Font/progpu_native_hinted_positioning.cpp
     src/Text/Font/progpu_native_hinted_text_layout.cpp
     src/Text/Font/progpu_native_hinted_outline.cpp
     src/Text/Font/progpu_native_hinted_glyph_frame.cpp
     src/Text/Interop/progpu_native_hinted_paragraph_interaction.cpp
+    src/Text/Interop/progpu_native_hinted_source_fitting.cpp
+    src/Text/Interop/progpu_native_hinted_source_resource_cache.cpp
     src/Text/Interop/progpu_native_hinted_paragraph_glyph_frame.cpp
     src/Text/Interop/progpu_native_hinted_nominal_metrics.cpp
     src/Text/Interop/progpu_native_hinted_source_frame.cpp
+    src/Text/Interop/progpu_native_hinted_source_run.cpp
     src/Text/Interop/progpu_native_hinted_glyph_resource_import.cpp
     src/Text/progpu_native_unicode.cpp
     src/Text/Unicode/progpu_native_unicode_category.cpp
@@ -928,6 +1007,7 @@ add_library(progpu_native_text STATIC
     src/Text/progpu_native_gvar_tuples.cpp
     src/Text/progpu_native_item_variation_store.cpp
     src/Text/progpu_native_hvar.cpp
+    src/Text/progpu_native_vvar.cpp
     src/Text/progpu_native_mvar.cpp
     src/Text/progpu_native_gdef_variations.cpp
     src/Text/progpu_native_cff_index.cpp
@@ -1099,6 +1179,14 @@ add_library(progpu_native_direct2d_core STATIC
     src/Direct2D/progpu_native_direct2d_core.cpp
     src/Direct2D/progpu_native_direct2d_drawing_state.cpp
     src/Direct2D/progpu_native_direct2d_drawing_state.hpp
+    src/Direct2D/progpu_native_direct2d_font_capture.cpp
+    src/Direct2D/progpu_native_direct2d_font_capture.hpp
+    src/Direct2D/progpu_native_direct2d_prepared_glyphs.cpp
+    src/Direct2D/progpu_native_direct2d_glyph_coverage.cpp
+    src/Direct2D/progpu_native_direct2d_prepared_glyphs.hpp
+    src/Direct2D/progpu_native_direct2d_cff_source.hpp
+    src/Direct2D/progpu_native_direct2d_vertical_metrics.cpp
+    src/Direct2D/progpu_native_direct2d_vertical_metrics.hpp
     src/Direct2D/progpu_native_direct2d_ellipse.cpp
     src/Direct2D/progpu_native_direct2d_ellipse.hpp
     src/Direct2D/progpu_native_direct2d_geometry_group.cpp
@@ -1116,7 +1204,8 @@ target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(progpu_native_direct2d_core PUBLIC
-    progpu_native_scene_builder)
+    progpu_native_scene_builder
+    PRIVATE progpu_native_text)
 if(WIN32)
     target_compile_definitions(progpu_native_direct2d_core PUBLIC
         NOMINMAX
@@ -1327,6 +1416,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
             target_include_directories(
                 progpu_native_webscene_provider_tests PRIVATE
                 "${CMAKE_CURRENT_SOURCE_DIR}/include"
+                ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES}
                 "${PROGPU_NATIVE_WEBSCENE_PROVIDER_INCLUDE_DIR}")
             target_include_directories(
                 progpu_native_webscene_provider_tests SYSTEM PRIVATE
@@ -1623,6 +1713,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Backend/progpu_native_geometry_utility.cpp)
     target_compile_features(progpu_native_geometry_utility_tests PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_geometry_utility_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+    target_include_directories(progpu_native_geometry_utility_tests PRIVATE
+        ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
     target_link_libraries(progpu_native_geometry_utility_tests PRIVATE progpu_native_direct2d_core)
     progpu_native_enable_warnings(progpu_native_geometry_utility_tests)
     progpu_native_enable_sanitizers(progpu_native_geometry_utility_tests)
@@ -1673,7 +1765,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             progpu_native_direct2d_webgpu_tests PRIVATE cxx_std_20)
         target_include_directories(
             progpu_native_direct2d_webgpu_tests PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/include")
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
         target_include_directories(
             progpu_native_direct2d_webgpu_tests SYSTEM PRIVATE
             "${PROGPU_NATIVE_WEBGPU_INCLUDE_DIR}")
@@ -1701,7 +1794,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             NAME progpu_native_direct2d_webgpu_tests
             COMMAND progpu_native_direct2d_webgpu_tests
                 "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-direct2d-webgpu.ppm")
-        set(_progpu_native_direct2d_webgpu_test_timeout 60)
+        # This aggregate now includes the complete source shader, AA Clear and
+        # layer matrices. Keep every case and every per-readback deadline; the
+        # CTest process budget includes their cumulative cold pipeline work.
+        set(_progpu_native_direct2d_webgpu_test_timeout 180)
         if(WIN32)
             # Cold D3D12 pipeline compilation exceeds five minutes on both
             # Windows ARM64 WARP CI and the Parallels validation adapter. Keep
@@ -1730,14 +1826,21 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         progpu_native_direct2d_core_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_direct2d_compat_tests
-        tests/progpu_native_direct2d_compat_tests.cpp)
+        tests/progpu_native_direct2d_compat_tests.cpp
+        tests/progpu_native_direct2d_font_capture_tests.cpp
+        tests/progpu_native_direct2d_variable_glyph_tests.cpp
+        tests/progpu_native_direct2d_cff_glyph_tests.cpp
+        tests/progpu_native_direct2d_vertical_metrics_tests.cpp
+        tests/progpu_native_direct2d_sideways_glyph_tests.cpp
+        tests/progpu_native_direct2d_variable_sideways_glyph_tests.cpp
+        tests/progpu_native_direct2d_cff_vertical_tests.cpp)
     target_compile_features(
         progpu_native_direct2d_compat_tests PRIVATE cxx_std_20)
     target_link_libraries(
         progpu_native_direct2d_compat_tests PRIVATE
         progpu_native_direct2d_core)
     if(WIN32)
-        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1)
+        target_link_libraries(progpu_native_direct2d_compat_tests PRIVATE d2d1 dwrite)
     endif()
     progpu_native_enable_warnings(progpu_native_direct2d_compat_tests)
     progpu_native_enable_sanitizers(progpu_native_direct2d_compat_tests)
@@ -1749,6 +1852,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
+        tests/progpu_native_mil_empty_drawing_image_tests.cpp
         src/Scene/progpu_native_scene.cpp
         src/Scene/progpu_native_semantic_brush.cpp
         src/Scene/progpu_native_semantic_color_glyph.cpp
@@ -1786,11 +1890,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         add_executable(progpu_native_direct2d_tests
             tests/progpu_native_direct2d_tests.cpp)
         target_compile_features(progpu_native_direct2d_tests PRIVATE cxx_std_20)
+        target_include_directories(progpu_native_direct2d_tests PRIVATE
+            ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
         target_compile_definitions(progpu_native_direct2d_tests PRIVATE
             NOMINMAX
             WIN32_LEAN_AND_MEAN)
         target_link_libraries(progpu_native_direct2d_tests PRIVATE
             progpu_native_direct2d
+            progpu_native_direct2d_core
+            bcrypt
             d2d1
             gdi32
             ole32
@@ -1985,6 +2093,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Scene/progpu_native_semantic_state.hpp
         src/Scene/progpu_native_semantic_validation.hpp)
     target_compile_features(progpu_native_internal_tests PRIVATE cxx_std_20)
+    if(WIN32)
+        target_compile_definitions(progpu_native_internal_tests PRIVATE
+            NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
     target_include_directories(progpu_native_internal_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
@@ -2014,6 +2126,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         COMMAND progpu_native_motion_mark_tests)
     set_tests_properties(
         progpu_native_motion_mark_tests PROPERTIES TIMEOUT 60)
+
+    add_executable(progpu_native_vvar_tests tests/progpu_native_vvar_tests.cpp)
+    target_compile_features(progpu_native_vvar_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_vvar_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_vvar_tests)
+    progpu_native_enable_sanitizers(progpu_native_vvar_tests)
+    add_test(NAME progpu_native_vvar_tests COMMAND progpu_native_vvar_tests)
+    set_tests_properties(progpu_native_vvar_tests PROPERTIES TIMEOUT 60)
 
     add_executable(progpu_native_font_device_metrics_tests
         tests/progpu_native_font_device_metrics_tests.cpp)
@@ -2217,6 +2337,31 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_hinted_source_frame_tests COMMAND progpu_native_hinted_source_frame_tests)
     set_tests_properties(progpu_native_hinted_source_frame_tests PROPERTIES TIMEOUT 60)
 
+    foreach(source_test IN ITEMS run transport import)
+        add_executable(progpu_native_hinted_source_${source_test}_tests tests/progpu_native_hinted_source_${source_test}_tests.cpp)
+        target_compile_features(progpu_native_hinted_source_${source_test}_tests PRIVATE cxx_std_20)
+        target_link_libraries(progpu_native_hinted_source_${source_test}_tests PRIVATE progpu_native_text)
+        if(NOT source_test STREQUAL "run")
+            target_sources(progpu_native_hinted_source_${source_test}_tests PRIVATE
+                src/Text/Interop/progpu_native_text_shaping_interop.cpp)
+            target_compile_definitions(progpu_native_hinted_source_${source_test}_tests PRIVATE PROGPU_NATIVE_BUILD=1)
+        endif()
+        if(PROGPU_NATIVE_FONT_HINTING)
+            target_compile_definitions(progpu_native_hinted_source_${source_test}_tests PRIVATE PROGPU_NATIVE_FONT_HINTING=1)
+        endif()
+        progpu_native_enable_warnings(progpu_native_hinted_source_${source_test}_tests)
+        progpu_native_enable_sanitizers(progpu_native_hinted_source_${source_test}_tests)
+        add_test(NAME progpu_native_hinted_source_${source_test}_tests COMMAND progpu_native_hinted_source_${source_test}_tests)
+        set_tests_properties(progpu_native_hinted_source_${source_test}_tests PROPERTIES TIMEOUT 60)
+    endforeach()
+    add_executable(progpu_native_hinted_source_policy_tests tests/progpu_native_hinted_source_policy_tests.cpp)
+    target_compile_features(progpu_native_hinted_source_policy_tests PRIVATE cxx_std_20)
+    target_link_libraries(progpu_native_hinted_source_policy_tests PRIVATE progpu_native_text)
+    progpu_native_enable_warnings(progpu_native_hinted_source_policy_tests)
+    progpu_native_enable_sanitizers(progpu_native_hinted_source_policy_tests)
+    add_test(NAME progpu_native_hinted_source_policy_tests COMMAND progpu_native_hinted_source_policy_tests)
+    set_tests_properties(progpu_native_hinted_source_policy_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_text_shaping_showcase_tests
         tests/progpu_native_text_shaping_showcase_tests.cpp
         src/Text/Interop/progpu_native_text_shaping_interop.cpp)
@@ -2380,6 +2525,8 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_scene_builder.hpp
         include/progpu_native_text.hpp
         include/progpu_native_text_hinting.h
+        include/progpu_native_text_source.h
+        include/progpu_native_text_source_resource.h
         include/progpu_native_text_interaction.h
         include/progpu_native_text_styles.h
         include/progpu_native_text_flow.h

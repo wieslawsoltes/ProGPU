@@ -461,7 +461,9 @@ public enum ProGpuDirect2DSceneStreamFlags : uint
     HasOpacityBrushLayerMasks = 1U << 8,
     HasCompositeLayerMasks = 1U << 9,
     /// <summary>Rebuild with a new generation when the source surface size or context DPI changes.</summary>
-    HasTargetDependentMasks = 1U << 10
+    HasTargetDependentMasks = 1U << 10,
+    /// <summary>Rebuild with a new generation when the source target DPI changes.</summary>
+    HasTargetDependentStrokes = 1U << 11
 }
 
 public enum ProGpuDirect2DSceneStreamFailureReason : uint
@@ -717,6 +719,9 @@ public readonly record struct ProGpuDirect2DSceneStreamResult(
 
     public bool HasAxisAlignedClips =>
         (Flags & ProGpuDirect2DSceneStreamFlags.HasAxisAlignedClips) != 0;
+
+    public bool HasTargetDependentStrokes =>
+        (Flags & ProGpuDirect2DSceneStreamFlags.HasTargetDependentStrokes) != 0;
 }
 
 /// <summary>

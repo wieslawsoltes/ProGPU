@@ -1,0 +1,97 @@
+# Native target-storage Clear
+
+The private target-storage encoder replaces the actual current attachment inside
+its binary scissor. A single fullscreen triangle writes the original straight
+color after one premultiplication, with blending disabled. Transparent colors
+therefore erase storage. Actual IGNORE-alpha targets select alpha one; neither
+an opaque clear color nor an ancestor proves that target property.
+
+Source transforms, geometry bounds, opacity and antialiased masks do not belong
+to this storage operation. The caller retains source order, ends the previous
+pass, identifies the exact live target and supplies its actual dimensions and
+scissor. Enclosing source layers apply their own group coverage when they pop.
+For an antialiased source clip, preserving the background before drawing and
+replacing it through that clip at pop is a separate required recorder contract.
+
+Both native providers compile the same embedded `TargetClear.wgsl` and C++
+encoder. Pipeline creation is lazy. Its one 16-byte uniform and binding use the
+existing submission-retired raster-resource lease; no target handle escapes,
+and the encoder neither submits, waits nor reads back. Complexity is O(covered
+pixels) GPU work and O(1) command/uniform storage per clear.
+
+The shader and pipeline carry explicit nonempty diagnostic names. The pinned
+Windows provider otherwise crashed in FXC's source-name lookup before the first
+draw. Naming them preserves the exact shader bytes, color, attachment and blend
+state; the 15 original cases now pass both cold and warm replay on Windows ARM64
+D3D12 WARP. Compiler success alone remains insufficient: these controls compare
+the complete pixels and original submission/upload counts.
+
+The native GPU test's `--target-clear-only` and `--target-clear-software` options
+run those same 15 cases for diagnosis. Its `--software-adapter` option runs the
+entire unchanged corpus on a CPU adapter. The Windows Direct2D test accepts the
+same full-corpus software option through the existing FORCE_WARP surface flag.
+Default test execution retains every original family and adapter policy; a
+focused run does not qualify the complete renderer.
+
+The builder now prepares only the source-declared AA clip chain inward of the
+nearest ordinary layer. Each exact unit-opacity rectangular clip reuses existing
+`INITIALIZE_FROM_BACKGROUND` composition. The ordinary owner, if elided, becomes
+isolated without changing its own opacity, masks or initialization policy.
+Older AA scopes outside that owner are unchanged. SAVE frames are not storage.
+The atomic preflight retains exact original mask/bounds identity, rejects other
+group families, and counts both historical closed child peaks and currently open
+children without double-counting their live materialized depth. Publication is
+allocation-free; ordinary draw-only layers remain eligible for elision. Existing
+nearest-layer isolation uses this same depth accounting.
+
+Authored builder controls compare full retained streams against independently
+declared background/isolation flags, including idempotence, SAVE scopes, a source
+owner inside an outer AA clip, eight non-clip rejection families, and exact open
+and historical capacity limits. The local native builder and internal suites
+pass these controls; this does not replace final provider/package qualification.
+
+The additive required `CLEAR_TARGET` command (kind 5) now retains the original
+16-byte straight color without a geometry resource. Native and managed writers
+pair atomic byte validation. Older readers reject the unknown required command.
+Actual replay splits the prior bundle, uses the current attachment's dimensions
+and alpha policy, and retains source order across ordinary draws and nested
+pictures. This is not a regular geometry draw family and emits no source hit
+primitive. Each executed occurrence reports one draw and a 16-byte upload,
+including warm replay. Per-draw masks reject before publication.
+
+Binary SAVE clips use the original physical pixel-center boundary
+`ceil(double(edge) - 0.5)`, with actual independent-axis DPI, viewport and target
+localization. The explicit required state flag `CLIP_PIXEL_CENTERS` carries this
+policy for all draws in a Direct2D binary scope, not only Clear. It requires an
+actual `CLIP_RECT`; legacy generic clip states keep their original outward rule.
+Each absolute SAVE retains all binary ancestors across intervening AA groups.
+Copy operations suspend and restore the original flagged states atomically.
+AA layer allocation remains outward-rounded; it is never replaced
+by this binary clip calculation. No-op clips encode no draw.
+
+Both actual Direct2D recorders now use this retained operation when an AA
+`PushAxisAlignedClip` scope is active. Later transforms, even singular ones,
+cannot move Clear. The nearest ordinary source layer keeps its alpha/opacity
+identity, while AA descendants preserve background and resolve coverage once
+at pop. A bounded AA child supplies its own current storage extent; without
+that child an unbounded target-independent ordinary owner still requires its
+existing explicit target metrics. Leading/full-target and all-aliased Clear
+keep their original paths. Empty source intersections add no draw or isolation;
+portable DPI-history and Windows original callback counts remain distinct.
+
+Direct-root linear RGBA8/BGRA8 attachments retain independent source DPI axes
+through the explicit bounded area-mask family and a whole physical viewport.
+Mapped picture children still reject layer masks; a dedicated negative control
+preserves that distinction. Aliased filled rectangles use their original quad
+edges so raster edge ownership agrees with the source pixel-center clip.
+
+The stock Metal AA family matches all 204 original Windows ARM64/x64 frames,
+including complete cold/warm RGBA, fractional axes and nested ownership. Raw
+flag rejection, capture-time binary ancestors and copy restoration pass local
+native controls. All 47 local native CTest cases and the complete local Metal
+managed/native build matrix now pass, including the retained-path DPI-2
+differential. Full Windows and package qualification remain required; a local
+Parallels D3D11 run exposes a one-byte AA Clear composition difference. Qualify
+only the final integrated tips, retaining the existing pixel,
+lifetime, package and UI gates. This does not advertise managed
+Canvas routing, general device-context operations or desktop UI parity.

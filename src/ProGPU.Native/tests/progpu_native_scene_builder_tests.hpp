@@ -4,7 +4,25 @@
 namespace progpu::native::tests {
 
 bool semantic_scene_builder_is_deterministic_and_valid();
+bool semantic_scene_builder_vertex_mesh_is_owned_and_atomic();
+bool semantic_scene_builder_source_coverage_is_owned_and_atomic();
+bool semantic_scene_builder_source_paths_are_owned_and_atomic();
+bool semantic_scene_builder_rgb_transport_is_owned_and_atomic();
+bool semantic_scene_builder_target_clear_is_owned_and_atomic();
+bool semantic_scene_builder_target_clear_preserves_input_owners();
 bool semantic_scene_builder_append_capacity_is_amortized_and_atomic();
+bool semantic_scene_builder_isolation_rejects_missing_layer_atomically();
+bool semantic_scene_builder_clear_prepares_exact_aa_owner_chain();
+bool semantic_scene_builder_axis_clip_area_is_explicit_and_atomic();
+bool semantic_scene_builder_clear_rejects_nonclip_chain_atomically();
+bool semantic_scene_builder_clear_counts_open_and_historical_children();
+bool semantic_scene_builder_isolation_promotes_nearest_layer();
+bool semantic_scene_builder_isolation_preserves_materialized_layers();
+bool semantic_scene_builder_isolation_preserves_ordinary_elision();
+bool semantic_scene_builder_isolation_tracks_depth_across_pop_and_reset();
+bool semantic_scene_builder_isolation_rejects_historical_depth_atomically();
+bool semantic_scene_builder_copies_outside_clips_atomically();
+bool semantic_scene_builder_moves_sources_outside_clips_atomically();
 bool semantic_scene_builder_bounds_composite_only_guidelines();
 bool semantic_scene_builder_records_final_composite_clip();
 bool semantic_scene_builder_preserves_shared_path_segments();
@@ -20,6 +38,8 @@ bool semantic_scene_builder_records_styled_glyph_runs();
 bool semantic_scene_content_hashes_normalize_resource_ordinals();
 bool semantic_scene_content_hashes_preserve_scene_ownership();
 bool semantic_mapped_layers_preserve_bounded_copy_contract();
+bool semantic_aliased_composite_bounds_preserve_pixel_centers();
+bool semantic_linear_byte_opacity_is_explicit_and_atomic();
 bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes();
 bool semantic_scene_builder_records_native_shaped_runs();
 bool semantic_scene_builder_records_color_bitmap_glyphs();

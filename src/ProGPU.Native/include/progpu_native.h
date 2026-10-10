@@ -184,7 +184,9 @@ typedef enum progpu_native_scene_gradient_spread {
     PROGPU_NATIVE_SCENE_GRADIENT_PAD = 0,
     PROGPU_NATIVE_SCENE_GRADIENT_REFLECT = 1,
     PROGPU_NATIVE_SCENE_GRADIENT_REPEAT = 2,
-    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3
+    PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3,
+    /* Direct2D linear/radial content clamps its parameter, not stop offsets. */
+    PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL = 4
 } progpu_native_scene_gradient_spread;
 
 enum {
@@ -217,7 +219,10 @@ typedef enum progpu_native_scene_layer_mask_kind {
 } progpu_native_scene_layer_mask_kind;
 
 enum {
-    PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS = 4U
+    PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS = 4U,
+    /* Rounded-rectangle wire with zero radii, identity source transform and
+       opacity one only. Exact target-axis rectangle/pixel overlap, not SDF AA. */
+    PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA = 1U
 };
 
 typedef enum progpu_native_scene_command_kind {
@@ -225,6 +230,9 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_RESTORE = 2,
     PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER = 3,
     PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER = 4,
+    /* Target-storage replacement: one straight progpu_native_color payload,
+       no geometry resource/bounds. Only the active binary clip is applied. */
+    PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET = 5,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC = 16,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH = 17,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN = 18,
@@ -235,7 +243,11 @@ typedef enum progpu_native_scene_command_kind {
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH = 23,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH = 24,
     PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH = 25,
-    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN = 26
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN = 26,
+    /* Explicit physical RGB coverage, not an implicit DirectWrite mode. */
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN = 27,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE = 28,
+    PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH = 29
 } progpu_native_scene_command_kind;
 
 typedef enum progpu_native_scene_validation_error {
@@ -257,7 +269,9 @@ enum {
 enum {
     PROGPU_NATIVE_SCENE_STATE_CLIP_RECT = 1U << 0U,
     PROGPU_NATIVE_SCENE_STATE_MASK = 1U << 1U,
-    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET = 1U << 2U
+    PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET = 1U << 2U,
+    /* With CLIP_RECT, select exact half-open physical pixel centers. */
+    PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS = 1U << 3U
 };
 
 enum {
@@ -344,7 +358,26 @@ enum {
      * raster extent. Recursive use of an active cache owner is invalid.
      * The producer must preserve identical source content for that revision;
      * opacity, composite state, sampling and final mask may differ. */
-    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U
+    PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED = 1U << 9U,
+    /* Restricts final replacement to pixel centers in the original BOUNDS,
+     * independently of outward-rounded texture allocation. Requires exactly
+     * BOUNDS plus this flag, SRC, opacity one, no mask/effect and zero revisions.
+     * Original float bounds map through the actual final DPI/viewport. */
+    /* PROGPU_CSHARP_ULONG: SceneLayerAliasedCompositeBounds */
+    PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS = 1024ULL,
+    /* Copies the current parent into transient layer storage. Ordinary pop
+     * keeps SRC_OVER; an explicit axis-area source clip replaces its background.
+     * This is NOT the existing BACKDROP effect.
+     * Requires SRC_OVER, no effects/cache/composite state and zero revisions. */
+    PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND = 1U << 11U,
+    /* Transient opaque intermediate: clear alpha one, preserve it through
+     * nested replacements and treat copied background alpha as one. */
+    PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA = 1U << 12U,
+    /* Explicit source-layer policy: on linear RGBA8/BGRA8 targets, quantize
+     * premultiplied RGBA after group opacity and before geometric coverage.
+     * Other formats retain their ordinary arithmetic. Requires transient
+     * SRC_OVER with no effects/cache/composite state and zero revisions. */
+    PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY = 1U << 13U
 };
 
 typedef enum progpu_native_image_sampling {
@@ -1072,7 +1105,11 @@ enum {
     PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT = 3U,
     PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK = 3U << 3U,
     PROGPU_NATIVE_PRIMITIVE_END_CAP_SHIFT = 5U,
-    PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK = 3U << 5U
+    PROGPU_NATIVE_PRIMITIVE_END_CAP_MASK = 3U << 5U,
+    /* PATH_JOIN/MITER only: clip overflow without WPF reversal semantics. */
+    PROGPU_NATIVE_PRIMITIVE_FLAG_CLIP_MITER_AT_LIMIT = 1U << 7U,
+    /* Normal-width PATH_JOIN, joins 0..2: retain WPF clipping and reversal. */
+    PROGPU_NATIVE_PRIMITIVE_FLAG_WPF_JOIN_SEMANTICS = 1U << 8U
 };
 
 typedef enum progpu_native_stroke_cap {
@@ -1085,7 +1122,9 @@ typedef enum progpu_native_stroke_cap {
 typedef enum progpu_native_stroke_join {
     PROGPU_NATIVE_STROKE_JOIN_MITER = 0,
     PROGPU_NATIVE_STROKE_JOIN_BEVEL = 1,
-    PROGPU_NATIVE_STROKE_JOIN_ROUND = 2
+    PROGPU_NATIVE_STROKE_JOIN_ROUND = 2,
+    /* Explicit bevel fallback at the miter limit, independent of WPF policy. */
+    PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL = 3
 } progpu_native_stroke_join;
 
 enum {
@@ -1099,7 +1138,9 @@ enum {
     PROGPU_NATIVE_POLYLINE_JOIN_SHIFT = 7U,
     PROGPU_NATIVE_POLYLINE_JOIN_MASK = 3U << 7U,
     PROGPU_NATIVE_POLYLINE_FLAG_CLOSED = 1U << 9U,
-    PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS = 1U << 10U
+    PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS = 1U << 10U,
+    /* MITER only; independent of the source's WPF reversal policy. */
+    PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT = 1U << 11U
 };
 
 typedef enum progpu_native_geometry_primitive_kind {
@@ -1285,8 +1326,10 @@ typedef struct progpu_native_scene_tile_composite {
  * rounded rectangle in logical target coordinates. The transform maps mask
  * local coordinates to logical target coordinates; radii are normalized by
  * the executor using the same bounded CSS side-fit rule as common masks.
- * Resource generation is the immutable retained identity. All reserved fields
- * and flags remain zero.
+ * Resource generation is the immutable retained identity. Reserved fields stay
+ * zero. Flags zero retains the original SDF coverage. AXIS_CLIP_AREA requires
+ * identity source transform, zero radii and unit opacity; actual presentation
+ * supplies the physical pixel frame for exact rectangular pixel coverage.
  */
 typedef struct progpu_native_scene_layer_mask {
     uint32_t struct_size;
@@ -1686,6 +1729,73 @@ typedef struct progpu_native_scene_glyph_draw {
     uint32_t reserved0;
     uint32_t reserved1;
 } progpu_native_scene_glyph_draw;
+
+/* Independent outline integration model. This enum is not interchangeable with
+ * DWRITE_RENDERING_MODE or the ordinary semantic text rendering mode. */
+typedef enum progpu_native_rgb_glyph_filter {
+    PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8 = 1
+} progpu_native_rgb_glyph_filter;
+
+/* DRAW_RGB_GLYPH_RUN prefix followed by glyph_count scene_rgb_glyph_tile records.
+ * The command's existing GLYPH_RUN resource owns original outline/segment bytes.
+ * Fixed physical tiles retain their original DPI generation. The renderer must
+ * prove the actual target is opaque; this descriptor cannot assert that fact.
+ * Initial explicit policy: gamma=1, contrast=0, level=1, flat/RGB/BGR geometry.
+ * Reserved values and unknown models reject, never select a scalar fallback. */
+typedef struct progpu_native_scene_rgb_glyph_draw {
+    uint32_t struct_size;
+    uint32_t glyph_count;
+    uint32_t filter_model;
+    uint32_t pixel_geometry;
+    float gamma;
+    float enhanced_contrast;
+    float cleartype_level;
+    float dpi_scale;
+    uint32_t reserved0;
+    uint32_t reserved1;
+} progpu_native_scene_rgb_glyph_draw;
+
+/* Target origin and extent are physical pixels, sampling coordinates are the
+ * original outline raster frame. Source order and straight foreground RGBA are
+ * independent for every occurrence, including repeated outline indices. The
+ * source unit-basis state may add integral physical translation at exactly this
+ * DPI; target viewport/layer origin and source opacity/rectangle clip still apply.
+ * Original retained per-draw masks multiply each channel's coverage independently.
+ * Nonunit/fractional mappings and unknown target opacity reject. */
+typedef struct progpu_native_scene_rgb_glyph_tile {
+    uint32_t outline_index;
+    uint32_t width;
+    uint32_t height;
+    uint32_t reserved;
+    float x_start;
+    float y_start;
+    float scale;
+    float subpixel_x;
+    int32_t target_x;
+    int32_t target_y;
+    progpu_native_color foreground;
+} progpu_native_scene_rgb_glyph_tile;
+
+/* DRAW_SOURCE_COVERAGE uses the existing VERTEX_MESH resource with physical
+ * positions, independent original target-DIP paint coordinates and binary vertex
+ * coverage. Its payload is the usual draw_brushes prefix and exact mesh brush
+ * indices followed by this versioned frame. Ordinary meshes remain unchanged.
+ * Replay retains this DPI and full source viewport; only integral physical state
+ * translation is admitted. Clipped/degenerate triangle admission is explicit.
+ * DRAW_SOURCE_PATH uses PATH_BATCH with closed physical line contours, identity
+ * path transforms, 8x8 coverage, white color and the same exact frame suffix.
+ * It retains independent target-DIP paint and rejects changed presentation. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneSourceCoverageFrame */
+typedef struct progpu_native_scene_source_coverage_frame {
+    uint32_t struct_size;
+    uint32_t version;
+    float dpi_scale_x;
+    float dpi_scale_y;
+    uint32_t pixel_width;
+    uint32_t pixel_height;
+    uint32_t flags;
+    uint32_t reserved;
+} progpu_native_scene_source_coverage_frame;
 
 /* Dedicated direct glyph-paint GPU ABI. Legacy glyph/style records do not
  * consume this record. Texture mode is the original managed texture enum
@@ -2832,6 +2942,146 @@ typedef struct progpu_native_scene_shader_effect_derivatives {
     progpu_native_scene_shader_effect program;
 } progpu_native_scene_shader_effect_derivatives;
 
+/* Original positive-axis float source frame. Source bounds are local edges
+ * AFTER padding. The source-to-device diagonal/translation comes from original
+ * per-push float composition, including the original root DPI. Capture origin
+ * floors scale-only minima; size outward-integralizes maxima independently.
+ * The residual linear mapping must be exactly identity and final origin an
+ * exact integer. All fields are independently validated; this is not a flag
+ * that permits arbitrary fractional final placement or cropped capture.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderCaptureFrame */
+typedef struct progpu_native_scene_shader_capture_frame {
+    float local_left;
+    float local_top;
+    float local_right;
+    float local_bottom;
+    float source_scale_x;
+    float source_scale_y;
+    float source_offset_x;
+    float source_offset_y;
+    double source_dpi_x;
+    double source_dpi_y;
+    int32_t capture_x;
+    int32_t capture_y;
+    uint32_t capture_width;
+    uint32_t capture_height;
+    int32_t final_x;
+    int32_t final_y;
+} progpu_native_scene_shader_capture_frame;
+
+/* Version 4: explicit retained local capture frame. Existing versions and the
+ * nested program are unchanged. Sampler/derivative NO_INDEX select implicit
+ * input/no derivative override. Flags and reserved fields must remain zero.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectCapture */
+typedef struct progpu_native_scene_shader_effect_capture {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[3];
+    /* PROGPU_CSHARP_TYPE: SceneShaderCaptureFrame */
+    progpu_native_scene_shader_capture_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_capture;
+
+/* Version-5 source-frame metadata. Capture is scale-space storage; output is
+ * the independent final-device lattice. The original unit quad retains its
+ * homogeneous coordinate, rather than resampling already evaluated output.
+ * Physical integer clip edges are independent of both allocations.
+ * clip_antialias records 0=aliased source bounds, 1=original AA bounds inflation;
+ * both consume the original aliased integer clip, never fractional AA coverage.
+ * All source, derived and reserved fields are validated before publication.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderSampleFrame */
+typedef struct progpu_native_scene_shader_sample_frame {
+    float local_left;
+    float local_top;
+    float local_right;
+    float local_bottom;
+    float source_scale_x;
+    float source_scale_y;
+    float source_offset_x;
+    float source_offset_y;
+    double source_dpi_x;
+    double source_dpi_y;
+    int32_t capture_x;
+    int32_t capture_y;
+    uint32_t capture_width;
+    uint32_t capture_height;
+    int32_t output_x;
+    int32_t output_y;
+    uint32_t output_width;
+    uint32_t output_height;
+    float quad_x;
+    float quad_y;
+    float quad_z;
+    float quad_w;
+    float quad_offset_x;
+    float quad_offset_y;
+    float clip_left;
+    float clip_top;
+    float clip_right;
+    float clip_bottom;
+    uint32_t clip_antialias;
+    uint32_t reserved;
+} progpu_native_scene_shader_sample_frame;
+
+/* Version 5 owns an earlier complete implicit-input picture, and optionally an
+ * earlier complete ImageBrush sampler picture. Both are same-scene IMAGE_PICTURE
+ * resources, never external textures or borrowed source handles. NO_INDEX
+ * sampler means the input picture; NO_INDEX derivative leaves constants intact.
+ * Legacy descriptor versions remain byte-for-byte independent.
+ */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectSamples */
+typedef struct progpu_native_scene_shader_effect_samples {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t input_resource_index;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[2];
+    /* PROGPU_CSHARP_TYPE: SceneShaderSampleFrame */
+    progpu_native_scene_shader_sample_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_samples;
+
+/* Version 6 retains all six original float affine components. The placement
+ * prefix keeps the source diagonal/translation and lattice/clip fields; its
+ * derived quad is completed by the two cross terms below. Version-5 validation
+ * is intentionally NOT applicable to this distinct descriptor. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderAffineFrame */
+typedef struct progpu_native_scene_shader_affine_frame {
+    /* PROGPU_CSHARP_TYPE: SceneShaderSampleFrame */
+    progpu_native_scene_shader_sample_frame placement;
+    float source_m12;
+    float source_m21;
+    float quad_m12;
+    float quad_m21;
+} progpu_native_scene_shader_affine_frame;
+
+/* Same immutable earlier-picture ownership as version 5; no caller texture,
+ * opaque transform witness or evaluated-effect image is admitted. */
+/* PROGPU_CSHARP_STRUCT: NativeMethods.SceneShaderEffectAffine */
+typedef struct progpu_native_scene_shader_effect_affine {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t input_resource_index;
+    uint32_t sampler_resource_index;
+    uint32_t derivative_register;
+    uint32_t flags;
+    uint32_t reserved[2];
+    /* PROGPU_CSHARP_TYPE: SceneShaderAffineFrame */
+    progpu_native_scene_shader_affine_frame frame;
+    /* PROGPU_CSHARP_TYPE: SceneShaderEffect */
+    progpu_native_scene_shader_effect program;
+} progpu_native_scene_shader_effect_affine;
+
 /*
  * A bounded linear retained effect chain. Effects are evaluated in array
  * order, so effects[1] consumes effects[0]'s output. The engine copies all
@@ -2874,6 +3124,16 @@ typedef struct progpu_native_draw_state {
     uint32_t group_blend_mode;
     uint32_t reserved2;
 } progpu_native_draw_state;
+
+/* Actual initialized device texture limits. Version 1; no GPU submission,
+ * adapter/default limit, system-DPI inference or allocation performed. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeCacheRasterLimits */
+typedef struct progpu_native_cache_raster_limits {
+    uint32_t struct_size;
+    uint32_t version;
+    uint32_t maximum_texture_width;
+    uint32_t maximum_texture_height;
+} progpu_native_cache_raster_limits;
 
 /* Directly retained engine allocations, not driver residency or whole-device
  * usage. Borrowed views and opaque-format bytes are explicitly separate.
@@ -3305,6 +3565,11 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_layer_metrics(
 PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_gpu_memory_snapshot(
     progpu_native_engine* engine,
     progpu_native_gpu_memory_snapshot* snapshot);
+/* Owner-thread query of this engine's actual live device. Caller initializes
+ * exact struct_size and version 1. Failure leaves all output bytes unchanged. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_get_cache_raster_limits(
+    progpu_native_engine* engine,
+    progpu_native_cache_raster_limits* limits);
 /*
  * Polls or waits for one submission from this engine. This is the consumer
  * fence used by external-image owners before recycling a borrowed texture.

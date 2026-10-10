@@ -105,11 +105,16 @@ WGPUBindGroup create_layer_mask_bind_group(
 bool create_layer_mask_resources(progpu_native_engine& engine);
 bool is_advanced_group_blend(std::uint32_t blend_mode) noexcept;
 
+enum class layer_write_channels { all, rgb, alpha };
+
 WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     progpu_native_engine& engine,
     std::uint32_t blend_mode,
     bool masked,
-    bool& cache_hit);
+    bool& cache_hit,
+    bool coverage_only = false,
+    layer_write_channels channels = layer_write_channels::all,
+    bool linear_byte_opacity = false);
 
 bool ensure_advanced_group_blend_source(
     progpu_native_engine& engine,

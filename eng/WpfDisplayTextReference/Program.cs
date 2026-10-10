@@ -14,6 +14,8 @@ internal static partial class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        bool sourceInputs = args.Length != 0 && args[0] == "--source-inputs";
+        if (sourceInputs) args = args[1..];
         if (!OperatingSystem.IsWindows() || args.Length is not (4 or 6) ||
             !string.Equals(RuntimeInformation.ProcessArchitecture.ToString(), args[2], StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Expected Windows, font path, CreateNew receipt path, actual architecture and source commit.");
@@ -37,7 +39,7 @@ internal static partial class Program
             pin.Verify(directory);
             string rtlFont = Path.Combine(directory, pin.FontFileName);
             var rtlFamily = new FontFamily(new Uri(directory + Path.DirectorySeparatorChar), "./#" + pin.FamilyName);
-            CaptureMidpointCases(font, family, rtlFont, rtlFamily, timer, cases);
+            CaptureMidpointCases(font, family, rtlFont, rtlFamily, timer, cases, sourceInputs);
             // Verify again after capture, before any receipt is published.
             pin.Verify(directory);
             rtlFontIdentity = new { Pin = pin, Font = FileIdentity(rtlFont),
@@ -53,7 +55,7 @@ internal static partial class Program
             foreach (double width in new[] { 25.0, 1000.0 })
             {
                 if (timer.Elapsed > TimeSpan.FromSeconds(60)) throw new TimeoutException("Original reference exceeded 60 seconds.");
-                cases.Add(Capture(font, family, text, mode, direction, dpi, em, width));
+                cases.Add(Capture(font, family, text, mode, direction, dpi, em, width, sourceInputs));
             }
             if (cases.Count != 192) throw new InvalidOperationException("Incomplete reference case inventory.");
         }
@@ -66,7 +68,7 @@ internal static partial class Program
             throw new InvalidOperationException("Original DirectWrite module identity was not observed.");
         var receipt = new
         {
-            Schema = midpointCases ? 3 : 1, SourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
+            Schema = midpointCases ? (sourceInputs ? 4 : 3) : (sourceInputs ? 2 : 1), SourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
             Font = FileIdentity(font), Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             PresentationCore = FileIdentity(presentation.Location), PresentationIdentity = presentation.FullName,
             OperatingSystem = RuntimeInformation.OSDescription, OsVersion = Environment.OSVersion.VersionString,
@@ -91,9 +93,13 @@ internal static partial class Program
     }
 
     private static object Capture(string font, FontFamily family, string text, TextFormattingMode mode,
-        FlowDirection direction, double dpi, double em, double width)
+        FlowDirection direction, double dpi, double em, double width, bool sourceInputs = false)
     {
         var properties = new RunProperties(family, em);
+        // Independent INPUT capture precedes every formatter/line operation.
+        // Public FontFamily ratios are design metrics, not this Display request.
+        object? independentMetrics = sourceInputs
+            ? CaptureSourceMetrics(properties.Typeface, font, mode, em, dpi) : null;
         var source = new Source(text, properties) { PixelsPerDip = dpi };
         var paragraph = new Paragraph(properties, direction);
         using var formatter = TextFormatter.Create(mode);
@@ -165,9 +171,13 @@ internal static partial class Program
             }
         }
         finally { previous?.Dispose(); }
-        return new { Text = text, Mode = mode.ToString(), Direction = direction.ToString(), Dpi = dpi, Em = em, Width = width,
+        var result = new { Text = text, Mode = mode.ToString(), Direction = direction.ToString(), Dpi = dpi, Em = em, Width = width,
             SourceFont = new { family.Baseline, family.LineSpacing,
                 properties.FontRenderingEmSize, properties.FontHintingEmSize, Culture = properties.CultureInfo.Name }, Lines = lines };
+        if (!sourceInputs) return result;
+        var captured = JsonSerializer.SerializeToNode(result)!.AsObject();
+        captured.Add("IndependentSourceMetrics", JsonSerializer.SerializeToNode(independentMetrics));
+        return captured;
     }
 
     private static double[] Point(Point value) { Finite(value.X); Finite(value.Y); return [value.X, value.Y]; }

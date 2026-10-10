@@ -7,6 +7,12 @@ using System.Numerics;
 
 namespace ProGPU.Backend.Native;
 
+internal static unsafe partial class NativeMethods
+{
+    // Native source: PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_TARGET_DEPENDENT_STROKES.
+    internal const ulong Direct2DSceneStreamHasTargetDependentStrokes = 2048UL;
+}
+
 // Native source: progpu_native_direct2d_target_extent.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeDirect2DTargetExtent

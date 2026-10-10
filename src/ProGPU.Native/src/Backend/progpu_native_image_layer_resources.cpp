@@ -334,7 +334,8 @@ bool create_layer_resources(progpu_native_engine& engine) {
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
     fragment.entryPoint =
-        progpu::native::webgpu::string_view("fs_main_unmasked");
+        progpu::native::webgpu::string_view(
+            "fs_main_unmasked");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor descriptor{};
@@ -537,7 +538,8 @@ bool create_layer_mask_resources(progpu_native_engine& engine) {
     target.writeMask = WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
-    fragment.entryPoint = progpu::native::webgpu::string_view("fs_main");
+    fragment.entryPoint = progpu::native::webgpu::string_view(
+        "fs_main");
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor pipeline_descriptor{};
@@ -713,8 +715,20 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     progpu_native_engine& engine,
     std::uint32_t blend_mode,
     bool masked,
-    bool& cache_hit) {
-    if (blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
+    bool& cache_hit,
+    bool coverage_only,
+    layer_write_channels channels,
+    bool linear_byte_opacity) {
+    if (linear_byte_opacity && (coverage_only || blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+            channels == layer_write_channels::alpha ||
+            (engine.target_format != WGPUTextureFormat_RGBA8Unorm && engine.target_format != WGPUTextureFormat_BGRA8Unorm))) {
+        return nullptr;
+    }
+    if ((coverage_only && (blend_mode != PROGPU_NATIVE_BLEND_SRC || channels == layer_write_channels::rgb)) ||
+        (!coverage_only && channels == layer_write_channels::alpha)) {
+        return nullptr;
+    }
+    if (!coverage_only && !linear_byte_opacity && channels == layer_write_channels::all && blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
         cache_hit = true;
         return masked
             ? engine.layer_mask_pipeline
@@ -724,12 +738,17 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
         is_advanced_group_blend(blend_mode)) {
         return nullptr;
     }
-    auto& pipelines = masked
-        ? engine.layer_mask_blend_pipelines
-        : engine.layer_blend_pipelines;
-    if (pipelines[blend_mode] != nullptr) {
+    auto& pipelines = channels == layer_write_channels::rgb
+        ? (masked ? engine.layer_rgb_mask_blend_pipelines : engine.layer_rgb_blend_pipelines)
+        : (masked ? engine.layer_mask_blend_pipelines : engine.layer_blend_pipelines);
+    auto& pipeline = coverage_only
+        ? engine.layer_coverage_pipelines[(masked ? 1U : 0U) + (channels == layer_write_channels::alpha ? 2U : 0U)]
+        : linear_byte_opacity
+            ? engine.layer_linear_byte_opacity_pipelines[(masked ? 1U : 0U) + (channels == layer_write_channels::rgb ? 2U : 0U)]
+            : pipelines[blend_mode];
+    if (pipeline != nullptr) {
         cache_hit = true;
-        return pipelines[blend_mode];
+        return pipeline;
     }
     cache_hit = false;
     if (!create_layer_resources(engine) ||
@@ -790,13 +809,22 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
         return nullptr;
     }
     WGPUColorTargetState target{};
-    target.format = engine.target_format;
-    target.blend = &blend;
-    target.writeMask = WGPUColorWriteMask_All;
+    const bool floating_coverage = coverage_only && channels == layer_write_channels::all;
+    target.format = floating_coverage ? WGPUTextureFormat_R32Float : engine.target_format;
+    target.blend = floating_coverage ? nullptr : &blend;
+    target.writeMask = floating_coverage ? WGPUColorWriteMask_Red
+        : channels == layer_write_channels::alpha ? WGPUColorWriteMask_Alpha
+        : channels == layer_write_channels::rgb
+            ? WGPUColorWriteMask_Red | WGPUColorWriteMask_Green | WGPUColorWriteMask_Blue
+            : WGPUColorWriteMask_All;
     WGPUFragmentState fragment{};
     fragment.module = engine.image_shader;
     fragment.entryPoint = progpu::native::webgpu::string_view(
-        masked ? "fs_main" : "fs_main_unmasked");
+        coverage_only
+            ? (masked ? "fs_layer_coverage" : "fs_layer_coverage_unmasked")
+            : linear_byte_opacity
+                ? (masked ? "fs_layer_linear_unorm" : "fs_layer_linear_unorm_unmasked")
+                : (masked ? "fs_main" : "fs_main_unmasked"));
     fragment.targetCount = 1U;
     fragment.targets = &target;
     WGPURenderPipelineDescriptor descriptor{};
@@ -810,11 +838,11 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
     descriptor.multisample.count = 1U;
     descriptor.multisample.mask = 0xFFFFFFFFU;
     descriptor.fragment = &fragment;
-    pipelines[blend_mode] = wgpuDeviceCreateRenderPipeline(
+    pipeline = wgpuDeviceCreateRenderPipeline(
         engine.device,
         &descriptor);
     wgpuPipelineLayoutRelease(pipeline_layout);
-    return pipelines[blend_mode];
+    return pipeline;
 }
 
 bool create_advanced_group_blend_resources(progpu_native_engine& engine) {

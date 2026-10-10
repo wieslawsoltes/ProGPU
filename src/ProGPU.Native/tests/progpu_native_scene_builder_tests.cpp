@@ -6,6 +6,7 @@
 #include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_vertex_mesh.hpp"
 
 #include <array>
 #include <cstring>
@@ -47,7 +48,855 @@ T read(const std::vector<std::byte>& bytes, std::uint32_t offset) noexcept {
     return value;
 }
 
+progpu_native_scene_layer isolation_test_layer(bool forced = false) noexcept {
+    progpu_native_scene_layer layer{};
+    layer.struct_size = sizeof(layer);
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        (forced ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION) : 0U);
+    layer.bounds = {0.0F, 0.0F, 64.0F, 64.0F};
+    layer.opacity = 1.0F;
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    layer.content_revision = 37U;
+    layer.composite_revision = 53U;
+    return layer;
+}
+
+bool draw_isolation_test(semantic_scene_builder& builder) {
+    const progpu_native_analytic_primitive rectangle{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE, 0U, 4.0F, 6.0F, 8.0F, 10.0F,
+        0.0F, 0.0F, {1.0F, 0.0F, 0.0F, 1.0F},
+        semantic_scene_builder::identity_transform()};
+    return builder.draw_analytic({&rectangle, 1U}, {}, {4.0F, 6.0F, 8.0F, 10.0F});
+}
+
+bool equal_closed_isolation_builders(semantic_scene_builder& actual, semantic_scene_builder& expected) {
+    std::vector<std::byte> actual_bytes, expected_bytes;
+    return actual.build(actual_bytes) && expected.build(expected_bytes) && actual_bytes == expected_bytes &&
+        scene::validate(actual_bytes.data(), actual_bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 } // namespace
+
+bool semantic_scene_builder_vertex_mesh_is_owned_and_atomic() {
+    semantic_scene_builder builder(0xD2D75U, 17U);
+    std::uint32_t brush = 0U, state_index = 0U;
+    auto state = semantic_scene_builder::identity_state();
+    state.opacity = .5F;
+    if (!builder.add_solid_brush({.2F, .4F, .8F, 1.F}, 1.F, brush) ||
+        !builder.add_state(state, state_index)) return false;
+    std::array<progpu_native_scene_mesh_vertex, 3U> vertices{{
+        {{2, 3}, {5, 7}, {1, 1, 1, 0}},
+        {{11, 3}, {17, 7}, {1, 1, 1, 1}},
+        {{2, 13}, {5, 19}, {1, 1, 1, .5F}}}};
+    std::array<std::uint16_t, 3U> indices{2, 0, 1};
+    progpu_native_scene_vertex_mesh mesh{};
+    mesh.struct_size = sizeof(mesh);
+    mesh.flags = PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED;
+    mesh.color_blend_mode = 5U; // Existing mesh source-in, not layer blend numbering.
+    mesh.vertex_count = 3U; mesh.index_count = 3U;
+    mesh.transform = semantic_scene_builder::identity_transform();
+    mesh.transform.m31 = 4.F;
+    const auto original_vertices = vertices;
+    const auto original_indices = indices;
+    const auto original_mesh = mesh;
+    const auto original_brush = brush;
+    if (!builder.draw_vertex_meshes({&mesh, 1U}, vertices, indices, {&brush, 1U},
+        {6, 3, 9, 10}, state_index)) return false;
+    vertices = {}; indices = {}; mesh = {}; brush = 999U;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto validated = scene::validate(bytes.data(), bytes.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS || validated.draw_count != 1U ||
+        validated.header.command_count != 1U) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, validated.header.command_offset);
+    const auto resource = read<progpu_native_scene_resource>(bytes,
+        validated.header.resource_offset + command.resource_index * sizeof(progpu_native_scene_resource));
+    const auto brushes = read<progpu_native_scene_draw_brushes>(bytes, command.payload_offset);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH || command.state_index != state_index ||
+        command.bounds_x != 6 || command.bounds_height != 10 || resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH ||
+        resource.generation != 17U || resource.payload_size != sizeof(original_mesh) ||
+        resource.auxiliary_size != sizeof(original_vertices) + sizeof(original_indices) || brushes.brush_count != 1U ||
+        read<std::uint32_t>(bytes, command.payload_offset + sizeof(brushes)) != original_brush ||
+        std::memcmp(bytes.data() + resource.payload_offset, &original_mesh, sizeof(original_mesh)) != 0 ||
+        std::memcmp(bytes.data() + resource.auxiliary_offset, original_vertices.data(), sizeof(original_vertices)) != 0 ||
+        std::memcmp(bytes.data() + resource.auxiliary_offset + sizeof(original_vertices),
+            original_indices.data(), sizeof(original_indices)) != 0) return false;
+    for (unsigned invalid = 0U; invalid < 7U; ++invalid) {
+        mesh = original_mesh; vertices = original_vertices; indices = original_indices; brush = original_brush;
+        switch (invalid) {
+            case 0: mesh.vertex_offset = 1U; break;
+            case 1: mesh.index_count = 2U; break;
+            case 2: indices[1] = 3U; break;
+            case 3: vertices[2].position.x = std::numeric_limits<float>::infinity(); break;
+            case 4: vertices[2].texture_coordinate.y = std::numeric_limits<float>::quiet_NaN(); break;
+            case 5: mesh.reserved[1] = 1U; break;
+            default: brush = 999U; break;
+        }
+        if (builder.draw_vertex_meshes({&mesh, 1U}, vertices, indices, {&brush, 1U},
+                {6, 3, 9, 10}, state_index)) return false;
+        std::vector<std::byte> after;
+        if (!builder.build(after) || after != bytes) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_source_coverage_is_owned_and_atomic() {
+    static_assert(sizeof(progpu_native_scene_source_coverage_frame) == 32U);
+    semantic_scene_builder builder(0xD2D230U, 1U);
+    std::uint32_t brush{};
+    if (!builder.add_solid_brush({1, 0, 0, .5F}, .75F, brush)) return false;
+    progpu_native_scene_source_coverage_frame frame{sizeof(frame), 1U, 2.F, 1.25F, 64U, 64U, 0U, 0U};
+    std::array<progpu_native_scene_mesh_vertex, 3U> vertices{{
+        {{2, 5}, {1, 4}, {1, 1, 1, 1}}, {{10, 5}, {5, 4}, {1, 1, 1, 0}}, {{2, 15}, {1, 12}, {1, 1, 1, 0}}}};
+    progpu_native_scene_vertex_mesh mesh{};
+    mesh.struct_size = sizeof(mesh); mesh.flags = PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED;
+    mesh.vertex_count = 3U; mesh.color_blend_mode = 5U; mesh.transform = builder.identity_transform();
+    const auto original_frame = frame;
+    const auto original_vertices = vertices;
+    const auto original_mesh = mesh;
+    if (!builder.draw_source_coverage({&mesh, 1U}, vertices, {&brush, 1U}, {1, 4, 4, 8}, frame)) return false;
+    frame = {}; vertices = {}; mesh = {};
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto valid = scene::validate(bytes.data(), bytes.size());
+    if (valid.status != PROGPU_NATIVE_STATUS_SUCCESS || valid.draw_count != 1U) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, valid.header.command_offset);
+    const auto resource = read<progpu_native_scene_resource>(bytes,
+        valid.header.resource_offset + command.resource_index * valid.header.resource_stride);
+    const auto frame_offset = command.payload_offset + command.payload_size - sizeof(frame);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
+        command.payload_size != sizeof(progpu_native_scene_draw_brushes) + sizeof(brush) + sizeof(frame) ||
+        std::memcmp(bytes.data() + frame_offset, &original_frame, sizeof(frame)) != 0 ||
+        std::memcmp(bytes.data() + resource.auxiliary_offset, original_vertices.data(), sizeof(vertices)) != 0) return false;
+    std::vector<std::byte> unaligned(bytes.size() + 1U);
+    std::memcpy(unaligned.data() + 1U, bytes.data(), bytes.size());
+    if (scene::validate(unaligned.data() + 1U, bytes.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    for (unsigned variant = 0U; variant < 16U; ++variant) {
+        frame = original_frame; vertices = original_vertices; mesh = original_mesh;
+        switch (variant) {
+            case 0: frame.struct_size -= 4U; break;
+            case 1: frame.version = 2U; break;
+            case 2: frame.dpi_scale_x = 0; break;
+            case 3: frame.dpi_scale_y = std::numeric_limits<float>::infinity(); break;
+            case 4: frame.pixel_width = 0; break;
+            case 5: frame.pixel_height = 16385U; break;
+            case 6: frame.flags = 1U; break;
+            case 7: frame.reserved = 1U; break;
+            case 8: vertices[0].color.a = .5F; break;
+            case 9: vertices[0].texture_coordinate.x += 1.F; break;
+            case 10: vertices[0].position.x = -1.F; vertices[0].texture_coordinate.x = -.5F; break;
+            case 11: mesh.transform.m31 = 1.F; break;
+            case 12: mesh.flags = 0U; break;
+            case 13: mesh.color_blend_mode = 3U; break;
+            case 14: mesh.index_count = 3U; break;
+            default: mesh.topology = PROGPU_NATIVE_VERTEX_MESH_TRIANGLE_STRIP; break;
+        }
+        if (builder.draw_source_coverage({&mesh, 1U}, vertices, {&brush, 1U}, {1, 4, 4, 8}, frame)) return false;
+        std::vector<std::byte> after;
+        if (!builder.build(after) || after != bytes) return false;
+        auto corrupt = bytes;
+        std::memcpy(corrupt.data() + frame_offset, &frame, sizeof(frame));
+        std::memcpy(corrupt.data() + resource.auxiliary_offset, vertices.data(), sizeof(vertices));
+        std::memcpy(corrupt.data() + resource.payload_offset, &mesh, sizeof(mesh));
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    }
+    // Frame metadata participates in retained identity even when geometry bytes
+    // are identical. A cached page cannot carry a prior target's admission.
+    auto changed = bytes;
+    frame = original_frame; ++frame.pixel_width;
+    std::memcpy(changed.data() + frame_offset, &frame, sizeof(frame));
+    if (scene::validate(changed.data(), changed.size()).status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        semantic::compute_content_hashes(bytes.data(), valid.header, 1U).analytic ==
+        semantic::compute_content_hashes(changed.data(), valid.header, 1U).analytic) return false;
+    // Explicit SIMD packing is compared with scalar source-coordinate addition.
+    for (const auto offset : std::array<progpu_native_point, 3>{{{0, 0}, {11, -3}, {-1, 24}}}) {
+        std::vector<vector_vertex> packed; std::vector<std::uint32_t> indices;
+        append_source_coverage(original_mesh, original_vertices.data(), offset.x, offset.y, .5F, 7.F, packed, indices);
+        if (packed.size() != 3U || indices.size() != 3U) return false;
+        for (std::size_t k = 0U; k < 3U; ++k) {
+            const auto& v = packed[k]; const auto& source = original_vertices[k];
+            if (v.position[0] != source.position.x + offset.x || v.position[1] != source.position.y + offset.y ||
+                v.texture_coordinate[0] != source.texture_coordinate.x || v.texture_coordinate[1] != source.texture_coordinate.y ||
+                v.corner_radius != 1.F || v.stroke_thickness != .5F || v.brush_index != 7.F || v.shape_type != 1026.F ||
+                indices[k] != k) return false;
+        }
+    }
+    return true;
+}
+
+
+bool semantic_scene_builder_source_paths_are_owned_and_atomic() {
+    semantic_scene_builder builder(0xD2D237U,1U);std::uint32_t brush{};
+    if(!builder.add_solid_brush({1,0,0,1},1,brush))return false;
+    progpu_native_scene_source_coverage_frame frame{sizeof(frame),1U,2.F,1.25F,64U,64U,0U,0U};
+    std::array<progpu_native_path_segment,3> segments{{
+        {{2,5},{10,5},{},{},0U,0U,0U,0U},{{10,5},{2,15},{},{},0U,0U,0U,0U},{{2,15},{2,5},{},{},0U,0U,0U,0U}}};
+    progpu_native_scene_path_fill path{0U,3U,0U,0U,2,5,10,15,{1,1,1,1},builder.identity_transform(),0U,8U};
+    const auto original_frame=frame;const auto original_path=path;const auto original_segments=segments;
+    if(!builder.draw_source_paths({&path,1U},segments,{&brush,1U},{1,4,4,8},frame))return false;
+    path={};frame={};segments={};std::vector<std::byte> bytes;
+    if(!builder.build(bytes))return false;
+    const auto valid=scene::validate(bytes.data(),bytes.size());if(valid.status!=PROGPU_NATIVE_STATUS_SUCCESS)return false;
+    const auto command=read<progpu_native_scene_command>(bytes,valid.header.command_offset);
+    const auto resource=read<progpu_native_scene_resource>(bytes,valid.header.resource_offset+command.resource_index*valid.header.resource_stride);
+    const auto frame_offset=command.payload_offset+command.payload_size-sizeof(frame);
+    if(command.kind!=PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH||
+        std::memcmp(bytes.data()+frame_offset,&original_frame,sizeof(frame))||
+        std::memcmp(bytes.data()+resource.auxiliary_offset,original_segments.data(),sizeof(segments)))return false;
+    std::vector<std::byte> unaligned(bytes.size()+1U);std::memcpy(unaligned.data()+1U,bytes.data(),bytes.size());
+    if(scene::validate(unaligned.data()+1U,bytes.size()).status!=PROGPU_NATIVE_STATUS_SUCCESS)return false;
+    for(unsigned variant=0;variant<19;++variant){
+        frame=original_frame;path=original_path;segments=original_segments;
+        switch(variant){
+            case 0:frame.struct_size-=4;break;case 1:frame.version=2;break;case 2:frame.dpi_scale_x=0;break;
+            case 3:frame.dpi_scale_y=std::numeric_limits<float>::infinity();break;case 4:frame.pixel_width=0;break;
+            case 5:frame.pixel_height=16385;break;case 6:frame.flags=1;break;case 7:frame.reserved=1;break;
+            case 8:path.sample_grid=1;break;case 9:path.transform.m31=1;break;case 10:path.color.a=.5F;break;
+            case 11:path.boolean_node_offset=1;break;case 12:path.segment_offset=1;break;
+            case 13:segments[0].p0.x+=.03125F;break;case 14:segments[0].kind=PROGPU_NATIVE_PATH_SEGMENT_CUBIC;break;
+            case 15:segments[0].pad1=1;break;case 16:segments[0].p1.x+=.0625F;break;
+            case 17:segments[2].p1.y+=.0625F;break;default:path.min_x=3;break;
+        }
+        if(builder.draw_source_paths({&path,1U},segments,{&brush,1U},{1,4,4,8},frame))return false;
+        std::vector<std::byte> after;if(!builder.build(after)||after!=bytes)return false;
+        auto corrupt=bytes;std::memcpy(corrupt.data()+frame_offset,&frame,sizeof(frame));
+        std::memcpy(corrupt.data()+resource.payload_offset,&path,sizeof(path));std::memcpy(corrupt.data()+resource.auxiliary_offset,segments.data(),sizeof(segments));
+        if(scene::validate(corrupt.data(),corrupt.size()).status==PROGPU_NATIVE_STATUS_SUCCESS)return false;
+    }
+    auto changed=bytes;frame=original_frame;++frame.pixel_width;std::memcpy(changed.data()+frame_offset,&frame,sizeof(frame));
+    return scene::validate(changed.data(),changed.size()).status==PROGPU_NATIVE_STATUS_SUCCESS&&
+        semantic::compute_content_hashes(bytes.data(),valid.header,1U).path!=semantic::compute_content_hashes(changed.data(),valid.header,1U).path;
+}
+
+bool semantic_scene_builder_target_clear_is_owned_and_atomic() {
+    static_assert(PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET == 5U);
+    semantic_scene_builder builder(0x96D0U, 1U);
+    progpu_native_color color{2.0F, -.5F, -0.0F, .25F};
+    const auto original = color;
+    if (!builder.clear_target(color)) return false;
+    color = {};
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto validated = scene::validate(bytes.data(), bytes.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS || validated.draw_count != 1U ||
+        validated.header.command_count != 1U || validated.header.resource_count != 0U) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, validated.header.command_offset);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET ||
+        command.resource_index != PROGPU_NATIVE_SCENE_NO_INDEX || command.state_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        command.payload_size != sizeof(original) || std::memcmp(bytes.data() + command.payload_offset, &original, sizeof(original)) != 0)
+        return false;
+    for (unsigned variant = 0U; variant < 11U; ++variant) {
+        auto invalid = bytes;
+        auto changed = command;
+        auto value = original;
+        switch (variant) {
+            case 0U: changed.payload_size -= 4U; break;
+            case 1U: changed.resource_index = 0U; break;
+            case 2U: changed.bounds_width = 1.0F; break;
+            case 3U: changed.flags |= PROGPU_NATIVE_SCENE_GLYPH_STYLED; break;
+            case 4U: value.a = -.25F; break;
+            case 5U: value.a = 1.25F; break;
+            case 6U: value.r = std::numeric_limits<float>::infinity(); break;
+            case 7U: value.g = std::numeric_limits<float>::quiet_NaN(); break;
+            case 8U: value.b = -std::numeric_limits<float>::infinity(); break;
+            case 9U: value.a = std::numeric_limits<float>::quiet_NaN(); break;
+            default: changed.kind = 6U; break;
+        }
+        std::memcpy(invalid.data() + validated.header.command_offset, &changed, sizeof(changed));
+        std::memcpy(invalid.data() + command.payload_offset, &value, sizeof(value));
+        if (scene::validate(invalid.data(), invalid.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        if (variant >= 4U && variant <= 9U) {
+            if (builder.clear_target(value)) return false;
+            std::vector<std::byte> after;
+            if (!builder.build(after) || after != bytes) return false;
+        }
+    }
+    // A clear-only child is real owned picture content, not an empty scene or
+    // a single-image flattening candidate. The source bytes survive mutation.
+    semantic_scene_builder outer(0x96D1U, 1U);
+    progpu_native_scene_picture_image picture{};
+    picture.struct_size = sizeof(picture); picture.width = picture.height = 8U; picture.dpi_scale = 1.0F;
+    std::uint32_t picture_index{};
+    if (!outer.add_picture_image(picture, bytes, picture_index)) return false;
+    const auto original_bytes = bytes;
+    bytes.assign(bytes.size(), std::byte{0xA5});
+    if (!outer.build(bytes)) return false;
+    const auto outer_validation = scene::validate(bytes.data(), bytes.size());
+    if (outer_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto resource = read<progpu_native_scene_resource>(bytes, outer_validation.header.resource_offset);
+    return resource.auxiliary_size == original_bytes.size() &&
+        std::memcmp(bytes.data() + resource.auxiliary_offset, original_bytes.data(), original_bytes.size()) == 0;
+}
+
+bool semantic_scene_builder_target_clear_preserves_input_owners() {
+    semantic_scene_builder builder(0x96D2U, 1U);
+    if (!builder.set_hit_test_owner(17) || !draw_isolation_test(builder) ||
+        !builder.clear_target({0, 0, 0, 0}) || !builder.set_hit_test_owner(29) ||
+        !draw_isolation_test(builder)) return false;
+    std::uint32_t index{};
+    if (!builder.add_recorded_hit_test_index(index)) return false;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes)) return false;
+    const auto validation = scene::validate(bytes.data(), bytes.size());
+    if (validation.status != PROGPU_NATIVE_STATUS_SUCCESS || validation.draw_count != 3U) return false;
+    const auto resource = read<progpu_native_scene_resource>(bytes,
+        validation.header.resource_offset + index * validation.header.resource_stride);
+    const auto page = read<progpu_native_scene_hit_test_index>(bytes, resource.payload_offset);
+    if (page.primitive_count != 2U) return false;
+    const auto first = read<progpu_native_hit_test_primitive>(bytes, resource.auxiliary_offset + page.primitive_offset);
+    const auto second = read<progpu_native_hit_test_primitive>(bytes,
+        resource.auxiliary_offset + page.primitive_offset + sizeof(first));
+    return first.id == 17 && second.id == 29 && first.z_index == 0 && second.z_index == 1;
+}
+
+bool semantic_scene_builder_rgb_transport_is_owned_and_atomic() {
+    semantic_scene_builder builder(0x9680U, 1U);
+    const std::array segments{
+        progpu_native_path_segment{{0, 0}, {4, 0}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{4, 0}, {4, 4}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{4, 4}, {0, 4}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{{0, 4}, {0, 0}, {}, {}, PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const progpu_native_scene_glyph_outline outline{0U, 4U, 0, 0, 4, 4, 1, 0};
+    std::uint32_t resource{};
+    if (!builder.add_glyph_outlines(std::span(&outline, 1U), segments, resource)) return false;
+    const progpu_native_scene_rgb_glyph_draw descriptor{sizeof(descriptor), 2U,
+        PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8, 1U, 1, 0, 1, 1.25F, 0U, 0U};
+    std::array tiles{
+        progpu_native_scene_rgb_glyph_tile{0U, 8U, 8U, 0U, -1, -5, 1, 0.25F, 3, 5, {1, 0, 0, 1}},
+        progpu_native_scene_rgb_glyph_tile{0U, 8U, 8U, 0U, -2, -5, 1.25F, 0.75F, 9, 7, {0, 0, 1, 0.5F}}};
+    const auto original_tiles = tiles;
+    std::vector<std::byte> empty;
+    if (!builder.build(empty)) return false;
+    for (unsigned variant = 0U; variant < 16U; ++variant) {
+        auto bad = descriptor;
+        auto bad_tiles = tiles;
+        switch (variant) {
+            case 0U: bad.struct_size--; break;
+            case 1U: bad.glyph_count--; break;
+            case 2U: bad.filter_model = 2U; break;
+            case 3U: bad.pixel_geometry = 3U; break;
+            case 4U: bad.gamma = 2.2F; break;
+            case 5U: bad.enhanced_contrast = 0.5F; break;
+            case 6U: bad.cleartype_level = 0.5F; break;
+            case 7U: bad.dpi_scale = 0; break;
+            case 8U: bad.reserved1 = 1U; break;
+            case 9U: bad_tiles[1].outline_index = 1U; break;
+            case 10U: bad_tiles[1].reserved = 1U; break;
+            case 11U: bad_tiles[1].width = 4097U; break;
+            case 12U: bad_tiles[1].target_x = -4097; break;
+            case 13U: bad_tiles[1].foreground.a = std::numeric_limits<float>::quiet_NaN(); break;
+            case 14U: bad_tiles[1].scale = std::numeric_limits<float>::denorm_min(); break;
+            case 15U: bad_tiles[1].x_start = std::numeric_limits<float>::infinity(); break;
+        }
+        if (builder.draw_rgb_glyph_run(resource, bad, bad_tiles, {0, 0, 32, 32}) ||
+            builder.last_error() != scene_build_error::invalid_argument) return false;
+        std::vector<std::byte> unchanged;
+        if (!builder.build(unchanged) || unchanged != empty) return false;
+    }
+    if (!builder.draw_rgb_glyph_run(resource, descriptor, tiles, {0, 0, 32, 32})) return false;
+    tiles[0].foreground = {0, 1, 0, 0};
+    tiles[1].target_x = 100;
+    std::vector<std::byte> stream;
+    if (!builder.build(stream)) return false;
+    const auto valid = scene::validate(stream.data(), stream.size());
+    if (valid.status != PROGPU_NATIVE_STATUS_SUCCESS || valid.draw_count != 1U) return false;
+    const auto command = read<progpu_native_scene_command>(stream, valid.header.command_offset);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN ||
+        command.flags != PROGPU_NATIVE_SCENE_RECORD_REQUIRED ||
+        command.payload_size != sizeof(descriptor) + sizeof(original_tiles) ||
+        std::memcmp(stream.data() + command.payload_offset, &descriptor, sizeof(descriptor)) != 0 ||
+        std::memcmp(stream.data() + command.payload_offset + sizeof(descriptor),
+            original_tiles.data(), sizeof(original_tiles)) != 0) return false;
+    const auto original_hash = semantic::compute_content_hashes(stream.data(), valid.header).glyph;
+    for (unsigned variant = 0U; variant < 6U; ++variant) {
+        auto corrupt = stream;
+        auto bad = descriptor;
+        auto bad_tile = original_tiles[1];
+        if (variant == 0U) bad.reserved0 = 1U;
+        if (variant == 1U) bad.gamma = std::numeric_limits<float>::quiet_NaN();
+        if (variant == 2U) bad.glyph_count = 65537U;
+        if (variant == 3U) bad_tile.outline_index = 1U;
+        if (variant == 4U) bad_tile.scale = 0.0F;
+        if (variant == 5U) bad_tile.foreground.r = 1.001F;
+        std::memcpy(corrupt.data() + command.payload_offset, &bad, sizeof(bad));
+        std::memcpy(corrupt.data() + command.payload_offset + sizeof(bad) + sizeof(bad_tile), &bad_tile, sizeof(bad_tile));
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    }
+    auto changed = stream;
+    auto moved = original_tiles[1];
+    moved.target_x++;
+    std::memcpy(changed.data() + command.payload_offset + sizeof(descriptor) + sizeof(moved), &moved, sizeof(moved));
+    return scene::validate(changed.data(), changed.size()).status == PROGPU_NATIVE_STATUS_SUCCESS &&
+        semantic::compute_content_hashes(changed.data(), valid.header).glyph != original_hash;
+}
+
+bool semantic_scene_builder_axis_clip_area_is_explicit_and_atomic() {
+    const progpu_native_image_rect bounds{2.25F, 3.75F, 10.5F, 11.25F};
+    const semantic::scissor target{3U, 5U, 64U, 64U, true};
+    const progpu_native_scene_presentation presentation{sizeof(presentation), 7U, 11U, 40U, 42U, 1.25F, 1.5F, 0U};
+    std::array<float, 4U> physical{};
+    if (!semantic::try_resolve_semantic_axis_clip_pixel_bounds(bounds, target, presentation, physical) ||
+        physical != std::array<float, 4U>{6.8125F, 11.625F, 19.9375F, 28.5F}) return false;
+    for (unsigned defect = 0U; defect < 5U; ++defect) {
+        auto invalid_bounds = bounds;
+        auto invalid_presentation = presentation;
+        if (defect == 0U) invalid_presentation.dpi_scale_x = 0.0F;
+        if (defect == 1U) invalid_presentation.dpi_scale_y = std::numeric_limits<float>::quiet_NaN();
+        if (defect == 2U) invalid_bounds.width = -1.0F;
+        if (defect == 3U) invalid_bounds.y = std::numeric_limits<float>::infinity();
+        if (defect == 4U) invalid_bounds.x = invalid_bounds.width = std::numeric_limits<float>::max();
+        const auto retained = physical;
+        if (semantic::try_resolve_semantic_axis_clip_pixel_bounds(invalid_bounds, target, invalid_presentation, physical) ||
+            physical != retained) return false;
+    }
+    semantic_scene_builder builder(0x9643U, 1U);
+    std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!builder.add_axis_aligned_clip_mask({2.25F, 3.75F, 10.5F, 11.25F}, index) || index != 0U) return false;
+    std::vector<std::byte> before;
+    if (!builder.build(before)) return false;
+    const auto header = read<progpu_native_scene_header>(before, 0U);
+    const auto resource = read<progpu_native_scene_resource>(before, header.resource_offset);
+    const auto mask = read<progpu_native_scene_layer_mask>(before, resource.payload_offset);
+    if (mask.flags != PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA ||
+        mask.opacity != 1.0F || mask.transform.m11 != 1.0F || mask.transform.m22 != 1.0F ||
+        scene::validate(before.data(), before.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    for (unsigned defect = 0U; defect < 8U; ++defect) {
+        auto invalid = mask;
+        if (defect == 0U) invalid.flags = 2U;
+        if (defect == 1U) invalid.transform.m31 = 1.0F;
+        if (defect == 2U) invalid.transform.m11 = 2.0F;
+        if (defect == 3U) invalid.transform.m12 = 0.25F;
+        if (defect == 4U) invalid.corner_radii_x[0] = 1.0F;
+        if (defect == 5U) invalid.corner_radii_y[3] = 1.0F;
+        if (defect == 6U) invalid.opacity = 0.5F;
+        if (defect == 7U) invalid.bounds.width = std::numeric_limits<float>::quiet_NaN();
+        auto corrupt = before;
+        std::memcpy(corrupt.data() + resource.payload_offset, &invalid, sizeof(invalid));
+        if (scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        // Ordinary builder header normalization is unchanged; the seven
+        // actual new coverage-contract failures must still be atomic.
+        if (defect != 0U) {
+            std::uint32_t rejected = 42U;
+            if (builder.add_rounded_rectangle_mask(invalid, rejected) || rejected != PROGPU_NATIVE_SCENE_NO_INDEX)
+                return false;
+            std::vector<std::byte> after;
+            if (!builder.build(after) || before != after) return false;
+        }
+    }
+    const std::array masks{mask, mask};
+    if (!builder.add_analytic_mask_chain(masks, index) || index != 1U) return false;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes) || scene::validate(bytes.data(), bytes.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto result = read<progpu_native_scene_header>(bytes, 0U);
+    const auto chain_resource = read<progpu_native_scene_resource>(bytes, result.resource_offset + result.resource_stride);
+    const auto chain = read<progpu_native_scene_layer_mask_chain>(bytes, chain_resource.payload_offset);
+    if (chain.masks[0].flags != mask.flags || chain.masks[1].flags != mask.flags) return false;
+    // Existing ordinary rounded/translated/translucent masks retain flags zero.
+    auto ordinary = mask;
+    ordinary.flags = 0U;
+    ordinary.transform.m31 = 1.0F;
+    ordinary.opacity = 0.5F;
+    ordinary.corner_radii_x[0] = ordinary.corner_radii_y[0] = 1.0F;
+    return builder.add_rounded_rectangle_mask(ordinary, index) && builder.build(bytes) &&
+        scene::validate(bytes.data(), bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+bool semantic_scene_builder_clear_prepares_exact_aa_owner_chain() {
+    const auto push_clip = [](semantic_scene_builder& builder, bool background) {
+        progpu_native_scene_layer_mask mask{};
+        mask.bounds = {2.25F, 3.75F, 30.5F, 40.25F};
+        mask.transform = semantic_scene_builder::identity_transform();
+        mask.opacity = 1.0F;
+        std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder.add_rounded_rectangle_mask(mask, index)) return false;
+        auto layer = isolation_test_layer();
+        layer.bounds = mask.bounds;
+        layer.content_revision = layer.composite_revision = 0U;
+        layer.mask_resource_index = index;
+        if (background) layer.flags |= PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
+        return builder.push_layer(layer);
+    };
+    for (const bool owner : {false, true}) {
+        for (const std::uint32_t clips : {0U, 1U, 3U}) {
+            if (!owner && clips == 0U) continue;
+            semantic_scene_builder actual(0x9640U, 1U), expected(0x9640U, 1U);
+            // An outer AA clip must not become background-initialized across
+            // an ordinary owner: Clear changes only that owner's storage.
+            if (!push_clip(actual, false) || !push_clip(expected, !owner) ||
+                !actual.save() || !expected.save()) return false;
+            if (owner && (!actual.push_layer(isolation_test_layer()) ||
+                !expected.push_layer(isolation_test_layer(true)))) return false;
+            for (std::uint32_t i = 0U; i < clips; ++i)
+                if (!push_clip(actual, false) || !push_clip(expected, true) ||
+                    !actual.save() || !expected.save()) return false;
+            const auto count = clips + (owner ? 0U : 1U);
+            for (std::uint32_t repeat = 0U; repeat < 3U; ++repeat)
+                if (!actual.prepare_antialiased_clear_layers(count, owner)) return false;
+            for (auto* builder : {&actual, &expected}) {
+                if (!draw_isolation_test(*builder)) return false;
+                for (std::uint32_t i = 0U; i < clips; ++i)
+                    if (!builder->restore() || !builder->pop_layer()) return false;
+                if (owner && !builder->pop_layer()) return false;
+                if (!builder->restore() || !builder->pop_layer()) return false;
+            }
+            if (!equal_closed_isolation_builders(actual, expected)) return false;
+        }
+    }
+    return true;
+}
+
+bool semantic_scene_builder_clear_rejects_nonclip_chain_atomically() {
+    for (std::uint32_t defect = 0U; defect < 8U; ++defect) {
+        semantic_scene_builder actual(0x9641U, 2U), expected(0x9641U, 2U);
+        for (auto* builder : {&actual, &expected}) {
+            for (std::uint32_t i = 0U; i < 2U; ++i) {
+                progpu_native_scene_layer_mask mask{};
+                mask.bounds = {2.25F, 3.75F, 30.5F, 40.25F};
+                mask.transform = semantic_scene_builder::identity_transform();
+                mask.opacity = 1.0F;
+                if (i == 0U && defect == 0U) mask.corner_radii_x[0] = 0.5F;
+                if (i == 0U && defect == 1U) mask.opacity = 0.5F;
+                if (i == 0U && defect == 3U) mask.transform.m31 = 1.0F;
+                std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!builder->add_rounded_rectangle_mask(mask, index)) return false;
+                auto layer = isolation_test_layer();
+                layer.bounds = mask.bounds;
+                layer.content_revision = layer.composite_revision = 0U;
+                layer.mask_resource_index = index;
+                if (i == 0U && defect == 2U) layer.bounds.width += 1.0F;
+                if (i == 0U && defect == 4U) layer.opacity = 0.5F;
+                if (i == 0U && defect == 5U) layer.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+                if (i == 0U && defect == 6U) layer.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+                if (i == 0U && defect == 7U) layer.content_revision = 1U;
+                if (!builder->push_layer(layer) || !builder->save()) return false;
+            }
+        }
+        if (actual.prepare_antialiased_clear_layers(2U, false) ||
+            actual.last_error() != scene_build_error::invalid_argument) return false;
+        for (auto* builder : {&actual, &expected}) {
+            if (!draw_isolation_test(*builder) || !builder->restore() || !builder->pop_layer() ||
+                !builder->restore() || !builder->pop_layer()) return false;
+        }
+        if (!equal_closed_isolation_builders(actual, expected)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_clear_counts_open_and_historical_children() {
+    for (const std::uint32_t ancestors : {0U, 2U}) {
+        for (const bool at_limit : {false, true}) {
+            const auto children = PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS - ancestors - (at_limit ? 0U : 1U);
+            for (const std::uint32_t open_clips : {1U, children}) {
+                semantic_scene_builder actual(0x9642U, 3U), expected(0x9642U, 3U);
+                for (std::uint32_t i = 0U; i < ancestors; ++i)
+                    if (!actual.push_layer(isolation_test_layer(true)) ||
+                        !expected.push_layer(isolation_test_layer(true))) return false;
+                if (!actual.push_layer(isolation_test_layer()) ||
+                    !expected.push_layer(isolation_test_layer(!at_limit))) return false;
+                // A closed child can exhaust the historical depth even when
+                // the AA scopes currently open below that owner are shallow.
+                for (auto* builder : {&actual, &expected}) {
+                    for (std::uint32_t i = 0U; i < children; ++i)
+                        if (!builder->push_layer(isolation_test_layer(true))) return false;
+                    if (!draw_isolation_test(*builder)) return false;
+                    for (std::uint32_t i = 0U; i < children; ++i)
+                        if (!builder->pop_layer()) return false;
+                    for (std::uint32_t i = 0U; i < open_clips; ++i) {
+                        progpu_native_scene_layer_mask mask{};
+                        mask.bounds = {1.25F, 2.25F, 30.0F, 30.0F};
+                        mask.transform = semantic_scene_builder::identity_transform();
+                        mask.opacity = 1.0F;
+                        std::uint32_t index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                        if (!builder->add_rounded_rectangle_mask(mask, index)) return false;
+                        auto layer = isolation_test_layer();
+                        layer.bounds = mask.bounds;
+                        layer.content_revision = layer.composite_revision = 0U;
+                        layer.mask_resource_index = index;
+                        if (builder == &expected && !at_limit)
+                            layer.flags |= PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND;
+                        if (!builder->push_layer(layer) || !builder->save()) return false;
+                    }
+                }
+                if (at_limit) {
+                    if (actual.prepare_antialiased_clear_layers(open_clips, true) ||
+                        actual.last_error() != scene_build_error::capacity_exceeded) return false;
+                } else if (!actual.prepare_antialiased_clear_layers(open_clips, true) ||
+                    !actual.prepare_antialiased_clear_layers(open_clips, true)) return false;
+                for (auto* builder : {&actual, &expected}) {
+                    if (!draw_isolation_test(*builder)) return false;
+                    for (std::uint32_t i = 0U; i < open_clips; ++i)
+                        if (!builder->restore() || !builder->pop_layer()) return false;
+                    if (!builder->pop_layer()) return false;
+                    for (std::uint32_t i = 0U; i < ancestors; ++i)
+                        if (!builder->pop_layer()) return false;
+                }
+                if (!equal_closed_isolation_builders(actual, expected)) return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_rejects_missing_layer_atomically() {
+    for (const std::uint32_t saves : {0U, 1U, 3U}) {
+        semantic_scene_builder actual(0x9600U, 1U), expected(0x9600U, 1U);
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.save() || !expected.save()) return false;
+        if (actual.isolate_current_layer() || actual.last_error() != scene_build_error::unbalanced_stack)
+            return false;
+        if (!draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.restore() || !expected.restore()) return false;
+        if (!equal_closed_isolation_builders(actual, expected)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_promotes_nearest_layer() {
+    for (const std::uint32_t saves : {0U, 1U, 3U}) {
+        semantic_scene_builder actual(0x9601U, 2U), expected(0x9601U, 2U);
+        auto inner = isolation_test_layer();
+        inner.bounds = {2.0F, 3.0F, 32.0F, 40.0F};
+        inner.content_revision = 71U;
+        auto isolated = inner;
+        isolated.flags |= PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+        if (!actual.push_layer(isolation_test_layer()) || !expected.push_layer(isolation_test_layer()) ||
+            !actual.push_layer(inner) || !expected.push_layer(isolated) ||
+            !draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.save() || !expected.save()) return false;
+        // Promotion edits the nearest layer's original command, even with SAVE
+        // frames above it. Repeated calls neither append commands nor add depth.
+        for (std::uint32_t repeat = 0U; repeat < 3U; ++repeat)
+            if (!actual.isolate_current_layer() || actual.last_error() != scene_build_error::none) return false;
+        if (!draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+        for (std::uint32_t i = 0U; i < saves; ++i)
+            if (!actual.restore() || !expected.restore()) return false;
+        if (!actual.pop_layer() || !expected.pop_layer() ||
+            !actual.pop_layer() || !expected.pop_layer() ||
+            !equal_closed_isolation_builders(actual, expected)) return false;
+        std::vector<std::byte> bytes;
+        if (!actual.build(bytes)) return false;
+        const auto header = read<progpu_native_scene_header>(bytes, 0U);
+        const auto outer_command = read<progpu_native_scene_command>(bytes, header.command_offset);
+        const auto inner_command = read<progpu_native_scene_command>(bytes, header.command_offset + header.command_stride);
+        const auto outer_layer = read<progpu_native_scene_layer>(bytes, outer_command.payload_offset);
+        const auto inner_layer = read<progpu_native_scene_layer>(bytes, inner_command.payload_offset);
+        if (scene::layer_requires_materialization(outer_layer) ||
+            !scene::layer_requires_materialization(inner_layer) || inner_layer.flags != isolated.flags)
+            return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_preserves_materialized_layers() {
+    for (std::uint32_t kind = 0U; kind < 3U; ++kind) {
+        semantic_scene_builder actual(0x9602U, 3U), expected(0x9602U, 3U);
+        auto layer = isolation_test_layer(kind == 0U);
+        if (kind == 1U) layer.opacity = 0.5F;
+        if (kind == 2U) layer.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+        if (!scene::layer_requires_materialization(layer) ||
+            !actual.push_layer(layer) || !expected.push_layer(layer) ||
+            !actual.save() || !expected.save() ||
+            !actual.isolate_current_layer() || !actual.isolate_current_layer() ||
+            !draw_isolation_test(actual) || !draw_isolation_test(expected) ||
+            !actual.restore() || !expected.restore() ||
+            !actual.pop_layer() || !expected.pop_layer() ||
+            !equal_closed_isolation_builders(actual, expected)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_preserves_ordinary_elision() {
+    semantic_scene_builder builder(0x9603U, 4U);
+    const auto ordinary = isolation_test_layer();
+    constexpr std::uint32_t ordinary_depth = PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + 1U;
+    static_assert(ordinary_depth + PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS <= PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH);
+    // More than the materialized limit remains legal for ordinary no-Clear
+    // layers; they must not consume the depth needed by genuinely isolated ones.
+    for (std::uint32_t i = 0U; i < ordinary_depth; ++i)
+        if (!builder.push_layer(ordinary)) return false;
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!builder.push_layer(isolation_test_layer(true))) return false;
+    if (!draw_isolation_test(builder)) return false;
+    for (std::uint32_t i = 0U; i < ordinary_depth + PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!builder.pop_layer()) return false;
+    std::vector<std::byte> bytes;
+    if (!builder.build(bytes) || scene::validate(bytes.data(), bytes.size()).status != PROGPU_NATIVE_STATUS_SUCCESS)
+        return false;
+    const auto header = read<progpu_native_scene_header>(bytes, 0U);
+    for (std::uint32_t i = 0U; i < ordinary_depth; ++i) {
+        const auto command = read<progpu_native_scene_command>(bytes, header.command_offset + i * header.command_stride);
+        const auto layer = read<progpu_native_scene_layer>(bytes, command.payload_offset);
+        if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER || layer.flags != ordinary.flags ||
+            scene::layer_requires_materialization(layer)) return false;
+    }
+    return true;
+}
+
+bool semantic_scene_builder_isolation_tracks_depth_across_pop_and_reset() {
+    semantic_scene_builder actual(0x9604U, 5U), expected(0x9604U, 5U);
+    // Every sibling promotion must return its depth on pop, including promotion
+    // underneath a SAVE and idempotent promotion while that SAVE stays open.
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS + 2U; ++i) {
+        if (!actual.push_layer(isolation_test_layer()) || !expected.push_layer(isolation_test_layer(true)) ||
+            !actual.save() || !expected.save() ||
+            !actual.isolate_current_layer() || !actual.isolate_current_layer() ||
+            !draw_isolation_test(actual) || !draw_isolation_test(expected) ||
+            !actual.restore() || !expected.restore() ||
+            !actual.pop_layer() || !expected.pop_layer()) return false;
+    }
+    if (!equal_closed_isolation_builders(actual, expected)) return false;
+    // Reset while an isolated layer and SAVE are open, not just after a fully
+    // balanced stream; all scope indices and materialized depth must be cleared.
+    if (!actual.push_layer(isolation_test_layer()) || !actual.isolate_current_layer() ||
+        !actual.save() || !actual.reset(0x9604U, 6U) || !expected.reset(0x9604U, 6U)) return false;
+    if (actual.isolate_current_layer() || actual.last_error() != scene_build_error::unbalanced_stack) return false;
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!actual.push_layer(isolation_test_layer()) || !actual.isolate_current_layer() ||
+            !actual.isolate_current_layer() || !expected.push_layer(isolation_test_layer(true))) return false;
+    if (actual.push_layer(isolation_test_layer(true)) || actual.last_error() != scene_build_error::capacity_exceeded)
+        return false;
+    if (!draw_isolation_test(actual) || !draw_isolation_test(expected)) return false;
+    for (std::uint32_t i = 0U; i < PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS; ++i)
+        if (!actual.pop_layer() || !expected.pop_layer()) return false;
+    if (!actual.push_layer(isolation_test_layer()) || !actual.isolate_current_layer() ||
+        !expected.push_layer(isolation_test_layer(true)) ||
+        !actual.pop_layer() || !expected.pop_layer()) return false;
+    return equal_closed_isolation_builders(actual, expected);
+}
+
+bool semantic_scene_builder_isolation_rejects_historical_depth_atomically() {
+    for (const std::uint32_t ancestors : {0U, 3U}) {
+        for (const bool at_limit : {false, true}) {
+            semantic_scene_builder actual(0x9605U, 7U), expected(0x9605U, 7U);
+            const auto children = PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS - ancestors - (at_limit ? 0U : 1U);
+            for (std::uint32_t i = 0U; i < ancestors; ++i)
+                if (!actual.push_layer(isolation_test_layer(true)) || !expected.push_layer(isolation_test_layer(true)))
+                    return false;
+            if (!actual.push_layer(isolation_test_layer()) ||
+                !expected.push_layer(isolation_test_layer(!at_limit))) return false;
+            // The child's peak is historical, not live when parent promotion is
+            // requested. A surrounding SAVE must not hide that earlier peak.
+            for (auto* builder : {&actual, &expected}) {
+                if (!builder->save()) return false;
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->push_layer(isolation_test_layer(true))) return false;
+                if (!draw_isolation_test(*builder)) return false;
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->pop_layer()) return false;
+            }
+            if (at_limit) {
+                if (actual.isolate_current_layer() || actual.last_error() != scene_build_error::capacity_exceeded)
+                    return false;
+            } else if (!actual.isolate_current_layer() || !actual.isolate_current_layer()) return false;
+            // Repeat a full allowed child peak before closing. A rejected
+            // promotion must not have consumed live depth or changed the stack.
+            for (auto* builder : {&actual, &expected}) {
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->push_layer(isolation_test_layer(true))) return false;
+                if (!draw_isolation_test(*builder)) return false;
+                for (std::uint32_t i = 0U; i < children; ++i)
+                    if (!builder->pop_layer()) return false;
+                if (!builder->restore() || !builder->pop_layer()) return false;
+                for (std::uint32_t i = 0U; i < ancestors; ++i)
+                    if (!builder->pop_layer()) return false;
+            }
+            if (!equal_closed_isolation_builders(actual, expected)) return false;
+        }
+    }
+    return true;
+}
+
+static bool copies_outside_clips_atomically(bool retained_source, bool pixel_centers) {
+    const std::array pixels{std::byte{0}, std::byte{0}, std::byte{255}, std::byte{255}};
+    progpu_native_scene_image_draw image{};
+    image.image_width = image.image_height = 1U; image.row_bytes = 4U;
+    image.sampling = PROGPU_NATIVE_IMAGE_SAMPLING_NEAREST;
+    image.source_rect = image.destination_rect = {0, 0, 1, 1};
+    image.transform = semantic_scene_builder::identity_transform();
+    image.opacity = 1.0F; image.max_anisotropy = 1U;
+    const auto copy = [&](semantic_scene_builder& destination, const auto& draw, bool scoped = true) {
+        if (!retained_source) return scoped
+            ? destination.copy_image_from_memory_outside_clips(draw, 0U, pixels)
+            : destination.copy_image_from_memory(draw, 0U, pixels);
+        semantic_scene_builder source(0x95B0U);
+        std::uint32_t index{};
+        if (!source.add_rgba8_image(1U, 1U, 4U, pixels, index)) return false;
+        return scoped ? destination.copy_image_from_builder_outside_clips(std::move(source), index, draw)
+            : destination.copy_image_from_builder(std::move(source), index, draw);
+    };
+    const auto prepare = [&](semantic_scene_builder& builder, unsigned int kind) {
+        if (kind == 5U && !builder.set_hit_test_owner(42)) return false;
+        auto clip = semantic_scene_builder::identity_state();
+        clip.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        if (pixel_centers) clip.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+        clip.clip_rect = {8, 8, 16, 16};
+        std::uint32_t index{};
+        if (!builder.add_state(clip, index) || !builder.save(index)) return false;
+        clip.clip_rect = {12, 10, 8, 8};
+        if (kind == 1U) clip.transform.m31 = 2.0F;
+        if (kind == 2U) clip.opacity = 0.5F;
+        return builder.add_state(clip, index) && builder.save(index, nullptr, false, kind == 3U, false, kind == 4U);
+    };
+    const auto finish = [](semantic_scene_builder& builder, std::vector<std::byte>& bytes) {
+        return builder.restore() && builder.restore() && builder.build(bytes) &&
+            scene::validate(bytes.data(), bytes.size()).status == PROGPU_NATIVE_STATUS_SUCCESS;
+    };
+    for (unsigned int kind = 0U; kind < 6U; ++kind) {
+        semantic_scene_builder actual(0x95A0U, 1U), expected(0x95A0U, 1U);
+        if (!prepare(actual, kind) || !prepare(expected, kind)) return false;
+        auto rejected = image;
+        // Fail after scope suspension/upload/layer append, not only preflight.
+        if (kind == 0U) rejected.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
+        if (copy(actual, rejected)) return false;
+        std::vector<std::byte> original, after;
+        if (!finish(expected, original) || !finish(actual, after) || after != original) return false;
+    }
+    semantic_scene_builder builder(0x95A1U, 1U);
+    if (!prepare(builder, 0U) || copy(builder, image, false) || !copy(builder, image)) return false;
+    std::uint32_t image_index{};
+    if (!builder.add_rgba8_image(1U, 1U, 4U, pixels, image_index) ||
+        !builder.draw_image(image_index, image, image.destination_rect)) return false;
+    std::vector<std::byte> bytes;
+    if (!finish(builder, bytes)) return false;
+    const auto header = read<progpu_native_scene_header>(bytes, 0U);
+    semantic::semantic_state_cursor cursor(bytes.data(), header);
+    std::uint32_t draws = 0U;
+    for (std::uint32_t i = 0U; i < header.command_count; ++i) {
+        const auto command = read<progpu_native_scene_command>(bytes,
+            header.command_offset + i * header.command_stride);
+        const auto state = cursor.advance(command);
+        if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) continue;
+        if (draws == 0U && (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) return false;
+        if (draws == 1U && ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U ||
+            ((state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) != 0U) != pixel_centers ||
+            state.clip_rect.x != 12.0F || state.clip_rect.y != 10.0F ||
+            state.clip_rect.width != 8.0F || state.clip_rect.height != 8.0F)) return false;
+        ++draws;
+    }
+    if (draws != 2U) return false;
+    semantic_scene_builder layered(0x95A2U, 1U), untouched(0x95A2U, 1U);
+    progpu_native_scene_layer layer{};
+    layer.opacity = 0.5F; layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!layered.push_layer(layer) || !untouched.push_layer(layer) ||
+        copy(layered, image) ||
+        !layered.pop_layer() || !untouched.pop_layer()) return false;
+    std::vector<std::byte> before, after;
+    return layered.build(after) && untouched.build(before) && before == after;
+}
+
+bool semantic_scene_builder_copies_outside_clips_atomically() {
+    return copies_outside_clips_atomically(false, false) &&
+        copies_outside_clips_atomically(false, true);
+}
+
+bool semantic_scene_builder_moves_sources_outside_clips_atomically() {
+    return copies_outside_clips_atomically(true, false) &&
+        copies_outside_clips_atomically(true, true);
+}
 
 bool semantic_scene_builder_append_capacity_is_amortized_and_atomic() {
     using allocator = append_test_allocator<std::uint32_t>;
@@ -980,9 +1829,31 @@ bool semantic_scene_builder_rejects_invalid_state() {
         return false;
     }
     std::vector<std::byte> stream{std::byte{0x5a}};
-    return !builder.build(stream) &&
-        builder.last_error() == scene_build_error::unbalanced_stack &&
-        stream == std::vector<std::byte>{std::byte{0x5a}};
+    if (builder.build(stream) ||
+        builder.last_error() != scene_build_error::unbalanced_stack ||
+        stream != std::vector<std::byte>{std::byte{0x5a}}) return false;
+
+    semantic_scene_builder binary_builder(702U, 2U);
+    std::vector<std::byte> before;
+    if (!binary_builder.build(before)) return false;
+    state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+    if (binary_builder.add_state(state, index) ||
+        index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+        !binary_builder.build(stream) || stream != before) return false;
+    state.flags |= PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+    state.clip_rect = {1.25F, 2.5F, 8.0F, 4.0F};
+    if (!binary_builder.add_state(state, index) ||
+        !binary_builder.build(stream) ||
+        scene::validate(stream.data(), stream.size()).status != PROGPU_NATIVE_STATUS_SUCCESS)
+        return false;
+    const auto header = read<progpu_native_scene_header>(stream, 0U);
+    const auto resource = read<progpu_native_scene_resource>(stream, header.resource_offset);
+    // The raw reader also rejects a required pixel-center flag without a clip,
+    // even when the otherwise canonical rectangle is empty.
+    state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+    state.clip_rect = {};
+    std::memcpy(stream.data() + resource.payload_offset, &state, sizeof(state));
+    return scene::validate(stream.data(), stream.size()).status != PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
 bool semantic_scene_builder_reuses_retained_images() {
@@ -1755,13 +2626,19 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
     layer.mask_resource_index = layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
     layer.bounds = {1, 2, 5, 4};
-    for (const auto blend : {PROGPU_NATIVE_BLEND_SRC, PROGPU_NATIVE_BLEND_SRC_OVER}) {
-        layer.blend_mode = blend;
-        for (const float opacity : {0.0F, 0.5F, 1.0F}) {
-            layer.opacity = opacity;
-            if (!semantic::supports_mapped_semantic_layer(layer)) return false;
+    for (const auto opaque : {false, true}) {
+        layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION |
+            (opaque ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) : 0U);
+        for (const auto blend : {PROGPU_NATIVE_BLEND_SRC, PROGPU_NATIVE_BLEND_SRC_OVER}) {
+            layer.blend_mode = blend;
+            for (const float opacity : {0.0F, 0.5F, 1.0F}) {
+                layer.opacity = opacity;
+                if (semantic::supports_mapped_semantic_layer(layer) !=
+                    (!opaque || blend == PROGPU_NATIVE_BLEND_SRC_OVER)) return false;
+            }
         }
     }
+    layer.flags &= ~PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA;
     const auto original = layer;
     for (const auto flag : std::array<std::uint32_t, 7U>{PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT,
             PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE, PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE,
@@ -1769,6 +2646,8 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
             PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE, 0x80000000U}) {
         layer = original;
         layer.flags |= static_cast<std::uint32_t>(flag);
+        if (semantic::supports_mapped_semantic_layer(layer)) return false;
+        layer.flags |= PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA;
         if (semantic::supports_mapped_semantic_layer(layer)) return false;
     }
     layer = original;
@@ -1806,6 +2685,129 @@ bool semantic_mapped_layers_preserve_bounded_copy_contract() {
         if (std::memcmp(&current_presentation, &presentation, sizeof(presentation)) != 0) return false;
     }
     return true;
+}
+
+bool semantic_linear_byte_opacity_is_explicit_and_atomic() {
+    auto layer = semantic::semantic_default_layer();
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY;
+    layer.opacity = 0.5F;
+    semantic_scene_builder builder(0x94F8U, 1U);
+    std::vector<std::byte> before;
+    if (!semantic::is_valid_semantic_layer(layer) ||
+        !semantic::supports_mapped_semantic_layer(layer) ||
+        !builder.push_layer(layer) || !builder.pop_layer() || !builder.build(before)) return false;
+    const auto header = read<progpu_native_scene_header>(before, 0U);
+    const auto command = read<progpu_native_scene_command>(before, header.command_offset);
+    const auto retained = read<progpu_native_scene_layer>(before, command.payload_offset);
+    if (retained.flags != layer.flags || retained.opacity != layer.opacity ||
+        scene::validate(before.data(), before.size()).status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    for (unsigned defect = 0U; defect < 8U; ++defect) {
+        auto invalid = layer;
+        if (defect == 0U) invalid.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+        if (defect == 1U) invalid.flags |= PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT;
+        if (defect == 2U) invalid.flags |= PROGPU_NATIVE_SCENE_LAYER_BACKDROP;
+        if (defect == 3U) invalid.flags |= PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE;
+        if (defect == 4U) invalid.effect_resource_index = 0U;
+        if (defect == 5U) invalid.content_revision = 1U;
+        if (defect == 6U) invalid.composite_revision = 1U;
+        if (defect == 7U) invalid.flags |= 0x80000000U;
+        auto corrupt = before;
+        std::memcpy(corrupt.data() + command.payload_offset, &invalid, sizeof(invalid));
+        if (semantic::is_valid_semantic_layer(invalid) || builder.push_layer(invalid) ||
+            scene::validate(corrupt.data(), corrupt.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        std::vector<std::byte> after;
+        if (!builder.build(after) || after != before) return false;
+    }
+    return true;
+}
+
+bool semantic_aliased_composite_bounds_preserve_pixel_centers() {
+    auto layer = semantic::semantic_default_layer();
+    layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS | PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS;
+    layer.bounds = {12.75F, 14.75F, 11.0F, 11.0F};
+    layer.blend_mode = PROGPU_NATIVE_BLEND_SRC;
+    if (!semantic::is_valid_semantic_layer(layer) || !semantic::supports_mapped_semantic_layer(layer)) return false;
+    semantic_scene_builder builder(0x94F7U, 1U);
+    std::vector<std::byte> bytes;
+    if (!builder.push_layer(layer) || !builder.pop_layer() || !builder.build(bytes)) return false;
+    const auto validated = scene::validate(bytes.data(), bytes.size());
+    if (validated.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    const auto command = read<progpu_native_scene_command>(bytes, validated.header.command_offset);
+    const auto retained = read<progpu_native_scene_layer>(bytes, command.payload_offset);
+    if (std::memcmp(&retained, &layer, sizeof(layer)) != 0) return false;
+    const auto rejects = [&](const progpu_native_scene_layer& invalid, bool check_builder = true) {
+        if (semantic::is_valid_semantic_layer(invalid) || semantic::supports_mapped_semantic_layer(invalid)) return false;
+        auto changed = bytes;
+        std::memcpy(changed.data() + command.payload_offset, &invalid, sizeof(invalid));
+        if (scene::validate(changed.data(), changed.size()).status == PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        // Builder normalizes its reserved fields, while the raw wire validator
+        // must reject them. Other rejected calls may not alter earlier bytes.
+        if (check_builder && builder.push_layer(invalid)) return false;
+        std::vector<std::byte> after;
+        return builder.build(after) && after == bytes;
+    };
+    for (const auto flag : std::array<std::uint32_t, 10U>{PROGPU_NATIVE_SCENE_LAYER_BACKDROP,
+            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION, PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_LOCAL_SPACE, PROGPU_NATIVE_SCENE_LAYER_CACHE_NEAREST,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_FANT, PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE,
+            PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE, PROGPU_NATIVE_SCENE_LAYER_CACHE_SHARED, 0x80000000U}) {
+        auto invalid = layer;
+        invalid.flags |= flag;
+        if (!rejects(invalid)) return false;
+    }
+    auto invalid = layer;
+    invalid.flags &= ~PROGPU_NATIVE_SCENE_LAYER_BOUNDS;
+    if (!rejects(invalid)) return false;
+    for (const auto blend : {PROGPU_NATIVE_BLEND_SRC_OVER, PROGPU_NATIVE_BLEND_CLEAR, PROGPU_NATIVE_BLEND_MULTIPLY}) {
+        invalid = layer; invalid.blend_mode = blend;
+        if (!rejects(invalid)) return false;
+    }
+    for (const auto opacity : {0.0F, 0.5F}) {
+        invalid = layer; invalid.opacity = opacity;
+        if (!rejects(invalid)) return false;
+    }
+    invalid = layer; invalid.mask_resource_index = 0U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.effect_resource_index = 0U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.content_revision = 1U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.composite_revision = 1U;
+    if (!rejects(invalid)) return false;
+    invalid = layer; invalid.reserved0 = 1U;
+    if (!rejects(invalid, false)) return false;
+    invalid = layer; invalid.reserved1 = 1U;
+    if (!rejects(invalid, false)) return false;
+
+    const progpu_native_scene_presentation unit{sizeof(unit), 0U, 0U, 64U, 64U, 1.0F, 1.0F, 0U};
+    const semantic::scissor full{0U, 0U, 64U, 64U, true};
+    const auto equal = [](const semantic::scissor& actual, const semantic::scissor& expected) {
+        return actual.x == expected.x && actual.y == expected.y && actual.width == expected.width &&
+            actual.height == expected.height && actual.drawable == expected.drawable;
+    };
+    const auto covers = [&](progpu_native_image_rect bounds, semantic::scissor expected) {
+        return equal(semantic::resolve_semantic_aliased_composite_scissor(bounds, full, unit), expected);
+    };
+    // Allocation remains outward rounded. The new final scissor alone excludes
+    // the transparent border that previously erased the prior red pixel.
+    if (!equal(semantic::resolve_semantic_layer_scissor(layer, 64U, 64U, unit), {12U, 14U, 12U, 12U, true}) ||
+        !covers(layer.bounds, {13U, 15U, 11U, 11U, true}) ||
+        !covers({12, 14, 12, 12}, {12U, 14U, 12U, 12U, true}) ||
+        !covers({0.5F, 0.5F, 1, 1}, {0U, 0U, 1U, 1U, true}) ||
+        !covers({-2.75F, -1.25F, 4, 3}, {0U, 0U, 1U, 2U, true}) ||
+        !covers({0.75F, 0.75F, 0.125F, 0.125F}, {0U, 0U, 0U, 0U, false}) ||
+        !covers({64.5F, 2, 3, 3}, {0U, 0U, 0U, 0U, false})) return false;
+    const float below = std::nextafter(0.5F, 0.0F), above = std::nextafter(0.5F, 1.0F);
+    if (!covers({below, below, 0.25F, 0.25F}, {0U, 0U, 1U, 1U, true}) ||
+        !covers({above, above, 0.25F, 0.25F}, {0U, 0U, 0U, 0U, false}) ||
+        !covers({0, 0, below, below}, {0U, 0U, 0U, 0U, false}) ||
+        !covers({0, 0, above, above}, {0U, 0U, 1U, 1U, true})) return false;
+    const progpu_native_scene_presentation mapped{sizeof(mapped), 3U, 5U, 24U, 24U, 2.0F, 3.0F, 0U};
+    const semantic::scissor nested{5U, 9U, 7U, 8U, true};
+    return equal(semantic::resolve_semantic_aliased_composite_scissor({1.375F, 2.25F, 5, 4}, nested, mapped),
+        {1U, 3U, 6U, 5U, true}) &&
+        equal(semantic::resolve_semantic_aliased_composite_scissor({-100, -100, 200, 200}, full, mapped),
+            {3U, 5U, 24U, 24U, true});
 }
 
 bool semantic_scene_content_hashes_preserve_scene_ownership() {

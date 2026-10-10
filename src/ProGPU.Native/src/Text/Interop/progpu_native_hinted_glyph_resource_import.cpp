@@ -3,11 +3,36 @@
 #include "../progpu_native_text_interaction_impl.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <new>
 
 namespace progpu::native::text {
+
+struct owned_hinted_source_import final {
+    progpu_native_hinted_source_glyph_resource_view view{};
+    std::vector<progpu_native_hinted_source_style> styles;
+    std::vector<progpu_native_hinted_source_logical_metrics> logical;
+    std::vector<progpu_native_hinted_source_glyph_metrics> glyphs;
+    std::vector<progpu_native_hinted_source_line_metrics> lines;
+    std::vector<progpu_native_hinted_source_cluster_box> boxes;
+    std::vector<progpu_native_hinted_source_caret_stop> carets;
+    std::vector<progpu_native_text_shaping_glyph> raw, effective, prepared;
+    std::vector<progpu_native_hinted_source_positioning_run> positioning;
+    std::vector<progpu_native_hinted_source_fitting_slice> slices;
+    std::vector<std::uint32_t> slice_indices;
+    std::vector<progpu_native_hinted_source_fitted_line> fitted_lines;
+    std::vector<std::uint8_t> breaks_after;
+
+    bool allocation_aliases(const void* output, std::size_t bytes) const noexcept {
+        const owned_output_range r{output, bytes};
+        return r.overlaps(this, sizeof(*this)) || r.overlaps(styles) || r.overlaps(logical) ||
+            r.overlaps(glyphs) || r.overlaps(lines) || r.overlaps(boxes) || r.overlaps(carets) ||
+            r.overlaps(raw) || r.overlaps(effective) || r.overlaps(prepared) || r.overlaps(positioning) ||
+            r.overlaps(slices) || r.overlaps(slice_indices) || r.overlaps(fitted_lines) || r.overlaps(breaks_after);
+    }
+};
 
 // No producer pointers or native driver objects survive this synchronous copy.
 // Geometry lives in the resource's existing vectors; these are the complete
@@ -34,6 +59,7 @@ struct owned_hinted_glyph_import final {
     std::vector<progpu_native_text_cluster_box> boxes;
     std::vector<progpu_native_text_caret_stop> carets;
     std::vector<progpu_native_text_feature> features;
+    std::shared_ptr<const owned_hinted_source_import> source;
 
     bool allocation_aliases(const void* output, std::size_t bytes) const noexcept {
         const owned_output_range r{output, bytes};
@@ -44,7 +70,8 @@ struct owned_hinted_glyph_import final {
             r.overlaps(logical_glyphs) || r.overlaps(logical_owners) || r.overlaps(positioned_owners) ||
             r.overlaps(logical_cluster_ends) || r.overlaps(positioned_cluster_ends) || r.overlaps(logical_bidi_levels) ||
             r.overlaps(positioned_bidi_levels) || r.overlaps(glyph_scales) || r.overlaps(line_origins) ||
-            r.overlaps(positioned_glyphs) || r.overlaps(lines) || r.overlaps(boxes) || r.overlaps(carets) || r.overlaps(features);
+            r.overlaps(positioned_glyphs) || r.overlaps(lines) || r.overlaps(boxes) || r.overlaps(carets) || r.overlaps(features) ||
+            (source != nullptr && source->allocation_aliases(output, bytes));
     }
 };
 
@@ -56,6 +83,11 @@ hinted_glyph_binding_view hinted_paragraph_glyph_resource::binding_view() const 
 
 bool hinted_paragraph_glyph_resource::imported_allocation_aliases(const void* output, std::size_t bytes) const noexcept {
     return imported_ != nullptr && imported_->allocation_aliases(output, bytes);
+}
+
+const progpu_native_hinted_source_glyph_resource_view*
+hinted_paragraph_glyph_resource::imported_source_view() const noexcept {
+    return imported_ != nullptr && imported_->source != nullptr ? &imported_->source->view : nullptr;
 }
 
 namespace {
@@ -115,7 +147,7 @@ bool finite_extent(float x, float y, float width, float height) noexcept {
         std::isfinite(height) && height >= 0.0F && std::isfinite(x + width) && std::isfinite(y + height);
 }
 
-bool valid_records(const progpu_native_hinted_glyph_resource_view& v) {
+bool valid_records(const progpu_native_hinted_glyph_resource_view& v, bool source_geometry = false) {
     const auto& c = v.counts;
     const auto& l = v.layout;
     if (v.abi_version != PROGPU_NATIVE_ABI_VERSION || v.struct_size != sizeof(v) ||
@@ -334,12 +366,47 @@ bool valid_records(const progpu_native_hinted_glyph_resource_view& v) {
         if (caret.input_position < 0 || caret.line_index >= c.line_count || caret.bidi_level < 0 || caret.bidi_level > 125 || caret.trailing > 1U ||
             caret.reserved0 != 0U || caret.reserved1 != 0U || !finite_extent(caret.x,caret.y,0.0F,caret.height)) return false;
     }
+    // The source lane never invents float interaction to satisfy the old raw
+    // importer. Its separate double records are checked against the same writer.
+    if (source_geometry) return c.cluster_box_count == 0U && c.caret_stop_count == 0U;
     font_error interaction_error{};
     return interaction_detail::validate_retained_records(
         std::span{v.positioned_glyphs,c.positioned_glyph_count},std::span{v.lines,c.line_count},
         std::span{v.positioned_cluster_ends,c.positioned_glyph_count},std::span{v.positioned_bidi_levels,c.positioned_glyph_count},
         std::span{v.boxes,c.cluster_box_count},std::span{v.carets,c.caret_stop_count},&interaction_error,
         true,std::span<const text_fragment_placement>{},std::span{v.line_origins,c.line_count});
+}
+#include "progpu_native_hinted_source_import_validation.inl"
+
+std::shared_ptr<const owned_hinted_source_import> copy_source_records(
+    const progpu_native_hinted_source_glyph_resource_view& s, std::uint32_t run_count) {
+    auto records = std::make_shared<owned_hinted_source_import>();
+    const auto& p = s.source;
+    records->view = s;
+    copy(records->styles, p.styles, p.style_count);
+    copy(records->logical, p.logical_metrics, p.logical_count);
+    copy(records->glyphs, p.glyph_metrics, p.glyph_count);
+    copy(records->lines, p.line_metrics, p.line_count);
+    copy(records->boxes, p.boxes, p.box_count);
+    copy(records->carets, p.carets, p.caret_count);
+    copy(records->raw, s.raw_logical_glyphs, p.logical_count);
+    copy(records->effective, s.effective_logical_glyphs, p.logical_count);
+    copy(records->prepared, s.prepared_glyphs, s.prepared_count);
+    copy(records->positioning, s.positioning_runs, run_count);
+    copy(records->slices, s.slices, s.slice_count);
+    copy(records->slice_indices, s.slice_indices, p.logical_count);
+    copy(records->fitted_lines, s.fitted_lines, p.line_count);
+    copy(records->breaks_after, s.breaks_after, p.logical_count);
+    const auto data = []<class T>(const std::vector<T>& values) { return values.empty() ? nullptr : values.data(); };
+    auto& owned = records->view; auto& source = owned.source;
+    source.styles = data(records->styles); source.logical_metrics = data(records->logical);
+    source.glyph_metrics = data(records->glyphs); source.line_metrics = data(records->lines);
+    source.boxes = data(records->boxes); source.carets = data(records->carets);
+    owned.raw_logical_glyphs = data(records->raw); owned.effective_logical_glyphs = data(records->effective);
+    owned.prepared_glyphs = data(records->prepared); owned.positioning_runs = data(records->positioning);
+    owned.slices = data(records->slices); owned.slice_indices = data(records->slice_indices);
+    owned.fitted_lines = data(records->fitted_lines); owned.breaks_after = data(records->breaks_after);
+    return records;
 }
 } // namespace
 
@@ -350,6 +417,61 @@ hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(co
         auto records = std::make_shared<owned_hinted_glyph_import>();
         // Retain only pointer-free metadata. All borrowed pointer members stay
         // zero; the complete arrays below own their original values.
+        records->metadata.abi_version = v.abi_version; records->metadata.struct_size = v.struct_size;
+        records->metadata.dpi_scale = v.dpi_scale; records->metadata.projection_policy = v.projection_policy; records->metadata.coverage = v.coverage;
+        records->metadata.source_digit_bidi = v.source_digit_bidi; records->metadata.paragraph_level = v.paragraph_level;
+        records->metadata.shaping_direction = v.shaping_direction; records->metadata.shaping_flags = v.shaping_flags;
+        records->metadata.counts = v.counts; records->metadata.result = v.result; records->metadata.layout = v.layout;
+#define COUNT(field) records->metadata.field = v.field
+        COUNT(font_source_count); COUNT(font_byte_count); COUNT(variation_coordinate_count); COUNT(normalized_coordinate_count);
+        COUNT(outline_count); COUNT(segment_count); COUNT(source_outline_count); COUNT(run_outline_count);
+        COUNT(pre_context_count); COUNT(post_context_count); COUNT(feature_count);
+#undef COUNT
+        const auto& c = v.counts;
+#define COPY(field, count) copy(records->field, v.field, (count))
+        COPY(font_sources,v.font_source_count); COPY(font_bytes,v.font_byte_count); COPY(device_styles,c.style_count);
+        COPY(variation_coordinates_16_16,v.variation_coordinate_count); COPY(normalized_coordinates,v.normalized_coordinate_count);
+        COPY(source_scalars,c.source_scalar_count); COPY(admitted_scalars,c.admitted_scalar_count); COPY(scalar_levels,c.source_scalar_count);
+        COPY(styles,c.style_count); COPY(source_metrics,c.style_count); COPY(runs,c.run_count); COPY(logical_glyphs,c.logical_glyph_count);
+        COPY(logical_owners,c.logical_glyph_count); COPY(logical_cluster_ends,c.logical_glyph_count); COPY(logical_bidi_levels,c.logical_glyph_count);
+        COPY(glyph_scales,c.logical_glyph_count); COPY(positioned_glyphs,c.positioned_glyph_count); COPY(positioned_owners,c.positioned_glyph_count);
+        COPY(positioned_cluster_ends,c.positioned_glyph_count); COPY(positioned_bidi_levels,c.positioned_glyph_count); COPY(lines,c.line_count);
+        COPY(line_origins,c.line_count); COPY(boxes,c.cluster_box_count); COPY(carets,c.caret_stop_count);
+        COPY(pre_context,v.pre_context_count); COPY(post_context,v.post_context_count); COPY(features,v.feature_count);
+#undef COPY
+        auto resource = std::shared_ptr<hinted_paragraph_glyph_resource>(new hinted_paragraph_glyph_resource{});
+        resource->dpi_scale_ = v.dpi_scale; resource->projection_policy_ = static_cast<hinted_projection_policy>(v.projection_policy);
+        resource->coverage_ = static_cast<hinted_outline_coverage>(v.coverage);
+        copy(resource->outlines_,v.outlines,v.outline_count); copy(resource->segments_,v.segments,v.segment_count);
+        copy(resource->source_outline_indices_,v.source_outline_indices,v.source_outline_count);
+        copy(resource->run_outline_indices_,v.run_outline_indices,v.run_outline_count);
+        copy(resource->positioned_outline_indices_,v.positioned_outline_indices,c.positioned_glyph_count);
+        for (std::uint32_t i = 0U; i < c.run_count; ++i) { const auto& s = v.run_slices[i];
+            resource->run_slices_.push_back({s.source_start,s.source_count,s.run_start,s.run_count,s.outline_start,s.outline_count,s.segment_start,s.segment_count}); }
+        for (std::uint32_t i = 0U; i < v.outline_count; ++i)
+            resource->outline_owners_.push_back({v.outline_owners[i].run_index,v.outline_owners[i].descriptor_index});
+        for (std::uint32_t i = 0U; i < c.positioned_glyph_count; ++i) {
+            const auto& g = v.positioned_glyphs[i]; const auto& o = v.positioned_owners[i]; const auto& r = v.runs[o.run_index];
+            resource->positioned_owners_.push_back({i,g.glyph_index,o.run_index,o.run_glyph_index,o.descriptor_index,r.font_index,r.style_index});
+        }
+        resource->imported_ = std::move(records);
+        result.status = PROGPU_NATIVE_STATUS_SUCCESS; result.error = {}; result.generation = std::move(resource);
+    } catch (const std::bad_alloc&) {
+        result.status = PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; result.error.code = hinted_glyph_frame_error_code::resource_exhausted;
+    } catch (...) { result.status = PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+    return result;
+}
+
+hinted_paragraph_glyph_resource_result import_hinted_paragraph_glyph_resource(
+    const progpu_native_hinted_glyph_resource_view& v,
+    const progpu_native_hinted_source_glyph_resource_view& source) noexcept {
+    hinted_paragraph_glyph_resource_result result{};
+    try {
+        if (!valid_records(v, true) || !valid_source_records(v, source)) return result;
+        auto records = std::make_shared<owned_hinted_glyph_import>();
+        records->source = copy_source_records(source, v.counts.run_count);
+        // Same complete flat base ownership as the unchanged raw importer. No
+        // source/driver object is manufactured from these transport values.
         records->metadata.abi_version = v.abi_version; records->metadata.struct_size = v.struct_size;
         records->metadata.dpi_scale = v.dpi_scale; records->metadata.projection_policy = v.projection_policy; records->metadata.coverage = v.coverage;
         records->metadata.source_digit_bidi = v.source_digit_bidi; records->metadata.paragraph_level = v.paragraph_level;

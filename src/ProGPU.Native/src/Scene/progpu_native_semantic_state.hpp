@@ -284,6 +284,18 @@ scissor resolve_semantic_target_scissor(const progpu_native_scene_state& state,
     const scissor& target, std::uint32_t frame_width, std::uint32_t frame_height,
     const progpu_native_scene_presentation& presentation) noexcept;
 
+// Final binary replacement coverage, not storage allocation: select precisely
+// the half-open interval of physical pixel centers inside the original bounds.
+// Returns a target-local scissor after actual presentation/target intersection.
+// Exact physical edges in the current target frame, using the same four-lane
+// source projection as binary clips. No inverse-DPI or raster-DPI round trip.
+bool try_resolve_semantic_axis_clip_pixel_bounds(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation,
+    std::array<float, 4U>& result) noexcept;
+
+scissor resolve_semantic_aliased_composite_scissor(const progpu_native_image_rect& bounds,
+    const scissor& target, const progpu_native_scene_presentation& presentation) noexcept;
+
 // The final family projection multiplies this coordinate basis by raster_dpi
 // exactly once. Clip and guideline metadata stay logical and resolve separately.
 progpu_native_scene_state localize_semantic_state(progpu_native_scene_state state,
@@ -341,6 +353,10 @@ public:
 
     progpu_native_scene_presentation current_presentation() const noexcept;
 
+    // Descriptor of the actual materialized target, never an elided ancestor
+    // or a claim made by a draw payload. Root opacity is not inferred.
+    bool current_ignores_alpha() const noexcept;
+
 private:
     const std::byte* bytes_;
     scissor frame_extent_{};
@@ -353,6 +369,8 @@ private:
         PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> extents_{};
     std::array<progpu_native_scene_presentation,
         PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> presentations_{};
+    std::array<bool,
+        PROGPU_NATIVE_SCENE_MAX_MATERIALIZED_LAYERS> ignores_alpha_{};
     std::uint32_t scope_depth_ = 0U;
     std::uint32_t materialized_depth_ = 0U;
 };

@@ -227,6 +227,7 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
                 _elements.Add(elem);
             }
         }
+        PrepareGroupStorage(_elements.Count);
         RebuildGroupedPaths();
         Invalidate();
     }
@@ -386,18 +387,29 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
         return path;
     }
 
-    private PathFigure GetGroupFigure(int index)
+    private void PrepareGroupStorage(int count)
     {
-        while (_groupFigures.Count <= index)
+        // Animation can split every element into its own group. Prepare that
+        // linear bound when complexity changes, so a later random split does
+        // not allocate another path/cache or grow the parallel owner lists.
+        _groupFigures.EnsureCapacity(count);
+        _groupPaths.EnsureCapacity(count);
+        _groupGeometryCaches.EnsureCapacity(count);
+        _groupEndIndices.EnsureCapacity(count);
+        while (_groupFigures.Count < count)
         {
             var figure = new PathFigure();
+            figure.Segments.EnsureCapacity(4);
             var path = new PathGeometry();
             path.Figures.Add(figure);
             _groupFigures.Add(figure);
             _groupPaths.Add(path);
             _groupGeometryCaches.Add(RenderCommandGeometryCache.ForPath(path));
         }
+    }
 
+    private PathFigure GetGroupFigure(int index)
+    {
         var result = _groupFigures[index];
         result.Segments.Clear();
         result.IsClosed = false;
@@ -408,7 +420,6 @@ public class MotionMarkShowcaseVisual : FrameworkElement, IAnimatedElement
     private void RebuildGroupedPaths()
     {
         _groupEndIndices.Clear();
-        _groupEndIndices.EnsureCapacity(_elements.Count);
 
         var groupIndex = 0;
         var elementIndex = 0;

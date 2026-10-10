@@ -128,7 +128,11 @@ bool create_analytic_masked_pipeline(progpu_native_engine& engine) {
     vertex_state.buffers = &vertex_buffer_layout;
 
     WGPUBlendState blend{};
-    blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+    // Keep geometric coverage in the shared fragment arithmetic, as for
+    // retained shader output. Fixed-function straight-color multiplication
+    // can quantize the source before coverage on one backend but after it on
+    // another, changing an otherwise identical clipped source by one byte.
+    blend.color.srcFactor = WGPUBlendFactor_One;
     blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
     blend.color.operation = WGPUBlendOperation_Add;
     blend.alpha.srcFactor = WGPUBlendFactor_One;
@@ -143,7 +147,7 @@ bool create_analytic_masked_pipeline(progpu_native_engine& engine) {
     WGPUFragmentState fragment_state{};
     fragment_state.module = engine.shader;
     fragment_state.entryPoint =
-        progpu::native::webgpu::string_view("fs_main");
+        progpu::native::webgpu::string_view("fs_main_premultiplied");
     fragment_state.targetCount = 1U;
     fragment_state.targets = &color_target;
 

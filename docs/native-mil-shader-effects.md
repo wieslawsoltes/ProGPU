@@ -5,6 +5,9 @@ The native MIL decoder connects `pixel_shader`, `implicit_input_brush` and
 not complete WPF ShaderEffect or application qualification. The existing managed
 `WpfShaderEffectExtensionPipeline` consumes explicitly supplied WGSL and remains
 separate; its registry is not a translator for original WPF bytecode.
+The [typed source transport](native-mil-shader-source-transport.md) supplies
+canonical packet writers and complete sampler/source metadata for LibreWPF's
+native compiler; source wiring and package/application qualification remain required.
 
 ## Original source and scene contract
 
@@ -19,7 +22,7 @@ Generated managed bindings describe that wire shape, not a rendering fallback.
 The original family is `ps_2_0`, at most 64 KiB and 512 instructions, with one
 declared 2D implicit-input sampler, `t0`, 12 temporary registers, 32 float constant
 registers and fully written `oC0`. Executable instructions are MOV, ADD, SUB, MUL,
-MAD, DP3, DP4, MIN, MAX, LRP, FRC, ABS, CMP and TEXLD. NOP, bounded comments, DCL
+MAD, DP3, DP4, MIN, MAX, LRP, FRC, CRS, ABS, CMP and TEXLD. NOP, bounded comments, DCL
 and finite DEF are parsed. Swizzles, write masks, NEG/ABS/ABSNEG source modifiers
 and SAT are explicit. Reading an unwritten component fails. Unknown opcodes,
 relative registers, predicates, unsupported modifiers, malformed lengths,
@@ -36,13 +39,26 @@ model-specific SINCOS and explicitly admitted immutable-DEF NRM operands. Its
 controls. Runtime-valued NRM, RCP, RSQ, EXP and POW remain rejected; this does not
 claim complete arithmetic or floating-point equivalence.
 
+The [original cross-product family](native-shader-cross-product.md) adds `CRS`
+with selected-lane dependencies and the original destination, alias and swizzle
+restrictions. Its 406 controls supplement, rather than replace, those original
+translation/arithmetic controls; paired GPU qualification is still required.
+
+The [matrix product family](native-shader-matrices.md) adds the five original
+matrix opcodes with validated consecutive rows, exact component counts and
+per-dot read-port checks. It preserves the original bytecode and register limits.
+
 Version 1 admits one untransformed implicit-input brush at opacity one. An
 explicit [version-2 owned ImageBrush sampler](native-shader-image-samplers.md)
-adds static, same-channel owned-bitmap capture without changing version 1.
+adds same-channel owned-bitmap capture without changing version 1. Original
+[ImageBrush opacity/rectangle animation](native-shader-sampler-animation.md)
+uses the same owned capture and current-value resource dependencies.
 [Version-3 UV derivatives](native-shader-uv-derivatives.md) retain the original
 selected float register and populate it from the actual native capture basis.
+An additive [source-padding contract](native-shader-capture-padding.md) expands
+asymmetric local bounds while retaining the integral-capture gate.
 Integer and Boolean registers, additional/external samplers,
-nonzero padding, software-only mode, brush animation and transformed input remain
+software-only mode, animated brush transforms and transformed input remain
 unsupported. The effect requires explicit positive source bounds, a positive
 axis-aligned source basis and a complete integral physical capture. Clipped,
 fractional, backdrop and cache-content captures fail preflight. These gates need
@@ -111,5 +127,5 @@ Required follow-up includes the authored native/GPU checks, additional original
 Microsoft-bytecode pixel references, nested clips, retirement/budgets, both
 providers, Windows package/NativeAOT and source applications. Broader ps_3_0
 semantics/instructions, dynamic flow, additional samplers,
-nonintegral/expanded captures and animated inputs remain open. No parity,
+nonintegral/general expanded captures and animated inputs remain open. No parity,
 performance, desktop rendering or complete ShaderEffect claim is made.

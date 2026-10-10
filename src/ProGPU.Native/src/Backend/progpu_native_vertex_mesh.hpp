@@ -2,6 +2,17 @@
 
 #include "progpu_native_geometry_base.hpp"
 
+#include <array>
+#include <cstring>
+
+#if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64)
+#include <emmintrin.h>
+#elif defined(__wasm_simd128__)
+#include <wasm_simd128.h>
+#endif
+
 namespace progpu::native {
 
 inline bool vertex_mesh_resource_layout(
@@ -119,6 +130,129 @@ inline bool is_valid_vertex_mesh(
         }
     }
     return true;
+}
+
+// Source coverage is an explicit command policy, never inferred from ordinary
+// mesh colors. Positions are original physical pixels; paint coordinates retain
+// the independently captured target-DIP frame. O(M+V), bounded immutable input.
+inline bool valid_source_coverage_frame(const progpu_native_scene_source_coverage_frame& frame) noexcept {
+    return frame.struct_size == sizeof(frame) && frame.version == 1U &&
+        std::isfinite(frame.dpi_scale_x) && frame.dpi_scale_x > 0.0F &&
+        std::isfinite(frame.dpi_scale_y) && frame.dpi_scale_y > 0.0F &&
+        frame.pixel_width > 0U && frame.pixel_width <= 16384U &&
+        frame.pixel_height > 0U && frame.pixel_height <= 16384U &&
+        frame.flags == 0U && frame.reserved == 0U;
+}
+
+inline bool valid_source_coverage_mesh_shape(const progpu_native_scene_vertex_mesh& mesh,
+    std::size_t count) noexcept {
+    std::size_t vertex_count{}, index_count{};
+    if (!vertex_mesh_capacity(mesh, count, 0U, vertex_count, index_count) ||
+        mesh.flags != PROGPU_NATIVE_VERTEX_MESH_EDGE_ALIASED || mesh.topology != PROGPU_NATIVE_VERTEX_MESH_TRIANGLES ||
+        mesh.color_blend_mode != 5U || mesh.vertex_count % 3U != 0U || mesh.index_count != 0U ||
+        mesh.transform.m11 != 1.0F || mesh.transform.m12 != 0.0F || mesh.transform.m21 != 0.0F ||
+        mesh.transform.m22 != 1.0F || mesh.transform.m31 != 0.0F || mesh.transform.m32 != 0.0F) return false;
+    return true;
+}
+
+inline bool valid_source_coverage_vertex(const progpu_native_scene_mesh_vertex& v,
+    const progpu_native_scene_source_coverage_frame& frame) noexcept {
+    return is_finite(v.position) && is_finite(v.texture_coordinate) &&
+        v.color.r == 1.0F && v.color.g == 1.0F && v.color.b == 1.0F && (v.color.a == 0.0F || v.color.a == 1.0F) &&
+        v.position.x >= 0.0F && v.position.y >= 0.0F && v.position.x <= frame.pixel_width && v.position.y <= frame.pixel_height &&
+        v.texture_coordinate.x == v.position.x / frame.dpi_scale_x &&
+        v.texture_coordinate.y == v.position.y / frame.dpi_scale_y;
+}
+
+inline bool valid_source_coverage_mesh(const progpu_native_scene_vertex_mesh& mesh,
+    const progpu_native_scene_mesh_vertex* vertices, std::size_t count,
+    const progpu_native_scene_source_coverage_frame& frame) noexcept {
+    if (!valid_source_coverage_frame(frame) || !valid_source_coverage_mesh_shape(mesh, count) || !vertices) return false;
+    for (std::size_t i = mesh.vertex_offset; i < mesh.vertex_offset + mesh.vertex_count; ++i) {
+        if (!valid_source_coverage_vertex(vertices[i], frame)) return false;
+    }
+    return true;
+}
+
+inline bool validate_source_coverage_draw(const std::byte* bytes, const progpu_native_scene_header& header,
+    const progpu_native_scene_command& command, std::uint32_t& error_offset) noexcept {
+    error_offset = command.payload_offset;
+    if (command.resource_index >= header.resource_count || command.payload_size <
+        sizeof(progpu_native_scene_draw_brushes) + sizeof(progpu_native_scene_source_coverage_frame)) return false;
+    progpu_native_scene_source_coverage_frame frame{};
+    std::memcpy(&frame, bytes + command.payload_offset + command.payload_size - sizeof(frame), sizeof(frame));
+    if (!valid_source_coverage_frame(frame)) return false;
+    progpu_native_scene_resource resource{};
+    std::memcpy(&resource, bytes + header.resource_offset + std::size_t{command.resource_index} * header.resource_stride, sizeof(resource));
+    if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_VERTEX_MESH || resource.payload_size == 0U ||
+        resource.payload_size % sizeof(progpu_native_scene_vertex_mesh) != 0U ||
+        resource.auxiliary_size % sizeof(progpu_native_scene_mesh_vertex) != 0U ||
+        resource.payload_offset % alignof(progpu_native_scene_vertex_mesh) != 0U ||
+        resource.auxiliary_offset % alignof(progpu_native_scene_mesh_vertex) != 0U) return false;
+    const auto count = resource.auxiliary_size / sizeof(progpu_native_scene_mesh_vertex);
+    if (count > 1048576U) return false;
+    std::size_t expected = 0U;
+    // Raw validation also accepts an unaligned caller buffer; only owned wire
+    // offsets are aligned. Never form typed pointers into external byte storage.
+    for (std::size_t offset = 0U; offset < resource.payload_size; offset += sizeof(progpu_native_scene_vertex_mesh)) {
+        progpu_native_scene_vertex_mesh mesh{};
+        std::memcpy(&mesh, bytes + resource.payload_offset + offset, sizeof(mesh));
+        if (!valid_source_coverage_mesh_shape(mesh, count) || mesh.vertex_offset != expected || mesh.index_offset != 0U) {
+            error_offset = resource.payload_offset + static_cast<std::uint32_t>(offset); return false;
+        }
+        expected += mesh.vertex_count;
+    }
+    if (expected != count) return false;
+    for (std::size_t i = 0U; i < count; ++i) {
+        progpu_native_scene_mesh_vertex vertex{};
+        std::memcpy(&vertex, bytes + resource.auxiliary_offset + i * sizeof(vertex), sizeof(vertex));
+        if (!valid_source_coverage_vertex(vertex, frame)) return false;
+    }
+    return true;
+}
+
+// The caller preflights exact integral physical translation and actual target
+// containment. Three original binary coverages fit in a flat integer bit mask;
+// all three physical corners are duplicated per vertex without changing the
+// established 56-byte vector ABI. Independent point lanes use explicit SIMD;
+// scalar builds retain the identical bounded reference arithmetic. Triangle
+// ordering and ownership stay original. O(V) time and retained storage.
+inline void append_source_coverage(const progpu_native_scene_vertex_mesh& mesh,
+    const progpu_native_scene_mesh_vertex* source, float offset_x, float offset_y,
+    float opacity, float brush_index, std::vector<vector_vertex>& vertices,
+    std::vector<std::uint32_t>& indices) {
+    for (std::size_t i = mesh.vertex_offset; i < mesh.vertex_offset + mesh.vertex_count; i += 3U) {
+        alignas(16) float points[8]{source[i].position.x, source[i].position.y,
+            source[i+1U].position.x, source[i+1U].position.y,
+            source[i+2U].position.x, source[i+2U].position.y, 0.0F, 0.0F};
+        alignas(16) const float offset[4]{offset_x, offset_y, offset_x, offset_y};
+        for (std::size_t lane = 0U; lane < 8U; lane += 4U) {
+#if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
+            vst1q_f32(points + lane, vaddq_f32(vld1q_f32(points + lane), vld1q_f32(offset)));
+#elif defined(__SSE2__) || defined(_M_X64)
+            _mm_store_ps(points + lane, _mm_add_ps(_mm_load_ps(points + lane), _mm_load_ps(offset)));
+#elif defined(__wasm_simd128__)
+            wasm_v128_store(points + lane, wasm_f32x4_add(wasm_v128_load(points + lane), wasm_v128_load(offset)));
+#else
+            for (std::size_t k = 0U; k < 4U; ++k) points[lane+k] += offset[k];
+#endif
+        }
+        std::uint32_t coverage = 0U;
+        for (std::size_t k = 0U; k < 3U; ++k) {
+            if (source[i+k].color.a == 1.0F) coverage |= 1U << k;
+        }
+        for (std::size_t k = 0U; k < 3U; ++k) {
+            vector_vertex v{};
+            v.position[0] = points[k*2U]; v.position[1] = points[k*2U+1U];
+            std::copy_n(points, 4U, v.color);
+            v.shape_size[0] = points[4]; v.shape_size[1] = points[5];
+            v.texture_coordinate[0] = source[i+k].texture_coordinate.x;
+            v.texture_coordinate[1] = source[i+k].texture_coordinate.y;
+            v.corner_radius = static_cast<float>(coverage); v.stroke_thickness = opacity;
+            v.brush_index = brush_index; v.shape_type = 1026.0F;
+            indices.push_back(static_cast<std::uint32_t>(vertices.size())); vertices.push_back(v);
+        }
+    }
 }
 
 inline bool append_vertex_mesh(

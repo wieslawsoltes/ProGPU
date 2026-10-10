@@ -19,10 +19,15 @@ quad; the proof applies to the resulting corners, not source transform labels.
 
 Managed admission additionally requires unit DPI, the full zero-origin physical
 canvas and its unit logical projection, and no late GPU transforms. Native path
-and clip execution have full-target projections and also require unit DPI. The
+and clip execution have full-target projections. Their additional physical-frame
+lane admits integral power-of-two DPI only after multiplying every actual corner
+by that exact scale and proving the same integer atlas/device offset. Other DPI
+values, fractional corners and residual scale keep filtering. The
 general vector vertex shader rejects static/late-transformed encodings even if
 the original vertex carried the marker. Shape 4's otherwise unused stroke field
-carries -1; it is not a hairline stroke and does not alter other shape contracts.
+carries -1 for the original unit-DPI lane and -2 for the proven native physical
+lane. The latter computes the shader offset from `position * dpiScale`, never
+from logical coordinates. Neither marker denotes a hairline stroke.
 
 Both native providers and the managed renderer embed the same
 `PathAtlasSampling.wgsl`. A flat integer offset and fragment position select the
@@ -33,6 +38,23 @@ edge aliasing, sample grids, Boolean topology and alpha composition are unchange
 Each native clip node binds its own existing 256-byte uniform offset during both
 the path pass and composition; the first node's mapping is never reused for later
 tiles. The existing multi-node MIL ellipse/rounded-clip test covers this distinction.
+
+Native direct fills, like clip nodes, rasterize using the original transform's
+maximum scale multiplied by target DPI, with translation phase in physical
+pixels. Local capture bounds divide by that same scale before final projection.
+Managed ordinary path fills now also use the active target DPI for atlas scale
+and translation phase. Explicit glyph raster policies remain authoritative, and
+the existing retained-command and scene caches already include target DPI.
+The 96-path DPI-2 differential matches all 518,400 pixels byte for byte after
+this change; its opacity companion remains byte-identical. The managed exact-load
+admission remains unchanged, including its separate unit-DPI gate.
+The integrated 96/192-DPI hairline companion checks this with independent filled
+rectangles: a one-physical-pixel fill must not be rasterized as a half-pixel DIP
+tile and then enlarged. The Windows integrated run exposed additional 254/1
+coverage values on its 192-DPI atlas transfer. The physical-frame proof addresses
+that transfer; no pixel tolerance, coverage clamp or blanket nearest filter is
+introduced. Cold/warm union fixtures cover both paths and clip masks at DPI1/2,
+including unchanged warm upload counters. Windows rerun remains required.
 
 The proof is fixed four-corner work with bounded stack state and no heap allocation.
 There is no extra crossing, readback, upload, GPU submission or pipeline. The
@@ -69,6 +91,31 @@ worker preparation, culling and demand-driven upload are unchanged. Shader sourc
 composition occurs once at managed type initialization or native build time.
 
 ## Qualification
+
+### Exact line-edge classification
+
+The shared path shader also admits an exact integer half-plane comparison when
+both original line endpoints and every row sample are exact multiples of 1/16.
+All scaled coordinates must lie in [-16383,16383]. Coordinate differences are
+therefore at most 32766 and each signed product fits `i32`. The shader compares
+the two products directly, retaining strict X crossings and half-open Y ranges.
+It does not round coordinates or change the sample grid. Other coordinates use
+the existing floating-point intersection. Curves, Boolean operations and signed
+winding retain the same shared traversal.
+
+This avoids dividing at a sample exactly on an edge, where a rounded reciprocal
+can move the intersection across that sample. Four-lane integer arithmetic adds
+constant work and no storage, dispatch, submission or managed/native crossing.
+This is a precision fix; it makes no performance claim.
+
+Both native provider fixtures include 14 original/reversed line cases on cold
+and warm frames. Their independent rational scanline oracle sorts intersections
+and fills sample spans. It covers negative endpoints, the signed-product limit,
+and coordinates outside the integer bound or off the admitted lattice. Separate
+Windows captures and both Metal providers expose the original on-edge failures.
+This arithmetic admission does not itself implement Direct2D curve subdivision
+or its source-coordinate conversion policy; those require separate transport and
+qualification. Windows product/package and application checks remain required.
 
 Matched managed/native admission tests reject every bad corner and axis, nonfinite
 coordinates, fractional phase, unequal offsets, scale, reflection and rotation.

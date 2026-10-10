@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d_core.hpp"
+#include "progpu_native_direct2d_stroke_metrics.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -59,6 +60,35 @@ bool valid_target_extent(const progpu_native_direct2d_target_extent* target) noe
         target->pixel_width != 0U && target->pixel_height != 0U && target->reserved == 0U &&
         std::isfinite(target->dpi_x) && target->dpi_x > 0.0F &&
         std::isfinite(target->dpi_y) && target->dpi_y > 0.0F;
+}
+
+void scale_hairline_dashes(
+    std::span<double> intervals, double& offset, float dpi) noexcept
+{
+    // Original portable render-target arithmetic, shared with the Windows
+    // command sink. O(D) time, no allocation, and one scalar SIMD tail.
+    if (intervals.empty() || dpi == 96.0F) {
+        return;
+    }
+    const double scale = 96.0 / static_cast<double>(dpi);
+    offset *= scale;
+    std::size_t index = 0U;
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const float64x2_t factor = vdupq_n_f64(scale);
+    for (; index + 2U <= intervals.size(); index += 2U) {
+        vst1q_f64(intervals.data() + index,
+            vmulq_f64(vld1q_f64(intervals.data() + index), factor));
+    }
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    const __m128d factor = _mm_set1_pd(scale);
+    for (; index + 2U <= intervals.size(); index += 2U) {
+        _mm_storeu_pd(intervals.data() + index,
+            _mm_mul_pd(_mm_loadu_pd(intervals.data() + index), factor));
+    }
+#endif
+    for (; index < intervals.size(); ++index) {
+        intervals[index] *= scale;
+    }
 }
 
 com::result compose_transform(

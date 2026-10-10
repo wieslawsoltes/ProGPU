@@ -21,6 +21,7 @@ struct VertexOutput {
     @location(4) @interpolate(flat) colorBlendMode: f32,
     @location(5) @interpolate(flat) patchOpacity: f32,
     @location(6) projectiveQ: f32,
+    @location(7) @interpolate(flat) sourceLayerOpacity: f32,
 };
 
 struct Uniforms {
@@ -49,6 +50,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.patchKind = input.patchKind;
     output.colorBlendMode = input.colorBlendMode;
     output.patchOpacity = input.patchOpacity;
+    output.sourceLayerOpacity = input.color.a;
     return output;
 }
 
@@ -100,6 +102,16 @@ fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUn
     let local = vec2<f32>(
         dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
         dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
+    if (sampling.options.x == 5.0) {
+        // Explicit target-axis source clip only: exact rectangular pixel area.
+        // The CPU retains projected physical edges and the unit-pixel frame.
+        // O(1), no derivatives, samples, epsilon or rounded-distance corner.
+        let pixel = vec2<f32>(sampling.coordinate0.x, sampling.coordinate1.y);
+        let overlap = max(min(local + 0.5 * pixel, sampling.bounds.zw) -
+            max(local - 0.5 * pixel, sampling.bounds.xy), vec2<f32>(0.0));
+        let coverage = clamp(overlap / pixel, vec2<f32>(0.0), vec2<f32>(1.0));
+        return coverage.x * coverage.y;
+    }
     let outerAlpha = rounded_mask_alpha_local(local, sampling.bounds, sampling.cornerRadiiX, sampling.cornerRadiiY);
     if (sampling.options.x < 2.5) {
         return outerAlpha;
@@ -564,4 +576,50 @@ fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = texture_fs_main_with_mask(input, 1.0);
     // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
     return vec4<f32>(color.a, 0.0, 0.0, color.a);
+}
+
+fn layer_linear_unorm(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
+    var unscaled = input;
+    unscaled.color.r = 1.0;
+    unscaled.color.a = select(1.0, -1.0, input.sourceLayerOpacity < 0.0);
+    var color = texture_fs_main_with_mask(unscaled, 1.0);
+    // Group opacity scales the retained premultiplied source bytes before
+    // blending. Its quantized alpha owns the complementary destination weight.
+    // Geometric coverage remains independent and is applied after that step.
+    // Recover the stored bytes before scaling, and retain the uniform source
+    // opacity without raster interpolation. Either normalized-byte arithmetic
+    // or an interpolated constant can otherwise move an exact half-byte tie.
+    let opacity = abs(input.sourceLayerOpacity);
+    if (opacity != 1.0) {
+        let sourceBytes = floor(clamp(color, vec4<f32>(0.0), vec4<f32>(1.0)) * 255.0 + 0.5);
+        color = floor(sourceBytes * opacity + 0.5) / 255.0;
+    }
+    return color * maskAlpha;
+}
+
+@fragment
+fn fs_layer_linear_unorm(input: VertexOutput) -> @location(0) vec4<f32> {
+    let fragmentOrigin = select(
+        vec2<f32>(0.0), uniforms.canvasSize, uniforms.boundedSourcePass > 0.5);
+    return layer_linear_unorm(input, sample_mask_alpha(input.position.xy + fragmentOrigin));
+}
+
+@fragment
+fn fs_layer_linear_unorm_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    return layer_linear_unorm(input, 1.0);
+}
+
+// Layer coverage is NOT source alpha. A copied background or transparent Clear
+// must not change the opacity/geometric-mask weight of the final replacement.
+@fragment
+fn fs_layer_coverage(input: VertexOutput) -> @location(0) vec4<f32> {
+    let fragmentOrigin = select(
+        vec2<f32>(0.0), uniforms.canvasSize, uniforms.boundedSourcePass > 0.5);
+    return vec4<f32>(abs(input.color.a) *
+        sample_mask_alpha(input.position.xy + fragmentOrigin));
+}
+
+@fragment
+fn fs_layer_coverage_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(abs(input.color.a));
 }

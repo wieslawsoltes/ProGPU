@@ -1,6 +1,7 @@
 #include "progpu_native_scene_builder_internal.hpp"
 
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_source_path.hpp"
 
 #include <cstring>
 #include <limits>
@@ -19,7 +20,28 @@ bool semantic_scene_builder::draw_paths(
     std::uint32_t state_resource_index,
     std::span<const progpu_native_scene_path_boolean_node>
         boolean_nodes) noexcept {
-    if (paths.empty() || segments.empty() || !finite_rect(bounds) ||
+    return draw_paths_core(paths,segments,brush_indices,bounds,state_resource_index,boolean_nodes,nullptr);
+}
+
+bool semantic_scene_builder::draw_source_paths(
+    std::span<const progpu_native_scene_path_fill> paths,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint32_t> brush_indices,
+    progpu_native_image_rect bounds,
+    const progpu_native_scene_source_coverage_frame& frame,
+    std::uint32_t state_resource_index) noexcept {
+    return draw_paths_core(paths,segments,brush_indices,bounds,state_resource_index,{},&frame);
+}
+
+bool semantic_scene_builder::draw_paths_core(
+    std::span<const progpu_native_scene_path_fill> paths,
+    std::span<const progpu_native_path_segment> segments,
+    std::span<const std::uint32_t> brush_indices,
+    progpu_native_image_rect bounds,
+    std::uint32_t state_resource_index,
+    std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+    const progpu_native_scene_source_coverage_frame* frame) noexcept {
+    if ((frame && (!boolean_nodes.empty() || brush_indices.size()!=paths.size() || !valid_source_paths(paths,segments,*frame))) || paths.empty() || segments.empty() || !finite_rect(bounds) ||
         !implementation_->valid_state_index(
             state_resource_index, true) ||
         (!brush_indices.empty() && brush_indices.size() != paths.size()) ||
@@ -96,7 +118,7 @@ bool semantic_scene_builder::draw_paths(
 
         implementation::command_entry command{};
         command.record.struct_size = sizeof(command.record);
-        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH;
+        command.record.kind = frame ? PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH : PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH;
         command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
         command.record.command_id = implementation_->commands.size() + 1U;
         command.record.state_index = state_resource_index;
@@ -112,12 +134,13 @@ bool semantic_scene_builder::draw_paths(
                 static_cast<std::uint32_t>(brush_indices.size()),
                 0U};
             command.payload.resize(
-                sizeof(draw) + brush_indices.size_bytes());
+                sizeof(draw) + brush_indices.size_bytes() + (frame ? sizeof(*frame) : 0U));
             std::memcpy(command.payload.data(), &draw, sizeof(draw));
             std::memcpy(
                 command.payload.data() + sizeof(draw),
                 brush_indices.data(),
                 brush_indices.size_bytes());
+            if(frame)std::memcpy(command.payload.data()+sizeof(draw)+brush_indices.size_bytes(),frame,sizeof(*frame));
         }
         implementation_->resources.push_back(std::move(resource));
         implementation_->commands.push_back(std::move(command));

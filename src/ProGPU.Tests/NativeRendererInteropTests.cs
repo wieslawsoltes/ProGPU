@@ -3158,6 +3158,9 @@ public class NativeRendererInteropTests
         Assert.Equal(32, Unsafe.SizeOf<NativeSceneMeshVertex>());
         Assert.Equal(12U, (uint)NativeSceneResourceKind.VertexMesh);
         Assert.Equal(22U, (uint)NativeSceneCommandKind.DrawVertexMesh);
+        Assert.Equal(28U, (uint)NativeSceneCommandKind.DrawSourceCoverage);
+        Assert.Equal(29U, (uint)NativeSceneCommandKind.DrawSourcePath);
+        Assert.Equal(32, Unsafe.SizeOf<NativeMethods.SceneSourceCoverageFrame>());
         Assert.Equal(160, Unsafe.SizeOf<NativeSceneStroke>());
         Assert.Equal(13U, (uint)NativeSceneResourceKind.StrokeBatch);
         Assert.Equal(16U, (uint)NativeSceneResourceKind.HitTestIndex);
@@ -4085,6 +4088,62 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderRequiresRectangleForPixelCenterClips()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        var builder = new NativeSceneStreamBuilder(destination, 83U, 1U,
+            commandCapacity: 0, resourceCapacity: 1);
+        var missingClip = new NativeSceneState(Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.ClipPixelCenters);
+        Assert.False(builder.TryAddStateResource(1U, 1U, missingClip, out uint rejected));
+        Assert.Equal(NativeMethods.SceneNoIndex, rejected);
+        var clip = new NativeSceneState(Matrix3x2.Identity,
+            flags: NativeSceneStateFlags.ClipRect | NativeSceneStateFlags.ClipPixelCenters,
+            clipRect: new NativeImageRect(1.25f, 2.5f, 8f, 4f));
+        Assert.True(builder.TryAddStateResource(1U, 1U, clip, out uint accepted));
+        Assert.Equal(0U, accepted);
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            stream[(int)header.ResourceOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneState>(stream[(int)resource.PayloadOffset..]);
+        Assert.Equal(clip.Flags, stored.Flags);
+        Assert.Equal(clip.ClipRect, stored.ClipRect);
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderRestrictsLinearByteOpacityToSourceLayers()
+    {
+        Span<byte> destination = stackalloc byte[1024];
+        var builder = new NativeSceneStreamBuilder(destination, 84U, 1U,
+            commandCapacity: 2, resourceCapacity: 0);
+        const NativeSceneLayerFlags policy = NativeSceneLayerFlags.LinearByteOpacity;
+        var invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, blendMode: GpuBlendMode.Src);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        foreach (NativeSceneLayerFlags extra in new[] { NativeSceneLayerFlags.Backdrop,
+            NativeSceneLayerFlags.CacheContent, NativeSceneLayerFlags.CompositeState, (NativeSceneLayerFlags)0x80000000U })
+        {
+            invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy | extra);
+            Assert.False(builder.TryPushLayer(1U, invalid));
+        }
+        invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, effectResourceIndex: 0U);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, contentRevision: 1U);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        invalid = new NativeSceneLayer(opacity: 0.5f, flags: policy, compositeRevision: 1U);
+        Assert.False(builder.TryPushLayer(1U, invalid));
+        var layer = new NativeSceneLayer(opacity: 0.5f, flags: policy);
+        Assert.True(builder.TryPushLayer(1U, layer));
+        Assert.True(builder.TryPopLayer(2U));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(stream[(int)header.CommandOffset..]);
+        var stored = MemoryMarshal.Read<NativeSceneLayer>(stream[(int)command.PayloadOffset..]);
+        Assert.Equal(policy, stored.Flags);
+        Assert.Equal(0.5f, stored.Opacity);
+    }
+
+    [Fact]
     public void SemanticSceneBuilderValidatesTypedPerDrawMaskState()
     {
         Span<byte> destination = stackalloc byte[4096];
@@ -4581,6 +4640,33 @@ public class NativeRendererInteropTests
     [InlineData(4U)]
     [InlineData(8U)]
     public void SemanticSceneBuilderWritesBooleanVectorMaskWithoutAllocation(uint sampleGrid)
+        => ValidateBooleanVectorMaskBuildsOnWorker(sampleGrid, allocateControl: false);
+
+    [Theory]
+    [InlineData(1U)]
+    [InlineData(4U)]
+    [InlineData(8U)]
+    public void SemanticBooleanVectorMaskAllocationMeasurementDetectsEscapingObjects(uint sampleGrid)
+        => ValidateBooleanVectorMaskBuildsOnWorker(sampleGrid, allocateControl: true);
+
+    private static object? s_booleanVectorMaskAllocationControl;
+
+    private static void ValidateBooleanVectorMaskBuildsOnWorker(uint sampleGrid, bool allocateControl)
+    {
+        ExceptionDispatchInfo? failure = null;
+        // Match the image-effect measurement isolation. The worker owns every
+        // stack span; no caller buffer can outlive a timed-out join.
+        var worker = new Thread(() =>
+        {
+            try { ValidateBooleanVectorMaskBuilds(sampleGrid, allocateControl); }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+        }) { IsBackground = true };
+        worker.Start();
+        Assert.True(worker.Join(TimeSpan.FromSeconds(30)), "The Boolean vector-mask allocation measurement did not finish.");
+        failure?.Throw();
+    }
+
+    private static void ValidateBooleanVectorMaskBuilds(uint sampleGrid, bool allocateControl)
     {
         Span<byte> destination = stackalloc byte[4096];
         Span<NativeSceneClipPath> paths = stackalloc NativeSceneClipPath[1];
@@ -4693,15 +4779,31 @@ public class NativeRendererInteropTests
         Assert.Equal(6U, stored.SegmentCount);
         Assert.Equal(3U, stored.BooleanNodeCount);
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        bool success = true;
-        for (int iteration = 0; iteration < 10_000; ++iteration)
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static (bool Success, long Allocated) Measure(
+            Span<byte> bytes, ReadOnlySpan<byte> payload,
+            in NativeSceneLayerVectorMask descriptor, bool allocateControl)
         {
-            success &= Build(destination, auxiliary, in mask, out _);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            bool success = true;
+            for (int iteration = 0; iteration < 10_000; ++iteration)
+            {
+                if (allocateControl)
+                    Volatile.Write(ref s_booleanVectorMaskAllocationControl, new object());
+                success &= Build(bytes, payload, in descriptor, out _);
+            }
+            return (success, GC.GetAllocatedBytesForCurrentThread() - before);
         }
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // Retain the original single warmup and all 10,000 builder calls. Keep
+        // assertions outside the non-inlined measurement, with GC enabled.
+        (bool success, long allocated) = Measure(destination, auxiliary, in mask, allocateControl);
         Assert.True(success);
-        Assert.Equal(0L, allocated);
+        if (allocateControl)
+            Assert.True(allocated >= 10_000 * IntPtr.Size,
+                "The measurement must detect every deliberately escaping allocation.");
+        else
+            Assert.Equal(0L, allocated);
 
         Span<byte> invalidAuxiliary = stackalloc byte[auxiliary.Length];
         auxiliary.CopyTo(invalidAuxiliary);

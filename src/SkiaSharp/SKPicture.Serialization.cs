@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 6;
+    private const int Version = 8;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -925,6 +925,14 @@ internal static class PictureArchive
         {
             return;
         }
+        if (version < 7 && pen.ClipMiterAtLimit)
+        {
+            throw new NotSupportedException("The selected picture version cannot retain clipped-miter policy.");
+        }
+        if (version < 8 && pen.UseWpfJoinSemantics)
+        {
+            throw new NotSupportedException("The selected picture version cannot retain WPF join semantics.");
+        }
         WriteBrush(writer, pen.Brush, version);
         writer.Write(pen.Thickness);
         writer.Write((int)pen.LineJoin);
@@ -937,6 +945,14 @@ internal static class PictureArchive
         if (version >= 3)
         {
             writer.Write((int)pen.StrokeTransformMode);
+        }
+        if (version >= 7)
+        {
+            writer.Write(pen.ClipMiterAtLimit);
+        }
+        if (version >= 8)
+        {
+            writer.Write(pen.UseWpfJoinSemantics);
         }
     }
 
@@ -961,6 +977,14 @@ internal static class PictureArchive
         if (version >= 3)
         {
             pen.StrokeTransformMode = ReadEnum<PenStrokeTransformMode>(reader);
+        }
+        if (version >= 7)
+        {
+            pen.ClipMiterAtLimit = reader.ReadBoolean();
+        }
+        if (version >= 8)
+        {
+            pen.UseWpfJoinSemantics = reader.ReadBoolean();
         }
         return pen;
     }

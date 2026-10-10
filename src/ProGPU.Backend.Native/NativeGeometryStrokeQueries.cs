@@ -65,7 +65,8 @@ public static unsafe partial class NativeGeometryUtilities
             throw new ArgumentOutOfRangeException(nameof(backend));
         if (!Finite(Vector128.Create(pen.Thickness, pen.MiterLimit, pen.DashOffset, tolerance)) ||
             pen.Thickness < 0 || pen.MiterLimit < 1 || tolerance <= 0 ||
-            pen.StartCap > 3 || pen.EndCap > 3 || pen.DashCap > 3 || pen.LineJoin > 2)
+            pen.StartCap > 3 || pen.EndCap > 3 || pen.DashCap > 3 ||
+            pen.LineJoin > (uint)NativeStrokeJoin.MiterOrBevel)
             throw new ArgumentException("Invalid geometry query pen or tolerance.");
         if (!Finite(Vector128.Create(world.M11, world.M12, world.M21, world.M22)) ||
             !Finite(Vector128.Create(world.M31, world.M32, point == null ? 0 : point->X, point == null ? 0 : point->Y)))

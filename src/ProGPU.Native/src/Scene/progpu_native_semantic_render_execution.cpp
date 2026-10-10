@@ -1,7 +1,10 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_semantic_draw_execution.hpp"
 #include "progpu_native_semantic_layer_mask_resources.hpp"
+#include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "progpu_native_semantic_rgb_glyph.hpp"
+#include "progpu_native_target_clear.hpp"
 #include "progpu_native_shader_effect_resource.hpp"
 #include "progpu_native_glyph_coverage_frame.hpp"
 #include "progpu_native_3d_execution.hpp"
@@ -13,6 +16,26 @@
 #include <cstring>
 
 namespace progpu::native::execution {
+
+namespace {
+// Captured source coverage may retain its physical sampling lattice through an
+// integral placement and an unchanged viewport/DPI generation only. Target-local
+// origin is subtracted in pixels. No inverse, inferred DPI, epsilon or new shape.
+bool source_coverage_placement(const progpu_native_scene_source_coverage_frame& captured,
+    const progpu_native_scene_state& state, const semantic_scissor& target,
+    const progpu_native_scene_presentation& presentation, float& x, float& y) noexcept {
+    if (!valid_source_coverage_frame(captured) ||
+        captured.dpi_scale_x != presentation.dpi_scale_x || captured.dpi_scale_y != presentation.dpi_scale_y ||
+        captured.pixel_width != presentation.viewport_width || captured.pixel_height != presentation.viewport_height ||
+        state.transform.m11 != 1.0F || state.transform.m12 != 0.0F || state.transform.m21 != 0.0F || state.transform.m22 != 1.0F)
+        return false;
+    const double px = double(state.transform.m31 * captured.dpi_scale_x) + presentation.viewport_x - double(target.x);
+    const double py = double(state.transform.m32 * captured.dpi_scale_y) + presentation.viewport_y - double(target.y);
+    if (!std::isfinite(px) || !std::isfinite(py) || px != std::floor(px) || py != std::floor(py) ||
+        px < -16384.0 || px > 16384.0 || py < -16384.0 || py > 16384.0) return false;
+    x = static_cast<float>(px); y = static_cast<float>(py); return true;
+}
+}
 
 progpu_native_status render_scene(
     progpu_native_engine* engine,
@@ -206,6 +229,29 @@ progpu_native_status render_scene(
             sizeof(resource));
         return resource;
     };
+    const auto is_axis_clip = [&](const progpu_native_scene_layer& layer) noexcept {
+        if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
+            layer.opacity != 1.0F || layer.blend_mode != PROGPU_NATIVE_BLEND_SRC_OVER ||
+            (layer.flags & ~(PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+                PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U ||
+            layer.effect_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX ||
+            layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) return false;
+        const auto resource = read_resource(layer.mask_resource_index);
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+            resource.payload_size != sizeof(progpu_native_scene_layer_mask)) return false;
+        progpu_native_scene_layer_mask mask{};
+        std::memcpy(&mask, bytes + resource.payload_offset, sizeof(mask));
+        return mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
+            mask.flags == PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA;
+    };
+    const auto is_byte_axis_clip = [&](const progpu_native_scene_layer& layer) noexcept {
+        return (engine->target_format == WGPUTextureFormat_RGBA8Unorm ||
+            engine->target_format == WGPUTextureFormat_BGRA8Unorm) && is_axis_clip(layer);
+    };
+    const auto replaces_axis_clip_background = [&](const progpu_native_scene_layer& layer) noexcept {
+        return (layer.flags & PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) != 0U &&
+            is_axis_clip(layer);
+    };
     const auto revision32 = [](std::uint64_t value) noexcept {
         std::uint32_t result = static_cast<std::uint32_t>(
             value ^ (value >> 32U));
@@ -355,6 +401,7 @@ progpu_native_status render_scene(
         frame->height,
         presentation);
     bool semantic_has_materialized_layers = false;
+    bool semantic_has_target_clears = false;
     bool semantic_has_layer_masks = false;
     std::uint32_t semantic_layer_mask_kind =
         PROGPU_NATIVE_GROUP_MASK_NONE;
@@ -365,11 +412,13 @@ progpu_native_status render_scene(
     std::uint32_t semantic_backdrop_layer_count = 0U;
     std::uint32_t semantic_effected_backdrop_layer_count = 0U;
     std::uint32_t semantic_advanced_layer_count = 0U;
+    bool semantic_needs_layer_coverage = false;
     std::uint32_t semantic_advanced_source_width = 0U;
     std::uint32_t semantic_advanced_source_height = 0U;
     std::uint32_t semantic_effect_node_count = 0U;
     std::uint32_t semantic_effect_pass_count = 0U;
     std::uint32_t semantic_shader_effect_count = 0U;
+    std::uint32_t semantic_shader_sample_count = 0U;
     std::uint64_t semantic_shader_sampler_bytes = 0U;
     std::uint32_t semantic_effect_chain_revision = 0U;
     std::uint64_t semantic_layer_coverage_texture_bytes = 0U;
@@ -387,8 +436,17 @@ progpu_native_status render_scene(
             }
             const bool materialized =
                 progpu::native::scene::layer_requires_materialization(layer);
+            progpu_native_scene_shader_sample_frame physical_sample_frame{};
+            const bool final_sample_layer = shader_effect::layer_output_frame(bytes, layer, physical_sample_frame);
+            // Direct root attachments may carry the source's independent DPI
+            // axes for this explicit physical-area clip family. Picture child
+            // engines and arbitrary viewport/mask mappings retain their gates.
+            const bool source_axis_clip = !engine->borrows_shared_vector_pipeline &&
+                presentation.viewport_x == 0U && presentation.viewport_y == 0U &&
+                presentation.viewport_width == frame->width && presentation.viewport_height == frame->height &&
+                is_byte_axis_clip(layer);
             if (mapped_presentation && materialized &&
-                !semantic::supports_mapped_semantic_layer(layer)) {
+                !final_sample_layer && !source_axis_clip && !semantic::supports_mapped_semantic_layer(layer)) {
                 return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
                     "Mapped semantic layers require transient SRC or SRC_OVER composition without cache, backdrop, effects or layer masks.");
             }
@@ -492,44 +550,128 @@ progpu_native_status render_scene(
                 const auto effect_resource = read_resource(
                     layer.effect_resource_index);
                 if (effect_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
-                    // Every version retains an exact, completely captured input.
-                    // Fractional/cropped source frames and backdrop/custom
-                    // mappings need a separate sampling contract, not UV repair.
-                    const auto source_presentation = layer_budget_cursor.current_presentation();
-                    const double left = static_cast<double>(layer.bounds.x) * source_presentation.dpi_scale_x + source_presentation.viewport_x;
-                    const double top = static_cast<double>(layer.bounds.y) * source_presentation.dpi_scale_y + source_presentation.viewport_y;
-                    const double width = static_cast<double>(layer.bounds.width) * source_presentation.dpi_scale_x;
-                    const double height = static_cast<double>(layer.bounds.height) * source_presentation.dpi_scale_y;
-                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
-                        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
-                        left != target_extent.x || top != target_extent.y ||
-                        width != target_extent.width || height != target_extent.height ||
-                        width <= 0.0 || height <= 0.0 ||
-                        semantic_effect_node_count == semantic_max_effect_passes ||
-                        semantic_effect_pass_count == semantic_max_effect_passes)
-                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                            "WPF bytecode effects require a complete integral physical source capture.");
-                    ++semantic_effect_node_count;
-                    ++semantic_effect_pass_count;
-                    ++semantic_shader_effect_count;
                     progpu_native_scene_shader_effect shader{};
+                    progpu_native_scene_shader_capture_frame capture_frame{};
+                    progpu_native_scene_shader_sample_frame sample_frame{};
+                    progpu_native_scene_shader_affine_frame affine_frame{};
+                    std::uint32_t input_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
                     std::uint32_t sampler_picture = PROGPU_NATIVE_SCENE_NO_INDEX;
                     std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                     if (!shader_effect::read_resource(
                             std::span(bytes + effect_resource.payload_offset, effect_resource.payload_size),
                             std::span(bytes + effect_resource.auxiliary_offset, effect_resource.auxiliary_size),
-                            shader, sampler_picture, derivative_register)) return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
-                                "A retained WPF shader descriptor is invalid.");
-                    if (sampler_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
-                        const auto sampler = read_resource(sampler_picture);
+                            shader, sampler_picture, derivative_register, capture_frame, input_picture, sample_frame, affine_frame))
+                        return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                            "A retained WPF shader descriptor is invalid.");
+                    // Old versions keep their exact integral-domain gate. V4
+                    // independently proves original local allocation and final
+                    // integer placement, never a cropped input or UV repair.
+                    const auto source_presentation = layer_budget_cursor.current_presentation();
+                    const double left = static_cast<double>(layer.bounds.x) * source_presentation.dpi_scale_x + source_presentation.viewport_x;
+                    const double top = static_cast<double>(layer.bounds.y) * source_presentation.dpi_scale_y + source_presentation.viewport_y;
+                    const double width = static_cast<double>(layer.bounds.width) * source_presentation.dpi_scale_x;
+                    const double height = static_cast<double>(layer.bounds.height) * source_presentation.dpi_scale_y;
+                    bool complete_frame = left == target_extent.x && top == target_extent.y &&
+                        width == target_extent.width && height == target_extent.height;
+                    if (capture_frame.capture_width != 0U) {
+                        const auto& f = capture_frame;
+                        const auto mapped_edge = [](float value, float scale, float offset) {
+                            return shader_effect::source_sum(shader_effect::source_product(value, scale), offset);
+                        };
+                        const double expected_left = mapped_edge(f.local_left, f.source_scale_x, f.source_offset_x);
+                        const double expected_top = mapped_edge(f.local_top, f.source_scale_y, f.source_offset_y);
+                        const double expected_right = mapped_edge(f.local_right, f.source_scale_x, f.source_offset_x);
+                        const double expected_bottom = mapped_edge(f.local_bottom, f.source_scale_y, f.source_offset_y);
+                        complete_frame = f.source_dpi_x == source_presentation.dpi_scale_x &&
+                            f.source_dpi_y == source_presentation.dpi_scale_y &&
+                            left == expected_left + source_presentation.viewport_x &&
+                            top == expected_top + source_presentation.viewport_y &&
+                            width == expected_right - expected_left && height == expected_bottom - expected_top &&
+                            static_cast<std::int64_t>(f.final_x) + source_presentation.viewport_x == static_cast<std::int64_t>(target_extent.x) &&
+                            static_cast<std::int64_t>(f.final_y) + source_presentation.viewport_y == static_cast<std::int64_t>(target_extent.y) &&
+                            f.capture_width == target_extent.width && f.capture_height == target_extent.height &&
+                            layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+                            (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U &&
+                            std::none_of(active_cache_owners.begin(), active_cache_owners.begin() + cache_scope_depth,
+                                [](std::uint64_t owner) { return owner != 0U; });
+                        if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) != 0U) {
+                            progpu_native_scene_state final_state{};
+                            const auto final_state_resource = read_resource(layer.reserved0);
+                            std::memcpy(&final_state, bytes + final_state_resource.payload_offset, sizeof(final_state));
+                            const auto& m = final_state.transform;
+                            const auto coverage = shader_effect::output_coverage(f);
+                            const auto& clip = final_state.clip_rect;
+                            const auto integral_edge = [](float edge, double dpi) {
+                                const double physical = static_cast<double>(edge) * dpi;
+                                return std::isfinite(physical) && physical == std::floor(physical);
+                            };
+                            complete_frame = complete_frame &&
+                                final_state.flags == PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+                                m.m11 == 1.0F && m.m12 == 0.0F && m.m21 == 0.0F && m.m22 == 1.0F &&
+                                m.m31 == 0.0F && m.m32 == 0.0F && final_state.opacity == 1.0F &&
+                                static_cast<double>(clip.x) * f.source_dpi_x >= coverage.left &&
+                                static_cast<double>(clip.y) * f.source_dpi_y >= coverage.top &&
+                                static_cast<double>(clip.x + clip.width) * f.source_dpi_x <= coverage.right &&
+                                static_cast<double>(clip.y + clip.height) * f.source_dpi_y <= coverage.bottom &&
+                                integral_edge(clip.x, f.source_dpi_x) && integral_edge(clip.y, f.source_dpi_y) &&
+                                integral_edge(clip.x + clip.width, f.source_dpi_x) &&
+                                integral_edge(clip.y + clip.height, f.source_dpi_y);
+                        }
+                    }
+                    if (input_picture != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                        // V5 has an independent complete input picture. Its
+                        // output may intersect the target without changing UVs.
+                        // Physical clip transport avoids logical-DPI round trips.
+                        bool source_vector_mask = layer.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX;
+                        if (!source_vector_mask) {
+                            const auto mask_resource = read_resource(layer.mask_resource_index);
+                            semantic::semantic_layer_mask parsed{};
+                            std::uint32_t mask_error = mask_resource.payload_offset;
+                            source_vector_mask = semantic::validate_layer_mask_resource(bytes, mask_resource, mask_error, &parsed) &&
+                                parsed.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN && parsed.vector.opacity == 1.0F;
+                        }
+                        complete_frame = static_cast<float>(sample_frame.source_dpi_x) == source_presentation.dpi_scale_x &&
+                            static_cast<float>(sample_frame.source_dpi_y) == source_presentation.dpi_scale_y &&
+                            source_vector_mask &&
+                            (layer.flags & PROGPU_NATIVE_SCENE_LAYER_COMPOSITE_STATE) == 0U &&
+                            layer.blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER && layer.opacity == 1.0F &&
+                            index + 1U < header.command_count &&
+                            read_command(index + 1U).kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER &&
+                            std::none_of(active_cache_owners.begin(), active_cache_owners.begin() + cache_scope_depth,
+                                [](std::uint64_t owner) { return owner != 0U; });
+                    }
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_BOUNDS) == 0U ||
+                        (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP | PROGPU_NATIVE_SCENE_LAYER_CACHE_CONTENT)) != 0U ||
+                        !complete_frame ||
+                        width <= 0.0 || height <= 0.0 ||
+                        semantic_effect_node_count == semantic_max_effect_passes ||
+                        semantic_effect_pass_count == semantic_max_effect_passes)
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "WPF bytecode effects require a complete proven physical capture and integral final placement.");
+                    ++semantic_effect_node_count;
+                    ++semantic_effect_pass_count;
+                    ++semantic_shader_effect_count;
+                    semantic_shader_sample_count += input_picture != PROGPU_NATIVE_SCENE_NO_INDEX ? 1U : 0U;
+                    const std::array dependencies{input_picture, sampler_picture};
+                    for (std::size_t dependency_index = 0U; dependency_index < dependencies.size(); ++dependency_index) {
+                        const auto dependency = dependencies[dependency_index];
+                        if (dependency == PROGPU_NATIVE_SCENE_NO_INDEX ||
+                            (dependency_index == 1U && dependency == input_picture)) continue;
+                        const auto sampler = read_resource(dependency);
                         progpu_native_scene_picture_image picture{};
                         progpu_native_scene_presentation sampler_presentation{};
                         if (!semantic::read_semantic_picture_image(bytes + sampler.payload_offset,
                                 sampler.payload_size, picture, sampler_presentation) ||
-                            picture.width != target_extent.width || picture.height != target_extent.height ||
+                            // The implicit input retains the exact source frame.
+                            // An explicitly owned sampler has its own complete
+                            // physical extent (including a raw cache or absent
+                            // 1x1 texture), independent of receiving dimensions.
+                            (dependency_index == 0U &&
+                                (picture.width != sample_frame.capture_width ||
+                                    picture.height != sample_frame.capture_height)) ||
                             sampler_presentation.dpi_scale_x != 1.0F || sampler_presentation.dpi_scale_y != 1.0F)
                             return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
-                                "A WPF shader sampler must own the complete normalized physical source extent.");
+                                "A WPF shader picture must retain its implicit-input extent and normalized physical presentation.");
                         const std::uint64_t cost = static_cast<std::uint64_t>(picture.width) * picture.height * 4U;
                         if (cost > semantic_max_total_compiled_bytes ||
                             semantic_shader_sampler_bytes > semantic_max_total_compiled_bytes - cost)
@@ -592,13 +734,19 @@ progpu_native_status render_scene(
                     "The semantic isolated-layer pass count exceeds its bounded compilation budget.");
             }
             semantic_materialized_layer_count += materialized ? 1U : 0U;
+            semantic_needs_layer_coverage |=
+                replaces_axis_clip_background(layer) ||
+                is_byte_axis_clip(layer);
             const bool backdrop = materialized &&
-                (layer.flags & PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                (layer.flags & (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                    PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
             semantic_backdrop_layer_count += backdrop ? 1U : 0U;
             semantic_effected_backdrop_layer_count +=
-                backdrop && effected ? 1U : 0U;
+                backdrop && (effected || (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U) ? 1U : 0U;
             if (materialized &&
-                is_advanced_group_blend(layer.blend_mode)) {
+                (is_advanced_group_blend(layer.blend_mode) ||
+                    replaces_axis_clip_background(layer) ||
+                    is_byte_axis_clip(layer))) {
                 ++semantic_advanced_layer_count;
                 semantic_advanced_source_width = std::max(
                     semantic_advanced_source_width,
@@ -608,9 +756,9 @@ progpu_native_status render_scene(
                     target_extent.height);
             }
             if (!layer_budget.push(
-                    target_extent,
+                    final_sample_layer ? semantic_scissor{0U, 0U, 1U, 1U, true} : target_extent,
                     materialized && !cached,
-                    effected && !cached)) {
+                    effected && !cached && !final_sample_layer)) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                     "The semantic isolated-layer stack exceeds its bounded depth or aggregate pixel budget.");
@@ -729,8 +877,9 @@ progpu_native_status render_scene(
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto command = read_command(index);
         const auto target_extent = preflight_target_cursor.advance(command);
+        const auto source_state = preflight_state_cursor.advance(command);
         const auto state = localize_semantic_state(
-            preflight_state_cursor.advance(command),
+            source_state,
             target_extent,
             preflight_target_cursor.current_presentation(),
             frame->dpi_scale);
@@ -742,9 +891,17 @@ progpu_native_status render_scene(
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
             continue;
         }
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) {
+            if ((source_state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U)
+                return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                    "Target Clear requires per-draw coverage to be owned by an enclosing layer.");
+            semantic_has_target_clears = true;
+            ++semantic_draw_count;
+            continue;
+        }
         if (command.kind < PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
             command.kind >
-                PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
             continue;
         }
         const bool per_point_guidelines =
@@ -842,7 +999,7 @@ progpu_native_status render_scene(
                 } else if (command.kind ==
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
                     semantic_has_image_mask_chains = true;
-                } else {
+                } else if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
                     semantic_has_vector_mask_chains = true;
                 }
             }
@@ -1046,6 +1203,7 @@ progpu_native_status render_scene(
                 }
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE:
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH: {
                 valid = span_is_multiple(
                     resource.payload_size,
@@ -1068,6 +1226,22 @@ progpu_native_status render_scene(
                 const auto* source_vertices = reinterpret_cast<
                     const progpu_native_scene_mesh_vertex*>(
                         bytes + resource.auxiliary_offset);
+                float source_x = 0.0F, source_y = 0.0F;
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
+                    progpu_native_scene_source_coverage_frame captured{};
+                    std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                    if (!source_coverage_placement(captured, source_state, target_extent,
+                            preflight_target_cursor.current_presentation(), source_x, source_y))
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Source coverage requires its original physical viewport/DPI and integral state translation.");
+                    for (std::size_t v = 0U; v < source_vertex_count; ++v) {
+                        const auto p = source_vertices[v].position;
+                        if (p.x + source_x < 0.0F || p.y + source_y < 0.0F ||
+                            p.x + source_x > target_extent.width || p.y + source_y > target_extent.height)
+                            return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                                "Source coverage triangles require complete physical target containment before clip-created vertex admission.");
+                    }
+                }
                 for (std::size_t mesh_index = 0U;
                      valid && budget_valid && mesh_index < mesh_count;
                      ++mesh_index) {
@@ -1083,7 +1257,7 @@ progpu_native_status render_scene(
                     if (!valid) {
                         break;
                     }
-                    apply_semantic_transform(mesh, state);
+                    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) apply_semantic_transform(mesh, state);
                     std::size_t vertex_count = 0U;
                     std::size_t index_count = 0U;
                     valid = progpu::native::is_valid_vertex_mesh(
@@ -1196,7 +1370,18 @@ progpu_native_status render_scene(
                 }
                 break;
             }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH:
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
+                const bool source_path = command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH;
+                if (source_path) {
+                    progpu_native_scene_source_coverage_frame captured{};
+                    std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                    float x{},y{};
+                    if (!source_coverage_placement(captured, source_state, target_extent,
+                            preflight_target_cursor.current_presentation(), x, y))
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Source paths require their original physical viewport/DPI and integral state translation.");
+                }
                 std::uint64_t path_count = 0U;
                 std::uint64_t segment_count = 0U;
                 std::uint64_t boolean_node_count = 0U;
@@ -1265,7 +1450,7 @@ progpu_native_status render_scene(
                     if (brush == nullptr) {
                         apply_semantic_state(path, state);
                     } else {
-                        apply_semantic_transform(path, state);
+                        if (!source_path) apply_semantic_transform(path, state);
                         apply_path_material(path, *brush);
                     }
                     std::uint64_t path_coverage_bytes = 0U;
@@ -1295,6 +1480,69 @@ progpu_native_status render_scene(
                         compiled_coverage_bytes += path_coverage_bytes;
                     }
                 }
+                break;
+            }
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN: {
+                std::uint32_t error_offset = 0U;
+                valid = semantic::validate_rgb_glyph_draw(bytes, header, command, error_offset);
+                if (!valid) break;
+                progpu_native_scene_rgb_glyph_draw draw{};
+                std::memcpy(&draw, bytes + command.payload_offset, sizeof(draw));
+                std::int32_t offset_x{}, offset_y{};
+                if (!semantic::try_resolve_rgb_glyph_translation(draw, source_state,
+                        target_extent, preflight_target_cursor.current_presentation(),
+                        preflight_target_cursor.current_ignores_alpha(), offset_x, offset_y) ||
+                    target_extent.width > native_max_atlas_size || target_extent.height > native_max_atlas_size ||
+                    (engine->target_format != WGPUTextureFormat_RGBA8Unorm &&
+                        engine->target_format != WGPUTextureFormat_BGRA8Unorm) ||
+                    (engine->engine_flags & (PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+                        PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U) {
+                    return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                        "RGB glyph replay requires an actual opaque linear target, exact original DPI, integral translation and an owned GPU scope.");
+                }
+                compiled_vertex_bytes = resource.auxiliary_size + std::uint64_t{draw.glyph_count} *
+                    (sizeof(rgb_glyph_tile) + sizeof(gpu_glyph_record) + 256U + 48U);
+                std::uint64_t rgb_area = 0U;
+                std::uint32_t rgb_atlas_width = 64U;
+                for (std::uint32_t glyph = 0U; glyph < draw.glyph_count; ++glyph) {
+                    progpu_native_scene_rgb_glyph_tile tile{};
+                    std::memcpy(&tile, bytes + command.payload_offset + sizeof(draw) +
+                        std::size_t{glyph} * sizeof(tile), sizeof(tile));
+                    const auto x = std::int64_t{tile.target_x} + offset_x;
+                    const auto y = std::int64_t{tile.target_y} + offset_y;
+                    if (x < -4096 || x > 4096 || y < -4096 || y > 4096) {
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "An RGB glyph occurrence exceeds its physical target placement domain.");
+                    }
+                    rgb_area += std::uint64_t{tile.width} * tile.height;
+                    while (rgb_atlas_width < tile.width) rgb_atlas_width *= 2U;
+                    compiled_coverage_bytes = (compiled_coverage_bytes + 511U) & ~std::uint64_t{511U};
+                    compiled_coverage_bytes += std::uint64_t{(tile.width * 4U + 255U) & ~255U} * tile.height;
+                }
+                while (std::uint64_t{rgb_atlas_width} * rgb_atlas_width < rgb_area && rgb_atlas_width < 4096U)
+                    rgb_atlas_width *= 2U;
+                std::uint32_t shelf_x = 0U, shelf_y = 0U, shelf_height = 0U;
+                for (std::uint32_t glyph = 0U; glyph < draw.glyph_count; ++glyph) {
+                    progpu_native_scene_rgb_glyph_tile tile{};
+                    std::memcpy(&tile, bytes + command.payload_offset + sizeof(draw) +
+                        std::size_t{glyph} * sizeof(tile), sizeof(tile));
+                    if (tile.width > rgb_atlas_width - shelf_x) {
+                        shelf_x = 0U;
+                        shelf_y += shelf_height;
+                        shelf_height = 0U;
+                    }
+                    if (shelf_y > 4096U || tile.height > 4096U - shelf_y)
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "The original RGB glyph batch exceeds its bounded shelf extent.");
+                    shelf_x += tile.width;
+                    shelf_height = std::max(shelf_height, tile.height);
+                }
+                compiled_texture_bytes = std::uint64_t{rgb_atlas_width} * (shelf_y + shelf_height) * 4U;
+                // Budget the actual RGBA allocation and aligned staging, not
+                // just the sum of ink rectangles. Fragment mode retains the
+                // same admission budget without allocating staging storage.
+                budget_valid = compiled_coverage_bytes <= std::min({semantic_max_coverage_bytes,
+                    engine->max_buffer_size, std::uint64_t{128U * 1024U * 1024U}});
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN:
@@ -1564,8 +1812,8 @@ progpu_native_status render_scene(
                             : command.kind ==
                                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH
                                 ? "point-batch"
-                            : command.kind ==
-                                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH
+                            : (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                                command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE)
                                 ? "vertex-mesh"
                             : command.kind ==
                                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH
@@ -1601,11 +1849,12 @@ progpu_native_status render_scene(
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+            command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
             command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
             ++semantic_analytic_draw_count;
             semantic_analytic_vertex_bytes += compiled_vertex_bytes;
             semantic_analytic_index_bytes += compiled_index_bytes;
-        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH || command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
             std::uint64_t path_count = 0U;
             std::uint64_t segment_count = 0U;
             std::uint64_t boolean_node_count = 0U;
@@ -1674,7 +1923,8 @@ progpu_native_status render_scene(
         static_cast<std::uint64_t>(semantic_effect_pass_count - semantic_shader_effect_count) *
             semantic_effect_uniform_alignment;
     const std::uint64_t semantic_all_effect_uniform_bytes = semantic_effect_uniform_bytes +
-        static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U + semantic_shader_sampler_bytes;
+        static_cast<std::uint64_t>(semantic_shader_effect_count) * 528U +
+        static_cast<std::uint64_t>(semantic_shader_sample_count) * 64U + semantic_shader_sampler_bytes;
     const std::uint64_t pooled_layer_bytes = layer_budget.pooled_bytes();
     const std::uint64_t pooled_effect_bytes =
         layer_budget.pooled_effect_bytes();
@@ -1735,7 +1985,7 @@ progpu_native_status render_scene(
             !texture_bytes(
                 std::max(semantic_advanced_source_width, 1U),
                 std::max(semantic_advanced_source_height, 1U),
-                1U,
+                semantic_needs_layer_coverage ? 2U : 1U,
                 semantic_advanced_source_bytes)) ||
         semantic_destination_frame_bytes >
             PROGPU_NATIVE_SCENE_MAX_LAYER_BYTES ||
@@ -1988,19 +2238,17 @@ progpu_native_status render_scene(
                  ++index) {
                 const auto command = read_command(index);
                 const auto target_extent = target_cursor.advance(command);
+                const auto source_state = state_cursor.advance(command);
                 const auto state = localize_semantic_state(
-                    state_cursor.advance(command),
-                    target_extent,
-                    target_cursor.current_presentation(),
-                    frame->dpi_scale);
+                    source_state, target_extent, target_cursor.current_presentation(), frame->dpi_scale);
                 if (command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH &&
-                    command.kind !=
-                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH &&
+                    command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE &&
                     command.kind !=
                         PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH) {
                     continue;
@@ -2149,8 +2397,8 @@ progpu_native_status render_scene(
                                 "A preflighted semantic point-batch payload could not be compiled.");
                         }
                     }
-                } else if (command.kind ==
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH) {
+                } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                    command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
                     const std::size_t mesh_count = resource.payload_size /
                         sizeof(progpu_native_scene_vertex_mesh);
                     const auto* meshes = reinterpret_cast<
@@ -2191,6 +2439,17 @@ progpu_native_status render_scene(
                             return engine->fail(
                                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                                 "A validated semantic vertex-mesh brush map could not be resolved.");
+                        }
+                        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
+                            progpu_native_scene_source_coverage_frame captured{};
+                            std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                            float source_x{}, source_y{};
+                            if (!source_coverage_placement(captured, source_state, target_extent,
+                                    target_cursor.current_presentation(), source_x, source_y))
+                                return engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR, "A preflighted source coverage frame changed during compilation.");
+                            append_source_coverage(mesh, source_vertices, source_x, source_y, state.opacity,
+                                static_cast<float>(brush_index), engine->vertices, engine->indices);
+                            continue;
                         }
                         apply_semantic_transform(mesh, state);
                         if (!progpu::native::append_vertex_mesh(
@@ -2353,6 +2612,7 @@ progpu_native_status render_scene(
         semantic_path_page.draws.size() == semantic_path_draw_count;
     if (semantic_path_draw_count != 0U && !semantic_path_page_hit) {
         std::vector<progpu_native_scene_path_fill> compiled_paths;
+        std::vector<semantic_source_path> compiled_source_frames;
         std::vector<progpu_native_path_segment> compiled_segments;
         std::vector<progpu_native_scene_path_boolean_node>
             compiled_boolean_nodes;
@@ -2361,6 +2621,7 @@ progpu_native_status render_scene(
         try {
             compiled_paths.reserve(
                 static_cast<std::size_t>(semantic_path_count));
+            compiled_source_frames.reserve(static_cast<std::size_t>(semantic_path_count));
             compiled_segments.reserve(
                 static_cast<std::size_t>(semantic_path_segment_count));
             compiled_boolean_nodes.reserve(
@@ -2387,8 +2648,17 @@ progpu_native_status render_scene(
                     target_extent,
                     target_cursor.current_presentation(),
                     frame->dpi_scale);
-                if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH) {
+                if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH && command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
                     continue;
+                }
+                semantic_source_path source_frame{};
+                if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
+                    progpu_native_scene_source_coverage_frame captured{};
+                    std::memcpy(&captured, bytes + command.payload_offset + command.payload_size - sizeof(captured), sizeof(captured));
+                    if (!source_coverage_placement(captured, target_state, target_extent,
+                            target_cursor.current_presentation(), source_frame.offset_x, source_frame.offset_y))
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED, "Source path placement changed after preflight.");
+                    source_frame.physical = true; source_frame.dpi_x = captured.dpi_scale_x; source_frame.dpi_y = captured.dpi_scale_y;
                 }
                 const auto resource = read_resource(command.resource_index);
                 const std::size_t path_start = compiled_paths.size();
@@ -2460,7 +2730,10 @@ progpu_native_status render_scene(
                     }
                     const bool per_point_guidelines =
                         state_cursor.has_per_point_guidelines(target_state);
-                    if (brush == nullptr && !per_point_guidelines) {
+                    if (source_frame.physical) {
+                        path.transform = {1,0,0,1,source_frame.offset_x,source_frame.offset_y};
+                        apply_path_material(path, *brush);
+                    } else if (brush == nullptr && !per_point_guidelines) {
                         apply_semantic_state(path, state);
                     } else if (brush == nullptr) {
                         path.color.a *= state.opacity;
@@ -2549,6 +2822,7 @@ progpu_native_status render_scene(
                         path.boolean_node_offset += boolean_node_start;
                     }
                     compiled_paths.push_back(path);
+                    compiled_source_frames.push_back(source_frame);
                     compiled_brush_indices.push_back(brush_index);
                 }
                 compiled_draws.push_back({
@@ -2560,7 +2834,7 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The semantic path packed page could not be compiled.");
         }
-        if (compiled_paths.size() != semantic_path_count ||
+        if (compiled_source_frames.size() != semantic_path_count || compiled_paths.size() != semantic_path_count ||
             compiled_segments.size() != semantic_path_segment_count ||
             compiled_boolean_nodes.size() !=
                 semantic_path_boolean_node_count ||
@@ -2571,6 +2845,7 @@ progpu_native_status render_scene(
                 "The semantic path packed-page budget did not match compilation.");
         }
         semantic_path_page.paths = std::move(compiled_paths);
+        semantic_path_page.source_frames = std::move(compiled_source_frames);
         semantic_path_page.segments = std::move(compiled_segments);
         semantic_path_page.boolean_nodes =
             std::move(compiled_boolean_nodes);
@@ -4033,6 +4308,7 @@ progpu_native_status render_scene(
                 std::max(semantic_advanced_source_width, 1U),
                 std::max(semantic_advanced_source_height, 1U),
                 semantic_advanced_layer_count,
+                semantic_needs_layer_coverage,
                 frame->dpi_scale,
                 advanced_uniform_upload_bytes)) {
             discard_encoder();
@@ -4363,7 +4639,8 @@ progpu_native_status render_scene(
         const auto append_effect_program = [&](
             std::uint32_t resource_index,
             semantic_render_bundle_span& operation,
-            const semantic_scissor& source_extent) {
+            const semantic_scissor& source_extent,
+            const semantic_scissor& parent_extent, bool source_vector_mask = false) {
             if (resource_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
                 return true;
             }
@@ -4371,15 +4648,37 @@ progpu_native_status render_scene(
             if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_WPF_SHADER_EFFECT) {
                 if (operation.source_layer >= engine->semantic_layer_slots.size()) return false;
                 progpu_native_scene_shader_effect shader{};
+                progpu_native_scene_shader_capture_frame capture_frame{};
+                progpu_native_scene_shader_sample_frame sample_frame{};
+                progpu_native_scene_shader_affine_frame affine_frame{};
+                std::uint32_t input_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 std::uint32_t sampler_index = PROGPU_NATIVE_SCENE_NO_INDEX;
                 std::uint32_t derivative_register = PROGPU_NATIVE_SCENE_NO_INDEX;
                 if (!shader_effect::read_resource(
                         std::span(bytes + resource.payload_offset, resource.payload_size),
                         std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                        shader, sampler_index, derivative_register)) return false;
+                        shader, sampler_index, derivative_register, capture_frame, input_index, sample_frame, affine_frame)) return false;
+                if (capture_frame.capture_width != 0U &&
+                    (capture_frame.capture_width != source_extent.width ||
+                     capture_frame.capture_height != source_extent.height)) return false;
+                operation.final_sample_shader = input_index != PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (operation.final_sample_shader &&
+                    (!parent_extent.drawable || !source_extent.drawable)) {
+                    // Whole-scene resource/program/frame validation already
+                    // succeeded. A clipped parent cannot supply a viewport;
+                    // retain the empty wrapper identity without inventing one
+                    // or capturing unused input on the GPU. A later visible
+                    // generation obtains its real input and binding normally.
+                    operation.effect_count = 1U;
+                    operation.composite_drawable = false;
+                    return true;
+                }
                 std::shared_ptr<semantic_picture_backing> sampler_picture;
-                if (sampler_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
-                    const auto sampler = read_resource(sampler_index);
+                std::shared_ptr<semantic_picture_backing> input_picture;
+                const auto capture_picture = [&](std::uint32_t index,
+                    std::shared_ptr<semantic_picture_backing>& result) {
+                    if (index == PROGPU_NATIVE_SCENE_NO_INDEX) return true;
+                    const auto sampler = read_resource(index);
                     progpu_native_scene_picture_image picture{};
                     progpu_native_scene_presentation sampler_presentation{};
                     progpu_native_scene_frame_metrics child_metrics{};
@@ -4388,26 +4687,49 @@ progpu_native_status render_scene(
                         sampler.payload_size, picture, sampler_presentation) && create_semantic_picture_image(
                             *engine, picture, sampler_presentation, bytes + sampler.auxiliary_offset,
                             sampler.auxiliary_size, capture, child_metrics);
-                    sampler_picture = std::move(capture.picture_backing);
+                    result = std::move(capture.picture_backing);
                     if (capture.view != nullptr) wgpuTextureViewRelease(capture.view);
                     if (capture.texture != nullptr) {
                         wgpuTextureDestroy(capture.texture); wgpuTextureRelease(capture.texture);
                     }
-                    if (!captured || !sampler_picture) return false;
+                    if (!captured || !result) return false;
                     texture_upload_bytes += child_metrics.texture_upload_bytes;
                     semantic_layer_uniform_upload_bytes += child_metrics.uniform_upload_bytes;
                     picture_vertex_upload_bytes += child_metrics.vertex_upload_bytes;
                     picture_index_upload_bytes += child_metrics.index_upload_bytes;
+                    return true;
+                };
+                if (!capture_picture(input_index, input_picture)) return false;
+                if (sampler_index == input_index) sampler_picture = input_picture;
+                else if (!capture_picture(sampler_index, sampler_picture)) return false;
+                if (input_index != PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    shader_effect::sample_frame actual_frame{};
+                    const bool affine = affine_frame.placement.capture_width != 0U;
+                    if (!(affine ? shader_effect::create_affine_sample_frame(shader_effect::sample_request(affine_frame), actual_frame)
+                                 : shader_effect::create_sample_frame(shader_effect::sample_request(sample_frame), actual_frame)))
+                        return false;
+                    const shader_effect::sample_lattice actual_target{
+                        static_cast<std::int32_t>(parent_extent.x) - static_cast<std::int32_t>(presentation.viewport_x),
+                        static_cast<std::int32_t>(parent_extent.y) - static_cast<std::int32_t>(presentation.viewport_y),
+                        parent_extent.width, parent_extent.height};
+                    if (!sampler_picture) sampler_picture = input_picture;
+                    operation.shader_effect = create_semantic_sample_shader_binding(*engine, shader,
+                        std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size), actual_frame, actual_target,
+                        std::move(sampler_picture), sample_frame, std::move(input_picture), derivative_register,
+                        source_vector_mask, affine ? &affine_frame : nullptr);
+                } else {
+                    operation.shader_effect = create_semantic_shader_binding(*engine, shader,
+                        std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
+                        engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height,
+                        std::move(sampler_picture), derivative_register);
                 }
-                operation.shader_effect = create_semantic_shader_binding(*engine, shader,
-                    std::span(bytes + resource.auxiliary_offset, resource.auxiliary_size),
-                    engine->semantic_layer_slots[operation.source_layer], source_extent.width, source_extent.height,
-                    std::move(sampler_picture), derivative_register);
                 if (!operation.shader_effect) return false;
                 operation.effect_count = 1U;
                 operation.final_effect_texture = 0U;
-                semantic_layer_uniform_upload_bytes += 528U;
-                semantic_layer_effect_uniform_upload_bytes += 528U;
+                const std::uint32_t uniform_bytes = affine_frame.placement.capture_width != 0U ? 608U :
+                    input_index != PROGPU_NATIVE_SCENE_NO_INDEX ? 592U : 528U;
+                semantic_layer_uniform_upload_bytes += uniform_bytes;
+                semantic_layer_effect_uniform_upload_bytes += uniform_bytes;
                 return true;
             }
             progpu_native_scene_effect_chain chain{};
@@ -4616,6 +4938,7 @@ progpu_native_status render_scene(
                     operation.target_layer = slot;
                     operation.source_layer = slot;
                     operation.parent_layer = parent_layer;
+                    operation.ignore_alpha = (layer.flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
                     operation.operation_id = command.command_id;
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
@@ -4623,7 +4946,8 @@ progpu_native_status render_scene(
                         semantic::presentation_content_hash(layer.content_revision, *frame, presentation);
                     operation.backdrop =
                         (layer.flags &
-                            PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                            (PROGPU_NATIVE_SCENE_LAYER_BACKDROP |
+                                PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND)) != 0U;
                     if (operation.backdrop) {
                         operation.source_width = target_extent.width;
                         operation.source_height = target_extent.height;
@@ -4633,9 +4957,9 @@ progpu_native_status render_scene(
                             target_extent.y - parent_extent.y;
                         if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation, target_extent))
+                            operation, target_extent, parent_extent))
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
-                        if (operation.effect_count != 0U) {
+                        if (operation.effect_count != 0U || operation.ignore_alpha) {
                             operation.first_backdrop_resolve_vertex =
                                 static_cast<std::uint32_t>(
                                     semantic_layer_vertices.size());
@@ -4648,7 +4972,7 @@ progpu_native_status render_scene(
                                 frame->dpi_scale,
                                 1.0F);
                         }
-                        draw_calls += operation.effect_count == 0U
+                        draw_calls += operation.effect_count == 0U && !operation.ignore_alpha
                             ? 0U
                             : 1U;
                     }
@@ -4714,6 +5038,12 @@ progpu_native_status render_scene(
                                     target_cursor.current_presentation());
                             composite_drawable = composite_scissor.drawable;
                         }
+                    }
+                    if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_ALIASED_COMPOSITE_BOUNDS) != 0U) {
+                        composite_scissor = intersect_semantic_scissors(composite_scissor,
+                            semantic::resolve_semantic_aliased_composite_scissor(layer.bounds,
+                                target_extent, target_cursor.current_presentation()));
+                        composite_drawable = composite_scissor.drawable;
                     }
                     if ((layer.flags & PROGPU_NATIVE_SCENE_LAYER_CACHE_TILE) != 0U) {
                         const auto resource = read_resource(layer.reserved1);
@@ -4838,12 +5168,22 @@ progpu_native_status render_scene(
                     operation.target_layer = materialized_depth == 0U
                         ? PROGPU_NATIVE_SCENE_NO_INDEX
                         : materialized_slots[materialized_depth - 1U];
+                    operation.target_ignores_alpha = materialized_depth != 0U &&
+                        (materialized_layers[materialized_depth - 1U].flags & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
                     operation.source_layer = source_layer;
                     operation.first_composite_vertex = first_vertex;
                     operation.blend_mode = layer.blend_mode;
                     operation.backdrop =
                         (layer.flags &
                             PROGPU_NATIVE_SCENE_LAYER_BACKDROP) != 0U;
+                    // Ordinary initialized layers still composite with source-over.
+                    // Only explicit source AA clips replace their saved backdrop.
+                    operation.replace_axis_clip_background = replaces_axis_clip_background(layer);
+                    operation.axis_clip_composite = is_byte_axis_clip(layer);
+                    operation.linear_byte_opacity =
+                        (layer.flags & PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY) != 0U &&
+                        (engine->target_format == WGPUTextureFormat_RGBA8Unorm ||
+                         engine->target_format == WGPUTextureFormat_BGRA8Unorm);
                     operation.cache_content = cached;
                     operation.cache_identity = layer.composite_revision;
                     operation.cache_content_revision =
@@ -4861,11 +5201,13 @@ progpu_native_status render_scene(
                         operation.clip_height = composite_scissor.height;
                     }
                     const bool advanced_blend =
-                        is_advanced_group_blend(layer.blend_mode);
+                        is_advanced_group_blend(layer.blend_mode) ||
+                        operation.replace_axis_clip_background || operation.axis_clip_composite;
                     if (!operation.backdrop) {
                         if (!append_effect_program(
                             layer.effect_resource_index,
-                            operation, source_extent))
+                            operation, source_extent, target_extent,
+                            layer.mask_resource_index != PROGPU_NATIVE_SCENE_NO_INDEX))
                             return fail_bundle(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
                     }
                     if (operation.effect_count != 0U &&
@@ -4876,8 +5218,13 @@ progpu_native_status render_scene(
                             operation.operation_id;
                         push_operation.effect_count =
                             operation.effect_count;
+                        if (operation.final_sample_shader) {
+                            push_operation.final_sample_shader = true;
+                            push_operation.shader_effect = operation.shader_effect;
+                            composite_drawable = operation.composite_drawable;
+                        }
                         push_operation.can_skip_content_on_effect_cache =
-                            true;
+                            !operation.final_sample_shader;
                     }
                     if (cached) {
                         auto& push_operation = compiled_spans[
@@ -4906,7 +5253,9 @@ progpu_native_status render_scene(
                                 *engine,
                                 bytes,
                                 resource,
-                                target_extent,
+                                // New coverage resolves into source-local scratch,
+                                // not directly into the parent attachment.
+                                operation.replace_axis_clip_background || operation.axis_clip_composite ? source_extent : target_extent,
                                 frame->dpi_scale,
                                 deform_mask_with_composite_guidelines
                                     ? &state_cursor
@@ -4994,6 +5343,47 @@ progpu_native_status render_scene(
                         sampling.source_extent[1] =
                             static_cast<float>(source_extent.height);
                         sampling.blend_mode = layer.blend_mode;
+                        const bool linear_unorm_bytes = engine->target_format == WGPUTextureFormat_RGBA8Unorm ||
+                            engine->target_format == WGPUTextureFormat_BGRA8Unorm;
+                        sampling.operation_kind = operation.replace_axis_clip_background
+                            ? (linear_unorm_bytes ? 3U : 2U) : operation.axis_clip_composite ? 4U : 0U;
+                        if ((operation.replace_axis_clip_background || operation.axis_clip_composite) && materialized_depth != 0U) {
+                            const auto axis_bounds = [&](const progpu_native_scene_layer& candidate,
+                                std::array<float, 4U>& bounds) {
+                                if (candidate.mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX)
+                                    return false;
+                                const auto resource = read_resource(candidate.mask_resource_index);
+                                if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK ||
+                                    resource.payload_size != sizeof(progpu_native_scene_layer_mask)) return false;
+                                progpu_native_scene_layer_mask mask{};
+                                std::memcpy(&mask, bytes + resource.payload_offset, sizeof(mask));
+                                return mask.kind == PROGPU_NATIVE_SCENE_LAYER_MASK_ROUNDED_RECTANGLE &&
+                                    mask.flags == PROGPU_NATIVE_SCENE_LAYER_MASK_AXIS_CLIP_AREA &&
+                                    semantic::try_resolve_semantic_axis_clip_pixel_bounds(mask.bounds,
+                                        target_extent, target_cursor.current_presentation(), bounds);
+                            };
+                            std::array<float, 4U> child{}, parent{};
+                            if (axis_bounds(layer, child) &&
+                                axis_bounds(materialized_layers[materialized_depth - 1U], parent)) {
+                                // Only consecutive source axis clips participate. Ordinary
+                                // groups retain their own alpha, masks and opacity boundary.
+                                for (auto depth = materialized_depth - 1U; depth != 0U; --depth) {
+                                    std::array<float, 4U> ancestor{};
+                                    if (!axis_bounds(materialized_layers[depth - 1U], ancestor)) break;
+                                    parent[0] = std::max(parent[0], ancestor[0]);
+                                    parent[1] = std::max(parent[1], ancestor[1]);
+                                    parent[2] = std::min(parent[2], ancestor[2]);
+                                    parent[3] = std::min(parent[3], ancestor[3]);
+                                }
+                                sampling.pattern_kind = 1U;
+                                std::copy(parent.begin(), parent.end(), sampling.pattern_color);
+                                child[0] = std::max(child[0], parent[0]);
+                                child[1] = std::max(child[1], parent[1]);
+                                child[2] = std::min(child[2], parent[2]);
+                                child[3] = std::min(child[3], parent[3]);
+                                std::copy(child.begin(), child.end(), sampling.pattern_background_color);
+                            }
+                        }
                         WGPUTextureView destination_view =
                             operation.target_layer ==
                                 PROGPU_NATIVE_SCENE_NO_INDEX
@@ -5030,10 +5420,41 @@ progpu_native_status render_scene(
                 }
                 continue;
             }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET) {
+                const auto finish_status = finish_active_bundle();
+                if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) return fail_bundle(finish_status);
+                has_active_scissor = false;
+                // Target allocation stays outward-rounded. The active binary
+                // source clip instead owns pixel-center coverage: admitting an
+                // allocation fringe here would erase untouched target pixels.
+                auto scissor = (state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U
+                    ? resolve_semantic_aliased_composite_scissor(state.clip_rect, target_extent,
+                        target_cursor.current_presentation())
+                    : resolve_semantic_target_scissor(state, target_extent,
+                        frame->width, frame->height, target_cursor.current_presentation());
+                if (semantic_partial_damage_active && current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX)
+                    scissor = intersect_semantic_scissors(scissor, semantic_frame_damage);
+                if (!scissor.drawable) continue;
+                semantic_render_bundle_span operation{};
+                operation.kind = semantic_replay_kind::clear_target;
+                std::memcpy(&operation.clear_color, bytes + command.payload_offset, sizeof(operation.clear_color));
+                operation.target_layer = current_target_layer;
+                operation.target_width = current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? frame->width : engine->semantic_layer_slots[current_target_layer].width;
+                operation.target_height = current_target_layer == PROGPU_NATIVE_SCENE_NO_INDEX
+                    ? frame->height : engine->semantic_layer_slots[current_target_layer].height;
+                operation.target_ignores_alpha = target_cursor.current_ignores_alpha();
+                operation.clip_x = scissor.x; operation.clip_y = scissor.y;
+                operation.clip_width = scissor.width; operation.clip_height = scissor.height;
+                operation.draw_call_count = 1U;
+                compiled_spans.push_back(std::move(operation));
+                ++draw_calls;
+                continue;
+            }
             if (command.kind <
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||
                 command.kind >
-                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
+                    PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
                 continue;
             }
             auto scissor = resolve_semantic_target_scissor(
@@ -5047,6 +5468,87 @@ progpu_native_status render_scene(
                 scissor = intersect_semantic_scissors(
                     scissor,
                     semantic_frame_damage);
+            }
+            if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_RGB_GLYPH_RUN) {
+                const auto finish_status = finish_active_bundle();
+                if (finish_status != PROGPU_NATIVE_STATUS_SUCCESS) return fail_bundle(finish_status);
+                // A direct pass separates surrounding bundles even when this
+                // occurrence clips out. Never append later draws to a closed
+                // encoder merely because its cached scissor still matches.
+                has_active_scissor = false;
+                if (!scissor.drawable) continue;
+                progpu_native_scene_rgb_glyph_draw draw{};
+                std::memcpy(&draw, bytes + command.payload_offset, sizeof(draw));
+                std::int32_t offset_x{}, offset_y{};
+                if (!semantic::try_resolve_rgb_glyph_translation(draw, state, target_extent,
+                        target_cursor.current_presentation(), target_cursor.current_ignores_alpha(),
+                        offset_x, offset_y) || current_target_layer >= engine->semantic_layer_slots.size())
+                    return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "A preflighted RGB glyph scope lost its physical target identity."));
+                semantic_render_bundle_span operation{};
+                try {
+                    auto packet = std::make_shared<semantic_rgb_glyph_packet>();
+                    packet->policy = {draw.gamma, draw.enhanced_contrast, draw.cleartype_level,
+                        draw.pixel_geometry, rgb_glyph_filter_model::full_pixel_box_8x8};
+                    const auto resource = read_resource(command.resource_index);
+                    packet->segments.resize(resource.auxiliary_size / sizeof(progpu_native_path_segment));
+                    std::memcpy(packet->segments.data(), bytes + resource.auxiliary_offset, resource.auxiliary_size);
+                    packet->tiles.reserve(draw.glyph_count);
+                    for (std::uint32_t glyph = 0U; glyph < draw.glyph_count; ++glyph) {
+                        progpu_native_scene_rgb_glyph_tile tile{};
+                        progpu_native_scene_glyph_outline outline{};
+                        std::memcpy(&tile, bytes + command.payload_offset + sizeof(draw) +
+                            std::size_t{glyph} * sizeof(tile), sizeof(tile));
+                        std::memcpy(&outline, bytes + resource.payload_offset +
+                            std::size_t{tile.outline_index} * sizeof(outline), sizeof(outline));
+                        auto color = tile.foreground;
+                        color.a *= state.opacity;
+                        packet->tiles.push_back({
+                            {static_cast<std::uint32_t>(outline.segment_offset),
+                                static_cast<std::uint32_t>(outline.segment_count),
+                                outline.min_x, outline.min_y, outline.max_x, outline.max_y, 0U, 0U},
+                            tile.x_start, tile.y_start, tile.scale, tile.subpixel_x, tile.width, tile.height,
+                            tile.target_x + offset_x, tile.target_y + offset_y, color});
+                    }
+                    operation.kind = semantic_replay_kind::rgb_glyphs;
+                    operation.rgb_glyphs = std::move(packet);
+                    operation.target_layer = current_target_layer;
+                    const auto& target_slot = engine->semantic_layer_slots[current_target_layer];
+                    operation.target_width = target_slot.width;
+                    operation.target_height = target_slot.height;
+                    operation.target_ignores_alpha = true;
+                    operation.clip_x = scissor.x;
+                    operation.clip_y = scissor.y;
+                    operation.clip_width = scissor.width;
+                    operation.clip_height = scissor.height;
+                    operation.draw_call_count = 3U;
+                    if ((state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U) {
+                        const auto mask_resource = read_resource(state.mask_resource_index);
+                        std::uint64_t mask_texture_upload_bytes = 0U;
+                        const auto mask_begin = trace_encode_checkpoints
+                            ? cpu_clock::now() : cpu_clock::time_point{};
+                        const bool mask_created = create_semantic_layer_mask_binding(*engine, bytes,
+                            mask_resource, target_extent, frame->dpi_scale, nullptr, nullptr,
+                            operation, mask_texture_upload_bytes, target_cursor.current_presentation());
+                        if (trace_encode_checkpoints)
+                            record_mask_profile(mask_resource, mask_begin, mask_created);
+                        if (!mask_created) {
+                            release_mask_resources(operation);
+                            return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                                "The original RGB glyph source mask could not be retained."));
+                        }
+                        texture_upload_bytes += mask_texture_upload_bytes;
+                        semantic_layer_mask_uniform_upload_bytes += operation.mask_uniform_upload_bytes;
+                        semantic_layer_uniform_upload_bytes += operation.mask_uniform_upload_bytes;
+                    }
+                    compiled_spans.push_back(std::move(operation));
+                    note_family(command.kind);
+                } catch (const std::bad_alloc&) {
+                    release_mask_resources(operation);
+                    return fail_bundle(engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "The immutable RGB glyph replay packet could not be retained."));
+                }
+                continue;
             }
             const std::uint32_t mask_resource_index =
                 (state.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U
@@ -5082,8 +5584,8 @@ progpu_native_status render_scene(
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
                         command.kind ==
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_POINT_BATCH ||
-                        command.kind ==
-                            PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                        command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH ||
+                        command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE ||
                         command.kind ==
                             PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH)
                     ? static_cast<std::uint32_t>(
@@ -5168,6 +5670,7 @@ progpu_native_status render_scene(
                     }
                     break;
                 }
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE:
                 case PROGPU_NATIVE_SCENE_COMMAND_DRAW_VERTEX_MESH: {
                     if (semantic_analytic_draw_index >=
                         semantic_analytic_page.draws.size()) {
@@ -5218,7 +5721,8 @@ progpu_native_status render_scene(
                     }
                     break;
                 }
-                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
+                case PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH:
+            case PROGPU_NATIVE_SCENE_COMMAND_DRAW_PATH: {
                     if (semantic_path_draw_index >=
                         semantic_path_page.draws.size()) {
                         return fail_bundle(engine->fail(
@@ -5508,7 +6012,7 @@ progpu_native_status render_scene(
     std::uint32_t executed_draw_calls = 0U;
     std::uint32_t semantic_layer_content_pass_count = 0U;
     if (semantic_draw_count != 0U &&
-        !semantic_has_materialized_layers) {
+        !semantic_has_materialized_layers && !semantic_has_target_clears) {
         bool color_initialized = semantic_preserve_target_active;
         bool depth_initialized = false;
         bool active_pass_uses_depth = false;
@@ -5599,7 +6103,7 @@ progpu_native_status render_scene(
             executed_draw_calls += span.draw_call_count;
         }
         finish_pass();
-    } else if (semantic_has_materialized_layers) {
+    } else if (semantic_has_materialized_layers || semantic_has_target_clears) {
         std::uint32_t active_target_layer =
             PROGPU_NATIVE_SCENE_NO_INDEX;
         bool active_pass_uses_depth = false;
@@ -5609,6 +6113,8 @@ progpu_native_status render_scene(
         // including those cache slots, and is reset for each cold content pass.
         std::array<bool, semantic::layer_slot_count>
             layer_depth_initialized{};
+        std::array<bool, semantic::layer_slot_count>
+            layer_opaque_replay{};
         std::uint32_t skipped_cached_depth = 0U;
         std::array<bool, semantic::layer_slot_count>
             cached_layer_replay{};
@@ -5685,7 +6191,7 @@ progpu_native_status render_scene(
                     frame->clear_color.g,
                     frame->clear_color.b,
                     frame->clear_color.a}
-                : WGPUColor{0.0, 0.0, 0.0, 0.0};
+                : WGPUColor{0.0, 0.0, 0.0, layer_opaque_replay[target_layer] ? 1.0 : 0.0};
             WGPURenderPassDescriptor pass_descriptor{};
             pass_descriptor.label = progpu::native::webgpu::string_view(
                 "ProGPU retained semantic isolated-layer replay pass");
@@ -5761,6 +6267,11 @@ progpu_native_status render_scene(
                 }
             }
             if (operation.kind == semantic_replay_kind::push_layer) {
+                if (operation.final_sample_shader) {
+                    // V5's complete input is a separate owned picture. Its
+                    // validated empty wrapper has no content pass to clear.
+                    continue;
+                }
                 if (operation.can_skip_content_on_effect_cache &&
                     operation.source_layer <
                         engine->semantic_layer_slots.size()) {
@@ -5783,6 +6294,7 @@ progpu_native_status render_scene(
                 if (operation.target_layer <
                     layer_depth_initialized.size()) {
                     layer_depth_initialized[operation.target_layer] = false;
+                    layer_opaque_replay[operation.target_layer] = operation.ignore_alpha;
                 }
                 if (operation.backdrop) {
                     if (operation.effect_count != 0U) {
@@ -5797,7 +6309,7 @@ progpu_native_status render_scene(
                             "A semantic backdrop capture could not be encoded.");
                     }
                     executed_draw_calls +=
-                        operation.effect_count == 0U ? 0U : 1U;
+                        operation.effect_count == 0U && !operation.ignore_alpha ? 0U : 1U;
                 }
                 if (!begin_pass(
                         operation.target_layer,
@@ -5812,6 +6324,33 @@ progpu_native_status render_scene(
                 continue;
             }
             if (operation.kind == semantic_replay_kind::pop_layer) {
+                if (operation.final_sample_shader) {
+                    // Evaluate bytecode on the actual current parent target,
+                    // using its original target-dependent projection. No
+                    // evaluated texture is cached or filtered for placement.
+                    if (!operation.composite_drawable) continue;
+                    if (!operation.shader_effect)
+                        return fail_replay("A visible final-device WPF shader binding is absent.");
+                    ++semantic_effect_operation_count;
+                    finish_pass();
+                    if (!begin_pass(operation.target_layer, WGPULoadOp_Load, false) ||
+                        !encode_semantic_sample_shader_draw(pass, *operation.shader_effect, operation.mask_bind_group))
+                        return fail_replay("A final-device WPF shader draw could not be encoded.");
+                    ++semantic_layer_effect_pass_count;
+                    ++executed_draw_calls;
+                    // Other retained pipelines project into the actual pooled
+                    // allocation, which may exceed the current logical extent.
+                    const auto restore_width = operation.target_layer == PROGPU_NATIVE_SCENE_NO_INDEX
+                        ? frame->width : engine->semantic_layer_slots[operation.target_layer].width;
+                    const auto restore_height = operation.target_layer == PROGPU_NATIVE_SCENE_NO_INDEX
+                        ? frame->height : engine->semantic_layer_slots[operation.target_layer].height;
+                    wgpuRenderPassEncoderSetViewport(pass, 0.0F, 0.0F, static_cast<float>(restore_width),
+                        static_cast<float>(restore_height), 0.0F, 1.0F);
+                    // Reset dynamic clip as well; the next ordinary retained
+                    // operation supplies its own qualified scissor.
+                    wgpuRenderPassEncoderSetScissorRect(pass, 0U, 0U, restore_width, restore_height);
+                    continue;
+                }
                 const bool content_cached =
                     operation.source_layer < cached_layer_replay.size() &&
                     cached_layer_replay[operation.source_layer];
@@ -5819,7 +6358,8 @@ progpu_native_status render_scene(
                     cached_layer_replay[operation.source_layer] = false;
                 }
                 const bool advanced_blend =
-                    is_advanced_group_blend(operation.blend_mode);
+                    is_advanced_group_blend(operation.blend_mode) ||
+                    operation.replace_axis_clip_background || operation.axis_clip_composite;
                 if (!content_cached || advanced_blend ||
                     active_pass_uses_depth) {
                     finish_pass();
@@ -5914,6 +6454,55 @@ progpu_native_status render_scene(
                 executed_draw_calls += operation.composite_drawable
                     ? (advanced_blend ? 3U : 1U)
                     : 0U;
+                continue;
+            }
+            if (operation.kind == semantic_replay_kind::clear_target) {
+                finish_pass();
+                const bool root_target = operation.target_layer == PROGPU_NATIVE_SCENE_NO_INDEX;
+                if ((!root_target && operation.target_layer >= engine->semantic_layer_slots.size()) ||
+                    operation.target_width != (root_target ? frame->width : engine->semantic_layer_slots[operation.target_layer].width) ||
+                    operation.target_height != (root_target ? frame->height : engine->semantic_layer_slots[operation.target_layer].height) ||
+                    operation.target_ignores_alpha != (!root_target && layer_opaque_replay[operation.target_layer]))
+                    return fail_replay("A target Clear lost its actual attachment identity.");
+                const auto clear_status = encode_target_clear(*engine, target_view(operation.target_layer),
+                    operation.target_width, operation.target_height,
+                    {operation.clip_x, operation.clip_y, operation.clip_width, operation.clip_height, true},
+                    operation.clear_color, operation.target_ignores_alpha);
+                if (clear_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    discard_encoder();
+                    return clear_status;
+                }
+                ++executed_draw_calls;
+                uniform_upload_bytes += sizeof(progpu_native_color);
+                if (!begin_pass(operation.target_layer, WGPULoadOp_Load, false))
+                    return fail_replay("The target Clear continuation pass could not be created.");
+                continue;
+            }
+            if (operation.kind == semantic_replay_kind::rgb_glyphs) {
+                finish_pass();
+                if (operation.rgb_glyphs == nullptr ||
+                    operation.target_layer >= engine->semantic_layer_slots.size() ||
+                    !layer_opaque_replay[operation.target_layer] ||
+                    engine->semantic_layer_slots[operation.target_layer].width != operation.target_width ||
+                    engine->semantic_layer_slots[operation.target_layer].height != operation.target_height)
+                    return fail_replay("An RGB glyph replay packet lost its actual opaque target.");
+                const auto& packet = *operation.rgb_glyphs;
+                rgb_glyph_metrics rgb_metrics{};
+                const auto& rgb_target = engine->semantic_layer_slots[operation.target_layer];
+                const auto rgb_status = encode_linear_rgb_glyphs(*engine, rgb_target.texture, rgb_target.view,
+                    operation.target_width, operation.target_height, true, packet.policy,
+                    {operation.clip_x, operation.clip_y, operation.clip_width, operation.clip_height},
+                    operation.mask_bind_group, operation.mask_chain_bind_group,
+                    packet.tiles, packet.segments, rgb_metrics);
+                if (rgb_status != PROGPU_NATIVE_STATUS_SUCCESS) {
+                    discard_encoder();
+                    return rgb_status;
+                }
+                executed_draw_calls += rgb_metrics.draw_calls;
+                vertex_upload_bytes += rgb_metrics.vertex_upload_bytes;
+                uniform_upload_bytes += rgb_metrics.uniform_upload_bytes;
+                if (!begin_pass(operation.target_layer, WGPULoadOp_Load, false))
+                    return fail_replay("The RGB glyph source-order continuation pass could not be created.");
                 continue;
             }
             if (operation.target_layer != active_target_layer ||

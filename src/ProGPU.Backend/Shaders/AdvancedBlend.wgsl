@@ -234,6 +234,12 @@ fn evaluate_rop3(
     return result;
 }
 
+fn axis_clip_pixel_area(bounds: vec4<f32>, position: vec2<f32>) -> f32 {
+    let pixel = floor(position);
+    let overlap = max(vec2<f32>(0.0), min(pixel + 1.0, bounds.zw) - max(pixel, bounds.xy));
+    return overlap.x * overlap.y;
+}
+
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(position.xy);
@@ -252,6 +258,38 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
             vec4<f32>(1.0));
     }
 
+
+    if (sampling.operationKind == 2u || sampling.operationKind == 3u || sampling.operationKind == 4u) {
+        // Explicit AA clips resolve independent area coverage. An initialized
+        // clip replaces its saved background, including transparent Clear;
+        // an ordinary clip uses source-over at the same stored-byte boundary.
+        if (!sourceIsInside) {
+            return destination;
+        }
+        var coverage = textureLoad(patternTexture, vec2<i32>(sourceCoordinate), 0).r;
+        if (sampling.patternKind == 1u) {
+            let parentArea = axis_clip_pixel_area(sampling.patternColor, position.xy);
+            coverage = 0.0;
+            if (parentArea > 0.0) {
+                coverage = axis_clip_pixel_area(sampling.patternBackgroundColor, position.xy) / parentArea;
+            }
+        }
+        if (sampling.operationKind == 3u || sampling.operationKind == 4u) {
+            // These attachments own linear RGBA8 bytes. Recover those exact
+            // integers before interpolation: normalized 128/255 followed by
+            // mix(1, value, 0.5) falls just below the original 191.5-byte tie.
+            // Quantize this stored intermediate once, without an epsilon or
+            // changing the independent floating coverage or source alpha.
+            let destinationBytes = floor(destination * 255.0 + 0.5);
+            let sourceBytes = floor(source * 255.0 + 0.5);
+            if (sampling.operationKind == 4u) {
+                return floor(sourceBytes * coverage + destinationBytes *
+                    (1.0 - source.a * coverage) + 0.5) / 255.0;
+            }
+            return floor(mix(destinationBytes, sourceBytes, coverage) + 0.5) / 255.0;
+        }
+        return mix(destination, source, coverage);
+    }
 
     if (sampling.operationKind == 1u) {
         if (!sourceIsInside || source.a <= 0.0) {

@@ -70,6 +70,10 @@ gpu_uniforms create_uniforms(
     uniforms.canvas_size[0] = logical_width;
     uniforms.canvas_size[1] = logical_height;
     uniforms.dpi_scale = dpi_scale;
+    // Negative values are the actual encoded physical viewport for explicit
+    // source coverage. Positive pad1 remains the shared static stroke cache.
+    uniforms.pad1[0] = -static_cast<float>(width);
+    uniforms.pad1[1] = -static_cast<float>(height);
     return uniforms;
 }
 

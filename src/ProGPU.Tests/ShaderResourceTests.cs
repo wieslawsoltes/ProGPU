@@ -15,6 +15,112 @@ namespace ProGPU.Tests;
 public class ShaderResourceTests
 {
     [Fact]
+    public void RgbGlyphProgramsRetainIndependentOriginalOutlineCoverage()
+    {
+        string scalar = Shaders.GlyphRasterizerShader;
+        string extension = ShaderResource.Load(typeof(Shaders), "GlyphRgbRasterizer.wgsl");
+        string rgb = Shaders.GlyphRgbRasterizerShader;
+        Assert.StartsWith(scalar + "\n", rgb);
+        Assert.EndsWith(extension, rgb);
+        Assert.Single(Regex.Matches(rgb, "fn accumulate_winding_row\\("));
+        Assert.Contains("fn cs_main(", rgb, StringComparison.Ordinal);
+        Assert.Contains("fn fs_raster_fallback(", rgb, StringComparison.Ordinal);
+        Assert.Contains("fn cs_rgb(", extension, StringComparison.Ordinal);
+        Assert.Contains("fn fs_rgb(", extension, StringComparison.Ordinal);
+        Assert.Contains("glyph_sample_row(px - 1.0 / 3.0)", extension, StringComparison.Ordinal);
+        Assert.Contains("glyph_sample_row(px + 1.0 / 3.0)", extension, StringComparison.Ordinal);
+        Assert.Contains("red = select(left, right, rgbGlyphPolicy.pixelGeometry == 2u)", extension, StringComparison.Ordinal);
+        Assert.Contains("blue = select(right, left, rgbGlyphPolicy.pixelGeometry == 2u)", extension, StringComparison.Ordinal);
+        Assert.DoesNotContain("textureLoad", extension, StringComparison.Ordinal);
+        Assert.DoesNotContain("textureSample", extension, StringComparison.Ordinal);
+        Assert.DoesNotContain("pow(", extension, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RgbGlyphCompositionKeepsEachCoverageChannelAndTargetAlphaIndependent()
+    {
+        string source = ShaderResource.Load(typeof(Shaders), "GlyphRgbComposite.wgsl");
+        string sharedMasks = ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl");
+        Assert.Equal(string.Concat(sharedMasks, "\n", source), Shaders.GlyphRgbCompositeShader);
+        Assert.Contains("coverage * glyph.foreground.a", source, StringComparison.Ordinal);
+        Assert.Contains("textureLoad(rgbCoverage, pixel, 0)[channel]", source, StringComparison.Ordinal);
+        Assert.Contains("textureLoad(rgbBackdrop, backdropPixel, 0)[channel]", source, StringComparison.Ordinal);
+        Assert.Contains("destination = floor(value + 0.5)", source, StringComparison.Ordinal);
+        Assert.Contains("rgb_channel_output(input, 0u, 1.0, 1.0)", source, StringComparison.Ordinal);
+        Assert.Contains("rgb_channel_output(input, 1u, 1.0, 1.0)", source, StringComparison.Ordinal);
+        Assert.Contains("rgb_channel_output(input, 2u, 1.0, 1.0)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("textureSample", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("pow(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("max(", source, StringComparison.Ordinal);
+        Assert.Contains("let primary = sample_mask_alpha(input.position.xy)", source, StringComparison.Ordinal);
+        Assert.Contains("let chain = sample_mask_chain_alpha(input.position.xy)", source, StringComparison.Ordinal);
+        Assert.Contains("renderOrigin: vec2<f32>", source, StringComparison.Ordinal);
+        foreach (string channel in new[] { "red", "green", "blue" })
+        {
+            Assert.Contains($"fn fs_rgb_{channel}_masked(", source, StringComparison.Ordinal);
+            Assert.Contains($"fn fs_rgb_{channel}_chain(", source, StringComparison.Ordinal);
+        }
+
+        string root = FindRepositoryRoot().FullName;
+        string execution = File.ReadAllText(Path.Combine(root, "src", "ProGPU.Native", "src", "Backend",
+            "progpu_native_rgb_glyph_execution.cpp"));
+        Assert.Contains("WGPUColorWriteMask_Red, WGPUColorWriteMask_Green, WGPUColorWriteMask_Blue", execution, StringComparison.Ordinal);
+        Assert.Contains("target.blend = nullptr", execution, StringComparison.Ordinal);
+        Assert.Contains("source.texture = target_texture", execution, StringComparison.Ordinal);
+        Assert.Contains("progpu_native_engine::raster_resource_lease lease(engine, true)", execution, StringComparison.Ordinal);
+        Assert.Contains("engine.dispatch_compute(pass, engine.rgb_glyph_pipelines.compute", execution, StringComparison.Ordinal);
+        Assert.DoesNotContain("wgpuQueueSubmit", execution, StringComparison.Ordinal);
+        Assert.DoesNotContain("wgpuBufferMap", execution, StringComparison.Ordinal);
+        Assert.DoesNotContain("wgpuDevicePoll", execution, StringComparison.Ordinal);
+        string cmake = File.ReadAllText(Path.Combine(root, "src", "ProGPU.Native", "CMakeLists.txt"));
+        Assert.Contains("-DPREFIX_INPUT=${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}", cmake, StringComparison.Ordinal);
+        Assert.Contains("src/Backend/progpu_native_rgb_glyph_execution.cpp", cmake, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("RegisteredMaterialCommon.wgsl", "linear_to_srgb_component", false)]
+    [InlineData("Hatch.wgsl", "linear_to_srgb_component", true)]
+    [InlineData("Native3D.wgsl", "material_linear_to_srgb_component", true)]
+    [InlineData("Mesh3DSolid.wgsl", "LinearToSrgbMaterialComponent", true)]
+    public void GradientConversionPreservesOnlyExactNormalizedEndpoints(string resource, string function, bool scene)
+    {
+        string source = ShaderResource.Load(scene ? typeof(Mesh3DExtensionPipeline) : typeof(Shaders), resource);
+        var match = Regex.Match(source, $@"fn {Regex.Escape(function)}\(value: f32\) -> f32 \{{(?<body>.*?)\n\}}",
+            RegexOptions.Singleline);
+        Assert.True(match.Success);
+        string body = Regex.Replace(match.Groups["body"].Value, @"//[^\r\n]*", "");
+        body = Regex.Replace(body, @"\s+", " ").Trim();
+        string expression = resource is "RegisteredMaterialCommon.wgsl" or "Hatch.wgsl"
+            ? "(1.055 * pow(clamped, 1.0 / 2.4)) - 0.055"
+            : "1.055 * pow(clamped, 1.0 / 2.4) - 0.055";
+        // Exact equality is the whole added admission: no near-endpoint snap,
+        // upper clamp, altered HDR expression or changed old negative policy.
+        Assert.Equal("if (value == 0.0 || value == 1.0) { return value; } " +
+            "let clamped = max(value, 0.0); if (clamped <= 0.0031308) { return clamped * 12.92; } " +
+            $"return {expression};", body);
+    }
+
+    [Fact]
+    public void RegisteredGradientConsumersIncludeUnitIntervalPad()
+    {
+        string common = ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl");
+        Assert.Contains("if (spreadMethod == 4u)", common, StringComparison.Ordinal);
+        Assert.Contains("return clamp(t, 0.0, 1.0);", common, StringComparison.Ordinal);
+        foreach (string shader in new[] { Shaders.VectorShader, Shaders.HintedGlyphPaintShader })
+        {
+            Assert.Contains(common, shader, StringComparison.Ordinal);
+            Assert.Single(Regex.Matches(shader, "fn apply_gradient_spread\\("));
+        }
+
+        string cmake = File.ReadAllText(Path.Combine(FindRepositoryRoot().FullName,
+            "src", "ProGPU.Native", "CMakeLists.txt"));
+        Assert.Contains("-DSECOND_PREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl",
+            cmake, StringComparison.Ordinal);
+        Assert.Contains("-DPREFIX_INPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl",
+            cmake, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TextureAndNativeMaskCompositionShareSampledMaskContract()
     {
         string common = ShaderResource.Load(typeof(Shaders), "SampledMaskCommon.wgsl");

@@ -84,6 +84,8 @@ bool semantic_scene_builder::reset(
     implementation_->materialized_layer_depth = 0U;
     implementation_->maximum_stack_depth = 0U;
     implementation_->stack_kinds.fill(0U);
+    implementation_->layer_command_indices.fill(0U);
+    implementation_->stack_state_indices.fill(PROGPU_NATIVE_SCENE_NO_INDEX);
     implementation_->arena_reserve = 0U;
     implementation_->error = scene_build_error::none;
     return true;
@@ -123,7 +125,10 @@ bool semantic_scene_builder::add_state(
         source.opacity > 1.0F ||
         (source.flags & ~(PROGPU_NATIVE_SCENE_STATE_CLIP_RECT |
             PROGPU_NATIVE_SCENE_STATE_MASK |
-            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET)) != 0U ||
+            PROGPU_NATIVE_SCENE_STATE_GUIDELINE_SET |
+            PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS)) != 0U ||
+        ((source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS) != 0U &&
+            (source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) == 0U) ||
         ((source.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             !finite_rect(source.clip_rect)) ||
         ((source.flags & PROGPU_NATIVE_SCENE_STATE_MASK) != 0U &&
@@ -464,6 +469,7 @@ bool semantic_scene_builder::save(
         implementation_->render_only_stack[implementation_->stack_depth] = render_only ? render_ranges.size() : 0U;
         implementation_->commands.push_back(std::move(command));
         implementation_->stack_kinds[implementation_->stack_depth] = 1U;
+        implementation_->stack_state_indices[implementation_->stack_depth] = state_resource_index;
         ++implementation_->stack_depth;
         implementation_->maximum_stack_depth = std::max(
             implementation_->maximum_stack_depth,
@@ -514,6 +520,32 @@ bool semantic_scene_builder::restore() noexcept {
             implementation_->render_only_ranges[render_scope - 1U].last_command = implementation_->commands.size() - 1U;
         implementation_->render_only_stack[implementation_->stack_depth] = 0U;
         implementation_->stack_kinds[implementation_->stack_depth] = 0U;
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
+bool semantic_scene_builder::clear_target(const progpu_native_color& color) noexcept {
+    if (!std::isfinite(color.r) || !std::isfinite(color.g) ||
+        !std::isfinite(color.b) || !std::isfinite(color.a) || color.a < 0.0F || color.a > 1.0F)
+        return implementation_->fail(scene_build_error::invalid_argument);
+    if (implementation_->commands.size() >= PROGPU_NATIVE_SCENE_MAX_COMMANDS)
+        return implementation_->fail(scene_build_error::capacity_exceeded);
+    try {
+        implementation::command_entry command{};
+        command.record.struct_size = sizeof(command.record);
+        command.record.kind = PROGPU_NATIVE_SCENE_COMMAND_CLEAR_TARGET;
+        command.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED;
+        command.record.command_id = implementation_->commands.size() + 1U;
+        command.record.state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.record.resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        command.payload = copy_bytes(std::span<const progpu_native_color>(&color, 1U));
+        scene_builder_detail::reserve_append(implementation_->commands, 1U);
+        implementation_->commands.push_back(std::move(command));
         implementation_->error = scene_build_error::none;
         return true;
     } catch (const std::bad_alloc&) {

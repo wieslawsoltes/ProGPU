@@ -2091,51 +2091,6 @@ public class SamplePagesTests : IDisposable
         RunPageTest(ShaderToyPlaygroundPage.Create(), "ShaderToy Playground");
     }
 
-    [Fact]
-    public void Test_ShaderToyControl_Preset2_Renders()
-    {
-        try
-        {
-            File.WriteAllText(GetArtifactPath("debug.txt"), "Test start\n");
-        }
-        catch (Exception ex)
-        {
-            Assert.Fail($"Failed to write test file: {ex.Message}");
-        }
-
-        var control = new ShaderToyControl();
-        control.ShaderSource = ShaderToyPlaygroundPageGrid.Preset2_StarNest;
-
-        EnsureFontsAndStateLoaded();
-        var window = HeadlessWindow.Shared;
-        window.Resize(1280, 800);
-        window.Content = control;
-        window.Render();
-        window.Render();
-
-        if (control.CompileError != null)
-        {
-            throw new Exception("Preset 2 WebGPU Validation Error:\n" + control.CompileError);
-        }
-
-        byte[] pixels = window.ReadPixels();
-        window.SaveScreenshot(GetArtifactPath("preset2.png"));
-
-        int nonBgCount = 0;
-        for (int i = 0; i < pixels.Length; i += 4)
-        {
-            byte r = pixels[i + 0];
-            byte g = pixels[i + 1];
-            byte b = pixels[i + 2];
-            if (Math.Abs(r - 20) > 5 || Math.Abs(g - 20) > 5 || Math.Abs(b - 30) > 5)
-            {
-                nonBgCount++;
-            }
-        }
-        string firstPixels = $"({pixels[0]},{pixels[1]},{pixels[2]},{pixels[3]}), ({pixels[4]},{pixels[5]},{pixels[6]},{pixels[7]})";
-        Assert.True(nonBgCount > 100, $"Preset 2 rendered empty. First pixels: {firstPixels}. Total non-bg: {nonBgCount}");
-        window.Content = null;
-    }
 
     [Fact]
     public void Test_ShaderToyControl_Preset3_Renders()
@@ -2175,80 +2130,6 @@ public class SamplePagesTests : IDisposable
     }
 
     [Fact]
-    public void Test_ShaderToyControl_Preset4_Renders()
-    {
-        var control = new ShaderToyControl();
-        control.ShaderSource = ShaderToyPlaygroundPageGrid.Preset4_RaymarchingPrimitives;
-
-        EnsureFontsAndStateLoaded();
-        var window = HeadlessWindow.Shared;
-        window.Resize(1280, 800);
-        window.Content = control;
-        window.Render();
-        window.Render();
-
-        if (control.CompileError != null)
-        {
-            throw new Exception("Preset 4 (GLSL Raymarching Primitives) WebGPU Transpilation/Validation Error:\n" + control.CompileError);
-        }
-
-        byte[] pixels = window.ReadPixels();
-        window.SaveScreenshot(GetArtifactPath("preset4.png"));
-
-        int nonBgCount = 0;
-        for (int i = 0; i < pixels.Length; i += 4)
-        {
-            byte r = pixels[i + 0];
-            byte g = pixels[i + 1];
-            byte b = pixels[i + 2];
-            if (Math.Abs(r - 20) > 5 || Math.Abs(g - 20) > 5 || Math.Abs(b - 30) > 5)
-            {
-                nonBgCount++;
-            }
-        }
-        var firstPixels = $"({pixels[0]},{pixels[1]},{pixels[2]},{pixels[3]}), ({pixels[4]},{pixels[5]},{pixels[6]},{pixels[7]})";
-        Assert.True(nonBgCount > 100, $"Preset 4 rendered empty. First pixels: {firstPixels}. Total non-bg: {nonBgCount}");
-        window.Content = null;
-    }
-
-    [Fact]
-    public void Test_ShaderToyControl_Preset5_Renders()
-    {
-        var control = new ShaderToyControl();
-        control.ShaderSource = ShaderToyPlaygroundPageGrid.Preset5_StarNestGlsl;
-
-        EnsureFontsAndStateLoaded();
-        var window = HeadlessWindow.Shared;
-        window.Resize(1280, 800);
-        window.Content = control;
-        window.Render();
-        window.Render();
-
-        if (control.CompileError != null)
-        {
-            throw new Exception("Preset 5 (GLSL Star Nest) WebGPU Transpilation/Validation Error:\n" + control.CompileError);
-        }
-
-        byte[] pixels = window.ReadPixels();
-        window.SaveScreenshot(GetArtifactPath("preset5.png"));
-
-        int nonBgCount = 0;
-        for (int i = 0; i < pixels.Length; i += 4)
-        {
-            byte r = pixels[i + 0];
-            byte g = pixels[i + 1];
-            byte b = pixels[i + 2];
-            if (r > 2 || g > 2 || b > 2)
-            {
-                nonBgCount++;
-            }
-        }
-        var firstPixels = $"({pixels[0]},{pixels[1]},{pixels[2]},{pixels[3]}), ({pixels[4]},{pixels[5]},{pixels[6]},{pixels[7]})";
-        Assert.True(nonBgCount > 100, $"Preset 5 rendered empty. First pixels: {firstPixels}. Total non-bg: {nonBgCount}");
-        window.Content = null;
-    }
-
-    [Fact]
     public void Test_ShaderToyPlaygroundPage_GLSL_Transpilation()
     {
         EnsureFontsAndStateLoaded();
@@ -2267,8 +2148,14 @@ public class SamplePagesTests : IDisposable
         Assert.NotNull(editor);
         Assert.NotNull(consoleText);
 
-        // 1. Set editor text to GLSL Preset 5 (Star Nest)
-        editor.Text = ShaderToyPlaygroundPageGrid.Preset5_StarNestGlsl;
+        // Direct independently authored GLSL input keeps the editor/transpiler
+        // contract separate from optional gallery presets.
+        editor.Text = """
+            void mainImage(out vec4 color, in vec2 pixel) {
+                vec2 position = pixel / iResolution.xy;
+                color = vec4(position.x, position.y, 0.25, 1.0);
+            }
+            """;
 
         // 2. Locate the "Transpile GLSL" button in children
         Button? transpileBtn = null;

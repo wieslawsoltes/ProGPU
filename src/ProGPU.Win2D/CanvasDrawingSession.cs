@@ -1196,7 +1196,7 @@ public sealed class CanvasDrawingSession :
         var key = new PenKey(Pack(color), BitConverter.SingleToInt32Bits(width));
         if (!_pens.TryGetValue(key, out Pen? pen))
         {
-            pen = new Pen(GetBrush(color), width);
+            pen = new Pen(GetBrush(color), width) { ClipMiterAtLimit = true };
             _pens.Add(key, pen);
         }
 
@@ -1216,7 +1216,7 @@ public sealed class CanvasDrawingSession :
             BitConverter.SingleToInt32Bits(width));
         if (!_brushPens.TryGetValue(key, out Pen? pen))
         {
-            pen = new Pen(brush, width);
+            pen = new Pen(brush, width) { ClipMiterAtLimit = true };
             _brushPens.Add(key, pen);
         }
 

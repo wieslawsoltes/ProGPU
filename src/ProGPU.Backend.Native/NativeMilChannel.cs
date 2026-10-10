@@ -213,6 +213,41 @@ public sealed unsafe class NativeMilChannel : IDisposable
     }
 
     /// <summary>
+    /// Imports one mixed raw/source-double batch atomically through the additive
+    /// source capability. Original resource indices and owners remain unchanged.
+    /// A missing capability fails explicitly; this never retries through raw apply.
+    /// </summary>
+    public void ApplyWithSourceGlyphResources(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources, ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices)
+        => _ = ApplySourceGlyphResourcesCore(batch, resources, bindings, positionedIndices, captureMetrics: false);
+
+    /// <summary>Performs the same single source-resource transaction and reads its actual canonical counters.</summary>
+    public NativeMilBatchMetrics ApplyWithSourceGlyphResourcesWithMetrics(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources, ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices)
+        => ApplySourceGlyphResourcesCore(batch, resources, bindings, positionedIndices, captureMetrics: true);
+
+    private NativeMilBatchMetrics ApplySourceGlyphResourcesCore(ReadOnlySpan<byte> batch,
+        ReadOnlySpan<NativeHintedGlyphResource> resources, ReadOnlySpan<NativeMilHintedGlyphBinding> bindings,
+        ReadOnlySpan<uint> positionedIndices, bool captureMetrics)
+    {
+        nint channel = GetChannel();
+        if (_backend is not (NativeMilBackend.WgpuNative or NativeMilBackend.Dawn))
+            throw new NotSupportedException("Source glyph import requires an exact supported native provider.");
+        if (captureMetrics && !_hintedBatchMetricsAvailable)
+        {
+            _ = ReadHintedBatchMetrics(channel);
+            _hintedBatchMetricsAvailable = true;
+        }
+        NativeMilStatus status = NativeHintedSourceResourceImport.Apply(channel, batch, resources, bindings, positionedIndices,
+            _backend == NativeMilBackend.Dawn ? NativeMilDawnMethods.ApplyWithSourceGlyphResources : NativeMilMethods.ApplyWithSourceGlyphResources);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The atomic source glyph MIL update was rejected with {status}.");
+        return captureMetrics ? ReadHintedBatchMetrics(channel) : default;
+    }
+
+    /// <summary>
     /// Copies straight-alpha RGBA8 pixels into the portable sideband for a
     /// canonical WPF <see cref="NativeMilResourceType.BitmapSource"/> handle.
     /// </summary>
@@ -628,6 +663,77 @@ public sealed unsafe class NativeMilChannel : IDisposable
                 status,
                 $"The cache bounds binding for MIL Visual handle {handle} was rejected with {status}.");
         }
+    }
+
+    /// <summary>
+    /// Records source-known empty descendant bounds while preserving the live
+    /// Visual and its dependencies. This invalidates earlier positive bounds;
+    /// <see cref="SetVisualCacheBounds"/> restores a nonempty source extent.
+    /// </summary>
+    public void SetVisualSourceEmptyBounds(uint handle)
+    {
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetVisualSourceEmptyBounds(channel, handle)
+            : NativeMilMethods.SetVisualSourceEmptyBounds(channel, handle);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The empty source bounds for MIL Visual handle {handle} were rejected with {status}.");
+    }
+
+    /// <summary>
+    /// Retains the actual explicitly empty source Visual behind a zero paint
+    /// target. This is an ownership edge, not ordinary empty-cache admission.
+    /// A later canonical brush update clears the witness.
+    /// </summary>
+    public void SetBitmapCacheBrushEmptySource(uint brushHandle, uint visualHandle)
+    {
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetBitmapCacheBrushEmptySource(channel, brushHandle, visualHandle)
+            : NativeMilMethods.SetBitmapCacheBrushEmptySource(channel, brushHandle, visualHandle);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The empty source ownership for MIL brush {brushHandle} was rejected with {status}.");
+    }
+
+    /// <summary>
+    /// Retains the actual initialized Drawing behind a source-known empty
+    /// DrawingImage whose canonical paint handle is zero. Invalidates previous
+    /// positive bounds; a canonical image update clears this ownership witness.
+    /// Publish that update before binding positive bounds on a refilled image.
+    /// </summary>
+    public void SetDrawingImageEmptySource(uint imageHandle, uint drawingHandle)
+    {
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetDrawingImageEmptySource(channel, imageHandle, drawingHandle)
+            : NativeMilMethods.SetDrawingImageEmptySource(channel, imageHandle, drawingHandle);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The empty source ownership for MIL DrawingImage {imageHandle} was rejected with {status}.");
+    }
+
+    /// <summary>Copies explicit primary-display/renderer policy for an initialized cache brush.</summary>
+    public void SetBitmapCacheBrushRasterPolicy(uint handle, NativeMilBitmapCacheRasterPolicy policy)
+    {
+        if (!float.IsFinite(policy.PrimaryDpiScaleX) || policy.PrimaryDpiScaleX <= 0 ||
+            !float.IsFinite(policy.PrimaryDpiScaleY) || policy.PrimaryDpiScaleY <= 0 ||
+            policy.MaximumTextureWidth == 0 || policy.MaximumTextureHeight == 0 || policy.SourceRevision == 0)
+            throw new ArgumentOutOfRangeException(nameof(policy));
+        var value = new NativeMilMethods.BitmapCacheRasterPolicy
+        {
+            StructSize = (uint)sizeof(NativeMilMethods.BitmapCacheRasterPolicy),
+            Version = 1,
+            PrimaryDpiScaleX = policy.PrimaryDpiScaleX,
+            PrimaryDpiScaleY = policy.PrimaryDpiScaleY,
+            MaximumTextureWidth = policy.MaximumTextureWidth,
+            MaximumTextureHeight = policy.MaximumTextureHeight,
+            SourceRevision = policy.SourceRevision,
+        };
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetBitmapCacheBrushRasterPolicy(channel, handle, &value)
+            : NativeMilMethods.SetBitmapCacheBrushRasterPolicy(channel, handle, &value);
+        if (status != NativeMilStatus.Success)
+            throw new NativeMilException(status, $"The cache-raster policy for MIL brush {handle} was rejected with {status}.");
     }
 
     /// <summary>

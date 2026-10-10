@@ -1,4 +1,9 @@
 #include "progpu_native_direct2d_render_target.hpp"
+#include "progpu_native_direct2d_stroke_metrics.hpp"
+#include "progpu_native_direct2d_prepared_glyphs.hpp"
+#include "progpu_native_direct2d_path.hpp"
+#include "progpu_native_direct2d_clear.hpp"
+#include "progpu_native_direct2d_text_capture.hpp"
 
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
@@ -25,6 +30,9 @@
     (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #include <emmintrin.h>
 #define PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2 1
+#elif defined(__wasm_simd128__)
+#include <wasm_simd128.h>
+#define PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_WASM 1
 #endif
 
 namespace progpu::native::direct2d::compat::detail {
@@ -59,6 +67,19 @@ constexpr com::guid scene_mesh_native_interface_id{
     0x46C1U,
     0x4CB8U,
     {0x9EU, 0xD4U, 0x23U, 0x24U, 0x58U, 0x36U, 0xBEU, 0x9BU}};
+
+// A family probe has exactly three outcomes: owned capability, absent family,
+// or error. Callers attach the output to local RAII before classification,
+// including malformed failed queries which nevertheless return an interface.
+// Only E_NOINTERFACE with null permits another family; S_FALSE with an owned
+// output is still success. This O(1) check performs no callbacks or allocation.
+[[nodiscard]] com::result classify_resource_query(
+    com::result result, const void* value) noexcept
+{
+    if (result == com::no_interface && value == nullptr) return com::false_result;
+    if (com::failed(result)) return result;
+    return value == nullptr ? failure : com::ok;
+}
 
 [[nodiscard]] bool valid_color(const color_f& value) noexcept
 {
@@ -570,6 +591,61 @@ public:
         return fill_mode_ == fill_mode::alternate
             ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
             : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    }
+
+    // Capture the actual draw mapping before GPU coverage rasterization. The
+    // existing mesh/brush compiler consumes target DIPs; late texture projection
+    // must not turn a sheared aliased edge into filtered local atlas coverage.
+    // O(S) in-place work in this private closed snapshot, two independent points
+    // per SIMD batch. Original curves and fill topology are not flattened here.
+    [[nodiscard]] bool project_to_target(const matrix_3x2_f& transform) noexcept
+    {
+        if (!closed_ || com::failed(failure_) || !core::valid_transform(&transform)) return false;
+        const auto pair = [&](progpu_native_point& first, progpu_native_point& second) {
+            alignas(16) float values[]{first.x, first.y, second.x, second.y};
+            alignas(16) const float a[]{transform.m11, transform.m12, transform.m11, transform.m12};
+            alignas(16) const float b[]{transform.m21, transform.m22, transform.m21, transform.m22};
+            alignas(16) const float translation[]{transform.m31, transform.m32, transform.m31, transform.m32};
+#if defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_NEON)
+            const auto input = vld1q_f32(values);
+            const auto x = vcombine_f32(vdup_lane_f32(vget_low_f32(input), 0), vdup_lane_f32(vget_high_f32(input), 0));
+            const auto y = vcombine_f32(vdup_lane_f32(vget_low_f32(input), 1), vdup_lane_f32(vget_high_f32(input), 1));
+            vst1q_f32(values, vaddq_f32(vaddq_f32(vmulq_f32(x, vld1q_f32(a)),
+                vmulq_f32(y, vld1q_f32(b))), vld1q_f32(translation)));
+#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2)
+            const auto input = _mm_load_ps(values);
+            const auto x = _mm_shuffle_ps(input, input, _MM_SHUFFLE(2, 2, 0, 0));
+            const auto y = _mm_shuffle_ps(input, input, _MM_SHUFFLE(3, 3, 1, 1));
+            _mm_store_ps(values, _mm_add_ps(_mm_add_ps(_mm_mul_ps(x, _mm_load_ps(a)),
+                _mm_mul_ps(y, _mm_load_ps(b))), _mm_load_ps(translation)));
+#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_WASM)
+            const auto input = wasm_v128_load(values);
+            const auto x = wasm_i32x4_shuffle(input, input, 0, 0, 2, 2);
+            const auto y = wasm_i32x4_shuffle(input, input, 1, 1, 3, 3);
+            wasm_v128_store(values, wasm_f32x4_add(wasm_f32x4_add(wasm_f32x4_mul(x, wasm_v128_load(a)),
+                wasm_f32x4_mul(y, wasm_v128_load(b))), wasm_v128_load(translation)));
+#else
+            // Explicit scalar reference on targets without supported intrinsics.
+            const float x[]{first.x, first.x, second.x, second.x};
+            const float y[]{first.y, first.y, second.y, second.y};
+            for (std::size_t lane = 0U; lane < 4U; ++lane)
+                values[lane] = x[lane] * a[lane] + y[lane] * b[lane] + translation[lane];
+#endif
+            if (!std::all_of(std::begin(values), std::end(values), [](float value) { return std::isfinite(value); }))
+                return false;
+            first = {values[0], values[1]}; second = {values[2], values[3]};
+            return true;
+        };
+        for (auto& segment : segments_) {
+            if (!pair(segment.p0, segment.p1)) return false;
+            if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                if (!pair(segment.p2, segment.p3)) return false;
+            } else if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+                auto unused = segment.p2;
+                if (!pair(segment.p2, unused)) return false;
+            } else if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) return false;
+        }
+        return true;
     }
 
 private:
@@ -3648,7 +3724,9 @@ private:
 class portable_scene_render_target final :
     public bitmap_render_target,
     public scene_render_target_native,
-    public scene_bitmap_native {
+    public scene_layer_options_native,
+    public scene_bitmap_native,
+    public direct2d::prepared_glyph_target {
 public:
     portable_scene_render_target(
         factory* owner,
@@ -3691,6 +3769,11 @@ public:
         } else if (com::guid_equal(
                 interface_id, scene_render_target_native_interface_id)) {
             *value = static_cast<scene_render_target_native*>(this);
+        } else if (com::guid_equal(
+                interface_id, scene_layer_options_native_interface_id)) {
+            *value = static_cast<scene_layer_options_native*>(this);
+        } else if (com::guid_equal(interface_id, direct2d::prepared_glyph_target_id)) {
+            *value = static_cast<direct2d::prepared_glyph_target*>(this);
         } else {
             return com::no_interface;
         }
@@ -3814,7 +3897,10 @@ public:
         com::pointer<wic_bitmap_source> wic_source;
         wic_source.attach(raw_wic_source);
         if (com::failed(query_result) || !wic_source) {
-            return query_result;
+            // A foreign source cannot publish a successful bitmap creation
+            // without supplying the queried interface. Keep genuine failures
+            // and release any reference returned alongside them unchanged.
+            return com::failed(query_result) ? query_result : failure;
         }
 
         size_u size{};
@@ -4031,8 +4117,17 @@ public:
             reinterpret_cast<void**>(&raw_source_native));
         com::pointer<scene_bitmap_native> source_native;
         source_native.attach(raw_source_native);
-        if (com::failed(query_result) && query_result != com::no_interface) {
-            return query_result;
+        if (com::failed(query_result)) {
+            // Only an absent interface permits the scene-target alternative.
+            // A failed query may still hand back an owned malformed pointer;
+            // keep it under RAII, but never use it as a successful capability.
+            if (query_result != com::no_interface || source_native) {
+                return query_result;
+            }
+        } else if (!source_native) {
+            // Success without an interface is not E_NOINTERFACE and must not
+            // be repaired by selecting a different source representation.
+            return not_implemented;
         }
         scene_render_target_native* raw_source_scene = nullptr;
         const com::result scene_query_result = source_native
@@ -4205,17 +4300,13 @@ public:
                 extend_mode_value != extend_mode::mirror)) {
             return com::invalid_argument;
         }
-        float previous = -std::numeric_limits<float>::infinity();
         for (std::uint32_t index = 0U;
              index < gradient_stop_count;
              ++index) {
             const gradient_stop& stop = gradient_stops[index];
-            if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                stop.position > 1.0F || stop.position < previous ||
-                !valid_color(stop.color)) {
+            if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                 return com::invalid_argument;
             }
-            previous = stop.position;
         }
         try {
             std::vector<gradient_stop> stops(
@@ -4370,10 +4461,10 @@ public:
         if (desired_pixel_size != nullptr) {
             pixel_size = *desired_pixel_size;
         } else if (desired_size != nullptr) {
-            const double width = std::ceil(
-                static_cast<double>(desired_size->width) * dpi_x / 96.0);
-            const double height = std::ceil(
-                static_cast<double>(desired_size->height) * dpi_y / 96.0);
+            const double requested_width = static_cast<double>(desired_size->width) * dpi_x / 96.0;
+            const double requested_height = static_cast<double>(desired_size->height) * dpi_y / 96.0;
+            const double width = std::ceil(requested_width);
+            const double height = std::ceil(requested_height);
             if (width < 1.0 || height < 1.0 || width > 16384.0 ||
                 height > 16384.0) {
                 return com::invalid_argument;
@@ -4381,6 +4472,12 @@ public:
             pixel_size = {
                 static_cast<std::uint32_t>(width),
                 static_cast<std::uint32_t>(height)};
+            // Preserve an integral axis's exact parent DPI. Only a rounded-up
+            // axis needs denser storage so the requested DIP corner still maps
+            // to the actual physical corner, independently on X and Y.
+            if (width != requested_width) dpi_x = static_cast<float>(width * 96.0 / desired_size->width);
+            if (height != requested_height) dpi_y = static_cast<float>(height * 96.0 / desired_size->height);
+            if (!valid_dpi(dpi_x, dpi_y)) return com::invalid_argument;
         }
         if (desired_size != nullptr && desired_pixel_size != nullptr) {
             dpi_x = static_cast<float>(
@@ -4799,9 +4896,9 @@ public:
             reinterpret_cast<void**>(&raw_scene_target));
         com::pointer<scene_render_target_native> scene_target;
         scene_target.attach(raw_scene_target);
-        if (com::failed(scene_target_query) &&
-            scene_target_query != com::no_interface) {
-            latch(scene_target_query);
+        const auto scene_status = classify_resource_query(scene_target_query, scene_target.get());
+        if (com::failed(scene_status)) {
+            latch(scene_status);
             return;
         }
         if (scene_target.get() ==
@@ -4815,6 +4912,11 @@ public:
                 reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_native> native;
         native.attach(raw_native);
+        const auto bitmap_status = classify_resource_query(query, native.get());
+        if (com::failed(bitmap_status)) {
+            latch(bitmap_status);
+            return;
+        }
         if (native) {
             // Native compatible bitmaps now share the image path, preserving
             // clear color and source ownership as well as ordinary draw support.
@@ -4824,8 +4926,10 @@ public:
                 return;
             }
         }
-        if (!scene_target && (com::failed(query) || !native)) {
-            latch(com::failed(query) ? query : not_implemented);
+        if (!scene_target && !native) {
+            // Preserve the terminal absent-mask result, without interpreting
+            // any failed nonnull output as a usable bitmap.
+            latch(query);
             return;
         }
         bitmap_snapshot snapshot{};
@@ -5002,7 +5106,8 @@ public:
                 reinterpret_cast<void**>(&raw_bitmap_brush));
             com::pointer<scene_bitmap_brush_native> bitmap_brush;
             bitmap_brush.attach(raw_bitmap_brush);
-            if (com::succeeded(bitmap_query) && bitmap_brush) {
+            const auto brush_status = classify_resource_query(bitmap_query, bitmap_brush.get());
+            if (brush_status == com::ok) {
                 if (!draw_bitmap_brush_image(
                         bitmap_brush.get(),
                         mask_resource_index,
@@ -5012,8 +5117,8 @@ public:
                 }
                 return;
             }
-            if (bitmap_query != com::no_interface) {
-                latch(com::failed(bitmap_query) ? bitmap_query : failure);
+            if (com::failed(brush_status)) {
+                latch(brush_status);
                 return;
             }
             std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -5087,8 +5192,9 @@ public:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_native> native;
         native.attach(raw_native);
-        if (com::failed(query) || !native) {
-            latch(not_implemented);
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status != com::ok) {
+            latch(query_status == com::false_result ? not_implemented : query_status);
             return;
         }
         std::uint32_t resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -5101,13 +5207,21 @@ public:
             0.0F,
             static_cast<float>(snapshot.width) * 96.0F / snapshot.dpi_x,
             static_cast<float>(snapshot.height) * 96.0F / snapshot.dpi_y};
-        const rectangle_f destination_rectangle = destination == nullptr
-            ? bitmap_dips
-            : *destination;
         const rectangle_f source_rectangle = source == nullptr
             ? bitmap_dips
             : *source;
-        if (!valid_rectangle(destination_rectangle) ||
+        const rectangle_f destination_rectangle = destination == nullptr
+            ? rectangle_f{0.0F, 0.0F,
+                source_rectangle.right - source_rectangle.left,
+                source_rectangle.bottom - source_rectangle.top}
+            : *destination;
+        // A missing destination retains the selected source's DIP extent at
+        // the target origin, not the complete bitmap size. Validate original
+        // resource/source/nonfinite errors before the finite inverted no-op.
+        if (!std::isfinite(destination_rectangle.left) ||
+            !std::isfinite(destination_rectangle.top) ||
+            !std::isfinite(destination_rectangle.right) ||
+            !std::isfinite(destination_rectangle.bottom) ||
             !valid_rectangle(source_rectangle) ||
             source_rectangle.left < 0.0F || source_rectangle.top < 0.0F ||
             source_rectangle.right > bitmap_dips.right ||
@@ -5115,6 +5229,10 @@ public:
             latch(com::invalid_argument);
             return;
         }
+        // Direct2D explicitly leaves the target usable for a destination whose
+        // finite edges are not well-ordered. This is not a mirrored image draw.
+        if (destination_rectangle.left > destination_rectangle.right ||
+            destination_rectangle.top > destination_rectangle.bottom) return;
         progpu_native_scene_image_draw image{};
         image.image_width = snapshot.width;
         image.image_height = snapshot.height;
@@ -5304,12 +5422,188 @@ public:
         }
     }
 
+    com::result PROGPU_NATIVE_COM_CALL DrawOwnedGlyphRun(
+        const std::shared_ptr<direct2d::prepared_original_font>& source,
+        point_2f baseline, const glyph_run* glyphs, brush* foreground,
+        measuring_mode measuring) noexcept override
+    {
+        const com::pointer<render_target> retained_target(static_cast<render_target*>(this));
+        const auto retained_source = source;
+        if (!retained_source) return com::invalid_argument;
+        glyph_run retained_run{};
+        direct2d::glyph_run_capture<glyph_offset> captured;
+        com::pointer<rendering_parameters> parameters;
+        rendering_parameters* source_parameters = nullptr;
+        direct2d::original_glyph_target target;
+        std::uint64_t capture_id = 0U;
+        bool source_coverage_scope = false;
+        {
+            const std::lock_guard lock(mutex_);
+            if (!can_draw()) return failure_;
+            if (glyphs == nullptr || foreground == nullptr || !valid_point(baseline) ||
+                glyphs->font_face_value != retained_source->source()->face.get() ||
+                !std::isfinite(glyphs->font_em_size) || glyphs->font_em_size <= 0.0F) {
+                latch(com::invalid_argument);
+                return failure_;
+            }
+            const auto result = captured.capture(glyphs->glyph_indices, glyphs->glyph_advances,
+                glyphs->glyph_offsets, glyphs->glyph_count, [](const glyph_offset& offset) noexcept {
+                    return std::isfinite(offset.advance_offset) && std::isfinite(offset.ascender_offset);
+                });
+            if (com::failed(result)) { latch(result); return failure_; }
+            if (glyphs->glyph_count == 0U) return com::ok;
+            if (glyph_capture_id_ == std::numeric_limits<std::uint64_t>::max()) {
+                latch(com::out_of_memory);
+                return failure_;
+            }
+            retained_run = *glyphs;
+            retained_run.glyph_indices = captured.indices();
+            retained_run.glyph_advances = captured.advances();
+            retained_run.glyph_offsets = captured.offsets();
+            target.generation = generation_;
+            target.transform = transform_;
+            target.baseline = baseline;
+            target.pixels = {pixel_width_, pixel_height_};
+            target.dpi_x = dpi_x_; target.dpi_y = dpi_y_;
+            target.format = pixel_format_;
+            target.antialias = text_antialias_mode_;
+            target.tag1 = tag1_; target.tag2 = tag2_;
+            // The original ID2D1RenderTarget recorder is DIP/SRC_OVER. No
+            // command-list unit/blend capability is inferred here.
+            target.units = unit_mode::dips;
+            target.blend = primitive_blend::source_over;
+            // Binary clips retain the original target frame. Plain opacity
+            // layers may retain it too, provided every materialized ancestor
+            // covers that complete frame. Masks and backdrop initialization
+            // keep their existing geometry path and separate qualification.
+            source_coverage_scope = true;
+            for (std::size_t i = 0U; i < scope_depth_; ++i) {
+                if (scope_stack_[i] == scope_axis_aligned_clip) continue;
+                const auto bounds = layer_clear_bounds_[i];
+                if (scope_stack_[i] != scope_opacity_layer || !layer_source_coverage_[i] ||
+                    bounds.x > 0.F || bounds.y > 0.F ||
+                    (double(bounds.x) + bounds.width) * dpi_x_ / 96.0 < pixel_width_ ||
+                    (double(bounds.y) + bounds.height) * dpi_y_ / 96.0 < pixel_height_) {
+                    source_coverage_scope = false; break;
+                }
+            }
+            glyph_capture_active_ = true;
+            prepared_glyph_capture_active_ = true;
+            capture_id = ++glyph_capture_id_;
+            target.identity = com::pointer<com::unknown>(static_cast<render_target*>(this));
+            source_parameters = text_rendering_parameters_.get();
+        }
+        struct capture_release final {
+            portable_scene_render_target& target;
+            const std::uint64_t id;
+            ~capture_release() {
+                const std::lock_guard lock(target.mutex_);
+                if (target.glyph_capture_id_ == id) {
+                    target.glyph_capture_active_ = false;
+                    target.prepared_glyph_capture_active_ = false;
+                }
+            }
+        } release_capture{*this, capture_id};
+        // The prepared capture guard forbids replacing this retained source
+        // parameter object until the lease ends, so its external AddRef/getters
+        // run outside the recorder mutex without a lifetime gap.
+        parameters = com::pointer<rendering_parameters>(source_parameters);
+        const com::pointer<brush> retained_foreground(foreground);
+        const auto fail_capture = [&](com::result error) noexcept {
+            latch_external_draw_failure(error, true);
+            const std::lock_guard lock(mutex_);
+            return failure_;
+        };
+        std::shared_ptr<const direct2d::original_glyph_request> request;
+        auto result = direct2d::capture_original_glyph_request(retained_source->source(),
+            retained_run, measuring, parameters.get(), target, request);
+        if (com::failed(result)) return fail_capture(result);
+        {
+            const std::lock_guard lock(mutex_);
+            if (com::failed(failure_)) return failure_;
+        }
+        std::shared_ptr<const direct2d::prepared_original_glyph_run> prepared;
+        result = retained_source->prepare(std::move(request), prepared);
+        if (com::failed(result)) return fail_capture(result);
+        if (prepared->segments().empty()) return com::ok;
+        if (source_coverage_scope) {
+            direct2d::prepared_original_glyph_coverage coverage;
+            result = prepared->prepare_coverage(owner_.get(), coverage);
+            if (com::failed(result)) return fail_capture(result);
+            const bool contained = target.pixels.width > 0U && target.pixels.height > 0U &&
+                target.pixels.width <= 16384U && target.pixels.height <= 16384U &&
+                std::all_of(coverage.vertices.begin(), coverage.vertices.end(), [&](const auto& vertex) {
+                    return vertex.position.x >= 0.F && vertex.position.y >= 0.F &&
+                        vertex.position.x <= target.pixels.width && vertex.position.y <= target.pixels.height;
+                });
+            if (result == com::ok && !coverage.meshes.empty() && contained) {
+                // Bitmap brushes retain their original image/geometry path.
+                // Probe before consuming the capture lease or publishing data.
+                com::pointer<bitmap_brush> bitmap;
+                const auto query = retained_foreground->QueryInterface(bitmap_brush_interface_id,
+                    reinterpret_cast<void**>(bitmap.put()));
+                const auto bitmap_status = classify_resource_query(query, bitmap.get());
+                if (com::failed(bitmap_status)) return fail_capture(bitmap_status);
+                if (bitmap_status == com::false_result) {
+                    try {
+                        std::vector<std::uint32_t> brushes(coverage.meshes.size());
+                        const std::lock_guard lock(mutex_);
+                        if (!glyph_capture_active_ || glyph_capture_id_ != capture_id) {
+                            latch(wrong_state); return failure_;
+                        }
+                        glyph_capture_active_ = false;
+                        if (!can_draw()) return failure_;
+                        std::uint32_t brush_index{};
+                        if (!add_brush(retained_foreground.get(), brush_index)) return failure_;
+                        std::fill(brushes.begin(), brushes.end(), brush_index);
+                        if (!builder_.draw_source_coverage(coverage.meshes, coverage.vertices, brushes,
+                                coverage.bounds, coverage.frame)) {
+                            latch(builder_failure()); return failure_;
+                        }
+                        ++draw_count_;
+                        return failure_;
+                    } catch (const std::bad_alloc&) { return fail_capture(com::out_of_memory); }
+                    catch (...) { return fail_capture(failure); }
+                }
+            }
+        }
+        path_geometry* raw_path = nullptr;
+        result = detail::create_native_fill_geometry(owner_.get(), prepared->segments(), fill_mode::winding, &raw_path);
+        com::pointer<path_geometry> path;
+        path.attach(raw_path);
+        if (com::failed(result) || !path) {
+            result = com::failed(result) ? result : failure;
+            return fail_capture(result);
+        }
+        // The prepared path is in the original baseline-local target DIP frame.
+        // Existing geometry publication applies the captured target transform
+        // and all current clip/layer scopes once under the same generation lease.
+        // Preparation uses owned cached nominal metrics only when source advances
+        // are absent. No source font callback, font lookup or hinting occurs.
+        const progpu_native_scene_source_coverage_frame source_frame{sizeof(progpu_native_scene_source_coverage_frame),1U,
+            target.dpi_x/96.F,target.dpi_y/96.F,target.pixels.width,target.pixels.height,0U,0U};
+        draw_filled_geometry(path.get(), retained_foreground.get(), nullptr,
+            target.antialias == text_antialias_mode::aliased ? 1U : 8U, capture_id,
+            source_coverage_scope && target.antialias == text_antialias_mode::grayscale ? &source_frame : nullptr);
+        const std::lock_guard lock(mutex_);
+        return failure_;
+    }
+
     void PROGPU_NATIVE_COM_CALL DrawGlyphRun(
         point_2f baseline_origin,
         const glyph_run* glyphs,
         brush* foreground,
         measuring_mode measuring) noexcept override
     {
+        // An external font/parameter callback may release the caller's last
+        // target reference. Keep this exact recorder alive until the capture
+        // lease ends; a returned callback is not target-lifetime ownership.
+        const com::pointer<render_target> retained_target(static_cast<render_target*>(this));
+        glyph_run retained_run{};
+        direct2d::glyph_run_capture<glyph_offset> captured;
+        com::pointer<rendering_parameters> parameters;
+        std::uint32_t text_sample_grid = 8U;
+        std::uint64_t capture_id = 0U;
         {
             const std::lock_guard lock(mutex_);
             if (!can_draw()) {
@@ -5324,32 +5618,59 @@ public:
                 !std::isfinite(glyphs->font_em_size) ||
                 glyphs->font_em_size <= 0.0F ||
                 (glyphs->glyph_count != 0U &&
-                    glyphs->glyph_indices == nullptr) ||
-                (glyphs->is_sideways != 0 && glyphs->is_sideways != 1)) {
+                    glyphs->glyph_indices == nullptr)) {
                 latch(com::invalid_argument);
                 return;
             }
-            if (glyphs->glyph_count > maximum_glyph_count) {
-                latch(com::invalid_argument);
+            const auto capture_result = captured.capture(
+                glyphs->glyph_indices, glyphs->glyph_advances,
+                glyphs->glyph_offsets, glyphs->glyph_count,
+                [](const glyph_offset& offset) noexcept {
+                    return std::isfinite(offset.advance_offset) &&
+                        std::isfinite(offset.ascender_offset);
+                });
+            if (com::failed(capture_result)) {
+                latch(capture_result);
                 return;
             }
-            for (std::uint32_t index = 0U;
-                 index < glyphs->glyph_count;
-                 ++index) {
-                if ((glyphs->glyph_advances != nullptr &&
-                        !std::isfinite(glyphs->glyph_advances[index])) ||
-                    (glyphs->glyph_offsets != nullptr &&
-                        (!std::isfinite(
-                            glyphs->glyph_offsets[index].advance_offset) ||
-                            !std::isfinite(glyphs->glyph_offsets[index]
-                                .ascender_offset)))) {
-                    latch(com::invalid_argument);
-                    return;
-                }
-            }
-            if (glyphs->glyph_count == 0U) {
+            if (glyphs->glyph_count == 0U) return;
+            if (glyph_capture_id_ == std::numeric_limits<std::uint64_t>::max()) {
+                latch(com::out_of_memory);
                 return;
             }
+            retained_run = *glyphs;
+            retained_run.glyph_indices = captured.indices();
+            retained_run.glyph_advances = captured.advances();
+            retained_run.glyph_offsets = captured.offsets();
+            parameters = text_rendering_parameters_;
+            text_sample_grid = text_antialias_mode_ == text_antialias_mode::aliased ? 1U : 8U;
+            glyph_capture_active_ = true;
+            capture_id = ++glyph_capture_id_;
+        }
+        struct capture_release final {
+            portable_scene_render_target& target;
+            const std::uint64_t id;
+            ~capture_release() {
+                const std::lock_guard lock(target.mutex_);
+                if (target.glyph_capture_id_ == id) target.glyph_capture_active_ = false;
+            }
+        } release_capture{*this, capture_id};
+
+        // Retain original source identities before calling any source getter or
+        // outline callback. Array/scalar ownership above is independent of those
+        // callbacks, including a callback replacing caller-owned run storage.
+        const com::pointer<font_face> retained_face(retained_run.font_face_value);
+        const com::pointer<brush> retained_foreground(foreground);
+        direct2d::text_rendering_values rendering_values{};
+        const auto parameters_result = direct2d::capture_text_rendering_values(
+            parameters.get(), rendering_values);
+        if (com::failed(parameters_result)) {
+            latch_external_draw_failure(parameters_result, true);
+            return;
+        }
+        {
+            const std::lock_guard lock(mutex_);
+            if (com::failed(failure_)) return;
         }
 
         path_geometry* raw_path = nullptr;
@@ -5358,7 +5679,7 @@ public:
         path.attach(raw_path);
         if (com::failed(result) || !path) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
         geometry_sink* raw_sink = nullptr;
@@ -5367,24 +5688,24 @@ public:
         sink.attach(raw_sink);
         if (com::failed(result) || !sink) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
-        result = glyphs->font_face_value->GetGlyphRunOutline(
-            glyphs->font_em_size,
-            glyphs->glyph_indices,
-            glyphs->glyph_advances,
-            glyphs->glyph_offsets,
-            glyphs->glyph_count,
-            glyphs->is_sideways,
-            (glyphs->bidi_level & 1U) != 0U ? 1 : 0,
+        result = retained_face->GetGlyphRunOutline(
+            retained_run.font_em_size,
+            retained_run.glyph_indices,
+            retained_run.glyph_advances,
+            retained_run.glyph_offsets,
+            retained_run.glyph_count,
+            retained_run.is_sideways,
+            (retained_run.bidi_level & 1U) != 0U ? 1 : 0,
             static_cast<simplified_geometry_sink*>(sink.get()));
         const com::result close_result = sink->Close();
         if (com::succeeded(result)) {
             result = close_result;
         }
         if (com::failed(result)) {
-            latch_external_draw_failure(result);
+            latch_external_draw_failure(result, true);
             return;
         }
 
@@ -5402,25 +5723,18 @@ public:
         transformed.attach(raw_transformed);
         if (com::failed(result) || !transformed) {
             latch_external_draw_failure(
-                com::failed(result) ? result : failure);
+                com::failed(result) ? result : failure, true);
             return;
         }
-        std::uint32_t text_sample_grid = 8U;
-        {
-            const std::lock_guard lock(mutex_);
-            text_sample_grid =
-                text_antialias_mode_ == text_antialias_mode::aliased
-                ? 1U
-                : 8U;
-        }
         draw_filled_geometry(
-            transformed.get(), foreground, nullptr, text_sample_grid);
+            transformed.get(), retained_foreground.get(), nullptr, text_sample_grid, capture_id);
     }
 
     void PROGPU_NATIVE_COM_CALL SetTransform(
         const matrix_3x2_f* transform) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (transform == nullptr || !core::valid_transform(transform)) {
             latch(com::invalid_argument);
             return;
@@ -5479,6 +5793,10 @@ public:
         rendering_parameters* parameters) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (prepared_glyph_capture_active_) {
+            latch(wrong_state);
+            return;
+        }
         text_rendering_parameters_ =
             com::pointer<rendering_parameters>(parameters);
     }
@@ -5501,6 +5819,7 @@ public:
         std::uint64_t tag2) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         tag1_ = tag1;
         tag2_ = tag2;
     }
@@ -5521,6 +5840,28 @@ public:
     void PROGPU_NATIVE_COM_CALL PushLayer(
         const layer_parameters* parameters,
         layer* layer_value) noexcept override
+    {
+        push_layer(parameters, layer_value, 0U, false);
+    }
+
+    void PROGPU_NATIVE_COM_CALL PushLayer1(
+        const layer_parameters1* parameters,
+        layer* layer_value) noexcept override
+    {
+        if (parameters == nullptr) {
+            push_layer(nullptr, layer_value, 0U, true);
+            return;
+        }
+        const layer_parameters legacy{
+            parameters->content_bounds, parameters->geometric_mask,
+            parameters->mask_antialias_mode, parameters->mask_transform,
+            parameters->opacity, parameters->opacity_brush, layer_options::none};
+        push_layer(&legacy, layer_value,
+            static_cast<std::uint32_t>(parameters->options), true);
+    }
+
+    void push_layer(const layer_parameters* parameters, layer* layer_value,
+        std::uint32_t options1, bool uses_options1) noexcept
     {
         const std::lock_guard lock(mutex_);
         if (!can_draw()) {
@@ -5548,6 +5889,15 @@ public:
             latch(not_implemented);
             return;
         }
+        if (uses_options1 && (options1 & ~3U) != 0U) {
+            latch(com::invalid_argument);
+            return;
+        }
+        const std::uint32_t initialization_flags =
+            ((options1 & 1U) != 0U
+                ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_INITIALIZE_FROM_BACKGROUND) : 0U) |
+            ((options1 & 2U) != 0U
+                ? static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) : 0U);
         const bool full_target = infinite_rectangle(
             parameters->content_bounds);
         rectangle_f mask_content_bounds = parameters->content_bounds;
@@ -5655,10 +6005,10 @@ public:
         }
         const progpu_native_scene_layer native_layer{
             sizeof(progpu_native_scene_layer),
-            has_bounds
+            (has_bounds
                 ? static_cast<std::uint32_t>(
                     PROGPU_NATIVE_SCENE_LAYER_BOUNDS)
-                : 0U,
+                : 0U) | initialization_flags | PROGPU_NATIVE_SCENE_LAYER_LINEAR_BYTE_OPACITY,
             bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,
@@ -5674,6 +6024,12 @@ public:
             return;
         }
         layer_stack_[scope_depth_] = layer_native;
+        layer_clear_bounds_[scope_depth_] = has_bounds ? bounds : progpu_native_image_rect{
+            0, 0, static_cast<float>(pixel_width_) * 96.0F / dpi_x_,
+            static_cast<float>(pixel_height_) * 96.0F / dpi_y_};
+        layer_initialization_[scope_depth_] = initialization_flags;
+        layer_source_coverage_[scope_depth_] = mask_resource_index == PROGPU_NATIVE_SCENE_NO_INDEX &&
+            initialization_flags == 0U;
         scope_stack_[scope_depth_] = scope_opacity_layer;
         ++scope_depth_;
     }
@@ -5729,6 +6085,7 @@ public:
         drawing_state_block* state) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (state == nullptr) {
             latch(com::invalid_argument);
             return;
@@ -5784,6 +6141,7 @@ public:
             latch(com::invalid_argument);
             return;
         }
+        const auto original_clip = clip;
         if (clip_depth_ != 0U) {
             clip = intersect_rectangles(
                 clip_stack_[clip_depth_ - 1U], clip);
@@ -5792,11 +6150,18 @@ public:
                 return;
             }
         }
+        const bool had_binary = clip_depth_ != 0U && binary_clip_active_[clip_depth_ - 1U];
+        const bool binary = mode == antialias_mode::aliased;
+        const auto binary_clip = binary
+            ? (had_binary ? intersect_rectangles(binary_clip_stack_[clip_depth_ - 1U], original_clip) : original_clip)
+            : (had_binary ? binary_clip_stack_[clip_depth_ - 1U] : progpu_native_image_rect{});
         std::uint8_t scope = scope_axis_aligned_clip;
         if (mode == antialias_mode::aliased) {
             auto state = semantic_scene_builder::identity_state();
-            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
-            state.clip_rect = clip;
+            state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT | PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+            // SAVE state is absolute: preserve all binary ancestors, while
+            // AA ancestors retain their independent fractional coverage.
+            state.clip_rect = binary_clip;
             std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!builder_.add_state(state, state_index) ||
                 !builder_.save(state_index)) {
@@ -5804,22 +6169,18 @@ public:
                 return;
             }
         } else {
-            progpu_native_scene_layer_mask mask{};
-            mask.bounds = clip;
-            mask.transform = {
-                1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F};
-            mask.opacity = 1.0F;
             std::uint32_t mask_resource_index =
                 PROGPU_NATIVE_SCENE_NO_INDEX;
-            if (!builder_.add_rounded_rectangle_mask(
-                    mask, mask_resource_index)) {
+            // Binary ancestors select complete physical pixels in retained
+            // state. Keep this AA clip's original edges independent of them.
+            if (!builder_.add_axis_aligned_clip_mask(original_clip, mask_resource_index)) {
                 latch(builder_failure());
                 return;
             }
             const progpu_native_scene_layer native_layer{
                 sizeof(progpu_native_scene_layer),
                 PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
-                clip,
+                original_clip,
                 1.0F,
                 PROGPU_NATIVE_BLEND_SRC_OVER,
                 mask_resource_index,
@@ -5834,6 +6195,8 @@ public:
             }
             scope = scope_antialiased_axis_clip;
         }
+        binary_clip_stack_[clip_depth_] = binary_clip;
+        binary_clip_active_[clip_depth_] = binary || had_binary;
         clip_stack_[clip_depth_] = clip;
         ++clip_depth_;
         scope_stack_[scope_depth_] = scope;
@@ -5880,7 +6243,80 @@ public:
             return;
         }
         if (scope_depth_ != 0U) {
-            latch(not_implemented);
+            if (!std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                    [](std::uint8_t scope) { return scope == scope_axis_aligned_clip ||
+                        scope == scope_antialiased_axis_clip || scope == scope_opacity_layer; })) {
+                latch(not_implemented);
+                return;
+            }
+            const bool has_antialiased_clip = std::any_of(scope_stack_.begin(),
+                scope_stack_.begin() + scope_depth_, [](std::uint8_t scope) {
+                    return scope == scope_antialiased_axis_clip;
+                });
+            if (has_antialiased_clip) {
+                // AA clips are background-preserving groups, not binary clear
+                // bounds. Replace actual current storage first; apply each AA
+                // mask once at its original pop. Stop at the nearest ordinary
+                // source layer, whose own initialization/opacity stays intact.
+                std::uint32_t antialiased_layers = 0U;
+                bool ordinary_owner = false;
+                bool opaque = pixel_format_.alpha == alpha_mode::ignore;
+                auto visible_bounds = clip_stack_[clip_depth_ - 1U];
+                for (std::size_t index = scope_depth_; index != 0U; --index) {
+                    const auto scope = scope_stack_[index - 1U];
+                    if (scope == scope_opacity_layer) {
+                        ordinary_owner = true;
+                        opaque = (layer_initialization_[index - 1U] &
+                            PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                        visible_bounds = intersect_rectangles(visible_bounds,
+                            layer_clear_bounds_[index - 1U]);
+                        break;
+                    }
+                    antialiased_layers += scope == scope_antialiased_axis_clip ? 1U : 0U;
+                }
+                if (visible_bounds.width == 0.0F || visible_bounds.height == 0.0F) return;
+                if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
+                    latch(com::out_of_memory);
+                    return;
+                }
+                if (!builder_.prepare_antialiased_clear_layers(antialiased_layers, ordinary_owner) ||
+                    !builder_.clear_target({value.red, value.green, value.blue, opaque ? 1.0F : value.alpha})) {
+                    latch(builder_failure());
+                    return;
+                }
+                ++draw_count_;
+                return;
+            }
+            progpu_native_image_rect clear_bounds = clip_depth_ == 0U
+                ? progpu_native_image_rect{} : clip_stack_[clip_depth_ - 1U];
+            bool opaque = pixel_format_.alpha == alpha_mode::ignore;
+            for (std::size_t index = scope_depth_; index != 0U; --index) {
+                if (scope_stack_[index - 1U] != scope_opacity_layer) continue;
+                const auto initialization = layer_initialization_[index - 1U];
+                clear_bounds = layer_clear_bounds_[index - 1U];
+                if (clip_depth_ != 0U) clear_bounds = intersect_rectangles(clear_bounds, clip_stack_[clip_depth_ - 1U]);
+                if (clear_bounds.width != 0.0F && clear_bounds.height != 0.0F &&
+                    !builder_.isolate_current_layer()) {
+                    latch(builder_failure());
+                    return;
+                }
+                opaque = (initialization & PROGPU_NATIVE_SCENE_LAYER_IGNORE_ALPHA) != 0U;
+                break;
+            }
+            if (draw_count_ == std::numeric_limits<std::uint32_t>::max()) {
+                latch(com::out_of_memory);
+                return;
+            }
+            const float alpha = opaque ? 1.0F : value.alpha;
+            bool recorded = false;
+            if (!direct2d::append_clipped_clear(builder_, clear_bounds,
+                    {value.red, value.green, value.blue, alpha}, recorded)) {
+                latch(builder_failure());
+                return;
+            }
+            // Retained draw content participates in the existing DPI-history
+            // guard, without changing leading-clear metadata or prior resources.
+            if (recorded) ++draw_count_;
             return;
         }
         // Full-target Clear replaces the recorded scene for ordinary targets
@@ -5907,6 +6343,7 @@ public:
     void PROGPU_NATIVE_COM_CALL BeginDraw() noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (begun_ && !ended_) {
             latch(wrong_state);
             return;
@@ -5942,6 +6379,7 @@ public:
         scope_depth_ = 0U;
         clip_stack_.fill({});
         scope_stack_.fill(scope_none);
+        layer_source_coverage_.fill(false);
         failure_ = com::ok;
         begun_ = true;
         ended_ = false;
@@ -5952,6 +6390,10 @@ public:
         std::uint64_t* tag2) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) {
+            publish_tags(tag1, tag2);
+            return failure_;
+        }
         if (!begun_ || ended_) {
             publish_tags(tag1, tag2);
             return wrong_state;
@@ -6014,6 +6456,7 @@ public:
         float dpi_y) noexcept override
     {
         const std::lock_guard lock(mutex_);
+        if (reject_glyph_capture_mutation()) return;
         if (dpi_x == 0.0F && dpi_y == 0.0F) {
             dpi_x = 96.0F;
             dpi_y = 96.0F;
@@ -6128,9 +6571,9 @@ public:
         if (!compatible_) return not_implemented;
         if (com::failed(failure_)) return failure_;
         // Copy is in physical pixels and ignores the target's drawing transform.
-        // Scoped recording needs a future suspend/resume transport; never apply
-        // its current clip or opacity to a bitmap storage operation.
-        if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+        // Storage replacement suspends only actual aliased clip scopes. Layers
+        // own intermediate contents and require a distinct flush contract.
+        if (!can_copy_outside_clips_locked()) return wrong_state;
         const rectangle_u rectangle = destination == nullptr
             ? rectangle_u{0U, 0U, pixel_width_, pixel_height_} : *destination;
         if (!valid_rectangle(rectangle) || rectangle.right > pixel_width_ ||
@@ -6169,7 +6612,7 @@ public:
         const std::uint32_t storage_flags = alpha_only ? PROGPU_NATIVE_SCENE_IMAGE_R8
             : pixel_format_.format == dxgi_format_b8g8r8a8_unorm ? PROGPU_NATIVE_SCENE_IMAGE_BGRA8 : 0U;
         return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-            return recording.copy_image_from_memory(image, storage_flags,
+            return recording.copy_image_from_memory_outside_clips(image, storage_flags,
                 {static_cast<const std::byte*>(source), static_cast<std::size_t>(required_bytes)},
                 alpha_only ? &alpha_matrix : nullptr);
         });
@@ -6227,6 +6670,13 @@ public:
     }
 
 private:
+    bool can_copy_outside_clips_locked() const noexcept
+    {
+        return !glyph_capture_active_ && scope_depth_ == clip_depth_ &&
+            std::all_of(scope_stack_.begin(), scope_stack_.begin() + scope_depth_,
+                [](auto scope) { return scope == scope_axis_aligned_clip; });
+    }
+
     template<typename RecordCopy>
     com::result record_bitmap_copy_locked(bool replace_contents, RecordCopy&& record) noexcept
     {
@@ -6241,6 +6691,19 @@ private:
             semantic_scene_builder replacement(scene_id_, generation_);
             if (!record(replacement)) return replacement.last_error() == scene_build_error::out_of_memory
                 ? com::out_of_memory : failure;
+            // Full replacement discards old pixels/history, not the caller's
+            // active drawing scopes. Recreate the original capture-time clip
+            // rectangles before publishing the independently built replacement.
+            for (std::size_t i = 0U; i < scope_depth_; ++i) {
+                if (scope_stack_[i] != scope_axis_aligned_clip || i >= clip_depth_) return wrong_state;
+                auto state = semantic_scene_builder::identity_state();
+                state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT | PROGPU_NATIVE_SCENE_STATE_CLIP_PIXEL_CENTERS;
+                state.clip_rect = clip_stack_[i];
+                std::uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                if (!replacement.add_state(state, state_index) || !replacement.save(state_index))
+                    return replacement.last_error() == scene_build_error::out_of_memory
+                        ? com::out_of_memory : failure;
+            }
             builder_ = std::move(replacement);
             bitmap_resources_.clear();
             picture_bitmap_sources_.clear();
@@ -6303,7 +6766,7 @@ private:
             const std::lock_guard lock(mutex_);
             if (!compatible_) return not_implemented;
             if (com::failed(failure_)) return failure_;
-            if (scope_depth_ != 0U || clip_depth_ != 0U) return wrong_state;
+            if (!can_copy_outside_clips_locked()) return wrong_state;
             const auto source_rect = rectangle == nullptr
                 ? rectangle_u{0U, 0U, snapshot.width, snapshot.height} : *rectangle;
             const auto point = destination == nullptr ? point_2u{0U, 0U} : *destination;
@@ -6342,7 +6805,7 @@ private:
             const auto matrix = bitmap_alpha_matrix(snapshot.picture_image);
             if (alpha_only) image.flags |= PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
             return record_bitmap_copy_locked(replace_contents, [&](semantic_scene_builder& recording) {
-                return recording.copy_image_from_builder(std::move(captured), resource_index, image,
+                return recording.copy_image_from_builder_outside_clips(std::move(captured), resource_index, image,
                     alpha_only ? &matrix : nullptr);
             });
         } catch (const std::bad_alloc&) {
@@ -6460,11 +6923,19 @@ private:
 
     [[nodiscard]] bool can_draw() noexcept
     {
+        if (reject_glyph_capture_mutation()) return false;
         if (!begun_ || ended_) {
             latch(wrong_state);
             return false;
         }
         return com::succeeded(failure_);
+    }
+
+    [[nodiscard]] bool reject_glyph_capture_mutation() noexcept
+    {
+        if (!glyph_capture_active_) return false;
+        latch(wrong_state);
+        return true;
     }
 
     void latch(com::result value) noexcept
@@ -6482,10 +6953,10 @@ private:
         }
     }
 
-    void latch_external_draw_failure(com::result value) noexcept
+    void latch_external_draw_failure(com::result value, bool captured_glyph = false) noexcept
     {
         const std::lock_guard lock(mutex_);
-        if (can_draw()) {
+        if ((captured_glyph && glyph_capture_active_) || can_draw()) {
             latch(value);
         }
     }
@@ -6662,7 +7133,6 @@ private:
         failed
     };
 
-    static constexpr std::uint32_t maximum_glyph_count = 1U << 20U;
     static constexpr std::uint32_t maximum_text_length = 1U << 24U;
 
     [[nodiscard]] static std::uint32_t image_address_flags(
@@ -6723,8 +7193,9 @@ private:
             reinterpret_cast<void**>(&raw_source));
         com::pointer<scene_bitmap_native> source;
         source.attach(raw_source);
-        if (com::failed(source_result) || !source) {
-            latch(not_implemented);
+        const auto source_status = classify_resource_query(source_result, source.get());
+        if (source_status != com::ok) {
+            latch(source_status == com::false_result ? not_implemented : source_status);
             return false;
         }
         std::uint32_t image_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
@@ -6858,11 +7329,12 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface || !native) {
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) {
             return bitmap_brush_draw_result::not_bitmap;
         }
-        if (com::failed(query)) {
-            latch(query);
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         progpu_native_scene_layer_geometry_mask mask{};
@@ -6905,11 +7377,12 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface || !native) {
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) {
             return bitmap_brush_draw_result::not_bitmap;
         }
-        if (com::failed(query)) {
-            latch(query);
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         progpu_native_scene_layer_mask mask{};
@@ -6953,11 +7426,12 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface || !native) {
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) {
             return bitmap_brush_draw_result::not_bitmap;
         }
-        if (com::failed(query)) {
-            latch(query);
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         const progpu_native_scene_clip_path path{
@@ -7075,7 +7549,12 @@ private:
             reinterpret_cast<void**>(&raw_linear));
         com::pointer<linear_gradient_brush> linear;
         linear.attach(raw_linear);
-        if (com::succeeded(linear_query) && linear) {
+        const auto linear_status = classify_resource_query(linear_query, linear.get());
+        if (com::failed(linear_status)) {
+            latch(linear_status);
+            return false;
+        }
+        if (linear_status == com::ok) {
             const point_2f start = linear->GetStartPoint();
             const point_2f end = linear->GetEndPoint();
             const float opacity = linear->GetOpacity();
@@ -7103,7 +7582,12 @@ private:
                 reinterpret_cast<void**>(&raw_radial));
             com::pointer<radial_gradient_brush> radial;
             radial.attach(raw_radial);
-            if (com::succeeded(radial_query) && radial) {
+            const auto radial_status = classify_resource_query(radial_query, radial.get());
+            if (com::failed(radial_status)) {
+                latch(radial_status);
+                return false;
+            }
+            if (radial_status == com::ok) {
                 const point_2f center = radial->GetCenter();
                 const point_2f offset = radial->GetGradientOriginOffset();
                 const point_2f origin{
@@ -7142,8 +7626,9 @@ private:
                     reinterpret_cast<void**>(&raw_solid));
                 com::pointer<solid_color_brush> solid;
                 solid.attach(raw_solid);
-                if (com::failed(solid_query) || !solid) {
-                    latch(not_implemented);
+                const auto solid_status = classify_resource_query(solid_query, solid.get());
+                if (solid_status != com::ok) {
+                    latch(solid_status == com::false_result ? not_implemented : solid_status);
                     return false;
                 }
                 const color_f color = solid->GetColor();
@@ -7189,9 +7674,10 @@ private:
             reinterpret_cast<void**>(&raw_native));
         com::pointer<scene_bitmap_brush_native> native;
         native.attach(raw_native);
-        if (query == com::no_interface) return bitmap_brush_draw_result::not_bitmap;
-        if (com::failed(query) || !native) {
-            latch(com::failed(query) ? query : failure);
+        const auto query_status = classify_resource_query(query, native.get());
+        if (query_status == com::false_result) return bitmap_brush_draw_result::not_bitmap;
+        if (com::failed(query_status)) {
+            latch(query_status);
             return bitmap_brush_draw_result::failed;
         }
         factory* raw_factory = nullptr;
@@ -7440,9 +7926,20 @@ private:
         geometry* geometry_value,
         brush* brush_value,
         brush* opacity_brush,
-        std::uint32_t sample_grid = 0U) noexcept
+        std::uint32_t sample_grid = 0U,
+        std::uint64_t glyph_capture_id = 0U,
+        const progpu_native_scene_source_coverage_frame* source_frame = nullptr) noexcept
     {
         const std::lock_guard lock(mutex_);
+        if (glyph_capture_id != 0U) {
+            if (!glyph_capture_active_ || glyph_capture_id_ != glyph_capture_id) {
+                latch(wrong_state);
+                return;
+            }
+            // Consume the original generation/scope lease under this same lock.
+            // No mutation can slip between callback completion and publication.
+            glyph_capture_active_ = false;
+        }
         if (!can_draw()) {
             return;
         }
@@ -7554,17 +8051,45 @@ private:
                 return;
             }
         }
+        if (source_frame != nullptr && sample_grid == 8U) {
+            direct2d::prepared_original_path_coverage coverage;
+            result = direct2d::prepare_original_path_coverage(segments,transform_,*source_frame,sink->native_fill_rule(),coverage);
+            if (com::failed(result)) { latch(result); return; }
+            if (result == com::ok) {
+                const progpu_native_image_rect bounds{target_bounds.left,target_bounds.top,
+                    target_bounds.right-target_bounds.left,target_bounds.bottom-target_bounds.top};
+                if (!builder_.draw_source_paths({&coverage.path,1U},coverage.segments,{&brush_index,1U},bounds,*source_frame,state_index)) {
+                    latch(builder_failure()); return;
+                }
+                ++draw_count_; return;
+            }
+        }
+        // Paths and gradient paint already use target-DIP coordinates. Project
+        // the private geometry snapshot before rasterization while retaining the
+        // original draw/brush mapping for paint and opacity masks. Bitmap masks
+        // above keep their separate representation. Exact singular mappings
+        // retain their original rejection path; no identity inverse is invented.
+        auto path_transform = native_transform();
+        auto path_bounds = local_bounds;
+        const double determinant = static_cast<double>(transform_.m11) * transform_.m22 -
+            static_cast<double>(transform_.m12) * transform_.m21;
+        if (determinant != 0.0 && (transform_.m11 != 1.F || transform_.m12 != 0.F ||
+            transform_.m21 != 0.F || transform_.m22 != 1.F || transform_.m31 != 0.F || transform_.m32 != 0.F)) {
+            if (!sink->project_to_target(transform_)) { latch(com::invalid_argument); return; }
+            path_transform = {1, 0, 0, 1, 0, 0};
+            path_bounds = target_bounds;
+        }
         const progpu_native_scene_path_fill path{
             0U,
             segments.size(),
             0U,
             0U,
-            local_bounds.left,
-            local_bounds.top,
-            local_bounds.right,
-            local_bounds.bottom,
+            path_bounds.left,
+            path_bounds.top,
+            path_bounds.right,
+            path_bounds.bottom,
             {1.0F, 1.0F, 1.0F, 1.0F},
-            native_transform(),
+            path_transform,
             sink->native_fill_rule(),
             sample_grid};
         const progpu_native_image_rect bounds{
@@ -7688,35 +8213,6 @@ private:
         }
     }
 
-    static void scale_hairline_dashes(stroke_style_snapshot& style, float dpi) noexcept
-    {
-        if (style.dash_intervals.empty() || dpi == 96.0F) {
-            return;
-        }
-        const double scale = 96.0 / static_cast<double>(dpi);
-        style.dash_offset *= scale;
-        auto& intervals = style.dash_intervals;
-        std::size_t index = 0U;
-#if defined(__aarch64__) || defined(_M_ARM64)
-        const float64x2_t factor = vdupq_n_f64(scale);
-        for (; index + 2U <= intervals.size(); index += 2U) {
-            vst1q_f64(intervals.data() + index,
-                vmulq_f64(vld1q_f64(intervals.data() + index), factor));
-        }
-#elif defined(PROGPU_NATIVE_DIRECT2D_RENDER_TARGET_INTRINSICS_SSE2)
-        const __m128d factor = _mm_set1_pd(scale);
-        for (; index + 2U <= intervals.size(); index += 2U) {
-            _mm_storeu_pd(intervals.data() + index,
-                _mm_mul_pd(_mm_loadu_pd(intervals.data() + index), factor));
-        }
-#endif
-        // One double tail on ARM64/x64; scalar portability for targets without
-        // double-lane intrinsics, consistent with the native compatibility lane.
-        for (; index < intervals.size(); ++index) {
-            intervals[index] *= scale;
-        }
-    }
-
     void draw_styled_line(
         point_2f point0,
         point_2f point1,
@@ -7834,7 +8330,7 @@ private:
                 latch(not_implemented);
                 return;
             }
-            scale_hairline_dashes(style, dpi_x_);
+            core::scale_hairline_dashes(style.dash_intervals, style.dash_offset, dpi_x_);
         }
 
         auto* raw_sink = new (std::nothrow) portable_scene_stroke_sink();
@@ -8062,10 +8558,11 @@ private:
                 reinterpret_cast<void**>(&raw_bitmap_brush));
             com::pointer<scene_bitmap_brush_native> bitmap_identity;
             bitmap_identity.attach(raw_bitmap_brush);
-            if (com::succeeded(bitmap_query) && bitmap_identity) {
+            const auto bitmap_status = classify_resource_query(bitmap_query, bitmap_identity.get());
+            if (bitmap_status == com::ok) {
                 bitmap_brush = true;
-            } else if (bitmap_query != com::no_interface) {
-                latch(com::failed(bitmap_query) ? bitmap_query : failure);
+            } else if (com::failed(bitmap_status)) {
+                latch(bitmap_status);
                 return;
             }
 
@@ -8158,10 +8655,10 @@ private:
                     stroke.end_cap = run.end_uses_dash_cap
                         ? static_cast<std::uint32_t>(style.dash_cap)
                         : static_cast<std::uint32_t>(style.end_cap);
-                    stroke.line_join = style.join == line_join::miter_or_bevel
-                        ? static_cast<std::uint32_t>(
-                            PROGPU_NATIVE_STROKE_JOIN_MITER)
-                        : static_cast<std::uint32_t>(style.join);
+                    stroke.line_join = static_cast<std::uint32_t>(style.join);
+                    if (style.join == line_join::miter) {
+                        stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_CLIP_MITER_AT_LIMIT;
+                    }
                     stroke.dash_cap =
                         static_cast<std::uint32_t>(style.dash_cap);
                     points.push_back(segments.front().p0);
@@ -8199,11 +8696,8 @@ private:
                 semantic_style.dash_offset = style.dash_offset;
                 semantic_style.dash_cap =
                     static_cast<std::uint32_t>(style.dash_cap);
-                semantic_style.line_join = style.join ==
-                        line_join::miter_or_bevel
-                    ? static_cast<std::uint32_t>(
-                        PROGPU_NATIVE_STROKE_JOIN_MITER)
-                    : static_cast<std::uint32_t>(style.join);
+                semantic_style.line_join = static_cast<std::uint32_t>(style.join);
+                semantic_style.clip_miter_at_limit = style.join == line_join::miter;
                 semantic_style.primitive_flags = primitive_flags();
                 if (style.transform_type == stroke_transform_type::fixed) {
                     semantic_style.primitive_flags |=
@@ -8281,7 +8775,8 @@ private:
 
     [[nodiscard]] bool set_gradient_coordinate_transform(
         brush* source,
-        progpu_native_scene_brush& destination) noexcept
+        progpu_native_scene_brush& destination,
+        bool analytic_local_coordinates) noexcept
     {
         matrix_3x2_f brush_transform{};
         source->GetTransform(&brush_transform);
@@ -8293,8 +8788,12 @@ private:
             latch(com::invalid_argument);
             return false;
         }
-        const matrix_3x2_f coordinate =
-            compose_transform(inverse_draw, inverse_brush);
+        // Analytic rectangles/ellipses retain original center + local SDF
+        // coordinates even when their vertices carry the draw transform.
+        // Paths/geometry instead supply target coordinates. Keep the existing
+        // transform validity gate in both cases; remove no native admission.
+        const matrix_3x2_f coordinate = analytic_local_coordinates
+            ? inverse_brush : compose_transform(inverse_draw, inverse_brush);
         if (!core::valid_transform(&coordinate)) {
             latch(com::invalid_argument);
             return false;
@@ -8312,7 +8811,8 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::vector<progpu_native_scene_gradient_stop>& native_stops) noexcept
+        std::vector<progpu_native_scene_gradient_stop>& native_stops,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (collection == nullptr) {
             latch(com::invalid_argument);
@@ -8364,11 +8864,8 @@ private:
             collection->GetGradientStops(stops.data(), stop_count);
             native_stops.clear();
             native_stops.reserve(stop_count);
-            float previous = -std::numeric_limits<float>::infinity();
             for (const gradient_stop& stop : stops) {
-                if (!std::isfinite(stop.position) || stop.position < 0.0F ||
-                    stop.position > 1.0F || stop.position < previous ||
-                    !valid_color(stop.color)) {
+                if (!std::isfinite(stop.position) || !valid_color(stop.color)) {
                     latch(com::invalid_argument);
                     return false;
                 }
@@ -8379,7 +8876,15 @@ private:
                     0U,
                     0U,
                     0U});
-                previous = stop.position;
+            }
+            // The public collection retains original order/values. Only its
+            // owned rendering snapshot is sorted: equal-position stops must
+            // retain caller order, including the low/high sides of a hard edge.
+            std::stable_sort(native_stops.begin(), native_stops.end(),
+                [](const auto& left, const auto& right) { return left.offset < right.offset; });
+            if (native.spread_method == PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
+                (native_stops.front().offset < 0.0F || native_stops.back().offset > 1.0F)) {
+                native.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD_UNIT_INTERVAL;
             }
             native.stop_count = stop_count;
             const std::size_t inline_count = std::min<std::size_t>(
@@ -8392,7 +8897,7 @@ private:
                     native.offsets1[index - 4U] = native_stops[index].offset;
                 }
             }
-            if (!set_gradient_coordinate_transform(source, native)) {
+            if (!set_gradient_coordinate_transform(source, native, analytic_local_coordinates)) {
                 return false;
             }
             return true;
@@ -8409,11 +8914,12 @@ private:
         brush* source,
         gradient_stop_collection* collection,
         progpu_native_scene_brush& native,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates) noexcept
     {
         std::vector<progpu_native_scene_gradient_stop> native_stops;
         if (!translate_gradient_brush(
-                source, collection, native, native_stops)) {
+                source, collection, native, native_stops, analytic_local_coordinates)) {
             return false;
         }
         if (!builder_.add_brush(native, native_stops, brush_index)) {
@@ -8425,7 +8931,8 @@ private:
 
     [[nodiscard]] bool add_brush(
         brush* brush_value,
-        std::uint32_t& brush_index) noexcept
+        std::uint32_t& brush_index,
+        bool analytic_local_coordinates = false) noexcept
     {
         if (brush_value == nullptr) {
             latch(com::invalid_argument);
@@ -8446,7 +8953,12 @@ private:
             reinterpret_cast<void**>(&raw_linear));
         com::pointer<linear_gradient_brush> linear;
         linear.attach(raw_linear);
-        if (com::succeeded(linear_query) && linear) {
+        const auto linear_status = classify_resource_query(linear_query, linear.get());
+        if (com::failed(linear_status)) {
+            latch(linear_status);
+            return false;
+        }
+        if (linear_status == com::ok) {
             const point_2f start = linear->GetStartPoint();
             const point_2f end = linear->GetEndPoint();
             const float opacity = linear->GetOpacity();
@@ -8465,7 +8977,7 @@ private:
             native.start_point = {start.x, start.y};
             native.end_point = {end.x, end.y};
             return add_gradient_brush(
-                linear.get(), collection.get(), native, brush_index);
+                linear.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         radial_gradient_brush* raw_radial = nullptr;
@@ -8474,7 +8986,12 @@ private:
             reinterpret_cast<void**>(&raw_radial));
         com::pointer<radial_gradient_brush> radial;
         radial.attach(raw_radial);
-        if (com::succeeded(radial_query) && radial) {
+        const auto radial_status = classify_resource_query(radial_query, radial.get());
+        if (com::failed(radial_status)) {
+            latch(radial_status);
+            return false;
+        }
+        if (radial_status == com::ok) {
             const point_2f center = radial->GetCenter();
             const point_2f offset = radial->GetGradientOriginOffset();
             const point_2f origin{center.x + offset.x, center.y + offset.y};
@@ -8502,7 +9019,7 @@ private:
             native.radius = radius_x;
             native.radius_y = radius_y;
             return add_gradient_brush(
-                radial.get(), collection.get(), native, brush_index);
+                radial.get(), collection.get(), native, brush_index, analytic_local_coordinates);
         }
 
         solid_color_brush* raw_solid = nullptr;
@@ -8511,8 +9028,9 @@ private:
             reinterpret_cast<void**>(&raw_solid));
         com::pointer<solid_color_brush> solid;
         solid.attach(raw_solid);
-        if (com::failed(query) || !solid) {
-            latch(not_implemented);
+        const auto solid_status = classify_resource_query(query, solid.get());
+        if (solid_status != com::ok) {
+            latch(solid_status == com::false_result ? not_implemented : solid_status);
             return false;
         }
         const color_f color = solid->GetColor();
@@ -8654,7 +9172,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -8832,7 +9350,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -8933,7 +9451,7 @@ private:
             return;
         }
         std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        if (!add_brush(brush_value, brush_index)) {
+        if (!add_brush(brush_value, brush_index, true)) {
             return;
         }
         const progpu_native_image_rect bounds = transformed_bounds(local_bounds);
@@ -9000,10 +9518,15 @@ private:
     static constexpr std::uint8_t scope_antialiased_axis_clip = 3U;
     std::array<progpu_native_image_rect,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> binary_clip_stack_{};
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> binary_clip_active_{};
     std::array<std::uint8_t,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
     std::array<com::pointer<scene_layer_native>,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_stack_{};
+    std::array<progpu_native_image_rect, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_clear_bounds_{};
+    std::array<std::uint32_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_initialization_{};
+    std::array<bool, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> layer_source_coverage_{};
     std::size_t clip_depth_ = 0U;
     std::size_t scope_depth_ = 0U;
     float dpi_x_ = 96.0F;
@@ -9023,6 +9546,9 @@ private:
     bool has_clear_ = false;
     bool compatible_ = false;
     bool compatible_history_dpi_valid_ = true;
+    bool glyph_capture_active_ = false;
+    bool prepared_glyph_capture_active_ = false;
+    std::uint64_t glyph_capture_id_ = 0U;
 };
 
 } // namespace

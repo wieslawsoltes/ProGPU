@@ -1,6 +1,6 @@
 # Owned ImageBrush shader samplers
 
-The original MIL ShaderEffect path can capture one static ImageBrush backed by
+The original MIL ShaderEffect path can capture one ImageBrush backed by
 an owned bitmap upload. This is an additional supported source family, not full
 ShaderEffect, external-sampler or application qualification.
 
@@ -22,11 +22,19 @@ clamps normalized coordinates to the complete capture.
 
 The decoder checks the actual same-channel brush and bitmap resources again at
 scene compilation, including deletion, replacement and external-source changes.
-Dependency revisions include the brush, transforms and bitmap. Static transform
-graphs are bounded; cycles, missing resources and animations fail explicitly.
+Dependency revisions include the brush, transforms, bitmap and original property
+animation resources. [Opacity, Viewport and Viewbox animations](native-shader-sampler-animation.md)
+resolve their retained typed current values through the ordinary tile replay.
+Static transform graphs are bounded; cycles, missing resources and animated
+transforms fail explicitly.
 Unbound bitmap uploads may be registered before their source pixels arrive, but
 cannot produce a scene. VisualBrush, DrawingBrush, DrawingImage, double-buffered
-or external bitmap sources, animated brushes and multiple samplers stay closed.
+or external bitmap sources and multiple samplers stay closed.
+
+The DrawingImage restriction above describes the original bitmap-only family.
+The additive [owned DrawingImage connection](native-shader-drawing-image-samplers.md)
+uses the same full-RGBA tile capture and adds sampler-specific complete-closure
+ownership preflight. Other source-family gates remain unchanged.
 
 Both native providers acquire the picture through existing owned picture
 rasterization and queue submission. A binding retains the exact engine-owned
@@ -114,3 +122,25 @@ controls are recorded in [sampler render options](native-shader-sampler-render-o
 Attached options on a bare DrawingVisual are not equivalent to emitted native
 MIL render options; no default or incoming-only filtering change follows from
 that reference distinction.
+
+## Retained sampler transform animation
+
+Sampler `Transform` and `RelativeTransform` now consume retained MatrixResource
+and DoubleResource current values for MatrixTransform, ScaleTransform,
+TranslateTransform and ordered TransformGroup graphs. The compiler reuses its
+existing `resolve_transform` and ordinary tile capture arithmetic; no new
+animation interpolation, matrix reconstruction, shader uniform or bitmap owner
+is introduced. Relative mapping remains relative-to-paint conjugation before the
+absolute brush transform. See
+[the complete transform contract and controls](native-shader-sampler-transform-animation.md).
+
+The earlier static-transform-only wording above describes the original family.
+The new family preserves declaration before current-value initialization, but
+capture requires complete valid current matrices before an empty viewport or
+zero-alpha paint could bypass them. Existing resource revision traversal already
+includes ordered children and each animation handle/generation. Named Rotate/Skew
+inside an animated combined mapping remain unsupported: existing host trig is not
+the original numeric contract. Wholly-static named graphs retain legacy behavior
+without a new parity claim. All execution/qualification is deferred to the final
+integrated producer; neither authored controls nor retained packet acceptance is
+runtime evidence.

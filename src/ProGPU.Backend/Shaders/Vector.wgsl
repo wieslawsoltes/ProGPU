@@ -1,6 +1,6 @@
 // Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, nine-neighbor affine rectangular fixed-device dot grids, derivative-mapped affine minor/major line grids, affine pattern-space hatch families, fixed 8x8 tiles, and bounded path gradients; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; path-gradient fragments test at most 128 retained boundary edges; affine rectangular fixed-device dots evaluate exactly nine neighboring lattice centers, while affine minor/major line grids evaluate two line families with fixed work; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
-// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record. Path coverage uses one integer texel load for a proven pixel translation, otherwise one filtered sample; the vertex output carries three flat integers without changing the vertex buffer layout.
+// Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; path-gradient fragments test at most 128 retained boundary edges; affine rectangular fixed-device dots evaluate exactly nine neighboring lattice centers, while affine minor/major line grids evaluate two line families with fixed work; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most five signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
+// Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record. Path coverage uses one integer texel load for a proven pixel translation, otherwise one filtered sample; the vertex output carries three flat path integers plus six flat source-triangle coordinates and one coverage bit mask without changing the vertex buffer layout. Explicit source scalar coverage evaluates one snapped triangle plane with fixed O(1) arithmetic and no texture access.
 struct Uniforms {
     projection: mat4x4<f32>,
     mvp: mat4x4<f32>,
@@ -80,6 +80,16 @@ fn analytic_rounded_mask_alpha_for(position: vec2<f32>, sampling: MaskSamplingUn
     let local = vec2<f32>(
         dot(vec3<f32>(position, 1.0), sampling.coordinate0.xyz),
         dot(vec3<f32>(position, 1.0), sampling.coordinate1.xyz));
+    if (sampling.options.x == 5.0) {
+        // Explicit target-axis source clip only: exact rectangular pixel area.
+        // The CPU retains projected physical edges and the unit-pixel frame.
+        // O(1), no derivatives, samples, epsilon or rounded-distance corner.
+        let pixel = vec2<f32>(sampling.coordinate0.x, sampling.coordinate1.y);
+        let overlap = max(min(local + 0.5 * pixel, sampling.bounds.zw) -
+            max(local - 0.5 * pixel, sampling.bounds.xy), vec2<f32>(0.0));
+        let coverage = clamp(overlap / pixel, vec2<f32>(0.0), vec2<f32>(1.0));
+        return coverage.x * coverage.y;
+    }
     let outerAlpha = rounded_mask_alpha_local(
         local, sampling.bounds, sampling.cornerRadiiX, sampling.cornerRadiiY);
     if (sampling.options.x < 2.5) {
@@ -170,6 +180,9 @@ struct VertexOutput {
     @location(8) @interpolate(flat) localStrokeMode: f32,
     @location(9) brushCoord: vec2<f32>,
     @location(10) @interpolate(flat) pathPixelMapping: vec3<i32>,
+    @location(11) @interpolate(flat) sourceTriangle01: vec4<f32>,
+    @location(12) @interpolate(flat) sourceTriangle2: vec2<f32>,
+    @location(13) @interpolate(flat) sourceCoverageBits: u32,
 };
 
 const PROGPU_TWO_PI: f32 = 6.28318530718;
@@ -198,6 +211,17 @@ fn safe_normalize(value: vec2<f32>) -> vec2<f32> {
 
 fn cross_2d(left: vec2<f32>, right: vec2<f32>) -> f32 {
     return left.x * right.y - left.y * right.x;
+}
+
+// The signed offset/radius ratio advances the preceding outer line and retreats
+// the following one to the same miter-limit plane. Sharing the reconstruction
+// keeps the vertex bounds and fragment polygon on exactly the same two points.
+fn device_clipped_miter_points(previousOuter: vec2<f32>, nextOuter: vec2<f32>, signedRatio: f32) -> vec4<f32> {
+    let first = previousOuter +
+        vec2<f32>(previousOuter.y, -previousOuter.x) * signedRatio;
+    let second = nextOuter -
+        vec2<f32>(nextOuter.y, -nextOuter.x) * signedRatio;
+    return vec4<f32>(first, second);
 }
 
 fn nearest_ellipse_theta(point: vec2<f32>, center: vec2<f32>, axisX: vec2<f32>, axisY: vec2<f32>) -> f32 {
@@ -347,7 +371,51 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         sType = u32(round(encodedShapeType - 100.0));
     }
 
+    if (sType == 27u) {
+        // Source path coverage is an original physical atlas. The retained
+        // target-DIP brush coordinates are independent of raster placement.
+        let extent = -uniforms.pad1;
+        if (isStatic || useGpuTransforms || any(extent <= vec2<f32>(0.0))) {
+            output.position = vec4<f32>(2.0, 2.0, 0.0, 1.0);
+            output.localStrokeMode = -1.0;
+            return output;
+        }
+        output.position = vec4<f32>(input.position * (vec2<f32>(2.0, -2.0) / extent) +
+            vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+        output.color = input.color;
+        output.texCoord = input.texCoord;
+        output.brushCoord = input.shapeSize;
+        output.shapeSize = input.shapeSize;
+        output.brushIndex = input.brushIndex;
+        output.cornerRadius = 1.0;
+        output.shapeType = 4.0;
+        output.pathPixelMapping = vec3<i32>(vec2<i32>(input.texCoord - input.position), 1);
+        return output;
+    }
 
+    if (sType == 26u) {
+        // Explicit source coverage only. Native pass creation supplies negative
+        // actual physical viewport dimensions; positive pad1 remains the static
+        // stroke-scale cache. Source state/DPI/containment was preflighted.
+        let extent = -uniforms.pad1;
+        if (isStatic || useGpuTransforms || any(extent <= vec2<f32>(0.0))) {
+            output.position = vec4<f32>(2.0, 2.0, 0.0, 1.0);
+            output.localStrokeMode = -1.0;
+            return output;
+        }
+        output.position = vec4<f32>(input.position * (vec2<f32>(2.0, -2.0) / extent) +
+            vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+        output.sourceTriangle01 = input.color;
+        output.sourceTriangle2 = input.shapeSize;
+        output.sourceCoverageBits = u32(input.cornerRadius);
+        output.color = vec4<f32>(1.0);
+        output.texCoord = input.texCoord;
+        output.brushCoord = input.texCoord;
+        output.brushIndex = input.brushIndex;
+        output.strokeThickness = input.strokeThickness;
+        output.shapeType = 1026.0;
+        return output;
+    }
 
     var inPos = input.position;
     var inTexCoord = input.texCoord;
@@ -614,7 +682,9 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         // A join descriptor stores the center and its two centerline
         // directions. Resolve the outer side, transformed angle, and miter
         // limit in framebuffer space. One AABB quad then evaluates the bevel,
-        // miter, or round exterior analytically in the fragment shader.
+        // miter, clipped-miter, or round exterior analytically in the fragment
+        // shader. color.w is the independent clipped-miter policy (exactly 1),
+        // effective only for join kind 0; old descriptors retain zero.
         var center = inPos;
         var incoming = inTexCoord;
         var outgoing = inShapeSize;
@@ -647,6 +717,7 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let nextOuter =
             vec2<f32>(-outgoing.y, outgoing.x) * outerSign * halfStrokeThickness;
         let denominator = cross_2d(incoming, outgoing);
+        let miterLimit = max(input.color.y, 1.0);
         var miterPoint = vec2<f32>(0.0);
         var hasMiter = false;
         if (abs(denominator) > 0.0001) {
@@ -654,7 +725,6 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
                 cross_2d(nextOuter - previousOuter, outgoing) /
                 denominator;
             let candidate = previousOuter + incoming * intersectionDistance;
-            let miterLimit = max(input.color.y, 1.0);
             if (length(candidate) <= halfStrokeThickness * miterLimit + 0.0001) {
                 miterPoint = candidate;
                 hasMiter = true;
@@ -662,14 +732,40 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         }
 
         let joinKind = u32(round(input.color.x));
+        var clippedMiterRatio = 0.0;
+        var clippedMiterPoints = vec4<f32>(0.0);
+        var hasClippedMiter = false;
+        if (joinKind == 0u && input.color.w == 1.0 &&
+            !hasMiter && !discardGeneratedHairlineAdornment) {
+            // Intersect both outer lines with the perpendicular bisector plane
+            // at half-width * limit. This is the retained CPU clipped fan's
+            // half-angle construction, independent of WPF reversal policy.
+            let directionDot = dot(incoming, outgoing);
+            let clipDenominator = halfStrokeThickness *
+                sqrt(max(0.0, (1.0 - directionDot) * 0.5));
+            let clipNumerator = halfStrokeThickness *
+                sqrt(max(0.0, (1.0 + directionDot) * 0.5));
+            if (clipDenominator > 0.0001) {
+                clippedMiterRatio = outerSign * max(
+                    0.0,
+                    (halfStrokeThickness * miterLimit - clipNumerator) /
+                        clipDenominator);
+                clippedMiterPoints = device_clipped_miter_points(
+                    previousOuter, nextOuter, clippedMiterRatio);
+                hasClippedMiter = true;
+            }
+        }
         var boundsMin = min(vec2<f32>(0.0), min(previousOuter, nextOuter));
         var boundsMax = max(vec2<f32>(0.0), max(previousOuter, nextOuter));
         if (joinKind == 2u) {
             boundsMin = vec2<f32>(-halfStrokeThickness);
             boundsMax = vec2<f32>(halfStrokeThickness);
-        } else if (joinKind == 0u && hasMiter) {
+        } else if ((joinKind == 0u || joinKind == 3u) && hasMiter) {
             boundsMin = min(boundsMin, miterPoint);
             boundsMax = max(boundsMax, miterPoint);
+        } else if (hasClippedMiter) {
+            boundsMin = min(boundsMin, min(clippedMiterPoints.xy, clippedMiterPoints.zw));
+            boundsMax = max(boundsMax, max(clippedMiterPoints.xy, clippedMiterPoints.zw));
         }
         boundsMin = boundsMin - vec2<f32>(1.5);
         boundsMax = boundsMax + vec2<f32>(1.5);
@@ -686,9 +782,14 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         worldPos = center + joinCoordinate;
         texCoord = joinCoordinate;
         inColor = vec4<f32>(previousOuter, nextOuter);
-        inShapeSize = miterPoint;
+        inShapeSize = select(
+            miterPoint,
+            vec2<f32>(clippedMiterRatio, 0.0),
+            hasClippedMiter);
         outputCornerRadius = input.color.x;
-        outputStrokeThickness = select(0.0, 1.0, hasMiter);
+        // Fragment-only state: 0 bevel, 1 full miter, 2 clipped miter. The
+        // retained descriptor and its fixed/hairline thickness are unchanged.
+        outputStrokeThickness = select(select(0.0, 1.0, hasMiter), 2.0, hasClippedMiter);
         outputShapeType = 23u;
         gridIndex = select(-1.0, 1.0, turn > 0.0);
     } else if (sType == 19u || sType == 20u) {
@@ -737,6 +838,16 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
         let signVal = select(-1.0, 1.0, input.cornerRadius > 0.0);
         let offset = miterN * expandedDistance * signVal;
         worldPos = worldPos + offset;
+        if (aliasedEdge) {
+            // Cover the complete endpoint pixel before the MSAA coverage test.
+            // The fragment owns the original flat ends at the pixel center;
+            // extending only the raster quad must not extend the stroke.
+            let lineLength = length(p1 - p0);
+            let direction = safe_normalize(p1 - p0);
+            worldPos = worldPos + direction * strokeExpansionPadding *
+                select(1.0, -1.0, len1 < len2);
+            inShapeSize = vec2<f32>(dot(worldPos - p0, direction), lineLength);
+        }
         texCoord = worldPos;
         gridIndex = signVal * expandedDistance;
     } else if (sType == 5u) {
@@ -875,10 +986,13 @@ fn vs_main(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Verte
     output.shapeSize = inShapeSize;
     output.cornerRadius = outputCornerRadius;
     output.strokeThickness = outputStrokeThickness;
-    if (sType == 4u && input.strokeThickness == -1.0 && !useGpuTransforms && !isStatic) {
+    if (sType == 4u && (input.strokeThickness == -1.0 || input.strokeThickness == -2.0) &&
+        !useGpuTransforms && !isStatic) {
         // The CPU proved the same exact integer offset at all four corners.
-        // A flat integer survives clipping without UV interpolation error.
-        output.pathPixelMapping = vec3<i32>(vec2<i32>(input.texCoord - input.position), 1);
+        // -2 additionally proves the native full-target binary DPI projection.
+        // Convert to that physical frame before retaining the flat offset.
+        let pixelScale = select(1.0, uniforms.dpiScale, input.strokeThickness == -2.0);
+        output.pathPixelMapping = vec3<i32>(vec2<i32>(input.texCoord - input.position * pixelScale), 1);
     }
     output.shapeType = select(
         f32(outputShapeType),
@@ -1372,7 +1486,43 @@ fn box_distance_gradient(
     return vec3<f32>(distance, gradient);
 }
 
-fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
+// Explicit original source raster policy, independent of generic mesh color
+// interpolation. D3D11.3 sections3.2.4/3.4.1 use exactly eight fractional bits
+// after viewport mapping; nearest-even handles exact signed halfway coordinates.
+// O(1) arithmetic/storage, no texture reads. Original vertices are not modified.
+fn source_raster_snap(p: vec2<f32>) -> vec2<f32> {
+    let scaled = p * 256.0;
+    let lower = floor(scaled);
+    let fraction = scaled - lower;
+    let odd = (vec2<u32>(abs(lower)) & vec2<u32>(1u)) != vec2<u32>(0u);
+    let upward = (fraction > vec2<f32>(0.5)) | ((fraction == vec2<f32>(0.5)) & odd);
+    return select(lower, lower + vec2<f32>(1.0), upward) / 256.0;
+}
+
+fn source_raster_cross(a: vec2<f32>, b: vec2<f32>) -> f32 {
+    return a.x * b.y - a.y * b.x;
+}
+
+fn source_triangle_coverage(input: VertexOutput) -> f32 {
+    let bits = input.sourceCoverageBits;
+    if (bits == 0u) { return 0.0; }
+    if (bits == 7u) { return 1.0; }
+    let a = source_raster_snap(input.sourceTriangle01.xy);
+    let b = source_raster_snap(input.sourceTriangle01.zw);
+    let c = source_raster_snap(input.sourceTriangle2);
+    let e0 = b - a;
+    let e1 = c - a;
+    let area = source_raster_cross(e0, e1);
+    if (area == 0.0) { return 0.0; }
+    let r = input.position.xy - a;
+    let ca = f32(bits & 1u);
+    let cb = f32((bits >> 1u) & 1u);
+    let cc = f32((bits >> 2u) & 1u);
+    return clamp(ca + ((cb - ca) * source_raster_cross(r, e1) +
+        (cc - ca) * source_raster_cross(e0, r)) / area, 0.0, 1.0);
+}
+
+fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -> vec4<f32> {
     let atlasCoordDx = dpdx(input.texCoord);
     let atlasCoordDy = dpdy(input.texCoord);
     let localBrushCoordDx = dpdx(input.brushCoord);
@@ -1381,6 +1531,13 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let shapeSizeDy = dpdy(input.shapeSize);
     let strokeDistanceDx = dpdx(input.gridIndex);
     let strokeDistanceDy = dpdy(input.gridIndex);
+    // The native brush-mask pass retains a target-space brush matrix beside
+    // independent local coverage geometry. Its private frame maps this pass's
+    // physical fragment position back to that original target, including the
+    // actual crop origin and per-axis presentation. Ordinary draws stay local.
+    let targetBrushCoord = (uniforms.view * vec4<f32>(input.position.xy, 0.0, 1.0)).xy;
+    let targetBrushCoordDx = dpdx(targetBrushCoord);
+    let targetBrushCoordDy = dpdy(targetBrushCoord);
     var encodedShapeType = input.shapeType;
     let aliasedEdge = encodedShapeType >= 1000.0;
     if (aliasedEdge) {
@@ -1405,8 +1562,14 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         evalCoordDx = shapeSizeDx;
         evalCoordDy = shapeSizeDy;
     }
+    if (targetBrushFrame) {
+        evalCoord = targetBrushCoord;
+        evalCoordDx = targetBrushCoordDx;
+        evalCoordDy = targetBrushCoordDy;
+    }
 
     var shapeAlpha: f32 = 1.0;
+    if (sType == 26u) { shapeAlpha = source_triangle_coverage(input); }
     if (sType == 0u && input.strokeThickness <= 0.0) {
         let edgeDistance = abs(input.texCoord) - input.shapeSize * 0.5;
         let edgeWidth = max(
@@ -1635,7 +1798,6 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             abs(dot(gradient2, atlasCoordDx)) +
                 abs(dot(gradient2, atlasCoordDy)),
             0.0001);
-        let allDistance = max(distance0, max(distance1, distance2));
         let edgeMask = u32(round(input.cornerRadius));
         let ownedInternalEdgeMask = u32(round(input.strokeThickness));
         let internalEdgeTolerance = 0.001;
@@ -1670,7 +1832,10 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             0.0,
             1.0 - smoothstep(-0.5 * fw, 0.5 * fw, exteriorDistance),
             internalInside);
-        let aliasedAlpha = select(0.0, 1.0, allDistance <= 0.0 && internalInside);
+        // Internal fan edges use the same single-owner partition in both
+        // modes. Testing them a second time against zero can reject the owner
+        // while its neighbor also excludes that shared edge, opening a seam.
+        let aliasedAlpha = select(0.0, 1.0, exteriorDistance <= 0.0 && internalInside);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType >= 14u && sType <= 17u) {
         // Antialiased affine stroke segment. color.xy/color.zw/shapeSize and
@@ -1790,6 +1955,10 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         let antialiasedAlpha = pow(linearAntialiasedAlpha, 0.7);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
+        if (sType == 3u && aliasedEdge &&
+            (input.shapeSize.x < 0.0 || input.shapeSize.x >= input.shapeSize.y)) {
+            shapeAlpha = 0.0;
+        }
     } else if (sType == 4u) {
         // Path rendering: sample coverage directly from PathAtlas
         let pathAtlasDims = textureDimensions(pathAtlasTexture);
@@ -1982,9 +2151,12 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             internalInside && allDistance <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 23u) {
-        // Analytic one-device-pixel path join. color stores the two outer
-        // offsets, shapeSize stores a valid miter intersection, cornerRadius
-        // selects miter/bevel/round, and gridIndex preserves turn direction.
+        // Analytic fixed-device or one-device-pixel path join. color stores the
+        // two outer offsets, shapeSize stores a valid miter intersection (or
+        // signed clipped offset/radius ratio), cornerRadius
+        // selects miter/bevel/round/miter-or-bevel, and gridIndex preserves turn
+        // direction. Both miter kinds use the vertex stage's limit decision;
+        // only explicitly clipped kind 0 can publish fragment state 2.
         // Body-facing radial edges are hard-owned to prevent overlap seams.
         let point = input.texCoord;
         let previousOuter = input.color.xy;
@@ -2013,7 +2185,52 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             exteriorDistance = length(point) - length(previousOuter);
             exteriorGradient = safe_normalize(point);
             allDistance = exteriorDistance;
-        } else if (joinKind == 0u && input.strokeThickness > 0.5) {
+        } else if (joinKind == 0u && input.strokeThickness > 1.5) {
+            // Convex clipped polygon: previous outer, first clip intersection,
+            // second clip intersection, next outer, center. The three outer
+            // edges contribute AA; the two body-facing edges stay hard-owned.
+            let clippedPoints = device_clipped_miter_points(
+                previousOuter, nextOuter, input.shapeSize.x);
+            let p0 = previousOuter;
+            let p1 = clippedPoints.xy;
+            let p2 = clippedPoints.zw;
+            let p3 = nextOuter;
+            let p4 = vec2<f32>(0.0);
+            let edge0 = p1 - p0;
+            let edge1 = p2 - p1;
+            let edge2 = p3 - p2;
+            let edge3 = p4 - p3;
+            let edge4 = p0 - p4;
+            let orientation = select(
+                -1.0,
+                1.0,
+                cross_2d(edge0, p2 - p0) >= 0.0);
+            let distance0 = -orientation * cross_2d(edge0, point - p0) /
+                max(length(edge0), 0.0001);
+            let distance1 = -orientation * cross_2d(edge1, point - p1) /
+                max(length(edge1), 0.0001);
+            let distance2 = -orientation * cross_2d(edge2, point - p2) /
+                max(length(edge2), 0.0001);
+            let distance3 = -orientation * cross_2d(edge3, point - p3) /
+                max(length(edge3), 0.0001);
+            let distance4 = -orientation * cross_2d(edge4, point - p4) /
+                max(length(edge4), 0.0001);
+            let gradient0 = orientation *
+                vec2<f32>(edge0.y, -edge0.x) / max(length(edge0), 0.0001);
+            let gradient1 = orientation *
+                vec2<f32>(edge1.y, -edge1.x) / max(length(edge1), 0.0001);
+            let gradient2 = orientation *
+                vec2<f32>(edge2.y, -edge2.x) / max(length(edge2), 0.0001);
+            exteriorDistance = max(distance0, distance1);
+            exteriorGradient = select(
+                gradient1, gradient0, distance0 >= distance1);
+            if (distance2 > exteriorDistance) {
+                exteriorDistance = distance2;
+                exteriorGradient = gradient2;
+            }
+            internalInside = distance3 <= 0.001 && distance4 <= 0.001;
+            allDistance = max(exteriorDistance, max(distance3, distance4));
+        } else if ((joinKind == 0u || joinKind == 3u) && input.strokeThickness > 0.5) {
             // Convex miter polygon order: previous outer, intersection, next
             // outer, center. Only the first two edges are exterior.
             let p0 = previousOuter;
@@ -2103,7 +2320,7 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let brush = brushes[u32(round(input.brushIndex))];
     let useBrushSolidColor = sType == 5u || sType == 6u ||
         (sType >= 12u && sType <= 18u) ||
-        sType == 22u || sType == 23u || sType == 24u;
+        sType == 22u || sType == 23u || sType == 24u || sType == 26u;
     var finalColor = sample_registered_material(
         brush, input.color, useBrushSolidColor, evalCoord, evalCoordDx, evalCoordDy);
 
@@ -2114,14 +2331,20 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     // Vertex meshes apply semantic state opacity after brush/vertex blending.
     // Applying it to the brush first is not equivalent for Porter-Duff and
     // advanced color blend modes. Other shapes retain their existing alpha.
-    let stateOpacity = select(1.0, clamp(input.strokeThickness, 0.0, 1.0), sType == 18u);
+    let stateOpacity = select(1.0, clamp(input.strokeThickness, 0.0, 1.0), sType == 18u || sType == 26u);
     return vec4<f32>(finalColor.rgb, finalColor.a * shapeAlpha * maskAlpha * stateOpacity);
+}
+
+@fragment
+fn fs_mask_target_space(input: VertexOutput) -> @location(0) vec4<f32> {
+    let color = vector_fs_main(input, 1.0, true);
+    return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2132,7 +2355,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_main_chain(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy) *
         sample_mask_chain_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2141,13 +2364,13 @@ fn fs_main_chain(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_main_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
-    return vector_fs_main(input, 1.0);
+    return vector_fs_main(input, 1.0, false);
 }
 
 @fragment
 fn fs_main_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2156,14 +2379,14 @@ fn fs_main_premultiplied(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_main_premultiplied_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = vector_fs_main(input, 1.0);
+    let color = vector_fs_main(input, 1.0, false);
     return vec4<f32>(color.rgb * color.a, color.a);
 }
 
 @fragment
 fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
     let maskAlpha = sample_mask_alpha(input.position.xy);
-    let color = vector_fs_main(input, maskAlpha);
+    let color = vector_fs_main(input, maskAlpha, false);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -2173,7 +2396,7 @@ fn fs_mask(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_mask_unmasked(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = vector_fs_main(input, 1.0);
+    let color = vector_fs_main(input, 1.0, false);
     // Premultiplied R8 coverage: transparent fragments preserve earlier ink.
     return vec4<f32>(color.a, 0.0, 0.0, color.a);
 }

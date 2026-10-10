@@ -276,3 +276,19 @@ qualify Windows x64/ARM64 system/hardware execution, and run source application
 gates. Product defaults, WPF dependency pins and ordered merge admission are
 unchanged. No testing-only WARP DLL is staged by the compiler tool or uploaded
 by its CI step.
+
+## Shared vector fragment compilation
+
+The vector entry points call their common fragment implementation directly with
+the explicit brush-frame policy. An extra two-argument forwarding wrapper caused
+stock FXC to abort with `argument pulled into unrelated predicate` after the
+target-space opacity-mask entry was added. Removing that wrapper leaves the
+original derivatives, sampling, paint and coverage arithmetic unchanged.
+
+An isolated compilation probe reproduced the failure on Windows ARM64 and then
+compiled all eight current vector fragment entry points successfully on both
+ARM64 and x64, using the actual stock Silk D3D12 provider, explicit FXC and
+Microsoft Basic Render Driver. The common candidate WGSL SHA256 was
+`bd60a7d8e4b739a9b990a1bf15fcb6e38a49b8ad306217b422bc86cb535fa839`.
+These checks establish compilation only; final whole-producer, rendered-pixel,
+package and source-application checks remain required.
