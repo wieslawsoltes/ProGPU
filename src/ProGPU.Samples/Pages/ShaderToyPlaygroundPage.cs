@@ -30,13 +30,7 @@ namespace ProGPU.Samples
 
         public static readonly string Preset1_CosmicWaves = ShaderResource.Load(typeof(ShaderToyPlaygroundPageGrid), "CosmicWaves.wgsl");
 
-        public static readonly string Preset2_StarNest = ShaderResource.Load(typeof(ShaderToyPlaygroundPageGrid), "StarNest.wgsl");
-
         public static readonly string Preset3_RaymarchedTorus = ShaderResource.Load(typeof(ShaderToyPlaygroundPageGrid), "RaymarchedTorus.wgsl");
-
-        public static readonly string Preset4_RaymarchingPrimitives = ShaderResource.Load(typeof(ShaderToyPlaygroundPageGrid), "RaymarchingPrimitives.glsl");
-
-        public static readonly string Preset5_StarNestGlsl = ShaderResource.Load(typeof(ShaderToyPlaygroundPageGrid), "StarNest.glsl");
 
         public ShaderToyPlaygroundPageGrid()
         {
@@ -101,15 +95,9 @@ namespace ProGPU.Samples
 
             var presetCombo = new ComboBox { Font = AppState._font, Width = 180f };
             var wavesItem = new ComboBoxItem("Cosmic Waves");
-            var starNestItem = new ComboBoxItem("Star Nest Journey");
             var torusItem = new ComboBoxItem("Raymarched Torus");
-            var primitivesItem = new ComboBoxItem("Raymarching Primitives (GLSL)");
-            var starNestGlslItem = new ComboBoxItem("Star Nest (Original GLSL)");
             presetCombo.Items.Add(wavesItem);
-            presetCombo.Items.Add(starNestItem);
             presetCombo.Items.Add(torusItem);
-            presetCombo.Items.Add(primitivesItem);
-            presetCombo.Items.Add(starNestGlslItem);
             presetCombo.SelectedItem = wavesItem;
             toolbarStack.AddChild(presetCombo);
 
@@ -296,10 +284,7 @@ namespace ProGPU.Samples
                     string code = selectedItem.Text switch
                     {
                         "Cosmic Waves" => Preset1_CosmicWaves,
-                        "Star Nest Journey" => Preset2_StarNest,
                         "Raymarched Torus" => Preset3_RaymarchedTorus,
-                        "Raymarching Primitives (GLSL)" => Preset4_RaymarchingPrimitives,
-                        "Star Nest (Original GLSL)" => Preset5_StarNestGlsl,
                         _ => Preset1_CosmicWaves
                     };
 
