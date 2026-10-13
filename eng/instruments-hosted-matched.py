@@ -7,8 +7,8 @@ import hashlib, json, os, re, shutil, signal, subprocess, time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-CANDIDATE='8bfe5b885ae9a8dcceccdccb19bb9ebeacd487fb'
-BASELINE='9873da2149939b1de80c003b41c06f6c53e477b4'
+CANDIDATE='4bbd1dc0cca4dfc8b6d3463346e305074a22a4be'
+BASELINE='8bfe5b885ae9a8dcceccdccb19bb9ebeacd487fb'
 assert all(os.environ.get(k)==v for k,v in {
     'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted',
     'RUNNER_OS':'macOS','GITHUB_REPOSITORY':'wieslawsoltes/ProGPU'}.items())
@@ -22,11 +22,10 @@ def sha(p):
     with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
 assert git('rev-parse','HEAD').decode().strip()==CANDIDATE
 assert all(p.is_file() for p in [app,provider,lib])
-production_changes=git('diff','--name-only',BASELINE,CANDIDATE,'--','src/ProGPU.Native/src').decode().splitlines()
+production_changes=git('diff','--name-only',BASELINE,CANDIDATE,'--','src/ProGPU.Backend/Shaders').decode().splitlines()
 assert production_changes==[
-    'src/ProGPU.Native/src/Backend/progpu_native_3d_execution.cpp',
-    'src/ProGPU.Native/src/Backend/progpu_native_3d_execution.hpp',
-    'src/ProGPU.Native/src/Backend/progpu_native_engine.hpp']
+    'src/ProGPU.Backend/Shaders/GlyphRasterizer.wgsl',
+    'src/ProGPU.Backend/Shaders/PathRasterizerCommon.wgsl']
 inputs=root/'inputs';inputs.mkdir()
 shutil.copy2(app,inputs/app.name);app=inputs/app.name
 shutil.copy2(provider,inputs/provider.name);provider=inputs/provider.name
@@ -37,17 +36,17 @@ original={p:(repo/p).read_bytes() for p in production_changes}
 assert all(data==git('show',CANDIDATE+':'+p) for p,data in original.items())
 try:
     for p in production_changes:(repo/p).write_bytes(git('show',BASELINE+':'+p))
-    assert sorted(git('diff','--name-only','--','src/ProGPU.Native/src').decode().splitlines())==production_changes
+    assert sorted(git('diff','--name-only','--','src/ProGPU.Backend/Shaders').decode().splitlines())==production_changes
     with (root/'baseline-build.log').open('wb') as output:
         subprocess.run(['cmake','--build',str(build),'--target','progpu_native_dawn','--config','Release','--parallel'],stdout=output,stderr=subprocess.STDOUT,check=True,timeout=1200)
     shutil.copy2(lib,variants['baseline']/lib.name)
 finally:
     for p,data in original.items():(repo/p).write_bytes(data)
-assert not git('diff','--name-only','--','src/ProGPU.Native/src').strip()
+assert not git('diff','--name-only','--','src/ProGPU.Backend/Shaders').strip()
 inputs_before={str(p.relative_to(root)):sha(p) for p in inputs.rglob('*') if p.is_file()}
 receipt={'diagnosticOnly':True,'qualified':False,'candidate':CANDIDATE,'baseline':BASELINE,
          'sourceDifference':production_changes,'inputSha256':inputs_before,
-         'configuration':'same Release CMake build, compiler, original test executable and exact WebScene provider; only the three native production files differ',
+         'configuration':'same Release CMake build, compiler, original test executable and exact WebScene provider; only the two canonical path/glyph shader sources differ',
          'applicationLimitSeconds':60,'outerProfilerLimitSeconds':150,
          'eventPipe':'Not applicable to this native C++ workload: no CLR process is launched. Managed GPU tests remain a separate required producer gate.',
          'results':[]}
@@ -93,7 +92,7 @@ exports={'time':[('time-profile',"/trace-toc/run[@number='1']/data/table[@schema
  'metal':[(s,"/trace-toc/run[@number='1']/data/table[@schema='"+s+"']") for s in [
      'metal-resource-allocations','metal-kernel-resource-allocations','metal-application-command-buffer-submissions','graphics-compiler-activity-intervals']]}
 for kind,template,extra in [('time','Time Profiler',[]),('memory','Allocations',['--instrument','VM Tracker']),('metal','Metal System Trace',[])]:
-    for index,label in enumerate(['baseline','candidate','candidate','baseline']):
+    for index,label in enumerate(['baseline','candidate']):
         out=root/f'{kind}-{index}-{label}';out.mkdir()
         command=['xcrun','xctrace','record','--template',template,*extra,'--time-limit','60s','--output',str(out/'capture.trace'),
                  '--target-stdout',str(out/'target.log'),'--env','DYLD_LIBRARY_PATH='+str(variants[label]),
@@ -114,7 +113,9 @@ for kind,template,extra in [('time','Time Profiler',[]),('memory','Allocations',
                 for name,xpath in exports[kind]:
                     item['tables'][name]=bounded(['xcrun','xctrace','export','--input',str(out/'capture.trace'),'--xpath',xpath,'--output',str(out/(name+'.xml'))],out/(name+'-export.log'),out,limit=90)
         retain(item)
-        if not item['complete']:raise SystemExit('Instrumented corpus incomplete; no retries or qualification claim')
-receipt['allMatchedCapturesComplete']=len(receipt['results'])==16 and all(x['complete'] for x in receipt['results']) and receipt['inputsUnchanged']
+        # Continue the predeclared other instrument/variant captures once; preserve every failure.
+receipt['allMatchedCapturesComplete']=len(receipt['results'])==10 and all(x['complete'] for x in receipt['results']) and receipt['inputsUnchanged']
 receipt['analysisRequired']=True
 (root/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
+
+raise SystemExit(0 if receipt["allMatchedCapturesComplete"] else 1)
