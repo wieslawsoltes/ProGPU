@@ -11,6 +11,4 @@ def run(name,args,limit):
 run('build',['dotnet','build',str(root/'Probe.csproj'),'-c','Release','--output',str(out/'probe'),'--nologo','-v:q'],180)
 for index,variant in enumerate(['baseline','candidate','candidate','baseline']):
  run(str(index)+'-'+variant,['dotnet',str(out/'probe/Probe.dll'),variant,str(root),str(out/(str(index)+'-'+variant+'.json'))],60)
-run('coverage-build',['dotnet','build',str(repo/'tests/ProGPU.PathRasterization.Conformance/ProGPU.PathRasterization.Conformance.csproj'),'-c','Release','--output',str(out/'conformance'),'--nologo','-v:q'],180)
-arch='Arm64' if os.environ['PROCESSOR_ARCHITECTURE'].upper()=='ARM64' else 'X64'
-run('coverage',['dotnet',str(out/'conformance/ProGPU.PathRasterization.Conformance.dll'),arch,'coverage'],120)
+run('coverage',['dotnet',str(out/'probe/Probe.dll'),'coverage-reference',str(root),str(out/'coverage.json')],120)

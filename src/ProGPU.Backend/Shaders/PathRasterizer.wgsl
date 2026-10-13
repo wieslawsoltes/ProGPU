@@ -349,13 +349,12 @@ fn cs_main_single_path(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (uniforms.pathOpKind != 0u || firstX >= uniforms.width || y >= uniforms.height) {
         return;
     }
-    // Bound the work by the valid pixels in this word. The remaining byte
-    // lanes stay zero without expanding a fixed four-copy coverage program.
-    let laneCount = min(4u, uniforms.width - firstX);
     var coverageWord = 0u;
-    for (var lane = 0u; lane < laneCount; lane = lane + 1u) {
+    for (var lane = 0u; lane < 4u; lane = lane + 1u) {
         let x = firstX + lane;
-        coverageWord = coverageWord | (single_path_coverage_byte(x, y, uniforms) << (lane * 8u));
+        if (x < uniforms.width) {
+            coverageWord = coverageWord | (single_path_coverage_byte(x, y, uniforms) << (lane * 8u));
+        }
     }
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
 }

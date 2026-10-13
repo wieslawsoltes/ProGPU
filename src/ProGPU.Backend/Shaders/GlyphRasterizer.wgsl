@@ -198,18 +198,12 @@ fn accumulate_winding_row(
             if (A.y == B.y) {
                 continue;
             }
-            if (A.y <= sample_y) {
-                if (B.y > sample_y) { // Upward crossing
-                    let t = (sample_y - A.y) / (B.y - A.y);
-                    let intersectX = A.x + t * (B.x - A.x);
-                    accumulate_crossing(intersectX, 1, sample_xs, windings);
-                }
-            } else {
-                if (B.y <= sample_y) { // Downward crossing
-                    let t = (sample_y - A.y) / (B.y - A.y);
-                    let intersectX = A.x + t * (B.x - A.x);
-                    accumulate_crossing(intersectX, -1, sample_xs, windings);
-                }
+            let upward = A.y <= sample_y;
+            if (select(B.y <= sample_y, B.y > sample_y, upward)) {
+                let t = (sample_y - A.y) / (B.y - A.y);
+                let intersectX = A.x + t * (B.x - A.x);
+                accumulate_crossing(intersectX, select(-1, 1, upward),
+                    sample_xs, windings);
             }
         } else if (seg.segmentType == 1u) {
             // Quadratic Bezier from A to C with control point B
@@ -251,10 +245,9 @@ fn accumulate_winding_row(
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
-                        if (deriv_y > 0.0) {
-                            accumulate_crossing(x_t, 1, sample_xs, windings);
-                        } else if (deriv_y < 0.0) {
-                            accumulate_crossing(x_t, -1, sample_xs, windings);
+                        if (deriv_y > 0.0 || deriv_y < 0.0) {
+                            accumulate_crossing(x_t, select(-1, 1, deriv_y > 0.0),
+                                sample_xs, windings);
                         }
                     }
                 }
@@ -302,10 +295,9 @@ fn accumulate_winding_row(
                                 + 3.0 * omt * omt * tc * B.x
                                 + 3.0 * omt * tc * tc * C.x
                                 + tc * tc * tc * D_pt.x;
-                        if (deriv_y > 0.0) {
-                            accumulate_crossing(x_t, 1, sample_xs, windings);
-                        } else if (deriv_y < 0.0) {
-                            accumulate_crossing(x_t, -1, sample_xs, windings);
+                        if (deriv_y > 0.0 || deriv_y < 0.0) {
+                            accumulate_crossing(x_t, select(-1, 1, deriv_y > 0.0),
+                                sample_xs, windings);
                         }
                     }
                 }
@@ -374,12 +366,12 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // Keep the packed word's unused byte lanes zero and visit only live pixels.
-    let laneCount = min(4u, uniforms.width - firstX);
     var coverageWord = 0u;
-    for (var lane = 0u; lane < laneCount; lane = lane + 1u) {
+    for (var lane = 0u; lane < 4u; lane = lane + 1u) {
         let x = firstX + lane;
-        coverageWord = coverageWord | (glyph_coverage_byte(x, y) << (lane * 8u));
+        if (x < uniforms.width) {
+            coverageWord = coverageWord | (glyph_coverage_byte(x, y) << (lane * 8u));
+        }
     }
 
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;

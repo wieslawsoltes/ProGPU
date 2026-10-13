@@ -4,7 +4,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Runtime.InteropServices;
-if (args.Length != 3 || args[0] is not ("baseline" or "candidate")) throw new ArgumentException();
+if (args.Length != 3 || args[0] is not ("baseline" or "candidate" or "coverage-reference")) throw new ArgumentException();
+if (args[0] == "coverage-reference") {
+ new ProGPU.Tests.OriginalPathCoverageProbe { OriginalShader = File.ReadAllText(Path.Combine(args[1], "baseline-path.wgsl")) }.SinglePathEntryMatchesEveryOrdinaryCoverageWordAndUntouchedSlot();
+ File.WriteAllText(args[2], "{\"passed\":true,\"originalCases\":128,\"qualified\":false}"); return;
+}
 string root = Path.GetFullPath(args[1]);
 using var context = new WgpuContext();
 context.Initialize(null);

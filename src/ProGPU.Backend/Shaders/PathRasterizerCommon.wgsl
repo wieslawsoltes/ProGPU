@@ -308,18 +308,9 @@ fn add_arc_crossing(
 
     // Preserve direction-aware half-open path intervals: upward [0,1),
     // downward (0,1].
-    if (deriv_y > 0.0 && !at_end) {
-        add_crossing(
-            winding,
-            sample_positions_x,
-            intersect_x,
-            1);
-    } else if (deriv_y < 0.0 && !at_start) {
-        add_crossing(
-            winding,
-            sample_positions_x,
-            intersect_x,
-            -1);
+    if ((deriv_y > 0.0 && !at_end) || (deriv_y < 0.0 && !at_start)) {
+        add_crossing(winding, sample_positions_x, intersect_x,
+            select(-1, 1, deriv_y > 0.0));
     }
 }
 
@@ -379,14 +370,10 @@ fn row_winding_impl(
             if (A.y == B.y) {
                 continue;
             }
-            if (A.y <= sampleY) {
-                if (B.y > sampleY) {
-                    add_line_crossing(&winding, samplePositionsX, sampleY, A, B, 1);
-                }
-            } else {
-                if (B.y <= sampleY) {
-                    add_line_crossing(&winding, samplePositionsX, sampleY, A, B, -1);
-                }
+            let upward = A.y <= sampleY;
+            if (select(B.y <= sampleY, B.y > sampleY, upward)) {
+                add_line_crossing(&winding, samplePositionsX, sampleY, A, B,
+                    select(-1, 1, upward));
             }
         } else if (seg.segmentType == 1u) {
             let A = seg.p0;
@@ -433,10 +420,9 @@ fn row_winding_impl(
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let x_t = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
-                        if (deriv_y > 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, 1);
-                        } else if (deriv_y < 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, -1);
+                        if (deriv_y > 0.0 || deriv_y < 0.0) {
+                            add_crossing(&winding, samplePositionsX, x_t,
+                                select(-1, 1, deriv_y > 0.0));
                         }
                     }
                 }
@@ -509,10 +495,9 @@ fn row_winding_impl(
                         let x_t = (omt * omt * A.x
                             + 2.0 * weight * omt * tc * B.x
                             + tc * tc * C.x) / rational_denominator;
-                        if (deriv_y > 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, 1);
-                        } else if (deriv_y < 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, -1);
+                        if (deriv_y > 0.0 || deriv_y < 0.0) {
+                            add_crossing(&winding, samplePositionsX, x_t,
+                                select(-1, 1, deriv_y > 0.0));
                         }
                     }
                 }
@@ -611,10 +596,9 @@ fn row_winding_impl(
                             + 3.0 * weight1 * omt2 * tc * B.x
                             + 3.0 * weight2 * omt * t2 * C.x
                             + t2 * tc * D_pt.x) / rational_denominator;
-                        if (deriv_y > 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, 1);
-                        } else if (deriv_y < 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, -1);
+                        if (deriv_y > 0.0 || deriv_y < 0.0) {
+                            add_crossing(&winding, samplePositionsX, x_t,
+                                select(-1, 1, deriv_y > 0.0));
                         }
                     }
                 }
