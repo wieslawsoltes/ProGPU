@@ -38,7 +38,7 @@ def save(item):
 def run(command,out,env=None,limit=150):
  start=time.monotonic();timed=False
  with out.open('wb') as f:
-  p=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,env=env,start_new_session=True)
+  p=subprocess.Popen(command,stdout=f,stderr=subprocess.STDOUT,env=env,cwd=out.parent,start_new_session=True)
   try:code=p.wait(timeout=limit)
   except subprocess.TimeoutExpired:timed=True;os.killpg(p.pid,signal.SIGKILL);code=p.wait(timeout=5)
  return {'exit':code,'timedOut':timed,'wallSeconds':time.monotonic()-start}
