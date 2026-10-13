@@ -8,9 +8,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 BASELINE = '340cd628d7b05417b370f35a6f10e24cba9b6197'
-CANDIDATE = 'e584cb56dc353de07f78a9d226eb528ffbc771e2'
+CANDIDATE = '5853d27635ccf50f261b8451716750121633e371'
 CORPUS = '8bfe5b885ae9a8dcceccdccb19bb9ebeacd487fb'
-RUNS = {'baseline': 38395585615, 'candidate': 38420884031}
+RUNS = {'baseline': 38395585615, 'candidate': 38442380782}
 assert all(os.environ.get(k) == v for k, v in {
     'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
     'RUNNER_OS': 'macOS', 'GITHUB_REPOSITORY': 'wieslawsoltes/ProGPU'}.items())
