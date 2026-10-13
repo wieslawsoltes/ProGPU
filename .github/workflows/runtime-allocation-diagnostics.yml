@@ -1,54 +1,30 @@
 name: Runtime allocation diagnostics
-
 on:
-  workflow_dispatch:
-  workflow_call:
-
+  workflow_dispatch: {}
 permissions:
   contents: read
-
-# Independent measurements only: never a replacement for product allocation
-# assertions or qualification of a package-producing Build.
+  actions: read
 jobs:
-  counter:
-    name: Independent runtime counter (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-26]
+  first-launch:
+    name: Original WebScene first-launch CPU attribution
+    runs-on: macos-26
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: Prepare pinned framework sources
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: python3 eng/progpu-prepare-framework-sources.py
-      - uses: actions/setup-dotnet@v5
         with:
-          global-json-file: global.json
-      - name: Build the package-free reproducer
-        run: dotnet build eng/RuntimeAllocationProbe/RuntimeAllocationProbe.csproj -c Release
-      - name: Measure exactly once without runtime overrides
-        shell: pwsh
-        run: |
-          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/runtime-allocation-counter'
-          if (Test-Path -LiteralPath $evidence) { throw 'Diagnostic evidence already exists.' }
-          New-Item -ItemType Directory -Path $evidence | Out-Null
-          dotnet --info | Out-File (Join-Path $evidence 'runtime.txt')
-          & dotnet eng/RuntimeAllocationProbe/bin/Release/net10.0/RuntimeAllocationProbe.dll `
-            > (Join-Path $evidence 'stdout.log') 2> (Join-Path $evidence 'stderr.log')
-          $code = $LASTEXITCODE
-          $code | Out-File (Join-Path $evidence 'exit-code.txt')
-          Get-Content (Join-Path $evidence 'stdout.log')
-          Get-Content (Join-Path $evidence 'stderr.log')
-          # Exit 1 means an observed nonzero empty interval, not an invalid
-          # control. Keep that failure visible; do not retry until it passes.
-          exit $code
-      - name: Retain all counter controls and raw observations
+          fetch-depth: 0
+      - name: Trace the first original workload launch and one subsequent reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 eng/webscene-first-launch-diagnostic.py
+      - name: Retain every original result and trace
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: runtime-allocation-counter-${{ matrix.os }}-${{ github.sha }}
-          path: artifacts/runtime-allocation-counter/
+          name: webscene-first-launch-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/webscene-first-launch/*.json
+            ${{ runner.temp }}/webscene-first-launch/first-launch
+            ${{ runner.temp }}/webscene-first-launch/subsequent-reference
           if-no-files-found: error
+          retention-days: 7
