@@ -1,315 +1,36 @@
 name: Runtime allocation diagnostics
-'on':
-  workflow_dispatch: {}
+on:
+  workflow_dispatch:
 permissions:
   contents: read
-env:
-  PROGPU_QUALIFIED_COMMIT: 8bfe5b885ae9a8dcceccdccb19bb9ebeacd487fb
+  actions: read
 jobs:
-  matched-instruments:
-    name: Matched full native workload Instruments (diagnostic only)
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    env:
-      PROGPU_NATIVE_MIL_IMAGE_BRUSH_CAPTURE_DIR: ${{ github.workspace }}/artifacts/progpu-native/image-brush-oracle
+  remaining-instruments:
+    name: Matched ${{ matrix.kind }} ${{ matrix.order }} (diagnostic only)
+    runs-on: macos-26
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-        - os: macos-26
-          rid: osx-arm64
+        kind: [memory, metal]
+        order: [AB, BA]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CAPTURE_KIND: ${{ matrix.kind }}
+      CAPTURE_ORDER: ${{ matrix.order }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
-        submodules: recursive
-        fetch-depth: 0
-    - name: Checkout diagnostic harness separately
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ github.sha }}
-        path: diagnostic-harness
-    - name: Prepare pinned framework sources
-      shell: bash
-      working-directory: ${{ github.workspace }}
-      run: python3 eng/progpu-prepare-framework-sources.py
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v5
-      with:
-        global-json-file: global.json
-    - name: Verify Windows compiler dependency input handling
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: './eng/test-wgpu-native-windows-inputs.ps1
-
-        if ($LASTEXITCODE -ne 0) { throw ''Native compiler build input checks failed.'' }
-
-        ./eng/test-dxc-compiler-inputs.ps1
-
-        '
-    - name: Stage pinned redistributable Windows shader compiler
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: '$pin = Get-Content -Raw eng/wgpu-dxc/compiler-package.json | ConvertFrom-Json
-
-        $archive = Join-Path $env:RUNNER_TEMP "Microsoft.Direct3D.DXC.$($pin.version).nupkg"
-
-        Invoke-WebRequest -Uri $pin.url -OutFile $archive
-
-        ./eng/stage-dxc-compiler.ps1 -Rid ''${{ matrix.rid }}'' -PackagePath $archive -OutputDirectory ''artifacts/dxc-compiler/${{
-        matrix.rid }}''
-
-        '
-    - name: Upload verified Windows compiler artifact
-      if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-dxc-compiler-${{ matrix.rid }}
-        path: artifacts/dxc-compiler/${{ matrix.rid }}
-        if-no-files-found: error
-    - name: Cache Windows native dependencies
-      if: runner.os == 'Windows'
-      uses: actions/cache@v5
-      with:
-        path: '~/.nuget/packages
-
-          artifacts/wgpu-native-src
-
-          artifacts/webgpu-headers-dawn
-
-          '
-        key: progpu-native-windows-v2-${{ matrix.rid }}-${{ hashFiles('global.json', 'Directory.Packages.props',
-          'src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj') }}
-    - name: Verify generated C# native contract
-      if: matrix.rid == 'linux-x64'
-      shell: bash
-      run: ./eng/progpu-verify-native-contract.sh
-    - name: Install Linux WebGPU dependencies
-      if: runner.os == 'Linux'
-      timeout-minutes: 10
-      run: "./eng/progpu-install-linux-packages.sh \\\n  clang \\\n  clang-tools \\\n  cmake \\\n  ninja-build \\\
-        \n  gnupg \\\n  fonts-dejavu-core \\\n  libvulkan1 \\\n  mesa-vulkan-drivers \\\n  libx11-xcb1 \\\n  libxcb1\
-        \ \\\n  libxcb-randr0 \\\n  libxcb-render0 \\\n  libxcb-shape0 \\\n  libxcb-shm0 \\\n  libxcb-xfixes0 \\\
-        \n  libxcb-present0 \\\n  libxkbcommon0\n"
-    - name: Install macOS native build tools
-      if: runner.os == 'macOS'
-      run: brew install ninja gnupg
-    - name: Build signed isolated font dependency
-      if: runner.os != 'Windows'
-      shell: bash
-      run: "font_workspace=\"$(mktemp -d \"${RUNNER_TEMP}/progpu-freetype.XXXXXXXX\")\"\nfont_workspace=\"$(cd \"\
-        $font_workspace\" && pwd -P)\"\necho \"PROGPU_FREETYPE_WORKSPACE=$font_workspace\" >> \"$GITHUB_ENV\"\n\
-        if [[ '${{ runner.os }}' == 'macOS' ]]; then\n  test_font='/System/Library/Fonts/Supplemental/Arial.ttf'\n\
-        else\n  test_font='/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'\nfi\npython3 ./eng/progpu-prepare-freetype.py\
-        \ \\\n  --workspace \"$font_workspace\" --rid '${{ matrix.rid }}' --cc clang --cxx clang++ \\\n  --test-font\
-        \ \"$test_font\"\n"
-    - name: Build signed isolated font dependency on Windows
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: '$fontWorkspace = Join-Path $env:RUNNER_TEMP (''progpu-freetype.'' + [Guid]::NewGuid().ToString(''N''))
-
-        "PROGPU_FREETYPE_WORKSPACE=$fontWorkspace" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-        ./eng/progpu-prepare-freetype-windows.ps1 -Rid ''${{ matrix.rid }}'' -Workspace $fontWorkspace
-
-        '
-    - name: Upload verified font dependency and original notices
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-freetype-${{ matrix.rid }}
-        path: ${{ env.PROGPU_FREETYPE_WORKSPACE }}/install
-        if-no-files-found: error
-    - name: Fetch exact owned EDIT dictionary source
-      if: runner.os != 'Windows'
-      shell: bash
-      run: "python3 - <<'PY'\nimport hashlib, json, os, pathlib, tempfile, urllib.request\npin = json.loads(pathlib.Path('eng/native-edit-word-icu.json').read_text())\n\
-        workspace = pathlib.Path(tempfile.mkdtemp(prefix='progpu-edit-icu.', dir=os.environ['RUNNER_TEMP'])).resolve()\n\
-        archive = workspace / 'icu-sources.tgz'\nwith urllib.request.urlopen(pin['sourceUrl']) as source, archive.open('xb')\
-        \ as output:\n    while chunk := source.read(1024 * 1024):\n        output.write(chunk)\nwith archive.open('rb')\
-        \ as source:\n    actual = hashlib.file_digest(source, 'sha256').hexdigest()\nif actual != pin['sourceSha256']:\n\
-        \    raise SystemExit('Owned EDIT dictionary source differs from the reviewed pin')\nwith open(os.environ['GITHUB_ENV'],\
-        \ 'a') as output:\n    output.write(f'PROGPU_EDIT_WORD_ICU_ARCHIVE={archive}\\n')\nPY\n"
-    - name: Fetch exact owned EDIT dictionary source on Windows
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: "$pin = Get-Content -Raw eng/native-edit-word-icu.json | ConvertFrom-Json\n$workspace = Join-Path $env:RUNNER_TEMP\
-        \ ('progpu-edit-icu.' + [Guid]::NewGuid().ToString('N'))\nNew-Item -ItemType Directory -Path $workspace\
-        \ | Out-Null\n$archive = Join-Path $workspace 'icu-sources.tgz'\nInvoke-WebRequest -Uri $pin.sourceUrl -OutFile\
-        \ $archive\nif ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.sourceSha256)\
-        \ {\n  throw 'Owned EDIT dictionary source differs from the reviewed pin.'\n}\n\"PROGPU_EDIT_WORD_ICU_ARCHIVE=$archive\"\
-        \ | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8\n"
-    - name: Build and integration-test native renderer
-      if: runner.os != 'Windows'
-      shell: bash
-      env:
-        PROGPU_NATIVE_RUN_SANITIZERS: ${{ matrix.rid == 'linux-x64' && '1' || '0' }}
-        PROGPU_NATIVE_RUN_DAWN_HEADER_CONTRACT: 1
-        PROGPU_NATIVE_ENABLE_CPP_MODULES: ${{ matrix.rid == 'linux-x64' && 'ON' || '' }}
-      run: './eng/build-progpu-native.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json"
-        --edit-word-icu-archive "$PROGPU_EDIT_WORD_ICU_ARCHIVE"
-
-        ./eng/progpu-stage-native-runtime.sh --font-manifest "$PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json"
-        --edit-word-icu-archive "$PROGPU_EDIT_WORD_ICU_ARCHIVE"
-
-        '
-    - name: Build and integration-test native renderer on Windows
-      if: runner.os == 'Windows'
-      shell: pwsh
-      run: ./eng/build-progpu-native-windows.ps1 -Rid "${{ matrix.rid }}" -BenchmarkProfile Smoke -FontManifest
-        "${{ env.PROGPU_FREETYPE_WORKSPACE }}/install/progpu-freetype.json" -EditWordIcuArchive "${{ env.PROGPU_EDIT_WORD_ICU_ARCHIVE
-        }}"
-    - name: Upload failed managed-picture allocation diagnostics
-      if: failure() && runner.os == 'macOS'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-native-managed-picture-diagnostics-${{ matrix.rid }}
-        path: artifacts/progpu-native/diagnostics/managed-picture
-        if-no-files-found: warn
-    - name: Retain original Direct2D RGB glyph parameter receipts
-      if: always() && runner.os == 'Windows'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-direct2d-rgb-reference-${{ matrix.rid }}
-        path: '**/direct2d-rgb-reference-*/'
-        if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
-    - name: Upload native MIL ImageBrush frames
-      if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-mil-image-brush-${{ matrix.rid }}
-        path: artifacts/progpu-native/image-brush-oracle
-        if-no-files-found: error
-    - name: Capture pinned Microsoft DirectX sample oracles
-      if: matrix.rid == 'win-x64'
-      shell: pwsh
-      run: './eng/progpu-capture-directx-sample-oracle.ps1 -Platform x64 -Sample HelloTriangle -UseWarp
-
-        ./eng/progpu-capture-directx-sample-oracle.ps1 -Platform x64 -Sample HelloTexture -UseWarp
-
-        '
-    - name: Upload DirectX sample differential evidence
-      if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-directx-oracle-${{ matrix.rid }}
-        path: artifacts/progpu-native/directx-oracle
-        if-no-files-found: error
-    - name: Upload portable Win2D Canvas evidence
-      if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-win2d-canvas-${{ matrix.rid }}
-        path: artifacts/progpu-native/win2d-oracle
-        if-no-files-found: error
-    - name: Upload portable Direct2D WebGPU evidence
-      if: matrix.rid == 'linux-x64' || matrix.rid == 'osx-arm64' || matrix.rid == 'win-x64'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-direct2d-webgpu-${{ matrix.rid }}
-        path: artifacts/progpu-native/direct2d-oracle
-        if-no-files-found: error
-    - name: Verify exact WebScene provider on Metal
-      if: matrix.rid == 'osx-arm64'
-      shell: bash
-      run: 'python3 eng/tests/test_webscene_timeout_diagnostics.py -v
-
-        ./eng/progpu-verify-native-webscene-provider.sh
-
-        '
-      id: original_webscene
-    - name: Upload WebScene provider hardware evidence
-      if: always() && matrix.rid == 'osx-arm64'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-native-webscene-provider-osx-arm64
-        path: 'artifacts/progpu-native/sample/progpu-native-webscene-provider.ppm
-
-          artifacts/progpu-native/sample/progpu-native-webscene-provider.png
-
-          artifacts/progpu-native/sample/progpu-native-webscene-provider.txt
-
-          artifacts/progpu-native/sample/progpu-native-managed-dawn.ppm
-
-          artifacts/progpu-native/sample/progpu-native-managed-dawn.png
-
-          artifacts/progpu-native/sample/progpu-native-3d-pipeline-demand.rgba
-
-          artifacts/progpu-native/sample/webscene-timeout-diagnostics/**
-
-          '
-        if-no-files-found: error
-    - name: Upload native backend execution evidence
-      if: matrix.rid == 'linux-x64' || matrix.rid == 'linux-arm64' || matrix.rid == 'osx-x64' || matrix.rid == 'osx-arm64'
-        || matrix.rid == 'win-x64' || matrix.rid == 'win-arm64'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-native-backend-${{ matrix.rid }}
-        path: 'artifacts/progpu-native/sample/progpu-native-sample.ppm
-
-          artifacts/progpu-native/sample/progpu-native-provider.txt
-
-          '
-        if-no-files-found: error
-    - name: Upload native runtime
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-native-runtime-${{ matrix.rid }}
-        path: artifacts/progpu-native/package
-        if-no-files-found: error
-    - name: Upload native symbols
-      if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v7
-      with:
-        name: progpu-native-symbols-${{ matrix.rid }}
-        path: artifacts/progpu-native/symbols/${{ matrix.rid }}
-        if-no-files-found: warn
-    - name: Capture matched original workload without changing acceptance
-      if: always()
-      run: python3 diagnostic-harness/eng/instruments-hosted-matched.py
-    - name: Retain control Instruments evidence
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: matched-instruments-control-${{ github.run_id }}
-        path: ${{ runner.temp }}/matched-instruments/control-*
-        if-no-files-found: warn
-        retention-days: 7
-    - name: Retain time Instruments evidence
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: matched-instruments-time-${{ github.run_id }}
-        path: ${{ runner.temp }}/matched-instruments/time-*
-        if-no-files-found: warn
-        retention-days: 7
-    - name: Retain memory Instruments evidence
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: matched-instruments-memory-${{ github.run_id }}
-        path: ${{ runner.temp }}/matched-instruments/memory-*
-        if-no-files-found: warn
-        retention-days: 7
-    - name: Retain metal Instruments evidence
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: matched-instruments-metal-${{ github.run_id }}
-        path: ${{ runner.temp }}/matched-instruments/metal-*
-        if-no-files-found: warn
-        retention-days: 7
-    - name: Retain profiling source and receipts
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: matched-instruments-inputs-${{ github.run_id }}
-        path: '${{ runner.temp }}/matched-instruments/*.json
-
-          ${{ runner.temp }}/matched-instruments/*.txt
-
-          ${{ runner.temp }}/matched-instruments/*.log
-
-          ${{ runner.temp }}/matched-instruments/inputs'
-        if-no-files-found: warn
-        retention-days: 7
+      - uses: actions/checkout@v4
+      - name: Capture missing matched profiles from verified original binaries
+        run: python3 eng/instruments-hosted-remaining.py
+      - name: Retain original receipts, tables and trace artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remaining-instruments-${{ matrix.kind }}-${{ matrix.order }}-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/remaining-instruments/receipt.json
+            ${{ runner.temp }}/remaining-instruments/whole-producer.json
+            ${{ runner.temp }}/remaining-instruments/control-*/**
+            ${{ runner.temp }}/remaining-instruments/memory-*/**
+            ${{ runner.temp }}/remaining-instruments/metal-*/**
