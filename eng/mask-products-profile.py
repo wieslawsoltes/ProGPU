@@ -157,7 +157,10 @@ def save(item):
 def verify_output(out, label):
     log = (out / 'target.log').read_text(errors='replace') if (out / 'target.log').exists() else ''
     actual = pictures(out)
-    loaded = [line for line in log.splitlines() if 'libprogpu_native_dawn.dylib' in line and line.startswith('dyld[')]
+    # xctrace documents stdout redirection only; retain the original stderr
+    # stream in its recorder log as well when checking dyld's actual selection.
+    recorder = (out / 'profiler.log').read_text(errors='replace') if (out / 'profiler.log').exists() else ''
+    loaded = [line for line in (log + '\n' + recorder).splitlines() if 'libprogpu_native_dawn.dylib' in line and line.startswith('dyld[')]
     selected = str(variants[label] / 'libprogpu_native_dawn.dylib')
     loaded_exact = bool(loaded) and all(selected in line for line in loaded)
     return log, actual, loaded_exact
