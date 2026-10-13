@@ -374,12 +374,12 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
+    // Keep the packed word's unused byte lanes zero and visit only live pixels.
+    let laneCount = min(4u, uniforms.width - firstX);
     var coverageWord = 0u;
-    for (var lane = 0u; lane < 4u; lane = lane + 1u) {
+    for (var lane = 0u; lane < laneCount; lane = lane + 1u) {
         let x = firstX + lane;
-        if (x < uniforms.width) {
-            coverageWord = coverageWord | (glyph_coverage_byte(x, y) << (lane * 8u));
-        }
+        coverageWord = coverageWord | (glyph_coverage_byte(x, y) << (lane * 8u));
     }
 
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
