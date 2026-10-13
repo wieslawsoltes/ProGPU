@@ -1,0 +1,87 @@
+{
+  "baseline": "4bbd1dc0cca4dfc8b6d3463346e305074a22a4be",
+  "reference": "8bfe5b885ae9a8dcceccdccb19bb9ebeacd487fb",
+  "qualified": false,
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    {
+      "path": "OriginalGlyphCoverageProbe.cs",
+      "bytes": 8015,
+      "sha256": "9a4b2b23b6e9db64cd1b476e69efe07fcd7f255507bfbfc7976c1d8a46635ac4"
+    },
+    {
+      "path": "OriginalPathCoverageProbe.cs",
+      "bytes": 12465,
+      "sha256": "15d97a8396ca6675257aadde5f9673efa6e7c40df908a8202451c124ca7aa9ba"
+    },
+    {
+      "path": "Probe.csproj",
+      "bytes": 631,
+      "sha256": "660bfab40e02c123cfde48bfd451b59b04b1efb00ed0edb0d03490638e755d8f"
+    },
+    {
+      "path": "Program.cs",
+      "bytes": 2512,
+      "sha256": "1aee4a189338b277f831681679a1771aa412339143e14477effee82e3e5cf942"
+    },
+    {
+      "path": "baseline-glyph.wgsl",
+      "bytes": 13397,
+      "sha256": "50a30bf25cbfdc410b4350ec5a58b436cd5607f0b3326a391f5f87a1b2318971"
+    },
+    {
+      "path": "baseline-path.wgsl",
+      "bytes": 51002,
+      "sha256": "84d4ae5d165adac83a7b20473a3e80b8d905f3c32cf148b625fbb43574bf2571"
+    },
+    {
+      "path": "index-glyph.wgsl",
+      "bytes": 13245,
+      "sha256": "ae0dd3d277f293f234634bf06d00f401136f000fc8c6a92d70d1f13dd8371c09"
+    },
+    {
+      "path": "index-path.wgsl",
+      "bytes": 50850,
+      "sha256": "81cb9d2c5f55fac054bd549e5c55e9f2332d5aef345878a4eec663f872aa6f6a"
+    },
+    {
+      "path": "reference-glyph.wgsl",
+      "bytes": 13616,
+      "sha256": "eb70f351234bf4c02f9a591e88ebe6595492080c5da1cfe042d1eb2a2f079956"
+    },
+    {
+      "path": "reference-path.wgsl",
+      "bytes": 51254,
+      "sha256": "f92a1381881986ea28085550d1a838e92fd07f322e73067ccdf59c25a3c4662c"
+    },
+    {
+      "path": "research.txt",
+      "bytes": 2037,
+      "sha256": "f53470a8594b811b197f125d26423bb9b36fa60e7f76e574d8a4ece68c2072b1"
+    },
+    {
+      "path": "run.py",
+      "bytes": 1713,
+      "sha256": "81a0ff1c33258a965a9a589c4d7fb930585eef66292b684d9830089be58a65f3"
+    },
+    {
+      "path": "select-glyph.wgsl",
+      "bytes": 13328,
+      "sha256": "308900fa36aa95fcbb44ea8915ff85d26da8c63c8687c55b320be44e8a10596e"
+    },
+    {
+      "path": "select-path.wgsl",
+      "bytes": 50933,
+      "sha256": "6325d21d303061fa2a28a8eff555826b3e371874e3bbc6342b3880f4d304609a"
+    },
+    {
+      "path": "workflow.yml",
+      "bytes": 992,
+      "sha256": "a39296d46b1c38199fd2d97f0a7b5c116d42aef472de5e18def0c4bff65bc00c"
+    }
+  ]
+}

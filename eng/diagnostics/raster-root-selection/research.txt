@@ -1,0 +1,13 @@
+Diagnostic only. No production shader or qualification gate is changed.
+Provenance: ProGPU 4bbd1dc0cca4dfc8b6d3463346e305074a22a4be original canonical GlyphRasterizer and concatenated PathRasterizerCommon + newline + PathRasterizer. Independent complete 8bfe shaders and exact original128 path/384 glyph controls retained. Only two local helper bodies differ. The u32-index clamp preserves the old default final component for every index; nested select preserves each old branch. No arithmetic, root count/order, sample, winding, packing, ownership or submission changes. CPU/GPU complexity unchanged. Both native providers and managed consumers use the same canonical shader resources if adopted; no adoption yet. Compilation time is diagnostic only, not application improvement.
+Primary design sources reviewed2026-10-13:
+https://www.w3.org/TR/WGSL/#vector-single-component-selection
+https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-operators
+https://github.com/google/skia/blob/main/modules/skparagraph/include/Paragraph.h
+https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance
+https://microsoft.github.io/Win2D/WinUI3/html/LoadingResourcesOutsideCreateResources.htm
+https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html
+https://github.com/linebender/vello
+https://github.com/linebender/parley
+https://harfbuzz.github.io/what-does-harfbuzz-do.html
+Adopted: vector component semantics and bounded same-component selection; preserve CPU layout/shaping and GPU raster separation, retained scene/resource ownership and demand-driven initialization. Rejected: replacing original raster math, CPU fallback, eager global warmup, altered device ownership, flushes or deadlines. Worker scheduling, cache eviction, DPI/hinting/fallback/variable fonts and generation invalidation remain unchanged. No external implementation text copied. Matched final Instruments and full native/managed/provider/image/application gates remain mandatory before any production adoption.
