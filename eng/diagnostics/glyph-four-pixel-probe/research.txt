@@ -1,0 +1,15 @@
+Diagnostic only. No production shader or qualification gate is changed.
+Provenance: ProGPU4bbd1dc0cca4dfc8b6d3463346e305074a22a4be original canonical shaders; complete unchanged8bfe reference shaders and original128 path/384 glyph cases remain independent. Original WebScene60-second control and Windows Gallery60-second startup are acceptance applications. Their retained glyph raster/first-frame shader compilation are the bounded blocker paths.
+The original glyph compute invocation packs four output pixels but repeats identical Y-root solving for each. This private prototype computes those roots once per sample row and keeps four separate original8-lane signed winding records. All polynomial coefficients, root evaluation/order, source owners, sample positions, unsigned counts, rounding, tails and scalar fragment entry remain unchanged. Invalid output tail lanes never publish bytes. The prototype duplicates only original ProGPU-owned traversal to measure potential; it is not a production architecture proposal. No third-party implementation text is used.
+Primary design sources reviewed2026-10-13:
+https://www.w3.org/TR/WGSL/#vector-single-component-selection
+https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-operators
+https://github.com/google/skia/blob/main/modules/skparagraph/include/Paragraph.h
+https://learn.microsoft.com/en-us/windows/win32/direct2d/improving-direct2d-performance
+https://microsoft.github.io/Win2D/WinUI3/html/LoadingResourcesOutsideCreateResources.htm
+https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html
+https://github.com/linebender/vello
+https://github.com/linebender/parley
+https://harfbuzz.github.io/what-does-harfbuzz-do.html
+Adopted: shared invariant analytic work within one existing GPU invocation, preserving independent output sample/winding ownership. Original CPU shaping/layout, retained scenes, device ownership and demand-driven upload remain unchanged. Rejected: CPU raster fallback, alternate coverage math, output tolerances, deadline changes, global asynchronous warmup or source reconstruction. No changes to worker preparation, font fallback/variation/hinting, DPI/subpixel policy, cache eviction, resource generations or device loss. Both native providers and managed consumers use canonical resources if adopted; applicability includes allthree. Mathematical complexity remains O(R*S+A) per texel, with a larger fixed four-pixel vector working set. Compiler/register/occupancy tradeoffs must be measured.
+Metal original128+384 exact cases passed. Windows compiler measurements and exact cases pending. Compilation time alone does not qualify application speed, and this remains diagnostic-only. Final unified canonical implementation, full managed/native/provider/package/image/application checks and matched Instruments remain required before adoption.

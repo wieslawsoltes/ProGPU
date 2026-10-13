@@ -1,0 +1,32 @@
+name: Native path diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  four-pixel:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Compare original four-pixel glyph coverage and shader compilation
+        run: python eng/diagnostics/glyph-four-pixel-probe/run.py
+      - name: Preserve every process result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: glyph-four-pixel-probe-${{ matrix.os }}-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/glyph-four-pixel-probe/*.log
+            ${{ runner.temp }}/glyph-four-pixel-probe/*.json

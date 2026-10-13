@@ -1,0 +1,77 @@
+{
+  "baseline": "4bbd1dc0cca4dfc8b6d3463346e305074a22a4be",
+  "reference": "8bfe5b885ae9a8dcceccdccb19bb9ebeacd487fb",
+  "qualified": false,
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    {
+      "path": "OriginalGlyphCoverageProbe.cs",
+      "bytes": 8015,
+      "sha256": "9a4b2b23b6e9db64cd1b476e69efe07fcd7f255507bfbfc7976c1d8a46635ac4"
+    },
+    {
+      "path": "OriginalPathCoverageProbe.cs",
+      "bytes": 12465,
+      "sha256": "15d97a8396ca6675257aadde5f9673efa6e7c40df908a8202451c124ca7aa9ba"
+    },
+    {
+      "path": "Probe.csproj",
+      "bytes": 631,
+      "sha256": "660bfab40e02c123cfde48bfd451b59b04b1efb00ed0edb0d03490638e755d8f"
+    },
+    {
+      "path": "Program.cs",
+      "bytes": 2499,
+      "sha256": "35205036992b2c8d2318d2840f4de812e33af9ab9862b374dad4b237931aff0b"
+    },
+    {
+      "path": "baseline-glyph.wgsl",
+      "bytes": 13397,
+      "sha256": "50a30bf25cbfdc410b4350ec5a58b436cd5607f0b3326a391f5f87a1b2318971"
+    },
+    {
+      "path": "baseline-path.wgsl",
+      "bytes": 51002,
+      "sha256": "84d4ae5d165adac83a7b20473a3e80b8d905f3c32cf148b625fbb43574bf2571"
+    },
+    {
+      "path": "reference-glyph.wgsl",
+      "bytes": 13616,
+      "sha256": "eb70f351234bf4c02f9a591e88ebe6595492080c5da1cfe042d1eb2a2f079956"
+    },
+    {
+      "path": "reference-path.wgsl",
+      "bytes": 51254,
+      "sha256": "f92a1381881986ea28085550d1a838e92fd07f322e73067ccdf59c25a3c4662c"
+    },
+    {
+      "path": "research.txt",
+      "bytes": 2859,
+      "sha256": "820f6500f3892c500519a4f7c93c15534955ce8ef8f36e710756d68dd216c050"
+    },
+    {
+      "path": "run.py",
+      "bytes": 1684,
+      "sha256": "19d423f8ba098ce30fb50155e7c9ea262a43e9ba22efe70a5566348a7460e009"
+    },
+    {
+      "path": "wide-glyph.wgsl",
+      "bytes": 20933,
+      "sha256": "81853ba64dde87575a8a08af679e406b288babcd1f8abaf77a40b306f68be173"
+    },
+    {
+      "path": "wide-path.wgsl",
+      "bytes": 51002,
+      "sha256": "84d4ae5d165adac83a7b20473a3e80b8d905f3c32cf148b625fbb43574bf2571"
+    },
+    {
+      "path": "workflow.yml",
+      "bytes": 987,
+      "sha256": "787636ebd7a627855b78aa8308ee64f2447d4dc33c946452a454e20e01fab0b9"
+    }
+  ]
+}
