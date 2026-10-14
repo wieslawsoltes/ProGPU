@@ -875,6 +875,12 @@ void original_pair_boundary_controls() {
             require(advance > 128 && advance % 64 == 0);
             const double single = (static_cast<double>(advance) / 64.0) / 1.5;
             const double paired = (static_cast<double>(advance - 128) / 64.0) / 1.5;
+            if (source_ideal) {
+                // Original source line metrics retain integral 1/300-DIP units
+                // independently of the public per-glyph double advances.
+                const double physical_width = static_cast<double>(3 * (advance - 128) + advance) / 64.0;
+                require(original->source_lines[0].width == physical_width / 1.5);
+            }
             require(original->has_source_intrinsic_widths &&
                 original->source_minimum_intrinsic_width == original->source_lines[0].width &&
                 original->source_maximum_intrinsic_width == original->source_lines[0].width);
@@ -1033,6 +1039,61 @@ void original_pair_boundary_controls() {
                 suffix.generation->source_fitting->first_logical_glyph == 2U && suffix.generation->runs[0].generation == fitted->runs[0].generation);
             verify(suffix.generation, 2U);
         }
+    }
+}
+
+void original_source_line_width_controls() {
+    for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
+        fixture font(true);
+        const std::array<std::uint32_t, 6U> values{'A', 'A', 'A', 'A', 'A', 'A'};
+        const auto input = scalars(values);
+        const std::array features{progpu_native_text_feature{0x6B65726EU, 1U, 0U, UINT32_MAX}};
+        auto shaping = shape_request(input, features);
+        auto layout = layout_options();
+        const std::array styles{progpu_native_text_style_run{0U, 6U, 0U, 0.01325F, 0U, 0U, 0U, 0U, 0U, 0U, 0U}};
+        const std::array metrics{progpu_native_text_style_metrics{9.25F, 2.5F}};
+        const std::array source_metrics{text_source_item_metrics{9.25, 2.5}};
+        const std::array source{hinted_source_style{13.25, 1.5, hinted_source_em_policy::float_capture_nearest_half_up,
+            hinted_source_advance_policy::source_ideal_units, hinted_source_offset_policy::source_ideal_units}};
+        const std::array configurations{hinted_paragraph_style_configuration{0U, styles[0].scale,
+            {20U * 64U, 20U * 64U, interpreter, 0U, 0U, {}}, 1.0F / 1.5F}};
+        hinted_source_paragraph_layout source_layout{200.0, 0.0, source_metrics, true, true, true};
+        std::shared_ptr<const hinted_paragraph_generation> original;
+        progpu_native_text_paragraph_result diagnostic{};
+        require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+            original, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS);
+        require(original->lines.size() == 1U && original->logical_glyphs.size() == values.size());
+        // Six original fixture advances are 8,8,8,8,8,10 physical pixels.
+        // The independently observed source line metric converts its integer
+        // extent once; sequential public-double summation loses one ULP here.
+        require(original->runs[0].generation->positioning->prepared_glyphs[0].advance_x == 640);
+        require(original->source_lines[0].width == 50.0 / 1.5);
+        require(original->source_minimum_intrinsic_width == 50.0 / 1.5 &&
+            original->source_maximum_intrinsic_width == 50.0 / 1.5);
+        const auto measured = original->source_lines[0].width;
+        const auto equal_width = reflow_hinted_source_paragraph(*original, 9, measured);
+        require(equal_width.status == PROGPU_NATIVE_STATUS_SUCCESS && equal_width.generation->lines.size() == 1U &&
+            equal_width.generation->source_lines[0].width == measured);
+        const auto below_width = reflow_hinted_source_paragraph(*original, 9, std::nextafter(measured, 0.0));
+        require(below_width.status == PROGPU_NATIVE_STATUS_SUCCESS && below_width.generation->lines.size() == 2U &&
+            below_width.generation->lines[0].glyph_count == 5U && below_width.generation->lines[1].glyph_count == 1U &&
+            below_width.generation->source_lines[0].width == 40.0 / 1.5 &&
+            below_width.generation->source_lines[1].width == 10.0 / 1.5);
+        for (const auto& generation : {equal_width.generation, below_width.generation}) {
+            require(generation->runs[0].generation == original->runs[0].generation &&
+                generation->source_fitting->slices.empty() &&
+                generation->source_minimum_intrinsic_width == measured && generation->source_maximum_intrinsic_width == measured);
+            for (std::size_t i = 0U; i < values.size(); ++i) {
+                require(equal_glyph(generation->logical_glyphs[i], original->logical_glyphs[i]) &&
+                    generation->source_logical_metrics[i].advance_x == original->source_logical_metrics[i].advance_x);
+            }
+        }
+        auto invalid = *original->source_fitting;
+        invalid.width_policy.pixels_per_dip = std::nextafter(1.5, 2.0);
+        require(!validate_hinted_source_fitting(*original, invalid));
+        invalid = *original->source_fitting;
+        invalid.lines[0].width = std::nextafter(measured, 0.0);
+        require(!validate_hinted_source_fitting(*original, invalid));
     }
 }
 
@@ -1318,6 +1379,7 @@ int main() {
     try {
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         actual_paragraph_controls(); original_source_policy_controls(); original_pair_boundary_controls();
+        original_source_line_width_controls();
         original_mark_boundary_controls(); l1_and_rtl_origin_controls();
         mutation_and_retirement_controls(); atomic_failure_and_alias_controls();
 #else

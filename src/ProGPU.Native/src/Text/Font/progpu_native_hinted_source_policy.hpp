@@ -41,6 +41,11 @@ struct hinted_source_device_selection final {
     float logical_units_per_physical_pixel = 0.0F;
 };
 
+// One source ideal-width frame is selected only when the complete original
+// style inventory explicitly shares SourceIdealUnits and the same original DPI.
+// Other private mixed-policy paragraphs retain their existing double measure.
+text_source_width_policy select_hinted_source_width_policy(std::span<const hinted_source_style> styles) noexcept;
+
 // Resolves only the native capture frame. Original source doubles remain owned
 // separately and must never be replaced by the selected physical em or its
 // float conversion. Failure leaves the output unchanged.

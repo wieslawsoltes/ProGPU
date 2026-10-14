@@ -47,7 +47,7 @@ bool safe_boundary(const hinted_paragraph_generation& paragraph, std::size_t ind
 
 struct candidate_line final {
     std::uint32_t start = 0U, end = 0U;
-    double width = 0.0, visible_width = 0.0;
+    text_source_width_accumulator extent{}, visible_extent{};
     bool nonnegative_advances = true;
     std::vector<shaping_glyph> glyphs{};
     std::vector<text_source_glyph_metrics> metrics{};
@@ -83,7 +83,7 @@ bool original_occurrence_map(const hinted_paragraph_generation& paragraph,
 
 progpu_native_status compose_candidate(const hinted_paragraph_generation& paragraph,
     std::span<const std::vector<std::uint32_t>> raw_to_logical, std::uint32_t start, std::uint32_t end,
-    std::size_t& visits, candidate_line& output) {
+    std::size_t& visits, text_source_width_policy width_policy, candidate_line& output) {
     const auto length = static_cast<std::size_t>(end - start);
     if (end <= start || length > maximum_candidate_glyph_visits - visits) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     if (paragraph.source_preserve_whole_run_placement &&
@@ -133,11 +133,10 @@ progpu_native_status compose_candidate(const hinted_paragraph_generation& paragr
         if (glyph.glyph_id != original.glyph_id || glyph.cluster != original.cluster || glyph.code_point != original.code_point ||
             glyph.advance_y != 0 || !project_hinted_source_geometry(glyph, paragraph.source_styles[style],
                 candidate.metrics[i - start])) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-        candidate.width += candidate.metrics[i - start].advance_x;
-        candidate.nonnegative_advances &= candidate.metrics[i - start].advance_x >= 0.0;
-        if (!is_text_layout_trailing_space(glyph.code_point)) candidate.visible_width = candidate.width;
-        if (!std::isfinite(candidate.width) || std::abs(candidate.width) > std::numeric_limits<float>::max())
+        if (!candidate.extent.append(candidate.metrics[i - start].advance_x, width_policy))
             return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        candidate.nonnegative_advances &= candidate.metrics[i - start].advance_x >= 0.0;
+        if (!is_text_layout_trailing_space(glyph.code_point)) candidate.visible_extent = candidate.extent;
     }
     output = std::move(candidate);
     return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -165,6 +164,7 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
     try {
         auto fitted = std::make_shared<hinted_source_fitting>();
         fitted->first_logical_glyph = first_logical_glyph;
+        fitted->width_policy = select_hinted_source_width_policy(paragraph.source_styles);
         fitted->fitting_glyphs = paragraph.logical_glyphs;
         fitted->metrics.resize(count);
         fitted->slice_indices.resize(count, UINT32_MAX);
@@ -186,21 +186,23 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
             // Avoid quadratic candidate work for the common complete hard row.
             // A cut at the start still goes through real placement recomposition.
             candidate_line complete;
-            auto status = compose_candidate(paragraph, raw_to_logical, start, hard_end, visits, complete);
+            auto status = compose_candidate(paragraph, raw_to_logical, start, hard_end, visits, fitted->width_policy, complete);
             if (status != PROGPU_NATIVE_STATUS_SUCCESS) { result.status = status; return result; }
-            if (maximum_width <= 0.0 || (complete.nonnegative_advances && (complete.width <= maximum_width ||
-                (is_text_layout_trailing_space(paragraph.logical_glyphs[hard_end - 1U].code_point) && complete.visible_width <= maximum_width)))) {
+            if (maximum_width <= 0.0 || (complete.nonnegative_advances && (complete.extent.fits(maximum_width, fitted->width_policy) ||
+                (is_text_layout_trailing_space(paragraph.logical_glyphs[hard_end - 1U].code_point) &&
+                    complete.visible_extent.fits(maximum_width, fitted->width_policy))))) {
                 selected = std::move(complete); chosen = true;
             }
             for (std::uint32_t end = start + 1U; !chosen && end <= hard_end; ++end) {
                 if (!safe_boundary(paragraph, end)) continue;
                 candidate_line candidate;
-                status = compose_candidate(paragraph, raw_to_logical, start, end, visits, candidate);
+                status = compose_candidate(paragraph, raw_to_logical, start, end, visits, fitted->width_policy, candidate);
                 if (status != PROGPU_NATIVE_STATUS_SUCCESS) { result.status = status; return result; }
                 const bool legal = paragraph.breaks_after[end - 1U] != text_line_break_kind::prohibited;
                 const bool mandatory = paragraph.breaks_after[end - 1U] == text_line_break_kind::mandatory;
-                const bool fits = maximum_width <= 0.0 || candidate.width <= maximum_width ||
-                    (legal && is_text_layout_trailing_space(paragraph.logical_glyphs[end - 1U].code_point) && candidate.visible_width <= maximum_width);
+                const bool fits = candidate.extent.fits(maximum_width, fitted->width_policy) ||
+                    (legal && is_text_layout_trailing_space(paragraph.logical_glyphs[end - 1U].code_point) &&
+                        candidate.visible_extent.fits(maximum_width, fitted->width_policy));
                 if (!fits) {
                     if (last_break.end > start) { selected = std::move(last_break); chosen = true; soft_break = true; }
                     else if (paragraph.source_allow_emergency_break) {
@@ -223,9 +225,9 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
                     last_fit = std::move(candidate);
                 }
             }
-            if (!chosen || selected.end <= start || selected.width < 0.0) return result;
+            if (!chosen || selected.end <= start || selected.extent.width < 0.0) return result;
             const bool final = paragraph.layout.maximum_lines != 0U && fitted->lines.size() + 1U >= paragraph.layout.maximum_lines;
-            fitted->lines.push_back({start - first_logical_glyph, selected.end - start, selected.width, final && soft_break});
+            fitted->lines.push_back({start - first_logical_glyph, selected.end - start, selected.extent.width, final && soft_break});
             std::copy(selected.glyphs.begin(), selected.glyphs.end(), fitted->fitting_glyphs.begin() + start);
             std::copy(selected.metrics.begin(), selected.metrics.end(), fitted->metrics.begin() + start);
             for (auto& slice : selected.slices) {
@@ -251,6 +253,7 @@ progpu_native_status measure_hinted_source_intrinsic_widths(const hinted_paragra
     try {
         std::vector<std::vector<std::uint32_t>> raw_to_logical;
         if (!original_occurrence_map(paragraph, raw_to_logical)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        const auto width_policy = select_hinted_source_width_policy(paragraph.source_styles);
         const auto count = paragraph.logical_glyphs.size();
         std::vector<std::uint8_t> whitespace(count);
         std::size_t scalar = 0U;
@@ -270,11 +273,10 @@ progpu_native_status measure_hinted_source_intrinsic_widths(const hinted_paragra
             first = end;
         }
         const auto visible_width = [&](const candidate_line& candidate, double& width) noexcept {
-            double advance = 0.0; width = 0.0;
+            text_source_width_accumulator advance{}; width = 0.0;
             for (std::size_t i = 0U; i < candidate.metrics.size(); ++i) {
-                advance += candidate.metrics[i].advance_x;
-                if (!std::isfinite(advance) || advance < 0.0) return false;
-                if (whitespace[candidate.start + i] == 0U) width = advance;
+                if (!advance.append(candidate.metrics[i].advance_x, width_policy) || advance.width < 0.0) return false;
+                if (whitespace[candidate.start + i] == 0U) width = advance.width;
             }
             return true;
         };
@@ -287,7 +289,7 @@ progpu_native_status measure_hinted_source_intrinsic_widths(const hinted_paragra
             if (!final && break_kind == text_line_break_kind::prohibited) continue;
             if (!safe_boundary(paragraph, end)) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
             candidate_line word;
-            auto status = compose_candidate(paragraph, raw_to_logical, word_start, end, visits, word);
+            auto status = compose_candidate(paragraph, raw_to_logical, word_start, end, visits, width_policy, word);
             if (status != PROGPU_NATIVE_STATUS_SUCCESS) return status;
             double visible = 0.0;
             if (!visible_width(word, visible)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
@@ -295,7 +297,7 @@ progpu_native_status measure_hinted_source_intrinsic_widths(const hinted_paragra
             word_start = end;
             if (final || break_kind == text_line_break_kind::mandatory) {
                 candidate_line row;
-                status = compose_candidate(paragraph, raw_to_logical, paragraph_start, end, visits, row);
+                status = compose_candidate(paragraph, raw_to_logical, paragraph_start, end, visits, width_policy, row);
                 if (status != PROGPU_NATIVE_STATUS_SUCCESS) return status;
                 if (!visible_width(row, visible)) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
                 measured.maximum = std::max(measured.maximum, visible);
@@ -315,7 +317,8 @@ bool validate_hinted_source_fitting(const hinted_paragraph_generation& paragraph
         fitting.slice_indices.size() != count || fitting.slice_glyph_indices.size() != count || paragraph.logical_owners.size() != count ||
         paragraph.breaks_after.size() != count || fitting.slices.size() > UINT32_MAX ||
         (paragraph.layout.maximum_lines != 0U && fitting.lines.size() > paragraph.layout.maximum_lines) ||
-        (paragraph.source_preserve_whole_run_placement && !fitting.slices.empty())) return false;
+        (paragraph.source_preserve_whole_run_placement && !fitting.slices.empty()) ||
+        fitting.width_policy != select_hinted_source_width_policy(paragraph.source_styles)) return false;
     std::size_t referenced_slice_glyphs = 0U;
     for (std::size_t i = 0U; i < count; ++i) {
         const auto owner = paragraph.logical_owners[i];
@@ -353,12 +356,12 @@ bool validate_hinted_source_fitting(const hinted_paragraph_generation& paragraph
     for (const auto& line : fitting.lines) {
         if (line.glyph_start != end - fitting.first_logical_glyph || line.glyph_count == 0U || line.glyph_count > count - end ||
             !std::isfinite(line.width) || line.width < 0.0 || !safe_boundary(paragraph, end + line.glyph_count)) return false;
-        double width = 0.0;
+        text_source_width_accumulator width{};
         for (std::size_t i = end; i < end + line.glyph_count; ++i) {
-            width += fitting.metrics[i].advance_x;
+            if (!width.append(fitting.metrics[i].advance_x, fitting.width_policy)) return false;
             if (i + 1U < end + line.glyph_count && paragraph.breaks_after[i] == text_line_break_kind::mandatory) return false;
         }
-        if (width != line.width) return false;
+        if (width.width != line.width) return false;
         end += line.glyph_count;
     }
     if (end != count && (paragraph.layout.maximum_lines == 0U || fitting.lines.size() != paragraph.layout.maximum_lines)) return false;

@@ -3654,7 +3654,7 @@ static progpu_native_status paragraph_layout_core(
                 {hinted->generation->source_maximum_width, hinted->generation->source_line_height,
                     hinted->generation->source_logical_metrics, hinted->generation->source_item_metrics,
                     hinted->generation->source_glyphs, hinted->generation->source_lines,
-                    hinted->generation->source_fitting->lines}, &font_result)
+                    hinted->generation->source_fitting->lines, hinted->generation->source_fitting->width_policy}, &font_result)
             : hinted != nullptr
             ? try_layout_measured_logical_shaped_text_retained(logical, glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count), glyph_scales.first(logical_count), paragraph_level,
@@ -4592,7 +4592,8 @@ static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
                 {candidate->source_maximum_width, candidate->source_line_height,
                     std::span(candidate->source_logical_metrics).subspan(start),
                     std::span(candidate->source_item_metrics).subspan(start),
-                    candidate->source_glyphs, candidate->source_lines, candidate->source_fitting->lines}, &error)
+                    candidate->source_glyphs, candidate->source_lines, candidate->source_fitting->lines,
+                    candidate->source_fitting->width_policy}, &error)
             : try_layout_measured_logical_shaped_text_retained(logical, breaks,
                 std::span(candidate->logical_bidi_levels).subspan(start), scales, candidate->paragraph_level,
                 options, {}, {}, {groups, indices}, candidate->glyphs, candidate->lines, glyph_count, line_count,

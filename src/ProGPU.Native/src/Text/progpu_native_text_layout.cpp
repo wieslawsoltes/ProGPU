@@ -429,6 +429,9 @@ bool source_layout_requirements(std::span<const shaping_glyph> glyphs,
         options.alignment == text_alignment::justify || tabs.interval != 0.0F || !std::isfinite(tabs.origin) ||
         !std::isfinite(source.maximum_width) || source.maximum_width < 0.0 ||
         !std::isfinite(source.line_height) || source.line_height < 0.0 ||
+        !valid_text_source_width_policy(source.width_policy) ||
+        (source.width_policy.mode == text_source_width_mode::ideal_units &&
+            source.fitted_lines.empty() && !glyphs.empty()) ||
         source.logical_metrics.size() != glyphs.size() || source.item_metrics.size() != glyphs.size() ||
         !valid_retained_metadata_span(source.logical_metrics) || !valid_retained_metadata_span(source.item_metrics) ||
         !valid_retained_metadata_span(source.fitted_lines) ||
@@ -454,9 +457,10 @@ bool source_layout_requirements(std::span<const shaping_glyph> glyphs,
         for (const auto& line : source.fitted_lines) {
             if (line.glyph_start != start || line.glyph_count == 0U || line.glyph_count > glyphs.size() - start ||
                 !std::isfinite(line.width) || line.width < 0.0 || line.width > std::numeric_limits<float>::max()) return false;
-            double width = 0.0;
-            for (std::size_t i = start; i < start + line.glyph_count; ++i) width += source.logical_metrics[i].advance_x;
-            if (width != line.width) return false;
+            text_source_width_accumulator width{};
+            for (std::size_t i = start; i < start + line.glyph_count; ++i)
+                if (!width.append(source.logical_metrics[i].advance_x, source.width_policy)) return false;
+            if (width.width != line.width) return false;
             start += line.glyph_count;
         }
         if (start != glyphs.size() && (options.maximum_lines == 0U || source.fitted_lines.size() != options.maximum_lines)) return false;

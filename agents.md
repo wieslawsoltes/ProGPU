@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit SourceIdealUnits paragraphs retain an integer line measure separately
+from draw advances. Share its exact original DPI policy through fitting,
+intrinsic widths, reflow, the measured writer and resource import. Floor original
+width constraints independently; never repair a completed floating sum or alter
+glyph placement to hide a width difference. Preserve raw/default policies,
+whole-generation ownership and atomic overflow rejection. See
+docs/native-source-line-width.md; Display and final package/source qualification
+remain separate gates.
+
 Exactly vertical path edges may bypass redundant integer half-plane admission
 only with equal original endpoint X and the original floating intersection
 expression. Preserve finite-overflow behavior, strict X comparison, original
