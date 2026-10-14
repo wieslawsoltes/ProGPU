@@ -127,8 +127,18 @@ public sealed unsafe class NativeHintedSourceResourceImportTests
         NativeHintedGlyphResource.ValidateSourceView(in source, in raster);
         source.SliceCount = 1;
         Assert.Throws<InvalidOperationException>(() => NativeHintedGlyphResource.ValidateSourceView(in source, in raster));
-        source.SliceCount = 0;
-        source.Source.Options.Flags |= 4U;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SoftWrapGeometryImportsIndependentlyAndStillRejectsUnknownFlags(bool wholeRun)
+    {
+        NativeMethods.HintedGlyphResourceView raster = default;
+        var source = SourceView();
+        source.Source.Options.Flags |= 4U | (wholeRun ? 2U : 0U);
+        NativeHintedGlyphResource.ValidateSourceView(in source, in raster);
+        source.Source.Options.Flags |= 8U;
         Assert.Throws<InvalidOperationException>(() => NativeHintedGlyphResource.ValidateSourceView(in source, in raster));
     }
 
