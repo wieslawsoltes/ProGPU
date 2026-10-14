@@ -86,6 +86,8 @@ progpu_native_status compose_candidate(const hinted_paragraph_generation& paragr
     std::size_t& visits, candidate_line& output) {
     const auto length = static_cast<std::size_t>(end - start);
     if (end <= start || length > maximum_candidate_glyph_visits - visits) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (paragraph.source_preserve_whole_run_placement &&
+        (!safe_boundary(paragraph, start) || !safe_boundary(paragraph, end))) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
     visits += length;
     candidate_line candidate{}; candidate.start = start; candidate.end = end;
     candidate.glyphs.assign(paragraph.logical_glyphs.begin() + start, paragraph.logical_glyphs.begin() + end);
@@ -97,7 +99,10 @@ progpu_native_status compose_candidate(const hinted_paragraph_generation& paragr
         if (last <= first) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
         const bool unsafe_left = first > run.logical_start && unsafe(paragraph.logical_glyphs[first]);
         const bool unsafe_right = last < run.logical_start + run.logical_count && unsafe(paragraph.logical_glyphs[last]);
-        if (unsafe_left || unsafe_right) {
+        // The explicit whole-run source policy retains the original placement;
+        // safe_boundary still requires the same pre-positioning cluster proof.
+        // Default callers continue recomposing placement at either cut edge.
+        if ((unsafe_left || unsafe_right) && !paragraph.source_preserve_whole_run_placement) {
             if (run.generation->positioning == nullptr) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
             const auto prepared_first = prepared_edge(*run.generation, paragraph.logical_glyphs[first].cluster);
             const auto prepared_last = last == run.logical_start + run.logical_count ? run.generation->positioning->prepared_glyphs.size() :
@@ -309,7 +314,8 @@ bool validate_hinted_source_fitting(const hinted_paragraph_generation& paragraph
         fitting.metrics.size() != count || paragraph.source_logical_metrics.size() != count ||
         fitting.slice_indices.size() != count || fitting.slice_glyph_indices.size() != count || paragraph.logical_owners.size() != count ||
         paragraph.breaks_after.size() != count || fitting.slices.size() > UINT32_MAX ||
-        (paragraph.layout.maximum_lines != 0U && fitting.lines.size() > paragraph.layout.maximum_lines)) return false;
+        (paragraph.layout.maximum_lines != 0U && fitting.lines.size() > paragraph.layout.maximum_lines) ||
+        (paragraph.source_preserve_whole_run_placement && !fitting.slices.empty())) return false;
     std::size_t referenced_slice_glyphs = 0U;
     for (std::size_t i = 0U; i < count; ++i) {
         const auto owner = paragraph.logical_owners[i];

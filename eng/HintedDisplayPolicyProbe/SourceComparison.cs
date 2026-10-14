@@ -111,7 +111,13 @@ internal static class SourceComparison
                 if (nativeLine.HasValue && candidates.Any(glyph => glyph.PositionedIndex < nativeLine.Value.GlyphStart ||
                     glyph.PositionedIndex - nativeLine.Value.GlyphStart >= nativeLine.Value.GlyphCount))
                     failures.Add("different-original-occurrence-line-owner");
-                int[] map = run.GetProperty("Clusters").EnumerateArray().Select(value => value.GetInt32()).ToArray();
+                var originalMap = run.GetProperty("Clusters");
+                int[] map = originalMap.ValueKind == JsonValueKind.Null ? [] :
+                    originalMap.EnumerateArray().Select(value => value.GetInt32()).ToArray();
+                // GlyphRun's null/empty cluster map explicitly means sequential
+                // one-to-one mapping. A different occurrence count cannot use it.
+                if (map.Length == 0 && ids.Length == runEnd - runStart)
+                    map = Enumerable.Range(0, ids.Length).ToArray();
                 var sourceClusters = ClusterOwners(runStart, runEnd, map, ids.Length);
                 if (sourceClusters is null) failures.Add("unrepresentable-original-cluster-map");
                 // Native logical ordering and source cluster glyph ranges are
@@ -132,7 +138,10 @@ internal static class SourceComparison
                 if (failures.Count == 0)
                 {
                     double[] advances = run.GetProperty("Advances").EnumerateArray().Select(value => value.GetDouble()).ToArray();
-                    var offsets = run.GetProperty("Offsets").EnumerateArray().ToArray();
+                    var originalOffsets = run.GetProperty("Offsets");
+                    var offsets = originalOffsets.ValueKind == JsonValueKind.Null ? [] : originalOffsets.EnumerateArray().ToArray();
+                    if (advances.Length != ids.Length || (offsets.Length != 0 && offsets.Length != ids.Length))
+                        throw new InvalidDataException("Original source run metric counts do not match its glyphs.");
                     for (int i = 0; i < candidates.Length; ++i)
                     {
                         var glyph = candidates[i];
@@ -141,7 +150,7 @@ internal static class SourceComparison
                         occurrences.Add(new(i, glyph.PositionedIndex, glyph.LogicalIndex, glyph.GlyphId, glyph.Start, glyph.End,
                             glyph.BidiLevel, advances[i], glyph.Advance26_6, actual, actual - advances[i], actual == advances[i],
                             glyph.PositionedAdvance, (double)glyph.PositionedAdvance - advances[i], glyph.PositionedAdvance == advances[i],
-                            offsets[i].EnumerateArray().Select(value => value.GetDouble()).ToArray(),
+                            offsets.Length == 0 ? [0.0, 0.0] : offsets[i].EnumerateArray().Select(value => value.GetDouble()).ToArray(),
                             [glyph.OffsetX26_6, glyph.OffsetY26_6],
                             [ReferenceInput.DeviceToDip(glyph.OffsetX26_6, dpi), ReferenceInput.DeviceToDip(glyph.OffsetY26_6, dpi)], glyph.X, glyph.Y,
                             level, projectedLevel!.Value));

@@ -29,7 +29,9 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
     if (s.abi_version != PROGPU_NATIVE_ABI_VERSION || s.struct_size != sizeof(s) || s.version != 2U ||
         s.flags != 0U || s.reserved != 0U || o.abi_version != PROGPU_NATIVE_ABI_VERSION ||
         o.struct_size != sizeof(o) || o.version != 1U ||
-        (o.flags & ~static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS)) != 0U ||
+        (o.flags & ~static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS |
+            PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT)) != 0U ||
+        ((o.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) != 0U && s.slice_count != 0U) ||
         o.em_policy > PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP ||
         o.advance_policy > PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS || o.offset_policy > PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS ||
         o.allow_emergency_break > 1U || !std::isfinite(o.em_size) || o.em_size <= 0.0 ||
@@ -96,6 +98,7 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
             const auto index = run.logical_start + j; const auto& owner = v.logical_owners[index];
             const auto& prepared = s.prepared_glyphs[prepared_end + owner.descriptor_index];
             if (!source_same_identity(prepared, s.raw_logical_glyphs[index]) ||
+                (prepared.flags & s.raw_logical_glyphs[index].flags) != prepared.flags ||
                 owner.run_glyph_index != ((run.bidi_level & 1) == 0 ? owner.descriptor_index
                     : run.logical_count - 1U - owner.descriptor_index)) return false;
         }
@@ -186,13 +189,15 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
             if (j + 1U < line_end && breaks[j] == text_line_break_kind::mandatory) return false;
         }
         if (!source_exact(width, line.width)) return false;
-        // Each replayed slice is exactly the selected line/run intersection;
-        // unsafe final positioning edges may not silently use the raw full run.
+        // Each replayed slice is exactly the selected line/run intersection.
+        // Only the explicit whole-run policy retains original placement at a
+        // positioning cut; safe_boundary above still proves the prepared edge.
         for (std::uint32_t first = end; first < line_end;) {
             const auto run_index = v.logical_owners[first].run_index; const auto& run = v.runs[run_index];
             const auto last = std::min(line_end, run.logical_start + run.logical_count);
-            const bool replay = (first > run.logical_start && (v.logical_glyphs[first].flags & 1U) != 0U) ||
-                (last < run.logical_start + run.logical_count && (v.logical_glyphs[last].flags & 1U) != 0U);
+            const bool replay = (o.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) == 0U &&
+                ((first > run.logical_start && (v.logical_glyphs[first].flags & 1U) != 0U) ||
+                    (last < run.logical_start + run.logical_count && (v.logical_glyphs[last].flags & 1U) != 0U));
             const auto slice_index = s.slice_indices[first];
             if (replay) {
                 if (slice_index == UINT32_MAX) return false;

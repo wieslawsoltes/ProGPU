@@ -28,7 +28,10 @@ typedef enum progpu_native_source_offset_policy {
 } progpu_native_source_offset_policy;
 
 typedef enum progpu_native_source_options_flags {
-    PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS = 1
+    PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS = 1,
+    /* Keep the complete original run's placement at proven prepared cluster
+     * boundaries. Default callers retain independent line recomposition. */
+    PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT = 2
 } progpu_native_source_options_flags;
 
 /* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceIntrinsicWidths */

@@ -54,6 +54,7 @@ struct hinted_source_paragraph_layout final {
     std::span<const text_source_item_metrics> style_metrics{};
     bool allow_emergency_break = true;
     bool measure_intrinsic_widths = false;
+    bool preserve_whole_run_placement = false;
 };
 
 // Original paragraph producer metadata, retained at its actual production sites.
@@ -87,6 +88,7 @@ struct hinted_paragraph_generation final {
     // selected device frame. Raw run generations remain independently retained.
     std::vector<hinted_source_style> source_styles{};
     bool has_source_geometry = false, source_allow_emergency_break = true;
+    bool source_preserve_whole_run_placement = false;
     double source_maximum_width = 0.0, source_line_height = 0.0;
     bool has_source_intrinsic_widths = false;
     double source_minimum_intrinsic_width = 0.0, source_maximum_intrinsic_width = 0.0;

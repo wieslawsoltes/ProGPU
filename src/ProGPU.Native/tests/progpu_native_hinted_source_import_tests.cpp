@@ -86,7 +86,7 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
         case 2U: bad.version = 1U; break;
         case 3U: bad.flags = 1U; break;
         case 4U: bad.reserved = 1U; break;
-        case 5U: bad.source.options.flags |= 2U; break;
+        case 5U: bad.source.options.flags |= 4U; break;
         case 6U: bad.source.options.em_policy = 4U; break;
         case 7U: bad.source.options.advance_policy = 3U; break;
         case 8U: bad.source.options.offset_policy = 2U; break;
@@ -139,6 +139,9 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
     raster_glyphs.back().x = std::nextafter(raster_glyphs.back().x, INFINITY);
     reject(bad_raster, source);
     if (expected_slices) {
+        bad = source;
+        bad.source.options.flags |= PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT;
+        reject(raster, bad);
         std::vector<progpu_native_hinted_source_fitting_slice> slices(source.slices, source.slices + source.slice_count);
         bad = source; bad.slices = slices.data(); ++slices.back().prepared_start;
         reject(raster, bad);
@@ -149,6 +152,34 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
         bad = source; bad.prepared_glyphs = prepared.data(); prepared[2U].flags |= 1U;
         reject(raster, bad);
     }
+    if ((source.source.options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) != 0U &&
+        (source.source.line_count > 1U || source.first_logical_glyph != 0U)) {
+        std::vector<progpu_native_text_shaping_glyph> prepared(source.prepared_glyphs, source.prepared_glyphs + source.prepared_count);
+        bad = source; bad.prepared_glyphs = prepared.data(); prepared[2U].flags |= 1U;
+        reject(raster, bad); // Retained placement does not admit an unsafe GSUB cut.
+    }
+    {
+        // Positioning may add dependency flags, but cannot erase an original
+        // prepared unsafe edge. Keep every transported raw/effective/raster
+        // flag coherent so rejection depends on that original prepared proof.
+        std::vector<progpu_native_text_shaping_glyph> prepared(source.prepared_glyphs,
+            source.prepared_glyphs + source.prepared_count);
+        std::vector<progpu_native_text_shaping_glyph> raw_copy(source.raw_logical_glyphs,
+            source.raw_logical_glyphs + source.source.logical_count);
+        std::vector<progpu_native_text_shaping_glyph> effective_copy(source.effective_logical_glyphs,
+            source.effective_logical_glyphs + source.source.logical_count);
+        std::vector<progpu_native_text_shaping_glyph> logical_copy(raster.logical_glyphs,
+            raster.logical_glyphs + raster.counts.logical_glyph_count);
+        require(prepared.size() > 2U);
+        prepared[2U].flags |= 1U;
+        for (auto& glyph : raw_copy) glyph.flags &= ~1U;
+        for (auto& glyph : effective_copy) glyph.flags &= ~1U;
+        for (auto& glyph : logical_copy) glyph.flags &= ~1U;
+        bad = source; bad.prepared_glyphs = prepared.data();
+        bad.raw_logical_glyphs = raw_copy.data(); bad.effective_logical_glyphs = effective_copy.data();
+        bad_raster = raster; bad_raster.logical_glyphs = logical_copy.data();
+        reject(bad_raster, bad);
+    }
     // Byte-identical warm imports remain independent owners; no source pointer,
     // hinted driver, paragraph or context lease crosses this flat boundary.
     const auto repeated = import_hinted_paragraph_glyph_resource(raster, source);
@@ -158,7 +189,7 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
 }
 #endif
 
-void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy) {
+void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy, bool preserve_placement) {
     const auto bytes = progpu::native::tests::make_hinted_pair_font();
     context_owner context;
     require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
@@ -178,7 +209,9 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy)
         1280U, 1280U, interpreter, 0U, 0U, 0U, 0U, 0U};
     const progpu_native_hinted_source_style source_style{std::nextafter(13.25, 14.0), std::nextafter(9.25, 10.0), 2.5};
     const progpu_native_hinted_source_options options{PROGPU_NATIVE_ABI_VERSION, sizeof(options), 1U,
-        PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS, source_style.em_size, 1.5, 200.0, 0.0, 0.0,
+        PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS |
+            (preserve_placement ? static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) : 0U),
+        source_style.em_size, 1.5, 200.0, 0.0, 0.0,
         PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP, advance_policy,
         advance_policy == PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS ? 1U : 0U, 1U};
     paragraph_owner paragraph;
@@ -193,11 +226,20 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy)
     const double narrow = view.logical_metrics[0U].advance_x + view.logical_metrics[3U].advance_x;
     paragraph_owner wrapped;
     require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 9, narrow, &wrapped.value) == PROGPU_NATIVE_STATUS_SUCCESS);
-    const auto fitted = verify_import(wrapped.value, true, false, rtl);
+    const auto fitted = verify_import(wrapped.value, !preserve_placement, false, rtl);
     require(fitted->imported_source_view()->source.line_count == 2U);
+    if (preserve_placement) {
+        const auto& kept = *fitted->imported_source_view();
+        require(kept.source.options.flags == options.flags && kept.slice_count == 0U);
+        for (std::uint32_t i = 0U; i < 4U; ++i) {
+            require(kept.slice_indices[i] == UINT32_MAX &&
+                std::memcmp(&kept.raw_logical_glyphs[i], &kept.effective_logical_glyphs[i], sizeof(kept.raw_logical_glyphs[i])) == 0 &&
+                std::memcmp(&kept.source.logical_metrics[i], &view.logical_metrics[i], sizeof(view.logical_metrics[i])) == 0);
+        }
+    }
     paragraph_owner tail;
     require(progpu_native_hinted_source_paragraph_reflow(wrapped.value, 13, narrow, &tail.value) == PROGPU_NATIVE_STATUS_SUCCESS);
-    const auto suffix = verify_import(tail.value, true, true, rtl);
+    const auto suffix = verify_import(tail.value, !preserve_placement, true, rtl);
     const auto captured = *fitted->imported_source_view();
     const auto saved_metric = captured.source.glyph_metrics[0U];
     progpu_native_hinted_paragraph_destroy(tail.value); tail.value = nullptr;
@@ -207,6 +249,8 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy)
     require(full->paragraph() == nullptr && fitted->paragraph() == nullptr && suffix->paragraph() == nullptr &&
         fitted->imported_source_view()->source.styles[0U].em_size == source_style.em_size &&
         fitted->imported_source_view()->source.styles[0U].ascent == source_style.ascent &&
+        fitted->imported_source_view()->source.options.flags == options.flags &&
+        suffix->imported_source_view()->source.options.flags == options.flags &&
         std::memcmp(&fitted->imported_source_view()->source.glyph_metrics[0U], &saved_metric, sizeof(saved_metric)) == 0 &&
         fitted->binding_view().glyphs.size() == 4U && suffix->imported_source_view()->first_logical_glyph == 2U &&
         suffix->binding_view().glyphs.size() == 2U);
@@ -219,7 +263,7 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy)
 int main() {
     try {
         for (const auto interpreter : {35U, 40U}) for (const bool rtl : {false, true})
-            for (const auto policy : {0U, 1U, 2U}) controls(interpreter, rtl, policy);
+            for (const auto policy : {0U, 1U, 2U}) for (const bool preserve : {false, true}) controls(interpreter, rtl, policy, preserve);
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -13,13 +13,21 @@ public partial struct NativeHintedSourceOptions
     public static unsafe NativeHintedSourceOptions Create(double emSize, double pixelsPerDip, double maximumWidth,
         double lineHeight, double tabOrigin, NativeSourceEmPolicy emPolicy, NativeSourceAdvancePolicy advancePolicy,
         bool allowEmergencyBreak, bool measureIntrinsicWidths = false,
-        NativeSourceOffsetPolicy offsetPolicy = NativeSourceOffsetPolicy.Unchanged) => new()
+        NativeSourceOffsetPolicy offsetPolicy = NativeSourceOffsetPolicy.Unchanged)
+        => Create(emSize, pixelsPerDip, maximumWidth, lineHeight, tabOrigin, emPolicy, advancePolicy,
+            allowEmergencyBreak, measureIntrinsicWidths, offsetPolicy, preserveWholeRunPlacement: false);
+
+    /// <summary>Explicitly retains full-run placement at proven source cluster boundaries.</summary>
+    public static unsafe NativeHintedSourceOptions Create(double emSize, double pixelsPerDip, double maximumWidth,
+        double lineHeight, double tabOrigin, NativeSourceEmPolicy emPolicy, NativeSourceAdvancePolicy advancePolicy,
+        bool allowEmergencyBreak, bool measureIntrinsicWidths, NativeSourceOffsetPolicy offsetPolicy,
+        bool preserveWholeRunPlacement) => new()
         {
             AbiVersion = NativeMethods.AbiVersion, StructSize = (uint)sizeof(NativeHintedSourceOptions), Version = 1,
             EmSize = emSize, PixelsPerDip = pixelsPerDip, MaximumWidth = maximumWidth, LineHeight = lineHeight,
             TabOrigin = tabOrigin, EmPolicy = (uint)emPolicy, AdvancePolicy = (uint)advancePolicy,
             AllowEmergencyBreak = allowEmergencyBreak ? 1U : 0U,
-            Flags = measureIntrinsicWidths ? 1U : 0U,
+            Flags = (measureIntrinsicWidths ? 1U : 0U) | (preserveWholeRunPlacement ? 2U : 0U),
             OffsetPolicy = (uint)offsetPolicy,
         };
 }
@@ -47,7 +55,7 @@ public sealed unsafe class NativeHintedSourceParagraph : IDisposable
         NativeTextParagraphResult diagnostic = default;
         NativeHintedParagraph.ThrowForStatus(NativeMethods.GetHintedParagraphCounts(handle, &counts, &diagnostic), "source paragraph counts");
         if (view.Options.AbiVersion != NativeMethods.AbiVersion || view.Options.StructSize != sizeof(NativeHintedSourceOptions) ||
-            view.Options.Version != 1 || (view.Options.Flags & ~1U) != 0 || view.Options.OffsetPolicy > 1 ||
+            view.Options.Version != 1 || (view.Options.Flags & ~3U) != 0 || view.Options.OffsetPolicy > 1 ||
             view.Options.EmPolicy > 3 || view.Options.AdvancePolicy > 2 ||
             view.StyleCount != counts.StyleCount || view.LogicalCount != counts.LogicalGlyphCount ||
             view.GlyphCount != counts.PositionedGlyphCount || view.LineCount != counts.LineCount ||

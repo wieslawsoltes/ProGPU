@@ -29,7 +29,9 @@ arguments implement only those explicit input choices and are independently
 validated by native. Unsupported native domains remain failed observations with
 the complete original case, never trimmed, reordered or retried through Ideal.
 Other native failures prevent receipt publication. No engine/device is created;
-nominal resource preparation explicitly selects intrinsic SIMD.
+nominal resource preparation explicitly selects intrinsic SIMD and antialiased
+vector coverage. Strict outline coverage retains its independent rejection of
+B/W dropout/scan metadata; no public default or pixel policy is changed.
 
 Strict original UTF-16, font, full native level, glyph/run/cluster/line ownership
 alignment reuses `HintedDisplayPolicyProbe.SourceComparison`. Only exact aligned
@@ -138,3 +140,79 @@ stage a native artifact, create a device or change existing tests/deadlines.
 This closes the probe's direct type-compilation gap. A passing compile is not
 native execution or source comparison: the whole exact producer Build must
 still succeed before the separate bounded native observations above.
+
+## Complete final-package observations — 14 October 2026
+
+The whole exact [Build 38549555561](https://github.com/wieslawsoltes/ProGPU/actions/runs/38549555561)
+passed all 59 jobs, and [release 38585372058](https://github.com/wieslawsoltes/ProGPU/actions/runs/38585372058)
+passed all 20 jobs at `aef75180bcdc3b937d004b6b949e0e91724c7981`.
+The probe used byte-verified release packages and native module
+`ef28c5aced2d01e54edfabf24b578dc3b0b0a29ceca35ae982cea34e297767b0`.
+It ran on macOS ARM64 against both original Windows receipt architectures;
+this is not Windows or x64 native execution and not a fresh public-package run.
+
+Three diagnostic defects were corrected before the complete observations:
+
+- Resource preparation accidentally used Strict coverage, which rejects the
+  original font scan metadata. The probe now explicitly requests the existing
+  antialiased vector contract; native defaults and raw metadata remain intact.
+- The ownership assertion treated a raw RTL run index as a logical-array offset.
+  It now checks the positioned occurrence against the producer's retained logical
+  owner, including run index, original run occurrence and outline descriptor.
+  It also checks the original logical range, glyph/font identity and source cluster.
+- The reader assumed every original GlyphRun serialized cluster/offset arrays.
+  Original Hebrew whitespace runs legitimately contain null arrays. The public
+  [cluster-map contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.glyphrun.clustermap)
+  defines null/empty as sequential one-to-one mapping. Null/empty offsets carry
+  the source's zero offset. Nonempty malformed arrays still reject, and implicit
+  mapping requires equal original character and glyph counts. The receipt bytes,
+  including nulls, are retained unchanged.
+
+Both receipt architectures produce the same results, with TT35 and TT40 retained
+as separate observations:
+
+| Original corpus, per architecture | Exact compared geometry | Geometry differences | Unmatched domains | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Source inputs | 88 | 72 | 32 | 192 |
+| Midpoints and Hebrew | 144 | 30 | 114 | 288 |
+
+All 960 observations complete under the original 60-second budget; each corpus
+takes 0.21–0.44 seconds of recorded probe time. These timings are diagnostic,
+not renderer performance evidence. The original 192/288 inventories, fonts,
+policies, full-level ownership checks, exact comparisons and failed first-run
+evidence are preserved. No tolerance, glyph-ID search, source-array reorder or
+Ideal fallback was added.
+
+Remaining differences include a wrapped `AVATAR` line ending with native advance
+9 versus original 8 at em13/DPI1, source-run offsets, mixed native embedding levels
+inside an original run, and Hebrew within-cluster occurrence order/fitting.
+The source-run offset API currently reconstructs a nominal run in the paragraph
+frame; comparison with the original indexed GlyphRun frame still needs explicit
+qualification. Do not interpret an unmatched domain as an exact result or infer
+that all differences have the same cause. Ordinary Display remains unadvertised;
+LibreWPF #184 is not fixed by these diagnostic changes.
+
+The 70 raw-probe controls (including six new default/count regressions) and all
+37 source-geometry controls pass with zero skips. An initial test invocation
+selected a newer, intentionally non-allowlisted legacy reference; that failure
+is retained. Supplying the original allowlisted receipt from successful run
+36866824045 resolves the input error without changing any test or allowlist.
+
+Applicability: only diagnostic source and tests change. Managed and native
+renderers, shaping, layout, resource lifetimes and GPU policy remain unchanged.
+The retained-identity separation follows the existing
+[cross-engine research](../../docs/source-hinted-text-ownership.md), rechecked
+against Skia, DirectWrite/Direct2D, Win2D, WebRender, Parley/Vello and HarfBuzz.
+No foreign implementation is copied. New architecture or performance claims are
+not made. Local evidence is retained under
+`display-184-final-source/final-probe-evidence` and `probe-unit-tests`.
+
+### Explicit line-placement policy
+
+An optional final argument selects `preserve-whole-run` or `recompose-lines`.
+The existing ten-argument command keeps recomposition. Both policies retain the
+same full original corpus, exact comparisons, interpreter pair, 60-second bound
+and CreateNew receipt behavior. The selected policy is included in the receipt.
+The retained option requires a matching rebuilt producer; old runtime rejection
+must not trigger fallback to recomposition. See
+[source placement policy and qualification](../../docs/native-source-display-text.md#explicit-whole-run-placement-at-source-line-breaks).

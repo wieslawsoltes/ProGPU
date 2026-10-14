@@ -127,6 +127,75 @@ snapping, prefix shaping, unsafe-flag stripping or Ideal fallback is permitted.
 
 ## Placement recomposition ownership
 
+### Explicit whole-run placement at source line breaks
+
+The original Windows source corpus exposes a distinct line-breaking policy:
+`AVATAR fi A A ` at em 13, DPI 1 and width 25 keeps advances `8, 8, 8`
+on its first line. The existing independent-line recomposer instead produces
+`8, 8, 9` after removing the pair adjustment across that cut. Both original
+Windows architectures retain the full run's placement in this case.
+
+An explicit `PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT` option now keeps
+the original complete run's placement during fitting, intrinsic measurement and
+continuation. Its default is false; existing independent-line recomposition and
+the old managed `Create` signature remain intact. The option is retained in the
+original paragraph, source cache, flat resource and reflow owner. Raw glyphs,
+full bidi levels, original occurrence indices, source doubles and unsafe flags
+remain unchanged. Candidate boundaries still require the same original
+pre-positioning cluster proof; the option cannot admit an unsafe GSUB/mark cut.
+It cannot carry recomposed slices. Both native import and managed view preflight
+reject that contradictory descriptor before publication.
+
+Flat import also requires the original prepared flags to survive in raw placement.
+Positioning may add dependency flags; it cannot erase a prepared unsafe edge.
+Changing raw, effective and raster flags together therefore cannot bypass the
+prepared-boundary proof. The original valid imports and both placement policies
+share this check; malformed-input rejection does not change source placement.
+
+The unchanged final source receipts from preview.69 contain 608 aligned narrow
+Latin occurrences per original Windows architecture. Their actual unwrapped
+source doubles match all 608 original advances; the existing fitter changes 48
+of them. The 552 aligned midpoint occurrences also match their unwrapped source
+advances. Unmatched source domains remain unmatched. These are comparisons of
+already-retained observations, not execution or qualification of this new policy.
+The earlier analysis using raster float projections is not used for these counts.
+
+The existing paired PairPos fixtures cover both interpreters and true odd/even
+runs, preserved raw owners, changed line widths, source interaction, context
+retirement, nonzero suffix continuation and import ownership. Existing recomposed
+controls remain, with separate retained-policy cases and rejection of contradictory
+slices or unsafe prepared edges. Original input hashes, full-corpus comparisons,
+deadlines and source/pixel/application gates are unchanged. The source probe accepts
+an optional final `preserve-whole-run` argument; omission keeps `recompose-lines`.
+No WPF provider advertises Display, and no qualified dependency pin advances here.
+
+This is a shared CPU shaping/layout producer consumed by the managed renderer and
+both native providers. They receive the same measured positions and source
+resource; the flat native importer and managed resource validator both preserve
+the new flag. Renderer shader math, font rasterization, atlas identity, uploads,
+retirement and GPU pipelines do not change. Candidate work retains the existing
+2^24 visit limit and original sequential line-selection arithmetic. No performance
+improvement is claimed.
+
+The [existing cross-engine ownership research](source-hinted-text-ownership.md)
+was rechecked for this change: Skia and DirectWrite/Win2D separate shaping from
+layout/rendering; Parley retains paragraph analysis; WebRender retains explicit
+font-instance state; Vello consumes prepared scene data. Those separations are
+retained, while their independent line policies are not treated as a WPF oracle.
+The [HarfBuzz unsafe-boundary contract](https://harfbuzz.github.io/harfbuzz-hb-buffer.html)
+explains why a cut can change independent shaping; it does not require a source
+formatter that preserves its original run to replace its placement. The policy
+choice follows the original Windows observations, with no foreign implementation
+copied. Existing lazy startup, visibility, upload/batching, worker, atlas eviction
+and device-loss policy remain unchanged.
+
+Local authoring checks passed: all 13 focused managed source transport/import
+controls (zero skips), the real managed source probe build (zero warnings/errors),
+strict C++20 syntax checks for the producer, importer and changed native fixtures,
+and the complete generated native-contract verifier. The new native placement
+fixtures and unchanged original source corpus still require execution against
+the complete successful producer Build. This checkpoint does not qualify Display.
+
 Source-geometry captures now optionally retain the actual post-GSUB, prepared
 device-metric state before GPOS. The original shaper invokes this observation
 only for the bounded horizontal non-mark/non-stretch family. The recipe owns

@@ -6,6 +6,57 @@ using Xunit;
 
 public sealed class SourceComparisonTests
 {
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void OriginalNullOrEmptyGlyphRunDefaultsRetainIdentityAndZeroOffsets(bool empty)
+    {
+        using var source = Source();
+        var node = JsonNode.Parse(source.RootElement.GetRawText())!;
+        var run = node["Lines"]![0]!["Runs"]![0]!;
+        run["Clusters"] = empty ? new JsonArray() : null;
+        run["Offsets"] = empty ? new JsonArray() : null;
+        string original = node.ToJsonString();
+        using var receipt = JsonDocument.Parse(original);
+        var result = SourceComparison.Compare(receipt.RootElement, Native());
+        Assert.Equal("AlignedExactAdvances", result.Status);
+        Assert.Equal(2, result.ComparedOccurrenceCount);
+        Assert.All(result.Runs[0].Occurrences, value => Assert.Equal(new[] { 0.0, 0.0 }, value.OriginalSourceOffset));
+        Assert.Equal(original, receipt.RootElement.GetRawText());
+    }
+
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void DefaultClusterMapCannotInventMissingGlyphOccurrences(bool empty)
+    {
+        using var source = Source(text: "abc");
+        var node = JsonNode.Parse(source.RootElement.GetRawText())!;
+        node["Lines"]![0]!["Runs"]![0]!["Clusters"] = empty ? new JsonArray() : null;
+        using var receipt = JsonDocument.Parse(node.ToJsonString());
+        var result = SourceComparison.Compare(receipt.RootElement, Native());
+        Assert.Equal("Unmatched", result.Runs[0].Status);
+        Assert.Contains("unrepresentable-original-cluster-map", result.Runs[0].Reasons);
+        Assert.Empty(result.Runs[0].Occurrences);
+    }
+
+    [Fact]
+    public void NonemptyMalformedClusterMapDoesNotSelectTheDefault()
+    {
+        using var source = Source(clusters: [0]);
+        var result = SourceComparison.Compare(source.RootElement, Native());
+        Assert.Contains("unrepresentable-original-cluster-map", result.Runs[0].Reasons);
+        Assert.Empty(result.Runs[0].Occurrences);
+    }
+
+    [Fact]
+    public void NonemptyIncompleteOffsetsDoNotSelectZeroOffsets()
+    {
+        using var source = Source();
+        var node = JsonNode.Parse(source.RootElement.GetRawText())!;
+        node["Lines"]![0]!["Runs"]![0]!["Offsets"]!.AsArray().RemoveAt(1);
+        using var receipt = JsonDocument.Parse(node.ToJsonString());
+        Assert.Throws<InvalidDataException>(() => SourceComparison.Compare(receipt.RootElement, Native()));
+    }
+
     private static JsonDocument Source(double advance = 1, double dpi = 1, string text = "ab", uint[]? ids = null,
         int[]? clusters = null, int? lineLength = null, int bidiLevel = 0)
         => JsonDocument.Parse(JsonSerializer.Serialize(new

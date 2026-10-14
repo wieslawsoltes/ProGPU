@@ -440,6 +440,16 @@ half-open shared edges and derivatives before discard. Both renderers must use
 the matching vertex count. Folded/near-singular edges, multisampling and complete
 provider/package pixels remain explicit gates; shader compilation is not parity.
 
+Explicit whole-run source placement preserves
+the original complete run at the same proven pre-positioning cluster boundaries;
+default callers retain independent line recomposition. Keep the flag in creation,
+continuation and resource/import identity, reject recomposed slices under this
+policy, and retain raw occurrence/unsafe metadata. Prepared dependency flags must
+survive in raw placement; jointly clearing raw/effective/raster flags cannot
+bypass the original unsafe-edge proof. Matching unwrapped advances is
+not full source, RTL, offset, pixel or application qualification. See
+docs/native-source-display-text.md.
+
 Source Display capture retains original double em/DPI separately from explicit
 physical-em and advance policies. Preserve immutable raw post-GPOS generations,
 source/descriptor/bidi identity and unsafe flags while deriving fitting metrics.
