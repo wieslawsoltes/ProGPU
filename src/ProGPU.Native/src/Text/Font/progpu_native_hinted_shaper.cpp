@@ -216,6 +216,44 @@ bool capture_positioning(void* value, const sfnt_font_view& font, const open_typ
     return try_capture_hinted_positioning(font, options, prepared, owner.policy, owner.run->positioning, error);
 }
 
+bool capture_boundaries(void* value, std::span<const shaping_glyph> prepared, font_error* error) noexcept {
+    auto& owner = *static_cast<run_owner*>(value);
+    // The recipe already owns these same original records. Do not duplicate it.
+    if (owner.run->positioning != nullptr) return true;
+    try {
+        for (std::size_t i = 0U; i < prepared.size(); ++i) {
+            if (prepared[i].glyph_id > UINT16_MAX || prepared[i].cluster < 0 ||
+                (i != 0U && prepared[i].cluster < prepared[i - 1U].cluster)) return true;
+        }
+        owner.run->boundary_glyphs.assign(prepared.begin(), prepared.end());
+        return true;
+    } catch (const std::bad_alloc&) {
+        owner.failure.resource_exhausted = true;
+        if (error != nullptr) *error = font_error::insufficient_buffer;
+    } catch (...) {
+        if (error != nullptr) *error = font_error::invalid_argument;
+    }
+    return false;
+}
+
+bool valid_boundary_identity(const hinted_shaped_run& run) {
+    const auto& prepared = run.boundary_glyphs;
+    if (prepared.size() != run.glyphs.size() || prepared.size() != run.source_descriptor_count) return false;
+    // Descriptor indices are the original occurrence permutation, including
+    // RTL reversal. Neither glyph-ID search nor final visual order is a witness.
+    std::vector<bool> seen(prepared.size(), false);
+    for (std::size_t i = 0U; i < run.glyphs.size(); ++i) {
+        const auto index = run.descriptor_indices[i];
+        if (index >= prepared.size() || seen[index]) return false;
+        seen[index] = true;
+        const auto& before = prepared[index]; const auto& after = run.glyphs[i];
+        if (before.glyph_id != after.glyph_id || before.code_point != after.code_point || before.cluster != after.cluster ||
+            (static_cast<std::uint32_t>(before.flags) & static_cast<std::uint32_t>(after.flags)) !=
+                static_cast<std::uint32_t>(before.flags)) return false;
+    }
+    return true;
+}
+
 bool shape_fragment(void* value, const sfnt_font_view& font, std::span<const unicode_scalar> input,
     const open_type_shape_run_options& options, std::span<shaping_glyph> glyphs,
     open_type_shape_run_scratch scratch, std::uint32_t& count, font_error* error,
@@ -289,7 +327,8 @@ struct scratch_owner final {
 bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t font_index,
     const hinted_font_configuration& configuration, std::span<const unicode_scalar> input,
     const open_type_shape_run_options& options, std::shared_ptr<const hinted_shaped_run>& result,
-    hinted_shape_error& error, hinted_projection_policy policy, const open_type_shape_plan* plan, bool retain_positioning) noexcept {
+    hinted_shape_error& error, hinted_projection_policy policy, const open_type_shape_plan* plan, bool retain_positioning,
+    bool retain_boundaries) noexcept {
     error = {};
     try {
         if (!valid_borrows(input, options, configuration)) { error.shaping = font_error::invalid_argument; return false; }
@@ -315,7 +354,8 @@ bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t
         owner.run->glyphs.resize(capacity); owner.run->descriptor_indices.resize(capacity); owner.widths.resize(capacity);
         scratch_owner storage;
         const auto scratch = storage.initialize(needs, capacity);
-        const detail::device_shape_run_services services{&owner, &prepare, &shape_fragment, retain_positioning ? &capture_positioning : nullptr};
+        const detail::device_shape_run_services services{&owner, &prepare, &shape_fragment,
+            retain_positioning ? &capture_positioning : nullptr, retain_boundaries ? &capture_boundaries : nullptr};
         std::uint32_t count = 0U;
         const bool success = detail::try_shape_device_open_type_run(font, owner.run->shaping_input, owned_options,
             owner.run->glyphs, scratch, services, count, &owner.failure.shaping, plan);
@@ -330,6 +370,10 @@ bool try_shape_context_hinted(progpu_native_text_context* context, std::uint32_t
                 error.shaping = font_error::invalid_argument; return false;
             }
         owner.run->glyphs.resize(count); owner.run->descriptor_indices.resize(count);
+        // A later stage that changed original identities cannot grant a cut.
+        // Keep its valid final shaping but discard the unproven boundary view.
+        if (!owner.run->boundary_glyphs.empty() && !valid_boundary_identity(*owner.run))
+            owner.run->boundary_glyphs.clear();
         if (owner.run->positioning != nullptr && count != 0U) {
             std::shared_ptr<const hinted_positioned_slice> verified;
             if (!try_recompose_hinted_positioning(owner.run, 0U, count, verified, &error.shaping)) return false;

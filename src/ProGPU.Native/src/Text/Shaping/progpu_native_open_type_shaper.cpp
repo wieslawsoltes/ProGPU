@@ -2995,6 +2995,14 @@ static bool shape_open_type_run_core(
             [&](const shaping_glyph& glyph) { return is_positioning_mark(glyph, gdef_pointer); }) &&
         !device->capture_positioning(device->owner, font, options, glyph_storage.first(glyph_count), error)) return false;
 
+    // A whole-run consumer keeps final placement, including marks, rather than
+    // replaying it on either side of the cut. Retain the actual original GSUB
+    // dependencies separately; later identity validation must still prove that
+    // every prepared occurrence survived positioning unchanged.
+    if (device != nullptr && device->capture_boundaries != nullptr && !arabic_joining && !complex_script &&
+        !vertical && options.cluster_level == shaping_cluster_level::monotone_graphemes &&
+        !device->capture_boundaries(device->owner, glyph_storage.first(glyph_count), error)) return false;
+
     bool has_gpos_kerning = false;
     if (gpos.lookup_count() != 0U) {
         std::uint32_t lookup_count = 0U;

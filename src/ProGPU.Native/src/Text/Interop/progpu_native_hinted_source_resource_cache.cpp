@@ -56,12 +56,12 @@ bool cache_hinted_source_resource(const hinted_paragraph_generation& paragraph,
     }
     for (const auto& run : paragraph.runs) {
         const auto first = static_cast<std::uint32_t>(cache->prepared.size());
-        const auto& recipe = run.generation->positioning;
-        const auto prepared_count = recipe == nullptr ? 0U : recipe->prepared_glyphs.size();
-        if (prepared_count > count - cache->prepared.size() || (recipe != nullptr && prepared_count != run.logical_count)) return false;
+        const auto prepared = run.generation->prepared_glyphs();
+        const auto prepared_count = prepared.size();
+        if (prepared_count > count - cache->prepared.size() || (!prepared.empty() && prepared_count != run.logical_count)) return false;
         for (std::size_t i = 0U; i < prepared_count; ++i) {
             progpu_native_text_shaping_glyph glyph{};
-            if (!wire_glyph(recipe->prepared_glyphs[i], glyph)) return false;
+            if (!wire_glyph(prepared[i], glyph)) return false;
             cache->prepared.push_back(glyph);
         }
         cache->positioning_runs.push_back({first, static_cast<std::uint32_t>(prepared_count), 0U, 0U});

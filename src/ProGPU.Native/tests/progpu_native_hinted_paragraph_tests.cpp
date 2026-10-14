@@ -44,8 +44,8 @@ struct fixture final {
     std::vector<std::byte> bytes = progpu::native::tests::make_hinted_shape_font();
     context_owner context{};
     std::uint32_t second_font = UINT32_MAX;
-    explicit fixture(bool pair_positioning = false) {
-        if (pair_positioning) bytes = progpu::native::tests::make_hinted_pair_font();
+    explicit fixture(bool pair_positioning = false, bool include_mark = false) {
+        if (pair_positioning) bytes = progpu::native::tests::make_hinted_fixture_font(true, true, include_mark);
         require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
             reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), 0U,
             nullptr, 0U, &context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
@@ -1036,6 +1036,69 @@ void original_pair_boundary_controls() {
     }
 }
 
+void original_mark_boundary_controls() {
+    for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
+        fixture font(true, true);
+        const std::array<std::uint32_t, 8U> values{0x05D0U, 0x05B0U, 0x05D0U, 0x05D0U,
+            0x05D0U, 0x05D0U, 0x05D0U, 0x05B0U};
+        const auto input = scalars(values);
+        const std::array features{progpu_native_text_feature{0x6B65726EU, 1U, 0U, UINT32_MAX}};
+        auto shaping = shape_request(input, features);
+        shaping.direction = PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+        auto layout = layout_options(); layout.direction = shaping.direction;
+        const std::array styles{progpu_native_text_style_run{0U, 8U, 0U, 0.02F, 0U, 0U, 0U, 0U, 0U, 0U, 0U}};
+        const std::array metrics{progpu_native_text_style_metrics{15.0F, 5.0F}};
+        const std::array source_metrics{text_source_item_metrics{15.0, 5.0}};
+        const std::array source{hinted_source_style{20.0, 1.0,
+            hinted_source_em_policy::exact_26_6, hinted_source_advance_policy::unchanged}};
+        const std::array configurations{hinted_paragraph_style_configuration{0U, styles[0].scale,
+            {20U * 64U, 20U * 64U, interpreter, 0U, 0U, {}}, 1.0F}};
+        hinted_source_paragraph_layout source_layout{200.0, 0.0, source_metrics, true, true, true};
+        progpu_native_text_paragraph_result diagnostic{};
+        std::shared_ptr<const hinted_paragraph_generation> original;
+        require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+            original, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS);
+        require(original->runs.size() == 1U && original->lines.size() == 1U && original->logical_glyphs.size() == 8U &&
+            original->runs[0].generation->positioning == nullptr);
+        const auto raw = original->runs[0].generation;
+        const auto original_raw = raw->glyphs;
+        const auto original_wire = original->logical_glyphs;
+        require(original_wire[3].cluster != original_wire[4].cluster &&
+            (static_cast<std::uint32_t>(original_wire[4].flags) & 1U) != 0U);
+        source_layout.maximum_width = 0.0;
+        for (std::size_t i = 0U; i < 4U; ++i) source_layout.maximum_width += original->source_logical_metrics[i].advance_x;
+        double tail_width = 0.0;
+        for (std::size_t i = 4U; i < 8U; ++i) tail_width += original->source_logical_metrics[i].advance_x;
+        source_layout.maximum_width = std::max(source_layout.maximum_width, tail_width);
+        require(source_layout.maximum_width > 0.0);
+        layout.maximum_width = static_cast<float>(source_layout.maximum_width);
+        std::shared_ptr<const hinted_paragraph_generation> fitted;
+        require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+            fitted, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS);
+        require(fitted->source_fitting != nullptr && fitted->source_fitting->slices.empty() &&
+            fitted->lines.size() == 2U && fitted->lines[0].glyph_count == 4U && fitted->lines[1].glyph_count == 4U &&
+            validate_hinted_source_fitting(*fitted, *fitted->source_fitting));
+        for (std::size_t i = 0U; i < original_wire.size(); ++i) {
+            require(equal_glyph(fitted->logical_glyphs[i], original_wire[i]) && equal_glyph(raw->glyphs[i], original_raw[i]));
+            require(fitted->source_logical_metrics[i].advance_x == original->source_logical_metrics[i].advance_x &&
+                fitted->source_logical_metrics[i].offset_x == original->source_logical_metrics[i].offset_x &&
+                fitted->source_logical_metrics[i].offset_y == original->source_logical_metrics[i].offset_y);
+        }
+        // A retained boundary does not grant independent mark recomposition.
+        std::shared_ptr<const hinted_positioned_slice> slice;
+        require(!try_recompose_hinted_positioning(raw, 0U, 4U, slice) && slice == nullptr);
+        source_layout.preserve_whole_run_placement = false;
+        auto untouched = original;
+        require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+            untouched, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_UNSUPPORTED && untouched == original);
+        progpu_native_text_context_destroy(font.context.value); font.context.value = nullptr;
+        const auto suffix = reflow_hinted_source_paragraph(*fitted, fitted->lines[1].input_start, source_layout.maximum_width);
+        require(suffix.status == PROGPU_NATIVE_STATUS_SUCCESS && suffix.generation->lines.size() == 1U &&
+            suffix.generation->runs[0].generation == fitted->runs[0].generation &&
+            suffix.generation->source_fitting->slices.empty());
+    }
+}
+
 void l1_and_rtl_origin_controls() {
     fixture font;
     for (const bool source_bidi : {false, true}) {
@@ -1206,10 +1269,15 @@ void atomic_failure_and_alias_controls() {
     capacity->shaping_input.resize(used);
     std::shared_ptr<const hinted_paragraph_generation> capacity_result = capacity;
     auto* spare = reinterpret_cast<progpu_native_text_paragraph_result*>(capacity->shaping_input.data() + used);
-    std::array<std::byte, sizeof(*spare)> spare_before{}; std::memcpy(spare_before.data(), spare, spare_before.size());
+    std::vector<std::byte> live_before(used * sizeof(unicode_scalar));
+    std::memcpy(live_before.data(), capacity->shaping_input.data(), live_before.size());
+    // The spare range is address-only: shrinking the vector ends those object
+    // lifetimes and ASan poisons it. A fixture memcpy would itself be invalid.
+    // The production guard must reject before touching any of that range.
     require(try_layout_context_hinted_paragraph(font.context.value, valid.shaping, valid.layout, valid.styles, valid.metrics,
         valid.configurations, capacity_result, *spare) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && capacity_result == capacity &&
-        std::memcmp(spare_before.data(), spare, spare_before.size()) == 0);
+        capacity->shaping_input.size() == used &&
+        std::memcmp(live_before.data(), capacity->shaping_input.data(), live_before.size()) == 0);
     std::array<std::int32_t, 32U> axes{};
     axes[0] = static_cast<std::int32_t>(sizeof(progpu_native_text_paragraph_result));
     valid.configurations[1].hinting.variation_coordinates_16_16 = axes;
@@ -1249,7 +1317,8 @@ void atomic_failure_and_alias_controls() {
 int main() {
     try {
 #if defined(PROGPU_NATIVE_FONT_HINTING)
-        actual_paragraph_controls(); original_source_policy_controls(); original_pair_boundary_controls(); l1_and_rtl_origin_controls();
+        actual_paragraph_controls(); original_source_policy_controls(); original_pair_boundary_controls();
+        original_mark_boundary_controls(); l1_and_rtl_origin_controls();
         mutation_and_retirement_controls(); atomic_failure_and_alias_controls();
 #else
         const auto bytes = progpu::native::tests::make_hinted_shape_font();

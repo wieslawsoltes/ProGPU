@@ -213,6 +213,65 @@ Each resulting occurrence retains its original raw glyph/descriptor index, and
 the complete recipe must reproduce the full original raw run exactly before
 publication. Unknown placement families remain explicitly unavailable.
 
+### Original boundaries without a placement recipe
+
+The explicit whole-run policy also retains the actual prepared glyph inventory
+when a horizontal mark run cannot supply the bounded independent placement
+recipe. The previous capture gate discarded that inventory together with the
+recipe. It could therefore reject a legal original cluster cut solely because
+GPOS added a dependency flag, despite this policy retaining the complete original
+placement. The original Hebrew source corpus has such a candidate boundary before
+the final mem in `שָׁלוֹם `; its full qualification remains separate below.
+
+The shaper's original pre-GPOS boundary is observed once. A run that already owns
+a recipe reuses its original inventory. Otherwise the whole-run request alone
+owns a separate immutable snapshot. Before publication, the original descriptor
+permutation must prove every glyph ID, code point, cluster and prepared dependency
+flag against final placement. Changed identity discards the unproven boundary
+view. No glyph-ID search, reshaping, raw-flag clearing or invented safe edge is
+used. Arabic joining, complex-script and vertical capture gates remain unchanged.
+
+The same original records reach fitting, intrinsic measurement, continuation and
+flat source-resource import. Default independent recomposition keeps its original
+recipe requirement and does not allocate the extra snapshot. All callback and
+font/context lifetimes end at original publication; the run owns the snapshot,
+and public output guards cover its complete allocation. Reflow shares that run
+after context retirement. Wire layouts and source defaults do not change.
+
+Capture and complete occurrence validation cost O(G) time and O(G) retained glyph
+storage plus O(G) temporary permutation bits only for opted-in runs without a
+recipe. Existing recipe owners add no duplicate glyph storage. Line fitting keeps
+its original visit budget and sequential width arithmetic. GPU coverage, text
+atlas identity, upload, batching, visibility and retirement are unchanged; this
+is a correctness repair, with no speedup claim.
+
+The existing [cross-engine research](source-hinted-text-ownership.md) was checked
+against the current primary references: [Skia shaping/layout reuse](https://docs.skia.org/docs/dev/design/text_shaper/),
+[DirectWrite glyph-run ownership](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+[Win2D layout/cluster metrics](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm),
+[WebRender font-instance state](https://doc.servo.org/webrender_api/font/struct.FontInstanceOptions.html),
+[Parley analysis/shaping stages](https://github.com/linebender/parley/blob/main/doc/concept.md),
+[Vello shared prepared data](https://github.com/linebender/vello/blob/main/ARCHITECTURE.md)
+and [HarfBuzz unsafe-boundary semantics](https://harfbuzz.github.io/harfbuzz-hb-buffer.html).
+Their separation of retained shaping from layout informs ownership; none replaces
+the original Microsoft line policy or permits erasing dependency flags. Startup,
+workers, font fallback/variation state, atlas eviction and device-loss behavior
+remain unchanged. Implementation provenance is the existing ProGPU device shaper,
+hinted run, source fitter and resource cache; no foreign code was copied.
+
+The authored Hebrew mark/PairPos fixture fails to fit at a proven cluster cut
+before the change and succeeds afterward with both TT35 and TT40. It retains
+every raw advance/offset and rejects independent mark replay. Source imports also
+cover all three advance policies, exact owned records, malformed prepared flags,
+alias rejection and continuation after producer retirement. The paragraph,
+transport and import fixtures pass under ASan/UBSan with their unchanged
+60-second test bounds. An existing spare-capacity fixture was corrected to stop
+reading objects after shrinking its vector; the production alias rejection and
+sanitizer poisoning remain active. Complete native CI and the unchanged original
+source corpus remain required before qualification. This does not enable Display.
+
+### Independent line recomposition and fitting
+
 The source producer and double reflow now fit native candidates using that
 retained placement operation. A candidate cuts only an original shaped-cluster
 edge proven safe before positioning; it replays placement when final raw
