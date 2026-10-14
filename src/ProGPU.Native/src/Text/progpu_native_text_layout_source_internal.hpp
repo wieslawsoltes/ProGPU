@@ -14,6 +14,28 @@ struct text_source_item_metrics final {
     double ascent = 0.0, descent = 0.0;
 };
 
+enum class text_source_width_mode : std::uint8_t { double_advances, ideal_units };
+
+struct text_source_width_policy final {
+    text_source_width_mode mode = text_source_width_mode::double_advances;
+    double pixels_per_dip = 0.0;
+    bool operator==(const text_source_width_policy&) const = default;
+};
+
+// A sequential native line measure, separate from per-glyph draw advances.
+// The explicit ideal lane retains integral 1/300-DIP width before projection.
+// Each append is O(1), allocation-free and atomic on numeric failure. Prefix
+// dependence precludes SIMD; the original independent glyph projections stay
+// vectorized. A double lane keeps the original addition order exactly.
+struct text_source_width_accumulator final {
+    double width = 0.0;
+    std::int64_t ideal_width = 0;
+    bool append(double advance, text_source_width_policy policy) noexcept;
+    bool fits(double maximum_width, text_source_width_policy policy) const noexcept;
+};
+
+bool valid_text_source_width_policy(text_source_width_policy policy) noexcept;
+
 struct text_source_glyph_position final {
     double x = 0.0, y = 0.0, advance_x = 0.0, advance_y = 0.0;
     std::int32_t cluster = 0;
@@ -45,6 +67,7 @@ struct text_source_layout final {
     std::span<text_source_glyph_position> positioned_metrics{};
     std::span<text_source_line_metrics> line_metrics{};
     std::span<const text_source_fitted_line> fitted_lines{};
+    text_source_width_policy width_policy{};
 };
 
 bool is_text_layout_trailing_space(std::uint32_t code_point) noexcept;

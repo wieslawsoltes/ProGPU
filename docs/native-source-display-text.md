@@ -1,5 +1,10 @@
 # Original source Display text
 
+The explicit source ideal-unit lane uses a retained integer line measure,
+separate from per-glyph draw advances. Fitting, intrinsic widths and imported
+source resources share that policy; see [native source line widths](native-source-line-width.md)
+for the original numeric observations and remaining qualification.
+
 The additive C transport retains original-double options and styles in an
 immutable shared cache. Snapshots, native double hit/caret/selection queries and
 double-width continuation use the same producer generation. Glyph resources keep

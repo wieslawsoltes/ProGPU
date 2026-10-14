@@ -44,6 +44,50 @@ bool source_ideal_projection(double device_units, double source_dpi, bool advanc
 }
 } // namespace
 
+bool valid_text_source_width_policy(text_source_width_policy policy) noexcept {
+    return policy.mode == text_source_width_mode::double_advances ? policy.pixels_per_dip == 0.0 :
+        policy.mode == text_source_width_mode::ideal_units &&
+            std::isfinite(policy.pixels_per_dip) && policy.pixels_per_dip > 0.0;
+}
+
+bool text_source_width_accumulator::append(double advance, text_source_width_policy policy) noexcept {
+    if (!valid_text_source_width_policy(policy) || !std::isfinite(advance)) return false;
+    auto candidate = *this;
+    if (policy.mode == text_source_width_mode::double_advances) {
+        candidate.width += advance;
+    } else {
+        // These are the selected native source advances, before fitting and
+        // writer publication. Do not round a completed floating line width.
+        const double units = ties_to_even(advance * 300.0);
+        if (!std::isfinite(units) || units < INT32_MIN || units > INT32_MAX ||
+            ideal_width < INT32_MIN || ideal_width > INT32_MAX) return false;
+        candidate.ideal_width += static_cast<std::int32_t>(units);
+        if (candidate.ideal_width < INT32_MIN || candidate.ideal_width > INT32_MAX) return false;
+        const double physical = (static_cast<double>(candidate.ideal_width) * (1.0 / 300.0)) * policy.pixels_per_dip;
+        if (!std::isfinite(physical)) return false;
+        candidate.width = ties_to_even(physical) / policy.pixels_per_dip;
+        if (candidate.ideal_width > 0) candidate.width = std::max(candidate.width, 1.0 / 300.0);
+    }
+    if (!std::isfinite(candidate.width) || std::abs(candidate.width) > std::numeric_limits<float>::max()) return false;
+    *this = candidate;
+    return true;
+}
+
+bool text_source_width_accumulator::fits(double maximum_width, text_source_width_policy policy) const noexcept {
+    if (!valid_text_source_width_policy(policy) || !std::isfinite(maximum_width) || maximum_width < 0.0) return false;
+    if (maximum_width == 0.0) return true; // Existing unbounded-width contract.
+    if (policy.mode == text_source_width_mode::double_advances) return width <= maximum_width;
+    return static_cast<double>(ideal_width) <= std::floor(maximum_width * 300.0);
+}
+
+text_source_width_policy select_hinted_source_width_policy(std::span<const hinted_source_style> styles) noexcept {
+    if (styles.empty()) return {};
+    const auto dpi = styles.front().pixels_per_dip;
+    for (const auto& style : styles)
+        if (style.advance_policy != hinted_source_advance_policy::source_ideal_units || style.pixels_per_dip != dpi) return {};
+    return {text_source_width_mode::ideal_units, dpi};
+}
+
 bool resolve_hinted_source_device(const hinted_source_style& source,
     hinted_source_device_selection& result) noexcept {
     if (!std::isfinite(source.em_size) || source.em_size <= 0.0 ||

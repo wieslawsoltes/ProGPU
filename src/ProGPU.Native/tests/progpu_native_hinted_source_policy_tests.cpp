@@ -169,11 +169,62 @@ void original_source_conversion_controls() {
             geometry.offset_x == 103.0 && geometry.offset_y == 104.0);
     }
 }
+
+void source_line_width_controls() {
+    const text_source_width_policy ideal{text_source_width_mode::ideal_units, 1.5};
+    text_source_width_accumulator line{};
+    // Original Microsoft "Hell", em 13, DPI 1.5: the retained source measure
+    // is 7400 integer units and its public width is 74/3, while draw advances
+    // are 10, 8, 10/3, 10/3. The source width is not their double prefix sum.
+    for (const auto advance : {10.0, 8.0, 10.0 / 3.0, 10.0 / 3.0}) require(line.append(advance, ideal));
+    require(line.ideal_width == 7400 && line.width == 74.0 / 3.0);
+    require(line.fits(74.0 / 3.0, ideal) && !line.fits(std::nextafter(74.0 / 3.0, 0.0), ideal));
+    require(line.fits(0.0, ideal) && line.fits(std::numeric_limits<double>::max(), ideal));
+    for (const auto invalid : {-1.0, std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::quiet_NaN()}) require(!line.fits(invalid, ideal));
+
+    // Legacy widths keep the original ordered addition, including signed
+    // advances. No source integer policy is inferred for those consumers.
+    text_source_width_accumulator legacy{};
+    double ordered = 0.0;
+    for (const auto advance : {10.0, 8.0, 10.0 / 3.0, 10.0 / 3.0, -1.0}) {
+        ordered += advance;
+        require(legacy.append(advance, {}) && legacy.width == ordered && legacy.ideal_width == 0);
+    }
+    require(legacy.fits(ordered, {}) && !legacy.fits(std::nextafter(ordered, 0.0), {}));
+    auto signed_line = line;
+    require(signed_line.append(-10.0, ideal) && signed_line.ideal_width == 4400 && signed_line.width == 44.0 / 3.0);
+    text_source_width_accumulator tiny{};
+    require(tiny.append(1.0 / 300.0, ideal) && tiny.ideal_width == 1 && tiny.width == 1.0 / 300.0);
+
+    const auto unchanged = line;
+    for (const auto invalid : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::max(), static_cast<double>(INT32_MAX) / 300.0}) {
+        require(!line.append(invalid, ideal) && line.width == unchanged.width && line.ideal_width == unchanged.ideal_width);
+    }
+    for (const auto invalid : {text_source_width_policy{static_cast<text_source_width_mode>(2U), 1.5},
+        text_source_width_policy{text_source_width_mode::double_advances, 1.5},
+        text_source_width_policy{text_source_width_mode::ideal_units, 0.0},
+        text_source_width_policy{text_source_width_mode::ideal_units, -1.0},
+        text_source_width_policy{text_source_width_mode::ideal_units, std::numeric_limits<double>::infinity()}}) {
+        require(!line.append(1.0, invalid) && !line.fits(200.0, invalid) &&
+            line.width == unchanged.width && line.ideal_width == unchanged.ideal_width);
+    }
+    std::array styles{hinted_source_style{13.0, 1.5, hinted_source_em_policy::float_capture_nearest_half_up,
+        hinted_source_advance_policy::source_ideal_units}, hinted_source_style{17.0, 1.5,
+        hinted_source_em_policy::float_capture_nearest_half_up, hinted_source_advance_policy::source_ideal_units}};
+    require(select_hinted_source_width_policy(styles) == ideal && select_hinted_source_width_policy({}) == text_source_width_policy{});
+    styles[1].pixels_per_dip = std::nextafter(1.5, 2.0);
+    require(select_hinted_source_width_policy(styles) == text_source_width_policy{});
+    styles[1].pixels_per_dip = 1.5;
+    styles[1].advance_policy = hinted_source_advance_policy::physical_ties_to_even;
+    require(select_hinted_source_width_policy(styles) == text_source_width_policy{});
+}
 } // namespace
 
 int main() {
     try {
-        capture_controls(); advance_controls(); original_source_conversion_controls();
+        capture_controls(); advance_controls(); original_source_conversion_controls(); source_line_width_controls();
         std::cout << checks << " native source capture/advance policy controls passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -175,6 +175,7 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
         breaks[i] = static_cast<text_line_break_kind>(s.breaks_after[i]);
     }
     if (used_slice_glyphs != declared_slice_glyphs) return false;
+    const auto width_policy = select_hinted_source_width_policy(policies);
     std::vector<text_source_fitted_line> fitted(p.line_count);
     std::uint32_t end = s.first_logical_glyph;
     for (std::uint32_t i = 0U; i < p.line_count; ++i) {
@@ -183,12 +184,12 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
             line.glyph_count == 0U || line.glyph_count > p.logical_count - end || !std::isfinite(line.width) || line.width < 0.0 ||
             !safe_boundary(end + line.glyph_count)) return false;
         const auto line_end = end + line.glyph_count;
-        double width = 0.0;
+        text_source_width_accumulator width{};
         for (std::uint32_t j = end; j < line_end; ++j) {
-            width += metrics[j].advance_x;
+            if (!width.append(metrics[j].advance_x, width_policy)) return false;
             if (j + 1U < line_end && breaks[j] == text_line_break_kind::mandatory) return false;
         }
-        if (!source_exact(width, line.width)) return false;
+        if (!source_exact(width.width, line.width)) return false;
         // Each replayed slice is exactly the selected line/run intersection.
         // Only the explicit whole-run policy retains original placement at a
         // positioning cut; safe_boundary above still proves the prepared edge.
@@ -239,7 +240,7 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
         options, {0.0F, 0.0F, o.allow_emergency_break != 0U}, {groups, indices}, glyphs, lines, glyph_count, line_count,
         {levels, origins, {}}, {o.maximum_width, o.line_height,
             std::span<const text_source_glyph_metrics>{metrics}.subspan(s.first_logical_glyph),
-            std::span<const text_source_item_metrics>{items}.subspan(s.first_logical_glyph), source_glyphs, source_lines, fitted}, &error) ||
+            std::span<const text_source_item_metrics>{items}.subspan(s.first_logical_glyph), source_glyphs, source_lines, fitted, width_policy}, &error) ||
         glyph_count != p.glyph_count || line_count != p.line_count) return false;
     std::vector<double> double_origins(line_count);
     for (std::uint32_t i = 0U; i < glyph_count; ++i) {

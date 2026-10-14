@@ -196,12 +196,13 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
 }
 #endif
 
-void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy, bool preserve_placement, bool marks = false) {
+void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy, bool preserve_placement,
+    bool marks = false, bool six_glyph_width = false) {
     const auto bytes = progpu::native::tests::make_hinted_fixture_font(true, true, marks);
     context_owner context;
     require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
         reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), 0U, nullptr, 0U, &context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
-    const std::uint32_t count = marks ? 8U : 4U;
+    const std::uint32_t count = marks ? 8U : six_glyph_width ? 6U : 4U;
     std::vector<progpu_native_text_scalar> input(count);
     for (std::uint32_t i = 0U; i < input.size(); ++i) input[i] = {rtl ? 0x05D0U : std::uint32_t{'A'}, 9U + i * 2U, 2U, 0U, 0U, 0U};
     if (marks) { input[1U].code_point = 0x05B0U; input[7U].code_point = 0x05B0U; }
@@ -230,6 +231,8 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy,
 #if defined(PROGPU_NATIVE_FONT_HINTING)
     require(status == PROGPU_NATIVE_STATUS_SUCCESS);
     const auto full = verify_import(paragraph.value, false, false, rtl, count);
+    if (six_glyph_width) require(full->imported_source_view()->source.line_count == 1U &&
+        full->imported_source_view()->source.line_metrics[0U].width == 50.0 / 1.5);
     progpu_native_hinted_source_paragraph_view view{};
     require(progpu_native_hinted_source_paragraph_borrow(paragraph.value, &view) == PROGPU_NATIVE_STATUS_SUCCESS && view.logical_count == count);
     double narrow = view.logical_metrics[0U].advance_x + view.logical_metrics[3U].advance_x;
@@ -252,7 +255,12 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy,
     paragraph_owner wrapped;
     require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 9, narrow, &wrapped.value) == PROGPU_NATIVE_STATUS_SUCCESS);
     const auto fitted = verify_import(wrapped.value, !preserve_placement, false, rtl, count);
-    require(fitted->imported_source_view()->source.line_count == 2U);
+    // Keep the original requested width. In the mark/ideal control its ordered
+    // double sum is just below 6800/300; the original source floors the width
+    // constraint to 6799 units, so the 6800-unit tail must take another line.
+    const auto expected_lines = six_glyph_width ? 4U :
+        marks && advance_policy == PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS ? 3U : 2U;
+    require(fitted->imported_source_view()->source.line_count == expected_lines);
     if (preserve_placement) {
         const auto& kept = *fitted->imported_source_view();
         require(kept.source.options.flags == options.flags && kept.slice_count == 0U);
@@ -292,6 +300,8 @@ int main() {
             for (const auto policy : {0U, 1U, 2U}) for (const bool preserve : {false, true}) controls(interpreter, rtl, policy, preserve);
         for (const auto interpreter : {35U, 40U}) for (const auto policy : {0U, 1U, 2U})
             controls(interpreter, true, policy, true, true);
+        for (const auto interpreter : {35U, 40U})
+            controls(interpreter, false, PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS, true, false, true);
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

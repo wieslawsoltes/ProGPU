@@ -13,6 +13,7 @@ struct hinted_source_fitted_slice final {
 // is not replaced. The common writer consumes these exact partitions/metrics.
 struct hinted_source_fitting final {
     std::uint32_t first_logical_glyph = 0U;
+    text_source_width_policy width_policy{};
     std::vector<shaping_glyph> fitting_glyphs{};
     std::vector<text_source_glyph_metrics> metrics{};
     std::vector<text_source_fitted_line> lines{}; // Relative to first_logical_glyph.
