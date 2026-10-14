@@ -31,7 +31,12 @@ typedef enum progpu_native_source_options_flags {
     PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS = 1,
     /* Keep the complete original run's placement at proven prepared cluster
      * boundaries. Default callers retain independent line recomposition. */
-    PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT = 2
+    PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT = 2,
+    /* Preserve the resolved run of complete trailing U+0020 clusters at soft
+     * wraps. Opposed runs fit their spaces, but hang them outside the measured
+     * content frame. Hard/final lines retain canonical L1. Explicit source
+     * policy only: this does not enable WPF Display or change raw shaping. */
+    PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY = 4
 } progpu_native_source_options_flags;
 
 /* PROGPU_CSHARP_STRUCT: Public.NativeHintedSourceIntrinsicWidths */

@@ -14,6 +14,7 @@
     <Compile Include="../HintedDisplayPolicyProbe/SourceComparison.cs" Link="SourceComparison.cs" />
     <Compile Include="../WpfDisplayTextReference/MidpointCases.cs" Link="MidpointCases.cs" />
     <Compile Include="../SourceDisplayPolicyProbe/SourceReferenceInput.cs" Link="SourceReferenceInput.cs" />
+    <Compile Include="../SourceDisplayPolicyProbe/SourceReferenceInput.SoftWrap.cs" Link="SourceReferenceInput.SoftWrap.cs" />
     <Compile Include="../SourceDisplayPolicyProbe/SourceGeometryComparison.cs" Link="SourceGeometryComparison.cs" />
   </ItemGroup>
 </Project>

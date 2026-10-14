@@ -15,8 +15,8 @@ internal static class Program
     private static void Main(string[] args)
     {
         bool validate = args.Length == 2 && args[0] == "--validate-reference";
-        if (!validate && args.Length is not (10 or 11))
-            throw new ArgumentException("Expected reference.json Inter.ttf Hebrew.ttf exact-library CreateNew-output.json native-commit successful-Build-URL em-policy advance-policy offset-policy [recompose-lines|preserve-whole-run]; or --validate-reference reference.json.");
+        if (!validate && args.Length is not (10 or 11 or 12))
+            throw new ArgumentException("Expected reference.json Inter.ttf Hebrew.ttf exact-library CreateNew-output.json native-commit successful-Build-URL em-policy advance-policy offset-policy [recompose-lines|preserve-whole-run] [canonical-spaces|preserve-soft-wrap-spaces]; or --validate-reference reference.json.");
         using var reference = SourceReferenceInput.Read(args[validate ? 1 : 0]);
         if (validate)
         {
@@ -28,20 +28,26 @@ internal static class Program
         var emPolicy = Policy<NativeSourceEmPolicy>(args[7]);
         var advancePolicy = Policy<NativeSourceAdvancePolicy>(args[8]);
         var offsetPolicy = Policy<NativeSourceOffsetPolicy>(args[9]);
-        bool preserveWholeRunPlacement = args.Length == 11 ? args[10] switch
+        bool preserveWholeRunPlacement = args.Length >= 11 ? args[10] switch
         {
             "recompose-lines" => false,
             "preserve-whole-run" => true,
             _ => throw new ArgumentException("Unknown explicit source line-placement policy.")
+        } : false;
+        bool preserveSoftWrapSpaceGeometry = args.Length == 12 ? args[11] switch
+        {
+            "canonical-spaces" => false,
+            "preserve-soft-wrap-spaces" => true,
+            _ => throw new ArgumentException("Unknown explicit source soft-wrap space policy.")
         } : false;
         if (args[5].Length != 40 || !args[5].All(Uri.IsHexDigit) ||
             !Uri.TryCreate(args[6], UriKind.Absolute, out var build) || build.Scheme != "https" || build.Host != "github.com" ||
             !build.AbsolutePath.StartsWith("/wieslawsoltes/ProGPU/actions/runs/", StringComparison.Ordinal))
             throw new ArgumentException("Exact source commit and whole-successful Build provenance are required before native staging.");
         if (File.Exists(args[4])) throw new IOException("Observation output already exists.");
-        byte[] inter = File.ReadAllBytes(args[1]); byte[] hebrew = reference.IsMidpoint ? File.ReadAllBytes(args[2]) : [];
+        byte[] inter = File.ReadAllBytes(args[1]); byte[] hebrew = reference.HasRtlFont ? File.ReadAllBytes(args[2]) : [];
         VerifyFont(inter, ReferenceInput.FontHash);
-        if (reference.IsMidpoint) VerifyFont(hebrew, SourceReferenceInput.RtlFontHash);
+        if (reference.HasRtlFont) VerifyFont(hebrew, SourceReferenceInput.RtlFontHash);
         var libraryIdentity = Identity(args[3]);
         nint library = NativeLibrary.Load(libraryIdentity.Path);
         NativeLibrary.SetDllImportResolver(typeof(NativeTextShapingContext).Assembly, (name, _, _) => name == "progpu_native" ? library : 0);
@@ -64,25 +70,25 @@ internal static class Program
                 // The producer and every borrowed source metric are retired before
                 // advancing to another policy. Unsupported is an explicit failed
                 // observation, never a skipped case, Ideal fallback or exact match.
-                try { observations.Add(Capture(sourceOrdinal, item, source, font, fontHash, interpreter, emPolicy, advancePolicy, offsetPolicy, preserveWholeRunPlacement)); }
+                try { observations.Add(Capture(sourceOrdinal, item, source, font, fontHash, interpreter, emPolicy, advancePolicy, offsetPolicy, preserveWholeRunPlacement, preserveSoftWrapSpaceGeometry)); }
                 catch (NotSupportedException error)
                 { observations.Add(new { SourceOrdinal = sourceOrdinal, OriginalCase = item.Clone(), Interpreter = (uint)interpreter,
                     Status = "ExplicitNativeRejection", Failure = error.Message, EmPolicy = emPolicy, AdvancePolicy = advancePolicy, OffsetPolicy = offsetPolicy,
-                    PreserveWholeRunPlacement = preserveWholeRunPlacement }); }
+                    PreserveWholeRunPlacement = preserveWholeRunPlacement, PreserveSoftWrapSpaceGeometry = preserveSoftWrapSpaceGeometry }); }
             }
         }
-        if (observations.Count != (reference.IsMidpoint ? 288 : 192) || Identity(args[3]).Sha256 != libraryIdentity.Sha256)
+        if (observations.Count != (reference.IsSoftWrap ? 396 : reference.IsMidpoint ? 288 : 192) || Identity(args[3]).Sha256 != libraryIdentity.Sha256)
             throw new InvalidOperationException("Incomplete observations or changed native library.");
         var receipt = new
         {
             Schema = 1, NativeSourceCommit = args[5], SuppliedSuccessfulBuild = args[6], NativeLibrary = libraryIdentity,
             ReferenceReceipt = new { reference.Path, reference.Sha256 }, ReferenceProvenance = reference.Root.Clone(),
-            FontSha256 = Hash(inter), RtlFontSha256 = reference.IsMidpoint ? Hash(hebrew) : null,
+            FontSha256 = Hash(inter), RtlFontSha256 = reference.HasRtlFont ? Hash(hebrew) : null,
             Probe = Identity(Assembly.GetExecutingAssembly().Location), Backend = Identity(typeof(NativeTextShapingContext).Assembly.Location),
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(), Runtime = RuntimeInformation.FrameworkDescription,
             OperatingSystem = RuntimeInformation.OSDescription, ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds,
             EmPolicy = emPolicy, AdvancePolicy = advancePolicy, OffsetPolicy = offsetPolicy,
-            PreserveWholeRunPlacement = preserveWholeRunPlacement,
+            PreserveWholeRunPlacement = preserveWholeRunPlacement, PreserveSoftWrapSpaceGeometry = preserveSoftWrapSpaceGeometry,
             CaseCount = observations.Count, Cases = observations,
             Qualification = "Original source-double observations only. Both interpreters remain explicit; no default, Display registration, pixel, caret or application qualification."
         };
@@ -94,7 +100,7 @@ internal static class Program
 
     private static object Capture(int ordinal, JsonElement item, IndependentSourceMetrics source, byte[] font, string fontHash,
         NativeFontHintInterpreter interpreter, NativeSourceEmPolicy emPolicy, NativeSourceAdvancePolicy advancePolicy, NativeSourceOffsetPolicy offsetPolicy,
-        bool preserveWholeRunPlacement)
+        bool preserveWholeRunPlacement, bool preserveSoftWrapSpaceGeometry)
     {
         var face = SfntFontFace.Load(font);
         if (!face.TryGetTable("head", out var head) || head.Length < 20) throw new InvalidDataException("Original units-per-em is absent.");
@@ -106,7 +112,8 @@ internal static class Program
         var direction = item.GetProperty("Direction").GetString() == "RightToLeft" ? NativeTextDirection.RightToLeft : NativeTextDirection.LeftToRight;
         var options = NativeHintedSourceOptions.Create(source.Em, source.Dpi, item.GetProperty("Width").GetDouble(),
             source.LineSpacing, 0, emPolicy, advancePolicy, true, measureIntrinsicWidths: false,
-            offsetPolicy: offsetPolicy, preserveWholeRunPlacement: preserveWholeRunPlacement);
+            offsetPolicy: offsetPolicy, preserveWholeRunPlacement: preserveWholeRunPlacement,
+            preserveSoftWrapSpaceGeometry: preserveSoftWrapSpaceGeometry);
         NativeTextParagraphStyle[] styles = [new(0, text.Length, 0, scale)];
         NativeTextStyleMetrics[] metrics = [new() { Ascent = (float)source.Baseline, Descent = (float)(source.LineSpacing - source.Baseline) }];
         NativeHintedSourceStyle[] originalStyles = [new() { EmSize = source.Em, Ascent = source.Baseline, Descent = source.LineSpacing - source.Baseline }];

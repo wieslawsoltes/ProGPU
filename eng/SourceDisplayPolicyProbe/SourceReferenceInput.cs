@@ -6,7 +6,7 @@ namespace SourceDisplayPolicyProbe;
 
 internal readonly record struct IndependentSourceMetrics(double Em, double Dpi, double Baseline, double LineSpacing);
 
-internal sealed class SourceReferenceInput(JsonDocument document, string path, string hash) : IDisposable
+internal sealed partial class SourceReferenceInput(JsonDocument document, string path, string hash) : IDisposable
 {
     internal const string RtlFontHash = "A7FA16FFFB27BEDB060A0866267C29E9859AEB9C21CC33F5B3AAF6EB062ECA85";
     private const string MidpointCommit = "6ef45fee1be4dc1bbf11cf3328c5fcf3086496ac";
@@ -29,7 +29,7 @@ internal sealed class SourceReferenceInput(JsonDocument document, string path, s
     internal JsonElement Root => document.RootElement;
     internal string Path { get; } = path;
     internal string Sha256 { get; } = hash;
-    internal bool HasIndependentMetrics => Root.GetProperty("Schema").GetInt32() is 2 or 4;
+    internal bool HasIndependentMetrics => Root.GetProperty("Schema").GetInt32() is 2 or 4 or 106;
     internal bool IsMidpoint => Root.GetProperty("Schema").GetInt32() is 3 or 4;
     internal IEnumerable<JsonElement> Cases => Root.GetProperty("Cases").EnumerateArray()
         .Select(item => IsMidpoint ? item.GetProperty("Original") : item);
@@ -48,7 +48,7 @@ internal sealed class SourceReferenceInput(JsonDocument document, string path, s
         string sha = Convert.ToHexString(SHA256.HashData(owned));
         bool midpoint = MidpointHashes.Contains(sha);
         bool hasMetrics = SourceMetricReceipts.TryGetValue(sha, out string? metricCommit);
-        if (!midpoint && !hasMetrics)
+        if (!midpoint && !hasMetrics && !SoftWrapHashes.Contains(sha))
         {
             // Reuse the old exact-byte ownership/identity validator unchanged.
             using var legacy = ReferenceInput.ParseVerified(owned, path);
@@ -71,6 +71,7 @@ internal sealed class SourceReferenceInput(JsonDocument document, string path, s
     internal static void ValidateStructure(JsonElement root)
     {
         int schema = root.GetProperty("Schema").GetInt32();
+        if (schema == 106) { ValidateSoftWrap(root); return; }
         bool midpoint = schema is 3 or 4, metrics = schema is 2 or 4;
         if (schema is < 1 or > 4 || root.GetProperty("Architecture").GetString() is not ("X64" or "Arm64") ||
             root.GetProperty("Font").GetProperty("Sha256").GetString() != ReferenceInput.FontHash ||

@@ -40,7 +40,7 @@ template<class T> void owned_span(const hinted_paragraph_glyph_resource& resourc
         !resource.allocation_aliases(original, bytes));
 }
 std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_native_hinted_paragraph* paragraph,
-    bool expected_slices, bool suffix, bool rtl, std::uint32_t expected_count = 4U) {
+    bool expected_slices, bool suffix, bool rtl, std::uint32_t expected_count = 4U, bool expected_soft_spaces = false) {
     resource_owner producer;
     const progpu_native_hinted_glyph_resource_request request{PROGPU_NATIVE_ABI_VERSION, sizeof(request), 1.5F,
         PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR, 0U};
@@ -88,7 +88,7 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
         case 2U: bad.version = 1U; break;
         case 3U: bad.flags = 1U; break;
         case 4U: bad.reserved = 1U; break;
-        case 5U: bad.source.options.flags |= 4U; break;
+        case 5U: bad.source.options.flags |= 8U; break;
         case 6U: bad.source.options.em_policy = 4U; break;
         case 7U: bad.source.options.advance_policy = 3U; break;
         case 8U: bad.source.options.offset_policy = 2U; break;
@@ -107,6 +107,12 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
         reject(raster, bad);
     }
     auto bad = source;
+    if (expected_soft_spaces) {
+        require((source.source.options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY) != 0U);
+        bad.source.options.flags &= ~static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY);
+        reject(raster, bad);
+        bad = source;
+    }
     std::vector<progpu_native_hinted_source_logical_metrics> logical(source.source.logical_metrics,
         source.source.logical_metrics + source.source.logical_count);
     bad.source.logical_metrics = logical.data(); logical.back().advance_x = std::nextafter(logical.back().advance_x, INFINITY);
@@ -292,6 +298,60 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy,
     require(status == PROGPU_NATIVE_STATUS_UNSUPPORTED && paragraph.value == nullptr);
 #endif
 }
+
+void soft_wrap_controls(std::uint32_t interpreter, bool hebrew) {
+    const auto bytes = progpu::native::tests::make_hinted_fixture_font(true, true);
+    context_owner context;
+    require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
+        reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), 0U, nullptr, 0U, &context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto letter = hebrew ? 0x05D0U : std::uint32_t{'A'};
+    const std::array<std::uint32_t, 9U> code_points{letter, letter, ' ', letter, letter, ' ', ' ', ' ', letter};
+    std::array<progpu_native_text_scalar, 9U> input{};
+    for (std::uint32_t i = 0U; i < input.size(); ++i) input[i] = {code_points[i], i, 1U, 0U, 0U, 0U};
+    progpu_native_text_shape_request shape{};
+    shape.abi_version = PROGPU_NATIVE_ABI_VERSION; shape.struct_size = sizeof(shape);
+    shape.input = input.data(); shape.input_count = static_cast<std::uint32_t>(input.size());
+    shape.direction = hebrew ? PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT : PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+    progpu_native_text_layout_options layout{}; layout.struct_size = sizeof(layout); layout.scale = 1.0F;
+    layout.maximum_width = 200.0F; layout.direction = shape.direction;
+    const progpu_native_text_style_run style{0U, 9U, 0U, 0.01325F, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+    const progpu_native_text_style_metrics metrics{9.25F, 2.5F};
+    const progpu_native_hinted_paragraph_device_style device{0U, style.scale, 1.0F / 1.5F,
+        1280U, 1280U, interpreter, 0U, 0U, 0U, 0U, 0U};
+    const progpu_native_hinted_source_style source_style{13.25, 9.25, 2.5};
+    const progpu_native_hinted_source_options options{PROGPU_NATIVE_ABI_VERSION, sizeof(options), 1U,
+        PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT | PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY,
+        13.25, 1.5, 200.0, 0.0, 0.0, PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP,
+        PROGPU_NATIVE_SOURCE_ADVANCE_UNCHANGED, PROGPU_NATIVE_SOURCE_OFFSET_UNCHANGED, 1U};
+    paragraph_owner paragraph;
+    progpu_native_text_paragraph_result diagnostic{}; diagnostic.struct_size = sizeof(diagnostic);
+    const auto status = progpu_native_text_context_layout_hinted_source_paragraph(context.value, &shape, &layout,
+        &style, 1U, &metrics, &device, 1U, nullptr, 0U, &options, &source_style, 1U, &paragraph.value, &diagnostic);
+#if defined(PROGPU_NATIVE_FONT_HINTING)
+    require(status == PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto wide = verify_import(paragraph.value, false, false, hebrew, 9U);
+    const auto& source = wide->imported_source_view()->source;
+    double width = 0.0, content = 0.0;
+    for (std::uint32_t i = 0U; i < 7U; ++i) {
+        width += source.logical_metrics[i].advance_x;
+        if (i < 5U) content += source.logical_metrics[i].advance_x;
+    }
+    paragraph_owner wrapped;
+    require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 0, width, &wrapped.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto retained = verify_import(wrapped.value, false, false, hebrew, 9U, true);
+    const auto* owned = retained->imported_source_view();
+    require(owned->source.line_count == 2U && owned->source.line_metrics[0U].glyph_count == 7U &&
+        owned->source.line_metrics[0U].width == content && owned->fitted_lines[0U].width == width &&
+        owned->source.options.flags == options.flags);
+    progpu_native_hinted_paragraph_destroy(wrapped.value); wrapped.value = nullptr;
+    progpu_native_hinted_paragraph_destroy(paragraph.value); paragraph.value = nullptr;
+    progpu_native_text_context_destroy(context.value); context.value = nullptr;
+    require(owned->source.line_metrics[0U].width == content && owned->source.options.flags == options.flags &&
+        retained->binding_view().glyphs.size() == input.size());
+#else
+    require(status == PROGPU_NATIVE_STATUS_UNSUPPORTED && paragraph.value == nullptr);
+#endif
+}
 } // namespace
 
 int main() {
@@ -302,6 +362,7 @@ int main() {
             controls(interpreter, true, policy, true, true);
         for (const auto interpreter : {35U, 40U})
             controls(interpreter, false, PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS, true, false, true);
+        for (const auto interpreter : {35U, 40U}) for (const bool hebrew : {false, true}) soft_wrap_controls(interpreter, hebrew);
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

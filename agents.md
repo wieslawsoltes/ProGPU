@@ -9,6 +9,15 @@ whole-generation ownership and atomic overflow rejection. See
 docs/native-source-line-width.md; Display and final package/source qualification
 remain separate gates.
 
+Explicit source soft-wrap space geometry retains complete original U+0020
+clusters in their resolved run and keeps opposed trailing advances outside the
+measured content frame. Fit partial space sequences only at proven prepared
+cluster boundaries under the existing emergency-break policy. Preserve full raw
+levels, glyphs, advances, owners, reflow leases and source import validation.
+Hard/final lines and generic L1/L2 stay canonical; other whitespace families,
+RTL GlyphRun frames, source caret arithmetic and ordinary Display admission keep
+their independent qualification. See docs/source-soft-wrap-spaces.md.
+
 Exactly vertical path edges may bypass redundant integer half-plane admission
 only with equal original endpoint X and the original floating intersection
 expression. Preserve finite-overflow behavior, strict X comparison, original

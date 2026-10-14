@@ -13,6 +13,7 @@ bool cache_hinted_source_paragraph(progpu_native_hinted_paragraph& handle,
     const auto& p = *handle.generation;
     if (!p.has_source_geometry || p.source_styles.size() != p.styles.size() ||
         p.source_preserve_whole_run_placement != ((options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) != 0U) ||
+        p.source_preserve_soft_wrap_space_geometry != ((options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY) != 0U) ||
         p.source_style_metrics.size() != p.styles.size() || p.source_logical_metrics.size() != p.logical_glyphs.size() ||
         p.source_glyphs.size() != p.glyphs.size() || p.source_lines.size() != p.lines.size() ||
         handle.interaction->source_boxes().size() > UINT32_MAX || handle.interaction->source_carets().size() > UINT32_MAX)
@@ -37,7 +38,7 @@ bool cache_hinted_source_paragraph(progpu_native_hinted_paragraph& handle,
 bool source_options_valid(const progpu_native_hinted_source_options& o) noexcept {
     return o.abi_version == PROGPU_NATIVE_ABI_VERSION && o.struct_size == sizeof(o) && o.version == 1U &&
         (o.flags & ~static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS |
-            PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT)) == 0U &&
+            PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT | PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY)) == 0U &&
         o.em_policy <= PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP &&
         o.advance_policy <= PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS && o.offset_policy <= PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS &&
         o.allow_emergency_break <= 1U && std::isfinite(o.em_size) && o.em_size > 0.0 &&
@@ -103,7 +104,8 @@ progpu_native_status progpu_native_text_context_layout_hinted_source_paragraph(
         }
         const hinted_source_paragraph_layout source_layout{options.maximum_width, options.line_height,
             metrics, options.allow_emergency_break != 0U, (options.flags & PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS) != 0U,
-            (options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) != 0U};
+            (options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) != 0U,
+            (options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY) != 0U};
         auto candidate = std::make_unique<progpu_native_hinted_paragraph>();
         progpu_native_text_paragraph_result diagnostic{};
         const auto status = try_layout_context_hinted_paragraph(context, *shaping, *layout,
