@@ -68,6 +68,7 @@ internal static partial class Program
             throw new InvalidOperationException("Original DirectWrite module identity was not observed.");
         var receipt = new
         {
+            SupplementalWidthLimits = midpointCases ? null : CaptureWidthLimits(font, family),
             Schema = midpointCases ? (sourceInputs ? 104 : 103) : (sourceInputs ? 102 : 101), SupplementalDrawingFrames = true, SupplementalNumericMetrics = true, OriginalSourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
             Font = FileIdentity(font), Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             PresentationCore = FileIdentity(presentation.Location), PresentationIdentity = presentation.FullName,
@@ -89,6 +90,21 @@ internal static partial class Program
         using var output = new FileStream(args[1], FileMode.CreateNew, FileAccess.Write, FileShare.None);
         JsonSerializer.Serialize(output, serialized, new JsonSerializerOptions { WriteIndented = true });
         Console.WriteLine($"WPF text reference: {cases.Count} original Ideal/Display cases, 0 skipped; {args[2]}.");
+    }
+
+
+    private static object CaptureWidthLimits(string font, FontFamily family)
+    {
+        // Separate original public API cases; the fixed original corpus above is untouched.
+        double threshold = 74.0 / 3.0;
+        var results = new List<object>();
+        foreach (double width in new[] { Math.BitDecrement(threshold), threshold,
+            Math.BitIncrement(threshold), 25.0 })
+        {
+            results.Add(Capture(font, family, "Hello", TextFormattingMode.Display,
+                FlowDirection.LeftToRight, 1.5, 13.0, width, true));
+        }
+        return results;
     }
 
     private static object Capture(string font, FontFamily family, string text, TextFormattingMode mode,
