@@ -4268,11 +4268,11 @@ progpu_native_status render_scene(
             (semantic_destination_sampling_active ? 1U : 0U) +
             semantic_effected_backdrop_layer_count;
         if ((semantic_has_layer_masks || semantic_has_state_masks) &&
-            !create_layer_mask_resources(*engine)) {
+            !create_layer_mask_binding_resources(*engine)) {
             discard_encoder();
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
-                "The retained semantic layer-mask pipeline could not be prepared.");
+                "The retained semantic layer-mask bindings could not be prepared.");
         }
         if (semantic_has_builtin_effects &&
             (!create_gaussian_effect_resources(*engine) ||

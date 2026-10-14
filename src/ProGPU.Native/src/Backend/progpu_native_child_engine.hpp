@@ -15,7 +15,9 @@ namespace progpu::native::execution {
 
 // Creates one owner-thread-affine engine over the parent's retained device,
 // queue, instance, and exact WebGPU dispatch. The child owns independent scene
-// and pipeline state while WebGPU handles remain reference-counted.
+// state. It borrows the parent's immutable base pipeline and any already prepared
+// analytic pipeline/layouts, and must be destroyed before that owning parent.
+// Analytic buffers, bind groups and readiness remain independent and lazy.
 progpu_native_status create_child_engine(
     const progpu_native_engine& parent,
     WGPUTextureFormat target_format,

@@ -13,6 +13,7 @@
 #include "progpu_native_engine.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_path_pixel_mapping.hpp"
+#include "progpu_native_path_dispatch.hpp"
 #include "progpu_native_pipeline.hpp"
 #include "progpu_native_replay_execution.hpp"
 #include "progpu_native_webgpu_resources.hpp"
@@ -146,12 +147,16 @@ bool rebuild_vector_clip_chain(
 
     try {
         bool has_only_linear_segments = true;
+        bool has_only_line_or_cubic_segments = true;
         for (std::size_t index = 0U; index < chain.segment_count; ++index) {
             if (!validate_native_path_segment(chain.segments[index])) {
                 return false;
             }
             has_only_linear_segments = has_only_linear_segments &&
                 chain.segments[index].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE;
+            has_only_line_or_cubic_segments = has_only_line_or_cubic_segments &&
+                (chain.segments[index].kind == PROGPU_NATIVE_PATH_SEGMENT_LINE ||
+                    chain.segments[index].kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
         }
 
         std::vector<gpu_path_uniforms> path_uniforms;
@@ -642,8 +647,15 @@ bool rebuild_vector_clip_chain(
             descriptor.usage = usage;
             return wgpuDeviceCreateBuffer(engine.device, &descriptor);
         };
-        const std::uint64_t path_uniform_bytes =
-            path_uniforms.size() * sizeof(gpu_path_uniforms);
+        path_raster_dispatch_plan size_dispatches;
+        if (!has_inline_path_operation && split_leaf_uniforms.empty() &&
+            split_signed_leaf_uniforms.empty() && coverage_combine_uniforms.empty() &&
+            signed_coverage_combine_uniforms.empty()) {
+            size_dispatches = group_single_path_dispatches(path_uniforms);
+        }
+        const std::uint64_t path_uniform_bytes = size_dispatches.groups.empty()
+            ? path_uniforms.size() * sizeof(gpu_path_uniforms)
+            : size_dispatches.uniforms.size();
         std::uint64_t split_leaf_uniform_bytes = 0U;
         const std::uint64_t path_record_bytes =
             path_records.size() * sizeof(gpu_path_record);
@@ -744,7 +756,9 @@ bool rebuild_vector_clip_chain(
         }
         if (path_uniform_bytes != 0U) {
             wgpuQueueWriteBuffer(engine.queue, temporary.uniforms, 0U,
-                path_uniforms.data(), path_uniform_bytes);
+                size_dispatches.groups.empty()
+                    ? static_cast<const void*>(path_uniforms.data())
+                    : static_cast<const void*>(size_dispatches.uniforms.data()), path_uniform_bytes);
         }
         for (std::size_t phase_index = 0U;
              phase_index < split_leaf_uniforms.size();
@@ -806,9 +820,10 @@ bool rebuild_vector_clip_chain(
             WGPUBuffer uniform_buffer,
             std::uint64_t uniform_size,
             WGPUBuffer combine_buffer,
-            std::uint64_t combine_size) {
+            std::uint64_t combine_size,
+            std::uint64_t uniform_offset = 0U) {
             const std::array<WGPUBindGroupEntry, 5U> entries{{
-                {nullptr, 0U, uniform_buffer, 0U,
+                {nullptr, 0U, uniform_buffer, uniform_offset,
                     std::max<std::uint64_t>(
                         uniform_size,
                         sizeof(gpu_path_uniforms)),
@@ -838,9 +853,19 @@ bool rebuild_vector_clip_chain(
         temporary.bind_group = create_raster_bind_group(
             "ProGPU native retained clip raster bind group",
             temporary.uniforms,
-            path_uniform_bytes,
+            size_dispatches.groups.empty() ? path_uniform_bytes : size_dispatches.groups.front().bytes,
             temporary.coverage_combine_uniforms,
             combine_uniform_bytes);
+        temporary.size_bind_groups.resize(
+            size_dispatches.groups.empty() ? 0U : size_dispatches.groups.size() - 1U, nullptr);
+        bool size_bind_group_creation_failed = false;
+        for (std::size_t i = 1U; i < size_dispatches.groups.size(); ++i) {
+            const auto& group = size_dispatches.groups[i];
+            temporary.size_bind_groups[i - 1U] = create_raster_bind_group(
+                "ProGPU native clip size bind group", temporary.uniforms, group.bytes,
+                temporary.coverage_combine_uniforms, combine_uniform_bytes, group.offset);
+            size_bind_group_creation_failed |= temporary.size_bind_groups[i - 1U] == nullptr;
+        }
         temporary.split_leaf_bind_groups.resize(
             split_leaf_uniforms.size(),
             nullptr);
@@ -895,7 +920,7 @@ bool rebuild_vector_clip_chain(
             split_bind_group_creation_failed |=
                 temporary.signed_combine_bind_group == nullptr;
         }
-        if (temporary.bind_group == nullptr ||
+        if (temporary.bind_group == nullptr || size_bind_group_creation_failed ||
             split_bind_group_creation_failed) {
             return false;
         }
@@ -907,8 +932,10 @@ bool rebuild_vector_clip_chain(
         const path_raster_pipeline_requirements required{
             .linear_path = !path_uniforms.empty() && !has_inline_path_operation &&
                 has_only_linear_segments,
+            .cubic_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                !has_only_linear_segments && has_only_line_or_cubic_segments,
             .single_path = !path_uniforms.empty() && !has_inline_path_operation &&
-                !has_only_linear_segments,
+                !has_only_line_or_cubic_segments,
             .ordinary = !path_uniforms.empty() && has_inline_path_operation &&
                 !has_inline_signed_winding,
             .inline_signed = !path_uniforms.empty() && has_inline_signed_winding &&
@@ -1031,7 +1058,8 @@ bool rebuild_vector_clip_chain(
             std::size_t uniform_count,
             WGPUComputePipeline pipeline,
             std::uint32_t dispatch_x,
-            std::uint32_t dispatch_y) {
+            std::uint32_t dispatch_y,
+            std::span<const path_raster_dispatch> groups = {}) {
             if (uniform_count == 0U) {
                 return true;
             }
@@ -1048,18 +1076,19 @@ bool rebuild_vector_clip_chain(
             wgpuComputePassEncoderSetPipeline(
                 compute,
                 pipeline);
-            wgpuComputePassEncoderSetBindGroup(
-                compute,
-                0U,
-                bind_group,
-                0U,
-                nullptr);
-            engine.dispatch_compute(
-                compute,
-                pipeline,
-                dispatch_x,
-                dispatch_y,
-                static_cast<std::uint32_t>(uniform_count));
+            if (groups.empty()) {
+                wgpuComputePassEncoderSetBindGroup(compute, 0U, bind_group, 0U, nullptr);
+                engine.dispatch_compute(compute, pipeline, dispatch_x, dispatch_y,
+                    static_cast<std::uint32_t>(uniform_count));
+            } else {
+                // Independent output slices share one pass and original submission.
+                for (std::size_t i = 0U; i < groups.size(); ++i) {
+                    const auto& group = groups[i];
+                    wgpuComputePassEncoderSetBindGroup(compute, 0U,
+                        i == 0U ? bind_group : temporary.size_bind_groups[i - 1U], 0U, nullptr);
+                    engine.dispatch_compute(compute, pipeline, group.x, group.y, group.count);
+                }
+            }
             wgpuComputePassEncoderEnd(compute);
             wgpuComputePassEncoderRelease(compute);
             return true;
@@ -1076,9 +1105,11 @@ bool rebuild_vector_clip_chain(
                         ? engine.path_raster_ordinary_pipeline
                         : has_only_linear_segments
                             ? engine.path_raster_linear_path_pipeline
-                            : engine.path_raster_single_path_pipeline,
+                            : has_only_line_or_cubic_segments
+                                ? engine.path_raster_cubic_path_pipeline
+                                : engine.path_raster_single_path_pipeline,
                 workgroups_x,
-                workgroups_y)) {
+                workgroups_y, size_dispatches.groups)) {
             if (owns_encoder && encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }

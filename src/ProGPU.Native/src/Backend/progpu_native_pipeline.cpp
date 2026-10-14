@@ -377,6 +377,13 @@ bool create_analytic_pipeline(progpu_native_engine& engine) {
     if (engine.analytic_pipeline != nullptr) {
         return create_analytic_resources(engine);
     }
+    if (engine.borrowed_analytic_pipeline != nullptr) {
+        if (!create_analytic_resources(engine)) {
+            return false;
+        }
+        engine.analytic_pipeline = engine.borrowed_analytic_pipeline;
+        return true;
+    }
     if (!create_analytic_bind_group_layouts(engine)) {
         return false;
     }

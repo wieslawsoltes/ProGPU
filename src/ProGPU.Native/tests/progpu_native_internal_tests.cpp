@@ -12,6 +12,7 @@
 #include "progpu_native_wpf_path_join_fixture.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
+#include "progpu_native_path_dispatch.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_brush_tests.hpp"
@@ -52,6 +53,53 @@ void require(bool condition, std::source_location location = std::source_locatio
         std::fprintf(stderr, "%s:%u: native internal requirement failed\n", location.file_name(), location.line());
         std::abort();
     }
+}
+
+void path_size_batches_keep_original_uniforms_and_bound_work() {
+    using namespace progpu::native;
+    std::vector<gpu_path_uniforms> source;
+    for (std::uint32_t width : {1U, 3U, 4U, 63U, 64U, 65U, 137U, 884U})
+        for (std::uint32_t height : {1U, 15U, 16U, 17U, 719U}) {
+            const auto i = static_cast<std::uint32_t>(source.size());
+            source.push_back({-0.25F - i, 0.5F + i, 1.5F, 2.0F, i,
+                101U * i, 256U + i, width, height, 8U, i + 17U, 0U});
+        }
+    const auto original = source;
+    const auto plan = group_single_path_dispatches(source);
+    require(std::memcmp(source.data(), original.data(), source.size() * sizeof(source[0])) == 0);
+    std::vector<bool> seen(source.size());
+    std::uint64_t work = 0U;
+    std::size_t previous_end = 0U;
+    for (const auto& group : plan.groups) {
+        require(group.offset % 256U == 0U && group.offset >= previous_end);
+        require(group.bytes == group.count * sizeof(gpu_path_uniforms));
+        require(group.offset + group.bytes <= plan.uniforms.size() && group.count != 0U);
+        for (std::size_t i = previous_end; i < group.offset; ++i)
+            require(plan.uniforms[i] == std::byte{});
+        for (std::uint32_t i = 0U; i < group.count; ++i) {
+            gpu_path_uniforms value{};
+            std::memcpy(&value, plan.uniforms.data() + group.offset + i * sizeof(value), sizeof(value));
+            require(value.path_index < source.size() && !seen[value.path_index]);
+            seen[value.path_index] = true;
+            require(std::memcmp(&value, &source[value.path_index], sizeof(value)) == 0);
+            require(group.x * 64U >= value.width && (group.x - 1U) * 64U < value.width);
+            require(group.y * 16U >= value.height && (group.y - 1U) * 16U < value.height);
+        }
+        work += std::uint64_t{group.x} * group.y * group.count;
+        previous_end = static_cast<std::size_t>(group.offset + group.bytes);
+    }
+    require(std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }));
+    require(work < 14U * 45U * source.size() / 4U);
+    require(group_single_path_dispatches({}).groups.empty());
+    source.back().path_op_kind = 1U;
+    bool rejected = false;
+    try { (void)group_single_path_dispatches(source); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    require(rejected);
+    source.assign(65536U, original.front());
+    const auto split = group_single_path_dispatches(source);
+    require(split.groups.size() == 2U && split.groups[0].count == 65535U &&
+        split.groups[1].count == 1U && split.groups[1].offset % 256U == 0U);
 }
 
 void compute_trace_is_opt_in_bounded_and_encoding_only() {
@@ -2336,6 +2384,7 @@ int main() {
     semantic_original_glyph_paint_blending_preserves_alpha_representation();
     compute_trace_is_opt_in_bounded_and_encoding_only();
     semantic_glyph_resource_identity_requires_exact_raster_bytes();
+    path_size_batches_keep_original_uniforms_and_bound_work();
     glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();

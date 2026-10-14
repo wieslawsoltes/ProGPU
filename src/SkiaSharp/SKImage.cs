@@ -250,12 +250,14 @@ public partial class SKImage : SKObject
 
             if (Volatile.Read(ref _ownsTexture) != 0)
             {
-                Texture.Dispose();
+                if (IsFinalizingNativeObject) Texture.DisposeFromFinalizer();
+                else Texture.Dispose();
             }
 
             lock (_readbackLock)
             {
-                _readbackBuffer?.Dispose();
+                if (IsFinalizingNativeObject) _readbackBuffer?.DisposeFromFinalizer();
+                else _readbackBuffer?.Dispose();
                 _readbackBuffer = null;
                 _readbackPixels = null;
                 _hasCachedReadbackPixels = false;

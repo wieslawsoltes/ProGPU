@@ -426,6 +426,7 @@ public unsafe class PathAtlas : IDisposable
     private ComputePipeline* _computePipeline;
     private ComputePipeline* _singlePathComputePipeline;
     private ComputePipeline* _linearPathComputePipeline;
+    private ComputePipeline* _cubicPathComputePipeline;
     private bool _isDisposed;
 
     public GpuTexture AtlasTexture => _atlasTexture;
@@ -628,7 +629,7 @@ public unsafe class PathAtlas : IDisposable
             _computePipelineLayoutLease.Handle;
     }
 
-    private ComputePipeline* EnsureComputePipeline(bool singlePathOnly, bool linearPathOnly)
+    private ComputePipeline* EnsureComputePipeline(bool singlePathOnly, bool linearPathOnly, bool cubicPathOnly)
     {
         if (linearPathOnly)
         {
@@ -637,6 +638,14 @@ public unsafe class PathAtlas : IDisposable
             _linearPathComputePipeline = _pipelineCache.GetOrCreateComputePipeline(
                 "PathRasterizer.LinearPath", linearShader, "cs_main_linear_path", _computePipelineLayout);
             return _linearPathComputePipeline;
+        }
+        if (cubicPathOnly)
+        {
+            if (_cubicPathComputePipeline != null) return _cubicPathComputePipeline;
+            var cubicShader = _pipelineCache.GetOrCreateShader("PathRasterizer", Shaders.PathRasterizerShader, "PathRasterizerShader");
+            _cubicPathComputePipeline = _pipelineCache.GetOrCreateComputePipeline(
+                "PathRasterizer.CubicPath", cubicShader, "cs_main_cubic_path", _computePipelineLayout);
+            return _cubicPathComputePipeline;
         }
         if (singlePathOnly && _singlePathComputePipeline != null) return _singlePathComputePipeline;
         if (!singlePathOnly && _computePipeline != null) return _computePipeline;
@@ -651,11 +660,15 @@ public unsafe class PathAtlas : IDisposable
         return pipeline;
     }
 
-    private static bool HasOnlyLinearSegments(ReadOnlySpan<GpuPathSegment> segments)
+    private static void ClassifyRasterSegments(
+        ReadOnlySpan<GpuPathSegment> segments, ref bool linearOnly, ref bool cubicOnly)
     {
         foreach (ref readonly var segment in segments)
-            if (segment.SegmentType != 0) return false;
-        return true;
+        {
+            linearOnly &= segment.SegmentType == 0;
+            cubicOnly &= segment.SegmentType is 0 or 2;
+            if (!linearOnly && !cubicOnly) return;
+        }
     }
 
     private WgpuBindGroupLayoutLease CreateRasterizationBindGroupLayout()
@@ -4177,6 +4190,7 @@ public unsafe class PathAtlas : IDisposable
         int totalSegmentCount = 0;
         bool singlePathOnly = true;
         bool linearPathOnly = true;
+        bool cubicPathOnly = true;
         bool diagnosticsEnabled = ProGpuVectorDiagnostics.IsEnabled;
         ulong totalRasterPixels = 0;
         uint maxRasterWidth = 0;
@@ -4231,8 +4245,16 @@ public unsafe class PathAtlas : IDisposable
                         LastBooleanProgramRasterizationCount++;
                     }
                 }
-                linearPathOnly = linearPathOnly && pathOpKind == 0 &&
-                    HasOnlyLinearSegments(segmentsA) && HasOnlyLinearSegments(segmentsB);
+                if (pathOpKind != 0)
+                {
+                    linearPathOnly = false;
+                    cubicPathOnly = false;
+                }
+                else if (linearPathOnly || cubicPathOnly)
+                {
+                    ClassifyRasterSegments(segmentsA, ref linearPathOnly, ref cubicPathOnly);
+                    ClassifyRasterSegments(segmentsB, ref linearPathOnly, ref cubicPathOnly);
+                }
                 totalRecordCount = checked(
                     totalRecordCount +
                     recordsA.Length +
@@ -4257,7 +4279,7 @@ public unsafe class PathAtlas : IDisposable
             // Classify actual admitted raster requests, not geometry bounds or
             // the first item. Mixed/Boolean batches retain the existing evaluator.
             // Compile only after proving there is work, and before pass entry.
-            var computePipeline = EnsureComputePipeline(singlePathOnly, linearPathOnly);
+            var computePipeline = EnsureComputePipeline(singlePathOnly, linearPathOnly, cubicPathOnly);
             Array.Sort(
                 rasterizations,
                 0,

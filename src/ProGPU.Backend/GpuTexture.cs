@@ -1894,6 +1894,16 @@ public unsafe class GpuTexture : IDisposable
         FinalizeResources();
     }
 
+    // A finalizable compatibility owner may release the last counted image
+    // lease while another retained consumer still roots this texture. Use the
+    // same queue-only retirement as the texture's own finalizer; acquiring
+    // RenderLock here can deadlock a renderer waiting for pending finalizers.
+    internal void DisposeFromFinalizer()
+    {
+        FinalizeResources();
+        GC.SuppressFinalize(this);
+    }
+
     private void FinalizeResources()
     {
         if (Interlocked.Exchange(ref _disposeState, 1) != 0)

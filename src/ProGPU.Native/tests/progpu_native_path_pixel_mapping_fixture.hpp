@@ -62,6 +62,88 @@ inline bool build_path_pixel_mapping_fixture(bool clip, std::vector<std::byte>& 
 }
 
 template<typename Render, typename Require>
+void verify_path_size_batches(Render render, Require require)
+{
+    // Independent integer-rectangle membership oracle. Disjoint paints exercise
+    // every output slice; nested clips exercise the same size transport through
+    // clip composition. Preserve the earlier Boolean/mapping fixtures below.
+    for (bool clip : {false, true}) {
+        semantic_scene_builder builder(clip ? 0x9482U : 0x9481U, 1U);
+        const auto identity = semantic_scene_builder::identity_transform();
+        constexpr std::array<progpu_native_image_rect, 5> painted{{
+            {3, 2, 1, 1}, {7, 8, 63, 15}, {5, 27, 65, 17},
+            {9, 48, 193, 31}, {74, 90, 137, 157}}};
+        constexpr std::array<progpu_native_image_rect, 5> clipped{{
+            {3, 2, 241, 247}, {7, 8, 193, 157}, {11, 15, 65, 31},
+            {13, 19, 63, 17}, {17, 23, 1, 1}}};
+        const auto& shapes = clip ? clipped : painted;
+        constexpr progpu_native_image_rect bounds{0, 0, 256, 256};
+        progpu_native_analytic_primitive background{};
+        background.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+        background.width = background.height = 256;
+        background.color = {1, 1, 1, 1};
+        background.transform = identity;
+        std::uint32_t white{}, red{};
+        require(builder.add_solid_brush({1, 1, 1, 1}, 1, white) &&
+            builder.add_solid_brush({1, 0, 0, 1}, 1, red) &&
+            builder.draw_analytic({&background, 1U}, {&white, 1U}, bounds), "size batch background");
+        std::vector<progpu_native_path_segment> segments;
+        std::vector<progpu_native_scene_path_fill> paths;
+        std::vector<progpu_native_scene_clip_path> clips;
+        for (const auto& shape : shapes) {
+            auto transform = identity;
+            transform.m31 = shape.x; transform.m32 = shape.y;
+            const auto offset = static_cast<std::uint32_t>(segments.size());
+            const std::array<progpu_native_point, 4> p{{{0, 0}, {shape.width, 0},
+                {shape.width, shape.height}, {0, shape.height}}};
+            for (std::size_t i = 0; i < p.size(); ++i)
+                segments.push_back({p[i], p[(i + 1U) % 4U], {}, {},
+                    PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+            paths.push_back({offset, 4U, 0U, 0U, 0, 0, shape.width, shape.height,
+                {1, 1, 1, 1}, transform, PROGPU_NATIVE_FILL_RULE_NON_ZERO, 8U});
+            clips.push_back({offset, 4U, 0U, 0U, 0, 0, shape.width, shape.height,
+                transform, PROGPU_NATIVE_FILL_RULE_NON_ZERO, 8U, PROGPU_NATIVE_CLIP_INTERSECT, 0U});
+        }
+        if (clip) {
+            auto state = semantic_scene_builder::identity_state();
+            state.flags = PROGPU_NATIVE_SCENE_STATE_MASK;
+            std::uint32_t state_index{};
+            require(builder.add_vector_clip_mask(clips, segments, {}, 1U, state.mask_resource_index) &&
+                builder.add_state(state, state_index) &&
+                builder.draw_analytic({&background, 1U}, {&red, 1U}, bounds, state_index), "size clip build");
+        } else {
+            const std::array<std::uint32_t, 5> brushes{red, red, red, red, red};
+            require(builder.draw_paths(paths, segments, brushes, bounds), "size path build");
+        }
+        std::vector<std::byte> stream;
+        require(builder.build(stream), "size batch snapshot");
+        for (float dpi : {1.F, 2.F}) for (unsigned warm = 0U; warm < 2U; ++warm) {
+            const auto extent = static_cast<std::uint32_t>(256 * dpi);
+            progpu_native_scene_frame_metrics metrics{};
+            const auto pixels = render(clip, stream, dpi, extent, metrics);
+            require(pixels.size() == extent * extent * 4U, "size batch complete readback");
+            if (warm != 0U)
+                require(metrics.coverage_staging_bytes == 0U && metrics.vertex_upload_bytes == 0U &&
+                    metrics.index_upload_bytes == 0U, "warm size batch rerasterized");
+            for (unsigned y = 0U; y < extent; ++y) for (unsigned x = 0U; x < extent; ++x) {
+                const float px = (x + .5F) / dpi, py = (y + .5F) / dpi;
+                bool inside = clip;
+                for (const auto& shape : shapes) {
+                    const bool member = px >= shape.x && px < shape.x + shape.width &&
+                        py >= shape.y && py < shape.y + shape.height;
+                    inside = clip ? inside && member : inside || member;
+                }
+                const std::array<std::uint8_t, 4> expected{255,
+                    static_cast<std::uint8_t>(inside ? 0 : 255),
+                    static_cast<std::uint8_t>(inside ? 0 : 255), 255};
+                for (unsigned channel = 0U; channel < 4U; ++channel)
+                    require(pixels[(y * extent + x) * 4U + channel] == expected[channel], "size batch changed pixel");
+            }
+        }
+    }
+}
+
+template<typename Render, typename Require>
 void verify_path_pixel_mapping(Render render, Require require)
 {
     for (bool clip : {false, true}) {
@@ -99,6 +181,7 @@ void verify_path_pixel_mapping(Render render, Require require)
                 static_cast<unsigned long long>(metrics.coverage_staging_bytes));
         }
     }
+    verify_path_size_batches(render, require);
 }
 
 // Independent rational scanline oracle: sort exact intersections, fill spans,

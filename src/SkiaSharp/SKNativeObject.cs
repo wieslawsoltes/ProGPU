@@ -6,6 +6,14 @@ internal interface ISKSkipObjectRegistration
 
 public abstract class SKNativeObject : IDisposable
 {
+    [ThreadStatic]
+    private static bool s_isFinalizing;
+
+    // Retained image storage can be released through nested shader/picture
+    // owners. Preserve the actual finalizer context across that synchronous
+    // disposal chain without inferring it from a thread name or resource state.
+    internal static bool IsFinalizingNativeObject => s_isFinalizing;
+
     private int _disposed;
     private bool _ignorePublicDispose;
 
@@ -22,10 +30,16 @@ public abstract class SKNativeObject : IDisposable
 
     ~SKNativeObject()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 0)
+        bool previous = s_isFinalizing;
+        s_isFinalizing = true;
+        try
         {
-            Dispose(disposing: false);
+            if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 0)
+            {
+                Dispose(disposing: false);
+            }
         }
+        finally { s_isFinalizing = previous; }
     }
 
     public virtual IntPtr Handle { get; protected set; }

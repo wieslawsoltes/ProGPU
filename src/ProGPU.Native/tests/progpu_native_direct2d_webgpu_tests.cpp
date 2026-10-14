@@ -777,7 +777,8 @@ enum class sampler_engine_policy { original, native, four_load };
     const progpu_native_scene_picture_image* capture_frame = nullptr,
     std::uint32_t rectangular_height = 0U)
 {
-    require((rectangular_height == 0U && (target_extent == 64U || target_extent == 128U)) ||
+    require((rectangular_height == 0U && (target_extent == 64U || target_extent == 128U ||
+            target_extent == 256U || target_extent == 512U)) ||
         (capture_frame == nullptr && (target_extent == 96U || target_extent == 128U) && rectangular_height == 64U),
         "retained fixture target extent is unsupported");
     const auto target_width = capture_frame != nullptr ? capture_frame->width : target_extent;

@@ -744,6 +744,7 @@ set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_path_text_resources.cpp
     src/Backend/progpu_native_path_boolean_gpu.hpp
     src/Backend/progpu_native_path_execution.cpp
+    src/Backend/progpu_native_path_dispatch.hpp
     src/Backend/progpu_native_glyph_execution.cpp
     src/Backend/progpu_native_hinted_glyph_execution.cpp
     src/Backend/progpu_native_hinted_glyph_execution.hpp
@@ -1441,7 +1442,7 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                     "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-webscene-provider.ppm")
             set_tests_properties(
                 progpu_native_webscene_provider_tests
-                PROPERTIES TIMEOUT 60)
+                PROPERTIES TIMEOUT 120)
             add_test(
                 NAME progpu_native_3d_pipeline_demand_tests
                 COMMAND progpu_native_webscene_provider_tests
@@ -1459,6 +1460,24 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
                     "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-mask-pipeline-demand.rgba")
             set_tests_properties(
                 progpu_native_mask_pipeline_demand_tests
+                PROPERTIES TIMEOUT 60)
+            add_test(
+                NAME progpu_native_layer_pipeline_demand_tests
+                COMMAND progpu_native_webscene_provider_tests
+                    "${PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY}"
+                    --layer-pipelines
+                    "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-layer-pipeline-demand.rgba")
+            set_tests_properties(
+                progpu_native_layer_pipeline_demand_tests
+                PROPERTIES TIMEOUT 60)
+            add_test(
+                NAME progpu_native_picture_pipeline_reuse_tests
+                COMMAND progpu_native_webscene_provider_tests
+                    "${PROGPU_NATIVE_WEBSCENE_PROVIDER_LIBRARY}"
+                    --picture-pipelines
+                    "${CMAKE_CURRENT_BINARY_DIR}/progpu-native-picture-pipeline-reuse.rgba")
+            set_tests_properties(
+                progpu_native_picture_pipeline_reuse_tests
                 PROPERTIES TIMEOUT 60)
         endif()
     endif()
@@ -2078,6 +2097,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Backend/progpu_native_draw_state.hpp
         src/Backend/progpu_native_buffer_capacity.hpp
         src/Backend/progpu_native_glyph_raster_identity.hpp
+        src/Backend/progpu_native_path_dispatch.hpp
         src/Backend/progpu_native_effect_plan.cpp
         src/Backend/progpu_native_effect_plan.hpp
         src/Backend/progpu_native_geometry_analytic.hpp

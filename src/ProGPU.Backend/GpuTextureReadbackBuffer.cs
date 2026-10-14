@@ -225,6 +225,14 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    internal void DisposeFromFinalizer()
+    {
+        // The original context drain destroys the buffer, ending any mapping.
+        // A finalizer must not call BufferUnmap through the render-lock wrapper.
+        QueueBufferDisposal(unmap: false);
+        GC.SuppressFinalize(this);
+    }
+
     private void CopyTextureToBuffer(
         GpuTexture texture,
         uint width,
@@ -355,14 +363,15 @@ public unsafe sealed class GpuTextureReadbackBuffer : IDisposable
         }
     }
 
-    private void QueueBufferDisposal()
+    private void QueueBufferDisposal(bool unmap = true)
     {
         if (_buffer == null)
         {
             return;
         }
 
-        UnmapActiveBuffer();
+        if (unmap) UnmapActiveBuffer();
+        else _isMapActive = false;
 
         if (!_context.IsDisposed)
         {

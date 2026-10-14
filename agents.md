@@ -1,5 +1,21 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Exactly vertical path edges may bypass redundant integer half-plane admission
+only with equal original endpoint X and the original floating intersection
+expression. Preserve finite-overflow behavior, strict X comparison, original
+Y/endpoint admission and signed winding. Nonvertical lines keep the canonical
+bounded integer route; no epsilon or rectangular-shape inference is admitted.
+The shared shader covers managed and both native providers. Retain original raw
+lane/curve/Boolean controls and Windows/application gates; see
+docs/vertical-path-crossings.md.
+
+Independent native operation-zero paths and retained clips group actual workgroup
+extents without changing original uniform bytes, output slices or shader math.
+Keep one compute pass/submission sequence, 256-byte binding alignment, exact
+bound ranges and real submission-retirement ownership. Signed/Boolean phases
+retain their ordering. Managed PathAtlas already uses actual-size groups;
+preserve full cold/warm pixel and application gates. See docs/native-path-size-dispatch.md.
+
 Native inline signed-winding batches may select the separate linear kernel only
 after validating the complete original source segment inventory as lines. Keep
 the raw whole-inventory rejection, original signed/Boolean operations, sample
@@ -596,6 +612,13 @@ providers select lazily from actual work; native retained clips follow the same
 rule. Preserve engine/cache ownership, raw GPU differential tails and complete
 package/image gates. Pipeline acquisition time is not application startup proof.
 See docs/single-path-raster-pipeline.md.
+
+Line/cubic raster specialization requires complete original segment-kind admission,
+including later and unused native segments. Preserve original homogeneous cubic
+coefficients, root order and crossing arithmetic; do not approximate rational
+curves or infer kinds from bounds. Keep raw shader rejection, lazy engine/device
+ownership and paired ordinary-path controls. See docs/cubic-path-raster-pipeline.md;
+sampled compiler attribution is not GPU timing or Gallery qualification.
 
 Implicit Windows Font height and pixel/world point conversion use a scoped
 screen DC in the caller's current DPI context; never cache that DPI globally or

@@ -94,6 +94,22 @@ progpu_native_status create_engine(
             result->pipeline = shared_vector_pipeline->pipeline;
             result->uniform_layout = shared_vector_pipeline->uniform_layout;
             result->borrows_shared_vector_pipeline = true;
+            if (shared_vector_pipeline->analytic_pipeline != nullptr) {
+                if (!shared_vector_pipeline->analytic_resources_ready ||
+                    shared_vector_pipeline->analytic_uniform_layout == nullptr ||
+                    shared_vector_pipeline->analytic_atlas_layout == nullptr) {
+                    return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+                }
+                // Capture only a fully prepared immutable parent pipeline.
+                // Publishing analytic_pipeline here would falsely imply that
+                // this child's independent buffers and bind groups are ready.
+                result->borrowed_analytic_pipeline =
+                    shared_vector_pipeline->analytic_pipeline;
+                result->analytic_uniform_layout =
+                    shared_vector_pipeline->analytic_uniform_layout;
+                result->analytic_atlas_layout =
+                    shared_vector_pipeline->analytic_atlas_layout;
+            }
         }
         if (!(shared_vector_pipeline != nullptr
                 ? create_frame_uniform_binding(*result)

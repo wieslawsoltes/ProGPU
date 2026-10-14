@@ -46,7 +46,7 @@ bool prepare_layer_composite(
     std::uint32_t height,
     float dpi_scale,
     float opacity) {
-    if (!create_layer_resources(engine) ||
+    if (!create_layer_binding_resources(engine) ||
         !ensure_layer_texture(engine, width, height)) {
         return false;
     }
@@ -509,6 +509,13 @@ bool encode_advanced_group_blend(
         engine.group_blend_source_cache_valid &&
         engine.group_blend_source_signature == source_signature;
     if (!source_cache_hit) {
+        bool source_pipeline_cache_hit = false;
+        const auto source_pipeline = get_or_create_fixed_group_blend_pipeline(
+            engine, PROGPU_NATIVE_BLEND_SRC_OVER, draw_state.has_group_mask,
+            source_pipeline_cache_hit);
+        if (source_pipeline == nullptr) {
+            return false;
+        }
         WGPURenderPassColorAttachment source_attachment{};
         ::progpu::native::webgpu::initialize_color_attachment(source_attachment);
         source_attachment.view = engine.group_blend_source_view;
@@ -527,13 +534,7 @@ bool encode_advanced_group_blend(
             return false;
         }
         const bool source_encoded = encode_layer_quad(
-            engine,
-            source_pass,
-            draw_state.has_group_mask
-                ? engine.layer_mask_pipeline
-                : engine.layer_composite_pipeline,
-            draw_state,
-            false);
+            engine, source_pass, source_pipeline, draw_state, false);
         wgpuRenderPassEncoderEnd(source_pass);
         wgpuRenderPassEncoderRelease(source_pass);
         if (!source_encoded) {

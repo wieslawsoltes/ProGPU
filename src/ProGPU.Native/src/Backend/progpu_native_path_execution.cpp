@@ -1,6 +1,7 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_path_pixel_mapping.hpp"
+#include "progpu_native_path_dispatch.hpp"
 
 namespace progpu::native::execution {
 
@@ -134,6 +135,7 @@ progpu_native_status render_paths(
     bool has_inline_signed_winding = false;
     bool has_inline_path_operation = false;
     bool has_only_linear_segments = true;
+    bool has_only_line_or_cubic_segments = true;
 
     std::vector<gpu_path_uniforms> path_uniforms;
     std::vector<std::vector<gpu_path_uniforms>> split_leaf_uniforms;
@@ -183,6 +185,9 @@ progpu_native_status render_paths(
                 const auto& segment = frame->segments[segment_index];
                 has_only_linear_segments = has_only_linear_segments &&
                     segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                has_only_line_or_cubic_segments = has_only_line_or_cubic_segments &&
+                    (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE ||
+                        segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
                 const bool is_arc =
                     segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
                 const bool is_rational_quadratic = segment.kind ==
@@ -764,6 +769,15 @@ progpu_native_status render_paths(
         temporary.split_signed_leaf_bind_groups;
     WGPUBindGroup& signed_combine_bind_group =
         temporary.signed_combine_bind_group;
+    path_raster_dispatch_plan size_dispatches;
+    if (!has_inline_path_operation && split_leaf_uniforms.empty() &&
+        split_signed_leaf_uniforms.empty() && coverage_combine_uniforms.empty() &&
+        signed_coverage_combine_uniforms.empty()) {
+        size_dispatches = group_single_path_dispatches(path_uniforms);
+    }
+    const std::uint64_t uniform_bytes = size_dispatches.groups.empty()
+        ? path_uniforms.size() * sizeof(gpu_path_uniforms)
+        : size_dispatches.uniforms.size();
     const auto create_buffer = [&](
         const char* label,
         std::uint64_t size,
@@ -780,8 +794,7 @@ progpu_native_status render_paths(
     if (!compiled_payload_hit && frame->path_count != 0U) {
         path_uniform_buffer = create_buffer(
             "ProGPU native path uniforms",
-            std::max<std::size_t>(path_uniforms.size(), 1U) *
-                sizeof(gpu_path_uniforms),
+            std::max<std::uint64_t>(uniform_bytes, sizeof(gpu_path_uniforms)),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
         split_leaf_uniform_buffers.resize(
             split_leaf_uniforms.size(),
@@ -860,8 +873,6 @@ progpu_native_status render_paths(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The native path raster staging buffers could not be allocated.");
         }
-        const std::uint64_t uniform_bytes = path_uniforms.size() *
-            sizeof(gpu_path_uniforms);
         std::uint64_t split_leaf_uniform_bytes = 0U;
         const std::uint64_t record_bytes = path_records.size() *
             sizeof(gpu_path_record);
@@ -869,7 +880,9 @@ progpu_native_status render_paths(
             sizeof(progpu_native_path_segment);
         if (uniform_bytes != 0U) {
             wgpuQueueWriteBuffer(engine->queue, path_uniform_buffer, 0U,
-                path_uniforms.data(), uniform_bytes);
+                size_dispatches.groups.empty()
+                    ? static_cast<const void*>(path_uniforms.data())
+                    : static_cast<const void*>(size_dispatches.uniforms.data()), uniform_bytes);
         }
         for (std::size_t phase_index = 0U;
              phase_index < split_leaf_uniforms.size();
@@ -945,9 +958,10 @@ progpu_native_status render_paths(
             WGPUBuffer uniform_buffer,
             std::uint64_t uniform_size,
             WGPUBuffer combine_buffer,
-            std::uint64_t combine_size) {
+            std::uint64_t combine_size,
+            std::uint64_t uniform_offset = 0U) {
             const std::array<WGPUBindGroupEntry, 5U> entries{{
-                {nullptr, 0U, uniform_buffer, 0U,
+                {nullptr, 0U, uniform_buffer, uniform_offset,
                     std::max<std::uint64_t>(
                         uniform_size,
                         sizeof(gpu_path_uniforms)),
@@ -974,9 +988,19 @@ progpu_native_status render_paths(
         raster_bind_group = create_raster_bind_group(
             "ProGPU native path raster bind group",
             path_uniform_buffer,
-            uniform_bytes,
+            size_dispatches.groups.empty() ? uniform_bytes : size_dispatches.groups.front().bytes,
             coverage_combine_uniform_buffer,
             combine_uniform_bytes);
+        temporary.size_bind_groups.resize(
+            size_dispatches.groups.empty() ? 0U : size_dispatches.groups.size() - 1U, nullptr);
+        bool size_bind_group_creation_failed = false;
+        for (std::size_t i = 1U; i < size_dispatches.groups.size(); ++i) {
+            const auto& group = size_dispatches.groups[i];
+            temporary.size_bind_groups[i - 1U] = create_raster_bind_group(
+                "ProGPU native path size bind group", path_uniform_buffer, group.bytes,
+                coverage_combine_uniform_buffer, combine_uniform_bytes, group.offset);
+            size_bind_group_creation_failed |= temporary.size_bind_groups[i - 1U] == nullptr;
+        }
         split_leaf_bind_groups.resize(split_leaf_uniforms.size(), nullptr);
         bool split_bind_group_creation_failed = false;
         for (std::size_t phase_index = 0U;
@@ -1028,7 +1052,7 @@ progpu_native_status render_paths(
             split_bind_group_creation_failed |=
                 signed_combine_bind_group == nullptr;
         }
-        if (raster_bind_group == nullptr ||
+        if (raster_bind_group == nullptr || size_bind_group_creation_failed ||
             split_bind_group_creation_failed) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -1044,8 +1068,10 @@ progpu_native_status render_paths(
         const path_raster_pipeline_requirements required{
             .linear_path = !path_uniforms.empty() && !has_inline_path_operation &&
                 has_only_linear_segments,
+            .cubic_path = !path_uniforms.empty() && !has_inline_path_operation &&
+                !has_only_linear_segments && has_only_line_or_cubic_segments,
             .single_path = !path_uniforms.empty() && !has_inline_path_operation &&
-                !has_only_linear_segments,
+                !has_only_line_or_cubic_segments,
             .ordinary = !path_uniforms.empty() && has_inline_path_operation &&
                 !has_inline_signed_winding,
             .inline_signed = !path_uniforms.empty() && has_inline_signed_winding &&
@@ -1173,7 +1199,8 @@ progpu_native_status render_paths(
             std::size_t uniform_count,
             WGPUComputePipeline pipeline,
             std::uint32_t dispatch_x,
-            std::uint32_t dispatch_y) {
+            std::uint32_t dispatch_y,
+            std::span<const path_raster_dispatch> groups = {}) {
             if (uniform_count == 0U) {
                 return true;
             }
@@ -1190,18 +1217,19 @@ progpu_native_status render_paths(
             wgpuComputePassEncoderSetPipeline(
                 compute_pass,
                 pipeline);
-            wgpuComputePassEncoderSetBindGroup(
-                compute_pass,
-                0U,
-                bind_group,
-                0U,
-                nullptr);
-            engine->dispatch_compute(
-                compute_pass,
-                pipeline,
-                dispatch_x,
-                dispatch_y,
-                static_cast<std::uint32_t>(uniform_count));
+            if (groups.empty()) {
+                wgpuComputePassEncoderSetBindGroup(compute_pass, 0U, bind_group, 0U, nullptr);
+                engine->dispatch_compute(compute_pass, pipeline, dispatch_x, dispatch_y,
+                    static_cast<std::uint32_t>(uniform_count));
+            } else {
+                // Independent output slices share one pass and original submission.
+                for (std::size_t i = 0U; i < groups.size(); ++i) {
+                    const auto& group = groups[i];
+                    wgpuComputePassEncoderSetBindGroup(compute_pass, 0U,
+                        i == 0U ? bind_group : temporary.size_bind_groups[i - 1U], 0U, nullptr);
+                    engine->dispatch_compute(compute_pass, pipeline, group.x, group.y, group.count);
+                }
+            }
             wgpuComputePassEncoderEnd(compute_pass);
             wgpuComputePassEncoderRelease(compute_pass);
             return true;
@@ -1218,9 +1246,11 @@ progpu_native_status render_paths(
                         ? engine->path_raster_ordinary_pipeline
                         : has_only_linear_segments
                             ? engine->path_raster_linear_path_pipeline
-                            : engine->path_raster_single_path_pipeline,
+                            : has_only_line_or_cubic_segments
+                                ? engine->path_raster_cubic_path_pipeline
+                                : engine->path_raster_single_path_pipeline,
                 workgroups_x,
-                workgroups_y)) {
+                workgroups_y, size_dispatches.groups)) {
             if (owns_encoder && encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }

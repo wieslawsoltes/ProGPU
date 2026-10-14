@@ -94,7 +94,7 @@ jobs:
           if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory already exists.' }
           New-Item -ItemType Directory -Path $evidence | Out-Null
           $dll = Join-Path $env:GITHUB_WORKSPACE 'tests/ProGPU.PathRasterization.Conformance/bin/Release/net10.0/${{ matrix.rid }}/ProGPU.PathRasterization.Conformance.dll'
-          $cases = @('coverage', 'simple-first', 'boolean-first', 'linear-coverage', 'linear-first', 'curve-first', 'linear-winding', 'original-path', 'original-glyph')
+          $cases = @('coverage', 'simple-first', 'boolean-first', 'linear-coverage', 'linear-first', 'curve-first', 'linear-winding', 'original-path', 'original-glyph', 'vertical-crossings', 'cubic-coverage', 'cubic-lazy')
           $completed = @()
           foreach ($case in $cases) {
             $stdout = Join-Path $evidence "$case-stdout.log"
@@ -114,7 +114,7 @@ jobs:
               Get-Content -LiteralPath $stderr
             }
           }
-          if ($completed.Count -ne 9) { throw 'All nine regression bodies, including the seven original cases, must execute and pass.' }
+          if ($completed.Count -ne 12) { throw 'All twelve regression bodies, including the ten original cases, must execute and pass.' }
           @{ executed = $completed; skipped = 0; processDeadlineSeconds = 120 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'summary.json')
       - name: Retain source GPU coverage and pipeline acquisition evidence
         if: always()
@@ -615,6 +615,9 @@ jobs:
             artifacts/progpu-native/sample/progpu-native-managed-dawn.ppm
             artifacts/progpu-native/sample/progpu-native-managed-dawn.png
             artifacts/progpu-native/sample/progpu-native-3d-pipeline-demand.rgba
+            artifacts/progpu-native/sample/progpu-native-mask-pipeline-demand.rgba
+            artifacts/progpu-native/sample/progpu-native-layer-pipeline-demand.rgba
+            artifacts/progpu-native/sample/progpu-native-picture-pipeline-reuse.rgba
             artifacts/progpu-native/sample/webscene-timeout-diagnostics/**
           if-no-files-found: error
 

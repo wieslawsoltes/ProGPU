@@ -63,6 +63,9 @@ struct progpu_native_engine {
     // from their live parent. Their frame uniforms and every mutable scene
     // resource remain independently owned.
     bool borrows_shared_vector_pipeline = false;
+    // The owning picture parent outlives this child. Its immutable analytic
+    // pipeline and layouts may be borrowed; child resource readiness is separate.
+    WGPURenderPipeline borrowed_analytic_pipeline = nullptr;
     WGPURenderPipeline analytic_pipeline = nullptr;
     WGPURenderPipeline analytic_masked_pipeline = nullptr;
     WGPURenderPipeline analytic_mask_chain_pipeline = nullptr;
@@ -95,6 +98,7 @@ struct progpu_native_engine {
     WGPUComputePipeline path_raster_pipeline = nullptr;
     WGPUComputePipeline path_raster_single_path_pipeline = nullptr;
     WGPUComputePipeline path_raster_linear_path_pipeline = nullptr;
+    WGPUComputePipeline path_raster_cubic_path_pipeline = nullptr;
     WGPUComputePipeline path_raster_linear_winding_pipeline = nullptr;
     WGPUComputePipeline path_raster_ordinary_pipeline = nullptr;
     WGPUComputePipeline path_split_leaf_pipeline = nullptr;
@@ -277,6 +281,7 @@ struct progpu_native_engine {
     bool image_uniform_cache_valid = false;
     bool image_cache_valid = false;
     bool image_gpu_cache_valid = false;
+    bool layer_bindings_ready = false;
     WGPURenderPipeline layer_composite_pipeline = nullptr;
     WGPURenderPipeline layer_mask_pipeline = nullptr;
     std::array<WGPURenderPipeline, 4U> layer_coverage_pipelines{};
@@ -634,6 +639,7 @@ struct progpu_native_engine {
             {path_raster_pipeline, "path_signed"},
             {path_raster_single_path_pipeline, "path_single"},
             {path_raster_linear_path_pipeline, "path_linear"},
+            {path_raster_cubic_path_pipeline, "path_cubic"},
             {path_raster_linear_winding_pipeline, "path_linear_winding"},
             {path_raster_ordinary_pipeline, "path_boolean"},
             {path_split_leaf_pipeline, "path_split_leaf"},
@@ -1712,7 +1718,7 @@ struct progpu_native_engine {
     ~progpu_native_engine() {
         const progpu::native::webgpu::dispatch_scope dispatch_scope(
             &webgpu_dispatch);
-        // The child borrows this engine's vector pipeline and layout. Destroy
+        // The child borrows this engine's immutable pipelines and layouts. Destroy
         // it before releasing any parent WebGPU pipeline resources below.
         semantic_picture_child_engine.reset();
         release_glyph_paint_uniform_bindings();
@@ -2095,6 +2101,9 @@ struct progpu_native_engine {
         if (path_raster_linear_path_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_raster_linear_path_pipeline);
         }
+        if (path_raster_cubic_path_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_raster_cubic_path_pipeline);
+        }
         if (path_raster_linear_winding_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_raster_linear_winding_pipeline);
         }
@@ -2185,13 +2194,13 @@ struct progpu_native_engine {
         if (uniform_layout != nullptr && !borrows_shared_vector_pipeline) {
             wgpuBindGroupLayoutRelease(uniform_layout);
         }
-        if (analytic_uniform_layout != nullptr) {
+        if (analytic_uniform_layout != nullptr && borrowed_analytic_pipeline == nullptr) {
             wgpuBindGroupLayoutRelease(analytic_uniform_layout);
         }
-        if (analytic_atlas_layout != nullptr) {
+        if (analytic_atlas_layout != nullptr && borrowed_analytic_pipeline == nullptr) {
             wgpuBindGroupLayoutRelease(analytic_atlas_layout);
         }
-        if (analytic_pipeline != nullptr) {
+        if (analytic_pipeline != nullptr && analytic_pipeline != borrowed_analytic_pipeline) {
             wgpuRenderPipelineRelease(analytic_pipeline);
         }
         if (analytic_masked_pipeline != nullptr) {

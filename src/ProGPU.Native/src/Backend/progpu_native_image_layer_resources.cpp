@@ -269,10 +269,8 @@ bool create_image_resources(progpu_native_engine& engine) {
     return true;
 }
 
-bool create_layer_resources(progpu_native_engine& engine) {
-    if (engine.layer_composite_pipeline != nullptr) {
-        return true;
-    }
+bool create_layer_binding_resources(progpu_native_engine& engine) {
+    if (engine.layer_bindings_ready) return true;
     if (!create_image_binding_resources(engine) ||
         engine.layer_uniform_buffer != nullptr ||
         engine.layer_uniform_bind_group != nullptr ||
@@ -280,6 +278,71 @@ bool create_layer_resources(progpu_native_engine& engine) {
         engine.layer_index_buffer != nullptr) {
         return false;
     }
+
+    WGPUBufferDescriptor uniform_descriptor{};
+    uniform_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite uniforms");
+    uniform_descriptor.usage = WGPUBufferUsage_Uniform |
+        WGPUBufferUsage_CopyDst;
+    uniform_descriptor.size = sizeof(gpu_uniforms);
+    engine.layer_uniform_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &uniform_descriptor);
+    WGPUBufferDescriptor vertex_descriptor{};
+    vertex_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite vertices");
+    vertex_descriptor.usage = WGPUBufferUsage_Vertex |
+        WGPUBufferUsage_CopyDst;
+    vertex_descriptor.size = sizeof(engine.layer_vertices);
+    engine.layer_vertex_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &vertex_descriptor);
+    WGPUBufferDescriptor index_descriptor{};
+    index_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite indices");
+    index_descriptor.usage = WGPUBufferUsage_Index |
+        WGPUBufferUsage_CopyDst;
+    index_descriptor.size = 6U * sizeof(std::uint32_t);
+    engine.layer_index_buffer = wgpuDeviceCreateBuffer(
+        engine.device,
+        &index_descriptor);
+    if (engine.layer_uniform_buffer == nullptr ||
+        engine.layer_vertex_buffer == nullptr ||
+        engine.layer_index_buffer == nullptr) {
+        return false;
+    }
+
+    WGPUBindGroupEntry uniform_entry{};
+    uniform_entry.binding = 0U;
+    uniform_entry.buffer = engine.layer_uniform_buffer;
+    uniform_entry.size = sizeof(gpu_uniforms);
+    WGPUBindGroupDescriptor uniform_group_descriptor{};
+    uniform_group_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native group composite uniform bind group");
+    uniform_group_descriptor.layout = engine.image_uniform_layout;
+    uniform_group_descriptor.entryCount = 1U;
+    uniform_group_descriptor.entries = &uniform_entry;
+    engine.layer_uniform_bind_group = wgpuDeviceCreateBindGroup(
+        engine.device,
+        &uniform_group_descriptor);
+    if (engine.layer_uniform_bind_group == nullptr) {
+        return false;
+    }
+    constexpr std::array<std::uint32_t, 6U> indices{
+        0U, 1U, 2U, 0U, 2U, 3U};
+    wgpuQueueWriteBuffer(
+        engine.queue,
+        engine.layer_index_buffer,
+        0U,
+        indices.data(),
+        sizeof(indices));
+    engine.layer_bindings_ready = true;
+    return true;
+}
+
+bool create_layer_resources(progpu_native_engine& engine) {
+    if (engine.layer_composite_pipeline != nullptr) return true;
+    if (!create_layer_binding_resources(engine)) return false;
 
     const std::array<WGPUBindGroupLayout, 2U> layouts{{
         engine.image_uniform_layout,
@@ -365,63 +428,6 @@ bool create_layer_resources(progpu_native_engine& engine) {
         return false;
     }
 
-    WGPUBufferDescriptor uniform_descriptor{};
-    uniform_descriptor.label = progpu::native::webgpu::string_view(
-        "ProGPU native group composite uniforms");
-    uniform_descriptor.usage = WGPUBufferUsage_Uniform |
-        WGPUBufferUsage_CopyDst;
-    uniform_descriptor.size = sizeof(gpu_uniforms);
-    engine.layer_uniform_buffer = wgpuDeviceCreateBuffer(
-        engine.device,
-        &uniform_descriptor);
-    WGPUBufferDescriptor vertex_descriptor{};
-    vertex_descriptor.label = progpu::native::webgpu::string_view(
-        "ProGPU native group composite vertices");
-    vertex_descriptor.usage = WGPUBufferUsage_Vertex |
-        WGPUBufferUsage_CopyDst;
-    vertex_descriptor.size = sizeof(engine.layer_vertices);
-    engine.layer_vertex_buffer = wgpuDeviceCreateBuffer(
-        engine.device,
-        &vertex_descriptor);
-    WGPUBufferDescriptor index_descriptor{};
-    index_descriptor.label = progpu::native::webgpu::string_view(
-        "ProGPU native group composite indices");
-    index_descriptor.usage = WGPUBufferUsage_Index |
-        WGPUBufferUsage_CopyDst;
-    index_descriptor.size = 6U * sizeof(std::uint32_t);
-    engine.layer_index_buffer = wgpuDeviceCreateBuffer(
-        engine.device,
-        &index_descriptor);
-    if (engine.layer_uniform_buffer == nullptr ||
-        engine.layer_vertex_buffer == nullptr ||
-        engine.layer_index_buffer == nullptr) {
-        return false;
-    }
-
-    WGPUBindGroupEntry uniform_entry{};
-    uniform_entry.binding = 0U;
-    uniform_entry.buffer = engine.layer_uniform_buffer;
-    uniform_entry.size = sizeof(gpu_uniforms);
-    WGPUBindGroupDescriptor uniform_group_descriptor{};
-    uniform_group_descriptor.label = progpu::native::webgpu::string_view(
-        "ProGPU native group composite uniform bind group");
-    uniform_group_descriptor.layout = engine.image_uniform_layout;
-    uniform_group_descriptor.entryCount = 1U;
-    uniform_group_descriptor.entries = &uniform_entry;
-    engine.layer_uniform_bind_group = wgpuDeviceCreateBindGroup(
-        engine.device,
-        &uniform_group_descriptor);
-    if (engine.layer_uniform_bind_group == nullptr) {
-        return false;
-    }
-    constexpr std::array<std::uint32_t, 6U> indices{
-        0U, 1U, 2U, 0U, 2U, 3U};
-    wgpuQueueWriteBuffer(
-        engine.queue,
-        engine.layer_index_buffer,
-        0U,
-        indices.data(),
-        sizeof(indices));
     return true;
 }
 
@@ -536,7 +542,7 @@ bool create_layer_mask_binding_resources(progpu_native_engine& engine) {
 
 bool create_layer_mask_resources(progpu_native_engine& engine) {
     if (engine.layer_mask_pipeline != nullptr) return true;
-    if (!create_layer_resources(engine) ||
+    if (!create_layer_binding_resources(engine) ||
         !create_layer_mask_binding_resources(engine)) return false;
 
     const std::array<WGPUBindGroupLayout, 3U> layouts{{
@@ -746,7 +752,15 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
         return nullptr;
     }
     if (!coverage_only && !linear_byte_opacity && channels == layer_write_channels::all && blend_mode == PROGPU_NATIVE_BLEND_SRC_OVER) {
-        cache_hit = true;
+        const auto pipeline = masked
+            ? engine.layer_mask_pipeline
+            : engine.layer_composite_pipeline;
+        cache_hit = pipeline != nullptr;
+        if (!cache_hit && !(masked
+                ? create_layer_mask_resources(engine)
+                : create_layer_resources(engine))) {
+            return nullptr;
+        }
         return masked
             ? engine.layer_mask_pipeline
             : engine.layer_composite_pipeline;
@@ -768,8 +782,8 @@ WGPURenderPipeline get_or_create_fixed_group_blend_pipeline(
         return pipeline;
     }
     cache_hit = false;
-    if (!create_layer_resources(engine) ||
-        (masked && !create_layer_mask_resources(engine))) {
+    if (!create_layer_binding_resources(engine) ||
+        (masked && !create_layer_mask_binding_resources(engine))) {
         return nullptr;
     }
 

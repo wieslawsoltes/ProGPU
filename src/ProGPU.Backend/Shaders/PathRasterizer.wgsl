@@ -1,6 +1,6 @@
-// Algorithm: Convert analytic path winding or bounded postfix predicates into supersampled R8 coverage, with phased mask combination for driver-sensitive overlaps; a proven linear-only entry shares the exact winding/sample/packing math without compiling curve solvers.
+// Algorithm: Convert analytic path winding or bounded postfix predicates into supersampled R8 coverage, with phased mask combination for driver-sensitive overlaps; proven line-only and line/cubic entries share the exact winding/sample/packing math while excluding unneeded curve families from compilation.
 // Time complexity: O(A*(S+N)) per texel for A supersamples, S segment visits, and N bounded postfix instructions.
-// Space complexity: O(1) private storage for single/linear paths, O(D) expression-stack storage for D<=16; split mask programs retain two u32 words per leaf texel. Linear admission additionally reads S segment kinds once per four-texel word, with O(1) state.
+// Space complexity: O(1) private storage for single/linear/cubic paths, O(D) expression-stack storage for D<=16; split mask programs retain two u32 words per leaf texel. Linear/cubic admission additionally reads S segment kinds once per four-texel word, with O(1) state.
 // Managed PathAtlas uses the ordinary predicate entry. Native signed programs
 // retain their existing inline/staged policy; proven all-line inline batches
 // use the separate linear-winding entry with the same signed semantics.
@@ -124,7 +124,8 @@ fn signed_winding_program_row_coverage_mask(
 // A proven single-path batch additionally avoids compiling any Boolean program
 // or second-operand traversal. Arithmetic and the shared winding predicate are
 // unchanged; this is pipeline specialization, not a different raster algorithm.
-fn single_path_coverage_byte_impl(x: u32, y: u32, uniforms: PathUniforms, linearOnly: bool) -> u32 {
+fn single_path_coverage_byte_classified(
+    x: u32, y: u32, uniforms: PathUniforms, linearOnly: bool, cubicOnly: bool) -> u32 {
     let record = pathRecords[uniforms.pathIndex];
     let px = uniforms.xStart + f32(x);
     let py = uniforms.yStart + f32(y);
@@ -135,12 +136,17 @@ fn single_path_coverage_byte_impl(x: u32, y: u32, uniforms: PathUniforms, linear
         let samplePositionY = py + (f32(sampleY) + 0.5) / f32(sampleGrid);
         let samplePathY = samplePositionY / uniforms.scaleY;
         let mask = winding_row_coverage_mask(
-            row_winding_impl(px, samplePathY, sampleGrid, uniforms.scaleX, record, linearOnly),
+            row_winding_classified(px, samplePathY, sampleGrid, uniforms.scaleX,
+                record, linearOnly, cubicOnly),
             sampleGrid, record.fillRule);
         let validMask = (1u << sampleGrid) - 1u;
         coveredSamples = coveredSamples + countOneBits(mask & validMask);
     }
     return min(255u, u32(round(f32(coveredSamples) * sampleWeight * 255.0)));
+}
+
+fn single_path_coverage_byte_impl(x: u32, y: u32, uniforms: PathUniforms, linearOnly: bool) -> u32 {
+    return single_path_coverage_byte_classified(x, y, uniforms, linearOnly, false);
 }
 
 fn single_path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
@@ -387,6 +393,41 @@ fn cs_main_linear_path(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let x = firstX + lane;
         if (x < uniforms.width) {
             coverageWord |= single_path_coverage_byte_impl(x, y, uniforms, true) << (lane * 8u);
+        }
+    }
+    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;
+}
+
+@compute @workgroup_size(16, 16)
+fn cs_main_cubic_path(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let uniforms = pathUniforms[global_id.z];
+    let wordX = global_id.x;
+    let y = global_id.y;
+    let firstX = wordX * 4u;
+    if (uniforms.pathOpKind != 0u || firstX >= uniforms.width || y >= uniforms.height ||
+        uniforms.pathIndex >= arrayLength(&pathRecords)) {
+        return;
+    }
+    // Admit the complete original record, including segments after a cubic.
+    // Other curve families keep their ordinary pipeline and original arithmetic.
+    let record = pathRecords[uniforms.pathIndex];
+    let segmentLength = arrayLength(&segments);
+    if (record.startSegment > segmentLength ||
+        record.segmentCount > segmentLength - record.startSegment) {
+        return;
+    }
+    for (var index = 0u; index < record.segmentCount; index++) {
+        let kind = segments[record.startSegment + index].segmentType;
+        if (kind != 0u && kind != 2u) {
+            return;
+        }
+    }
+    var coverageWord = 0u;
+    for (var lane = 0u; lane < 4u; lane++) {
+        let x = firstX + lane;
+        if (x < uniforms.width) {
+            coverageWord |= single_path_coverage_byte_classified(
+                x, y, uniforms, false, true) << (lane * 8u);
         }
     }
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = coverageWord;

@@ -94,6 +94,7 @@ struct path_raster_resources {
     WGPUBuffer coverage_combine_uniforms = nullptr;
     WGPUBuffer signed_coverage_combine_uniforms = nullptr;
     WGPUBindGroup bind_group = nullptr;
+    std::vector<WGPUBindGroup> size_bind_groups;
     std::vector<WGPUBindGroup> split_leaf_bind_groups;
     std::vector<WGPUBindGroup> split_signed_leaf_bind_groups;
     WGPUBindGroup signed_combine_bind_group = nullptr;
@@ -127,6 +128,9 @@ struct path_raster_resources {
         release_buffer(rgb_frame);
         if (bind_group != nullptr) {
             wgpuBindGroupRelease(bind_group);
+        }
+        for (WGPUBindGroup group : size_bind_groups) {
+            if (group != nullptr) wgpuBindGroupRelease(group);
         }
         for (WGPUBindGroup split_bind_group : split_leaf_bind_groups) {
             if (split_bind_group != nullptr) {

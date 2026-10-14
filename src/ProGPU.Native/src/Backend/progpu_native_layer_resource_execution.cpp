@@ -170,8 +170,8 @@ bool update_layer_group_mask(
     float dpi_scale,
     bool& uploaded_uniforms) {
     uploaded_uniforms = false;
-    const bool resources_existed = engine.layer_mask_pipeline != nullptr;
-    if (!draw_state.has_group_mask || !create_layer_mask_resources(engine)) {
+    const bool resources_existed = engine.layer_mask_bindings_ready;
+    if (!draw_state.has_group_mask || !create_layer_mask_binding_resources(engine)) {
         return !draw_state.has_group_mask;
     }
 
@@ -685,7 +685,7 @@ bool prepare_semantic_layer_resources(
     std::uint32_t composite_count,
     std::uint64_t& uploaded_uniform_bytes) {
     uploaded_uniform_bytes = 0U;
-    if (!create_layer_resources(engine)) {
+    if (!create_layer_binding_resources(engine)) {
         return false;
     }
     for (std::uint32_t index = 0U;
