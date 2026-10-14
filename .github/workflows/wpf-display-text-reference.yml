@@ -1,4 +1,4 @@
-name: WPF Display numeric-metric diagnostic
+name: WPF Display soft-wrap reference diagnostic
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   reference:
-    name: Supplemental original WPF numeric metrics (${{ matrix.arch }})
+    name: Original WPF soft-wrap metrics (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,7 @@ jobs:
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/wpf-display-drawing'
           if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory exists.' }
           New-Item -ItemType Directory -Path $evidence | Out-Null
-          @{ ObserverCommit = '${{ github.sha }}'; OriginalSourceCommit = $originalSource; RunId = '${{ github.run_id }}'; Architecture = '${{ matrix.arch }}'; Purpose = 'Additional original numeric field observations; original source and drawing receipts remain unchanged.' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'provenance.json')
+          @{ ObserverCommit = '${{ github.sha }}'; OriginalSourceCommit = $originalSource; RunId = '${{ github.run_id }}'; Architecture = '${{ matrix.arch }}'; Purpose = 'Original soft-wrap whitespace observations with unchanged source and midpoint controls; no product qualification.' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'provenance.json')
           $dll = Join-Path $env:GITHUB_WORKSPACE 'eng/WpfDisplayTextReference/bin/Release/net10.0-windows/WpfDisplayTextReference.dll'
           $font = Join-Path $env:GITHUB_WORKSPACE 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
           if ((Get-FileHash -Algorithm SHA256 -LiteralPath $font).Hash -cne '40D692FCE188E4471E2B3CBA937BE967878F631AD3EBBBDCD587687C7EBE0C82') { throw 'Original Inter bytes changed.' }
@@ -57,23 +57,25 @@ jobs:
             Invoke-WebRequest -Uri ($base + '/' + $item[0]) -OutFile $path -TimeoutSec 30
             if ((Get-Item -LiteralPath $path).Length -ne $item[2] -or (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash -cne $item[3]) { throw 'RTL font or notice pin mismatch.' }
           }
-          foreach ($family in @('source-inputs', 'source-midpoint-inputs')) {
+          foreach ($family in @('source-inputs', 'source-midpoint-inputs', 'soft-wrap-inputs')) {
             $receipt = Join-Path $evidence ($family + '.json')
             $stdout = Join-Path $evidence ($family + '-stdout.log')
             $stderr = Join-Path $evidence ($family + '-stderr.log')
-            $values = @($dll, '--source-inputs', $font, $receipt, '${{ matrix.arch }}', $originalSource)
+            $mode = if ($family -eq 'soft-wrap-inputs') { '--soft-wrap-inputs' } else { '--source-inputs' }
+            $values = @($dll, $mode, $font, $receipt, '${{ matrix.arch }}', $originalSource)
             if ($family -eq 'source-midpoint-inputs') { $values += @('midpoint-rtl-positioned-v3', $rtlDirectory) }
+            if ($family -eq 'soft-wrap-inputs') { $values += @('soft-wrap-spaces-v1', $rtlDirectory) }
             $arguments = $values | ForEach-Object { '"' + $_ + '"' }
             $child = Start-Process (Get-Command dotnet).Source -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
             try {
               if (!$child.WaitForExit(60000)) { throw 'Supplemental reference exceeded the original sixty-second bound.' }
               if ($child.ExitCode -ne 0) { throw "Supplemental reference exited $($child.ExitCode)." }
               $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
-              $count = if ($family -eq 'source-inputs') { 192 } else { 288 }
-              $schema = if ($family -eq 'source-inputs') { 102 } else { 104 }
+              $count = if ($family -eq 'source-inputs') { 192 } elseif ($family -eq 'soft-wrap-inputs') { 198 } else { 288 }
+              $schema = if ($family -eq 'source-inputs') { 102 } elseif ($family -eq 'soft-wrap-inputs') { 106 } else { 104 }
               if ($value.Schema -ne $schema -or !$value.SupplementalNumericMetrics -or !$value.SupplementalDrawingFrames -or $value.OriginalSourceCommit -ne $originalSource -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete or wrong-identity supplemental corpus.' }
               foreach ($case in $value.Cases) {
-                $original = if ($family -eq 'source-inputs') { $case } else { $case.Original }
+                $original = if ($family -eq 'source-midpoint-inputs') { $case.Original } else { $case }
                 foreach ($line in $original.Lines) { if (!$line.SupplementalDrawingFrame -or !$line.SupplementalMetricFields) { throw 'Missing actual drawing frame.' } }
               }
               Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List

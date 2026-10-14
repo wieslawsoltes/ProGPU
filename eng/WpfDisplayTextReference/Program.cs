@@ -14,14 +14,16 @@ internal static partial class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        bool sourceInputs = args.Length != 0 && args[0] == "--source-inputs";
+        bool softWrapCases = args.Length != 0 && args[0] == "--soft-wrap-inputs";
+        bool sourceInputs = softWrapCases || (args.Length != 0 && args[0] == "--source-inputs");
         if (sourceInputs) args = args[1..];
         if (!OperatingSystem.IsWindows() || args.Length is not (4 or 6) ||
             !string.Equals(RuntimeInformation.ProcessArchitecture.ToString(), args[2], StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Expected Windows, font path, CreateNew receipt path, actual architecture and source commit.");
         if (args[3].Length != 40 || !args[3].All(Uri.IsHexDigit)) throw new ArgumentException("Exact source commit required.");
         bool midpointCases = args.Length == 6;
-        if (midpointCases && args[4] != MidpointCases.Family)
+        if (softWrapCases && !midpointCases) throw new ArgumentException("Soft-wrap observations require both pinned fonts.");
+        if (midpointCases && args[4] != (softWrapCases ? SoftWrapCaseFamily : MidpointCases.Family))
             throw new ArgumentException("Unknown original reference case family.");
         Assembly presentation = typeof(TextFormatter).Assembly;
         if (Convert.ToHexString(presentation.GetName().GetPublicKeyToken() ?? []) != "31BF3856AD364E35")
@@ -39,7 +41,8 @@ internal static partial class Program
             pin.Verify(directory);
             string rtlFont = Path.Combine(directory, pin.FontFileName);
             var rtlFamily = new FontFamily(new Uri(directory + Path.DirectorySeparatorChar), "./#" + pin.FamilyName);
-            CaptureMidpointCases(font, family, rtlFont, rtlFamily, timer, cases, sourceInputs);
+            if (softWrapCases) CaptureSoftWrapCases(font, family, rtlFont, rtlFamily, timer, cases);
+            else CaptureMidpointCases(font, family, rtlFont, rtlFamily, timer, cases, sourceInputs);
             // Verify again after capture, before any receipt is published.
             pin.Verify(directory);
             rtlFontIdentity = new { Pin = pin, Font = FileIdentity(rtlFont),
@@ -68,7 +71,7 @@ internal static partial class Program
             throw new InvalidOperationException("Original DirectWrite module identity was not observed.");
         var receipt = new
         {
-            Schema = midpointCases ? (sourceInputs ? 104 : 103) : (sourceInputs ? 102 : 101), SupplementalDrawingFrames = true, SupplementalNumericMetrics = true, OriginalSourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
+            Schema = softWrapCases ? 106 : midpointCases ? (sourceInputs ? 104 : 103) : (sourceInputs ? 102 : 101), SupplementalDrawingFrames = true, SupplementalNumericMetrics = true, OriginalSourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
             Font = FileIdentity(font), Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             PresentationCore = FileIdentity(presentation.Location), PresentationIdentity = presentation.FullName,
             OperatingSystem = RuntimeInformation.OSDescription, OsVersion = Environment.OSVersion.VersionString,
@@ -82,7 +85,7 @@ internal static partial class Program
         if (midpointCases)
         {
             var expanded = JsonSerializer.SerializeToNode(receipt)!;
-            expanded["CaseFamily"] = MidpointCases.Family;
+            expanded["CaseFamily"] = softWrapCases ? SoftWrapCaseFamily : MidpointCases.Family;
             expanded["RtlFont"] = JsonSerializer.SerializeToNode(rtlFontIdentity);
             serialized = expanded;
         }
