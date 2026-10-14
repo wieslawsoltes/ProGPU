@@ -1,12 +1,6 @@
-name: WPF Display text reference
+name: WPF Display drawing-frame diagnostic
 
 on:
-  pull_request:
-    paths:
-      - 'eng/WpfDisplayTextReference/**'
-      - 'eng/WpfDisplayTextReference.Tests/**'
-      - '.github/workflows/wpf-display-text-reference.yml'
-      - 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
   workflow_dispatch:
 
 permissions:
@@ -14,7 +8,7 @@ permissions:
 
 jobs:
   reference:
-    name: Original WPF Display (${{ matrix.arch }})
+    name: Supplemental original WPF drawing (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
@@ -25,102 +19,62 @@ jobs:
             arch: Arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 8
-    env:
-      REFERENCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.REFERENCE_COMMIT }}
+          ref: ${{ github.sha }}
       - name: Prepare pinned framework sources
         shell: bash
-        working-directory: ${{ github.workspace }}
         run: python3 eng/progpu-prepare-framework-sources.py
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
-      - name: Compile original Microsoft WPF reference
+      - name: Compile supplemental Microsoft API observer
         shell: pwsh
         run: |
           dotnet build eng/WpfDisplayTextReference/WpfDisplayTextReference.csproj -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify device-free midpoint input and coverage contracts
-        shell: pwsh
-        run: |
           dotnet test eng/WpfDisplayTextReference.Tests/WpfDisplayTextReference.Tests.csproj -c Release -m:1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Capture exact source glyph and interaction metrics
+      - name: Capture full original inputs with additional drawing frames
         shell: pwsh
         run: |
-          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/wpf-display-reference'
-          if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory already exists.' }
+          $ErrorActionPreference = 'Stop'
+          $originalSource = '92f4778b0db2d802d84b50281bc4c4e97349b4db'
+          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/wpf-display-drawing'
+          if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory exists.' }
           New-Item -ItemType Directory -Path $evidence | Out-Null
+          @{ ObserverCommit = '${{ github.sha }}'; OriginalSourceCommit = $originalSource; RunId = '${{ github.run_id }}'; Architecture = '${{ matrix.arch }}'; Purpose = 'Additional offscreen TextLine.Draw observations; original receipts remain independent and unchanged.' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'provenance.json')
           $dll = Join-Path $env:GITHUB_WORKSPACE 'eng/WpfDisplayTextReference/bin/Release/net10.0-windows/WpfDisplayTextReference.dll'
           $font = Join-Path $env:GITHUB_WORKSPACE 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
-          foreach ($family in @('original', 'midpoint-rtl-positioned-v3')) {
-            $name = if ($family -eq 'original') { 'reference' } else { $family }
-            $receipt = Join-Path $evidence "$name.json"
-            $stdout = Join-Path $evidence $(if ($family -eq 'original') { 'stdout.log' } else { "$name-stdout.log" })
-            $stderr = Join-Path $evidence $(if ($family -eq 'original') { 'stderr.log' } else { "$name-stderr.log" })
-            $values = @($dll, $font, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT)
-            if ($family -ne 'original') {
-              $pin = Get-Content -LiteralPath 'eng/WpfDisplayTextReference/rtl-font.json' -Raw | ConvertFrom-Json
-              $rtlDirectory = Join-Path $evidence 'rtl-font'
-              if (Test-Path -LiteralPath $rtlDirectory) { throw 'RTL font directory already exists.' }
-              New-Item -ItemType Directory -Path $rtlDirectory | Out-Null
-              $base = ($pin.Repository -replace '^https://github.com/', 'https://raw.githubusercontent.com/') + '/' + $pin.Commit
-              foreach ($item in @(@($pin.FontPath, $pin.FontFileName, $pin.FontLength, $pin.FontSha256), @($pin.LicensePath, $pin.LicenseFileName, $pin.LicenseLength, $pin.LicenseSha256))) {
-                $path = Join-Path $rtlDirectory $item[1]
-                if (Test-Path -LiteralPath $path) { throw 'RTL dependency output already exists.' }
-                Invoke-WebRequest -Uri ($base + '/' + $item[0]) -OutFile $path -TimeoutSec 30
-                if ((Get-Item -LiteralPath $path).Length -ne $item[2] -or (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash -cne $item[3]) { throw 'RTL font or notice pin mismatch.' }
-              }
-              $values += @($family, $rtlDirectory)
-            }
-            $arguments = $values | ForEach-Object { '"' + $_ + '"' }
-            $child = Start-Process (Get-Command dotnet).Source -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-            try {
-              if (!$child.WaitForExit(90000)) { throw 'Original reference process exceeded 90 seconds.' }
-              if ($child.ExitCode -ne 0) { throw "Original reference exited $($child.ExitCode)." }
-              $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
-              $count = if ($family -eq 'original') { 192 } else { 288 }
-              $schema = if ($family -eq 'original') { 1 } else { 3 }
-              if ($value.Schema -ne $schema -or $value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete or wrong-identity reference.' }
-              if ($family -ne 'original' -and $value.CaseFamily -ne $family) { throw 'Wrong midpoint reference family.' }
-              if ($family -ne 'original' -and ($value.RtlFont.Font.Sha256 -cne $pin.FontSha256 -or $value.RtlFont.License.Sha256 -cne $pin.LicenseSha256)) { throw 'Wrong original RTL font provenance.' }
-              Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
-            } finally {
-              if (!$child.HasExited) { $child.Kill($true); $child.WaitForExit(5000) | Out-Null }
-              $child.Dispose()
-              Get-Content -LiteralPath $stdout
-              Get-Content -LiteralPath $stderr
-            }
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $font).Hash -cne '40D692FCE188E4471E2B3CBA937BE967878F631AD3EBBBDCD587687C7EBE0C82') { throw 'Original Inter bytes changed.' }
+          $pin = Get-Content -LiteralPath 'eng/WpfDisplayTextReference/rtl-font.json' -Raw | ConvertFrom-Json
+          $rtlDirectory = Join-Path $evidence 'rtl-font'
+          New-Item -ItemType Directory -Path $rtlDirectory | Out-Null
+          $base = ($pin.Repository -replace '^https://github.com/', 'https://raw.githubusercontent.com/') + '/' + $pin.Commit
+          foreach ($item in @(@($pin.FontPath, $pin.FontFileName, $pin.FontLength, $pin.FontSha256), @($pin.LicensePath, $pin.LicenseFileName, $pin.LicenseLength, $pin.LicenseSha256))) {
+            $path = Join-Path $rtlDirectory $item[1]
+            Invoke-WebRequest -Uri ($base + '/' + $item[0]) -OutFile $path -TimeoutSec 30
+            if ((Get-Item -LiteralPath $path).Length -ne $item[2] -or (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash -cne $item[3]) { throw 'RTL font or notice pin mismatch.' }
           }
-      - name: Capture independent original source request metrics
-        shell: pwsh
-        run: |
-          $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/wpf-display-reference'
-          $dll = Join-Path $env:GITHUB_WORKSPACE 'eng/WpfDisplayTextReference/bin/Release/net10.0-windows/WpfDisplayTextReference.dll'
-          $font = Join-Path $env:GITHUB_WORKSPACE 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
-          foreach ($family in @('original', 'midpoint-rtl-positioned-v3')) {
-            $name = if ($family -eq 'original') { 'source-inputs' } else { 'source-midpoint-inputs' }
-            $receipt = Join-Path $evidence "$name.json"
-            $stdout = Join-Path $evidence "$name-stdout.log"
-            $stderr = Join-Path $evidence "$name-stderr.log"
-            $values = @($dll, '--source-inputs', $font, $receipt, '${{ matrix.arch }}', $env:REFERENCE_COMMIT)
-            if ($family -ne 'original') { $values += @($family, (Join-Path $evidence 'rtl-font')) }
+          foreach ($family in @('source-inputs', 'source-midpoint-inputs')) {
+            $receipt = Join-Path $evidence ($family + '.json')
+            $stdout = Join-Path $evidence ($family + '-stdout.log')
+            $stderr = Join-Path $evidence ($family + '-stderr.log')
+            $values = @($dll, '--source-inputs', $font, $receipt, '${{ matrix.arch }}', $originalSource)
+            if ($family -eq 'source-midpoint-inputs') { $values += @('midpoint-rtl-positioned-v3', $rtlDirectory) }
             $arguments = $values | ForEach-Object { '"' + $_ + '"' }
             $child = Start-Process (Get-Command dotnet).Source -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
             try {
-              if (!$child.WaitForExit(90000)) { throw 'Original source-input reference process exceeded 90 seconds.' }
-              if ($child.ExitCode -ne 0) { throw "Original source-input reference exited $($child.ExitCode)." }
+              if (!$child.WaitForExit(60000)) { throw 'Supplemental reference exceeded the original sixty-second bound.' }
+              if ($child.ExitCode -ne 0) { throw "Supplemental reference exited $($child.ExitCode)." }
               $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
-              $count = if ($family -eq 'original') { 192 } else { 288 }
-              $schema = if ($family -eq 'original') { 2 } else { 4 }
-              if ($value.Schema -ne $schema -or $value.SourceCommit -ne $env:REFERENCE_COMMIT -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete independent source-input receipt.' }
+              $count = if ($family -eq 'source-inputs') { 192 } else { 288 }
+              $schema = if ($family -eq 'source-inputs') { 102 } else { 104 }
+              if ($value.Schema -ne $schema -or !$value.SupplementalDrawingFrames -or $value.OriginalSourceCommit -ne $originalSource -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete or wrong-identity supplemental corpus.' }
               foreach ($case in $value.Cases) {
-                $original = if ($family -eq 'original') { $case } else { $case.Original }
-                $metrics = $original.IndependentSourceMetrics
-                if ($metrics.Version -ne 1 -or $metrics.Mode -cne $original.Mode -or $metrics.Em -ne $original.Em -or $metrics.Dpi -ne $original.Dpi -or $metrics.ToReal -ne 1 -or $metrics.TypefaceIdentity -cne $value.PresentationIdentity -or $metrics.TypefaceAssembly.Sha256 -cne $value.PresentationCore.Sha256) { throw 'Independent source metric identity mismatch.' }
+                $original = if ($family -eq 'source-inputs') { $case } else { $case.Original }
+                foreach ($line in $original.Lines) { if (!$line.SupplementalDrawingFrame) { throw 'Missing actual drawing frame.' } }
               }
               Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
             } finally {
@@ -133,6 +87,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: wpf-display-reference-${{ matrix.arch }}-${{ env.REFERENCE_COMMIT }}
-          path: artifacts/wpf-display-reference/
+          name: wpf-display-drawing-${{ matrix.arch }}-${{ github.sha }}
+          path: artifacts/wpf-display-drawing/
           if-no-files-found: error

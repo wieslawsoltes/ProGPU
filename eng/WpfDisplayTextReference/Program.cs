@@ -68,7 +68,7 @@ internal static partial class Program
             throw new InvalidOperationException("Original DirectWrite module identity was not observed.");
         var receipt = new
         {
-            Schema = midpointCases ? (sourceInputs ? 4 : 3) : (sourceInputs ? 2 : 1), SourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
+            Schema = midpointCases ? (sourceInputs ? 104 : 103) : (sourceInputs ? 102 : 101), SupplementalDrawingFrames = true, OriginalSourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
             Font = FileIdentity(font), Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             PresentationCore = FileIdentity(presentation.Location), PresentationIdentity = presentation.FullName,
             OperatingSystem = RuntimeInformation.OSDescription, OsVersion = Environment.OSVersion.VersionString,
@@ -77,8 +77,7 @@ internal static partial class Program
             NativeModules = modules, ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds,
             Qualification = "Microsoft API observations only; not a portable metric, pixel or Display-policy parity result."
         };
-        // The old four-argument invocation retains its complete schema-1 shape
-        // and inventory. New observations cannot masquerade as those receipts.
+        // Supplemental schemas cannot masquerade as the original source receipts.
         object serialized = receipt;
         if (midpointCases)
         {
@@ -160,6 +159,7 @@ internal static partial class Program
                     SourceStart = start, line.Length, line.NewlineLength, line.TrailingWhitespaceLength,
                     line.Start, line.Width, line.WidthIncludingTrailingWhitespace, line.Height, line.Baseline,
                     line.DependentLength, line.HasOverflowed, Runs = runs, Carets = carets,
+                    SupplementalDrawingFrame = CaptureDrawingFrame(line),
                     Selection = line.GetTextBounds(start, visible).Select(bounds => new
                     { bounds.FlowDirection, Bounds = Rectangle(bounds.Rectangle) }).ToArray(),
                 });
