@@ -68,7 +68,7 @@ internal static partial class Program
             throw new InvalidOperationException("Original DirectWrite module identity was not observed.");
         var receipt = new
         {
-            Schema = midpointCases ? (sourceInputs ? 104 : 103) : (sourceInputs ? 102 : 101), SupplementalDrawingFrames = true, OriginalSourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
+            Schema = midpointCases ? (sourceInputs ? 104 : 103) : (sourceInputs ? 102 : 101), SupplementalDrawingFrames = true, SupplementalNumericMetrics = true, OriginalSourceCommit = args[3], Cases = cases, CaseCount = cases.Count,
             Font = FileIdentity(font), Producer = FileIdentity(Assembly.GetExecutingAssembly().Location),
             PresentationCore = FileIdentity(presentation.Location), PresentationIdentity = presentation.FullName,
             OperatingSystem = RuntimeInformation.OSDescription, OsVersion = Environment.OSVersion.VersionString,
@@ -159,7 +159,7 @@ internal static partial class Program
                     SourceStart = start, line.Length, line.NewlineLength, line.TrailingWhitespaceLength,
                     line.Start, line.Width, line.WidthIncludingTrailingWhitespace, line.Height, line.Baseline,
                     line.DependentLength, line.HasOverflowed, Runs = runs, Carets = carets,
-                    SupplementalDrawingFrame = CaptureDrawingFrame(line),
+                    SupplementalDrawingFrame = CaptureDrawingFrame(line), SupplementalMetricFields = CaptureMetricFields(line),
                     Selection = line.GetTextBounds(start, visible).Select(bounds => new
                     { bounds.FlowDirection, Bounds = Rectangle(bounds.Rectangle) }).ToArray(),
                 });

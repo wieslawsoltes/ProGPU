@@ -1,4 +1,4 @@
-name: WPF Display drawing-frame diagnostic
+name: WPF Display numeric-metric diagnostic
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   reference:
-    name: Supplemental original WPF drawing (${{ matrix.arch }})
+    name: Supplemental original WPF numeric metrics (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,7 @@ jobs:
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'artifacts/wpf-display-drawing'
           if (Test-Path -LiteralPath $evidence) { throw 'Evidence directory exists.' }
           New-Item -ItemType Directory -Path $evidence | Out-Null
-          @{ ObserverCommit = '${{ github.sha }}'; OriginalSourceCommit = $originalSource; RunId = '${{ github.run_id }}'; Architecture = '${{ matrix.arch }}'; Purpose = 'Additional offscreen TextLine.Draw observations; original receipts remain independent and unchanged.' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'provenance.json')
+          @{ ObserverCommit = '${{ github.sha }}'; OriginalSourceCommit = $originalSource; RunId = '${{ github.run_id }}'; Architecture = '${{ matrix.arch }}'; Purpose = 'Additional original numeric field observations; original source and drawing receipts remain unchanged.' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'provenance.json')
           $dll = Join-Path $env:GITHUB_WORKSPACE 'eng/WpfDisplayTextReference/bin/Release/net10.0-windows/WpfDisplayTextReference.dll'
           $font = Join-Path $env:GITHUB_WORKSPACE 'src/ProGPU.Fonts.Inter/Fonts/Inter-Regular.ttf'
           if ((Get-FileHash -Algorithm SHA256 -LiteralPath $font).Hash -cne '40D692FCE188E4471E2B3CBA937BE967878F631AD3EBBBDCD587687C7EBE0C82') { throw 'Original Inter bytes changed.' }
@@ -71,10 +71,10 @@ jobs:
               $value = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
               $count = if ($family -eq 'source-inputs') { 192 } else { 288 }
               $schema = if ($family -eq 'source-inputs') { 102 } else { 104 }
-              if ($value.Schema -ne $schema -or !$value.SupplementalDrawingFrames -or $value.OriginalSourceCommit -ne $originalSource -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete or wrong-identity supplemental corpus.' }
+              if ($value.Schema -ne $schema -or !$value.SupplementalNumericMetrics -or !$value.SupplementalDrawingFrames -or $value.OriginalSourceCommit -ne $originalSource -or $value.CaseCount -ne $count -or $value.Cases.Count -ne $count -or $value.Architecture -ne '${{ matrix.arch }}') { throw 'Incomplete or wrong-identity supplemental corpus.' }
               foreach ($case in $value.Cases) {
                 $original = if ($family -eq 'source-inputs') { $case } else { $case.Original }
-                foreach ($line in $original.Lines) { if (!$line.SupplementalDrawingFrame) { throw 'Missing actual drawing frame.' } }
+                foreach ($line in $original.Lines) { if (!$line.SupplementalDrawingFrame -or !$line.SupplementalMetricFields) { throw 'Missing actual drawing frame.' } }
               }
               Get-FileHash -Algorithm SHA256 -LiteralPath $receipt | Format-List
             } finally {
