@@ -50,6 +50,24 @@ public sealed class NativeHintedSourceTransportContractTests
     }
 
     [Fact]
+    public void WholeRunPlacementIsExplicitAndKeepsIndependentSourceOptions()
+    {
+        double em = Math.BitIncrement(13.0), dpi = 1.5, width = 100.0 / 1.5;
+        foreach (bool measured in new[] { false, true })
+        {
+            var original = NativeHintedSourceOptions.Create(em, dpi, width, 12.0, 7.0,
+                NativeSourceEmPolicy.FloatCaptureNearestHalfUp, NativeSourceAdvancePolicy.SourceIdealUnits,
+                true, measured, NativeSourceOffsetPolicy.SourceIdealUnits);
+            var retained = NativeHintedSourceOptions.Create(em, dpi, width, 12.0, 7.0,
+                NativeSourceEmPolicy.FloatCaptureNearestHalfUp, NativeSourceAdvancePolicy.SourceIdealUnits,
+                true, measured, NativeSourceOffsetPolicy.SourceIdealUnits, preserveWholeRunPlacement: true);
+            Assert.Equal(original.Flags | 2U, retained.Flags);
+            retained.Flags = original.Flags;
+            Assert.Equal(original, retained);
+        }
+    }
+
+    [Fact]
     public void RawSourceQueriesAndContinuationKeepDoubleInputs()
     {
         Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.HitTest), [typeof(double), typeof(double)]));

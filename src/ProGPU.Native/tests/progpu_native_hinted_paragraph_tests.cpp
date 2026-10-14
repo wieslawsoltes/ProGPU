@@ -960,7 +960,70 @@ void original_pair_boundary_controls() {
             invalid_measurement.source_input.back().input_index += 1U;
             require(measure_hinted_source_intrinsic_widths(invalid_measurement, untouched_widths) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                 untouched_widths.minimum == 123.0 && untouched_widths.maximum == 456.0);
+            auto retained_layout = source_layout;
+            retained_layout.allow_emergency_break = true;
+            retained_layout.preserve_whole_run_placement = true;
+            std::shared_ptr<const hinted_paragraph_generation> retained;
+            require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+                retained, diagnostic, source, &retained_layout) == PROGPU_NATIVE_STATUS_SUCCESS && retained->lines.size() == 2U);
+            const auto verify_retained = [&](const std::shared_ptr<const hinted_paragraph_generation>& owner) {
+                require(owner->source_preserve_whole_run_placement && owner->source_fitting != nullptr &&
+                    owner->source_fitting->slices.empty() && validate_hinted_source_fitting(*owner, *owner->source_fitting) &&
+                    owner->logical_owners == original->logical_owners && owner->has_source_intrinsic_widths &&
+                    owner->source_minimum_intrinsic_width == original->source_minimum_intrinsic_width &&
+                    owner->source_maximum_intrinsic_width == original->source_maximum_intrinsic_width);
+                for (std::size_t i = 0U; i < 4U; ++i) {
+                    const auto& m = owner->source_logical_metrics[i];
+                    require(equal_glyph(owner->logical_glyphs[i], original_wire[i]) &&
+                        m.advance_x == (i == 3U ? single : paired) &&
+                        m.offset_x == original->source_logical_metrics[i].offset_x &&
+                        owner->source_fitting->slice_indices[i] == UINT32_MAX);
+                }
+                for (const auto& line : owner->source_lines) {
+                    double pen = line.origin_x;
+                    double width = 0.0;
+                    for (std::size_t i = line.glyph_start; i < line.glyph_start + line.glyph_count; ++i) {
+                        const auto& m = owner->source_logical_metrics[owner->glyphs[i].glyph_index];
+                        require(owner->source_glyphs[i].x == pen + m.offset_x && owner->source_glyphs[i].advance_x == m.advance_x);
+                        pen += m.advance_x;
+                        width += m.advance_x;
+                    }
+                    require(line.width == width);
+                }
+                require(create_hinted_paragraph_interaction(owner).status == PROGPU_NATIVE_STATUS_SUCCESS &&
+                    create_hinted_paragraph_glyph_resource(owner, 1.5F, hinted_projection_policy::scalar_reference,
+                        hinted_outline_coverage::nonzero_vector).status == PROGPU_NATIVE_STATUS_SUCCESS);
+            };
+            verify_retained(retained);
+            require(retained->source_lines[0].width == paired + paired &&
+                retained->source_lines[1].width == paired + single &&
+                retained->source_logical_metrics[1].advance_x != fitted->source_logical_metrics[1].advance_x);
+            auto contradictory = *retained->source_fitting;
+            contradictory.slices = fitted->source_fitting->slices;
+            require(!validate_hinted_source_fitting(*retained, contradictory));
+            hinted_paragraph_generation unsafe_retained;
+            unsafe_retained.has_source_geometry = true;
+            unsafe_retained.source_preserve_whole_run_placement = true;
+            unsafe_retained.styles = retained->styles;
+            unsafe_retained.source_styles = retained->source_styles;
+            unsafe_retained.runs = retained->runs;
+            unsafe_retained.runs[0].generation = unsafe_run;
+            unsafe_retained.logical_glyphs = retained->logical_glyphs;
+            unsafe_retained.logical_owners = retained->logical_owners;
+            unsafe_retained.breaks_after = retained->breaks_after;
+            unsafe_retained.breaks_after[0] = text_line_break_kind::mandatory;
+            const auto unsafe_fit = fit_hinted_source_paragraph(unsafe_retained, 0U, 200.0);
+            require(unsafe_fit.status == PROGPU_NATIVE_STATUS_UNSUPPORTED && unsafe_fit.generation == nullptr);
             progpu_native_text_context_destroy(font.context.value); font.context.value = nullptr;
+            const auto retained_narrow = reflow_hinted_source_paragraph(*retained, retained->lines.front().input_start, single);
+            require(retained_narrow.status == PROGPU_NATIVE_STATUS_SUCCESS && retained_narrow.generation->lines.size() == 4U &&
+                retained_narrow.generation->runs[0].generation == retained->runs[0].generation);
+            verify_retained(retained_narrow.generation);
+            const auto retained_suffix = reflow_hinted_source_paragraph(*retained, retained->lines[1].input_start, paired + single);
+            require(retained_suffix.status == PROGPU_NATIVE_STATUS_SUCCESS && retained_suffix.generation->lines.size() == 1U &&
+                retained_suffix.generation->source_fitting->first_logical_glyph == 2U &&
+                retained_suffix.generation->runs[0].generation == retained->runs[0].generation);
+            verify_retained(retained_suffix.generation);
             const auto narrow = reflow_hinted_source_paragraph(*fitted, fitted->lines.front().input_start, single);
             require(narrow.status == PROGPU_NATIVE_STATUS_SUCCESS && narrow.generation->lines.size() == 4U &&
                 narrow.generation->runs[0].generation == fitted->runs[0].generation);

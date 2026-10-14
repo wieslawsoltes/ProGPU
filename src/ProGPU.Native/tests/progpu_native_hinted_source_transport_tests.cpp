@@ -63,7 +63,7 @@ void controls() {
     options.em_policy = 0U; options.advance_policy = 3U;
     require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
         std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
-    options.advance_policy = 0U; options.flags = 2U;
+    options.advance_policy = 0U; options.flags = 4U;
     require(create() == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && paragraph.value == nullptr &&
         std::memcmp(&diagnostic, &saved_diagnostic, sizeof(diagnostic)) == 0);
     options.flags = PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS;
@@ -122,6 +122,7 @@ void controls() {
     policy_options.em_policy = PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP;
     policy_options.advance_policy = PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS;
     policy_options.offset_policy = PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS;
+    policy_options.flags |= PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT;
     auto policy_style = source; policy_style.em_size = policy_options.em_size;
     require(progpu_native_text_context_layout_hinted_source_paragraph(context.value, &shape, &layout, &style, 1U,
         &metrics, &device, 1U, nullptr, 0U, &policy_options, &policy_style, 1U, &source_policy.value, &diagnostic) ==

@@ -206,3 +206,13 @@ against Skia, DirectWrite/Direct2D, Win2D, WebRender, Parley/Vello and HarfBuzz.
 No foreign implementation is copied. New architecture or performance claims are
 not made. Local evidence is retained under
 `display-184-final-source/final-probe-evidence` and `probe-unit-tests`.
+
+### Explicit line-placement policy
+
+An optional final argument selects `preserve-whole-run` or `recompose-lines`.
+The existing ten-argument command keeps recomposition. Both policies retain the
+same full original corpus, exact comparisons, interpreter pair, 60-second bound
+and CreateNew receipt behavior. The selected policy is included in the receipt.
+The retained option requires a matching rebuilt producer; old runtime rejection
+must not trigger fallback to recomposition. See
+[source placement policy and qualification](../../docs/native-source-display-text.md#explicit-whole-run-placement-at-source-line-breaks).

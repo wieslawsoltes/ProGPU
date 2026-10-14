@@ -27,7 +27,8 @@ public sealed unsafe partial class NativeHintedGlyphResource
         if (source.AbiVersion != NativeMethods.AbiVersion || source.StructSize != sizeof(NativeMethods.HintedSourceGlyphResourceView) ||
             source.Version != 2 || source.Flags != 0 || source.Reserved != 0 ||
             options.AbiVersion != NativeMethods.AbiVersion || options.StructSize != sizeof(NativeHintedSourceOptions) ||
-            options.Version != 1 || (options.Flags & ~1U) != 0 || options.EmPolicy > 3 || options.AdvancePolicy > 2 ||
+            options.Version != 1 || (options.Flags & ~3U) != 0 || options.EmPolicy > 3 || options.AdvancePolicy > 2 ||
+            ((options.Flags & 2U) != 0 && source.SliceCount != 0) ||
             options.OffsetPolicy > 1 || options.AllowEmergencyBreak > 1 ||
             source.Source.StyleCount != raster.Counts.StyleCount || source.Source.LogicalCount != raster.Counts.LogicalGlyphCount ||
             source.Source.GlyphCount != raster.Counts.PositionedGlyphCount || source.Source.LineCount != raster.Counts.LineCount ||

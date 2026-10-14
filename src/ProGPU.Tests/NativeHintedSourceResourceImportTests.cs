@@ -119,6 +119,20 @@ public sealed unsafe class NativeHintedSourceResourceImportTests
     }
 
     [Fact]
+    public void WholeRunPlacementRejectsRecomposedSlicesBeforeOwnershipTransfer()
+    {
+        NativeMethods.HintedGlyphResourceView raster = default;
+        var source = SourceView();
+        source.Source.Options.Flags |= 2U;
+        NativeHintedGlyphResource.ValidateSourceView(in source, in raster);
+        source.SliceCount = 1;
+        Assert.Throws<InvalidOperationException>(() => NativeHintedGlyphResource.ValidateSourceView(in source, in raster));
+        source.SliceCount = 0;
+        source.Source.Options.Flags |= 4U;
+        Assert.Throws<InvalidOperationException>(() => NativeHintedGlyphResource.ValidateSourceView(in source, in raster));
+    }
+
+    [Fact]
     public void InvalidSourceVersionAndMismatchedCountsRejectBeforeOwnershipTransfer()
     {
         NativeMethods.HintedGlyphResourceView raster = default;

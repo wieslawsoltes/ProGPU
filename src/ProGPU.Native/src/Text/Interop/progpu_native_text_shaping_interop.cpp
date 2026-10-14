@@ -4428,6 +4428,7 @@ progpu_native_status try_layout_context_hinted_paragraph(
             candidate->source_maximum_width = source_layout->maximum_width;
             candidate->source_line_height = source_layout->line_height;
             candidate->source_allow_emergency_break = source_layout->allow_emergency_break;
+            candidate->source_preserve_whole_run_placement = source_layout->preserve_whole_run_placement;
             candidate->has_source_intrinsic_widths = source_layout->measure_intrinsic_widths;
             candidate->source_style_metrics.assign(source_layout->style_metrics.begin(), source_layout->style_metrics.end());
         }
@@ -4526,6 +4527,7 @@ static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
         candidate->source_styles = source.source_styles;
         candidate->has_source_geometry = source.has_source_geometry;
         candidate->source_allow_emergency_break = source.source_allow_emergency_break;
+        candidate->source_preserve_whole_run_placement = source.source_preserve_whole_run_placement;
         candidate->source_maximum_width = source_geometry ? maximum_width : source.source_maximum_width;
         candidate->source_line_height = source.source_line_height;
         candidate->has_source_intrinsic_widths = source.has_source_intrinsic_widths;
