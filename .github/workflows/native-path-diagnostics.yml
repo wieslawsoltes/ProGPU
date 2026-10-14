@@ -85,7 +85,18 @@ jobs:
           $env:PATH = "$nativeRoot;$nativeRidRoot;$env:PATH"
           $source = Join-Path $env:GITHUB_WORKSPACE 'src/ProGPU.Tests/SkImageFinalizerRetirementTests.cs'
           $sourceHash = (Get-FileHash -Algorithm SHA256 $source).Hash
-          if ($sourceHash.ToLowerInvariant() -ne 'b3906e03a343286c2ba8af32e492b843484411117b4be3454c7c3780e99e37bd') { throw 'Original test body differs.' }
+          $sourceBlob = (git rev-parse HEAD:src/ProGPU.Tests/SkImageFinalizerRetirementTests.cs).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the original source blob.' }
+          $originalLfHash = 'b3906e03a343286c2ba8af32e492b843484411117b4be3454c7c3780e99e37bd'
+          $originalCrlfHash = '02f0255fd0c653dc163636cdf1d19c9ff36224a576e76b228b9593f9fc4f942e'
+          @{ gitBlob = $sourceBlob; expectedGitBlob = '59221a196d35c74e8115feda2c8800bb43588c60';
+             workingTreeSha256 = $sourceHash; originalLfSha256 = $originalLfHash;
+             exactWindowsCrlfSha256 = $originalCrlfHash } |
+            ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $out 'original-source-identity.json')
+          if ($sourceBlob -ne '59221a196d35c74e8115feda2c8800bb43588c60' -or
+              $sourceHash.ToLowerInvariant() -notin @($originalLfHash, $originalCrlfHash)) {
+            throw 'Original source blob or exact checkout bytes differ.'
+          }
           $inputs = @(Get-ChildItem $nativeRoot -File -Recurse | Where-Object { $_.Extension -in '.dll', '.exe', '.json' } |
             ForEach-Object { @{ path = $_.FullName.Substring($nativeRoot.Length + 1); sha256 = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash } })
           $inputs | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $out 'input-hashes.json')
