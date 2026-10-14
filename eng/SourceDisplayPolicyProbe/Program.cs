@@ -105,10 +105,14 @@ internal static class Program
         var layout = new NativeTextParagraphOptions(scale, (float)options.MaximumWidth, (float)options.LineHeight);
         using var context = new NativeTextShapingContext(font);
         using var paragraph = context.LayoutHintedSourceParagraph(text, direction, in layout, styles, metrics, devices, in options, originalStyles);
-        var native = CopyIdentity(paragraph, fontHash);
-        var alignment = SourceComparison.Compare(item, native, fontHash);
-        using var resource = paragraph.PrepareGlyphResourceWithNominalMetrics(NativeHintedProjectionPolicy.IntrinsicSimd);
+        // This source-metric probe consumes the explicit antialiased vector
+        // resource. Strict retains its separate rejection of B/W scan metadata;
+        // neither policy changes the original shaped or source-double metrics.
+        using var resource = paragraph.PrepareGlyphResourceWithNominalMetrics(
+            NativeHintedProjectionPolicy.IntrinsicSimd, NativeHintedCoverage.AntialiasedVector);
         using var read = resource.AcquireReadLease();
+        var native = CopyIdentity(paragraph, read.LogicalOwners, fontHash);
+        var alignment = SourceComparison.Compare(item, native, fontHash);
         var copied = new List<SourceRunMetric>();
         foreach (var run in alignment.Runs)
         {
@@ -131,20 +135,31 @@ internal static class Program
             SourceLogicalMetrics = paragraph.LogicalMetrics.ToArray(), SourceGlyphs = paragraph.GlyphMetrics.ToArray(),
             SourceLines = paragraph.LineMetrics.ToArray(), SourceBoxes = paragraph.Boxes.ToArray(), SourceCarets = paragraph.Carets.ToArray(),
             RasterGlyphs = paragraph.RasterGlyphs.ToArray(), RasterLines = paragraph.RasterLines.ToArray(),
-            SourceRunMetrics = copied, Status = comparison.Status
+            SourceRunMetrics = copied, Coverage = resource.Coverage, Status = comparison.Status
         };
     }
 
-    private static NativeSourceParagraph CopyIdentity(NativeHintedSourceParagraph paragraph, string fontHash)
+    private static NativeSourceParagraph CopyIdentity(NativeHintedSourceParagraph paragraph,
+        ReadOnlySpan<NativeHintedParagraphGlyphOwner> logicalOwners, string fontHash)
     {
+        if (logicalOwners.Length != paragraph.LogicalGlyphs.Length)
+            throw new InvalidDataException("Original retained logical ownership count changed.");
         var glyphs = new NativeSourceGlyph[paragraph.RasterGlyphs.Length];
         for (int i = 0; i < glyphs.Length; ++i)
         {
             var glyph = paragraph.RasterGlyphs[i]; int logical = checked((int)glyph.GlyphIndex);
             var original = paragraph.LogicalGlyphs[logical]; var owner = paragraph.PositionedOwners[i];
+            // RTL cluster restoration preserves each original run occurrence,
+            // but its raw run index is not a logical-array offset. Compare the
+            // producer's retained map, including the exact outline descriptor.
+            var logicalOwner = logicalOwners[logical];
             var run = paragraph.Runs[checked((int)owner.RunIndex)];
             if (glyph.GlyphId != original.GlyphId || glyph.Cluster != original.Cluster || run.FontIndex != glyph.FontIndex ||
-                owner.RunGlyphIndex >= run.LogicalCount || run.LogicalStart + owner.RunGlyphIndex != glyph.GlyphIndex ||
+                owner.RunGlyphIndex >= run.LogicalCount || owner.DescriptorIndex >= run.SourceDescriptorCount ||
+                glyph.GlyphIndex < run.LogicalStart ||
+                glyph.GlyphIndex - run.LogicalStart >= run.LogicalCount ||
+                owner.RunIndex != logicalOwner.RunIndex || owner.RunGlyphIndex != logicalOwner.RunGlyphIndex ||
+                owner.DescriptorIndex != logicalOwner.DescriptorIndex ||
                 paragraph.GlyphMetrics[i].Cluster != glyph.Cluster)
                 throw new InvalidDataException("Original retained glyph/run/source ownership changed.");
             glyphs[i] = new(i, logical, glyph.GlyphId, glyph.FontIndex, glyph.Cluster, paragraph.ClusterEnds[i], paragraph.BidiLevels[i],
