@@ -1,0 +1,91 @@
+{
+  "preparedAt": "2026-10-13T19:43:07.228728+00:00",
+  "purpose": "Separate profiling-only copy of original test launcher; shipped native libraries/provider never re-signed or modified",
+  "sourceSha256": "0d5c2f5f7d7c9cc19df7cd1d5460fccfda639dd13e024c6c860c2e473775cbe4",
+  "launcherSha256": "044188b9c39965ec9a81fcf1145b4c31cb05f0729c6433c69ce3f246c2894b55",
+  "signatureOnlyTransformVerified": true,
+  "everyFileBackedCodeAndDataSectionIdentical": true,
+  "allBytesBeforeSignatureIdenticalExceptSignatureLocationAndLinkeditSizeFields": true,
+  "allowedMetadataOffsets": [
+    [
+      1472,
+      8
+    ],
+    [
+      1488,
+      8
+    ],
+    [
+      2160,
+      8
+    ]
+  ],
+  "sections": {
+    "__TEXT/__text": {
+      "offset": 6272,
+      "size": 2265720,
+      "sha256": "4bdcde44a616cbec53f39bf6d2743a505dd11b5a05ba928e8f478791d181829e"
+    },
+    "__TEXT/__stubs": {
+      "offset": 2271992,
+      "size": 1728,
+      "sha256": "b2a3c4031f38a6cf4d7144e5866d28a749aa43fc0edd85ca4092cb5978cc6c8a"
+    },
+    "__TEXT/__const": {
+      "offset": 2273728,
+      "size": 897754,
+      "sha256": "65138b5c49bc516d1a5e492fd00e9cb9017177babea3dc34820c4e941162e08a"
+    },
+    "__TEXT/__cstring": {
+      "offset": 3171482,
+      "size": 84817,
+      "sha256": "a0d1b42dd646b2af1738f8221cefd6044e927cfc7f214217e68456bfb7206d16"
+    },
+    "__TEXT/__gcc_except_tab": {
+      "offset": 3256300,
+      "size": 40988,
+      "sha256": "da137b1213ac04a435bfd548dd8aef0883d5f26918eda24f6ba01106efeb7544"
+    },
+    "__TEXT/__ustring": {
+      "offset": 3297288,
+      "size": 344,
+      "sha256": "3656e243321a1fd8beb62e1a2ec6c6f76eef02c67cea2818e7e042161a4efbec"
+    },
+    "__TEXT/__unwind_info": {
+      "offset": 3297632,
+      "size": 15184,
+      "sha256": "4ba77c2437735a60497f8acf6e3ae466dbbbbe36fd94a9225cd59e6f8621e988"
+    },
+    "__TEXT/__eh_frame": {
+      "offset": 3312816,
+      "size": 352,
+      "sha256": "c4121353b5bda73059a3f12e1be55a269fd0eee48aee3ea75d8d69929a23dc77"
+    },
+    "__DATA_CONST/__got": {
+      "offset": 3325952,
+      "size": 1648,
+      "sha256": "403e7d7f8d2608f47f1b2879bc79aa245b7d72474607e255953687fc6b85488f"
+    },
+    "__DATA_CONST/__const": {
+      "offset": 3327600,
+      "size": 35368,
+      "sha256": "f8aba78eb9473e04213b826b771ac8d6bd143dd7bd4de4a6e71f0151d9dbd03a"
+    },
+    "__DATA/__data": {
+      "offset": 3375104,
+      "size": 64,
+      "sha256": "ec7a1dfab7c669200bf9646830d457c6745231e1c2e74827a3b136e6bc826c99"
+    },
+    "__DATA/__thread_vars": {
+      "offset": 3375168,
+      "size": 24,
+      "sha256": "8615ab3c521f202184672d84eea66ea10e61f8ecd86a0cccdbff020d61a88244"
+    }
+  },
+  "entitlement": {
+    "com.apple.security.get-task-allow": true
+  },
+  "applePrimaryGuidance": "https://developer.apple.com/forums/thread/791270",
+  "originalSignatureRetained": true,
+  "sourceInputsAssertionsAndLimitsUnchanged": true
+}
