@@ -17,8 +17,7 @@ foreach ($name in @('wgpu_native', 'progpu_native')) {
     & lib.exe /nologo ('/def:' + $name + '.def') /machine:ARM64 ('/out:' + $name + '.lib')
     if ($LASTEXITCODE -ne 0) { throw 'Import library generation failed.' }
 }
-$compiler = Join-Path $env:ProgramFiles 'LLVM/bin/clang-cl.exe'
-if (!(Test-Path $compiler)) { throw 'The original ClangCL toolchain is unavailable.' }
+$compiler = (Get-Command clang-cl.exe -ErrorAction Stop).Source
 & $compiler --target=aarch64-pc-windows-msvc /nologo /std:c++20 /O2 /MD /EHsc /I. replay-warp.cpp progpu_native.lib wgpu_native.lib /Fe:replay-warp.exe
 if ($LASTEXITCODE -ne 0) { throw 'Original source probe compilation failed.' }
 & dumpbin.exe /nologo /headers replay-warp.exe | Select-String 'machine \('

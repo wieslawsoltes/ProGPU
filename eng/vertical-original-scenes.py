@@ -133,7 +133,10 @@ try:
     assert original == subprocess.check_output(['git', 'show', CANDIDATE + ':' + header])
     (inputs / 'progpu_native.h').write_bytes(original)
     assert sha(inputs / 'progpu_native.h') == '6249c702f179fec0f0b736af5bb4f0613c5f3cbf22d082b954ab17ef2ee8578a'
-    shutil.copyfile(repo / 'eng/vertical-replay-warp.cpp', inputs / 'replay-warp.cpp')
+    # Git for Windows may convert a working-copy text file to CRLF. Stage the
+    # original immutable blob bytes, preserving the independently frozen hash.
+    (inputs / 'replay-warp.cpp').write_bytes(subprocess.check_output([
+        'git', 'show', 'HEAD:eng/vertical-replay-warp.cpp']))
     assert sha(inputs / 'replay-warp.cpp') == '3a6c93c6e7fd6b1dbb39b242c974a893ed40f659178636284374e498d7be68ec'
     shutil.copyfile(variants['baseline'] / 'progpu_native.dll', inputs / 'progpu_native.dll')
     with (root / 'compile.log').open('wb') as output:
