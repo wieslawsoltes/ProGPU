@@ -444,7 +444,9 @@ Explicit whole-run source placement preserves
 the original complete run at the same proven pre-positioning cluster boundaries;
 default callers retain independent line recomposition. Keep the flag in creation,
 continuation and resource/import identity, reject recomposed slices under this
-policy, and retain raw occurrence/unsafe metadata. Matching unwrapped advances is
+policy, and retain raw occurrence/unsafe metadata. Prepared dependency flags must
+survive in raw placement; jointly clearing raw/effective/raster flags cannot
+bypass the original unsafe-edge proof. Matching unwrapped advances is
 not full source, RTL, offset, pixel or application qualification. See
 docs/native-source-display-text.md.
 

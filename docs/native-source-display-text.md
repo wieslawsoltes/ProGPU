@@ -146,6 +146,12 @@ pre-positioning cluster proof; the option cannot admit an unsafe GSUB/mark cut.
 It cannot carry recomposed slices. Both native import and managed view preflight
 reject that contradictory descriptor before publication.
 
+Flat import also requires the original prepared flags to survive in raw placement.
+Positioning may add dependency flags; it cannot erase a prepared unsafe edge.
+Changing raw, effective and raster flags together therefore cannot bypass the
+prepared-boundary proof. The original valid imports and both placement policies
+share this check; malformed-input rejection does not change source placement.
+
 The unchanged final source receipts from preview.69 contain 608 aligned narrow
 Latin occurrences per original Windows architecture. Their actual unwrapped
 source doubles match all 608 original advances; the existing fitter changes 48

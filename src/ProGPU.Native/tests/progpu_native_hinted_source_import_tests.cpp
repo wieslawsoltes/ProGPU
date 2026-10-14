@@ -158,6 +158,28 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
         bad = source; bad.prepared_glyphs = prepared.data(); prepared[2U].flags |= 1U;
         reject(raster, bad); // Retained placement does not admit an unsafe GSUB cut.
     }
+    {
+        // Positioning may add dependency flags, but cannot erase an original
+        // prepared unsafe edge. Keep every transported raw/effective/raster
+        // flag coherent so rejection depends on that original prepared proof.
+        std::vector<progpu_native_text_shaping_glyph> prepared(source.prepared_glyphs,
+            source.prepared_glyphs + source.prepared_count);
+        std::vector<progpu_native_text_shaping_glyph> raw_copy(source.raw_logical_glyphs,
+            source.raw_logical_glyphs + source.source.logical_count);
+        std::vector<progpu_native_text_shaping_glyph> effective_copy(source.effective_logical_glyphs,
+            source.effective_logical_glyphs + source.source.logical_count);
+        std::vector<progpu_native_text_shaping_glyph> logical_copy(raster.logical_glyphs,
+            raster.logical_glyphs + raster.counts.logical_glyph_count);
+        require(prepared.size() > 2U);
+        prepared[2U].flags |= 1U;
+        for (auto& glyph : raw_copy) glyph.flags &= ~1U;
+        for (auto& glyph : effective_copy) glyph.flags &= ~1U;
+        for (auto& glyph : logical_copy) glyph.flags &= ~1U;
+        bad = source; bad.prepared_glyphs = prepared.data();
+        bad.raw_logical_glyphs = raw_copy.data(); bad.effective_logical_glyphs = effective_copy.data();
+        bad_raster = raster; bad_raster.logical_glyphs = logical_copy.data();
+        reject(bad_raster, bad);
+    }
     // Byte-identical warm imports remain independent owners; no source pointer,
     // hinted driver, paragraph or context lease crosses this flat boundary.
     const auto repeated = import_hinted_paragraph_glyph_resource(raster, source);

@@ -98,6 +98,7 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
             const auto index = run.logical_start + j; const auto& owner = v.logical_owners[index];
             const auto& prepared = s.prepared_glyphs[prepared_end + owner.descriptor_index];
             if (!source_same_identity(prepared, s.raw_logical_glyphs[index]) ||
+                (prepared.flags & s.raw_logical_glyphs[index].flags) != prepared.flags ||
                 owner.run_glyph_index != ((run.bidi_level & 1) == 0 ? owner.descriptor_index
                     : run.logical_count - 1U - owner.descriptor_index)) return false;
         }
