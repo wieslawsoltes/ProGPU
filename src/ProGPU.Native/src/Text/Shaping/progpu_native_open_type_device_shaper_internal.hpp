@@ -32,6 +32,9 @@ struct device_shape_run_services final {
     // owns copied records; neither this frame nor font/plan pointers may escape.
     bool (*capture_positioning)(void*, const sfnt_font_view&, const open_type_shape_run_options&,
         std::span<const shaping_glyph>, font_error*) noexcept = nullptr;
+    // Same original boundary, independently retained for whole-run placement.
+    // Horizontal mark runs are allowed; this grants no positioning replay.
+    bool (*capture_boundaries)(void*, std::span<const shaping_glyph>, font_error*) noexcept = nullptr;
 };
 
 bool try_shape_device_open_type_run(const sfnt_font_view&, std::span<const unicode_scalar>,

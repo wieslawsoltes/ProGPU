@@ -450,6 +450,14 @@ bypass the original unsafe-edge proof. Matching unwrapped advances is
 not full source, RTL, offset, pixel or application qualification. See
 docs/native-source-display-text.md.
 
+Whole-run source cuts may retain the original pre-GPOS boundary inventory even
+when marks prevent independent placement replay. Keep that witness separate from
+the bounded recipe, validate the complete final occurrence/descriptor identity
+and retain every prepared dependency flag. Default callers do not capture the
+extra inventory or gain a new cut; marks never grant a replay recipe. Preserve
+ownership/alias guards, flat import and continuation proof. Authored controls are
+not original source, provider, pixel or Display qualification.
+
 Source Display capture retains original double em/DPI separately from explicit
 physical-em and advance policies. Preserve immutable raw post-GPOS generations,
 source/descriptor/bidi identity and unsafe flags while deriving fitting metrics.

@@ -8,7 +8,8 @@ namespace progpu::native::tests {
 // liga substitutes the valid glyph before capture. kern then positions that
 // same retained descriptor. Unused later digit/comma mappings remain faulty.
 // Public wire contracts only; no external font or implementation is copied.
-inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout, bool pair_positioning = false) {
+inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout, bool pair_positioning = false,
+    bool include_mark = false) {
     using bytes = std::vector<std::byte>;
     const auto original = make_hint_fault_font();
     const auto read16 = [&](std::size_t at) {
@@ -60,6 +61,7 @@ inline std::vector<std::byte> make_hinted_fixture_font(bool include_layout, bool
                 segment{0x20U, 0x20U, 1U}, segment{0x2CU, 0x2CU, 2U},
                 segment{0x2EU, 0x2EU, 1U}, segment{0x30U, 0x31U, 1U},
                 segment{0x41U, 0x42U, 1U}, segment{0xFFFFU, 0xFFFFU, 0U}};
+            if (include_mark) segments.insert(segments.end() - 1, {0x05B0U, 0x05B0U, 1U});
             if (pair_positioning) segments.insert(segments.end() - 1, {0x05D0U, 0x05D0U, 1U});
             const auto count = static_cast<std::uint16_t>(segments.size());
             value.data.assign(28U + 8U * count, std::byte{0});

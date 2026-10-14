@@ -26,7 +26,7 @@ bool wire_fitting(const shaping_glyph& raw, hinted_source_advance_policy policy,
 }
 
 std::size_t prepared_edge(const hinted_shaped_run& run, std::int32_t cluster) noexcept {
-    const auto& glyphs = run.positioning->prepared_glyphs;
+    const auto glyphs = run.prepared_glyphs();
     return static_cast<std::size_t>(std::lower_bound(glyphs.begin(), glyphs.end(), cluster,
         [](const shaping_glyph& glyph, std::int32_t value) { return glyph.cluster < value; }) - glyphs.begin());
 }
@@ -38,11 +38,11 @@ bool safe_boundary(const hinted_paragraph_generation& paragraph, std::size_t ind
     const auto owner = paragraph.logical_owners[index];
     if (owner.run_index != paragraph.logical_owners[index - 1U].run_index || !unsafe(glyph)) return true;
     const auto& run = *paragraph.runs[owner.run_index].generation;
-    if (run.positioning == nullptr) return false;
+    if (run.positioning == nullptr && !paragraph.source_preserve_whole_run_placement) return false;
+    const auto prepared = run.prepared_glyphs();
     const auto edge = prepared_edge(run, glyph.cluster);
-    return edge < run.positioning->prepared_glyphs.size() && run.positioning->prepared_glyphs[edge].cluster == glyph.cluster &&
-        (edge == 0U || (run.positioning->prepared_glyphs[edge - 1U].cluster != glyph.cluster &&
-            !unsafe(run.positioning->prepared_glyphs[edge])));
+    return edge < prepared.size() && prepared[edge].cluster == glyph.cluster &&
+        (edge == 0U || (prepared[edge - 1U].cluster != glyph.cluster && !unsafe(prepared[edge])));
 }
 
 struct candidate_line final {

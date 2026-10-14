@@ -1,7 +1,9 @@
 #include "progpu_native_text_source_resource.h"
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "../src/Text/Interop/progpu_native_hinted_paragraph_glyph_frame.hpp"
+#include "../src/Text/Interop/progpu_native_hinted_paragraph_transport_internal.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -38,7 +40,7 @@ template<class T> void owned_span(const hinted_paragraph_glyph_resource& resourc
         !resource.allocation_aliases(original, bytes));
 }
 std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_native_hinted_paragraph* paragraph,
-    bool expected_slices, bool suffix, bool rtl) {
+    bool expected_slices, bool suffix, bool rtl, std::uint32_t expected_count = 4U) {
     resource_owner producer;
     const progpu_native_hinted_glyph_resource_request request{PROGPU_NATIVE_ABI_VERSION, sizeof(request), 1.5F,
         PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR, 0U};
@@ -48,7 +50,7 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
     progpu_native_hinted_source_glyph_resource_view source{};
     require(progpu_native_hinted_glyph_resource_borrow(producer.value, &raster) == PROGPU_NATIVE_STATUS_SUCCESS &&
         progpu_native_hinted_glyph_resource_borrow_source(producer.value, &source) == PROGPU_NATIVE_STATUS_SUCCESS &&
-        raster.counts.logical_glyph_count == 4U && raster.counts.cluster_box_count == 0U && raster.counts.caret_stop_count == 0U &&
+        raster.counts.logical_glyph_count == expected_count && raster.counts.cluster_box_count == 0U && raster.counts.caret_stop_count == 0U &&
         source.source.box_count != 0U && source.source.caret_count != 0U &&
         (source.slice_count != 0U) == expected_slices && (source.first_logical_glyph != 0U) == suffix &&
         (raster.runs[0].bidi_level & 1) == (rtl ? 1 : 0));
@@ -155,7 +157,12 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
     if ((source.source.options.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) != 0U &&
         (source.source.line_count > 1U || source.first_logical_glyph != 0U)) {
         std::vector<progpu_native_text_shaping_glyph> prepared(source.prepared_glyphs, source.prepared_glyphs + source.prepared_count);
-        bad = source; bad.prepared_glyphs = prepared.data(); prepared[2U].flags |= 1U;
+        const auto boundary = source.first_logical_glyph != 0U ? source.first_logical_glyph : source.fitted_lines[1U].glyph_start;
+        const auto cluster = raster.logical_glyphs[boundary].cluster;
+        const auto edge = std::lower_bound(prepared.begin(), prepared.end(), cluster,
+            [](const auto& glyph, std::int32_t value) { return glyph.cluster < value; });
+        require(edge != prepared.end() && edge->cluster == cluster);
+        bad = source; bad.prepared_glyphs = prepared.data(); edge->flags |= 1U;
         reject(raster, bad); // Retained placement does not admit an unsafe GSUB cut.
     }
     {
@@ -189,21 +196,23 @@ std::shared_ptr<const hinted_paragraph_glyph_resource> verify_import(progpu_nati
 }
 #endif
 
-void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy, bool preserve_placement) {
-    const auto bytes = progpu::native::tests::make_hinted_pair_font();
+void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy, bool preserve_placement, bool marks = false) {
+    const auto bytes = progpu::native::tests::make_hinted_fixture_font(true, true, marks);
     context_owner context;
     require(progpu_native_text_context_create(PROGPU_NATIVE_ABI_VERSION,
         reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size(), 0U, nullptr, 0U, &context.value) == PROGPU_NATIVE_STATUS_SUCCESS);
-    std::array<progpu_native_text_scalar, 4U> input{};
+    const std::uint32_t count = marks ? 8U : 4U;
+    std::vector<progpu_native_text_scalar> input(count);
     for (std::uint32_t i = 0U; i < input.size(); ++i) input[i] = {rtl ? 0x05D0U : std::uint32_t{'A'}, 9U + i * 2U, 2U, 0U, 0U, 0U};
+    if (marks) { input[1U].code_point = 0x05B0U; input[7U].code_point = 0x05B0U; }
     const progpu_native_text_feature kern{0x6B65726EU, 1U, 0U, UINT32_MAX};
     progpu_native_text_shape_request shape{};
     shape.abi_version = PROGPU_NATIVE_ABI_VERSION; shape.struct_size = sizeof(shape);
-    shape.input = input.data(); shape.input_count = 4U; shape.features = &kern; shape.feature_count = 1U;
+    shape.input = input.data(); shape.input_count = count; shape.features = &kern; shape.feature_count = 1U;
     shape.direction = rtl ? PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT : PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT;
     progpu_native_text_layout_options layout{}; layout.struct_size = sizeof(layout); layout.scale = 1.0F;
     layout.maximum_width = 200.0F; layout.direction = shape.direction;
-    const progpu_native_text_style_run style{0U, 4U, 0U, 0.01325F, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+    const progpu_native_text_style_run style{0U, count, 0U, 0.01325F, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
     const progpu_native_text_style_metrics metrics{9.25F, 2.5F};
     const progpu_native_hinted_paragraph_device_style device{0U, style.scale, 1.0F / 1.5F,
         1280U, 1280U, interpreter, 0U, 0U, 0U, 0U, 0U};
@@ -220,26 +229,43 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy,
         &style, 1U, &metrics, &device, 1U, nullptr, 0U, &options, &source_style, 1U, &paragraph.value, &diagnostic);
 #if defined(PROGPU_NATIVE_FONT_HINTING)
     require(status == PROGPU_NATIVE_STATUS_SUCCESS);
-    const auto full = verify_import(paragraph.value, false, false, rtl);
+    const auto full = verify_import(paragraph.value, false, false, rtl, count);
     progpu_native_hinted_source_paragraph_view view{};
-    require(progpu_native_hinted_source_paragraph_borrow(paragraph.value, &view) == PROGPU_NATIVE_STATUS_SUCCESS && view.logical_count == 4U);
-    const double narrow = view.logical_metrics[0U].advance_x + view.logical_metrics[3U].advance_x;
+    require(progpu_native_hinted_source_paragraph_borrow(paragraph.value, &view) == PROGPU_NATIVE_STATUS_SUCCESS && view.logical_count == count);
+    double narrow = view.logical_metrics[0U].advance_x + view.logical_metrics[3U].advance_x;
+    if (marks) {
+        double first = 0.0, last = 0.0;
+        for (std::uint32_t i = 0U; i < count / 2U; ++i) {
+            first += view.logical_metrics[i].advance_x;
+            last += view.logical_metrics[count / 2U + i].advance_x;
+        }
+        narrow = std::max(first, last);
+        const auto retained = select_hinted_paragraph_generation(paragraph.value);
+        const auto& run = *retained->runs[0U].generation;
+        require(run.positioning == nullptr && run.boundary_glyphs.size() == count);
+        const auto saved = run.boundary_glyphs;
+        require(progpu_native_hinted_source_paragraph_get_intrinsic_widths(paragraph.value,
+            reinterpret_cast<progpu_native_hinted_source_intrinsic_widths*>(const_cast<shaping_glyph*>(run.boundary_glyphs.data()))) ==
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+            std::memcmp(saved.data(), run.boundary_glyphs.data(), saved.size() * sizeof(shaping_glyph)) == 0);
+    }
     paragraph_owner wrapped;
     require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 9, narrow, &wrapped.value) == PROGPU_NATIVE_STATUS_SUCCESS);
-    const auto fitted = verify_import(wrapped.value, !preserve_placement, false, rtl);
+    const auto fitted = verify_import(wrapped.value, !preserve_placement, false, rtl, count);
     require(fitted->imported_source_view()->source.line_count == 2U);
     if (preserve_placement) {
         const auto& kept = *fitted->imported_source_view();
         require(kept.source.options.flags == options.flags && kept.slice_count == 0U);
-        for (std::uint32_t i = 0U; i < 4U; ++i) {
+        for (std::uint32_t i = 0U; i < count; ++i) {
             require(kept.slice_indices[i] == UINT32_MAX &&
                 std::memcmp(&kept.raw_logical_glyphs[i], &kept.effective_logical_glyphs[i], sizeof(kept.raw_logical_glyphs[i])) == 0 &&
                 std::memcmp(&kept.source.logical_metrics[i], &view.logical_metrics[i], sizeof(view.logical_metrics[i])) == 0);
         }
     }
     paragraph_owner tail;
-    require(progpu_native_hinted_source_paragraph_reflow(wrapped.value, 13, narrow, &tail.value) == PROGPU_NATIVE_STATUS_SUCCESS);
-    const auto suffix = verify_import(tail.value, !preserve_placement, true, rtl);
+    require(progpu_native_hinted_source_paragraph_reflow(wrapped.value, static_cast<std::int32_t>(input[count / 2U].input_index),
+        narrow, &tail.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto suffix = verify_import(tail.value, !preserve_placement, true, rtl, count);
     const auto captured = *fitted->imported_source_view();
     const auto saved_metric = captured.source.glyph_metrics[0U];
     progpu_native_hinted_paragraph_destroy(tail.value); tail.value = nullptr;
@@ -252,8 +278,8 @@ void controls(std::uint32_t interpreter, bool rtl, std::uint32_t advance_policy,
         fitted->imported_source_view()->source.options.flags == options.flags &&
         suffix->imported_source_view()->source.options.flags == options.flags &&
         std::memcmp(&fitted->imported_source_view()->source.glyph_metrics[0U], &saved_metric, sizeof(saved_metric)) == 0 &&
-        fitted->binding_view().glyphs.size() == 4U && suffix->imported_source_view()->first_logical_glyph == 2U &&
-        suffix->binding_view().glyphs.size() == 2U);
+        fitted->binding_view().glyphs.size() == count && suffix->imported_source_view()->first_logical_glyph == count / 2U &&
+        suffix->binding_view().glyphs.size() == count / 2U);
 #else
     require(status == PROGPU_NATIVE_STATUS_UNSUPPORTED && paragraph.value == nullptr);
 #endif
@@ -264,6 +290,8 @@ int main() {
     try {
         for (const auto interpreter : {35U, 40U}) for (const bool rtl : {false, true})
             for (const auto policy : {0U, 1U, 2U}) for (const bool preserve : {false, true}) controls(interpreter, rtl, policy, preserve);
+        for (const auto interpreter : {35U, 40U}) for (const auto policy : {0U, 1U, 2U})
+            controls(interpreter, true, policy, true, true);
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
