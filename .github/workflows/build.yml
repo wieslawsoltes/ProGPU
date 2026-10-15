@@ -1390,6 +1390,18 @@ jobs:
         shell: bash
         run: ./tools/prepare-avalonia-12.1.1-source.sh
 
+      - name: Test package bitmap ownership on both providers
+        shell: bash
+        run: |
+          for major in 11 12; do
+            dotnet test tests/ProGPU.Avalonia.BitmapOwnershipTests/ProGPU.Avalonia.BitmapOwnershipTests.csproj \
+              --configuration Release \
+              --artifacts-path "artifacts/avalonia-bitmap-v${major}" \
+              -p:ProGpuAvaloniaMajorVersion="$major" \
+              --results-directory artifacts/avalonia-bitmap-results \
+              --logger "trx;LogFileName=avalonia-bitmap-v${major}.trx"
+          done
+
       - name: Build Dawn-compatible AvaloniaNative
         if: runner.os == 'macOS'
         shell: bash
@@ -1543,6 +1555,14 @@ jobs:
             ./tools/profile-avalonia-controlcatalog.sh \
               artifacts/avalonia-device-loss-recovery
           fi
+
+      - name: Upload package bitmap ownership results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: avalonia-bitmap-ownership-${{ runner.os }}
+          path: artifacts/avalonia-bitmap-results/*.trx
+          if-no-files-found: warn
 
       - name: Upload Linux native Dawn telemetry
         if: runner.os == 'Linux' && always()

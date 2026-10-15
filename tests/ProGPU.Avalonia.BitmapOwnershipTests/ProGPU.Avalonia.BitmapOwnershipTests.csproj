@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <AssemblyName>Avalonia.ProGpu.UnitTests</AssemblyName>
+    <ProGpuAvaloniaMajorVersion Condition="'$(ProGpuAvaloniaMajorVersion)' == ''">12</ProGpuAvaloniaMajorVersion>
+    <DefineConstants Condition="'$(ProGpuAvaloniaMajorVersion)' == '11'">$(DefineConstants);AVALONIA11</DefineConstants>
+    <AvaloniaAccessUnstablePrivateApis>true</AvaloniaAccessUnstablePrivateApis>
+    <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <ProjectReference Include="..\..\src\ProGPU.Backend.Dawn\ProGPU.Backend.Dawn.csproj" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.Rendering\ProGPU.Avalonia.Rendering.csproj"
+                      Condition="'$(ProGpuAvaloniaMajorVersion)' == '12'" />
+    <ProjectReference Include="..\..\src\ProGPU.Avalonia.Rendering.V11\ProGPU.Avalonia.Rendering.V11.csproj"
+                      Condition="'$(ProGpuAvaloniaMajorVersion)' == '11'" />
+  </ItemGroup>
+</Project>
