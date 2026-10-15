@@ -242,6 +242,8 @@ public unsafe class WgpuContext : IDisposable
     public readonly List<IntPtr> PendingShaderModules = new();
     public readonly List<IDisposable> PendingExternalTextureOwners =
         new();
+    private readonly List<RenderPipelineCache> _pendingPipelineCacheOwners = new();
+    private bool _closingPipelineCacheRetirement;
     private readonly HashSet<IntPtr> _pendingSnapshotSeen = new();
     private long _queueSubmissionCount;
     private long _drainedQueueSubmissionCount;
@@ -454,6 +456,17 @@ public unsafe class WgpuContext : IDisposable
         }
     }
 
+    internal void QueuePipelineCacheDisposal(RenderPipelineCache owner)
+    {
+        lock (DisposalLock)
+        {
+            // Once shutdown closes the drain, the device domain itself owns
+            // final release of its remaining cached native handles.
+            if (!_closingPipelineCacheRetirement && !_isDisposed)
+                _pendingPipelineCacheOwners.Add(owner);
+        }
+    }
+
     public void SetExternalTextureImporter(
         IProGpuExternalTextureImporter? importer)
     {
@@ -488,6 +501,32 @@ public unsafe class WgpuContext : IDisposable
         lock (RenderLock)
         {
             if (_isDisposed) return;
+
+            RenderPipelineCache[]? pipelineCacheOwners = null;
+            lock (DisposalLock)
+            {
+                if (_pendingPipelineCacheOwners.Count != 0)
+                {
+                    pipelineCacheOwners = _pendingPipelineCacheOwners.ToArray();
+                    _pendingPipelineCacheOwners.Clear();
+                }
+            }
+            // Release cache references before taking the native-handle snapshots,
+            // so this same drain also releases the handles they enqueue.
+            if (pipelineCacheOwners is not null)
+                for (int i = 0; i < pipelineCacheOwners.Length; i++)
+                {
+                    try { pipelineCacheOwners[i].Dispose(); }
+                    catch
+                    {
+                        // Keep the exact failed and unattempted owners available
+                        // to the next explicit drain, including a shutdown retry.
+                        lock (DisposalLock)
+                            for (int remaining = i; remaining < pipelineCacheOwners.Length; remaining++)
+                                _pendingPipelineCacheOwners.Add(pipelineCacheOwners[remaining]);
+                        throw;
+                    }
+                }
 
             PooledResourcePointerSnapshot buffers = default;
             PooledResourcePointerSnapshot textures = default;
@@ -2694,6 +2733,7 @@ public unsafe class WgpuContext : IDisposable
 
             Disposing?.Invoke(this);
 
+            lock (DisposalLock) _closingPipelineCacheRetirement = true;
             CleanupPendingResources();
 
             if (!IsDeviceLost)

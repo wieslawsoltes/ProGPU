@@ -510,6 +510,6 @@ public class Image : FrameworkElement
 
     ~Image()
     {
-        _loadedTexture?.Dispose();
+        _loadedTexture?.DisposeFromFinalizer();
     }
 }
