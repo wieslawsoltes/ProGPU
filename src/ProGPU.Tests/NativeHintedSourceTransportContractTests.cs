@@ -68,6 +68,24 @@ public sealed class NativeHintedSourceTransportContractTests
     }
 
     [Fact]
+    public void SoftWrapSpaceGeometryIsExplicitAndIndependentOfWholeRunPlacement()
+    {
+        foreach (bool whole in new[] { false, true })
+        foreach (bool measured in new[] { false, true })
+        {
+            var canonical = NativeHintedSourceOptions.Create(13.0, 1.5, 41.0, 16.0, 0.0,
+                NativeSourceEmPolicy.FloatCaptureNearestHalfUp, NativeSourceAdvancePolicy.SourceIdealUnits,
+                true, measured, NativeSourceOffsetPolicy.SourceIdealUnits, whole);
+            var source = NativeHintedSourceOptions.Create(13.0, 1.5, 41.0, 16.0, 0.0,
+                NativeSourceEmPolicy.FloatCaptureNearestHalfUp, NativeSourceAdvancePolicy.SourceIdealUnits,
+                true, measured, NativeSourceOffsetPolicy.SourceIdealUnits, whole, preserveSoftWrapSpaceGeometry: true);
+            Assert.Equal(canonical.Flags | 4U, source.Flags);
+            source.Flags = canonical.Flags;
+            Assert.Equal(canonical, source);
+        }
+    }
+
+    [Fact]
     public void RawSourceQueriesAndContinuationKeepDoubleInputs()
     {
         Assert.NotNull(typeof(NativeHintedSourceParagraph).GetMethod(nameof(NativeHintedSourceParagraph.HitTest), [typeof(double), typeof(double)]));

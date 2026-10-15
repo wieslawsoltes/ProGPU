@@ -1,4 +1,5 @@
 #include "progpu_native_text.hpp"
+#include "../progpu_native_text_layout_source_internal.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -34,7 +35,7 @@ bool try_prepare_visual_groups(
     std::span<text_visual_cluster_group> group_scratch,
     std::uint32_t& group_count,
     text_visual_order_requirements& requirements,
-    font_error* error) noexcept {
+    font_error* error, bool preserve_trailing_spaces = false) noexcept {
     group_count = 0U;
     if (!try_get_text_visual_order_requirements(
             logical_glyphs, bidi_levels, requirements, error) ||
@@ -65,7 +66,7 @@ bool try_prepare_visual_groups(
 
     // UAX #9 L1: reset trailing segment separators and whitespace to the
     // paragraph level before resolving the line's visual order.
-    for (std::size_t index = groups.size(); index > 0U; --index) {
+    for (std::size_t index = groups.size(); !preserve_trailing_spaces && index > 0U; --index) {
         auto& group = groups[index - 1U];
         const auto begin = logical_glyphs.begin() + group.glyph_start;
         const auto end = begin + group.glyph_count;
@@ -178,6 +179,19 @@ bool try_get_text_line_visual_indices(
     std::span<std::uint32_t> visual_indices,
     std::uint32_t& written,
     font_error* error) noexcept {
+    return try_get_source_text_line_visual_indices(logical_glyphs, bidi_levels, paragraph_level,
+        group_scratch, visual_indices, written, false, error);
+}
+
+bool try_get_source_text_line_visual_indices(
+    std::span<const shaping_glyph> logical_glyphs,
+    std::span<const std::int8_t> bidi_levels,
+    std::int8_t paragraph_level,
+    std::span<text_visual_cluster_group> group_scratch,
+    std::span<std::uint32_t> visual_indices,
+    std::uint32_t& written,
+    bool preserve_trailing_spaces,
+    font_error* error) noexcept {
     written = 0U;
     text_visual_order_requirements requirements{};
     std::uint32_t group_count = 0U;
@@ -188,7 +202,7 @@ bool try_get_text_line_visual_indices(
             group_scratch,
             group_count,
             requirements,
-            error)) {
+            error, preserve_trailing_spaces)) {
         return false;
     }
     if (visual_indices.size() < requirements.glyph_capacity) {

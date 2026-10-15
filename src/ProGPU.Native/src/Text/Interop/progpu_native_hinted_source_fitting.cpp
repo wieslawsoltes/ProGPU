@@ -160,6 +160,7 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
     if (!paragraph.has_source_geometry || count > UINT32_MAX || first_logical_glyph > count ||
         !std::isfinite(maximum_width) || maximum_width < 0.0 || maximum_width > std::numeric_limits<float>::max() ||
         paragraph.logical_owners.size() != count || paragraph.breaks_after.size() != count ||
+        (paragraph.source_preserve_soft_wrap_space_geometry && paragraph.logical_bidi_levels.size() != count) ||
         paragraph.source_styles.size() != paragraph.styles.size()) return result;
     try {
         auto fitted = std::make_shared<hinted_source_fitting>();
@@ -200,11 +201,30 @@ hinted_source_fitting_result fit_hinted_source_paragraph(const hinted_paragraph_
                 if (status != PROGPU_NATIVE_STATUS_SUCCESS) { result.status = status; return result; }
                 const bool legal = paragraph.breaks_after[end - 1U] != text_line_break_kind::prohibited;
                 const bool mandatory = paragraph.breaks_after[end - 1U] == text_line_break_kind::mandatory;
+                const auto space_begin = paragraph.source_preserve_soft_wrap_space_geometry ?
+                    source_soft_wrap_space_start(candidate.glyphs) : candidate.glyphs.size();
+                const bool opposed_soft_spaces = end < hard_end && space_begin != candidate.glyphs.size() &&
+                    (paragraph.logical_bidi_levels[end - 1U] & 1) != (paragraph.paragraph_level & 1);
+                // Original source lines include the first complete separator
+                // cluster even when its advance hangs beyond the width. Further
+                // spaces consume width and may form a partial soft-wrap tail.
+                const bool first_opposed_space = opposed_soft_spaces &&
+                    candidate.glyphs[space_begin].cluster == candidate.glyphs.back().cluster;
                 const bool fits = candidate.extent.fits(maximum_width, fitted->width_policy) ||
-                    (legal && is_text_layout_trailing_space(paragraph.logical_glyphs[end - 1U].code_point) &&
+                    ((first_opposed_space || (!opposed_soft_spaces && legal &&
+                        is_text_layout_trailing_space(paragraph.logical_glyphs[end - 1U].code_point))) &&
                         candidate.visible_extent.fits(maximum_width, fitted->width_policy));
                 if (!fits) {
-                    if (last_break.end > start) { selected = std::move(last_break); chosen = true; soft_break = true; }
+                    // An opposed soft-wrap space sequence occupies real input
+                    // advances. Preserve the last complete prepared cluster
+                    // that fits, including a partial sequence of spaces; an
+                    // earlier word boundary must not discard that fitted tail.
+                    const auto space_start = start + space_begin;
+                    if (opposed_soft_spaces && paragraph.source_allow_emergency_break &&
+                        last_fit.end > start && last_fit.end >= space_start) {
+                        selected = std::move(last_fit); chosen = true; soft_break = true;
+                    }
+                    else if (last_break.end > start) { selected = std::move(last_break); chosen = true; soft_break = true; }
                     else if (paragraph.source_allow_emergency_break) {
                         if (last_fit.end > start) selected = std::move(last_fit);
                         else {
