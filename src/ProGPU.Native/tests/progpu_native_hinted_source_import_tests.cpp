@@ -331,6 +331,17 @@ void soft_wrap_controls(std::uint32_t interpreter, bool hebrew) {
     require(status == PROGPU_NATIVE_STATUS_SUCCESS);
     const auto wide = verify_import(paragraph.value, false, false, hebrew, 9U);
     const auto& source = wide->imported_source_view()->source;
+    const double first_content = source.logical_metrics[0U].advance_x + source.logical_metrics[1U].advance_x;
+    const double first_extent = first_content + source.logical_metrics[2U].advance_x;
+    require(first_extent > first_content);
+    paragraph_owner hanging;
+    require(progpu_native_hinted_source_paragraph_reflow(paragraph.value, 0, first_content, &hanging.value) ==
+        PROGPU_NATIVE_STATUS_SUCCESS);
+    const auto hanging_resource = verify_import(hanging.value, false, false, hebrew, 9U, true);
+    const auto* hanging_owned = hanging_resource->imported_source_view();
+    require(hanging_owned->source.line_metrics[0U].glyph_count == 3U &&
+        hanging_owned->source.line_metrics[0U].width == first_content &&
+        hanging_owned->fitted_lines[0U].width == first_extent);
     double width = 0.0, content = 0.0;
     for (std::uint32_t i = 0U; i < 7U; ++i) {
         width += source.logical_metrics[i].advance_x;
@@ -347,7 +358,9 @@ void soft_wrap_controls(std::uint32_t interpreter, bool hebrew) {
     progpu_native_hinted_paragraph_destroy(paragraph.value); paragraph.value = nullptr;
     progpu_native_text_context_destroy(context.value); context.value = nullptr;
     require(owned->source.line_metrics[0U].width == content && owned->source.options.flags == options.flags &&
-        retained->binding_view().glyphs.size() == input.size());
+        retained->binding_view().glyphs.size() == input.size() &&
+        hanging_owned->source.line_metrics[0U].width == first_content &&
+        hanging_owned->fitted_lines[0U].width == first_extent);
 #else
     require(status == PROGPU_NATIVE_STATUS_UNSUPPORTED && paragraph.value == nullptr);
 #endif

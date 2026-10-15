@@ -1144,6 +1144,19 @@ void source_soft_wrap_fitting_controls() {
             progpu_native_text_paragraph_result diagnostic{};
             require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
                 wide, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS && wide->logical_glyphs.size() == 9U);
+            // Original Microsoft lines retain the first separator even when its
+            // advance exceeds the available width (for example TAR at width 25:
+            // content 24, separator 4). Later separators still require a fit.
+            const double first_content = wide->source_logical_metrics[0U].advance_x +
+                wide->source_logical_metrics[1U].advance_x;
+            const double first_extent = first_content + wide->source_logical_metrics[2U].advance_x;
+            require(first_extent > first_content);
+            const auto hanging = reflow_hinted_source_paragraph(*wide, wide->lines[0U].input_start, first_content);
+            require(hanging.status == PROGPU_NATIVE_STATUS_SUCCESS && hanging.generation->lines.size() >= 2U &&
+                hanging.generation->lines[0U].glyph_count == 3U && hanging.generation->lines[1U].glyph_count == 3U &&
+                hanging.generation->source_lines[0U].width == first_content &&
+                hanging.generation->source_fitting->lines[0U].width == first_extent &&
+                validate_hinted_source_fitting(*hanging.generation, *hanging.generation->source_fitting));
             double width = 0.0, content = 0.0;
             for (std::size_t i = 0U; i < 7U; ++i) {
                 width += wide->source_logical_metrics[i].advance_x;

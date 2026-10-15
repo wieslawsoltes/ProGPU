@@ -24,8 +24,12 @@ option. Its default is false, independent of whole-run positioning policy. A
 matching producer is required; older producers reject the new flag. Existing C
 record sizes, offsets, import versions and managed overloads stay unchanged.
 
-The source fitter counts opposed U+0020 advances when deciding whether a
-candidate fits. With emergency breaking enabled it may retain the last fitting
+The first complete opposed U+0020 separator cluster stays with fitting content
+even when its advance extends beyond the line width. For example, the original
+`TAR ` line has content width 24 and advances totaling 28 under a 25-DIP limit;
+`AB CD ` has content width 41 and advances totaling 45 under a 41-DIP limit.
+Further opposed spaces count toward fitting. With emergency breaking enabled
+the source fitter may retain the last fitting
 prepared cluster within that space sequence. It never clears unsafe flags,
 cuts a shaper cluster, reshapes a suffix or changes the source break inventory.
 The original full advance extent remains in the fitted partition, independently
@@ -103,6 +107,17 @@ skips. All six exact old/supplemental receipt parsers passed without loading a
 native module; the probe built with zero warnings/errors. Strict enabled and
 disabled hinting compilation and the complete generated-contract audit passed.
 These CPU unit results do not qualify a new native runtime package.
+
+Whole Build 38645948846 passed all 59 jobs at `89594077`. Its exact packages
+completed all 7,008 original comparisons, but the unchanged audit rejected
+856 previously matching line domains: counting the first hanging separator
+incorrectly moved it to the following line. Both original comparison bodies
+and all canonical-policy results remained unchanged. The failed qualification
+is retained. The additional first-separator CPU control fails on that original
+candidate and exercises the repair through creation, reflow and strict import;
+the existing partial-space controls remain intact. All seven CPU suites pass
+with ASan/UBSan after this repair. This correction still needs
+its own whole producer Build and all original comparisons before qualification.
 
 The whole successful exact producer Build must precede package staging and the
 unchanged old and supplemental corpus runs. Full source pixels, application

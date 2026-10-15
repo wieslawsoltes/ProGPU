@@ -12,7 +12,8 @@ remain separate gates.
 Explicit source soft-wrap space geometry retains complete original U+0020
 clusters in their resolved run and keeps opposed trailing advances outside the
 measured content frame. Fit partial space sequences only at proven prepared
-cluster boundaries under the existing emergency-break policy. Preserve full raw
+cluster boundaries under the existing emergency-break policy; retain the first
+complete separator with fitting content even when its advance overflows. Preserve full raw
 levels, glyphs, advances, owners, reflow leases and source import validation.
 Hard/final lines and generic L1/L2 stay canonical; other whitespace families,
 RTL GlyphRun frames, source caret arithmetic and ordinary Display admission keep
