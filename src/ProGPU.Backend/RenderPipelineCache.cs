@@ -662,7 +662,15 @@ public unsafe class RenderPipelineCache : IDisposable
 
     ~RenderPipelineCache()
     {
-        // Do not call Dispose() or native WebGPU release APIs during finalization.
+        // The live device may outlast this cache. Transfer its counted ownership
+        // to the existing context drain without taking RenderLock or calling GPU APIs.
+        try
+        {
+            if (!_isDisposed && (_shaders.Count != 0 ||
+                _renderPipelines.Count != 0 || _computePipelines.Count != 0))
+                _context.QueuePipelineCacheDisposal(this);
+        }
+        catch { }
     }
 
     private readonly record struct CachedShaderModule(

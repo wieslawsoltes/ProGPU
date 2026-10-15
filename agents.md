@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Abandoned managed pipeline caches transfer their actual counted owner to the
+context's existing retirement queue. Keep live shared shader/render/compute
+handles, exact cache keys, empty-cache behavior and shutdown admission intact;
+never release native handles or take RenderLock from the finalizer. The creating
+context drains owners before native handle snapshots. See
+docs/pipeline-cache-finalization.md; original Linux failure attribution is separate.
+
 Abandoned managed chart-series caches retire all four actual bind groups through
 their captured context and transfer their three owned buffers through existing
 atomic finalizer queues. Never infer a finalizer's device from Current or acquire
