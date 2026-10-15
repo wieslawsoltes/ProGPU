@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Abandoned managed chart-series caches retire all four actual bind groups through
+their captured context and transfer their three owned buffers through existing
+atomic finalizer queues. Never infer a finalizer's device from Current or acquire
+RenderLock. Keep explicit disposal, replacement-context retirement and source
+buffer/cache identity unchanged. See docs/chart-series-finalization.md; these
+ownership controls do not attribute the historical Linux collector deadline.
+
 Package Avalonia image-brush snapshots finalize their actual returned bitmap,
 not the weak-table cache entry. Retained snapshots outlive collected source keys;
 only abandoned snapshots use the existing atomic queue-only texture retirement.

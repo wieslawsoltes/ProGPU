@@ -1878,7 +1878,7 @@ jobs:
           if ($IsWindows) {
             $testArgs += @(
               "--filter",
-              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests"
+              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests"
             )
           } elseif ($IsMacOS) {
             # macOS 26's hosted Metal compiler rejects the historical contextual
