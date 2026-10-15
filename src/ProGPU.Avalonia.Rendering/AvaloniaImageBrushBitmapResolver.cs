@@ -51,18 +51,13 @@ internal static class ProGpuImageBrushSource
             }
         }
 
-        ~SnapshotOwner()
-        {
-            _snapshot?.Dispose();
-        }
-
         private static IProGpuBitmapSource Capture(Bitmap bitmap)
         {
 #if !AVALONIA11
             if (bitmap is WriteableBitmap writable)
             {
                 using ILockedFramebuffer framebuffer = writable.Lock();
-                return new ImmutableBitmap(
+                return new SnapshotBitmap(
                     framebuffer.Size,
                     framebuffer.Dpi,
                     framebuffer.RowBytes,
@@ -78,7 +73,29 @@ internal static class ProGpuImageBrushSource
             bitmap.Save(encoded, PngBitmapEncoderOptions.Default);
 #endif
             encoded.Position = 0;
-            return new ImmutableBitmap(encoded);
+            return new SnapshotBitmap(encoded);
+        }
+    }
+
+    // The returned snapshot can outlive its weak-table source. Finalization
+    // belongs to that actual bitmap, never to the cache entry that found it.
+    private sealed class SnapshotBitmap : ImmutableBitmap
+    {
+        public SnapshotBitmap(Stream stream) : base(stream) { }
+
+#if !AVALONIA11
+        public SnapshotBitmap(
+            PixelSize size, Vector dpi, int stride, PixelFormat format,
+            AlphaFormat alphaFormat, IntPtr data)
+            : base(size, dpi, stride, format, alphaFormat, data) { }
+#endif
+
+        ~SnapshotBitmap()
+        {
+            // This object is unreachable, so no bitmap operation can hold its
+            // private gate. Retire the owned texture without either bitmap or
+            // render locks; its atomic claim also handles child finalizer order.
+            Texture?.DisposeFromFinalizer();
         }
     }
 #endif

@@ -22,6 +22,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Avalonia.ProGpu.UnitTests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\ProGPU.Avalonia.Rendering\**\*.cs"
              Exclude="..\ProGPU.Avalonia.Rendering\bin\**;..\ProGPU.Avalonia.Rendering\obj\**"
              Link="Shared\%(RecursiveDir)%(Filename)%(Extension)" />

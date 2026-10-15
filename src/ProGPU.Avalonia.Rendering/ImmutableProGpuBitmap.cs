@@ -17,7 +17,7 @@ namespace Avalonia.ProGpu;
 /// Encoded inputs retain their compressed payload and generated inputs retain
 /// one decoded snapshot so the bitmap can migrate to a replacement device.
 /// </summary>
-internal sealed class ImmutableBitmap :
+internal class ImmutableBitmap :
     IProGpuBitmapSource,
     IPortableProGpuBitmapSource
 {
@@ -287,6 +287,7 @@ internal sealed class ImmutableBitmap :
             Texture = null;
             _encoded = null;
             _pendingPixels = null;
+            GC.SuppressFinalize(this);
         }
     }
 

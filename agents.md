@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Package Avalonia image-brush snapshots finalize their actual returned bitmap,
+not the weak-table cache entry. Retained snapshots outlive collected source keys;
+only abandoned snapshots use the existing atomic queue-only texture retirement.
+Explicit disposal and mutable-source replacement remain caller-owned. Preserve
+both Avalonia versions and providers, exact source-compositor borrowing and the
+original five-second controls. See docs/avalonia-snapshot-finalization.md;
+this does not attribute the historical Linux collector failure.
+
 Finalizable WinUI Image and wavefront owners use queue-only buffer/texture
 retirement, preserving borrowed sources and explicit caller-thread disposal.
 Retire a wavefront pipeline cache before the context's native-handle snapshot,
