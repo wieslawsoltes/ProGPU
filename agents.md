@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Finalizable WinUI Image and wavefront owners use queue-only buffer/texture
+retirement, preserving borrowed sources and explicit caller-thread disposal.
+Retire a wavefront pipeline cache before the context's native-handle snapshot,
+including its last shutdown pass; retain failed cache owners for retry. Preserve
+single atomic buffer release, actual device-domain reference counts and submission
+ownership. Paired lock-held controls keep the original five-second deadline;
+they do not attribute the historical Linux collector failure. See
+docs/owned-gpu-finalization.md.
+
 Explicit SourceIdealUnits paragraphs retain an integer line measure separately
 from draw advances. Share its exact original DPI policy through fitting,
 intrinsic widths, reflow, the measured writer and resource import. Floor original

@@ -20,6 +20,7 @@ public unsafe class GpuBuffer : IDisposable
     public BufferUsage Usage { get; private set; }
     
     private bool _isDisposed;
+    private int _disposeState;
 
     public GpuBuffer(WgpuContext context, uint size, BufferUsage usage, string label = "GpuBuffer")
     {
@@ -391,7 +392,8 @@ public unsafe class GpuBuffer : IDisposable
 
     public void Dispose()
     {
-        if (_isDisposed) return;
+        if (System.Threading.Interlocked.Exchange(ref _disposeState, 1) != 0) return;
+        _isDisposed = true;
 
         lock (_context.RenderLock)
         {
@@ -406,19 +408,30 @@ public unsafe class GpuBuffer : IDisposable
             }
         }
 
-        _isDisposed = true;
         GC.SuppressFinalize(this);
     }
 
-    ~GpuBuffer()
+    internal void DisposeFromFinalizer()
     {
-        if (BufferPtr != null)
+        FinalizeResources();
+        GC.SuppressFinalize(this);
+    }
+
+    private void FinalizeResources()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _disposeState, 1) != 0) return;
+        _isDisposed = true;
+        var buffer = (IntPtr)BufferPtr;
+        BufferPtr = null;
+        if (buffer != IntPtr.Zero)
         {
             try
             {
-                _context.QueueBufferDisposal((IntPtr)BufferPtr);
+                if (!_context.IsDisposed) _context.QueueBufferDisposal(buffer);
             }
             catch {}
         }
     }
+
+    ~GpuBuffer() => FinalizeResources();
 }

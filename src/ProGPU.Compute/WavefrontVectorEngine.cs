@@ -494,6 +494,7 @@ public unsafe class WavefrontVectorEngine : IDisposable
         _gridIndicesBuffer?.Dispose();
         _uniformsBuffer?.Dispose();
         _bgCopyTexture?.Dispose();
+        _pipelineCache.Dispose();
 
         _isDisposed = true;
         GC.SuppressFinalize(this);
@@ -501,6 +502,24 @@ public unsafe class WavefrontVectorEngine : IDisposable
 
     ~WavefrontVectorEngine()
     {
-        Dispose();
+        if (_isDisposed) return;
+        _isDisposed = true;
+
+        // Child owners may be independently retained or finalized in any order.
+        // Transfer each handle once without taking the rendering thread's lock.
+        _bvhBuffer?.DisposeFromFinalizer();
+        _rawCurvesBuffer?.DisposeFromFinalizer();
+        _linesBuffer?.DisposeFromFinalizer();
+        _instancesBuffer?.DisposeFromFinalizer();
+        _gridCellsBuffer?.DisposeFromFinalizer();
+        _gridIndicesBuffer?.DisposeFromFinalizer();
+        _uniformsBuffer?.DisposeFromFinalizer();
+        _bgCopyTexture?.DisposeFromFinalizer();
+        try
+        {
+            if (_pipelineCache is not null && !_context.IsDisposed)
+                _context.QueuePipelineCacheDisposal(_pipelineCache);
+        }
+        catch { }
     }
 }
