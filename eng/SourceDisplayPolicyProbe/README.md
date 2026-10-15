@@ -46,6 +46,21 @@ but not qualified, and source/glyph pixel/application parity remains separate.
 
 ## Invocation after qualification
 
+The separate schema-106 soft-wrap receipt from original reference commit
+`2cabe60e6a8324d9d1d1ad74171ce4cb68d26184`, successful run `38639376145`,
+retains 198 cases on each architecture. Its exact reviewed hashes are embedded in
+`SourceReferenceInput.SoftWrap.cs`; all old receipt validators remain unchanged.
+The input keeps original numeric metrics, draw frames, carets and selection.
+It observes U+0020, NBSP, en-space, combining marks, hard breaks, Latin and Hebrew
+in both paragraph directions. These independent domains are not interchangeable.
+
+An optional twelfth argument selects `canonical-spaces` (the unchanged default)
+or `preserve-soft-wrap-spaces`. It is independent of the eleventh
+`recompose-lines` / `preserve-whole-run` argument. The new option reaches the
+actual native source producer; all original comparisons, exact identity gates,
+both interpreters and the 60-second process bound remain unchanged. See the
+[bounded producer contract](../../docs/source-soft-wrap-spaces.md).
+
 First verify the whole exact native Build has succeeded, then stage that exact
 package by the existing provenance procedure. The executable records supplied
 source/Build metadata but does not independently qualify it. An individual green

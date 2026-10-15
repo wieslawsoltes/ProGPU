@@ -30,7 +30,7 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
         s.flags != 0U || s.reserved != 0U || o.abi_version != PROGPU_NATIVE_ABI_VERSION ||
         o.struct_size != sizeof(o) || o.version != 1U ||
         (o.flags & ~static_cast<std::uint32_t>(PROGPU_NATIVE_SOURCE_MEASURE_INTRINSIC_WIDTHS |
-            PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT)) != 0U ||
+            PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT | PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY)) != 0U ||
         ((o.flags & PROGPU_NATIVE_SOURCE_PRESERVE_WHOLE_RUN_PLACEMENT) != 0U && s.slice_count != 0U) ||
         o.em_policy > PROGPU_NATIVE_SOURCE_EM_FLOAT_CAPTURE_NEAREST_HALF_UP ||
         o.advance_policy > PROGPU_NATIVE_SOURCE_ADVANCE_IDEAL_UNITS || o.offset_policy > PROGPU_NATIVE_SOURCE_OFFSET_IDEAL_UNITS ||
@@ -240,7 +240,8 @@ bool valid_source_records(const progpu_native_hinted_glyph_resource_view& v,
         options, {0.0F, 0.0F, o.allow_emergency_break != 0U}, {groups, indices}, glyphs, lines, glyph_count, line_count,
         {levels, origins, {}}, {o.maximum_width, o.line_height,
             std::span<const text_source_glyph_metrics>{metrics}.subspan(s.first_logical_glyph),
-            std::span<const text_source_item_metrics>{items}.subspan(s.first_logical_glyph), source_glyphs, source_lines, fitted, width_policy}, &error) ||
+            std::span<const text_source_item_metrics>{items}.subspan(s.first_logical_glyph), source_glyphs, source_lines, fitted, width_policy,
+            (o.flags & PROGPU_NATIVE_SOURCE_PRESERVE_SOFT_WRAP_SPACE_GEOMETRY) != 0U}, &error) ||
         glyph_count != p.glyph_count || line_count != p.line_count) return false;
     std::vector<double> double_origins(line_count);
     for (std::uint32_t i = 0U; i < glyph_count; ++i) {

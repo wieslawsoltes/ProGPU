@@ -21,13 +21,25 @@ public partial struct NativeHintedSourceOptions
     public static unsafe NativeHintedSourceOptions Create(double emSize, double pixelsPerDip, double maximumWidth,
         double lineHeight, double tabOrigin, NativeSourceEmPolicy emPolicy, NativeSourceAdvancePolicy advancePolicy,
         bool allowEmergencyBreak, bool measureIntrinsicWidths, NativeSourceOffsetPolicy offsetPolicy,
-        bool preserveWholeRunPlacement) => new()
+        bool preserveWholeRunPlacement)
+        => Create(emSize, pixelsPerDip, maximumWidth, lineHeight, tabOrigin, emPolicy, advancePolicy,
+            allowEmergencyBreak, measureIntrinsicWidths, offsetPolicy, preserveWholeRunPlacement,
+            preserveSoftWrapSpaceGeometry: false);
+
+    /// <summary>Retains complete U+0020 clusters in their resolved run at soft wraps.
+    /// Opposed runs fit the spaces and hang them outside the content frame.
+    /// Hard/final lines and ordinary source defaults remain canonical.</summary>
+    public static unsafe NativeHintedSourceOptions Create(double emSize, double pixelsPerDip, double maximumWidth,
+        double lineHeight, double tabOrigin, NativeSourceEmPolicy emPolicy, NativeSourceAdvancePolicy advancePolicy,
+        bool allowEmergencyBreak, bool measureIntrinsicWidths, NativeSourceOffsetPolicy offsetPolicy,
+        bool preserveWholeRunPlacement, bool preserveSoftWrapSpaceGeometry) => new()
         {
             AbiVersion = NativeMethods.AbiVersion, StructSize = (uint)sizeof(NativeHintedSourceOptions), Version = 1,
             EmSize = emSize, PixelsPerDip = pixelsPerDip, MaximumWidth = maximumWidth, LineHeight = lineHeight,
             TabOrigin = tabOrigin, EmPolicy = (uint)emPolicy, AdvancePolicy = (uint)advancePolicy,
             AllowEmergencyBreak = allowEmergencyBreak ? 1U : 0U,
-            Flags = (measureIntrinsicWidths ? 1U : 0U) | (preserveWholeRunPlacement ? 2U : 0U),
+            Flags = (measureIntrinsicWidths ? 1U : 0U) | (preserveWholeRunPlacement ? 2U : 0U) |
+                (preserveSoftWrapSpaceGeometry ? 4U : 0U),
             OffsetPolicy = (uint)offsetPolicy,
         };
 }
@@ -55,7 +67,7 @@ public sealed unsafe class NativeHintedSourceParagraph : IDisposable
         NativeTextParagraphResult diagnostic = default;
         NativeHintedParagraph.ThrowForStatus(NativeMethods.GetHintedParagraphCounts(handle, &counts, &diagnostic), "source paragraph counts");
         if (view.Options.AbiVersion != NativeMethods.AbiVersion || view.Options.StructSize != sizeof(NativeHintedSourceOptions) ||
-            view.Options.Version != 1 || (view.Options.Flags & ~3U) != 0 || view.Options.OffsetPolicy > 1 ||
+            view.Options.Version != 1 || (view.Options.Flags & ~7U) != 0 || view.Options.OffsetPolicy > 1 ||
             view.Options.EmPolicy > 3 || view.Options.AdvancePolicy > 2 ||
             view.StyleCount != counts.StyleCount || view.LogicalCount != counts.LogicalGlyphCount ||
             view.GlyphCount != counts.PositionedGlyphCount || view.LineCount != counts.LineCount ||

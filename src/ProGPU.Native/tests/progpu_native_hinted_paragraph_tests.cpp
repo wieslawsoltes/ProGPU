@@ -1042,6 +1042,153 @@ void original_pair_boundary_controls() {
     }
 }
 
+void source_soft_wrap_writer_controls() {
+    // Original independent AB/CD observations: the opposed first run retains
+    // its space, but public content width is 18 rather than the 22 advance sum.
+    // The last row is a separate hard/final contract and still includes space.
+    const std::array<std::uint32_t, 6U> code_points{'A', 'B', ' ', 'C', 'D', ' '};
+    std::array<shaping_glyph, 6U> glyphs{};
+    for (std::size_t i = 0U; i < glyphs.size(); ++i) {
+        glyphs[i].glyph_id = static_cast<std::uint32_t>(i + 1U);
+        glyphs[i].code_point = code_points[i]; glyphs[i].cluster = static_cast<std::int32_t>(i);
+    }
+    const std::array<text_source_glyph_metrics, 6U> metrics{{{9.0}, {9.0}, {4.0}, {10.0}, {9.0}, {4.0}}};
+    std::array<text_source_item_metrics, 6U> items{}; items.fill({13.0, 3.0});
+    const std::array<text_source_fitted_line, 2U> fitted{{{0U, 3U, 22.0, false}, {3U, 3U, 23.0, false}}};
+    for (const auto paragraph : {std::int8_t{0}, std::int8_t{1}}) {
+        for (const bool opposed : {false, true}) {
+            const auto run_level = static_cast<std::int8_t>(opposed ? paragraph + 1 : paragraph);
+            std::array<std::int8_t, 6U> levels{}; levels.fill(run_level); levels.back() = paragraph;
+            for (const bool hard : {false, true}) {
+                for (const bool preserve : {false, true}) {
+                    std::array<text_line_break_kind, 6U> breaks{};
+                    breaks[2U] = hard ? text_line_break_kind::mandatory : text_line_break_kind::opportunity;
+                    std::array<positioned_text_glyph, 6U> positioned{};
+                    std::array<positioned_text_line, 2U> lines{};
+                    std::array<text_source_glyph_position, 6U> precise{};
+                    std::array<text_source_line_metrics, 2U> line_metrics{};
+                    std::array<text_visual_cluster_group, 6U> groups{};
+                    std::array<std::uint32_t, 6U> indices{};
+                    std::array<std::int8_t, 6U> used_levels{};
+                    std::array<float, 2U> origins{};
+                    text_layout_options options{}; options.scale = 1.0F; options.maximum_width = 25.0F;
+                    std::uint32_t glyph_count{}, line_count{};
+                    require(try_layout_source_measured_logical_shaped_text_retained(glyphs, breaks, levels, {}, paragraph,
+                        options, {}, {groups, indices}, positioned, lines, glyph_count, line_count,
+                        {used_levels, origins, {}}, {25.0, 0.0, metrics, items, precise, line_metrics, fitted, {}, preserve}));
+                    const bool hanging = preserve && opposed && !hard;
+                    require(glyph_count == 6U && line_count == 2U && line_metrics[0U].width == (hanging ? 18.0 : 22.0) &&
+                        line_metrics[0U].origin_x == 0.0 && origins[0U] == 0.0F && line_metrics[1U].width == 23.0 &&
+                        line_metrics[1U].top == 16.0 && line_metrics[1U].baseline_y == 29.0);
+                    const auto find = [&](std::int32_t cluster) {
+                        return static_cast<std::size_t>(std::find_if(precise.begin(), precise.end(),
+                            [cluster](const auto& g) { return g.cluster == cluster; }) - precise.begin());
+                    };
+                    const auto tail = find(2), final_tail = find(5);
+                    require(tail < 3U && final_tail >= 3U && final_tail < 6U && precise[tail].advance_x == 4.0 &&
+                        used_levels[tail] == (preserve && !hard ? run_level : paragraph) && used_levels[final_tail] == paragraph);
+                    if (hanging) {
+                        require(precise[tail].x == (paragraph == 0 ? -4.0 : 18.0));
+                        require(precise[find(0)].x == (paragraph == 0 ? 9.0 : 0.0) &&
+                            precise[find(1)].x == (paragraph == 0 ? 0.0 : 9.0));
+                    }
+                    for (std::size_t i = 0U; i < precise.size(); ++i)
+                        require(positioned[i].x == static_cast<float>(precise[i].x) &&
+                            positioned[i].advance_x == static_cast<float>(precise[i].advance_x));
+                    if (hanging && paragraph == 0) {
+                        auto mixed = glyphs; mixed[1U].code_point = ' ';
+                        auto mixed_levels = levels; mixed_levels[1U] = 3;
+                        require(!try_layout_source_measured_logical_shaped_text_retained(mixed, breaks, mixed_levels, {}, paragraph,
+                            options, {}, {groups, indices}, positioned, lines, glyph_count, line_count,
+                            {used_levels, origins, {}}, {25.0, 0.0, metrics, items, precise, line_metrics, fitted, {}, true}) &&
+                            glyph_count == 0U && line_count == 0U); // Equal parity is not one original run.
+                        auto negative = metrics; negative[2U].advance_x = -4.0;
+                        auto negative_fit = fitted; negative_fit[0U].width = 14.0;
+                        require(!try_layout_source_measured_logical_shaped_text_retained(glyphs, breaks, levels, {}, paragraph,
+                            options, {}, {groups, indices}, positioned, lines, glyph_count, line_count,
+                            {used_levels, origins, {}}, {25.0, 0.0, negative, items, precise, line_metrics, negative_fit, {}, true}) &&
+                            glyph_count == 0U && line_count == 0U);
+                    }
+                }
+            }
+        }
+    }
+    require(source_soft_wrap_space_start(glyphs) == 5U);
+    auto mixed_cluster = glyphs; mixed_cluster[5U].cluster = mixed_cluster[4U].cluster;
+    require(source_soft_wrap_space_start(mixed_cluster) == mixed_cluster.size());
+    auto other_space = glyphs; other_space.back().code_point = 0xA0U;
+    require(source_soft_wrap_space_start(other_space) == other_space.size());
+    other_space.back().code_point = 0x2002U;
+    require(source_soft_wrap_space_start(other_space) == other_space.size());
+}
+
+void source_soft_wrap_fitting_controls() {
+    for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
+        for (const bool hebrew : {false, true}) {
+            fixture font(true);
+            const std::uint32_t letter = hebrew ? 0x05D0U : std::uint32_t{'A'};
+            const std::array<std::uint32_t, 9U> values{letter, letter, ' ', letter, letter, ' ', ' ', ' ', letter};
+            const auto input = scalars(values);
+            auto shaping = shape_request(input);
+            shaping.direction = hebrew ? PROGPU_NATIVE_TEXT_DIRECTION_LEFT_TO_RIGHT : PROGPU_NATIVE_TEXT_DIRECTION_RIGHT_TO_LEFT;
+            auto layout = layout_options(); layout.direction = shaping.direction;
+            const std::array styles{progpu_native_text_style_run{0U, 9U, 0U, 0.013F, 0U, 0U, 0U, 0U, 0U, 0U, 0U}};
+            const std::array metrics{progpu_native_text_style_metrics{10.0F, 3.0F}};
+            const std::array source_metrics{text_source_item_metrics{10.0, 3.0}};
+            const std::array source{hinted_source_style{13.0, 1.0, hinted_source_em_policy::exact_26_6,
+                hinted_source_advance_policy::unchanged, hinted_source_offset_policy::unchanged}};
+            const std::array configurations{hinted_paragraph_style_configuration{0U, styles[0].scale,
+                {832U, 832U, interpreter, 0U, 0U, {}}, 1.0F}};
+            hinted_source_paragraph_layout source_layout{200.0, 0.0, source_metrics, true, true, true, true};
+            std::shared_ptr<const hinted_paragraph_generation> wide;
+            progpu_native_text_paragraph_result diagnostic{};
+            require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+                wide, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS && wide->logical_glyphs.size() == 9U);
+            // Original Microsoft lines retain the first separator even when its
+            // advance exceeds the available width (for example TAR at width 25:
+            // content 24, separator 4). Later separators still require a fit.
+            const double first_content = wide->source_logical_metrics[0U].advance_x +
+                wide->source_logical_metrics[1U].advance_x;
+            const double first_extent = first_content + wide->source_logical_metrics[2U].advance_x;
+            require(first_extent > first_content);
+            const auto hanging = reflow_hinted_source_paragraph(*wide, wide->lines[0U].input_start, first_content);
+            require(hanging.status == PROGPU_NATIVE_STATUS_SUCCESS && hanging.generation->lines.size() >= 2U &&
+                hanging.generation->lines[0U].glyph_count == 3U && hanging.generation->lines[1U].glyph_count == 3U &&
+                hanging.generation->source_lines[0U].width == first_content &&
+                hanging.generation->source_fitting->lines[0U].width == first_extent &&
+                validate_hinted_source_fitting(*hanging.generation, *hanging.generation->source_fitting));
+            double width = 0.0, content = 0.0;
+            for (std::size_t i = 0U; i < 7U; ++i) {
+                width += wide->source_logical_metrics[i].advance_x;
+                if (i < 5U) content += wide->source_logical_metrics[i].advance_x;
+            }
+            require(wide->source_logical_metrics[7U].advance_x > 0.0);
+            source_layout.maximum_width = width;
+            layout.maximum_width = static_cast<float>(width);
+            std::shared_ptr<const hinted_paragraph_generation> narrow, canonical;
+            require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+                narrow, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS);
+            require(narrow->lines.size() == 2U && narrow->lines[0U].glyph_count == 7U &&
+                narrow->source_lines[0U].width == content && narrow->source_fitting->lines[0U].width == width &&
+                narrow->source_preserve_soft_wrap_space_geometry && validate_hinted_source_fitting(*narrow, *narrow->source_fitting));
+            source_layout.preserve_soft_wrap_space_geometry = false;
+            require(try_layout_context_hinted_paragraph(font.context.value, shaping, layout, styles, metrics, configurations,
+                canonical, diagnostic, source, &source_layout) == PROGPU_NATIVE_STATUS_SUCCESS && canonical->lines[0U].glyph_count == 8U);
+            progpu_native_text_context_destroy(font.context.value); font.context.value = nullptr;
+            const auto reflow = reflow_hinted_source_paragraph(*wide, wide->lines[0U].input_start, width);
+            require(reflow.status == PROGPU_NATIVE_STATUS_SUCCESS && reflow.generation->source_preserve_soft_wrap_space_geometry &&
+                reflow.generation->lines[0U].glyph_count == 7U && reflow.generation->source_lines[0U].width == content &&
+                reflow.generation->runs[0U].generation == wide->runs[0U].generation);
+            for (std::size_t i = 0U; i < wide->logical_glyphs.size(); ++i)
+                require(equal_glyph(reflow.generation->logical_glyphs[i], wide->logical_glyphs[i]) &&
+                    reflow.generation->logical_owners[i] == wide->logical_owners[i]);
+            require(create_hinted_paragraph_interaction(reflow.generation).status == PROGPU_NATIVE_STATUS_SUCCESS &&
+                create_hinted_paragraph_glyph_resource(reflow.generation, 1.0F, hinted_projection_policy::scalar_reference,
+                    hinted_outline_coverage::nonzero_vector).status == PROGPU_NATIVE_STATUS_SUCCESS);
+        }
+    }
+}
+
 void original_source_line_width_controls() {
     for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
         fixture font(true);
@@ -1380,6 +1527,7 @@ int main() {
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         actual_paragraph_controls(); original_source_policy_controls(); original_pair_boundary_controls();
         original_source_line_width_controls();
+        source_soft_wrap_writer_controls(); source_soft_wrap_fitting_controls();
         original_mark_boundary_controls(); l1_and_rtl_origin_controls();
         mutation_and_retirement_controls(); atomic_failure_and_alias_controls();
 #else

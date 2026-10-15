@@ -68,9 +68,22 @@ struct text_source_layout final {
     std::span<text_source_line_metrics> line_metrics{};
     std::span<const text_source_fitted_line> fitted_lines{};
     text_source_width_policy width_policy{};
+    bool preserve_soft_wrap_space_geometry = false;
 };
 
 bool is_text_layout_trailing_space(std::uint32_t code_point) noexcept;
+
+// Complete original U+0020 cluster suffix only. Other space families keep
+// their independent contracts; this never trims or rewrites the source.
+std::size_t source_soft_wrap_space_start(std::span<const shaping_glyph> glyphs) noexcept;
+
+// Same original cluster ordering and L2 writer as the generic route. Only the
+// explicit source soft-wrap caller may retain its resolved trailing run.
+bool try_get_source_text_line_visual_indices(
+    std::span<const shaping_glyph> logical_glyphs, std::span<const std::int8_t> bidi_levels,
+    std::int8_t paragraph_level, std::span<text_visual_cluster_group> group_scratch,
+    std::span<std::uint32_t> visual_indices, std::uint32_t& written,
+    bool preserve_trailing_spaces, font_error* error = nullptr) noexcept;
 
 // First admitted lane is ordinary horizontal, non-justified and untrimmed, with
 // no tabs/objects. The caller must retain all input and output from this writer

@@ -487,6 +487,18 @@ bool source_layout_requirements(std::span<const shaping_glyph> glyphs,
 
 bool is_text_layout_trailing_space(std::uint32_t code_point) noexcept { return trailing_space(code_point); }
 
+std::size_t source_soft_wrap_space_start(std::span<const shaping_glyph> glyphs) noexcept {
+    std::size_t end = glyphs.size();
+    while (end != 0U) {
+        std::size_t start = end - 1U;
+        while (start != 0U && glyphs[start - 1U].cluster == glyphs[end - 1U].cluster) --start;
+        if (!std::all_of(glyphs.begin() + start, glyphs.begin() + end,
+                [](const auto& glyph) { return glyph.code_point == 0x20U; })) break;
+        end = start;
+    }
+    return end;
+}
+
 bool try_measure_text_intrinsic_widths(std::span<const unicode_scalar> input,
     std::span<const shaping_glyph> glyphs, std::span<const text_line_break_kind> breaks_after,
     std::span<const float> scales, const text_layout_options& options,
@@ -1172,14 +1184,53 @@ static bool layout_measured_core(
             input_start_index, visible.end - input_start_index);
         const auto line_levels = bidi_levels.subspan(
             input_start_index, visible.end - input_start_index);
+        bool preserve_soft_spaces = false;
+        Number source_content_width = visible.content_width;
+        Number source_leading_space = Number{0};
+        if constexpr (std::is_same_v<Number, double>) {
+            if (source->preserve_soft_wrap_space_geometry && line.end < logical_glyphs.size() &&
+                breaks_after[line.end - 1U] != text_line_break_kind::mandatory) {
+                const auto tail = source_soft_wrap_space_start(line_logical);
+                preserve_soft_spaces = tail != line_logical.size();
+                if (preserve_soft_spaces) {
+                    const auto level = line_levels[tail];
+                    if (!std::all_of(line_levels.begin() + tail, line_levels.end(),
+                            [level](auto value) { return value == level; })) {
+                        glyph_count = 0U; line_count = 0U;
+                        set_error(error, font_error::invalid_argument);
+                        return false;
+                    }
+                    if ((level & 1) != (paragraph_level & 1)) {
+                        text_source_width_accumulator content{}, spaces{};
+                        for (std::size_t i = 0U; i < line_logical.size(); ++i) {
+                            const double advance = source->logical_metrics[input_start_index + i].advance_x;
+                            if ((i >= tail && advance < 0.0) ||
+                                !(i < tail ? content : spaces).append(advance, source->width_policy)) {
+                                glyph_count = 0U; line_count = 0U;
+                                set_error(error, font_error::invalid_argument);
+                                return false;
+                            }
+                        }
+                        if (content.width < 0.0 || spaces.width < 0.0) {
+                            glyph_count = 0U; line_count = 0U;
+                            set_error(error, font_error::invalid_argument);
+                            return false;
+                        }
+                        source_content_width = content.width;
+                        if ((level & 1) != 0) source_leading_space = spaces.width;
+                    }
+                }
+            }
+        }
         std::uint32_t visual_count = 0U;
-        if (!try_get_text_line_visual_indices(
+        if (!try_get_source_text_line_visual_indices(
                 line_logical,
                 line_levels,
                 paragraph_level,
                 scratch.visual_groups,
                 scratch.visual_indices,
                 visual_count,
+                preserve_soft_spaces,
                 error)) {
             glyph_count = 0U;
             line_count = 0U;
@@ -1244,6 +1295,10 @@ static bool layout_measured_core(
         Number cursor_x = leading_sign ? sign_width :
             expansion > Number{0} && (paragraph_level & 1) != 0 ? -trailing_width : Number{0};
         const Number initial_cursor_x = cursor_x;
+        // The content origin stays at the original line start. An opposed RTL
+        // soft-wrap suffix occupies the interval before that content origin;
+        // original advances, source identities and interaction boxes survive.
+        cursor_x -= source_leading_space;
         Number cursor_y = baseline;
         Number distributed = Number{0};
         std::size_t remaining_opportunities = opportunities;
@@ -1282,7 +1337,8 @@ static bool layout_measured_core(
             }
             if (retained != nullptr) {
                 // The existing producer left these groups in the exact L2
-                // order used by visual_indices, with L1 already applied.
+                // order used by visual_indices, after the selected canonical
+                // L1 or explicit source soft-wrap tail policy.
                 // Advance once at a group boundary inside the original emit
                 // loop; no independent reorder or bidi reconstruction.
                 if (visual_index == retained_group_end) {
@@ -1320,7 +1376,7 @@ static bool layout_measured_core(
                 0.0F};
         }
 
-        const Number output_width = visible.content_width + expansion + (should_trim
+        const Number output_width = source_content_width + expansion + (should_trim
             ? options.ellipsis_advance * options.scale
             : 0.0F);
         const Number alignment_shift = maximum_width <= output_width ? Number{0} :

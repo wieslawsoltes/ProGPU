@@ -55,6 +55,7 @@ struct hinted_source_paragraph_layout final {
     bool allow_emergency_break = true;
     bool measure_intrinsic_widths = false;
     bool preserve_whole_run_placement = false;
+    bool preserve_soft_wrap_space_geometry = false;
 };
 
 // Original paragraph producer metadata, retained at its actual production sites.
@@ -89,6 +90,7 @@ struct hinted_paragraph_generation final {
     std::vector<hinted_source_style> source_styles{};
     bool has_source_geometry = false, source_allow_emergency_break = true;
     bool source_preserve_whole_run_placement = false;
+    bool source_preserve_soft_wrap_space_geometry = false;
     double source_maximum_width = 0.0, source_line_height = 0.0;
     bool has_source_intrinsic_widths = false;
     double source_minimum_intrinsic_width = 0.0, source_maximum_intrinsic_width = 0.0;
@@ -116,9 +118,9 @@ struct hinted_paragraph_generation final {
     std::vector<positioned_text_glyph> glyphs{}; // Original logical glyph_index.
     std::vector<positioned_text_line> lines{}; // Original writer fields unchanged.
     std::vector<hinted_paragraph_glyph_owner> positioned_owners{};
-    std::vector<std::int8_t> bidi_levels{}; // Actual writer L1/L2-used levels.
+    std::vector<std::int8_t> bidi_levels{}; // Actual selected writer's full levels.
     std::vector<std::int32_t> cluster_ends{};
-    std::vector<float> line_origins{}; // Literal writer pen + alignment, never ink X.
+    std::vector<float> line_origins{}; // Writer content origin + alignment, never ink X.
     std::vector<text_layout_line_frame> line_frames{}; // Actual writer double top and source ascent.
     text_layout_metrics metrics{};
     progpu_native_text_paragraph_result paragraph_result{};

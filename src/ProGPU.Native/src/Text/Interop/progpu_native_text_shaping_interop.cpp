@@ -3654,7 +3654,8 @@ static progpu_native_status paragraph_layout_core(
                 {hinted->generation->source_maximum_width, hinted->generation->source_line_height,
                     hinted->generation->source_logical_metrics, hinted->generation->source_item_metrics,
                     hinted->generation->source_glyphs, hinted->generation->source_lines,
-                    hinted->generation->source_fitting->lines, hinted->generation->source_fitting->width_policy}, &font_result)
+                    hinted->generation->source_fitting->lines, hinted->generation->source_fitting->width_policy,
+                    hinted->generation->source_preserve_soft_wrap_space_geometry}, &font_result)
             : hinted != nullptr
             ? try_layout_measured_logical_shaped_text_retained(logical, glyph_breaks.first(logical_count),
                 glyph_levels.first(logical_count), glyph_scales.first(logical_count), paragraph_level,
@@ -4430,6 +4431,7 @@ progpu_native_status try_layout_context_hinted_paragraph(
             candidate->source_line_height = source_layout->line_height;
             candidate->source_allow_emergency_break = source_layout->allow_emergency_break;
             candidate->source_preserve_whole_run_placement = source_layout->preserve_whole_run_placement;
+            candidate->source_preserve_soft_wrap_space_geometry = source_layout->preserve_soft_wrap_space_geometry;
             candidate->has_source_intrinsic_widths = source_layout->measure_intrinsic_widths;
             candidate->source_style_metrics.assign(source_layout->style_metrics.begin(), source_layout->style_metrics.end());
         }
@@ -4529,6 +4531,7 @@ static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
         candidate->has_source_geometry = source.has_source_geometry;
         candidate->source_allow_emergency_break = source.source_allow_emergency_break;
         candidate->source_preserve_whole_run_placement = source.source_preserve_whole_run_placement;
+        candidate->source_preserve_soft_wrap_space_geometry = source.source_preserve_soft_wrap_space_geometry;
         candidate->source_maximum_width = source_geometry ? maximum_width : source.source_maximum_width;
         candidate->source_line_height = source.source_line_height;
         candidate->has_source_intrinsic_widths = source.has_source_intrinsic_widths;
@@ -4593,7 +4596,7 @@ static hinted_paragraph_reflow_result reflow_hinted_paragraph_core(
                     std::span(candidate->source_logical_metrics).subspan(start),
                     std::span(candidate->source_item_metrics).subspan(start),
                     candidate->source_glyphs, candidate->source_lines, candidate->source_fitting->lines,
-                    candidate->source_fitting->width_policy}, &error)
+                    candidate->source_fitting->width_policy, candidate->source_preserve_soft_wrap_space_geometry}, &error)
             : try_layout_measured_logical_shaped_text_retained(logical, breaks,
                 std::span(candidate->logical_bidi_levels).subspan(start), scales, candidate->paragraph_level,
                 options, {}, {}, {groups, indices}, candidate->glyphs, candidate->lines, glyph_count, line_count,
