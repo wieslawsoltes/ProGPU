@@ -140,7 +140,19 @@ namespace ProGPU.Backend
 
         ~GpuSeriesBuffer()
         {
-            // Safely clean up in finalizer if not explicitly disposed
+            if (_isDisposed) return;
+            _isDisposed = true;
+
+            // The cache may disappear while its device and child buffers remain
+            // live. Use its actual owner, never the finalizer thread's Current.
+            try
+            {
+                if (_context is not null) ReleaseBindGroups(_context);
+            }
+            catch { }
+            VsUniformBuffer?.DisposeFromFinalizer();
+            FsUniformBuffer?.DisposeFromFinalizer();
+            Buffer?.DisposeFromFinalizer();
         }
     }
 }
