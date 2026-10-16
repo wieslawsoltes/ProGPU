@@ -318,6 +318,17 @@ internal sealed partial class Win32NativeWindowPlatform :
 
     private nint WindowProcedure(nint hwnd, uint message, nint wParam, nint lParam)
     {
+        NativeMouseButtonPacket? previous = _currentMouseButtonPacket;
+        // Cover all nested messages, including touch and chrome callbacks that
+        // return before ordinary GLFW forwarding. They cannot borrow this packet.
+        _currentMouseButtonPacket = hwnd == _hwnd &&
+            TryReadMouseButtonPacket(message, wParam, lParam, out var packet) ? packet : null;
+        try { return DispatchWindowMessage(hwnd, message, wParam, lParam); }
+        finally { _currentMouseButtonPacket = previous; }
+    }
+
+    private nint DispatchWindowMessage(nint hwnd, uint message, nint wParam, nint lParam)
+    {
         if (message == WmEnterSizeMove)
             _isInteractiveMoveResize = true;
         else if (message == WmExitSizeMove)

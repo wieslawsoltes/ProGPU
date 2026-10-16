@@ -15,6 +15,7 @@ internal interface INativeWindowPlatform : IDisposable
     bool SupportsSystemChromeExtension { get; }
     bool IsInteractiveMoveResize { get; }
     bool IsProcessingPromotedTouchMouse { get; }
+    NativeMouseButtonPacket? CurrentMouseButtonPacket { get; }
     Action<NativeTouchEvent>? TouchHandler { get; set; }
 
     bool TryGetGeometrySnapshot(out NativeWindowGeometrySnapshot snapshot);

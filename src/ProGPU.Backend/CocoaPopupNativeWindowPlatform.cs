@@ -18,6 +18,7 @@ internal sealed class CocoaPopupNativeWindowPlatform(CocoaPopupWindow window) : 
     public bool SupportsSystemChromeExtension => false;
     public bool IsInteractiveMoveResize => false;
     public bool IsProcessingPromotedTouchMouse => false;
+    public NativeMouseButtonPacket? CurrentMouseButtonPacket => null;
     public Action<NativeTouchEvent>? TouchHandler { get; set; }
     public bool TryGetGeometrySnapshot(out NativeWindowGeometrySnapshot snapshot) => window.TryGetGeometry(out snapshot);
     public bool ApplyChrome(in NativeWindowState state) =>

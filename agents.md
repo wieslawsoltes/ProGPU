@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Original Win32 client button packets retain their signed message coordinates
+through the existing owned window procedure, scoped to the synchronous matching
+callback. Preserve phase/button identity, same-window creating-thread lifetime,
+nested non-button unavailability and finally restoration. Never replace them with
+last movement or a later global cursor sample. Other providers and scroll keep
+their separate contracts; full producer/source application qualification remains
+required. See docs/native-mouse-button-packets.md.
+
 Abandoned managed pipeline caches transfer their actual counted owner to the
 context's existing retirement queue. Keep live shared shader/render/compute
 handles, exact cache keys, empty-cache behavior and shutdown admission intact;

@@ -54,6 +54,25 @@ public sealed class SilkWindowController : IDisposable
         _platform?.IsProcessingPromotedTouchMouse ?? false;
 
     /// <summary>
+    /// Borrows the original client button-message position during its synchronous
+    /// callback on this live controller's creating thread. Currently provided by
+    /// Win32. Outside that scope, after retirement, and on unsupported providers
+    /// returns false/default; it never samples the later global cursor position.
+    /// </summary>
+    public bool TryGetCurrentMouseButtonPacket(out NativeMouseButtonPacket packet)
+    {
+        packet = default;
+        if (_disposed || _threadId != Environment.CurrentManagedThreadId ||
+            _platform is not { } platform || !_window.IsInitialized || _window.IsClosing ||
+            platform.CurrentMouseButtonPacket is not { } current ||
+            platform.Handle != GlfwNativeWindowPlatform.ResolveWindowHandle(_window))
+            return false;
+
+        packet = current;
+        return true;
+    }
+
+    /// <summary>
     /// Reads actual native content/frame geometry without attaching, showing,
     /// activating or changing this window. Requires the live attached window on
     /// its creating thread. Cocoa additionally requires the AppKit main thread;
