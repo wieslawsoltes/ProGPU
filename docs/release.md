@@ -5,6 +5,21 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
+## Preview.70 preparation
+
+Preview.70 prepares the merged source soft-wrap-space corrections and the
+Avalonia snapshot, WinUI Image, wavefront, chart-series and pipeline-cache
+retirement fixes. Their original ownership and five-second lifetime controls
+remain intact. The version change aligns all runtime and both Avalonia lanes;
+publication still requires the complete final producer Build, companion gates,
+coordinated consumer Builds and release/public-package verification.
+
+LibreWPF's portable dispatcher context repair and LibreWinForms' typed portable
+paint/pointer-lifetime repair belong to their corresponding source releases.
+The tracking epics retain independent Display, native desktop, Linux collector,
+allocation-counter and WebScene performance work; advancing a preview version
+does not qualify those contracts or replace the original failed evidence.
+
 ## Preview.67 integration scope
 
 Preview.66 publication stopped when its native package exceeded NuGet's 250 MiB
@@ -16,8 +31,8 @@ See [publication recovery](https://github.com/wieslawsoltes/ProGPU/issues/369).
 The [native SDK package contract](native-sdk-packages.md) describes restoration,
 manual CMake extraction and the unchanged qualification requirements.
 
-The coordinated release uses ProGPU `0.1.0-preview.69`, Avalonia integration
-versions `12.1.1-preview.69` and `11.3.20-preview.69`, and matching LibreWPF and
+The coordinated release uses ProGPU `0.1.0-preview.70`, Avalonia integration
+versions `12.1.1-preview.70` and `11.3.20-preview.70`, and matching LibreWPF and
 LibreWinForms previews. The package manifests, project defaults and consumer
 examples advance together so newly built integration packages do not reuse an
 already published version or depend on an older ProGPU package set.
@@ -132,19 +147,19 @@ pinned in `docs/WINUI_API_PARITY.md` and `docs/SKIASHARP_API_PARITY.md`.
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.1.1-preview.69`
-- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.69`
-- `ProGPU.Avalonia.Rendering` `11.3.20-preview.69`
-- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.69`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.70`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.70`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.70`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.70`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.69` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.70` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.69 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.70 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -162,7 +177,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.69 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.70 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -180,7 +195,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.69`.
+for example `v0.1.0-preview.70`.
 
 ## NuGet Publishing
 
