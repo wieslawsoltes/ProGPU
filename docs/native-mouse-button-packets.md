@@ -15,6 +15,13 @@ only the current same-window, creating-thread down/up callback. The immutable
 value records phase and button identity so consumers can reject mismatched
 callbacks before copying its position into their existing event.
 
+The attached Win32 platform retains both the original HWND and HINSTANCE, just
+like the pending GLFW identity. The first Windows CI control exposed that the
+older platform descriptor discarded HINSTANCE, so the exact live-identity check
+rejected its own callback. The fix preserves the complete original descriptor;
+it does not relax the identity comparison. That failed run (`38959546960`,
+job `117170857182`) remains retained as diagnostic evidence.
+
 The procedure snapshots and restores the prior packet in `finally`. Every nested
 message enters its own scope; a keyboard, touch, wheel, chrome or other message
 cannot inherit an outer button packet. Left/right/middle and valid X1/X2 down/up

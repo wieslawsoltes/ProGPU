@@ -45,7 +45,7 @@ internal static class NativeWindowPlatformFactory
 
         if (OperatingSystem.IsWindows() && window.Native?.Win32 is { } win32 && win32.Hwnd != 0)
         {
-            return new Win32NativeWindowPlatform(window, win32.Hwnd);
+            return new Win32NativeWindowPlatform(window, win32.Hwnd, win32.HInstance);
         }
 
         if (OperatingSystem.IsMacOS() && window.Native?.Cocoa is { } cocoa && cocoa != 0)

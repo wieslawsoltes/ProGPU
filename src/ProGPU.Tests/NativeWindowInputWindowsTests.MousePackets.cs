@@ -18,6 +18,9 @@ public partial class NativeWindowInputWindowsTests
         window.Initialize();
         using var controller = new SilkWindowController(window);
         Assert.True(controller.Attach());
+        // Attachment must preserve both HWND and the original module identity.
+        // A live-identity guard must not reject the controller's own callback.
+        Assert.Equal(GlfwNativeWindowPlatform.ResolveWindowHandle(window), controller.Handle);
         using var input = NativeWindowInput.CreateInput(window);
         var mouse = Assert.Single(input.Mice);
         var keyboard = Assert.Single(input.Keyboards);

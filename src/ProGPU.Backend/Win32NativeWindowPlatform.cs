@@ -65,6 +65,7 @@ internal sealed partial class Win32NativeWindowPlatform :
     private const nuint MouseEventTouchFlag = 0x80;
 
     private readonly nint _hwnd;
+    private readonly nint _hinstance;
     private readonly WndProc _wndProc;
     private nint _previousWndProc;
     private bool _extended;
@@ -73,14 +74,15 @@ internal sealed partial class Win32NativeWindowPlatform :
     private bool _isProcessingPromotedTouchMouse;
     private NativeWindowBackdrop _backdrop;
 
-    public Win32NativeWindowPlatform(IWindow window, nint hwnd)
+    public Win32NativeWindowPlatform(IWindow window, nint hwnd, nint hinstance)
         : base(window)
     {
         _hwnd = hwnd;
+        _hinstance = hinstance;
         _wndProc = WindowProcedure;
     }
 
-    public override NativeWindowHandle Handle => new(NativeWindowKind.Win32, _hwnd, 0, "HWND");
+    public override NativeWindowHandle Handle => new(NativeWindowKind.Win32, _hwnd, _hinstance, "HWND");
     public override NativeWindowCapabilities Capabilities => NativeWindowCapabilities.ForKind(NativeWindowKind.Win32);
     public override bool RequiresManagedDecorations => true;
     public override NativeDrawnDecorationParts RequestedDrawnDecorations => NativeDrawnDecorationParts.TitleBar;
