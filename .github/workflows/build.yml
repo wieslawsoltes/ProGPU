@@ -1670,8 +1670,11 @@ jobs:
           if (Test-Path -LiteralPath $output) { throw 'DXC query output must be fresh.' }
           Copy-Item -LiteralPath $source -Destination $output -Recurse
           $runtime = Join-Path $env:GITHUB_WORKSPACE 'artifacts/query-dx12/${{ matrix.rid }}/native'
+          $runtimeOutput = Join-Path $output 'runtimes/${{ matrix.rid }}/native'
+          New-Item -ItemType Directory -Path $runtimeOutput -Force | Out-Null
           foreach ($name in @('wgpu_native.dll', 'wgpu-native-build.json', 'dxcompiler.dll', 'dxil.dll', 'dxc-compiler-package.json', 'progpu-dx12-runtime.json')) {
             Copy-Item -LiteralPath (Join-Path $runtime $name) -Destination $output
+            Copy-Item -LiteralPath (Join-Path $runtime $name) -Destination $runtimeOutput
           }
           & (Join-Path $output 'ProGPU.HitQuery.ContractTests.exe') `
             --software-adapter --require-automatic-dxc --staged-only --product --native-product --sparse --large-capacity --admitted-index `
