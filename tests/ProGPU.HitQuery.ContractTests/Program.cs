@@ -42,6 +42,12 @@ internal static unsafe class Program
              context.SelectedDx12ShaderCompiler != WgpuDx12ShaderCompiler.Fxc ||
              context.HitTestExecutionPath != GpuHitTestExecutionPreference.OrderedStages))
             throw new InvalidOperationException("Automatic FXC qualification requires the owned D3D12/FXC device and its automatic ordered-query selection.");
+        if (args.Contains("--require-automatic-dxc") &&
+            (context.HitTestExecutionPreference != GpuHitTestExecutionPreference.Automatic ||
+             context.AdapterBackendType != BackendType.D3D12 ||
+             context.SelectedDx12ShaderCompiler != WgpuDx12ShaderCompiler.Dxc ||
+             context.HitTestExecutionPath != GpuHitTestExecutionPreference.OrderedStages))
+            throw new InvalidOperationException("Automatic DXC qualification requires the owned D3D12/DXC device and its automatic ordered-query selection.");
         Console.WriteLine($"Query policy: {context.HitTestExecutionPath}; adapter={context.AdapterName}; architecture={RuntimeInformation.ProcessArchitecture}.");
         using var cache = new RenderPipelineCache(context);
         var shader = cache.GetOrCreateShader("HitQueryStages", ShaderResource.Load(typeof(GpuHitTestEngine), "GpuHitTesting.wgsl"));
