@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit font device metrics use exact original VDMX size/ratio records after
+whole-table and raw selected-face directory validation. Preserve signed extrema,
+first applicable ratios, source ownership and atomic rejection. Never substitute
+nearest/scaled records or Drawing line spacing; missing tables remain separate.
+The initial TtfFont query admits static TrueType square-pixel nonsymbol faces;
+raw fvar stays unadmitted. Ordinary metrics and glyph placement stay unchanged.
+See docs/font-vertical-device-metrics.md; native observations are not package/UI
+qualification.
+
 Original Win32 client button packets retain their signed message coordinates
 through the existing owned window procedure, scoped to the synchronous matching
 callback. Preserve phase/button identity, same-window creating-thread lifetime,

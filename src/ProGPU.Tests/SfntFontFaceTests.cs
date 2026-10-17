@@ -10,7 +10,7 @@ using Xunit;
 
 namespace ProGPU.Tests;
 
-public class SfntFontFaceTests
+public partial class SfntFontFaceTests
 {
     private const string OnePixelPngBase64 =
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3GQAAAAASUVORK5CYII=";
