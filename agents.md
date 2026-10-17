@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit font device metrics use exact original VDMX size/ratio records after
+whole-table and raw selected-face directory validation. Preserve signed extrema,
+first applicable ratios, source ownership and atomic rejection. Never substitute
+nearest/scaled records or Drawing line spacing; missing tables remain separate.
+The initial TtfFont query admits static TrueType square-pixel nonsymbol faces;
+raw fvar stays unadmitted. Ordinary metrics and glyph placement stay unchanged.
+See docs/font-vertical-device-metrics.md; native observations are not package/UI
+qualification.
+
 Original Win32 client button packets retain their signed message coordinates
 through the existing owned window procedure, scoped to the synchronous matching
 callback. Preserve phase/button identity, same-window creating-thread lifetime,
@@ -934,12 +943,14 @@ separate raw unknown-kind controls rather than weakening scene validation.
 Exercise both product readers, including untouched caller tails. Passing ordered
 queries is not automatic-policy or full application/package qualification.
 
-Automatic hit-query dispatch uses actual owned D3D12/FXC identity to select the
+Automatic hit-query dispatch uses actual owned D3D12/FXC or D3D12/DXC identity to select the
 shared ordered GPU path; do not infer compiler identity from OS or adapter names,
 change compiler/adapter defaults, or override explicit query choices. Shared
 surfaces inherit the owner's identity and limits. Borrowed unknown compilers and
 raw C hosts retain explicit selection. Preserve independent full-result and
 default-package gates, and reject insufficient staged limits without fallback.
+DXC's independently captured low-address generated-code store requires the same
+ordered selection; retain complete automatic-DXC result/package/application gates.
 
 Native glyph raster identity is independent of positioned scene revisions.
 Reuse only owned exact outline/segment bytes, DPI and live atlas generation;

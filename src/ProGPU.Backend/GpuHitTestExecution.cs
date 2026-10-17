@@ -42,7 +42,8 @@ public static class GpuHitTestExecutionPolicy
     public static GpuHitTestExecutionPreference Resolve(GpuHitTestExecutionPreference preference) =>
         Resolve(preference, BackendType.Undefined, null);
 
-    // FXC's monolithic region query is not reliable on the pinned D3D12 runtime.
+    // Monolithic queries are not reliable on the pinned D3D12 runtime with
+    // either owned compiler; DXC also reproduces the system-WARP spill fault.
     // Select the same ordered GPU algorithm for both renderer implementations,
     // using actual owned-device compiler identity, not OS/adapter-name guesses.
     // Borrowed/unknown compilers retain explicit host selection. Device/index
@@ -53,7 +54,7 @@ public static class GpuHitTestExecutionPolicy
         WgpuDx12ShaderCompiler? shaderCompiler) => preference switch
     {
         GpuHitTestExecutionPreference.Automatic => adapterBackend == BackendType.D3D12 &&
-            shaderCompiler == WgpuDx12ShaderCompiler.Fxc
+            shaderCompiler is WgpuDx12ShaderCompiler.Fxc or WgpuDx12ShaderCompiler.Dxc
                 ? GpuHitTestExecutionPreference.OrderedStages
                 : GpuHitTestExecutionPreference.SinglePass,
         GpuHitTestExecutionPreference.SinglePass => GpuHitTestExecutionPreference.SinglePass,

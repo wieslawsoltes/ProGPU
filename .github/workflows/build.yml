@@ -1596,7 +1596,7 @@ jobs:
 
   ordered-hit-query-windows:
     name: Ordered GPU query parity (${{ matrix.rid }})
-    needs: [build-test, native-cpp]
+    needs: [build-test, native-cpp, dx12-runtime]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -1652,6 +1652,34 @@ jobs:
             --software-adapter --require-automatic-fxc --staged-only --product --native-product --sparse --large-capacity --admitted-index `
             --expected-results artifacts/query-reference/progpu-hit-query-native-reference.bin
           if ($LASTEXITCODE -ne 0) { throw 'Automatic system-FXC query parity failed.' }
+
+      - name: Download matching verified DXC runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-dx12-runtime-${{ matrix.rid }}
+          path: artifacts/query-dx12
+
+      - name: Compare automatic DXC product selection with the independent reference
+        shell: pwsh
+        env:
+          PROGPU_HIT_TEST_EXECUTION: auto
+          PROGPU_DX12_SHADER_COMPILER: dxc
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE 'tests/ProGPU.HitQuery.ContractTests/bin/Release/net10.0'
+          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts/query-dxc-consumer'
+          if (Test-Path -LiteralPath $output) { throw 'DXC query output must be fresh.' }
+          Copy-Item -LiteralPath $source -Destination $output -Recurse
+          $runtime = Join-Path $env:GITHUB_WORKSPACE 'artifacts/query-dx12/${{ matrix.rid }}/native'
+          $runtimeOutput = Join-Path $output 'runtimes/${{ matrix.rid }}/native'
+          New-Item -ItemType Directory -Path $runtimeOutput -Force | Out-Null
+          foreach ($name in @('wgpu_native.dll', 'wgpu-native-build.json', 'dxcompiler.dll', 'dxil.dll', 'dxc-compiler-package.json', 'progpu-dx12-runtime.json')) {
+            Copy-Item -LiteralPath (Join-Path $runtime $name) -Destination $output
+            Copy-Item -LiteralPath (Join-Path $runtime $name) -Destination $runtimeOutput
+          }
+          & (Join-Path $output 'ProGPU.HitQuery.ContractTests.exe') `
+            --software-adapter --require-automatic-dxc --staged-only --product --native-product --sparse --large-capacity --admitted-index `
+            --expected-results artifacts/query-reference/progpu-hit-query-native-reference.bin
+          if ($LASTEXITCODE -ne 0) { throw 'Automatic system-DXC query parity failed.' }
 
   build-test:
     name: Build and test (${{ matrix.os }})

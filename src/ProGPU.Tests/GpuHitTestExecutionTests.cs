@@ -18,13 +18,15 @@ public sealed class GpuHitTestExecutionTests
 
     [Theory]
     [InlineData(BackendType.D3D12, WgpuDx12ShaderCompiler.Fxc, GpuHitTestExecutionPreference.OrderedStages)]
-    [InlineData(BackendType.D3D12, WgpuDx12ShaderCompiler.Dxc, GpuHitTestExecutionPreference.SinglePass)]
+    [InlineData(BackendType.D3D12, WgpuDx12ShaderCompiler.Dxc, GpuHitTestExecutionPreference.OrderedStages)]
     [InlineData(BackendType.D3D12, WgpuDx12ShaderCompiler.Automatic, GpuHitTestExecutionPreference.SinglePass)]
     [InlineData(BackendType.D3D12, null, GpuHitTestExecutionPreference.SinglePass)]
     [InlineData(BackendType.Metal, WgpuDx12ShaderCompiler.Fxc, GpuHitTestExecutionPreference.SinglePass)]
     [InlineData(BackendType.Vulkan, WgpuDx12ShaderCompiler.Fxc, GpuHitTestExecutionPreference.SinglePass)]
+    [InlineData(BackendType.Metal, WgpuDx12ShaderCompiler.Dxc, GpuHitTestExecutionPreference.SinglePass)]
+    [InlineData(BackendType.Vulkan, WgpuDx12ShaderCompiler.Dxc, GpuHitTestExecutionPreference.SinglePass)]
     [InlineData(BackendType.Undefined, WgpuDx12ShaderCompiler.Fxc, GpuHitTestExecutionPreference.SinglePass)]
-    public void AutomaticUsesActualD3D12FxcIdentity(
+    public void AutomaticUsesActualD3D12CompilerIdentity(
         BackendType backend, WgpuDx12ShaderCompiler? compiler, GpuHitTestExecutionPreference expected)
     {
         Assert.Equal(expected, GpuHitTestExecutionPolicy.Resolve(GpuHitTestExecutionPreference.Automatic, backend, compiler));

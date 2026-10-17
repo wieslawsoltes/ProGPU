@@ -7,8 +7,9 @@ and geometry-region queries against a presented native MIL owner index. The
 blocking path is the Windows system-WARP execution of the canonical query shader.
 The managed and C++ product dispatchers support ordered stages using retained
 device/index-owned resources. Automatic selection now chooses this GPU path on
-owned D3D12/FXC devices; other devices and explicit caller choices are unchanged.
+owned D3D12/FXC and D3D12/DXC devices; other devices and explicit caller choices are unchanged.
 See the [compiler-specific selection decision](#automatic-d3d12fxc-selection).
+The DXC extension and its pending qualification are recorded below.
 Final application/package qualification remains required before merge. The
 six-binding point/bounds/ellipse entrypoints remain available and independent.
 
@@ -470,3 +471,42 @@ informs the separate indirect buffer and dispatch dependencies. The pinned
 [wgpu DX12 compiler configuration](https://github.com/gfx-rs/wgpu/blob/87576b72b37c6b78b41104eb25fc31893af94092/wgpu-hal/src/dx12/shader_compilation.rs)
 was inspected only to understand compiler options; upstream code was not modified
 or imported into this implementation.
+
+## Automatic D3D12/DXC selection
+
+The Windows modal sample's explicit DXC compiler selection exposed the remaining
+single-pass policy gap. LibreWPF diagnostic `38994007641` retains the unchanged
+qualified producer `5a4c4d310c17df9cd7da0d33b072b90e951de0cf`, original Microsoft
+seven-scenario reference, no portable input and the original 60-second process
+limit. Native traces record the first retained point `hit_query` after the initial
+frame submission. The same native thread first raises access violation
+`0xC0000005` while generated code executes `str w11, [x28]` with `x28=0x2174`,
+then terminates at system `d3d10warp.dll+0x971f8` with fail-fast parameter 73.
+The preceding generated address construction uses the zero register; neighboring
+stores use the stack pointer. This is consistent with the earlier independently
+captured WARP spill-address fault, not a managed input callback failure.
+
+Both original dumps are validated against the debugger's actual PID, exception
+thread, code, instruction and access parameters. Artifact `12086826218` has
+SHA-256 `070f267c78527f52e920af6e1ff57c6b634e0d064038e3f60c6ed8300ef1934b`.
+The first-chance dump SHA-256 is
+`fa29fcefab0a5ecf56fd7033a913a16000735e52a4f5a7cc1fa3101c25a636f9`.
+No system DLL, original shader, input or timeout was replaced to obtain this evidence.
+
+Automatic policy now selects the existing ordered GPU implementation for actual
+owned D3D12/DXC as well as D3D12/FXC. Explicit SinglePass/OrderedStages choices and
+unknown/borrowed compiler identities remain unchanged. The shared O(1) policy
+feeds both managed and native dispatchers; shader predicates, traversal order,
+candidate/indirect ownership, limits, full results and single-submission behavior
+are unchanged. This introduces no CPU geometry or result fallback and does not
+change compiler or adapter defaults.
+
+The previous policy fails the actual D3D12/DXC selection regression; the repaired
+policy passes all 18 existing/expanded policy and limit cases without skips.
+Windows x64 and ARM64 CI retain the independent original Metal reference and both
+existing FXC lanes, then execute the complete 210-record/full-capacity managed and
+C++ comparison from a separate output using the same Build's verified DXC payload.
+`--require-automatic-dxc` requires the real initialized D3D12/DXC identity, an
+Automatic request and OrderedStages result. Forced ordered selection cannot pass
+that gate. Whole producer CI, unchanged default/DXC package consumers and final
+ordinary modal/Gallery application acceptance remain required before qualification.
