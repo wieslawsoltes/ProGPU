@@ -524,7 +524,7 @@ validator. Source/package/Windows qualification remains separate. See
 docs/DIRECT2D_WIN2D_COMPATIBILITY.md, independent-axis picture copies.
 
 The isolated drawing package group includes the real Native and Dawn backend
-dependencies in source-reference order. Preserve exact version closure and native
+dependencies and the Scene.Native bridge in source-reference order. Preserve exact version closure and native
 runtime validation; consumers stage real payloads only from the exact successful
 whole producer Build. Source manifest checks do not qualify packages or permit
 fake runtimes. See docs/drawing-native-package-closure.md.
