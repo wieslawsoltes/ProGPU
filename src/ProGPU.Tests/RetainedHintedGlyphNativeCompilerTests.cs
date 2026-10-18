@@ -21,6 +21,32 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
     private static readonly Vector2 Origin = new(5, 6);
 
     [Fact]
+    public void FontPlacementReplayMatchesOriginalNativeWireWithoutShapingMetadata()
+    {
+        using var original = Geometry(new Owner());
+        var owner = new Owner();
+        using var geometry = HintedGlyphGeometry.FromFontPlacements(original.DpiScale,
+            original.Outlines.ToArray(), original.Segments.ToArray(),
+            original.Occurrences.ToArray().Select(g =>
+                new FontGlyphPlacement(g.DescriptorIndex, g.GlyphId, g.OutlineIndex, g.Position)).ToArray(), owner);
+        using var originalPicture = Picture(Command(original, new SolidColorBrush(Vector4.One)));
+        using var picture = Picture(Command(geometry, new SolidColorBrush(Vector4.One)));
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(originalPicture, 991, 3,
+            new NativePictureCompileOptions(2), out var reference, out var originalError), originalError.ToString());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(picture, 991, 3,
+            new NativePictureCompileOptions(2), out var compiled, out var error), error.ToString());
+        using var referenceUse = reference;
+        using var compiledUse = compiled;
+        Assert.Equal(reference!.Stream.ToArray(), compiled!.Stream.ToArray());
+        Assert.Equal(2, compiled.PositionedGlyphCount);
+        geometry.Dispose();
+        picture.Dispose();
+        Assert.Equal(0, owner.Disposals);
+        compiled.Dispose();
+        Assert.Equal(1, owner.Disposals);
+    }
+
+    [Fact]
     public void SolidReplayKeepsOriginalPhysicalRecordsAndEverySelectedInkOccurrence()
     {
         var owner = new Owner();

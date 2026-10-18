@@ -165,6 +165,30 @@ invalid/unsupported policy rollback, empty batches and managed generated layouts
 These are ownership/transport controls, not GDI/GDI+ pixel qualification or a
 claim that vector antialiasing implements the remaining source raster policies.
 
+`NativeHintedGlyphGeometryFactory.CreateFontBatch` connects captured geometry to
+the existing retained managed/native replay with the caller's original logical
+baseline positions. It freezes every position before native preparation and
+owns an independent geometry handle. Existing physical contour validation and
+conversion are shared with the paragraph importer, without reshaping or another
+contour algorithm. Preparation is O(G+P) and bounded by the existing geometry
+limits. Complete copies occur only at preparation; replay retains its existing
+atlas, batching, uploads, culling, paint and device-lifetime paths.
+
+`FontGlyphPlacement` explicitly contains only the original descriptor index,
+glyph ID, outline slot and position. It has no advance, cluster, bidi or paragraph
+fields. `HasShapingMetadata` distinguishes this resource from original shaped
+occurrences; requesting the absent representation throws. Selection retains
+duplicate/no-ink slots and the original source/raster identity without copying
+outlines. Both renderers consume the same placement fields and retain exact DPI
+and existing identity-frame admission. They do not infer missing source metadata.
+
+Paired synthetic controls compare the complete native command stream with the
+existing shaped-resource route and retain every original managed cold/warm pixel,
+upload and raster-submission check at two DPI scales. Independent lifetime and
+selection controls verify explicit missing metadata and one final source release.
+These controls establish the shared replay route; actual Drawing mode selection,
+contrast/coverage and original Microsoft application images remain unfinished.
+
 Keep font execution lazy and out of frame replay, retain bounded exact-generation
 caches, and preserve original layout/interaction and GPU resource ownership.
 

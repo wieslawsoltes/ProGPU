@@ -6,7 +6,7 @@ using ProGPU.Text;
 namespace ProGPU.Scene.Native;
 
 /// <summary>Retains an original native hinted generation for recorded GPU replay.</summary>
-public static class NativeHintedGlyphGeometryFactory
+public static partial class NativeHintedGlyphGeometryFactory
 {
     /// <summary>
     /// Copies the producer's physical Y-up GPU geometry and preserves every
@@ -21,29 +21,7 @@ public static class NativeHintedGlyphGeometryFactory
         try
         {
             Validate(lease);
-            var segments = new GpuSegment[lease.Segments.Length];
-            for (int i = 0; i < segments.Length; i++)
-            {
-                ref readonly NativePathSegment s = ref lease.Segments[i];
-                segments[i] = new GpuSegment
-                {
-                    P0 = s.P0, P1 = s.P1, P2 = s.P2, P3 = s.P3,
-                    SegmentType = (uint)s.Kind,
-                    Pad0 = s.Pad0, Pad1 = s.Pad1, Pad2 = s.Pad2
-                };
-            }
-            var outlines = new GpuGlyphRecord[lease.Outlines.Length];
-            for (int i = 0; i < outlines.Length; i++)
-            {
-                ref readonly NativeGlyphOutline o = ref lease.Outlines[i];
-                outlines[i] = new GpuGlyphRecord
-                {
-                    StartSegment = checked((uint)o.SegmentOffset),
-                    SegmentCount = checked((uint)o.SegmentCount),
-                    MinX = o.Minimum.X, MinY = o.Minimum.Y,
-                    MaxX = o.Maximum.X, MaxY = o.Maximum.Y
-                };
-            }
+            ConvertGeometry(lease.Outlines, lease.Segments, out var outlines, out var segments);
             var occurrences = new HintedGlyphOccurrence[lease.Glyphs.Length];
             for (int i = 0; i < occurrences.Length; i++)
             {
@@ -302,34 +280,7 @@ public static class NativeHintedGlyphGeometryFactory
         Require(runScalarEnd == c.SourceScalarCount && logicalEnd == c.LogicalGlyphCount &&
             sourceEnd == v.SourceOutlineIndices.Length && runEnd == v.RunOutlineIndices.Length &&
             outlineEnd == v.Outlines.Length && segmentEnd == v.Segments.Length);
-        nuint geometryEnd = 0;
-        foreach (ref readonly NativeGlyphOutline o in v.Outlines)
-        {
-            Require(geometryEnd <= (nuint)v.Segments.Length && o.SegmentOffset == geometryEnd &&
-                o.SegmentCount > 0 && o.SegmentCount <= (nuint)v.Segments.Length - geometryEnd &&
-                o.RasterScale == 1f && o.SubpixelX == 0f && Finite(o.Minimum) && Finite(o.Maximum) &&
-                o.Maximum.X > o.Minimum.X && o.Maximum.Y > o.Minimum.Y);
-            Vector2 first = default, previous = default;
-            bool closed = true;
-            for (nuint j = 0; j < o.SegmentCount; j++)
-            {
-                ref readonly NativePathSegment s = ref v.Segments[checked((int)(o.SegmentOffset + j))];
-                Require((uint)s.Kind <= (uint)NativePathSegmentKind.Cubic && s.Pad0 == 0 && s.Pad1 == 0 && s.Pad2 == 0 &&
-                    Finite(s.P0) && Finite(s.P1) && Finite(s.P2) && Finite(s.P3));
-                if (closed) first = s.P0;
-                else Require(previous == s.P0);
-                Vector2 end = s.Kind == NativePathSegmentKind.Line ? s.P1 :
-                    s.Kind == NativePathSegmentKind.Quadratic ? s.P2 : s.P3;
-                Require(Inside(s.P0, o) && Inside(s.P1, o) &&
-                    ((uint)s.Kind < (uint)NativePathSegmentKind.Quadratic || Inside(s.P2, o)) &&
-                    ((uint)s.Kind < (uint)NativePathSegmentKind.Cubic || Inside(s.P3, o)));
-                closed = end == first;
-                previous = end;
-            }
-            Require(closed);
-            geometryEnd += o.SegmentCount;
-        }
-        Require(geometryEnd == (nuint)v.Segments.Length);
+        ValidateGeometry(v.Outlines, v.Segments);
         for (int i = 0; i < v.Glyphs.Length; i++)
         {
             ref readonly NativePositionedTextGlyph g = ref v.Glyphs[i];
@@ -372,4 +323,65 @@ public static class NativeHintedGlyphGeometryFactory
 
     private static bool Inside(Vector2 p, in NativeGlyphOutline o) =>
         p.X >= o.Minimum.X && p.X <= o.Maximum.X && p.Y >= o.Minimum.Y && p.Y <= o.Maximum.Y;
+    private static void ValidateGeometry(ReadOnlySpan<NativeGlyphOutline> outlines,
+        ReadOnlySpan<NativePathSegment> segments)
+    {
+        nuint geometryEnd = 0;
+        foreach (ref readonly NativeGlyphOutline o in outlines)
+        {
+            Require(geometryEnd <= (nuint)segments.Length && o.SegmentOffset == geometryEnd &&
+                o.SegmentCount > 0 && o.SegmentCount <= (nuint)segments.Length - geometryEnd &&
+                o.RasterScale == 1f && o.SubpixelX == 0f && Finite(o.Minimum) && Finite(o.Maximum) &&
+                o.Maximum.X > o.Minimum.X && o.Maximum.Y > o.Minimum.Y);
+            Vector2 first = default, previous = default;
+            bool closed = true;
+            for (nuint j = 0; j < o.SegmentCount; j++)
+            {
+                ref readonly NativePathSegment s = ref segments[checked((int)(o.SegmentOffset + j))];
+                Require((uint)s.Kind <= (uint)NativePathSegmentKind.Cubic && s.Pad0 == 0 && s.Pad1 == 0 && s.Pad2 == 0 &&
+                    Finite(s.P0) && Finite(s.P1) && Finite(s.P2) && Finite(s.P3));
+                if (closed) first = s.P0;
+                else Require(previous == s.P0);
+                Vector2 end = s.Kind == NativePathSegmentKind.Line ? s.P1 :
+                    s.Kind == NativePathSegmentKind.Quadratic ? s.P2 : s.P3;
+                Require(Inside(s.P0, o) && Inside(s.P1, o) &&
+                    ((uint)s.Kind < (uint)NativePathSegmentKind.Quadratic || Inside(s.P2, o)) &&
+                    ((uint)s.Kind < (uint)NativePathSegmentKind.Cubic || Inside(s.P3, o)));
+                closed = end == first;
+                previous = end;
+            }
+            Require(closed);
+            geometryEnd += o.SegmentCount;
+        }
+        Require(geometryEnd == (nuint)segments.Length);
+    }
+
+    private static void ConvertGeometry(ReadOnlySpan<NativeGlyphOutline> nativeOutlines,
+        ReadOnlySpan<NativePathSegment> nativeSegments,
+        out GpuGlyphRecord[] outlines, out GpuSegment[] segments)
+    {
+        segments = new GpuSegment[nativeSegments.Length];
+        for (int i = 0; i < segments.Length; i++)
+        {
+            ref readonly NativePathSegment s = ref nativeSegments[i];
+            segments[i] = new GpuSegment
+            {
+                P0 = s.P0, P1 = s.P1, P2 = s.P2, P3 = s.P3,
+                SegmentType = (uint)s.Kind,
+                Pad0 = s.Pad0, Pad1 = s.Pad1, Pad2 = s.Pad2
+            };
+        }
+        outlines = new GpuGlyphRecord[nativeOutlines.Length];
+        for (int i = 0; i < outlines.Length; i++)
+        {
+            ref readonly NativeGlyphOutline o = ref nativeOutlines[i];
+            outlines[i] = new GpuGlyphRecord
+            {
+                StartSegment = checked((uint)o.SegmentOffset),
+                SegmentCount = checked((uint)o.SegmentCount),
+                MinX = o.Minimum.X, MinY = o.Minimum.Y,
+                MaxX = o.Maximum.X, MaxY = o.Maximum.Y
+            };
+        }
+    }
 }

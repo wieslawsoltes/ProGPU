@@ -19,6 +19,11 @@ Owned batch geometry retains that exact captured generation beyond context and
 batch disposal. Its complete copies reuse existing path records, validate all
 output capacities before writing and keep original source bytes immutable.
 Do not reconstruct shaping metadata or execute fonts during copies or replay.
+Already-positioned font replay keeps an explicit metadata-free placement record,
+not a fabricated paragraph occurrence. Preserve original descriptor slots,
+positions, no-ink records and exact DPI through the common managed/native replay.
+Shaping access rejects when absent; selected views retain the same source and
+raster identity. Source GDI/GDI+ policy and original pixels remain separate gates.
 
 Explicit static font raster recommendations retain the selected face's complete
 original gasp range inventory and independent grayscale/symmetric flags. Validate
@@ -2367,7 +2372,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,296 renderer cases (6,286 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,300 renderer cases (6,290 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 
