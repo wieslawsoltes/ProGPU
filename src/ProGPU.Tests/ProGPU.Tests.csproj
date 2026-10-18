@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="../../tests/Shared/BinaryGlyphOriginals.json" LogicalName="BinaryGlyphOriginals.json" />
+    <EmbeddedResource Include="../../tests/Shared/BinaryGlyphCurveOriginals.json" LogicalName="BinaryGlyphCurveOriginals.json" />
     <EmbeddedResource Include="TestData/SourceDeviceLines/metrics.json" LogicalName="SourceDeviceLines.metrics.json" />
     <EmbeddedResource Include="TestData/RasterCrossingReference/*.wgsl"
                       LogicalName="RasterCrossingReference.%(Filename)%(Extension)" />

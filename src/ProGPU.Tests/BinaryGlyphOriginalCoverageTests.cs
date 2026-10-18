@@ -20,14 +20,16 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
         public void Dispose() => Disposals++;
     }
 
-    [Fact]
-    public void EveryOriginalAuthoredBitmapMatchesColdAndWarmCoverage()
+    [Theory]
+    [InlineData("BinaryGlyphOriginals.json", "6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092")]
+    [InlineData("BinaryGlyphCurveOriginals.json", "B30470FEAE7D095ADAD5E549595ADEAED929058E3040D94640F0CA214313E2B8")]
+    public void EveryOriginalAuthoredBitmapMatchesColdAndWarmCoverage(string resource, string digest)
     {
         using Stream stream = typeof(BinaryGlyphOriginalCoverageTests).Assembly
-            .GetManifestResourceStream("BinaryGlyphOriginals.json")!;
+            .GetManifestResourceStream(resource)!;
         using var bytes = new MemoryStream();
         stream.CopyTo(bytes);
-        Assert.Equal("6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092",
+        Assert.Equal(digest,
             Convert.ToHexString(SHA256.HashData(bytes.ToArray())));
         using JsonDocument document = JsonDocument.Parse(bytes.ToArray());
         JsonElement[] cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();

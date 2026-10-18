@@ -310,6 +310,28 @@ class AndroidBootTests(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, f"Owned descendant remains running: {state}")
             time.sleep(0.01)
 
+    def test_collector_keeps_transport_failure_separate_without_mutating_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            adb = root / "adb"
+            adb.write_text(f"#!{sys.executable}\n"
+                           "import os,sys\n"
+                           "assert os.environ['ADB_TRACE']=='transport,sockets'\n"
+                           "assert sys.argv[1:]==['-s','emulator-5554','logcat','-b','all','-v','threadtime']\n"
+                           "os.write(1,b'device log\\xff');os.write(2,b'transport closed\\xfe')\n"
+                           "raise SystemExit(255)\n")
+            adb.chmod(0o700)
+            env = dict(os.environ, ADB_TRACE="original")
+            with (root / "device").open("wb") as device, (root / "transport").open("wb") as transport:
+                process = BOOT.start_boot_logcat(str(adb), env, device, transport)
+                try:
+                    self.assertEqual(255, process.wait(timeout=5))
+                finally:
+                    BOOT.stop_owned(process)
+            self.assertEqual("original", env["ADB_TRACE"])
+            self.assertEqual(b"device log\xff", (root / "device").read_bytes())
+            self.assertEqual(b"transport closed\xfe", (root / "transport").read_bytes())
+
     def test_lifecycle_rejects_non_ci_execution_before_starting_processes(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}), patch.object(BOOT.subprocess, "Popen") as start:
             with self.assertRaisesRegex(ValueError, "Actions lane"):

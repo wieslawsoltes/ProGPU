@@ -49,9 +49,24 @@ decisions and their output. Pixel boundaries, raw mode aliases and the bounded
 bitmap extent are explicit. Vertical gap admission preserves the original bitmap
 row direction in the contour's Y-up frame. Continuation counts distinct square
 boundary contacts, retains actual orthogonal caps and exact cap contacts, and
-keeps with-stubs line-vertex contacts separate from positive winding intervals.
+keeps with-stubs contour-vertex contacts separate from positive winding intervals.
+Quadratic endpoints use their first nonzero one-sided coefficient; an interior
+curve extremum does not become an endpoint. Exact nondegenerate quadratic
+boundaries retain closed coverage, while straight and flat boundaries retain
+their separate rule.
 No epsilon, source-coordinate adjustment or AA threshold substitutes for a binary
 decision. The independent original system-font comparisons remain required.
+
+Smart curved dropouts resolve only the two selected original roots, using at
+most 32 de Casteljau subdivisions each in increasing scan-axis direction. The
+one-26.6-unit control-hull bound selects the lower-parameter endpoint's unit;
+exact endpoint and dyadic roots retain their coordinates. Their midpoint uses
+the nearest 26.6 unit with lower-unit half ties. Line-only intervals retain their
+original arithmetic. Analytic winding, gap detection and source coordinates do
+not change. Public [Microsoft scan-conversion algorithm prose](https://patents.google.com/patent/US6529197B1/en)
+describes selective subdivision for curved dropout transitions. The precise
+arithmetic here is an original implementation checked against the retained
+observations; that source does not by itself establish broad parity.
 
 Both renderers use the same shader and preserve actual submission ownership.
 Managed work uses the existing uniform/output rings, including oversized glyphs;
@@ -73,6 +88,25 @@ The owned font inputs are 20,952 bytes each; the tests verify their original
 SHA-256 values before execution. No system-font binary or foreign renderer code
 is included.
 
+The additional `BinaryGlyphCurveOriginals.json` fixture retains all 880 cases
+from eight independently authored curved ribbons, including transposed pairs,
+five modes, eleven phases and both gasp tables. Original run `39156744403`
+captured 2,640 full frames in 3.899 seconds without input or desktop windows.
+All 1,760 hinted/unhinted outlines matched the authored geometry and all 880
+GDI+/GGO_BITMAP pairs agreed. The diagnostic PR was closed without merging.
+The fixture digest is
+`b30470feae7d095adad5e549595adeaed929058e3040d94640f0ca214313e2b8`;
+its two original authored fonts are 23,812 bytes each. Both fixture sets run
+through the same managed and native checks, preserving the earlier inventory,
+full frames, padding, cold/warm reuse and original font-digest validation.
+
+The rejected global midpoint quantizer regressed earlier diagonal controls and
+was removed. Its failed captures remain retained. The bounded curved candidate
+passes all original and new cases through native wgpu and Dawn, including actual
+font captures under interpreters 35 and 40. A separate diagnostic also compares
+all 128 retained system-font contours without pixel differences; this is not the
+final original source-application, 72-frame text pair or package qualification.
+
 Local validation on 18 October 2026:
 
 - All 880 complete authored coverage cases match exactly in the managed atlas,
@@ -90,6 +124,12 @@ Local validation on 18 October 2026:
   with the same 12 platform skips and no failures. Generated native contracts and
   the 101-field native memory inventory verification also pass.
 - All 230 headless tests pass with zero skips.
+- After the curved endpoint/boundary/dropout fix, the full renderer passes 6,354
+  tests with the same 12 platform skips; all 230 headless tests still pass. Each
+  native provider passes six complete 880-case executions (two original fixture
+  sets through raw contours and both font interpreters), with zero differing
+  pixels and unchanged cold/warm ownership checks. The managed suite executes
+  both original fixture sets with the same atlas and ownership assertions.
 
 The JIT/NativeAOT package scenario groups add both binary provider cases while
 preserving every original MIL, text and EDIT scenario. The separate DX12 package

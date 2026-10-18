@@ -22,7 +22,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../Shared/BinaryGlyphOriginals.json" LogicalName="BinaryGlyphOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphCurveOriginals.json" LogicalName="BinaryGlyphCurveOriginals.json" />
     <EmbeddedResource Include="../Shared/ProGPU-Authored-Scan-*.ttf" LogicalName="%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../Shared/ProGPU-Authored-Curve-Scan-*.ttf" LogicalName="%(Filename)%(Extension)" />
     <None Include="..\..\src\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"
           Link="Inter-Regular.ttf"
           CopyToOutputDirectory="PreserveNewest"

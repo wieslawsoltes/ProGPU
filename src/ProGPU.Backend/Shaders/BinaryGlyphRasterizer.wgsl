@@ -2,6 +2,7 @@
 // crossings and two ordered horizontal/vertical dropout passes.
 // Time complexity: O((W+H)*512*log(512)^2 + P*(log(512)+S) + D*S), where
 // W/H are glyph dimensions, P scanned pixels, S <= 256 segments and D dropouts.
+// Smart curved dropouts add at most two 32-step subdivisions per dropout.
 // Space complexity: 10 KiB workgroup storage and two packed R8 W*H output buffers;
 // no CPU bitmap or readback. No foreign rasterizer code.
 // One 256-thread workgroup owns a scanline. At most 256 original line/quadratic
@@ -26,7 +27,7 @@ struct Segment {
     p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>,
     segmentType: u32, scanDescriptor: u32, contourStart: u32, contourCount: u32,
 };
-struct Crossings { x: vec2<f32>, delta: vec2<i32> };
+struct Crossings { x: vec2<f32>, delta: vec2<i32>, parameter: vec2<f32> };
 struct Event { x: f32, delta: i32, source: u32, order: u32 };
 
 @group(0) @binding(0) var<uniform> uniforms: GlyphUniforms;
@@ -54,7 +55,7 @@ fn crossings(segment: Segment, level: f32, vertical: bool) -> Crossings {
     let p0 = axis_point(segment.p0, vertical);
     let p1 = axis_point(segment.p1, vertical);
     let p2 = axis_point(segment.p2, vertical);
-    var result = Crossings(vec2<f32>(3.0e38), vec2<i32>(0));
+    var result = Crossings(vec2<f32>(3.0e38), vec2<i32>(0), vec2<f32>(-1.0));
     if segment.segmentType == 0u {
         let dy = p1.y - p0.y;
         if dy == 0.0 { return result; }
@@ -62,6 +63,7 @@ fn crossings(segment: Segment, level: f32, vertical: bool) -> Crossings {
         if select((t > 0.0 && t <= 1.0), (t >= 0.0 && t < 1.0), (dy > 0.0)) {
             result.x.x = p0.x + t * (p1.x - p0.x);
             result.delta.x = select(-1, 1, dy > 0.0);
+            result.parameter.x = t;
         }
         return result;
     }
@@ -95,6 +97,7 @@ fn crossings(segment: Segment, level: f32, vertical: bool) -> Crossings {
         if admitted && derivative != 0.0 {
             result.x[lane] = quadratic_at(p0.x, p1.x, p2.x, t);
             result.delta[lane] = select(-1, 1, derivative > 0.0);
+            result.parameter[lane] = t;
         }
     }
     return result;
@@ -105,7 +108,7 @@ fn event_less(a: Event, b: Event) -> bool {
 }
 
 fn prepare_scan(record: GlyphRecord, level: f32, vertical: bool, lane: u32) {
-    var roots = Crossings(vec2<f32>(3.0e38), vec2<i32>(0));
+    var roots = Crossings(vec2<f32>(3.0e38), vec2<i32>(0), vec2<f32>(-1.0));
     if lane < record.segmentCount {
         roots = crossings(segments[record.startSegment + lane], level, vertical);
     }
@@ -190,8 +193,15 @@ fn base_covered(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool
         if events[middle].x < x { low = middle + 1u; }
         else { high = middle; }
     }
-    // Boundary ownership is explicit; do not approximate it with AA threshold.
-    if low < 512u && events[low].x == x { return false; }
+    // An exact nondegenerate quadratic crossing retains the closed curve
+    // boundary. Straight/flat boundaries keep their independent admission.
+    // No epsilon or antialiasing threshold participates in this decision.
+    if low < 512u && events[low].x == x {
+        let edge = segments[record.startSegment + events[low].source];
+        let a = edge.p1 - edge.p0;
+        let b = edge.p2 - edge.p0;
+        return edge.segmentType == 1u && a.x * b.y != a.y * b.x;
+    }
     return low > 0u && winding[low - 1u] != 0 && !on_flat_boundary(record, x, level, vertical);
 }
 
@@ -277,22 +287,28 @@ fn has_flat_cap(record: GlyphRecord, beginning: Event, finish: Event,
     return false;
 }
 
-// A with-stubs scan may touch an exact original line vertex without a positive
-// winding interval. Keep this separate from base fill and ordinary crossings:
-// both neighboring original line endpoints must lie strictly on the same side.
-// Flat scan edges, curved extrema and no-dropout/stub-excluding modes do not enter.
+// A with-stubs scan may touch an exact original contour vertex without a
+// positive winding interval. For a quadratic endpoint, its first nonzero
+// one-sided polynomial coefficient determines which side the curve occupies.
+// Keep interior curve extrema, flat edges and stub-excluding modes separate.
 fn vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     if index >= record.segmentCount { return; }
     let segment = segments[record.startSegment + index];
     let mode = segment.scanDescriptor & 7u;
-    if (mode != 0u && mode != 4u) || segment.segmentType != 0u { return; }
+    if mode != 0u && mode != 4u { return; }
     let previous_index = select(index - 1u, segment.contourStart + segment.contourCount - 1u,
         index == segment.contourStart);
     let previous = segments[record.startSegment + previous_index];
-    if previous.segmentType != 0u { return; }
     let point = axis_point(segment.p0, vertical);
-    let before = axis_point(previous.p0, vertical);
-    let after = axis_point(segment.p1, vertical);
+    var before = axis_point(previous.p0, vertical);
+    if previous.segmentType == 1u {
+        let control = axis_point(previous.p1, vertical);
+        if control.y != point.y { before = control; }
+    }
+    var after = axis_point(segment.p1, vertical);
+    if segment.segmentType == 1u && after.y == point.y {
+        after = axis_point(segment.p2, vertical);
+    }
     if point.y != level || !((before.y < level && after.y < level) ||
         (before.y > level && after.y > level)) { return; }
     let left = floor(point.x - 0.5);
@@ -309,6 +325,38 @@ fn vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     let bounds = raster_bounds(record);
     let candidate = axis_point(vec2<f32>(selected + 0.5, level), vertical);
     paint(clamp(candidate, bounds.xy + vec2<f32>(0.5), bounds.zw - vec2<f32>(0.5)), !vertical);
+}
+
+// Resolve only the selected original root through bounded de Casteljau
+// subdivision in increasing scan-axis direction. Stop once the control hull
+// spans at most one 26.6 unit, retaining the lower-parameter endpoint's unit.
+// Exact endpoint/dyadic roots retain their original coordinate. Base winding
+// and gap admission continue to use independent analytic intersections.
+fn smart_curve_crossing(record: GlyphRecord, event: Event, level: f32, vertical: bool) -> f32 {
+    let segment = segments[record.startSegment + event.source];
+    if segment.segmentType == 0u { return event.x; }
+    let original = crossings(segment, level, vertical);
+    var t = original.parameter[event.order % 2u];
+    var a = axis_point(segment.p0, vertical);
+    var b = axis_point(segment.p1, vertical);
+    var c = axis_point(segment.p2, vertical);
+    if event.delta < 0 {
+        let swap = a; a = c; c = swap; t = 1.0 - t;
+    }
+    for (var depth = 0u; depth < 32u; depth++) {
+        if t == 0.0 { return a.x; }
+        if t == 1.0 { return c.x; }
+        if max(a.x, max(b.x, c.x)) - min(a.x, min(b.x, c.x)) <= 1.0 / 64.0 {
+            return floor(a.x * 64.0) / 64.0;
+        }
+        let ab = (a + b) * 0.5;
+        let bc = (b + c) * 0.5;
+        let middle = (ab + bc) * 0.5;
+        if t == 0.5 { return middle.x; }
+        if t < 0.5 { b = ab; c = middle; t *= 2.0; }
+        else { a = middle; b = bc; t = (t - 0.5) * 2.0; }
+    }
+    return floor(a.x * 64.0) / 64.0;
 }
 
 fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
@@ -347,7 +395,17 @@ fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     }
     var selected = left;
     if mode == 4u || mode == 5u {
-        if (beginning.x + finish) * 0.5 > right { selected = right; }
+        let first_segment = segments[record.startSegment + beginning.source];
+        let last_segment = segments[record.startSegment + events[end].source];
+        var midpoint = (beginning.x + finish) * 0.5;
+        if first_segment.segmentType == 1u || last_segment.segmentType == 1u {
+            // Curved transitions use the nearest 26.6 midpoint, with exact
+            // half-unit ties toward the lower unit. Line-only intervals keep
+            // their original arithmetic; this is not a global glyph snap.
+            midpoint = ceil((smart_curve_crossing(record, beginning, level, vertical) +
+                smart_curve_crossing(record, events[end], level, vertical)) * 32.0 - 0.5) / 64.0;
+        }
+        if midpoint > right { selected = right; }
     }
     let bounds = raster_bounds(record);
     let candidate = axis_point(vec2<f32>(selected + 0.5, level), vertical);

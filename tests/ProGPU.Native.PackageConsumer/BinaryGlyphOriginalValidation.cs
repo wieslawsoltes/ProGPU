@@ -11,13 +11,26 @@ internal static class BinaryGlyphOriginalValidation
 {
     internal static void Run(WgpuContext context, Func<NativeCompositor> create)
     {
+        Run(context, create, "BinaryGlyphOriginals.json",
+            "6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092", "ProGPU-Authored-Scan",
+            ["60D952F14B770AEC08221B8ADEE1A1B7D82A8ABDC259FB2484DE9666A2F45832",
+             "FCBCFA2B3B54CB19E024648C8CF4AE17E6CB08EEE526DDDD9DA91C8BFAF5E9F7"]);
+        Run(context, create, "BinaryGlyphCurveOriginals.json",
+            "B30470FEAE7D095ADAD5E549595ADEAED929058E3040D94640F0CA214313E2B8", "ProGPU-Authored-Curve-Scan",
+            ["1B022DD2BEBA0EE8E591A0A577F6E7872A3F1C661EFDBF4C2C42E9CC6E6EDAD3",
+             "3AA2AB1D3104067B5EDED6406E4ED2B87F813260D8EFA39568082DF48190A721"]);
+    }
+
+    private static void Run(WgpuContext context, Func<NativeCompositor> create,
+        string resource, string digest, string fontPrefix, string[] fontDigests)
+    {
         using Stream input = typeof(BinaryGlyphOriginalValidation).Assembly
-            .GetManifestResourceStream("BinaryGlyphOriginals.json")!;
+            .GetManifestResourceStream(resource)!;
         using var storage = new MemoryStream();
         input.CopyTo(storage);
         byte[] source = storage.ToArray();
         Check(Convert.ToHexString(SHA256.HashData(source)) ==
-            "6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092", "original fixture digest");
+            digest, "original fixture digest");
         using JsonDocument document = JsonDocument.Parse(source);
         JsonElement[] cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
         Check(cases.Length == 880 && cases.Select(c => (c.GetProperty("gasp").GetInt32(),
@@ -60,7 +73,7 @@ internal static class BinaryGlyphOriginalValidation
                 expected.AsSpan(offset, 4).Fill(255);
             }
         }
-        Render(context, create, "original-segments", outlines, segments.ToArray(), glyphs, expected);
+        Render(context, create, $"{resource}/original-segments", outlines, segments.ToArray(), glyphs, expected);
         foreach (NativeFontHintInterpreter interpreter in new[] { NativeFontHintInterpreter.TrueType35, NativeFontHintInterpreter.TrueType40 })
         {
             var capturedOutlines = new List<NativeGlyphOutline>();
@@ -69,12 +82,11 @@ internal static class BinaryGlyphOriginalValidation
             foreach (int gasp in new[] { 1, 3 })
             {
                 using var fontStream = typeof(BinaryGlyphOriginalValidation).Assembly
-                    .GetManifestResourceStream($"ProGPU-Authored-Scan-{gasp}.ttf")!;
+                    .GetManifestResourceStream($"{fontPrefix}-{gasp}.ttf")!;
                 using var fontBytes = new MemoryStream(); fontStream.CopyTo(fontBytes);
                 byte[] font = fontBytes.ToArray();
-                Check(Convert.ToHexString(SHA256.HashData(font)) == (gasp == 1
-                    ? "60D952F14B770AEC08221B8ADEE1A1B7D82A8ABDC259FB2484DE9666A2F45832"
-                    : "FCBCFA2B3B54CB19E024648C8CF4AE17E6CB08EEE526DDDD9DA91C8BFAF5E9F7"), "original authored font bytes");
+                Check(Convert.ToHexString(SHA256.HashData(font)) == fontDigests[gasp == 1 ? 0 : 1],
+                    "original authored font bytes");
                 int[] indices = Enumerable.Range(0, cases.Length).Where(i => cases[i].GetProperty("gasp").GetInt32() == gasp).ToArray();
                 uint[] ids = indices.Select(i => cases[i].GetProperty("index").GetUInt32()).ToArray();
                 using var producer = new NativeTextShapingContext(font);
@@ -103,7 +115,7 @@ internal static class BinaryGlyphOriginalValidation
                         positioned.Position, positioned.BasisX, positioned.BasisY, positioned.Color);
                 }
             }
-            Render(context, create, $"captured-font-{interpreter}", capturedOutlines.ToArray(),
+            Render(context, create, $"{resource}/captured-font-{interpreter}", capturedOutlines.ToArray(),
                 capturedSegments.ToArray(), capturedGlyphs, expected);
         }
     }
