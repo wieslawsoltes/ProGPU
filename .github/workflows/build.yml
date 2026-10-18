@@ -428,7 +428,6 @@ jobs:
           submodules: recursive
 
       - name: Download verified Linux WebGPU dependency
-        if: runner.os == 'Linux'
         uses: actions/download-artifact@v8
         with:
           pattern: progpu-xlib-runtime-*

@@ -100,3 +100,10 @@ x64 consumers. Its original archive remains preserved. The initial Linux
 Avalonia source job also exposed missing staging of the new runtime; that job
 now depends on the same producer and downloads its payload before compilation.
 The complete repaired-head CI and original applications still remain required.
+
+The next macOS ARM64 native run passed WebScene in 44.91 seconds but stopped
+while packing its managed consumer dependency: that job had downloaded Linux
+runtime payloads only on Linux hosts. Native jobs also produce cross-platform
+managed packages, so both Build and Release now download the original Linux
+payloads on every native matrix host. Package validation remains mandatory;
+the original failure is retained and the complete corrected producer must pass.
