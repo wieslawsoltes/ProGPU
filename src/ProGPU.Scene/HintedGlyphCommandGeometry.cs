@@ -59,13 +59,12 @@ internal static class HintedGlyphCommandGeometry
             !float.IsFinite(command.Position.X) || !float.IsFinite(command.Position.Y))
             return false;
         HintedGlyphGeometry geometry = command.HintedGlyphGeometry!;
-        ReadOnlySpan<HintedGlyphOccurrence> occurrences = geometry.RenderOccurrences;
         ReadOnlySpan<GpuGlyphRecord> outlines = geometry.RenderOutlines;
         Vector2 minimum = new(float.MaxValue), maximum = new(float.MinValue);
         int end = start + count; // Range admission proves this sum fits.
         for (int index = start; index < end; index++)
         {
-            HintedGlyphOccurrence occurrence = occurrences[index];
+            FontGlyphPlacement occurrence = geometry.GetRenderPlacement(index);
             Vector2 origin = occurrence.Position + command.Position;
             if (!float.IsFinite(origin.X) || !float.IsFinite(origin.Y)) return false;
             if (occurrence.OutlineIndex == uint.MaxValue) continue;
@@ -104,14 +103,13 @@ internal static class HintedGlyphCommandGeometry
         hasInk = false;
         if (!TryGetRange(command, out int start, out int count)) return false;
         HintedGlyphGeometry geometry = command.HintedGlyphGeometry!;
-        ReadOnlySpan<HintedGlyphOccurrence> occurrences = geometry.RenderOccurrences;
         ReadOnlySpan<GpuGlyphRecord> outlines = geometry.RenderOutlines;
         Vector2 minimum = new(float.MaxValue), maximum = new(float.MinValue);
         try
         {
             for (int index = start; index < start + count; index++)
             {
-                HintedGlyphOccurrence occurrence = occurrences[index];
+                FontGlyphPlacement occurrence = geometry.GetRenderPlacement(index);
                 if (occurrence.OutlineIndex == uint.MaxValue) continue;
                 if (occurrence.OutlineIndex >= (uint)outlines.Length) return false;
                 GpuGlyphRecord outline = outlines[(int)occurrence.OutlineIndex];

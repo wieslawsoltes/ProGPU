@@ -166,7 +166,11 @@ source metadata and its bytes, in addition to configuration/batch storage.
 `hinted_font_cache` retains at most 16 exact source/configuration entries with
 bounded FIFO replacement. Each entry keeps one native face and its latest exact
 ordered glyph-ID batch. Configuration matching includes both device-em values,
-both phases, interpreter and every original-order variation coordinate. Source
+both phases, interpreter, explicit outline-load policy and every original-order
+variation coordinate. Normal remains the default; monochrome, horizontal LCD
+and unhinted scaled outlines retain separate native faces and immutable batches.
+These dependency targets do not select source GDI/GDI+ raster or contrast policy.
+See [font raster recommendations](font-raster-recommendations.md). Source
 identity is shared immutable ownership, not a borrowed mutable pointer or hash.
 A warm identical sequence returns the same generation without cloning buffers or
 running glyph instructions; source repetitions/order remain part of the key.

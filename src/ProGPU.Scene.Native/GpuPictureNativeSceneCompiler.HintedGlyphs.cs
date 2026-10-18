@@ -139,10 +139,9 @@ public static partial class GpuPictureNativeSceneCompiler
     {
         outlines = []; segments = []; glyphs = []; bounds = default; storageBounds = default;
         HintedGlyphGeometry retained = command.HintedGlyphGeometry!;
-        ReadOnlySpan<HintedGlyphOccurrence> owners = retained.RenderOccurrences;
         int inkCount = 0;
         for (int i = start; i < start + count; i++)
-            if (owners[i].OutlineIndex != uint.MaxValue) inkCount++;
+            if (retained.GetRenderPlacement(i).OutlineIndex != uint.MaxValue) inkCount++;
         if (inkCount == 0) return true;
         if (!HintedGlyphCommandGeometry.TryGetRasterBounds(command, out storageBounds, out bool hasInk) || !hasInk)
             return false;
@@ -167,7 +166,7 @@ public static partial class GpuPictureNativeSceneCompiler
         Vector2 translation = new(transform.M31, transform.M32);
         for (int i = start; i < start + count; i++)
         {
-            ref readonly HintedGlyphOccurrence owner = ref owners[i];
+            FontGlyphPlacement owner = retained.GetRenderPlacement(i);
             if (owner.OutlineIndex == uint.MaxValue) continue;
             Vector2 origin = owner.Position + command.Position + translation;
             if (!IsFinite(origin)) return false;

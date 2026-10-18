@@ -1,5 +1,38 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit native font outline-load targets retain separate exact cache identities
+from the interpreter, device size and phase. Keep the normal default, owned source,
+outline-only capture and atomic native fault behavior; only explicit unhinted
+loading may omit instructions. Do not alias targets to source GDI/GDI+ policies
+or enable CPU bitmap rendering. Require producer evidence for all targets and
+warm cache isolation. See docs/font-raster-recommendations.md.
+
+Explicit outline batch transport uses its additive entry point and generated
+policy constants while original hinted calls keep Normal and unchanged request
+bytes. Share whole-batch validation, exclusive context lifetime and atomic
+publication; reject unknown targets before font work. Never fall back across a
+missing export or infer source raster policy from successful outline capture.
+Already-positioned batch geometry shares the original run contour writer without
+fabricated shaping records. Validate every descriptor, retain no-ink/duplicate
+source slots and full-capacity aliases, and keep caller placement independent.
+Owned batch geometry retains that exact captured generation beyond context and
+batch disposal. Its complete copies reuse existing path records, validate all
+output capacities before writing and keep original source bytes immutable.
+Do not reconstruct shaping metadata or execute fonts during copies or replay.
+Already-positioned font replay keeps an explicit metadata-free placement record,
+not a fabricated paragraph occurrence. Preserve original descriptor slots,
+positions, no-ink records and exact DPI through the common managed/native replay.
+Shaping access rejects when absent; selected views retain the same source and
+raster identity. Source GDI/GDI+ policy and original pixels remain separate gates.
+
+Explicit static font raster recommendations retain the selected face's complete
+original gasp range inventory and independent grayscale/symmetric flags. Validate
+raw directory duplicates, extents, versions and every later range before output;
+missing coverage is not an explicit zero recommendation. Raw fvar presence keeps
+instance-adjusted thresholds outside the static query. Never relabel these flags
+as GDI/GDI+ rendering modes or change ordinary glyph placement. See
+docs/font-raster-recommendations.md; metadata is not original pixel qualification.
+
 Linux source Xlib GL initialization uses the actual live window's display and
 screen before creating its EGL context. Keep borrowed toolkit state separate from
 the dependency's owned connection and last-context retirement. Reviewed patches
@@ -2339,7 +2372,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,141 renderer cases (6,132 passes and 9 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,300 renderer cases (6,290 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 

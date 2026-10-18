@@ -14,6 +14,13 @@ public sealed class NativeTextHintingContractTests
         Assert.Equal(16, Marshal.SizeOf<NativeHintedPoint>());
         Assert.Equal(136, Marshal.SizeOf<NativeHintedGlyph>());
         Assert.Equal(12, Marshal.SizeOf<NativeHintedBatchCounts>());
+        Assert.Equal(12, Marshal.SizeOf<NativeFontOutlineCounts>());
+        Assert.Equal(8, Marshal.SizeOf<NativeFontOutlineDescriptor>());
+        Assert.Equal(0, (int)Marshal.OffsetOf<NativeFontOutlineCounts>(nameof(NativeFontOutlineCounts.Descriptors)));
+        Assert.Equal(4, (int)Marshal.OffsetOf<NativeFontOutlineCounts>(nameof(NativeFontOutlineCounts.Outlines)));
+        Assert.Equal(8, (int)Marshal.OffsetOf<NativeFontOutlineCounts>(nameof(NativeFontOutlineCounts.Segments)));
+        Assert.Equal(0, (int)Marshal.OffsetOf<NativeFontOutlineDescriptor>(nameof(NativeFontOutlineDescriptor.GlyphIndex)));
+        Assert.Equal(4, (int)Marshal.OffsetOf<NativeFontOutlineDescriptor>(nameof(NativeFontOutlineDescriptor.OutlineIndex)));
         string[] prefix = ["GlyphIndex", "PointOffset", "PointCount", "ContourOffset", "ContourCount", "OutlineFlags"];
         string[] metrics = ["AdvanceX266", "AdvanceY266", "HorizontalBearingX266", "HorizontalBearingY266",
             "Width266", "Height266", "HorizontalAdvance266", "VerticalBearingX266", "VerticalBearingY266",

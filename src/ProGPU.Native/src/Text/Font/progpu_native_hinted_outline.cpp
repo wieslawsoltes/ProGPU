@@ -66,18 +66,10 @@ bool aliases(const std::array<memory_range, Count>& outputs,
     return false;
 }
 
-// Original retained-batch range ownership preflight from hinted_transport.
+// All output spans include their caller tails; retained spare capacity is owned.
 template<std::size_t Count>
-bool aliases_run(const std::array<memory_range, Count>& outputs,
-    const hinted_shaped_run& run) noexcept {
-    if (aliases(outputs, &run, 1U) ||
-        aliases(outputs, run.glyphs.data(), run.glyphs.capacity()) ||
-        aliases(outputs, run.descriptor_indices.data(), run.descriptor_indices.capacity()) ||
-        aliases(outputs, run.normalized_coordinates.data(), run.normalized_coordinates.capacity()) ||
-        aliases(outputs, run.shaping_input.data(), run.shaping_input.capacity()))
-        return true;
-    if (run.batch == nullptr) return false;
-    const auto& batch = *run.batch;
+bool aliases_batch(const std::array<memory_range, Count>& outputs,
+    const hinted_glyph_batch& batch) noexcept {
     if (aliases(outputs, &batch, 1U) ||
         aliases(outputs, batch.glyphs.data(), batch.glyphs.capacity())) return true;
     if (batch.identity != nullptr &&
@@ -93,6 +85,17 @@ bool aliases_run(const std::array<memory_range, Count>& outputs,
             aliases(outputs, glyph.tags.data(), glyph.tags.capacity()) ||
             aliases(outputs, glyph.contour_ends.data(), glyph.contour_ends.capacity())) return true;
     return false;
+}
+
+template<std::size_t Count>
+bool aliases_run(const std::array<memory_range, Count>& outputs,
+    const hinted_shaped_run& run) noexcept {
+    return aliases(outputs, &run, 1U) ||
+        aliases(outputs, run.glyphs.data(), run.glyphs.capacity()) ||
+        aliases(outputs, run.descriptor_indices.data(), run.descriptor_indices.capacity()) ||
+        aliases(outputs, run.normalized_coordinates.data(), run.normalized_coordinates.capacity()) ||
+        aliases(outputs, run.shaping_input.data(), run.shaping_input.capacity()) ||
+        (run.batch != nullptr && aliases_batch(outputs, *run.batch));
 }
 
 hinted_outline_error select_path(hinted_projection_policy policy,
@@ -229,24 +232,18 @@ hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info,
     return hinted_outline_error::none;
 }
 
-hinted_outline_error inspect_run(const hinted_shaped_run& run,
+bool valid_batch_identity(const hinted_glyph_batch& batch) noexcept {
+    return batch.identity != nullptr && batch.identity->source != nullptr &&
+        batch.identity->x_phase_26_6 < 64U && batch.identity->y_phase_26_6 < 64U;
+}
+
+hinted_outline_error inspect_batch(const hinted_glyph_batch& batch, std::size_t source_count,
     hinted_outline_requirements& requirements, hinted_outline_coverage coverage) noexcept {
-    if (run.batch == nullptr || run.batch->identity == nullptr ||
-        run.batch->identity->source == nullptr ||
-        run.batch->identity->x_phase_26_6 >= 64U || run.batch->identity->y_phase_26_6 >= 64U ||
-        run.source_descriptor_count > run.batch->glyphs.size() ||
-        run.source_descriptor_count > UINT32_MAX ||
-        run.descriptor_indices.size() != run.glyphs.size()) return hinted_outline_error::invalid_run;
-    for (std::size_t index = 0U; index < run.glyphs.size(); ++index) {
-        const auto descriptor = run.descriptor_indices[index];
-        if (descriptor >= run.source_descriptor_count ||
-            run.batch->glyphs[descriptor].glyph_index != run.glyphs[index].glyph_id)
-            return hinted_outline_error::invalid_run;
-    }
-    requirements.source_slots = run.source_descriptor_count;
-    requirements.positioned_slots = run.glyphs.size();
-    for (std::size_t index = 0U; index < run.source_descriptor_count; ++index) {
-        const auto& glyph = run.batch->glyphs[index];
+    if (!valid_batch_identity(batch) || source_count > batch.glyphs.size() || source_count > UINT32_MAX)
+        return hinted_outline_error::invalid_run;
+    requirements.source_slots = source_count;
+    for (std::size_t index = 0U; index < source_count; ++index) {
+        const auto& glyph = batch.glyphs[index];
         glyph_info info{};
         const auto error = inspect_glyph(glyph, info, coverage);
         if (error != hinted_outline_error::none) return error;
@@ -259,6 +256,22 @@ hinted_outline_error inspect_run(const hinted_shaped_run& run,
         }
     }
     return hinted_outline_error::none;
+}
+
+hinted_outline_error inspect_run(const hinted_shaped_run& run,
+    hinted_outline_requirements& requirements, hinted_outline_coverage coverage) noexcept {
+    if (run.batch == nullptr || !valid_batch_identity(*run.batch) ||
+        run.source_descriptor_count > run.batch->glyphs.size() ||
+        run.source_descriptor_count > UINT32_MAX ||
+        run.descriptor_indices.size() != run.glyphs.size()) return hinted_outline_error::invalid_run;
+    for (std::size_t index = 0U; index < run.glyphs.size(); ++index) {
+        const auto descriptor = run.descriptor_indices[index];
+        if (descriptor >= run.source_descriptor_count ||
+            run.batch->glyphs[descriptor].glyph_index != run.glyphs[index].glyph_id)
+            return hinted_outline_error::invalid_run;
+    }
+    requirements.positioned_slots = run.glyphs.size();
+    return inspect_batch(*run.batch, run.source_descriptor_count, requirements, coverage);
 }
 
 void convert_points(std::span<const hinted_outline_point> input,
@@ -361,6 +374,26 @@ std::size_t write_glyph(const hinted_glyph& glyph, hinted_outline_scratch scratc
     }
     return written;
 }
+void write_batch_geometry(const hinted_glyph_batch& batch,
+    const hinted_outline_requirements& required, hinted_outline_scratch scratch,
+    std::span<progpu_native_glyph_outline> outlines, std::span<progpu_native_path_segment> segments,
+    std::span<std::uint32_t> source_outline_indices, hinted_projection_path path,
+    hinted_outline_coverage coverage) noexcept {
+    // The immutable source and completed preflight guarantee this second walk
+    // cannot fail. No callbacks, allocations or resource acquisition occur.
+    std::size_t outline_index = 0U, segment_offset = 0U;
+    for (std::size_t index = 0U; index < required.source_slots; ++index) {
+        const auto& glyph = batch.glyphs[index];
+        glyph_info info{};
+        (void)inspect_glyph(glyph, info, coverage);
+        if (!info.renderable) { source_outline_indices[index] = hinted_no_outline; continue; }
+        (void)write_glyph(glyph, scratch, segments.subspan(segment_offset, info.segments), path);
+        outlines[outline_index] = {segment_offset, info.segments,
+            info.min_x, info.min_y, info.max_x, info.max_y, 1.0F, 0.0F};
+        source_outline_indices[index] = static_cast<std::uint32_t>(outline_index++);
+        segment_offset += info.segments;
+    }
+}
 } // namespace
 
 hinted_outline_error get_hinted_outline_requirements(const hinted_shaped_run& run,
@@ -410,22 +443,58 @@ hinted_outline_error write_hinted_run_outlines(const hinted_shaped_run& run,
         outlines.size() < required.outlines || segments.size() < required.segments ||
         source_outline_indices.size() < required.source_slots || positioned_outline_indices.size() < required.positioned_slots)
         return hinted_outline_error::insufficient_capacity;
-    // The immutable source and completed preflight guarantee this second walk
-    // cannot fail. No callbacks, allocations or resource acquisition occur.
-    std::size_t outline_index = 0U, segment_offset = 0U;
-    for (std::size_t index = 0U; index < required.source_slots; ++index) {
-        const auto& glyph = run.batch->glyphs[index];
-        glyph_info info{};
-        (void)inspect_glyph(glyph, info, coverage);
-        if (!info.renderable) { source_outline_indices[index] = hinted_no_outline; continue; }
-        (void)write_glyph(glyph, scratch, segments.subspan(segment_offset, info.segments), path);
-        outlines[outline_index] = {segment_offset, info.segments,
-            info.min_x, info.min_y, info.max_x, info.max_y, 1.0F, 0.0F};
-        source_outline_indices[index] = static_cast<std::uint32_t>(outline_index++);
-        segment_offset += info.segments;
-    }
+    write_batch_geometry(*run.batch, required, scratch, outlines, segments,
+        source_outline_indices, path, coverage);
     for (std::size_t index = 0U; index < required.positioned_slots; ++index)
         positioned_outline_indices[index] = source_outline_indices[run.descriptor_indices[index]];
+    written = required;
+    return hinted_outline_error::none;
+}
+hinted_outline_error get_hinted_batch_outline_requirements(const hinted_glyph_batch& batch,
+    hinted_outline_requirements& requirements, hinted_projection_policy policy,
+    hinted_outline_coverage coverage) noexcept {
+    hinted_projection_path path{};
+    auto error = select_path(policy, path);
+    if (error != hinted_outline_error::none) return error;
+    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector &&
+        coverage != hinted_outline_coverage::antialiased_vector)
+        return hinted_outline_error::unsupported_policy;
+    std::array<memory_range, 1> output{};
+    if (!range(std::span{&requirements, 1U}, output[0]) || aliases_batch(output, batch))
+        return hinted_outline_error::invalid_argument;
+    hinted_outline_requirements candidate{};
+    error = inspect_batch(batch, batch.glyphs.size(), candidate, coverage);
+    if (error == hinted_outline_error::none) requirements = candidate;
+    return error;
+}
+
+hinted_outline_error write_hinted_batch_outlines(const hinted_glyph_batch& batch,
+    hinted_outline_scratch scratch, std::span<progpu_native_glyph_outline> outlines,
+    std::span<progpu_native_path_segment> segments, std::span<std::uint32_t> source_outline_indices,
+    hinted_outline_requirements& written, hinted_projection_policy policy,
+    hinted_outline_coverage coverage) noexcept {
+    hinted_projection_path path{};
+    auto error = select_path(policy, path);
+    if (error != hinted_outline_error::none) return error;
+    if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector &&
+        coverage != hinted_outline_coverage::antialiased_vector)
+        return hinted_outline_error::unsupported_policy;
+    std::array<memory_range, 6> outputs{};
+    if (!range(scratch.topology, outputs[0]) || !range(scratch.physical_points, outputs[1]) ||
+        !range(outlines, outputs[2]) || !range(segments, outputs[3]) ||
+        !range(source_outline_indices, outputs[4]) || !range(std::span{&written, 1U}, outputs[5]) ||
+        aliases_batch(outputs, batch)) return hinted_outline_error::invalid_argument;
+    for (std::size_t first = 0U; first < outputs.size(); ++first)
+        for (std::size_t second = first + 1U; second < outputs.size(); ++second)
+            if (overlaps(outputs[first], outputs[second])) return hinted_outline_error::invalid_argument;
+    hinted_outline_requirements required{};
+    error = inspect_batch(batch, batch.glyphs.size(), required, coverage);
+    if (error != hinted_outline_error::none) return error;
+    if (scratch.topology.size() < required.scratch_points || scratch.physical_points.size() < required.scratch_points ||
+        outlines.size() < required.outlines || segments.size() < required.segments ||
+        source_outline_indices.size() < required.source_slots)
+        return hinted_outline_error::insufficient_capacity;
+    write_batch_geometry(batch, required, scratch, outlines, segments, source_outline_indices, path, coverage);
     written = required;
     return hinted_outline_error::none;
 }

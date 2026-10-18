@@ -48,7 +48,6 @@ public unsafe partial class Compositor
     internal static Rect GetHintedPaintStorageBounds(RenderCommand command,
         HintedGlyphGeometry geometry, int start, int count)
     {
-        ReadOnlySpan<HintedGlyphOccurrence> occurrences = geometry.RenderOccurrences;
         ReadOnlySpan<GpuGlyphRecord> outlines = geometry.RenderOutlines;
         int segmentCount = geometry.RenderSegments.Length;
         float inverseDpi = 1f / geometry.DpiScale;
@@ -56,7 +55,7 @@ public unsafe partial class Compositor
         int end = checked(start + count);
         for (int index = start; index < end; index++)
         {
-            HintedGlyphOccurrence occurrence = occurrences[index];
+            FontGlyphPlacement occurrence = geometry.GetRenderPlacement(index);
             if (occurrence.OutlineIndex == uint.MaxValue) continue;
             GpuGlyphRecord record = outlines[checked((int)occurrence.OutlineIndex)];
             GlyphAtlas.ValidateHintedRasterRecord(in record, segmentCount);
@@ -249,14 +248,13 @@ public unsafe partial class Compositor
         Vector4 color = (command.Brush as SolidColorBrush)?.Color ?? Vector4.One;
         if (!sharedStyle && paintIndex is null) color.W *= (command.Brush?.Opacity ?? 1f) * _activeOpacity;
         EnsureTextVertexCapacity(count);
-        ReadOnlySpan<HintedGlyphOccurrence> occurrences = geometry.RenderOccurrences;
         ReadOnlySpan<GpuGlyphRecord> outlines = geometry.RenderOutlines;
         Vector2 translation = new(transform.M41, transform.M42);
         float inverseDpi = 1f / geometry.DpiScale;
         int end = checked(start + count);
         for (int index = start; index < end; index++)
         {
-            HintedGlyphOccurrence occurrence = occurrences[index];
+            FontGlyphPlacement occurrence = geometry.GetRenderPlacement(index);
             if (occurrence.OutlineIndex == uint.MaxValue) continue;
             GpuGlyphRecord record = outlines[checked((int)occurrence.OutlineIndex)];
             Vector2 position = occurrence.Position + command.Position + translation;

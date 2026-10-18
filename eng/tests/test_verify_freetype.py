@@ -100,11 +100,11 @@ class FontInstallationAdmissionTests(unittest.TestCase):
                                            "independentPolicies": True, "invalidPolicyRejected": True},
                         "glyphProbe": {"glyphBatchControls": True, "nativeHintsObserved": True,
                                        "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True,
-                                       "actualDeviceFrame": True, "hintedProjectionSIMD": True, "retainedAnchorPoints": True},
+                                       "actualDeviceFrame": True, "hintedProjectionSIMD": True, "retainedAnchorPoints": True, "outlineLoadPolicies": True},
                         "transportProbe": {"fixedWidthTransport": True, "exactIntegerDifferential": True,
                                            "atomicTailControls": True},
                         "cacheProbe": {"boundedOwnedCache": True, "exactGenerationReuse": True,
-                                       "nativeFaultAtomicity": True}}
+                                       "nativeFaultAtomicity": True, "outlinePolicyIdentity": True}}
         self.manifest = install / "progpu-freetype.json"
         self.save()
         self.release = patch.object(VERIFY, "verify_source")
@@ -146,6 +146,19 @@ class FontInstallationAdmissionTests(unittest.TestCase):
         self.receipt["cacheProbe"]["boundedOwnedCache"] = 1
         self.save()
         with self.assertRaises(ValueError): self.validate()
+
+    def test_outline_policy_controls_are_required_and_boolean(self):
+        for group, field in (("glyphProbe", "outlineLoadPolicies"),
+                             ("cacheProbe", "outlinePolicyIdentity")):
+            for value in (None, False, 1):
+                if value is None:
+                    del self.receipt[group][field]
+                else:
+                    self.receipt[group][field] = value
+                self.save()
+                with self.subTest(group=group, value=value), self.assertRaises(ValueError):
+                    self.validate()
+                self.receipt[group][field] = True
 
     def test_changed_actual_build_configuration_rejects(self):
         cache = self.workspace / "build/CMakeCache.txt"

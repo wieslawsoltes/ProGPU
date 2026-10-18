@@ -12,10 +12,24 @@ extern "C" {
 #endif
 
 typedef struct progpu_native_hinted_batch progpu_native_hinted_batch;
+typedef struct progpu_native_font_outline_geometry progpu_native_font_outline_geometry;
 typedef struct progpu_native_hinted_run progpu_native_hinted_run;
 typedef struct progpu_native_hinted_paragraph progpu_native_hinted_paragraph;
 typedef struct progpu_native_hinted_paragraph_frame progpu_native_hinted_paragraph_frame;
 typedef struct progpu_native_hinted_glyph_resource progpu_native_hinted_glyph_resource;
+
+/* Explicit dependency outline targets, independent of interpreter and GPU
+ * coverage. Existing hinted entry points retain NORMAL and their exact ABI. */
+enum progpu_native_font_outline_policy {
+    /* PROGPU_CSHARP_ULONG: FontOutlineNormal */
+    PROGPU_NATIVE_FONT_OUTLINE_NORMAL = 0ULL,
+    /* PROGPU_CSHARP_ULONG: FontOutlineMonochrome */
+    PROGPU_NATIVE_FONT_OUTLINE_MONOCHROME = 1ULL,
+    /* PROGPU_CSHARP_ULONG: FontOutlineHorizontalLcd */
+    PROGPU_NATIVE_FONT_OUTLINE_HORIZONTAL_LCD = 2ULL,
+    /* PROGPU_CSHARP_ULONG: FontOutlineUnhinted */
+    PROGPU_NATIVE_FONT_OUTLINE_UNHINTED = 3ULL
+};
 
 /* PROGPU_CSHARP_STRUCT: NativeMethods.HintedFontRequest */
 typedef struct progpu_native_hinted_font_request {
@@ -84,6 +98,19 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_capture_hinted
     uint32_t glyph_count,
     progpu_native_hinted_batch** batch);
 
+/* Same complete batch, immutable source, exclusive context lease and atomic
+ * publication contract, with explicit outline loading. Undefined policies fail
+ * before context/font work. No source GDI/GDI+ mode, bitmap rendering or source
+ * layout is implied. Old request bytes and reserved-zero rules stay unchanged. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_capture_outline_batch(
+    progpu_native_text_context* context,
+    const progpu_native_hinted_font_request* request,
+    uint32_t outline_policy,
+    const int32_t* variation_coordinates_16_16,
+    const uint32_t* glyph_indices,
+    uint32_t glyph_count,
+    progpu_native_hinted_batch** batch);
+
 /* Counts and every output/tail remain unchanged on failure. Copy transfers one
  * complete retained generation without executing fonts, allocating or doing GPU
  * work. Tags use point offsets; contour ends are original glyph-local indices.
@@ -97,6 +124,42 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_batch_copy(
     uint8_t* tags, uint32_t tag_capacity,
     int32_t* contour_ends, uint32_t contour_capacity);
 PROGPU_NATIVE_API void progpu_native_hinted_batch_destroy(progpu_native_hinted_batch* batch);
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeFontOutlineCounts */
+typedef struct progpu_native_font_outline_counts {
+    uint32_t descriptors;
+    uint32_t outlines;
+    uint32_t segments;
+} progpu_native_font_outline_counts;
+
+/* PROGPU_CSHARP_STRUCT: Public.NativeFontOutlineDescriptor */
+typedef struct progpu_native_font_outline_descriptor {
+    uint32_t glyph_index;
+    uint32_t outline_index; /* UINT32_MAX for a retained no-ink descriptor. */
+} progpu_native_font_outline_descriptor;
+
+/* Prepare immutable physical Y-up geometry without reshaping or re-executing
+ * fonts. Retains the actual captured batch independently of its public handle.
+ * Projection/coverage use the existing explicit hinted policy enums below.
+ * Success publishes one owned handle; failure preserves the previous output.
+ * This operation may allocate. It does not admit source paint or positioning. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_hinted_batch_create_geometry(
+    const progpu_native_hinted_batch* batch, uint32_t projection_policy,
+    uint32_t coverage, progpu_native_font_outline_geometry** geometry);
+
+/* Complete immutable copies make no allocation, font or GPU calls. All output
+ * capacities (including tails) must be mutually disjoint and outside the owned
+ * geometry and original batch. Every output remains untouched on rejection.
+ * Descriptors retain original order/IDs, including duplicates and no-ink slots.
+ * Caller leases exclude concurrent destruction. Destroy(NULL) is permitted. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_font_outline_geometry_get_counts(
+    const progpu_native_font_outline_geometry* geometry, progpu_native_font_outline_counts* counts);
+PROGPU_NATIVE_API progpu_native_status progpu_native_font_outline_geometry_copy(
+    const progpu_native_font_outline_geometry* geometry,
+    progpu_native_glyph_outline* outlines, uint32_t outline_capacity,
+    progpu_native_path_segment* segments, uint32_t segment_capacity,
+    progpu_native_font_outline_descriptor* descriptors, uint32_t descriptor_capacity);
+PROGPU_NATIVE_API void progpu_native_font_outline_geometry_destroy(progpu_native_font_outline_geometry* geometry);
 
 /* Explicit owned-context device shaping under the caller's exclusive context
  * lease. The shape request must omit font bytes, face index and normalization

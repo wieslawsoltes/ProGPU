@@ -73,4 +73,23 @@ hinted_outline_error write_hinted_run_outlines(const hinted_shaped_run& run,
     hinted_projection_policy policy = hinted_projection_policy::automatic,
     hinted_outline_coverage coverage = hinted_outline_coverage::strict) noexcept;
 
+// Already-positioned callers consume every original batch descriptor without
+// inventing a shaped run or replacing their own positions/advances. This path
+// has no auxiliary slots: all batch glyphs receive complete topology admission.
+// Requirements.positioned_slots stays zero. Geometry, coverage, exact physical
+// phase, full-span alias rejection and atomic failure match the run writer.
+hinted_outline_error get_hinted_batch_outline_requirements(const hinted_glyph_batch& batch,
+    hinted_outline_requirements& requirements,
+    hinted_projection_policy policy = hinted_projection_policy::automatic,
+    hinted_outline_coverage coverage = hinted_outline_coverage::strict) noexcept;
+
+hinted_outline_error write_hinted_batch_outlines(const hinted_glyph_batch& batch,
+    hinted_outline_scratch scratch,
+    std::span<progpu_native_glyph_outline> outlines,
+    std::span<progpu_native_path_segment> segments,
+    std::span<std::uint32_t> source_outline_indices,
+    hinted_outline_requirements& written,
+    hinted_projection_policy policy = hinted_projection_policy::automatic,
+    hinted_outline_coverage coverage = hinted_outline_coverage::strict) noexcept;
+
 } // namespace progpu::native::text

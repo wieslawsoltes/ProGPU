@@ -15,11 +15,17 @@ namespace ProGPU.Tests;
 public sealed class HintedGlyphCompositorReplayTests
 {
     [Theory]
-    [InlineData(1f)]
-    [InlineData(2f)]
-    public void PhysicalCoverageIsDividedByTargetDpiExactlyOnce(float dpi)
+    [InlineData(1f, false)]
+    [InlineData(2f, false)]
+    [InlineData(1f, true)]
+    [InlineData(2f, true)]
+    public void PhysicalCoverageIsDividedByTargetDpiExactlyOnce(float dpi, bool fontPlacements)
     {
-        using var geometry = CreateBox(dpi);
+        using var original = CreateBox(dpi);
+        using var geometry = fontPlacements
+            ? HintedGlyphGeometry.FromFontPlacements(dpi, original.Outlines.ToArray(), original.Segments.ToArray(),
+                [new FontGlyphPlacement(0, 7, 0, new Vector2(8, 24))], new CountingOwner())
+            : original;
         using var window = CreateWindow(checked((uint)(64 * dpi)));
         window.Content = new HintedVisual(geometry, spatial: false, clip: false);
         window.RenderAtDpi(64, 64, dpi);

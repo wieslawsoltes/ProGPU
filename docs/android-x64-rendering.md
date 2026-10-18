@@ -85,6 +85,24 @@ PNG, fresh log and confirmation outcome remain under `boot-candidates/NNNN`;
 later success never overwrites a rejected candidate. Animation settings are
 applied once, and any ANR/fatal failure still terminates immediately.
 
+Boot commands that exit nonzero retain their return code, arguments and both raw
+output streams in a separate `*.failure.json` receipt. Binary or partial stdout
+is base64 encoded; an empty stderr cannot discard it. An explicitly merged
+stream remains one stream, with null separate stderr. Failed captures never
+publish the success filename or overwrite an earlier failure. The lifecycle
+also records the owned emulator/logcat/probe process states before cleanup can
+change their return codes. Evidence-writing errors cannot replace the original
+failure. These observations add no retry, new input or deadline extension.
+
+The 18 October run 39104271842 reached a HOME candidate, then failed its final
+logcat command with exit 255; cleanup captures reported the device offline.
+No application launch occurred. The original artifact 12127951641 is retained
+(SHA-256 `ef898282d1d318cdf0a1d08faba77c5386ab1185e3b62a310cdce836939d4914`).
+Its missing failed-command stdout cannot be recovered from the existing logs.
+The receipt repair passes all 59 offline Android controls, including original
+byte preservation and live/exited owned-process observation. It does not yet
+attribute the device disconnect or qualify that failed rendering run.
+
 `eng/progpu-test-android-emulator.sh` attaches to one already-running adb target;
 it does not create another emulator or VM. It resolves the package's actual
 launcher activity, installs the signed APK and launches it. Evidence includes

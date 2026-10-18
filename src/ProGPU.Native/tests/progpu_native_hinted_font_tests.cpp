@@ -424,6 +424,81 @@ void verify(const std::vector<std::byte>& original)
     require(actual_outline_hint_difference && actual_advance_hint_difference);
 }
 
+void verify_outline_load_policies(const std::vector<std::byte>& original)
+{
+    reference_owner reference;
+    require(FT_Init_FreeType(&reference.library) == 0);
+    require(FT_New_Memory_Face(reference.library, reinterpret_cast<const FT_Byte*>(original.data()),
+        static_cast<FT_Long>(original.size()), 0, &reference.face) == 0);
+    const std::array<std::uint32_t, 6> ids{FT_Get_Char_Index(reference.face, 'A'),
+        FT_Get_Char_Index(reference.face, 'g'), FT_Get_Char_Index(reference.face, 'I'),
+        FT_Get_Char_Index(reference.face, 'W'), FT_Get_Char_Index(reference.face, ' '),
+        FT_Get_Char_Index(reference.face, 'A')};
+    // Public dependency flags, deliberately independent of the product mapper.
+    constexpr FT_Int32 common = FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC;
+    constexpr std::array modes{font_outline_load_policy::normal, font_outline_load_policy::monochrome,
+        font_outline_load_policy::horizontal_lcd, font_outline_load_policy::unhinted};
+    constexpr std::array<FT_Int32, 4> flags{common | FT_LOAD_TARGET_NORMAL,
+        common | FT_LOAD_TARGET_MONO, common | FT_LOAD_TARGET_LCD, common | FT_LOAD_NO_HINTING};
+    for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
+        for (const auto size : {13U * 64U, 17U * 64U, 14U * 64U + 17U}) {
+            for (std::size_t mode = 0; mode < modes.size(); ++mode) {
+                hinted_font_configuration config{size, size + 23U, interpreter, 19U, 37U, {}};
+                config.outline_policy = modes[mode];
+                configure_reference(reference, config);
+                std::unique_ptr<hinted_font> font;
+                hinted_font_error error{};
+                require(hinted_font::try_create(original, 0U, config, font, error));
+                std::shared_ptr<const hinted_glyph_batch> batch;
+                require(font->try_capture(ids, batch, error));
+                require(batch->identity->outline_policy == modes[mode]);
+                compare_frame(*batch->identity, reference.face);
+                for (std::size_t glyph = 0; glyph < ids.size(); ++glyph) {
+                    require(FT_Load_Glyph(reference.face, ids[glyph], flags[mode]) == 0);
+                    compare_slot(batch->glyphs[glyph], reference.face->glyph);
+                }
+                const auto exact = batch->glyphs;
+                const auto saved = batch;
+                const auto* saved_font = font.get();
+                auto invalid = config;
+                invalid.outline_policy = static_cast<font_outline_load_policy>(0xFFFFFFFFU);
+                require(!hinted_font::try_create(original, 0U, invalid, font, error) &&
+                    error == hinted_font_error::invalid_argument && font.get() == saved_font);
+                require(font->try_capture(ids, batch, error) && batch->glyphs == exact &&
+                    batch->identity == saved->identity);
+                font.reset();
+                require(saved->glyphs == exact && saved->identity->outline_policy == modes[mode]);
+                tests::verify_hinted_transport(*saved);
+                verify_design_projection(*saved);
+            }
+        }
+    }
+    // Explicit unhinted loading must not execute a deliberately faulty native
+    // glyph program. Default hinted fault/rollback controls remain unchanged.
+    const auto fault_bytes = progpu::native::tests::make_hint_fault_font();
+    hinted_font_configuration config{14U * 64U, 14U * 64U, font_hint_policy::truetype_40, 0U, 0U, {}};
+    config.outline_policy = font_outline_load_policy::unhinted;
+    std::unique_ptr<hinted_font> font;
+    hinted_font_error error{};
+    require(hinted_font::try_create(fault_bytes, 0U, config, font, error));
+    const std::array<std::uint32_t, 1> faulty{2U};
+    std::shared_ptr<const hinted_glyph_batch> batch;
+    require(font->try_capture(faulty, batch, error) && batch->glyphs.size() == 1U);
+    for (const auto mode : {font_outline_load_policy::normal, font_outline_load_policy::monochrome,
+            font_outline_load_policy::horizontal_lcd}) {
+        config.outline_policy = mode;
+        require(hinted_font::try_create(fault_bytes, 0U, config, font, error));
+        const std::array<std::uint32_t, 1> good{1U};
+        require(font->try_capture(good, batch, error));
+        const auto retained = batch;
+        const auto glyphs = batch->glyphs;
+        const std::array<std::uint32_t, 2> late_fault{1U, 2U};
+        require(!font->try_capture(late_fault, batch, error) && error == hinted_font_error::hinting_failed &&
+            batch == retained && batch->glyphs == glyphs);
+        require(font->try_capture(good, batch, error) && batch->glyphs == glyphs);
+    }
+}
+
 void verify_native_hint_fault()
 {
     const auto original = progpu::native::tests::make_hint_fault_font();
@@ -468,11 +543,14 @@ int main(int argc, char** argv)
 {
     try {
         require(argc == 2);
-        verify(read_font(argv[1]));
+        const auto bytes = read_font(argv[1]);
+        verify(bytes);
+        verify_outline_load_policies(bytes);
         verify_native_hint_fault();
         std::cout << "{\"glyphBatchControls\":true,\"nativeHintsObserved\":true,"
                      "\"slotDifferential\":true,\"nativeFaultAtomicity\":true,\"fixedWidthTransport\":true,"
-                     "\"actualDeviceFrame\":true,\"hintedProjectionSIMD\":true,\"retainedAnchorPoints\":true}\n";
+                     "\"actualDeviceFrame\":true,\"hintedProjectionSIMD\":true,\"retainedAnchorPoints\":true,"
+                     "\"outlineLoadPolicies\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

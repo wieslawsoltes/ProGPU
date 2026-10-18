@@ -4,6 +4,7 @@
 #include "progpu_native_hinted_gpos.hpp"
 #include "progpu_native_hinted_run_metrics.hpp"
 #include "progpu_native_hinted_shaper.hpp"
+#include "progpu_native_hinted_outline.hpp"
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "../src/Text/Shaping/progpu_native_open_type_device_shaper_internal.hpp"
 
@@ -20,7 +21,93 @@ struct batch_owner final {
     ~batch_owner() { progpu_native_hinted_batch_destroy(value); }
 };
 
+struct geometry_owner final {
+    progpu_native_font_outline_geometry* value = nullptr;
+    ~geometry_owner() { progpu_native_font_outline_geometry_destroy(value); }
+};
+
 #if defined(PROGPU_NATIVE_FONT_HINTING)
+void verify_captured_batch_geometry(const progpu::native::text::hinted_glyph_batch& batch) {
+    using namespace progpu::native::text;
+    using progpu::native::text::tests::transport_require;
+    constexpr auto coverage = hinted_outline_coverage::antialiased_vector;
+    hinted_outline_requirements required{};
+    transport_require(get_hinted_batch_outline_requirements(batch, required,
+        hinted_projection_policy::automatic, coverage) == hinted_outline_error::none);
+    transport_require(required.source_slots == batch.glyphs.size() && required.positioned_slots == 0U);
+    std::vector<sfnt_outline_point> topology(required.scratch_points);
+    std::vector<progpu_native_point> physical(required.scratch_points);
+    std::vector<progpu_native_glyph_outline> outlines(required.outlines), scalar_outlines(required.outlines);
+    std::vector<progpu_native_path_segment> segments(required.segments), scalar_segments(required.segments);
+    std::vector<std::uint32_t> source(required.source_slots), scalar_source(required.source_slots);
+    hinted_outline_requirements written{};
+    transport_require(write_hinted_batch_outlines(batch, {topology, physical}, outlines, segments, source,
+        written, hinted_projection_policy::automatic, coverage) == hinted_outline_error::none && written == required);
+    transport_require(write_hinted_batch_outlines(batch, {topology, physical}, scalar_outlines, scalar_segments,
+        scalar_source, written, hinted_projection_policy::scalar_reference, coverage) == hinted_outline_error::none &&
+        written == required && source == scalar_source);
+    transport_require(std::ranges::equal(std::as_bytes(std::span(outlines)), std::as_bytes(std::span(scalar_outlines))) &&
+        std::ranges::equal(std::as_bytes(std::span(segments)), std::as_bytes(std::span(scalar_segments))));
+}
+
+void verify_public_geometry(progpu_native_font_outline_geometry* geometry,
+    const progpu::native::text::hinted_glyph_batch& batch) {
+    using namespace progpu::native::text;
+    using progpu::native::text::tests::transport_require;
+    hinted_outline_requirements required{};
+    transport_require(get_hinted_batch_outline_requirements(batch, required, hinted_projection_policy::automatic,
+        hinted_outline_coverage::antialiased_vector) == hinted_outline_error::none);
+    progpu_native_font_outline_counts counts{};
+    transport_require(progpu_native_font_outline_geometry_get_counts(geometry, &counts) == PROGPU_NATIVE_STATUS_SUCCESS &&
+        counts.descriptors == required.source_slots && counts.outlines == required.outlines && counts.segments == required.segments);
+    std::vector<sfnt_outline_point> topology(required.scratch_points);
+    std::vector<progpu_native_point> physical(required.scratch_points);
+    std::vector<progpu_native_glyph_outline> expected_outlines(required.outlines), outlines(required.outlines + 1U);
+    std::vector<progpu_native_path_segment> expected_segments(required.segments), segments(required.segments + 1U);
+    std::vector<std::uint32_t> mapping(required.source_slots);
+    std::vector<progpu_native_font_outline_descriptor> descriptors(required.source_slots + 1U);
+    hinted_outline_requirements written{};
+    transport_require(write_hinted_batch_outlines(batch, {topology, physical}, expected_outlines, expected_segments,
+        mapping, written, hinted_projection_policy::automatic, hinted_outline_coverage::antialiased_vector) == hinted_outline_error::none);
+    const auto snapshot = [](const auto& values) {
+        const auto bytes = std::as_bytes(std::span(values));
+        return std::vector<std::byte>(bytes.begin(), bytes.end());
+    };
+    std::memset(outlines.data(), 0xA6, outlines.size() * sizeof(outlines[0]));
+    std::memset(segments.data(), 0xA6, segments.size() * sizeof(segments[0]));
+    std::memset(descriptors.data(), 0xA6, descriptors.size() * sizeof(descriptors[0]));
+    const auto before_outlines = snapshot(outlines), before_segments = snapshot(segments), before_descriptors = snapshot(descriptors);
+    for (unsigned missing = 0U; missing < 3U; ++missing) {
+        if ((missing == 0U && counts.outlines == 0U) || (missing == 1U && counts.segments == 0U) ||
+            (missing == 2U && counts.descriptors == 0U)) continue;
+        transport_require(progpu_native_font_outline_geometry_copy(geometry, outlines.data(),
+            missing == 0U ? counts.outlines - 1U : counts.outlines, segments.data(),
+            missing == 1U ? counts.segments - 1U : counts.segments, descriptors.data(),
+            missing == 2U ? counts.descriptors - 1U : counts.descriptors) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+        transport_require(snapshot(outlines) == before_outlines && snapshot(segments) == before_segments && snapshot(descriptors) == before_descriptors);
+    }
+    transport_require(progpu_native_font_outline_geometry_get_counts(geometry,
+        reinterpret_cast<progpu_native_font_outline_counts*>(geometry)) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    const auto source_before = batch.identity->source->bytes;
+    transport_require(progpu_native_font_outline_geometry_get_counts(geometry,
+        reinterpret_cast<progpu_native_font_outline_counts*>(const_cast<std::byte*>(batch.identity->source->bytes.data()))) ==
+        PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && batch.identity->source->bytes == source_before);
+    transport_require(progpu_native_font_outline_geometry_copy(geometry, outlines.data(), counts.outlines + 1U,
+        segments.data(), counts.segments + 1U, reinterpret_cast<progpu_native_font_outline_descriptor*>(outlines.data()),
+        counts.descriptors + 1U) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+    transport_require(snapshot(outlines) == before_outlines && snapshot(segments) == before_segments && snapshot(descriptors) == before_descriptors);
+    transport_require(progpu_native_font_outline_geometry_copy(geometry, outlines.data(), counts.outlines + 1U,
+        segments.data(), counts.segments + 1U, descriptors.data(), counts.descriptors + 1U) == PROGPU_NATIVE_STATUS_SUCCESS);
+    transport_require(std::ranges::equal(std::as_bytes(std::span(expected_outlines)),
+        std::as_bytes(std::span(outlines).first(counts.outlines))) &&
+        std::ranges::equal(std::as_bytes(std::span(expected_segments)), std::as_bytes(std::span(segments).first(counts.segments))));
+    for (std::size_t index = 0U; index < mapping.size(); ++index)
+        transport_require(descriptors[index].glyph_index == batch.glyphs[index].glyph_index && descriptors[index].outline_index == mapping[index]);
+    transport_require(std::memcmp(&outlines.back(), before_outlines.data() + counts.outlines * sizeof(outlines[0]), sizeof(outlines[0])) == 0 &&
+        std::memcmp(&segments.back(), before_segments.data() + counts.segments * sizeof(segments[0]), sizeof(segments[0])) == 0 &&
+        std::memcmp(&descriptors.back(), before_descriptors.data() + counts.descriptors * sizeof(descriptors[0]), sizeof(descriptors[0])) == 0);
+}
+
 void verify_shaping_input(const progpu::native::text::hinted_shaped_run& run,
     std::span<const progpu::native::text::unicode_scalar> admitted) {
     using progpu::native::text::tests::transport_require;
@@ -421,6 +508,9 @@ int main()
         const std::array<std::uint32_t, 3> ids{1U, 1U, 0U};
         hinted_font_error error = hinted_font_error::none;
         batch_owner public_batch;
+        std::array<batch_owner, 8> outline_batches;
+        std::array<geometry_owner, 8> outline_geometries;
+        std::array<std::shared_ptr<const hinted_glyph_batch>, 8> outline_generations;
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         std::shared_ptr<const hinted_shaped_run> owned_shape;
         const auto mapping_original = progpu::native::tests::make_hinted_mapping_font();
@@ -447,6 +537,21 @@ int main()
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                 candidate == nullptr);
             request.x_phase_26_6 = 0U;
+            for (const std::uint32_t invalid_policy : {4U, 0xFFFFFFFFU}) {
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    invalid_policy, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) ==
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && candidate == nullptr);
+            }
+            const auto unchanged_request = request;
+            transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                PROGPU_NATIVE_FONT_OUTLINE_NORMAL, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                reinterpret_cast<progpu_native_hinted_batch**>(&request)) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                std::memcmp(&request, &unchanged_request, sizeof(request)) == 0);
+            request.reserved = 1U;
+            transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                PROGPU_NATIVE_FONT_OUTLINE_NORMAL, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                &candidate) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && candidate == nullptr);
+            request.reserved = 0U;
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), reinterpret_cast<progpu_native_hinted_batch**>(&request)) ==
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && request.abi_version == PROGPU_NATIVE_ABI_VERSION);
@@ -473,6 +578,45 @@ int main()
                 shape_options, owned_shape, shape_error) && shape_error.capture == hinted_font_error::hinting_failed && !shape_error.resource_exhausted &&
                 owned_shape == saved_shape);
             const auto saved = retained;
+            constexpr std::array<std::uint32_t, 4> wire_policies{PROGPU_NATIVE_FONT_OUTLINE_NORMAL,
+                PROGPU_NATIVE_FONT_OUTLINE_MONOCHROME, PROGPU_NATIVE_FONT_OUTLINE_HORIZONTAL_LCD,
+                PROGPU_NATIVE_FONT_OUTLINE_UNHINTED};
+            constexpr std::array native_policies{font_outline_load_policy::normal, font_outline_load_policy::monochrome,
+                font_outline_load_policy::horizontal_lcd, font_outline_load_policy::unhinted};
+            for (std::size_t index = 0U; index < wire_policies.size(); ++index) {
+                const auto slot = index + (policy == font_hint_policy::truetype_40 ? 4U : 0U);
+                auto explicit_configuration = configuration;
+                explicit_configuration.outline_policy = native_policies[index];
+                transport_require(capture_context_hinted(context.value, 0U, explicit_configuration, ids,
+                    outline_generations[slot], error));
+                progpu_native_hinted_batch_destroy(outline_batches[slot].value);
+                outline_batches[slot].value = nullptr;
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    wire_policies[index], nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                    &outline_batches[slot].value) == PROGPU_NATIVE_STATUS_SUCCESS);
+                verify_public_batch(outline_batches[slot].value, *outline_generations[slot]);
+                transport_require(progpu_native_hinted_batch_create_geometry(outline_batches[slot].value,
+                    PROGPU_NATIVE_HINTED_PROJECTION_AUTOMATIC, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR,
+                    &outline_geometries[slot].value) == PROGPU_NATIVE_STATUS_SUCCESS);
+                const auto saved_geometry = outline_geometries[slot].value;
+                transport_require(progpu_native_hinted_batch_create_geometry(outline_batches[slot].value,
+                    PROGPU_NATIVE_HINTED_PROJECTION_AUTOMATIC, 99U, &outline_geometries[slot].value) ==
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && outline_geometries[slot].value == saved_geometry);
+                transport_require(progpu_native_hinted_batch_create_geometry(outline_batches[slot].value,
+                    PROGPU_NATIVE_HINTED_PROJECTION_AUTOMATIC, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR,
+                    reinterpret_cast<progpu_native_font_outline_geometry**>(outline_batches[slot].value)) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT);
+                transport_require(progpu_native_hinted_batch_create_geometry(outline_batches[slot].value,
+                    99U, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR, &outline_geometries[slot].value) ==
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && outline_geometries[slot].value == saved_geometry);
+                transport_require(progpu_native_hinted_batch_create_geometry(outline_batches[slot].value,
+                    PROGPU_NATIVE_HINTED_PROJECTION_NATIVE_COMPUTE, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR,
+                    &outline_geometries[slot].value) == PROGPU_NATIVE_STATUS_UNSUPPORTED && outline_geometries[slot].value == saved_geometry);
+                const auto saved_public = outline_batches[slot].value;
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    0xFFFFFFFFU, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                    &outline_batches[slot].value) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                    outline_batches[slot].value == saved_public);
+            }
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_SUCCESS);
             progpu_native_hinted_batch_destroy(public_batch.value);
@@ -506,7 +650,28 @@ int main()
             request.font_index = 0U;
             transport_require(retained == saved && retained->identity->source == source);
             tests::verify_hinted_transport(*retained);
+            {
+                batch_owner empty_batch;
+                geometry_owner empty_geometry;
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    PROGPU_NATIVE_FONT_OUTLINE_NORMAL, nullptr, nullptr, 0U, &empty_batch.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+                transport_require(progpu_native_hinted_batch_create_geometry(empty_batch.value,
+                    PROGPU_NATIVE_HINTED_PROJECTION_AUTOMATIC, PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR,
+                    &empty_geometry.value) == PROGPU_NATIVE_STATUS_SUCCESS);
+                progpu_native_hinted_batch_destroy(empty_batch.value);
+                empty_batch.value = nullptr;
+                progpu_native_font_outline_counts empty_counts{9U, 9U, 9U};
+                transport_require(progpu_native_font_outline_geometry_get_counts(empty_geometry.value, &empty_counts) ==
+                    PROGPU_NATIVE_STATUS_SUCCESS && empty_counts.descriptors == 0U && empty_counts.outlines == 0U && empty_counts.segments == 0U);
+                transport_require(progpu_native_font_outline_geometry_copy(empty_geometry.value, nullptr, 0U,
+                    nullptr, 0U, nullptr, 0U) == PROGPU_NATIVE_STATUS_SUCCESS);
+            }
 #else
+            for (const std::uint32_t mode : {0U, 1U, 2U, 3U}) {
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    mode, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) ==
+                    PROGPU_NATIVE_STATUS_UNSUPPORTED && candidate == nullptr);
+            }
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_UNSUPPORTED &&
                 candidate == nullptr);
@@ -519,6 +684,24 @@ int main()
         verify_owned_gpos_frame(*retained);
         verify_owned_run_metrics(*retained);
         verify_public_batch(public_batch.value, *retained);
+        for (std::size_t index = 0U; index < outline_batches.size(); ++index) {
+            verify_public_batch(outline_batches[index].value, *outline_generations[index]);
+            verify_captured_batch_geometry(*outline_generations[index]);
+            progpu_native_hinted_batch_destroy(outline_batches[index].value);
+            outline_batches[index].value = nullptr;
+            const std::weak_ptr<const hinted_glyph_batch> lifetime = outline_generations[index];
+            outline_generations[index].reset();
+            {
+                const auto witness = lifetime.lock();
+                transport_require(witness != nullptr);
+                verify_public_geometry(outline_geometries[index].value, *witness);
+            }
+            progpu_native_font_outline_geometry_destroy(outline_geometries[index].value);
+            outline_geometries[index].value = nullptr;
+            // Non-normal policies have no other retained fixture owner.
+            if (index % 4U != 0U) transport_require(lifetime.expired());
+        }
+        progpu_native_font_outline_geometry_destroy(nullptr);
         tests::verify_hinted_transport(*owned_shape->batch);
         transport_require(owned_shape->glyphs.size() == 2U && owned_shape->batch->glyphs.size() == 2U &&
             owned_shape->descriptor_indices == std::vector<std::uint32_t>{0U, 1U});

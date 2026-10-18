@@ -13,7 +13,16 @@ public readonly record struct HintedGlyphOccurrence(
     uint Cluster, int ClusterEnd, sbyte BidiLevel, Vector2 Position, Vector2 Advance);
 
 /// <summary>
+/// One captured font descriptor at the caller's original baseline position.
+/// This record has no shaping, cluster, advance or bidi metadata.
+/// </summary>
+public readonly record struct FontGlyphPlacement(
+    uint DescriptorIndex, uint GlyphId, uint OutlineIndex, Vector2 Position);
+
+/// <summary>
 /// Immutable original physical Y-up glyph geometry and source-indexed draws.
+/// Shaped occurrences and already-positioned font descriptors remain distinct;
+/// the latter do not acquire invented layout or interaction metadata.
 /// Preparation does not bind a target, paint, font decoder or presentation mode.
 /// Recorded owners retain the same originating producer generation after the
 /// caller disposes this wrapper. This explicit resource does not select Display.
@@ -24,6 +33,7 @@ public sealed class HintedGlyphGeometry : IDisposable
     private readonly GpuGlyphRecord[] _outlines;
     private readonly GpuSegment[] _segments;
     private readonly HintedGlyphOccurrence[] _occurrences;
+    private readonly FontGlyphPlacement[]? _fontPlacements;
     private readonly object _rasterGenerationIdentity;
     private IDisposable? _sourceOwner;
     private int _uses;
@@ -39,9 +49,14 @@ public sealed class HintedGlyphGeometry : IDisposable
     {
     }
 
+    internal static HintedGlyphGeometry FromFontPlacements(float dpiScale, GpuGlyphRecord[] outlines,
+        GpuSegment[] segments, FontGlyphPlacement[] placements, IDisposable sourceOwner)
+        => new(dpiScale, outlines, segments, [], sourceOwner, new object(),
+            placements ?? throw new ArgumentNullException(nameof(placements)));
+
     private HintedGlyphGeometry(float dpiScale, GpuGlyphRecord[] outlines,
         GpuSegment[] segments, HintedGlyphOccurrence[] occurrences, IDisposable sourceOwner,
-        object rasterGenerationIdentity)
+        object rasterGenerationIdentity, FontGlyphPlacement[]? fontPlacements = null)
     {
         ArgumentNullException.ThrowIfNull(outlines);
         ArgumentNullException.ThrowIfNull(segments);
@@ -53,6 +68,7 @@ public sealed class HintedGlyphGeometry : IDisposable
         _outlines = outlines;
         _segments = segments;
         _occurrences = occurrences;
+        _fontPlacements = fontPlacements;
         _rasterGenerationIdentity = rasterGenerationIdentity;
         // The factory owns failure cleanup until this last nonthrowing transfer.
         _sourceOwner = sourceOwner;
@@ -61,7 +77,9 @@ public sealed class HintedGlyphGeometry : IDisposable
     public float DpiScale { get; }
     public int OutlineCount => _outlines.Length;
     public int SegmentCount => _segments.Length;
-    public int OccurrenceCount => _occurrences.Length;
+    public int OccurrenceCount => _fontPlacements?.Length ?? _occurrences.Length;
+    /// <summary>True only when the original producer retained shaping metadata.</summary>
+    public bool HasShapingMetadata => _fontPlacements is null;
     public bool IsDisposed => Volatile.Read(ref _disposed);
 
     /// <summary>Borrowed immutable physical outlines while this wrapper is live.</summary>
@@ -69,7 +87,17 @@ public sealed class HintedGlyphGeometry : IDisposable
     /// <summary>Borrowed immutable physical segments while this wrapper is live.</summary>
     public ReadOnlySpan<GpuSegment> Segments { get { EnsureRecordingAdmission(); return _segments; } }
     /// <summary>Every original positioned occurrence, including no-ink slots.</summary>
-    public ReadOnlySpan<HintedGlyphOccurrence> Occurrences { get { EnsureRecordingAdmission(); return _occurrences; } }
+    public ReadOnlySpan<HintedGlyphOccurrence> Occurrences { get { EnsureRecordingAdmission(); RequireShapingMetadata(); return _occurrences; } }
+    /// <summary>Original font descriptors and caller placement, without invented shaping records.</summary>
+    public ReadOnlySpan<FontGlyphPlacement> FontPlacements
+    {
+        get
+        {
+            EnsureRecordingAdmission();
+            if (_fontPlacements is null) throw new InvalidOperationException("This resource retains shaped occurrences.");
+            return _fontPlacements;
+        }
+    }
 
     /// <summary>
     /// Owns the selected occurrence slots in caller order, including duplicates
@@ -88,12 +116,15 @@ public sealed class HintedGlyphGeometry : IDisposable
             // late invalid index.
             int[] indices = occurrenceIndices.ToArray();
             foreach (int index in indices)
-                if ((uint)index >= (uint)_occurrences.Length)
+                if ((uint)index >= (uint)OccurrenceCount)
                     throw new ArgumentOutOfRangeException(nameof(occurrenceIndices));
-            var selected = new HintedGlyphOccurrence[indices.Length];
-            for (int i = 0; i < selected.Length; i++) selected[i] = _occurrences[indices[i]];
+            var selected = _fontPlacements is null ? new HintedGlyphOccurrence[indices.Length] : [];
+            var placements = _fontPlacements is null ? null : new FontGlyphPlacement[indices.Length];
+            for (int i = 0; i < indices.Length; i++)
+                if (placements is null) selected[i] = _occurrences[indices[i]];
+                else placements[i] = _fontPlacements![indices[i]];
             IDisposable owner = RetainForRecording();
-            try { return new(DpiScale, _outlines, _segments, selected, owner, _rasterGenerationIdentity); }
+            try { return new(DpiScale, _outlines, _segments, selected, owner, _rasterGenerationIdentity, placements); }
             catch (Exception failure)
             {
                 try { owner.Dispose(); }
@@ -111,7 +142,20 @@ public sealed class HintedGlyphGeometry : IDisposable
     // caller wrapper. Data is never cleared/redecoded/repositioned at retirement.
     internal ReadOnlySpan<GpuGlyphRecord> RenderOutlines { get { EnsureRenderStorage(); return _outlines; } }
     internal ReadOnlySpan<GpuSegment> RenderSegments { get { EnsureRenderStorage(); return _segments; } }
-    internal ReadOnlySpan<HintedGlyphOccurrence> RenderOccurrences { get { EnsureRenderStorage(); return _occurrences; } }
+    internal ReadOnlySpan<HintedGlyphOccurrence> RenderOccurrences { get { EnsureRenderStorage(); RequireShapingMetadata(); return _occurrences; } }
+    internal FontGlyphPlacement GetRenderPlacement(int index)
+    {
+        EnsureRenderStorage();
+        if (_fontPlacements is not null) return _fontPlacements[index];
+        ref readonly HintedGlyphOccurrence source = ref _occurrences[index];
+        return new(source.DescriptorIndex, source.GlyphId, source.OutlineIndex, source.Position);
+    }
+
+    private void RequireShapingMetadata()
+    {
+        if (_fontPlacements is not null)
+            throw new InvalidOperationException("Captured font geometry has no shaping metadata.");
+    }
     internal bool HasRenderStorage => !Volatile.Read(ref _retired);
 
     // Cache identity is opaque and immutable, not a geometry/source-owner lease.

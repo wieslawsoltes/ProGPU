@@ -12,6 +12,37 @@ namespace ProGPU.Tests;
 // raster execution. The native factory remains the only public producer.
 public sealed class HintedGlyphSelectionTests
 {
+    [Fact]
+    public void FontPlacementsKeepAbsentShapingExplicitAndRetainSelectedOwnership()
+    {
+        using var shaped = Create(new Owner());
+        var owner = new Owner();
+        FontGlyphPlacement[] placements = shaped.Occurrences.ToArray().Select(g =>
+            new FontGlyphPlacement(g.DescriptorIndex, g.GlyphId, g.OutlineIndex, g.Position)).ToArray();
+        using var original = HintedGlyphGeometry.FromFontPlacements(shaped.DpiScale,
+            shaped.Outlines.ToArray(), shaped.Segments.ToArray(), placements, owner);
+        Assert.False(original.HasShapingMetadata);
+        Assert.True(shaped.HasShapingMetadata);
+        Assert.Throws<InvalidOperationException>(() => original.Occurrences.ToArray());
+        Assert.Throws<InvalidOperationException>(() => shaped.FontPlacements.ToArray());
+        Assert.Throws<ArgumentOutOfRangeException>(() => original.SelectOccurrences([2, 3]));
+        using var selected = original.SelectOccurrences([2, 1, 2]);
+        Assert.False(selected.HasShapingMetadata);
+        Assert.Equal(new[] { placements[2], placements[1], placements[2] }, selected.FontPlacements.ToArray());
+        Assert.Same(original.RasterGenerationIdentity, selected.RasterGenerationIdentity);
+        original.Dispose();
+        Assert.Equal(0, owner.Calls);
+        Assert.Equal(placements[2], selected.GetRenderPlacement(0));
+        using (var noInk = selected.SelectOccurrences([1]))
+        {
+            Assert.True(DrawingContext.TryGetHintedGlyphInkBounds(noInk, Vector2.Zero, out Rect bounds, out bool ink));
+            Assert.False(ink);
+            Assert.Equal(default, bounds);
+        }
+        selected.Dispose();
+        Assert.Equal(1, owner.Calls);
+    }
+
     private sealed class Owner : IDisposable
     {
         internal int Calls;

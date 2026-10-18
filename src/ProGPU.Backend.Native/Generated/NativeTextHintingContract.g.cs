@@ -9,6 +9,18 @@ namespace ProGPU.Backend.Native;
 
 internal static unsafe partial class NativeMethods
 {
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_NORMAL.
+    internal const ulong FontOutlineNormal = 0UL;
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_MONOCHROME.
+    internal const ulong FontOutlineMonochrome = 1UL;
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_HORIZONTAL_LCD.
+    internal const ulong FontOutlineHorizontalLcd = 2UL;
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_UNHINTED.
+    internal const ulong FontOutlineUnhinted = 3UL;
+}
+
+internal static unsafe partial class NativeMethods
+{
     // Native source: progpu_native_hinted_font_request.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct HintedFontRequest
@@ -222,6 +234,23 @@ public partial struct NativeHintedBatchCounts
     public uint Glyphs;
     public uint Points;
     public uint Contours;
+}
+
+// Native source: progpu_native_font_outline_counts.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeFontOutlineCounts
+{
+    public uint Descriptors;
+    public uint Outlines;
+    public uint Segments;
+}
+
+// Native source: progpu_native_font_outline_descriptor.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeFontOutlineDescriptor
+{
+    public uint GlyphIndex;
+    public uint OutlineIndex;
 }
 
 // Native source: progpu_native_hinted_paragraph_device_style.
