@@ -2,11 +2,13 @@
 """Offline boot-state/process tests; never start an Android emulator."""
 
 import importlib.util
+import base64
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from unittest.mock import Mock, call, patch
@@ -224,6 +226,75 @@ class AndroidBootTests(unittest.TestCase):
         self.assertEqual(b"version\n", output)
         with self.assertRaisesRegex(RuntimeError, "intentional"):
             BOOT.command([sys.executable, "-c", "import sys; print('intentional', file=sys.stderr); sys.exit(3)"], dict(os.environ), timeout=5)
+
+    def test_failed_command_retains_both_original_binary_streams(self):
+        script = "import os; os.write(1,b'partial\\x00\\xff'); os.write(2,b'error\\xfe'); raise SystemExit(255)"
+        with self.assertRaises(RuntimeError) as failed:
+            BOOT.command([sys.executable, "-c", script], dict(os.environ), timeout=5)
+        self.assertEqual(255, failed.exception.returncode)
+        self.assertEqual(b"partial\x00\xff", failed.exception.stdout)
+        self.assertEqual(b"error\xfe", failed.exception.stderr)
+        self.assertEqual((sys.executable, "-c", script), failed.exception.command)
+
+    def test_failed_capture_archives_original_streams_without_publishing_success(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script = "import os; os.write(1,b'partial\\x00\\xff'); os.write(2,b'error\\xfe'); raise SystemExit(255)"
+            with self.assertRaises(RuntimeError) as failed:
+                BOOT.command([sys.executable, "-c", script], dict(os.environ), timeout=5)
+            original = failed.exception
+            BOOT.retain_command_failure(root, "boot-logcat-final.txt", original)
+            self.assertFalse((root / "boot-logcat-final.txt").exists())
+            receipt = json.loads((root / "boot-logcat-final.txt.failure.json").read_text())
+            self.assertEqual(255, receipt["returncode"])
+            self.assertEqual(list(original.command), receipt["command"])
+            self.assertEqual(original.stdout, base64.b64decode(receipt["stdoutBase64"], validate=True))
+            self.assertEqual(original.stderr, base64.b64decode(receipt["stderrBase64"], validate=True))
+
+    def test_failed_capture_receipt_is_preserved_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaises(RuntimeError) as failed:
+                BOOT.command([sys.executable, "-c", "raise SystemExit(3)"], dict(os.environ), timeout=5)
+            BOOT.retain_command_failure(root, "logcat", failed.exception)
+            original = (root / "logcat.failure.json").read_bytes()
+            with self.assertRaises(FileExistsError):
+                BOOT.retain_command_failure(root, "logcat", failed.exception)
+            self.assertEqual(original, (root / "logcat.failure.json").read_bytes())
+
+    def test_merged_failure_keeps_one_combined_stream_without_invented_stderr(self):
+        script = "import os; os.write(1,b'out'); os.write(2,b'err'); raise SystemExit(3)"
+        with self.assertRaises(RuntimeError) as failed:
+            BOOT.command([sys.executable, "-c", script], dict(os.environ), timeout=5, merge_error=True)
+        self.assertEqual(b"outerr", failed.exception.stdout)
+        self.assertIsNone(failed.exception.stderr)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            BOOT.retain_command_failure(root, "merged", failed.exception)
+            receipt = json.loads((root / "merged.failure.json").read_text())
+            self.assertIsNone(receipt["stderrBase64"])
+            self.assertEqual(b"outerr", base64.b64decode(receipt["stdoutBase64"], validate=True))
+
+    def test_lifecycle_observes_live_and_exited_owned_processes_without_signalling(self):
+        alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+        exited = subprocess.Popen([sys.executable, "-c", "raise SystemExit(7)"], start_new_session=True)
+        try:
+            exited.wait(timeout=5)
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                BOOT.retain_lifecycle_failure(root, time.monotonic() + BOOT.BOOT_SECONDS,
+                    alive, exited, None, RuntimeError("original failure"))
+                receipt = json.loads((root / "lifecycle-failure.json").read_text())
+                self.assertEqual({"pid": alive.pid, "returncode": None}, receipt["emulator"])
+                self.assertEqual({"pid": exited.pid, "returncode": 7}, receipt["logcat"])
+                self.assertIsNone(receipt["probe"])
+                self.assertEqual("original failure", receipt["failure"])
+                self.assertTrue(receipt["beforeCleanup"])
+                self.assertGreaterEqual(receipt["elapsedSeconds"], 0)
+                self.assertIsNone(alive.poll())
+        finally:
+            BOOT.stop_owned(alive)
+            exited.wait(timeout=5)
 
     def test_exited_command_leader_cannot_leave_a_descendant_holding_pipes(self):
         parent = ("import subprocess,sys; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "

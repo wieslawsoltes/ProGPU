@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Own one CI emulator; admit a drawn HOME before running the existing APK gate."""
 
+import base64
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -148,6 +150,45 @@ def stop_owned(process, force=False):
             send(signal.SIGKILL)
 
 
+class CommandFailure(RuntimeError):
+    """Keep both captured byte streams even when stderr is empty or undecodable."""
+
+    def __init__(self, arguments, returncode, output, error):
+        self.command = tuple(arguments)
+        self.returncode = returncode
+        self.stdout = output
+        self.stderr = error
+        diagnostic = error if error is not None else output
+        super().__init__(f"Command failed ({returncode}): {arguments!r}\n{diagnostic.decode(errors='replace')}")
+
+
+def retain_command_failure(evidence, name, failure):
+    if Path(name).name != name or name in ("", ".", ".."):
+        raise ValueError("Failure receipt requires one owned evidence filename")
+    receipt = {"command": failure.command, "returncode": failure.returncode,
+               "stdoutBase64": base64.b64encode(failure.stdout).decode("ascii"),
+               "stderrBase64": None if failure.stderr is None else base64.b64encode(failure.stderr).decode("ascii")}
+    # A failed capture never acquires the success filename or overwrites an
+    # earlier failure. Base64 retains arbitrary partial binary output exactly.
+    with (evidence / (name + ".failure.json")).open("x") as stream:
+        json.dump(receipt, stream, indent=2)
+        stream.write("\n")
+
+
+def retain_lifecycle_failure(evidence, deadline, emulator, logcat, probe, failure):
+    def status(process):
+        return None if process is None else {"pid": process.pid, "returncode": process.poll()}
+
+    receipt = {"observedUtc": datetime.now(timezone.utc).isoformat(),
+               "elapsedSeconds": time.monotonic() - (deadline - BOOT_SECONDS),
+               "failureType": type(failure).__name__, "failure": str(failure),
+               "beforeCleanup": True, "emulator": status(emulator),
+               "logcat": status(logcat), "probe": status(probe)}
+    with (evidence / "lifecycle-failure.json").open("x") as stream:
+        json.dump(receipt, stream, indent=2)
+        stream.write("\n")
+
+
 def command(arguments, env, timeout=None, input_text=None, merge_error=False):
     process = subprocess.Popen(arguments, env=env, stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT if merge_error else subprocess.PIPE, start_new_session=True)
@@ -163,7 +204,7 @@ def command(arguments, env, timeout=None, input_text=None, merge_error=False):
             if stream is not None:
                 stream.close()
     if process.returncode:
-        raise RuntimeError(f"Command failed ({process.returncode}): {arguments!r}\n{(error if error is not None else output).decode(errors='replace')}")
+        raise CommandFailure(arguments, process.returncode, output, error)
     return output
 
 
@@ -218,7 +259,16 @@ def main():
                     (archive / name).write_bytes(value)
 
             def capture(name, *arguments, archive=None):
-                value = device(*arguments)
+                try:
+                    value = device(*arguments)
+                except CommandFailure as failure:
+                    try:
+                        retain_command_failure(evidence, name, failure)
+                        if archive is not None:
+                            retain_command_failure(archive, name, failure)
+                    except Exception as evidence_error:
+                        failure.add_note(f"Could not retain failed capture: {evidence_error}")
+                    raise
                 retain(name, value, archive)
                 return value.decode(errors="replace").strip()
 
@@ -292,6 +342,16 @@ def main():
             probe_process = subprocess.Popen(["bash", str(repo / "eng/progpu-test-android-emulator.sh")],
                                              env=env, start_new_session=True)
             return probe_process.wait()
+        except BaseException as failure:
+            # Observe owned processes before cleanup signals can change their
+            # status. This cannot admit the candidate or restart a failed step.
+            try:
+                retain_lifecycle_failure(evidence, deadline, emulator_process, logcat_process, probe_process, failure)
+                if isinstance(failure, CommandFailure):
+                    retain_command_failure(evidence, "lifecycle-command", failure)
+            except Exception as evidence_error:
+                failure.add_note(f"Could not retain lifecycle failure: {evidence_error}")
+            raise
         finally:
             if emulator_process is not None and emulator_process.poll() is None and not admitted:
                 # Failure evidence is cleanup, never additional time to qualify.
