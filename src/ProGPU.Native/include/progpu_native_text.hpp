@@ -2792,6 +2792,25 @@ struct sfnt_horizontal_device_metrics final {
     std::uint8_t maximum_width = 0U;
 };
 
+/* Exact original gasp metadata. Flags describe recommendations, not a selected
+ * renderer. This is a value-only C++ surface, not a new C ABI wire. */
+enum class font_rasterization_recommendations : std::uint16_t {
+    none = 0U, grid_fit = 1U, grayscale = 2U,
+    symmetric_grid_fit = 4U, symmetric_smoothing = 8U
+};
+struct sfnt_rasterization_range final {
+    std::uint16_t version = 0U;
+    std::uint16_t pixels_per_em = 0U;
+    std::uint16_t maximum_pixels_per_em = 0U;
+    font_rasterization_recommendations recommendations{};
+};
+/* Whole-table validation precedes publication. Empty/finite uncovered ranges
+ * succeed with available=false; malformed data or size zero fails atomically.
+ * No variable-instance threshold adjustment, font execution or GPU work. */
+bool try_read_sfnt_rasterization_recommendations(
+    std::span<const std::byte> table, std::uint16_t pixels_per_em,
+    sfnt_rasterization_range& result, bool& available) noexcept;
+
 struct sfnt_vertical_header_metrics final {
     std::int16_t ascender = 0;
     std::int16_t descender = 0;
@@ -3695,6 +3714,12 @@ public:
         sfnt_horizontal_device_metrics& result,
         bool& available,
         font_error* error = nullptr) const noexcept;
+    /* Raw selected-face directory validation includes ignored invalid records.
+     * Static glyf/loca faces only; any raw fvar record is outside this query.
+     * Missing coverage/unsupported face succeeds with available=false. */
+    bool try_get_static_rasterization_recommendations(
+        std::uint16_t pixels_per_em, sfnt_rasterization_range& result,
+        bool& available, font_error* error = nullptr) const noexcept;
     /* Returns the managed TtfFont.GetAdvanceWidth base/HVAR value in design
      * units. The scratch overload additionally applies raw gvar phantom-point
      * fallback when HVAR does not own advance variation. */

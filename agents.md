@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit static font raster recommendations retain the selected face's complete
+original gasp range inventory and independent grayscale/symmetric flags. Validate
+raw directory duplicates, extents, versions and every later range before output;
+missing coverage is not an explicit zero recommendation. Raw fvar presence keeps
+instance-adjusted thresholds outside the static query. Never relabel these flags
+as GDI/GDI+ rendering modes or change ordinary glyph placement. See
+docs/font-raster-recommendations.md; metadata is not original pixel qualification.
+
 Linux source Xlib GL initialization uses the actual live window's display and
 screen before creating its EGL context. Keep borrowed toolkit state separate from
 the dependency's owned connection and last-context retirement. Reviewed patches
@@ -2339,7 +2347,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,141 renderer cases (6,132 passes and 9 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,296 renderer cases (6,286 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 
