@@ -4,6 +4,7 @@
 #include "progpu_native_hinted_gpos.hpp"
 #include "progpu_native_hinted_run_metrics.hpp"
 #include "progpu_native_hinted_shaper.hpp"
+#include "progpu_native_hinted_outline.hpp"
 #include "progpu_native_hinted_shape_fixture.hpp"
 #include "../src/Text/Shaping/progpu_native_open_type_device_shaper_internal.hpp"
 
@@ -21,6 +22,29 @@ struct batch_owner final {
 };
 
 #if defined(PROGPU_NATIVE_FONT_HINTING)
+void verify_captured_batch_geometry(const progpu::native::text::hinted_glyph_batch& batch) {
+    using namespace progpu::native::text;
+    using progpu::native::text::tests::transport_require;
+    constexpr auto coverage = hinted_outline_coverage::antialiased_vector;
+    hinted_outline_requirements required{};
+    transport_require(get_hinted_batch_outline_requirements(batch, required,
+        hinted_projection_policy::automatic, coverage) == hinted_outline_error::none);
+    transport_require(required.source_slots == batch.glyphs.size() && required.positioned_slots == 0U);
+    std::vector<sfnt_outline_point> topology(required.scratch_points);
+    std::vector<progpu_native_point> physical(required.scratch_points);
+    std::vector<progpu_native_glyph_outline> outlines(required.outlines), scalar_outlines(required.outlines);
+    std::vector<progpu_native_path_segment> segments(required.segments), scalar_segments(required.segments);
+    std::vector<std::uint32_t> source(required.source_slots), scalar_source(required.source_slots);
+    hinted_outline_requirements written{};
+    transport_require(write_hinted_batch_outlines(batch, {topology, physical}, outlines, segments, source,
+        written, hinted_projection_policy::automatic, coverage) == hinted_outline_error::none && written == required);
+    transport_require(write_hinted_batch_outlines(batch, {topology, physical}, scalar_outlines, scalar_segments,
+        scalar_source, written, hinted_projection_policy::scalar_reference, coverage) == hinted_outline_error::none &&
+        written == required && source == scalar_source);
+    transport_require(std::ranges::equal(std::as_bytes(std::span(outlines)), std::as_bytes(std::span(scalar_outlines))) &&
+        std::ranges::equal(std::as_bytes(std::span(segments)), std::as_bytes(std::span(scalar_segments))));
+}
+
 void verify_shaping_input(const progpu::native::text::hinted_shaped_run& run,
     std::span<const progpu::native::text::unicode_scalar> admitted) {
     using progpu::native::text::tests::transport_require;
@@ -563,8 +587,10 @@ int main()
         verify_owned_gpos_frame(*retained);
         verify_owned_run_metrics(*retained);
         verify_public_batch(public_batch.value, *retained);
-        for (std::size_t index = 0U; index < outline_batches.size(); ++index)
+        for (std::size_t index = 0U; index < outline_batches.size(); ++index) {
             verify_public_batch(outline_batches[index].value, *outline_generations[index]);
+            verify_captured_batch_geometry(*outline_generations[index]);
+        }
         tests::verify_hinted_transport(*owned_shape->batch);
         transport_require(owned_shape->glyphs.size() == 2U && owned_shape->batch->glyphs.size() == 2U &&
             owned_shape->descriptor_indices == std::vector<std::uint32_t>{0U, 1U});

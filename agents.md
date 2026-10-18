@@ -12,6 +12,9 @@ policy constants while original hinted calls keep Normal and unchanged request
 bytes. Share whole-batch validation, exclusive context lifetime and atomic
 publication; reject unknown targets before font work. Never fall back across a
 missing export or infer source raster policy from successful outline capture.
+Already-positioned batch geometry shares the original run contour writer without
+fabricated shaping records. Validate every descriptor, retain no-ink/duplicate
+source slots and full-capacity aliases, and keep caller placement independent.
 
 Explicit static font raster recommendations retain the selected face's complete
 original gasp range inventory and independent grayscale/symmetric flags. Validate

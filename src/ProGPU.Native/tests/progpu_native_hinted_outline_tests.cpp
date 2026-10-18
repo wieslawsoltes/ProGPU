@@ -10,6 +10,18 @@
 #include <string>
 #include <vector>
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define PROGPU_OUTLINE_TEST_ASAN 1
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+#define PROGPU_OUTLINE_TEST_ASAN 1
+#endif
+#if defined(PROGPU_OUTLINE_TEST_ASAN)
+#include <sanitizer/asan_interface.h>
+#endif
+
 namespace {
 using namespace progpu::native::text;
 
@@ -227,6 +239,30 @@ void mixed_and_closed_cubic_records() {
     require(output.positioned[0] == 1U && output.positioned[1] == 0U);
 }
 
+// Only fixture painting/snapshotting may inspect initialized spare capacity.
+// Restore its original sanitizer poison before any production operation, so
+// even a one-byte read/write through an incorrectly admitted alias still fails.
+class fixture_capacity_access final {
+public:
+    fixture_capacity_access(std::byte* start, std::size_t count) : start_(start), count_(count) {
+#if defined(PROGPU_OUTLINE_TEST_ASAN)
+        poisoned_ = count_ != 0U && __asan_address_is_poisoned(start_) != 0;
+        if (poisoned_) __asan_unpoison_memory_region(start_, count_);
+#endif
+    }
+    ~fixture_capacity_access() {
+#if defined(PROGPU_OUTLINE_TEST_ASAN)
+        if (poisoned_) __asan_poison_memory_region(start_, count_);
+#endif
+    }
+    fixture_capacity_access(const fixture_capacity_access&) = delete;
+    fixture_capacity_access& operator=(const fixture_capacity_access&) = delete;
+private:
+    [[maybe_unused]] std::byte* start_;
+    [[maybe_unused]] std::size_t count_;
+    [[maybe_unused]] bool poisoned_ = false;
+};
+
 void shaping_input_aliases() {
     const auto retained = batch();
     auto run = run_for(retained);
@@ -244,9 +280,16 @@ void shaping_input_aliases() {
     const auto used_bytes = run.shaping_input.size() * sizeof(unicode_scalar);
     const auto capacity_bytes = run.shaping_input.capacity() * sizeof(unicode_scalar);
     auto* const input_bytes = reinterpret_cast<std::byte*>(run.shaping_input.data());
-    std::memset(input_bytes + used_bytes, 0xA6, capacity_bytes - used_bytes);
     std::vector<std::byte> input_before(capacity_bytes);
-    std::memcpy(input_before.data(), input_bytes, capacity_bytes);
+    {
+        fixture_capacity_access inspect(input_bytes + used_bytes, capacity_bytes - used_bytes);
+        std::memset(input_bytes + used_bytes, 0xA6, capacity_bytes - used_bytes);
+        std::memcpy(input_before.data(), input_bytes, capacity_bytes);
+    }
+    const auto unchanged_input = [&] {
+        fixture_capacity_access inspect(input_bytes + used_bytes, capacity_bytes - used_bytes);
+        return std::memcmp(input_before.data(), input_bytes, capacity_bytes) == 0;
+    };
     hinted_outline_requirements admitted_requirements{};
     require(get_hinted_outline_requirements(run, admitted_requirements,
         hinted_projection_policy::scalar_reference) == hinted_outline_error::none &&
@@ -254,7 +297,7 @@ void shaping_input_aliases() {
     buffers admitted;
     require(admitted.write(run) == hinted_outline_error::none &&
         admitted.written == admitted_requirements &&
-        std::memcmp(input_before.data(), input_bytes, capacity_bytes) == 0);
+        unchanged_input());
     buffers output;
     const auto output_before = bytes(output);
     constexpr auto alias_alignment = std::max({alignof(hinted_outline_requirements),
@@ -273,7 +316,7 @@ void shaping_input_aliases() {
         require(get_hinted_outline_requirements(run, requirements,
             hinted_projection_policy::scalar_reference) == hinted_outline_error::invalid_argument);
         require(bytes(output) == output_before &&
-            std::memcmp(input_before.data(), input_bytes, capacity_bytes) == 0);
+            unchanged_input());
         // Independently exercise every borrowed conversion destination/scratch
         // role with its full original capacity in both used and spare storage.
         for (unsigned int target = 0U; target < 7U; ++target) {
@@ -295,7 +338,7 @@ void shaping_input_aliases() {
                 source, positioned, *written, hinted_projection_policy::scalar_reference) ==
                 hinted_outline_error::invalid_argument);
             require(bytes(output) == output_before &&
-                std::memcmp(input_before.data(), input_bytes, capacity_bytes) == 0);
+                unchanged_input());
         }
     }
 }
@@ -677,10 +720,93 @@ void explicit_antialiased_vector_coverage() {
         hinted_outline_coverage::antialiased_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
     require(observed->glyphs == raw_before);
 }
+void original_batch_geometry() {
+    const auto retained = batch();
+    buffers rejected;
+    const auto untouched = bytes(rejected);
+    // The run excludes its invalid auxiliary probe. A raw batch must instead
+    // validate every descriptor; it cannot guess which glyphs a caller will use.
+    require(write_hinted_batch_outlines(*retained, {rejected.topology, rejected.physical},
+        rejected.outlines, rejected.segments, rejected.source, rejected.written) ==
+        hinted_outline_error::unsupported_flags && bytes(rejected) == untouched);
+    retained->glyphs.pop_back();
+    const auto original = retained->glyphs;
+    auto run = run_for(retained);
+    run.figure_descriptor_count = 0U;
+    for (const auto coverage : {hinted_outline_coverage::strict,
+            hinted_outline_coverage::nonzero_vector, hinted_outline_coverage::antialiased_vector}) {
+        buffers reference;
+        require(reference.write(run, hinted_projection_policy::scalar_reference, coverage) == hinted_outline_error::none);
+        for (const auto policy : {hinted_projection_policy::scalar_reference, hinted_projection_policy::intrinsic_simd}) {
+            buffers output;
+            const auto before = output;
+            hinted_outline_requirements required{9U, 8U, 7U, 6U, 5U};
+            require(get_hinted_batch_outline_requirements(*retained, required, policy, coverage) ==
+                hinted_outline_error::none);
+            require(required == hinted_outline_requirements{7U, 0U, 4U, 18U, 8U});
+            require(write_hinted_batch_outlines(*retained, {output.topology, output.physical},
+                output.outlines, output.segments, output.source, output.written, policy, coverage) ==
+                hinted_outline_error::none && output.written == required);
+            require(bytes(output.outlines) == bytes(reference.outlines) &&
+                bytes(output.segments) == bytes(reference.segments) && output.source == reference.source &&
+                output.positioned == before.positioned && retained->glyphs == original);
+            require(bytes(output.topology) == bytes(reference.topology) && bytes(output.physical) == bytes(reference.physical));
+        }
+    }
+    buffers output;
+    const auto before = bytes(output);
+    for (unsigned missing = 0U; missing < 5U; ++missing) {
+        require(write_hinted_batch_outlines(*retained,
+            {std::span(output.topology).first(missing == 0U ? 7U : 16U), std::span(output.physical).first(missing == 1U ? 7U : 16U)},
+            std::span(output.outlines).first(missing == 2U ? 3U : 12U),
+            std::span(output.segments).first(missing == 3U ? 17U : 64U),
+            std::span(output.source).first(missing == 4U ? 6U : 16U), output.written) ==
+            hinted_outline_error::insufficient_capacity && bytes(output) == before);
+    }
+    const auto fail = [&](const hinted_glyph_batch& invalid, hinted_outline_error expected,
+            hinted_projection_policy policy = hinted_projection_policy::automatic,
+            hinted_outline_coverage coverage = hinted_outline_coverage::strict) {
+        hinted_outline_requirements counts{1U, 2U, 3U, 4U, 5U};
+        const auto saved = counts;
+        require(get_hinted_batch_outline_requirements(invalid, counts, policy, coverage) == expected && counts == saved);
+        require(write_hinted_batch_outlines(invalid, {output.topology, output.physical},
+            output.outlines, output.segments, output.source, output.written, policy, coverage) == expected && bytes(output) == before);
+    };
+    fail(*retained, hinted_outline_error::unsupported_policy, static_cast<hinted_projection_policy>(99U));
+    fail(*retained, hinted_outline_error::unsupported_policy, hinted_projection_policy::automatic,
+        static_cast<hinted_outline_coverage>(99U));
+    for (unsigned fault = 0U; fault < 4U; ++fault) {
+        auto invalid = *retained;
+        if (fault == 0U) invalid.identity.reset();
+        if (fault == 1U) invalid.glyphs.back().tags = {3U};
+        if (fault == 2U) invalid.glyphs.back().contour_ends = {-1};
+        if (fault == 3U) invalid.glyphs.back().outline_flags = 0x200;
+        fail(invalid, fault == 0U ? hinted_outline_error::invalid_run :
+            fault == 3U ? hinted_outline_error::unsupported_flags : hinted_outline_error::invalid_topology);
+    }
+    // Output tails cannot overlap retained point capacity or each other, even
+    // when the data used for actual writes would be disjoint.
+    retained->glyphs[0].points.reserve(32U);
+    auto* spare = retained->glyphs[0].points.data() + retained->glyphs[0].points.size();
+    require(write_hinted_batch_outlines(*retained, {output.topology, output.physical},
+        output.outlines, output.segments, std::span{reinterpret_cast<std::uint32_t*>(spare), 16U}, output.written) ==
+        hinted_outline_error::invalid_argument && bytes(output) == before && retained->glyphs == original);
+    require(write_hinted_batch_outlines(*retained, {output.topology, output.physical},
+        output.outlines, output.segments, std::span{reinterpret_cast<std::uint32_t*>(output.segments.data()), 16U},
+        output.written) == hinted_outline_error::invalid_argument && bytes(output) == before);
+    auto empty = *retained;
+    empty.glyphs.clear();
+    require(write_hinted_batch_outlines(empty, {output.topology, output.physical}, output.outlines,
+        output.segments, output.source, output.written) == hinted_outline_error::none &&
+        output.written == hinted_outline_requirements{});
+    output.written = rejected.written;
+    require(bytes(output) == before);
+}
 } // namespace
 
 int main() {
     try {
+        original_batch_geometry();
         source_geometry_and_phase();
         original_quadratic_differential();
         mixed_and_closed_cubic_records();
@@ -688,7 +814,7 @@ int main() {
         failures_precede_all_publication();
         explicit_nonzero_vector_coverage();
         explicit_antialiased_vector_coverage();
-        std::cout << "{\"sourceIndexedGeometry\":true,\"originalQuadraticWriter\":true,\"exactCubicRecords\":true,\"retainedShapingInputAliases\":true,\"wholeRunAtomicPreflight\":true}\n";
+        std::cout << "{\"sourceIndexedGeometry\":true,\"originalQuadraticWriter\":true,\"exactCubicRecords\":true,\"retainedShapingInputAliases\":true,\"wholeRunAtomicPreflight\":true,\"originalBatchGeometry\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n'; return 1;

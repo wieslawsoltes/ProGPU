@@ -120,6 +120,25 @@ the request reject without mutation. Dependency-absent controls return Unsupport
 for valid targets. This boundary does not select GDI quality, GDI+ hint mapping,
 contrast, source shaping or GPU coverage; those and final whole-product acceptance
 remain required.
+
+Already-positioned source glyphs can use the private batch outline writer without
+constructing another shaped run. It emits one source-slot mapping per original
+descriptor, including duplicate IDs and no-ink glyphs, and leaves placement and
+advances to the source. Unlike shaped runs with explicit auxiliary descriptors,
+the batch path validates every glyph. Both paths share original contour walking,
+exact physical point/phase conversion, SIMD/scalar selection and coverage policy.
+Their complete preflight retains output-tail and owned-capacity alias rejection,
+atomic failure and unchanged source metadata. Work is O(G+P), for G glyphs and P
+outline points, with caller-owned scratch bounded by the largest glyph.
+
+This private writer is shared by both native providers and is the geometry source
+for the managed native-font bridge; a second managed contour algorithm is not
+introduced. It still needs retained public geometry transport and Drawing replay
+integration. Its antialiased vector policy does not implement monochrome dropout,
+Microsoft contrast or ClearType coverage. Synthetic original-contour controls and
+actual captured batches after context disposal verify this geometry step; they do
+not qualify the source rendering defect.
+
 Keep font execution lazy and out of frame replay, retain bounded exact-generation
 caches, and preserve original layout/interaction and GPU resource ownership.
 
