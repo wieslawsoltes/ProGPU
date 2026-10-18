@@ -63,9 +63,23 @@ class DrawingPackageClosureTests(unittest.TestCase):
             package_id = f"ProGPU.Backend.{name}"
             self.assertEqual(packages[package_id], f"src/{package_id}/{package_id}.csproj")
 
+    def test_native_scene_bridge_is_a_real_shipping_project(self):
+        packages = dict(drawing_packages())
+        self.assertEqual(packages["ProGPU.Scene.Native"],
+                         "src/ProGPU.Scene.Native/ProGPU.Scene.Native.csproj")
+
+    def test_native_scene_before_managed_scene_is_rejected(self):
+        packages = drawing_packages()
+        bridge = next(index for index, entry in enumerate(packages) if entry[0] == "ProGPU.Scene.Native")
+        bridge_package = packages.pop(bridge)
+        scene = next(index for index, entry in enumerate(packages) if entry[0] == "ProGPU.Scene")
+        packages.insert(scene, bridge_package)
+        with self.assertRaisesRegex(ValueError, "ProGPU.Scene.Native.*ProGPU.Scene"):
+            verify_source_closure(packages)
+
     def test_missing_native_dependency_is_rejected(self):
         packages = [entry for entry in drawing_packages() if entry[0] != "ProGPU.Backend.Native"]
-        with self.assertRaisesRegex(ValueError, "ProGPU.System.Drawing.Common.*ProGPU.Backend.Native"):
+        with self.assertRaisesRegex(ValueError, "ProGPU.Scene.Native.*ProGPU.Backend.Native"):
             verify_source_closure(packages)
 
     def test_missing_static_sdk_dependency_is_rejected(self):

@@ -184,6 +184,7 @@ progpu_drawing_runtime_package_ids=(
   ProGPU.Text
   ProGPU.Compute
   ProGPU.Scene
+  ProGPU.Scene.Native
   ProGPU.SkiaSharp
   ProGPU.System.Drawing.Common
 )
@@ -200,6 +201,7 @@ progpu_drawing_runtime_package_projects=(
   src/ProGPU.Text/ProGPU.Text.csproj
   src/ProGPU.Compute/ProGPU.Compute.csproj
   src/ProGPU.Scene/ProGPU.Scene.csproj
+  src/ProGPU.Scene.Native/ProGPU.Scene.Native.csproj
   src/SkiaSharp/SkiaSharp.csproj
   external/LibreWinForms/src/ProGPU.Drawing/System.Drawing.Common/System.Drawing.Common.csproj
 )
@@ -216,6 +218,7 @@ progpu_drawing_runtime_package_purposes=(
   "Drawing runtime closure: text layout and rendering."
   "Drawing runtime closure: compute pipelines."
   "Drawing runtime closure: retained compositor scene."
+  "Drawing runtime closure: owned native glyph geometry and retained scene transport."
   "Drawing runtime closure: SkiaSharp compatibility surface."
   "Drawing runtime closure: portable System.Drawing.Common implementation."
 )
