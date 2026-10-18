@@ -83,8 +83,8 @@ reflect policy changes. Interpreter35/40 availability is not Microsoft parity.
 The exact outline policy belongs to each retained font identity and bounded
 cache key. A warm request may reuse only its own generation; switching targets
 creates a distinct face while retaining the same immutable source owner. Existing
-public requests and paragraphs still select normal; admitting a source mode
-requires the separate typed transport, source policy and pixel gates below.
+hinted requests and paragraphs still select normal; admitting a source mode
+requires the source policy and pixel gates below.
 Independent public-API face controls compare all metrics, points, tags, contours
 and flags for both interpreters, all four policies, fractional/nonuniform sizes
 and phases. Controls retain post-disposal transport, warm target switching and
@@ -99,6 +99,27 @@ it must not re-hint them. No public wire field, source rendering selection,
 generic placement mode or GPU coverage policy changes in this private execution
 step. Existing whole-provider/package and Microsoft source comparisons remain
 required before claiming the Forms rendering defect fixed.
+
+`NativeTextShapingContext.CaptureOutlineBatch` and the additive native
+`progpu_native_text_context_capture_outline_batch` now carry an explicit outline
+target through the same whole-batch ownership path. The original
+`CaptureHintedBatch` entry point selects normal and keeps its existing signature,
+request size, ABI version and reserved-zero rule. The four public numeric values
+come from the C header through generated constants; they are not duplicated in
+managed policy code. The new entry point requires the matching native producer,
+with no missing-export fallback to another target.
+
+Policy validation precedes context/font work; every existing request, input-span
+and publication-alias check remains shared. Failure preserves the previous batch
+handle, while success transfers one independently owned generation. Managed
+wrappers retain the exclusive context lease, one capture call per batch and
+constructor-failure cleanup. Native context controls compare each public target
+with its exact private generation and retain all four batches after the source
+contexts retire. Invalid targets, nonzero reserved fields and output aliasing
+the request reject without mutation. Dependency-absent controls return Unsupported
+for valid targets. This boundary does not select GDI quality, GDI+ hint mapping,
+contrast, source shaping or GPU coverage; those and final whole-product acceptance
+remain required.
 Keep font execution lazy and out of frame replay, retain bounded exact-generation
 caches, and preserve original layout/interaction and GPU resource ownership.
 

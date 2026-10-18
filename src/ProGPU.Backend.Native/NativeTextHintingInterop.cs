@@ -9,6 +9,15 @@ public enum NativeFontHintInterpreter : uint
     TrueType40 = 40,
 }
 
+/// <summary>Native outline execution targets, independent of source rendering modes and GPU coverage.</summary>
+public enum NativeFontOutlinePolicy : uint
+{
+    Normal = (uint)NativeMethods.FontOutlineNormal,
+    Monochrome = (uint)NativeMethods.FontOutlineMonochrome,
+    HorizontalLcd = (uint)NativeMethods.FontOutlineHorizontalLcd,
+    Unhinted = (uint)NativeMethods.FontOutlineUnhinted,
+}
+
 /// <summary>
 /// One independently owned original-order hinted generation. Copies borrow
 /// its exclusive handle lease; context disposal and cache eviction cannot
@@ -77,6 +86,25 @@ public sealed unsafe partial class NativeTextShapingContext
     public NativeHintedFontBatch CaptureHintedBatch(uint fontIndex, ReadOnlySpan<uint> glyphIndices,
         uint xPixelsPerEm26_6, uint yPixelsPerEm26_6, NativeFontHintInterpreter interpreter,
         uint xPhase26_6 = 0, uint yPhase26_6 = 0, ReadOnlySpan<int> variationCoordinates16_16 = default)
+        => CaptureFontBatch(fontIndex, glyphIndices, xPixelsPerEm26_6, yPixelsPerEm26_6, interpreter,
+            NativeFontOutlinePolicy.Normal, false, xPhase26_6, yPhase26_6, variationCoordinates16_16);
+
+    /// <summary>
+    /// Captures exact outlines through one native context use with an explicit
+    /// load target. This requires the matching native producer; it does not
+    /// select source text layout, GPU coverage, contrast or GDI/GDI+ policy.
+    /// </summary>
+    public NativeHintedFontBatch CaptureOutlineBatch(uint fontIndex, ReadOnlySpan<uint> glyphIndices,
+        uint xPixelsPerEm26_6, uint yPixelsPerEm26_6, NativeFontHintInterpreter interpreter,
+        NativeFontOutlinePolicy outlinePolicy, uint xPhase26_6 = 0, uint yPhase26_6 = 0,
+        ReadOnlySpan<int> variationCoordinates16_16 = default)
+        => CaptureFontBatch(fontIndex, glyphIndices, xPixelsPerEm26_6, yPixelsPerEm26_6, interpreter,
+            outlinePolicy, true, xPhase26_6, yPhase26_6, variationCoordinates16_16);
+
+    private NativeHintedFontBatch CaptureFontBatch(uint fontIndex, ReadOnlySpan<uint> glyphIndices,
+        uint xPixelsPerEm26_6, uint yPixelsPerEm26_6, NativeFontHintInterpreter interpreter,
+        NativeFontOutlinePolicy outlinePolicy, bool explicitOutlinePolicy,
+        uint xPhase26_6, uint yPhase26_6, ReadOnlySpan<int> variationCoordinates16_16)
     {
         using var use = _owner.Acquire();
         NativeMethods.HintedFontRequest request = new()
@@ -95,8 +123,11 @@ public sealed unsafe partial class NativeTextShapingContext
         fixed (uint* glyphPointer = glyphIndices)
         fixed (int* variationPointer = variationCoordinates16_16)
         {
-            NativeRendererStatus status = NativeMethods.CaptureHintedBatch(use.Handle, &request,
-                variationPointer, glyphPointer, checked((uint)glyphIndices.Length), &batch);
+            NativeRendererStatus status = explicitOutlinePolicy
+                ? NativeMethods.CaptureOutlineBatch(use.Handle, &request, (uint)outlinePolicy,
+                    variationPointer, glyphPointer, checked((uint)glyphIndices.Length), &batch)
+                : NativeMethods.CaptureHintedBatch(use.Handle, &request,
+                    variationPointer, glyphPointer, checked((uint)glyphIndices.Length), &batch);
             if (status != NativeRendererStatus.Success)
             {
                 if (status == NativeRendererStatus.Unsupported)
@@ -117,6 +148,11 @@ public sealed unsafe partial class NativeTextShapingContext
 
 internal static unsafe partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_capture_outline_batch")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeRendererStatus CaptureOutlineBatch(nint context, HintedFontRequest* request,
+        uint outlinePolicy, int* variationCoordinates16_16, uint* glyphIndices, uint glyphCount, nint* batch);
+
     [LibraryImport(LibraryName, EntryPoint = "progpu_native_text_context_capture_hinted_batch")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeRendererStatus CaptureHintedBatch(nint context, HintedFontRequest* request,

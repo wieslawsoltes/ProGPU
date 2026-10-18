@@ -9,6 +9,18 @@ namespace ProGPU.Backend.Native;
 
 internal static unsafe partial class NativeMethods
 {
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_NORMAL.
+    internal const ulong FontOutlineNormal = 0UL;
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_MONOCHROME.
+    internal const ulong FontOutlineMonochrome = 1UL;
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_HORIZONTAL_LCD.
+    internal const ulong FontOutlineHorizontalLcd = 2UL;
+    // Native source: PROGPU_NATIVE_FONT_OUTLINE_UNHINTED.
+    internal const ulong FontOutlineUnhinted = 3UL;
+}
+
+internal static unsafe partial class NativeMethods
+{
     // Native source: progpu_native_hinted_font_request.
     [StructLayout(LayoutKind.Sequential)]
     internal partial struct HintedFontRequest

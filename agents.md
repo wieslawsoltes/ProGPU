@@ -7,6 +7,12 @@ loading may omit instructions. Do not alias targets to source GDI/GDI+ policies
 or enable CPU bitmap rendering. Require producer evidence for all targets and
 warm cache isolation. See docs/font-raster-recommendations.md.
 
+Explicit outline batch transport uses its additive entry point and generated
+policy constants while original hinted calls keep Normal and unchanged request
+bytes. Share whole-batch validation, exclusive context lifetime and atomic
+publication; reject unknown targets before font work. Never fall back across a
+missing export or infer source raster policy from successful outline capture.
+
 Explicit static font raster recommendations retain the selected face's complete
 original gasp range inventory and independent grayscale/symmetric flags. Validate
 raw directory duplicates, extents, versions and every later range before output;

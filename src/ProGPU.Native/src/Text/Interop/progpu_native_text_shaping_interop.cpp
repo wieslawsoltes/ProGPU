@@ -4015,10 +4015,20 @@ progpu_native_status progpu_native_text_context_layout_collapsed_flow_paragraph(
         wrapping, collapse_width);
 }
 
-progpu_native_status progpu_native_text_context_capture_hinted_batch(
+static progpu_native_status capture_outline_batch_core(
     progpu_native_text_context* context, const progpu_native_hinted_font_request* request,
+    std::uint32_t outline_policy,
     const std::int32_t* variation_coordinates_16_16, const std::uint32_t* glyph_indices,
     std::uint32_t glyph_count, progpu_native_hinted_batch** batch) {
+    using progpu::native::text::font_outline_load_policy;
+    font_outline_load_policy selected;
+    switch (outline_policy) {
+    case PROGPU_NATIVE_FONT_OUTLINE_NORMAL: selected = font_outline_load_policy::normal; break;
+    case PROGPU_NATIVE_FONT_OUTLINE_MONOCHROME: selected = font_outline_load_policy::monochrome; break;
+    case PROGPU_NATIVE_FONT_OUTLINE_HORIZONTAL_LCD: selected = font_outline_load_policy::horizontal_lcd; break;
+    case PROGPU_NATIVE_FONT_OUTLINE_UNHINTED: selected = font_outline_load_policy::unhinted; break;
+    default: return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
     if (!valid_hinted_buffer(context, 1U) || !valid_hinted_buffer(request, 1U) ||
         !valid_hinted_buffer(batch, 1U) || request->abi_version != PROGPU_NATIVE_ABI_VERSION ||
         request->struct_size != sizeof(*request) || request->reserved != 0U ||
@@ -4039,7 +4049,7 @@ progpu_native_status progpu_native_text_context_capture_hinted_batch(
         request->x_pixels_per_em_26_6, request->y_pixels_per_em_26_6,
         static_cast<progpu::native::text::font_hint_policy>(request->interpreter),
         request->x_phase_26_6, request->y_phase_26_6,
-        {variation_coordinates_16_16, request->variation_count}};
+        {variation_coordinates_16_16, request->variation_count}, selected};
     try {
         auto candidate = std::make_unique<progpu_native_hinted_batch>();
         progpu::native::text::hinted_font_error error{};
@@ -4052,6 +4062,22 @@ progpu_native_status progpu_native_text_context_capture_hinted_batch(
     } catch (...) {
         return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
     }
+}
+
+progpu_native_status progpu_native_text_context_capture_hinted_batch(
+    progpu_native_text_context* context, const progpu_native_hinted_font_request* request,
+    const std::int32_t* variation_coordinates_16_16, const std::uint32_t* glyph_indices,
+    std::uint32_t glyph_count, progpu_native_hinted_batch** batch) {
+    return capture_outline_batch_core(context, request, PROGPU_NATIVE_FONT_OUTLINE_NORMAL,
+        variation_coordinates_16_16, glyph_indices, glyph_count, batch);
+}
+
+progpu_native_status progpu_native_text_context_capture_outline_batch(
+    progpu_native_text_context* context, const progpu_native_hinted_font_request* request,
+    std::uint32_t outline_policy, const std::int32_t* variation_coordinates_16_16,
+    const std::uint32_t* glyph_indices, std::uint32_t glyph_count, progpu_native_hinted_batch** batch) {
+    return capture_outline_batch_core(context, request, outline_policy,
+        variation_coordinates_16_16, glyph_indices, glyph_count, batch);
 }
 
 progpu_native_status progpu_native_hinted_batch_get_counts(

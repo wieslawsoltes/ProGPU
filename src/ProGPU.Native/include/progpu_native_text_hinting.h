@@ -17,6 +17,19 @@ typedef struct progpu_native_hinted_paragraph progpu_native_hinted_paragraph;
 typedef struct progpu_native_hinted_paragraph_frame progpu_native_hinted_paragraph_frame;
 typedef struct progpu_native_hinted_glyph_resource progpu_native_hinted_glyph_resource;
 
+/* Explicit dependency outline targets, independent of interpreter and GPU
+ * coverage. Existing hinted entry points retain NORMAL and their exact ABI. */
+enum progpu_native_font_outline_policy {
+    /* PROGPU_CSHARP_ULONG: FontOutlineNormal */
+    PROGPU_NATIVE_FONT_OUTLINE_NORMAL = 0ULL,
+    /* PROGPU_CSHARP_ULONG: FontOutlineMonochrome */
+    PROGPU_NATIVE_FONT_OUTLINE_MONOCHROME = 1ULL,
+    /* PROGPU_CSHARP_ULONG: FontOutlineHorizontalLcd */
+    PROGPU_NATIVE_FONT_OUTLINE_HORIZONTAL_LCD = 2ULL,
+    /* PROGPU_CSHARP_ULONG: FontOutlineUnhinted */
+    PROGPU_NATIVE_FONT_OUTLINE_UNHINTED = 3ULL
+};
+
 /* PROGPU_CSHARP_STRUCT: NativeMethods.HintedFontRequest */
 typedef struct progpu_native_hinted_font_request {
     uint32_t abi_version;
@@ -79,6 +92,19 @@ typedef struct progpu_native_hinted_batch_counts {
 PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_capture_hinted_batch(
     progpu_native_text_context* context,
     const progpu_native_hinted_font_request* request,
+    const int32_t* variation_coordinates_16_16,
+    const uint32_t* glyph_indices,
+    uint32_t glyph_count,
+    progpu_native_hinted_batch** batch);
+
+/* Same complete batch, immutable source, exclusive context lease and atomic
+ * publication contract, with explicit outline loading. Undefined policies fail
+ * before context/font work. No source GDI/GDI+ mode, bitmap rendering or source
+ * layout is implied. Old request bytes and reserved-zero rules stay unchanged. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_text_context_capture_outline_batch(
+    progpu_native_text_context* context,
+    const progpu_native_hinted_font_request* request,
+    uint32_t outline_policy,
     const int32_t* variation_coordinates_16_16,
     const uint32_t* glyph_indices,
     uint32_t glyph_count,

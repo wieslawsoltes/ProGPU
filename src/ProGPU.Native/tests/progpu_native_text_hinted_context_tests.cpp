@@ -421,6 +421,8 @@ int main()
         const std::array<std::uint32_t, 3> ids{1U, 1U, 0U};
         hinted_font_error error = hinted_font_error::none;
         batch_owner public_batch;
+        std::array<batch_owner, 4> outline_batches;
+        std::array<std::shared_ptr<const hinted_glyph_batch>, 4> outline_generations;
 #if defined(PROGPU_NATIVE_FONT_HINTING)
         std::shared_ptr<const hinted_shaped_run> owned_shape;
         const auto mapping_original = progpu::native::tests::make_hinted_mapping_font();
@@ -447,6 +449,21 @@ int main()
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
                 candidate == nullptr);
             request.x_phase_26_6 = 0U;
+            for (const std::uint32_t invalid_policy : {4U, 0xFFFFFFFFU}) {
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    invalid_policy, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) ==
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && candidate == nullptr);
+            }
+            const auto unchanged_request = request;
+            transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                PROGPU_NATIVE_FONT_OUTLINE_NORMAL, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                reinterpret_cast<progpu_native_hinted_batch**>(&request)) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                std::memcmp(&request, &unchanged_request, sizeof(request)) == 0);
+            request.reserved = 1U;
+            transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                PROGPU_NATIVE_FONT_OUTLINE_NORMAL, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                &candidate) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && candidate == nullptr);
+            request.reserved = 0U;
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), reinterpret_cast<progpu_native_hinted_batch**>(&request)) ==
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT && request.abi_version == PROGPU_NATIVE_ABI_VERSION);
@@ -473,6 +490,28 @@ int main()
                 shape_options, owned_shape, shape_error) && shape_error.capture == hinted_font_error::hinting_failed && !shape_error.resource_exhausted &&
                 owned_shape == saved_shape);
             const auto saved = retained;
+            constexpr std::array<std::uint32_t, 4> wire_policies{PROGPU_NATIVE_FONT_OUTLINE_NORMAL,
+                PROGPU_NATIVE_FONT_OUTLINE_MONOCHROME, PROGPU_NATIVE_FONT_OUTLINE_HORIZONTAL_LCD,
+                PROGPU_NATIVE_FONT_OUTLINE_UNHINTED};
+            constexpr std::array native_policies{font_outline_load_policy::normal, font_outline_load_policy::monochrome,
+                font_outline_load_policy::horizontal_lcd, font_outline_load_policy::unhinted};
+            for (std::size_t index = 0U; index < wire_policies.size(); ++index) {
+                auto explicit_configuration = configuration;
+                explicit_configuration.outline_policy = native_policies[index];
+                transport_require(capture_context_hinted(context.value, 0U, explicit_configuration, ids,
+                    outline_generations[index], error));
+                progpu_native_hinted_batch_destroy(outline_batches[index].value);
+                outline_batches[index].value = nullptr;
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    wire_policies[index], nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                    &outline_batches[index].value) == PROGPU_NATIVE_STATUS_SUCCESS);
+                verify_public_batch(outline_batches[index].value, *outline_generations[index]);
+                const auto saved_public = outline_batches[index].value;
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    0xFFFFFFFFU, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()),
+                    &outline_batches[index].value) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+                    outline_batches[index].value == saved_public);
+            }
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_SUCCESS);
             progpu_native_hinted_batch_destroy(public_batch.value);
@@ -507,6 +546,11 @@ int main()
             transport_require(retained == saved && retained->identity->source == source);
             tests::verify_hinted_transport(*retained);
 #else
+            for (const std::uint32_t mode : {0U, 1U, 2U, 3U}) {
+                transport_require(progpu_native_text_context_capture_outline_batch(context.value, &request,
+                    mode, nullptr, ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) ==
+                    PROGPU_NATIVE_STATUS_UNSUPPORTED && candidate == nullptr);
+            }
             transport_require(progpu_native_text_context_capture_hinted_batch(context.value, &request, nullptr,
                 ids.data(), static_cast<std::uint32_t>(ids.size()), &candidate) == PROGPU_NATIVE_STATUS_UNSUPPORTED &&
                 candidate == nullptr);
@@ -519,6 +563,8 @@ int main()
         verify_owned_gpos_frame(*retained);
         verify_owned_run_metrics(*retained);
         verify_public_batch(public_batch.value, *retained);
+        for (std::size_t index = 0U; index < outline_batches.size(); ++index)
+            verify_public_batch(outline_batches[index].value, *outline_generations[index]);
         tests::verify_hinted_transport(*owned_shape->batch);
         transport_require(owned_shape->glyphs.size() == 2U && owned_shape->batch->glyphs.size() == 2U &&
             owned_shape->descriptor_indices == std::vector<std::uint32_t>{0U, 1U});
