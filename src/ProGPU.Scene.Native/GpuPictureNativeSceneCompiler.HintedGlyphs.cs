@@ -19,6 +19,11 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
+        if (!GlyphCoverageTransferPolicy.IsSupported(command.GlyphCoverageTransfer, command.TextRenderingMode))
+        {
+            error = NativePictureCompileError.InvalidArgument;
+            return false;
+        }
         if (!HintedGlyphCommandGeometry.TryValidate(command, options.DpiScale, transform,
                 out int start, out int count))
         {
@@ -64,7 +69,7 @@ public static partial class GpuPictureNativeSceneCompiler
                 Vector4 color = solid.Color;
                 color.W *= solid.Opacity;
                 uint styleIndex = RegisterTextStyle(styles, color,
-                    ToNativeTextRenderingMode(command.TextRenderingMode));
+                    ToNativeTextRenderingMode(command.TextRenderingMode), command.GlyphCoverageTransfer);
                 int outlineStart = outlines.Count, segmentStart = segments.Count, glyphStart = glyphs.Count;
                 outlines.AddRange(drawOutlines);
                 segments.AddRange(drawSegments);
@@ -97,6 +102,9 @@ public static partial class GpuPictureNativeSceneCompiler
                 paint = new NativeSceneGlyphPaint(NativeSceneGlyphPaint.Material, brushIndex, 0,
                     new Vector4(transform.M31, transform.M32, 0f, 0f));
             }
+            paint = new NativeSceneGlyphPaint(paint.Kind, paint.BrushIndex, paint.Flags,
+                paint.SourceOffsetOpacity, paint.UVBounds, paint.TextureQuad01, paint.TextureQuad23,
+                paint.Sampling, command.GlyphCoverageTransfer);
             int outlineBase = outlines.Count, segmentBase = segments.Count, glyphBase = glyphs.Count;
             outlines.AddRange(drawOutlines);
             segments.AddRange(drawSegments);

@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 9;
+    private const int Version = 10;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -364,6 +364,13 @@ internal static class PictureArchive
         int depth,
         int version)
     {
+        if (command.GlyphCoverageTransfer.Encoding > 13u ||
+            (command.GlyphCoverageTransfer != default &&
+                (command.Type != RenderCommandType.DrawGlyphRun ||
+                 command.TextRenderingMode != TextRenderingMode.Grayscale)))
+            throw new NotSupportedException("Invalid explicit glyph coverage transfer descriptor.");
+        if (version < 10 && command.GlyphCoverageTransfer != default)
+            throw new NotSupportedException("Explicit glyph coverage transfer requires picture archive version 10.");
         if (version < 9 && command.TextHintingMode == TextHintingMode.IntegerPixel)
             throw new NotSupportedException("Integer glyph raster origins require picture archive version 9.");
         if (command.SourceHitGeometry.Kind != SourceHitTestGeometryKind.None)
@@ -453,6 +460,7 @@ internal static class PictureArchive
             writer.Write(command.PreferGlyphAtlas);
             writer.Write(command.UseLogicalGlyphAtlasResolution);
         }
+        if (version >= 10) writer.Write(command.GlyphCoverageTransfer.Encoding);
     }
 
     private static RenderCommand ReadCommand(BinaryReader reader, int depth, int version)
@@ -537,6 +545,15 @@ internal static class PictureArchive
         }
         if (version < 9 && command.TextHintingMode == TextHintingMode.IntegerPixel)
             throw new InvalidDataException("Integer glyph raster origins are unavailable in this archive version.");
+        if (version >= 10)
+        {
+            uint transfer = reader.ReadUInt32();
+            if (transfer > 13u || (transfer != 0u &&
+                (command.Type != RenderCommandType.DrawGlyphRun || command.TextRenderingMode != TextRenderingMode.Grayscale)))
+                throw new InvalidDataException("Invalid glyph coverage transfer descriptor.");
+            command.GlyphCoverageTransfer = transfer == 0u ? default :
+                ProGPU.Backend.GlyphCoverageTransfer.GdiPlusGrayscale((int)transfer - 1);
+        }
         return command;
     }
 

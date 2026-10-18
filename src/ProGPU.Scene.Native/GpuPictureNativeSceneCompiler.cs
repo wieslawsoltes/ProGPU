@@ -4434,7 +4434,8 @@ public static partial class GpuPictureNativeSceneCompiler
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
-        out NativePictureCompileError error) =>
+        out NativePictureCompileError error,
+        GlyphCoverageTransfer coverageTransfer = default) =>
         TryAppendPathFill(
             command,
             transform,
@@ -4445,7 +4446,8 @@ public static partial class GpuPictureNativeSceneCompiler
             batches,
             operations,
             materials,
-            out error);
+            out error,
+            coverageTransfer);
 
     private static bool TryAppendPathFill(
         in RenderCommand command,
@@ -4457,9 +4459,16 @@ public static partial class GpuPictureNativeSceneCompiler
         List<Batch> batches,
         List<Operation> operations,
         NativeBrushTableBuilder materials,
-        out NativePictureCompileError error)
+        out NativePictureCompileError error,
+        GlyphCoverageTransfer coverageTransfer = default)
     {
         error = NativePictureCompileError.None;
+        if (!GlyphCoverageTransferPolicy.IsSupported(coverageTransfer,
+                command.IsEdgeAliased ? TextRenderingMode.Aliased : TextRenderingMode.Grayscale))
+        {
+            error = NativePictureCompileError.InvalidArgument;
+            return false;
+        }
         if (command.Brush is null)
         {
             error = NativePictureCompileError.UnsupportedBrush;
@@ -4594,7 +4603,7 @@ public static partial class GpuPictureNativeSceneCompiler
             fillRule,
             sampleGrid,
             booleanNodes.Length == 0 ? 0U : resourceBooleanNodeOffset,
-            checked((ulong)booleanNodes.Length)));
+            checked((ulong)booleanNodes.Length), coverageTransfer));
         brushIndices.Add(brushIndex);
         AppendBatch(
             batches,

@@ -915,6 +915,7 @@ public struct RenderCommand
     public float Rotation;
     public TextRenderingMode TextRenderingMode;
     public TextHintingMode TextHintingMode;
+    public GlyphCoverageTransfer GlyphCoverageTransfer;
     public RenderCommandPresentationDependencies PresentationDependencies;
     public bool UseVectorGlyphRendering
     {
@@ -1366,6 +1367,7 @@ internal readonly struct RetainedTextCommandData
     private readonly float _rotation;
     private readonly TextRenderingMode _textRenderingMode;
     private readonly TextHintingMode _textHintingMode;
+    private readonly GlyphCoverageTransfer _glyphCoverageTransfer;
     private readonly bool _useVectorGlyphRendering;
     private readonly bool _preferGlyphAtlas;
     private readonly bool _useLogicalGlyphAtlasResolution;
@@ -1389,6 +1391,7 @@ internal readonly struct RetainedTextCommandData
         _rotation = command.Rotation;
         _textRenderingMode = command.TextRenderingMode;
         _textHintingMode = command.TextHintingMode;
+        _glyphCoverageTransfer = command.GlyphCoverageTransfer;
         _useVectorGlyphRendering = command.UseVectorGlyphRendering;
         _preferGlyphAtlas = command.PreferGlyphAtlas;
         _useLogicalGlyphAtlasResolution = command.UseLogicalGlyphAtlasResolution;
@@ -1413,6 +1416,7 @@ internal readonly struct RetainedTextCommandData
         command.Rotation = _rotation;
         command.TextRenderingMode = _textRenderingMode;
         command.TextHintingMode = _textHintingMode;
+        command.GlyphCoverageTransfer = _glyphCoverageTransfer;
         command.UseVectorGlyphRendering = _useVectorGlyphRendering;
         command.PreferGlyphAtlas = _preferGlyphAtlas;
         command.UseLogicalGlyphAtlasResolution = _useLogicalGlyphAtlasResolution;
@@ -1820,6 +1824,7 @@ internal readonly struct RetainedRenderCommand
         command.Rotation == 0f &&
         command.TextRenderingMode == default &&
         command.TextHintingMode == default &&
+        command.GlyphCoverageTransfer == default &&
         !command.UseVectorGlyphRendering &&
         !command.PreferGlyphAtlas &&
         !command.UseLogicalGlyphAtlasResolution &&
@@ -1887,6 +1892,7 @@ internal readonly struct RetainedRenderCommand
         command.Rotation != 0f ||
         command.TextRenderingMode != default ||
         command.TextHintingMode != default ||
+        command.GlyphCoverageTransfer != default ||
         command.UseVectorGlyphRendering ||
         command.PreferGlyphAtlas ||
         command.UseLogicalGlyphAtlasResolution ||
@@ -2241,6 +2247,7 @@ internal readonly struct RetainedSimpleGlyphRunCommand
     private readonly ushort _flags;
     private readonly byte _textRenderingMode;
     private readonly byte _textHintingMode;
+    private readonly GlyphCoverageTransfer _glyphCoverageTransfer;
 
     public RetainedSimpleGlyphRunCommand(
         in RenderCommand command,
@@ -2270,6 +2277,7 @@ internal readonly struct RetainedSimpleGlyphRunCommand
             (command.IsEdgeAliased ? EdgeAliasedFlag : 0));
         _textRenderingMode = checked((byte)command.TextRenderingMode);
         _textHintingMode = checked((byte)command.TextHintingMode);
+        _glyphCoverageTransfer = command.GlyphCoverageTransfer;
     }
 
     public RenderCommand Expand(Matrix4x4[] transforms) =>
@@ -2294,6 +2302,7 @@ internal readonly struct RetainedSimpleGlyphRunCommand
             IsEdgeAliased = (_flags & EdgeAliasedFlag) != 0,
             TextRenderingMode = (TextRenderingMode)_textRenderingMode,
             TextHintingMode = (TextHintingMode)_textHintingMode,
+            GlyphCoverageTransfer = _glyphCoverageTransfer,
             GlyphIndices = _glyphIndices,
             GlyphPositions = _glyphPositions,
             GlyphRangeStart = _glyphRangeStart,
@@ -4551,7 +4560,8 @@ public partial class DrawingContext :
         TextHintingMode textHintingMode = TextHintingMode.Auto,
         bool useVectorGlyphRendering = false,
         bool preferGlyphAtlas = false,
-        bool useLogicalGlyphAtlasResolution = false)
+        bool useLogicalGlyphAtlasResolution = false,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
     {
         AddGlyphRun(
             glyphIndices,
@@ -4571,7 +4581,8 @@ public partial class DrawingContext :
             preferGlyphAtlas,
             useLogicalGlyphAtlasResolution,
             fontScaleX: 1f,
-            fontSkewX: 0f);
+            fontSkewX: 0f,
+            glyphCoverageTransfer);
     }
 
     /// <summary>
@@ -4594,7 +4605,8 @@ public partial class DrawingContext :
         TextHintingMode textHintingMode = TextHintingMode.Auto,
         bool useVectorGlyphRendering = false,
         bool preferGlyphAtlas = false,
-        bool useLogicalGlyphAtlasResolution = false)
+        bool useLogicalGlyphAtlasResolution = false,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
     {
         ArgumentNullException.ThrowIfNull(glyphIndices);
         ArgumentNullException.ThrowIfNull(glyphPositions);
@@ -4624,7 +4636,8 @@ public partial class DrawingContext :
             preferGlyphAtlas,
             useLogicalGlyphAtlasResolution,
             fontScaleX: 1f,
-            fontSkewX: 0f);
+            fontSkewX: 0f,
+            glyphCoverageTransfer);
     }
 
     public void DrawTransformedGlyphRun(
@@ -4643,7 +4656,8 @@ public partial class DrawingContext :
         bool preferGlyphAtlas = false,
         bool useLogicalGlyphAtlasResolution = false,
         float fontScaleX = 1f,
-        float fontSkewX = 0f)
+        float fontSkewX = 0f,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
     {
         AddGlyphRun(
             glyphIndices,
@@ -4663,7 +4677,8 @@ public partial class DrawingContext :
             preferGlyphAtlas,
             useLogicalGlyphAtlasResolution,
             fontScaleX,
-            fontSkewX);
+            fontSkewX,
+            glyphCoverageTransfer);
     }
 
     /// <summary>
@@ -4689,7 +4704,8 @@ public partial class DrawingContext :
         bool preferGlyphAtlas = false,
         bool useLogicalGlyphAtlasResolution = false,
         float fontScaleX = 1f,
-        float fontSkewX = 0f)
+        float fontSkewX = 0f,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
     {
         ArgumentNullException.ThrowIfNull(glyphIndices);
         ArgumentNullException.ThrowIfNull(glyphPositions);
@@ -4719,7 +4735,8 @@ public partial class DrawingContext :
             preferGlyphAtlas,
             useLogicalGlyphAtlasResolution,
             fontScaleX,
-            fontSkewX);
+            fontSkewX,
+            glyphCoverageTransfer);
     }
 
     private void AddGlyphRun(
@@ -4740,8 +4757,10 @@ public partial class DrawingContext :
         bool preferGlyphAtlas,
         bool useLogicalGlyphAtlasResolution,
         float fontScaleX,
-        float fontSkewX)
+        float fontSkewX,
+        GlyphCoverageTransfer glyphCoverageTransfer)
     {
+        GlyphCoverageTransferPolicy.Validate(glyphCoverageTransfer, textRenderingMode);
         var command = new RenderCommand
         {
             Type = RenderCommandType.DrawGlyphRun,
@@ -4760,6 +4779,7 @@ public partial class DrawingContext :
             HasFontTransform = fontScaleX != 1f || fontSkewX != 0f,
             TextRenderingMode = textRenderingMode,
             TextHintingMode = textHintingMode,
+            GlyphCoverageTransfer = glyphCoverageTransfer,
             UseVectorGlyphRendering = useVectorGlyphRendering,
             PreferGlyphAtlas = preferGlyphAtlas,
             UseLogicalGlyphAtlasResolution = useLogicalGlyphAtlasResolution

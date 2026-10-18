@@ -2,6 +2,7 @@
 #include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_path_pixel_mapping.hpp"
 #include "progpu_native_path_dispatch.hpp"
+#include "progpu_native_glyph_coverage_transfer.hpp"
 
 namespace progpu::native::execution {
 
@@ -263,8 +264,7 @@ progpu_native_status render_paths(
                     !progpu::native::is_finite(path.color) ||
                     !progpu::native::is_finite(path.transform) ||
                     path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
-                    (path.sample_grid != 1U && path.sample_grid != 4U &&
-                        path.sample_grid != 8U) ||
+                    !valid_glyph_path_sampling(path.sample_grid) ||
                     (path.boolean_node_count != 0U &&
                         path.boolean_node_offset !=
                             expected_boolean_node_offset) ||
@@ -469,7 +469,7 @@ progpu_native_status render_paths(
                                     leaf_words_per_row),
                                 width,
                                 height,
-                                path.sample_grid,
+                                glyph_path_sample_grid(path.sample_grid),
                                 0U,
                                 signed_winding_program
                                     ? path_boolean::
@@ -507,7 +507,7 @@ progpu_native_status render_paths(
                             output_bytes_per_row / 4U,
                             width,
                             height,
-                            path.sample_grid};
+                            glyph_path_sample_grid(path.sample_grid)};
                         if (signed_winding_program) {
                             signed_coverage_combine_uniforms.push_back(
                                 combine_uniform);
@@ -533,7 +533,7 @@ progpu_native_status render_paths(
                             output_bytes_per_row / 4U,
                             width,
                             height,
-                            path.sample_grid,
+                            glyph_path_sample_grid(path.sample_grid),
                             program.program_index,
                             program.operation_kind
                         });
@@ -586,7 +586,7 @@ progpu_native_status render_paths(
                     vertex.brush_index = static_cast<float>(brush_index);
                     vertex.shape_size[0] = local_points[corner].x;
                     vertex.shape_size[1] = local_points[corner].y;
-                    vertex.corner_radius = 1.0F;
+                    vertex.corner_radius = glyph_path_transfer(path.sample_grid);
                     vertex.shape_type = 4.0F;
                     if (source_frame.physical) {
                         device_points[corner] = {vertex.position[0],vertex.position[1]};

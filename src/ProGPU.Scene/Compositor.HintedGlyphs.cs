@@ -11,6 +11,7 @@ public unsafe partial class Compositor
     // This seam adds original physical records, never a font, layout or snap.
     private void CompileHintedGlyphCommand(RenderCommand command, Matrix4x4 transform)
     {
+        GlyphCoverageTransferPolicy.Validate(command.GlyphCoverageTransfer, command.TextRenderingMode);
         HintedGlyphGeometry geometry = command.HintedGlyphGeometry ??
             throw new InvalidOperationException("A hinted glyph command requires its original retained geometry.");
         ValidateHintedReplayTarget(geometry.DpiScale, _currentDpiScale, transform,
@@ -282,7 +283,7 @@ public unsafe partial class Compositor
                 // Text.wgsl already divides physical bearings/extents by DPI.
                 ScaleBoldItalicUseMvp = new Vector4(1f, 0f, 0f,
                     EncodeTextFlags(ActiveCompilationContext != null,
-                        sharedStyle ? TextRenderingMode.Grayscale : command.TextRenderingMode, false)),
+                        sharedStyle ? TextRenderingMode.Grayscale : command.TextRenderingMode, false, command.GlyphCoverageTransfer)),
                 BrushIndex = style, Padding = paintIndex.HasValue ? BitConverter.UInt32BitsToSingle(paintIndex.Value) : 0f
             });
             if (!sharedStyle && paintIndex is null) _legacyTextVertexCount++;

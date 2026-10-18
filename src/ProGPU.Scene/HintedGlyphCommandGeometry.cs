@@ -30,7 +30,8 @@ internal static class HintedGlyphCommandGeometry
         Matrix3x2 effectiveTransform, out int start, out int count)
     {
         start = count = 0;
-        if (!TryGetRange(command, out start, out count) ||
+        if (!GlyphCoverageTransferPolicy.IsSupported(command.GlyphCoverageTransfer, command.TextRenderingMode) ||
+            !TryGetRange(command, out start, out count) ||
             BitConverter.SingleToInt32Bits(command.HintedGlyphGeometry!.DpiScale) !=
                 BitConverter.SingleToInt32Bits(targetDpiScale) ||
             !IsIdentityBasis(effectiveTransform) || command.UseGpuTransforms ||

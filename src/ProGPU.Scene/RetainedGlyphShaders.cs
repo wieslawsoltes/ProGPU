@@ -5,5 +5,6 @@ namespace ProGPU.Scene;
 internal static class RetainedGlyphShaders
 {
     public static readonly string Source =
-        ShaderResource.Load(typeof(RetainedGlyphShaders), "RetainedGlyph.wgsl");
+        string.Concat(ShaderResource.Load(typeof(Shaders), "GlyphCoverageTransfer.wgsl"), "\n",
+            ShaderResource.Load(typeof(RetainedGlyphShaders), "RetainedGlyph.wgsl"));
 }

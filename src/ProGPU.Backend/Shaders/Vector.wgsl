@@ -1978,7 +1978,10 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -
             coverage = textureSampleGrad(pathAtlasTexture, pathAtlasSampler, pathAtlasCoord, pathAtlasCoordDx, pathAtlasCoordDy).r;
         }
         let coverageGamma = select(1.0, input.cornerRadius, input.cornerRadius > 0.0);
-        let correctedCoverage = pow(coverage, coverageGamma);
+        var correctedCoverage = pow(coverage, coverageGamma);
+        if (input.cornerRadius < 0.0) {
+            correctedCoverage = source_grayscale_coverage(coverage, -input.cornerRadius);
+        }
         shapeAlpha = select(correctedCoverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);
     } else if (sType == 7u) {
         // Direct solid fill

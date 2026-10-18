@@ -5,6 +5,7 @@ public static class Shaders
     public static readonly string SharedWgpuMathCode = ShaderResource.Load(typeof(Shaders), "SharedWgpuMath.wgsl");
 
     public static readonly string VectorShader = string.Concat(
+        ShaderResource.Load(typeof(Shaders), "GlyphCoverageTransfer.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "PathAtlasSampling.wgsl"),
         "\n",
         ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl"),
@@ -12,6 +13,7 @@ public static class Shaders
         ShaderResource.Load(typeof(Shaders), "Vector.wgsl"));
 
     public static readonly string TextShader = string.Concat(
+        ShaderResource.Load(typeof(Shaders), "GlyphCoverageTransfer.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "TextGlyphGeometryCommon.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "TextGlyphCoverageCommon.wgsl"), "\n",
@@ -33,6 +35,7 @@ public static class Shaders
         static HintedGlyphPaintSource() { }
 
         internal static readonly string Value = string.Concat(
+            ShaderResource.Load(typeof(Shaders), "GlyphCoverageTransfer.wgsl"), "\n",
             ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl"), "\n",
             ShaderResource.Load(typeof(Shaders), "TextGlyphGeometryCommon.wgsl"), "\n",
             ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl"), "\n",

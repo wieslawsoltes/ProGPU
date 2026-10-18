@@ -1,3 +1,12 @@
+Explicit source grayscale contrast is immutable draw metadata. Preserve original
+layout/glyph positions, raw contrast 0..12, grayscale-only admission and default
+legacy rendering. Carry it through every retained/archive/native style, direct
+paint and path fallback; clips keep their independent sample-grid contract.
+Never alias GDI/SystemDefault/ClearType, quantize a spatial sampler to manufacture
+parity, or claim old native producers support the new reserved-word semantics.
+See docs/source-grayscale-text-contrast.md; original pixels and whole-provider/
+package/application qualification remain separate mandatory gates.
+
 # Agent Guidelines & Reference Handbook (agents.md)
 
 Explicit integer glyph raster origins preserve original positioned arrays and

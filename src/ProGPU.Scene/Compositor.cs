@@ -560,7 +560,8 @@ public unsafe partial class Compositor : IDisposable
     private static float EncodeTextFlags(
         bool useMvp,
         TextRenderingMode textRenderingMode,
-        bool isColorGlyph = false)
+        bool isColorGlyph = false,
+        GlyphCoverageTransfer coverageTransfer = default)
     {
         var flags = textRenderingMode switch
         {
@@ -568,7 +569,7 @@ public unsafe partial class Compositor : IDisposable
             TextRenderingMode.ClearType => useMvp ? 3f : 2f,
             _ => useMvp ? 1f : 0f
         };
-        return isColorGlyph ? flags + 8f : flags;
+        return (isColorGlyph ? flags + 8f : flags) + 16f * coverageTransfer.Encoding;
     }
 
     private static float ForceTextUseMvp(float encodedFlags)
@@ -576,7 +577,7 @@ public unsafe partial class Compositor : IDisposable
         return EncodeTextFlags(
             useMvp: true,
             DecodeTextRenderingMode(encodedFlags),
-            IsColorTextFlags(encodedFlags));
+            IsColorTextFlags(encodedFlags)) + 16f * MathF.Floor(MathF.Max(encodedFlags, 0f) / 16f);
     }
 
     private static TextRenderingMode DecodeTextRenderingMode(float encodedFlags)
@@ -595,10 +596,13 @@ public unsafe partial class Compositor : IDisposable
         return TextRenderingMode.Grayscale;
     }
 
-    private static bool IsColorTextFlags(float encodedFlags) => encodedFlags > 5.5f;
+    private static float StripCoverageTransfer(float encodedFlags) =>
+        encodedFlags - 16f * MathF.Floor(MathF.Max(encodedFlags, 0f) / 16f);
+
+    private static bool IsColorTextFlags(float encodedFlags) => StripCoverageTransfer(encodedFlags) > 5.5f;
 
     private static float DecodeBaseTextFlags(float encodedFlags) =>
-        IsColorTextFlags(encodedFlags) ? encodedFlags - 8f : encodedFlags;
+        IsColorTextFlags(encodedFlags) ? StripCoverageTransfer(encodedFlags) - 8f : StripCoverageTransfer(encodedFlags);
 
     private static (byte SubpixelX, Vector2 SnappedLogicalPos) ResolveTextPlacement(
         Vector2 transformedPosition,
@@ -7927,7 +7931,8 @@ SceneStateUploadComplete:
         Matrix4x4 transform,
         uint subpixelPhaseGrid = PathAtlas.DefaultSubpixelPhaseGrid,
         bool quantizeScale = false,
-        float rasterScale = 0f)
+        float rasterScale = 0f,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
     {
         SwitchBatch(BatchType.Vector);
         if (cmd.Path == null) return;
@@ -7935,7 +7940,7 @@ SceneStateUploadComplete:
         if (_wavefrontFrameEnabled)
         {
             var activeTransform = cmd.Transform == default ? transform : cmd.Transform * transform;
-            if (!CanCompileWavefrontPath(cmd, activeTransform))
+            if (glyphCoverageTransfer != default || !CanCompileWavefrontPath(cmd, activeTransform))
             {
                 throw WavefrontFrameFallbackException.Instance;
             }
@@ -7958,7 +7963,7 @@ SceneStateUploadComplete:
         int startIndex = _vectorVerticesList.Count;
 
         transform = (cmd.Transform == default) ? transform : cmd.Transform * transform;
-        var pathCoverageGamma = cmd.PathCoverageGamma;
+        var pathCoverageGamma = cmd.PathCoverageGamma < 0f ? 0f : cmd.PathCoverageGamma;
         if (cmd.UseVectorGlyphRendering && cmd.FontSize > 0f)
         {
             var staticZoom = ActiveCompilationContext?.StaticZoom ?? 1f;
@@ -7981,12 +7986,13 @@ SceneStateUploadComplete:
                     TransformMetrics.GetStrokeScale(transform),
                     effectiveDpiScale);
         }
+        pathCoverageGamma = GlyphCoverageTransferPolicy.VectorEncoding(glyphCoverageTransfer, pathCoverageGamma);
         if (Options.EnableGpuHitTesting && !_suspendHitTestCacheWrites)
         {
             EnsurePathHitTestCompilation(cmd.Path);
         }
 
-        bool compiledDirectRoundedFill = cmd.Brush != null &&
+        bool compiledDirectRoundedFill = glyphCoverageTransfer == default && cmd.Brush != null &&
             TryCompileDirectRoundedRectanglePathFill(cmd, transform);
         if (cmd.Brush != null && !compiledDirectRoundedFill)
         {
@@ -13623,6 +13629,7 @@ CompilePathStroke:
 
     private void CompileTextCommand(RenderCommand cmd, ITextLayoutProvider? textNode, Matrix4x4 transform)
     {
+        GlyphCoverageTransferPolicy.Validate(cmd.GlyphCoverageTransfer, cmd.TextRenderingMode);
         if (cmd.TextHintingMode == TextHintingMode.IntegerPixel)
             throw new NotSupportedException("Integer glyph raster origins require explicit positioned glyphs.");
 
@@ -13731,6 +13738,7 @@ CompilePathStroke:
                 activeTransform,
                 transformScale,
                 dpiScale);
+        textPathCoverageGamma = GlyphCoverageTransferPolicy.VectorEncoding(cmd.GlyphCoverageTransfer, textPathCoverageGamma);
         bool isRotated = MathF.Abs(activeTransform.M12) > 0.0001f ||
                          MathF.Abs(activeTransform.M21) > 0.0001f ||
                          activeTransform.M11 < 0.0f ||
@@ -13899,7 +13907,7 @@ CompilePathStroke:
                             usesGpuTextStyle
                                 ? TextRenderingMode.Grayscale
                                 : cmd.TextRenderingMode,
-                            info.IsColorBitmap)),
+                            info.IsColorBitmap, cmd.GlyphCoverageTransfer)),
                     BrushIndex = bIdx,
                     Padding = 0f
                 });
@@ -13913,6 +13921,7 @@ CompilePathStroke:
 
     private void CompileGlyphRunCommand(RenderCommand cmd, Matrix4x4 transform)
     {
+        GlyphCoverageTransferPolicy.Validate(cmd.GlyphCoverageTransfer, cmd.TextRenderingMode);
         if (cmd.TextHintingMode == TextHintingMode.IntegerPixel &&
             (ActiveCompilationContext?.RetainedGlyphBuilder != null ||
              !IntegerGlyphRasterOrigin.IsSupported(cmd, transform,
@@ -14002,6 +14011,7 @@ CompilePathStroke:
                 activeTransform,
                 transformScale,
                 dpiScale);
+        textPathCoverageGamma = GlyphCoverageTransferPolicy.VectorEncoding(cmd.GlyphCoverageTransfer, textPathCoverageGamma);
 
         bool isRotated = MathF.Abs(activeTransform.M12) > 0.0001f ||
                          MathF.Abs(activeTransform.M21) > 0.0001f ||
@@ -14175,7 +14185,7 @@ CompilePathStroke:
                             usesGpuTextStyle
                                 ? TextRenderingMode.Grayscale
                                 : cmd.TextRenderingMode,
-                            info.IsColorBitmap)),
+                            info.IsColorBitmap, cmd.GlyphCoverageTransfer)),
                     BrushIndex = bIdx,
                     Padding = 0f
                 });
@@ -14394,7 +14404,8 @@ CompilePathStroke:
             placementTransform,
             subpixelPhaseGrid: VectorGlyphDeviceSubpixelPhaseGrid,
             quantizeScale: true,
-            rasterScale: rasterScale);
+            rasterScale: rasterScale,
+            glyphCoverageTransfer: textCommand.GlyphCoverageTransfer);
     }
 
     private void CompileColorGlyphLayerPath(
@@ -14479,7 +14490,8 @@ CompilePathStroke:
             placementTransform,
             subpixelPhaseGrid: VectorGlyphDeviceSubpixelPhaseGrid,
             quantizeScale: true,
-            rasterScale: rasterScale);
+            rasterScale: rasterScale,
+            glyphCoverageTransfer: textCommand.GlyphCoverageTransfer);
     }
 
     private float GetActiveTextPathCoverageGamma(

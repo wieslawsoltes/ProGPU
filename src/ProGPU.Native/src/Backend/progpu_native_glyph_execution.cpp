@@ -1275,6 +1275,8 @@ progpu_native_status render_glyphs(
                             "A retained semantic text style index is invalid.");
                     }
                     instance.brush_index = static_cast<float>(style_index);
+                    instance.scale_bold_italic_flags[3] += 16.0F * static_cast<float>(
+                        engine->semantic_text_style_cache.styles[style_index].coverage_transfer);
                 } else {
                     instance.brush_index = -1.0F;
                 }
@@ -1290,7 +1292,8 @@ progpu_native_status render_glyphs(
                     instance.padding = std::bit_cast<float>(paint_index);
                     instance.scale_bold_italic_flags[3] =
                         engine->semantic_glyph_cache.rendering_modes[index] == PROGPU_NATIVE_SCENE_TEXT_ALIASED
-                        ? -1.0F : 0.0F;
+                        ? -1.0F : 16.0F * static_cast<float>(
+                            engine->semantic_glyph_cache.paints[paint_index].coverage_transfer);
                 }
                 engine->glyph_instances.push_back(instance);
                 engine->glyph_source_alphas.push_back(glyph.color.a);
