@@ -1449,23 +1449,26 @@ public readonly struct NativeSceneTextStyle
     public NativeSceneTextStyle(
         Vector4 color,
         NativeSceneTextRenderingMode textRenderingMode =
-            NativeSceneTextRenderingMode.Grayscale)
+            NativeSceneTextRenderingMode.Grayscale,
+        GlyphCoverageTransfer coverageTransfer = default)
     {
         Color = color;
         TextRenderingMode = textRenderingMode;
-        Reserved0 = 0U;
+        CoverageTransfer = coverageTransfer;
         Reserved1 = 0U;
         Reserved2 = 0U;
     }
 
     [FieldOffset(0)] public readonly Vector4 Color;
     [FieldOffset(16)] public readonly NativeSceneTextRenderingMode TextRenderingMode;
-    [FieldOffset(20)] private readonly uint Reserved0;
+    [FieldOffset(20)] public readonly GlyphCoverageTransfer CoverageTransfer;
     [FieldOffset(24)] private readonly uint Reserved1;
     [FieldOffset(28)] private readonly uint Reserved2;
 
     internal bool HasCanonicalReservedFields =>
-        Reserved0 == 0U && Reserved1 == 0U && Reserved2 == 0U;
+        CoverageTransfer.Encoding <= 13U &&
+        (CoverageTransfer == default || TextRenderingMode == NativeSceneTextRenderingMode.Grayscale) &&
+        Reserved1 == 0U && Reserved2 == 0U;
 }
 
 /// <summary>
@@ -1628,9 +1631,9 @@ public readonly struct NativeSceneGlyphPaint
     public NativeSceneGlyphPaint(uint kind, uint brushIndex, uint flags,
         Vector4 sourceOffsetOpacity, Vector4 uvBounds = default,
         Vector4 textureQuad01 = default, Vector4 textureQuad23 = default,
-        Vector4 sampling = default)
+        Vector4 sampling = default, GlyphCoverageTransfer coverageTransfer = default)
     {
-        Kind = kind; BrushIndex = brushIndex; Flags = flags; Reserved = 0U;
+        Kind = kind; BrushIndex = brushIndex; Flags = flags; CoverageTransfer = coverageTransfer;
         SourceOffsetOpacity = sourceOffsetOpacity; UVBounds = uvBounds;
         TextureQuad01 = textureQuad01; TextureQuad23 = textureQuad23; Sampling = sampling;
     }
@@ -1638,7 +1641,7 @@ public readonly struct NativeSceneGlyphPaint
     [FieldOffset(0)] public readonly uint Kind;
     [FieldOffset(4)] public readonly uint BrushIndex;
     [FieldOffset(8)] public readonly uint Flags;
-    [FieldOffset(12)] private readonly uint Reserved;
+    [FieldOffset(12)] public readonly GlyphCoverageTransfer CoverageTransfer;
     [FieldOffset(16)] public readonly Vector4 SourceOffsetOpacity;
     [FieldOffset(32)] public readonly Vector4 UVBounds;
     [FieldOffset(48)] public readonly Vector4 TextureQuad01;
@@ -1649,7 +1652,7 @@ public readonly struct NativeSceneGlyphPaint
     {
         get
         {
-            if (Kind > Texture || Reserved != 0U || SourceOffsetOpacity.W != 0f ||
+            if (Kind > Texture || CoverageTransfer.Encoding > 13U || SourceOffsetOpacity.W != 0f ||
                 !Finite(SourceOffsetOpacity) || !Finite(UVBounds) || !Finite(TextureQuad01) ||
                 !Finite(TextureQuad23) || !Finite(Sampling)) return false;
             if (Kind == Material)
@@ -2682,7 +2685,8 @@ public readonly struct NativeScenePathFill
         NativeFillRule fillRule = NativeFillRule.NonZero,
         uint sampleGrid = 4,
         ulong booleanNodeOffset = 0U,
-        ulong booleanNodeCount = 0U)
+        ulong booleanNodeCount = 0U,
+        GlyphCoverageTransfer coverageTransfer = default)
     {
         SegmentOffset = segmentOffset;
         SegmentCount = segmentCount;
@@ -2693,7 +2697,10 @@ public readonly struct NativeScenePathFill
         Color = color;
         Transform = transform;
         FillRule = fillRule;
-        SampleGrid = sampleGrid;
+        if (coverageTransfer != default &&
+            (coverageTransfer.Encoding > 13U || sampleGrid is not (4U or 8U)))
+            throw new ArgumentException("Explicit grayscale path coverage requires an antialiased sample grid.");
+        SampleGrid = sampleGrid | (coverageTransfer.Encoding << 8);
     }
 
     public readonly ulong SegmentOffset;
@@ -3743,7 +3750,8 @@ public readonly struct NativePathFill
         NativeFillRule fillRule = NativeFillRule.NonZero,
         uint sampleGrid = 4,
         nuint booleanNodeOffset = 0U,
-        nuint booleanNodeCount = 0U)
+        nuint booleanNodeCount = 0U,
+        GlyphCoverageTransfer coverageTransfer = default)
     {
         SegmentOffset = segmentOffset;
         SegmentCount = segmentCount;
@@ -3754,7 +3762,10 @@ public readonly struct NativePathFill
         Color = color;
         Transform = transform;
         FillRule = fillRule;
-        SampleGrid = sampleGrid;
+        if (coverageTransfer != default &&
+            (coverageTransfer.Encoding > 13U || sampleGrid is not (4U or 8U)))
+            throw new ArgumentException("Explicit grayscale path coverage requires an antialiased sample grid.");
+        SampleGrid = sampleGrid | (coverageTransfer.Encoding << 8);
     }
 
     public readonly nuint SegmentOffset;

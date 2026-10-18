@@ -1,4 +1,5 @@
 using System.Numerics;
+using ProGPU.Backend;
 using ProGPU.Backend.Native;
 using ProGPU.Text;
 using ProGPU.Vector;
@@ -140,6 +141,11 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
+        if (!GlyphCoverageTransferPolicy.IsSupported(command.GlyphCoverageTransfer, command.TextRenderingMode))
+        {
+            error = NativePictureCompileError.InvalidArgument;
+            return false;
+        }
         TtfFont? font = command.Font;
         ushort[]? glyphIndices = command.GlyphIndices;
         Vector2[]? glyphPositions = command.GlyphPositions;
@@ -260,6 +266,7 @@ public static partial class GpuPictureNativeSceneCompiler
         NativeImageRect colorBounds = default;
         bool hasColorBounds = false;
         TextRenderingMode textRenderingMode = command.TextRenderingMode;
+        GlyphCoverageTransfer coverageTransfer = command.GlyphCoverageTransfer;
         Vector4 glyphStyleColor = solid.Color;
         glyphStyleColor.W *= solid.Opacity;
 
@@ -273,7 +280,7 @@ public static partial class GpuPictureNativeSceneCompiler
             uint styleIndex = RegisterTextStyle(
                 styles,
                 glyphStyleColor,
-                ToNativeTextRenderingMode(textRenderingMode));
+                ToNativeTextRenderingMode(textRenderingMode), coverageTransfer);
             int outlineStart = outlines.Count;
             int segmentBase = segments.Count;
             int glyphStart = glyphs.Count;
@@ -312,7 +319,7 @@ public static partial class GpuPictureNativeSceneCompiler
             uint styleIndex = RegisterTextStyle(
                 styles,
                 glyphStyleColor,
-                ToNativeTextRenderingMode(textRenderingMode));
+                ToNativeTextRenderingMode(textRenderingMode), coverageTransfer);
             int bitmapStart = colorBitmaps.Count;
             int pixelStart = colorPixels.Count;
             int glyphStart = glyphs.Count;
@@ -632,7 +639,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     batches,
                     operations,
                     materials,
-                    out error))
+                    out error, textCommand.GlyphCoverageTransfer))
             {
                 return false;
             }
@@ -704,7 +711,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     batches,
                     operations,
                     materials,
-                    out error))
+                    out error, textCommand.GlyphCoverageTransfer))
             {
                 return false;
             }
@@ -878,18 +885,19 @@ public static partial class GpuPictureNativeSceneCompiler
     private static uint RegisterTextStyle(
         List<NativeSceneTextStyle> styles,
         Vector4 color,
-        NativeSceneTextRenderingMode renderingMode)
+        NativeSceneTextRenderingMode renderingMode,
+        GlyphCoverageTransfer coverageTransfer = default)
     {
         for (int index = 0; index < styles.Count; index++)
         {
             NativeSceneTextStyle style = styles[index];
-            if (style.Color == color && style.TextRenderingMode == renderingMode)
+            if (style.Color == color && style.TextRenderingMode == renderingMode && style.CoverageTransfer == coverageTransfer)
             {
                 return checked((uint)index);
             }
         }
         uint result = checked((uint)styles.Count);
-        styles.Add(new NativeSceneTextStyle(color, renderingMode));
+        styles.Add(new NativeSceneTextStyle(color, renderingMode, coverageTransfer));
         return result;
     }
 

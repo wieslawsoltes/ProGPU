@@ -1711,7 +1711,8 @@ typedef struct progpu_native_scene_draw_brushes {
 typedef struct progpu_native_scene_text_style {
     progpu_native_color color;
     uint32_t text_rendering_mode;
-    uint32_t reserved0;
+    /* 0 legacy; 1..13 explicit GDI+ grayscale contrast 0..12. */
+    uint32_t coverage_transfer;
     uint32_t reserved1;
     uint32_t reserved2;
 } progpu_native_scene_text_style;
@@ -1815,7 +1816,7 @@ typedef struct progpu_native_scene_glyph_paint {
     uint32_t kind;
     uint32_t brush_index;
     uint32_t flags;
-    uint32_t reserved;
+    uint32_t coverage_transfer;
     float source_offset_opacity[4];
     float uv_bounds[4];
     float texture_quad01[4];
@@ -1861,6 +1862,8 @@ typedef struct progpu_native_scene_path_fill {
     progpu_native_color color;
     progpu_native_affine_2d transform;
     uint32_t fill_rule;
+    /* Low byte: 1/4/8 samples. High bits: 0 legacy, 1..13 grayscale
+     * contrast 0..12; explicit transfer requires grid 4/8. Clip fields differ. */
     uint32_t sample_grid;
 } progpu_native_scene_path_fill;
 
@@ -2665,6 +2668,8 @@ typedef struct progpu_native_path_fill {
     progpu_native_color color;
     progpu_native_affine_2d transform;
     uint32_t fill_rule;
+    /* Low byte: 1/4/8 samples. High bits: 0 legacy, 1..13 grayscale
+     * contrast 0..12; explicit transfer requires grid 4/8. Clip fields differ. */
     uint32_t sample_grid;
 } progpu_native_path_fill;
 

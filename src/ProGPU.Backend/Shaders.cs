@@ -9,12 +9,14 @@ public static class Shaders
         "\n",
         ShaderResource.Load(typeof(Shaders), "RegisteredMaterialCommon.wgsl"),
         "\n",
+        ShaderResource.Load(typeof(Shaders), "GlyphCoverageTransfer.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "Vector.wgsl"));
 
     public static readonly string TextShader = string.Concat(
         ShaderResource.Load(typeof(Shaders), "TextGlyphGeometryCommon.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "TextGlyphCoverageCommon.wgsl"), "\n",
+        ShaderResource.Load(typeof(Shaders), "GlyphCoverageTransfer.wgsl"), "\n",
         ShaderResource.Load(typeof(Shaders), "Text.wgsl"));
 
     public static readonly string TextureShader = string.Concat(
@@ -38,6 +40,7 @@ public static class Shaders
             ShaderResource.Load(typeof(Shaders), "TextMaskCommon.wgsl"), "\n",
             ShaderResource.Load(typeof(Shaders), "TextGlyphCoverageCommon.wgsl"), "\n",
             ShaderResource.Load(typeof(Shaders), "TextureImageSamplingCommon.wgsl"), "\n",
+            ShaderResource.Load(typeof(Shaders), "GlyphCoverageTransfer.wgsl"), "\n",
             ShaderResource.Load(typeof(Shaders), "HintedGlyphPaint.wgsl"));
     }
 

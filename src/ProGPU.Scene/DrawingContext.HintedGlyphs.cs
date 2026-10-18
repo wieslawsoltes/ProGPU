@@ -1,5 +1,6 @@
 using System.Numerics;
 using ProGPU.Text;
+using ProGPU.Backend;
 using ProGPU.Vector;
 
 namespace ProGPU.Scene;
@@ -41,33 +42,38 @@ public partial class DrawingContext
     /// </summary>
     public void DrawHintedGlyphs(HintedGlyphGeometry geometry, Vector2 origin,
         Rect inkBounds, Brush brush, Matrix4x4 transform = default,
-        TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale)
-        => DrawHintedGlyphs(geometry, origin, inkBounds, brush, transform, textRenderingMode, 0);
+        TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
+        => DrawHintedGlyphs(geometry, origin, inkBounds, brush, transform, textRenderingMode, 0, glyphCoverageTransfer);
 
     /// <summary>Records original glyphs with the source's unchanged hit owner.</summary>
     public void DrawHintedGlyphs(HintedGlyphGeometry geometry, Vector2 origin,
         Rect inkBounds, Brush brush, Matrix4x4 transform,
-        TextRenderingMode textRenderingMode, int hitTestId)
+        TextRenderingMode textRenderingMode, int hitTestId,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         DrawHintedGlyphsRange(geometry, 0, geometry.OccurrenceCount, origin,
-            inkBounds, brush, transform, textRenderingMode, hitTestId);
+            inkBounds, brush, transform, textRenderingMode, hitTestId, glyphCoverageTransfer);
     }
 
     /// <summary>Records an explicit occurrence range; a zero count is empty.</summary>
     public void DrawHintedGlyphsRange(HintedGlyphGeometry geometry, int start, int count,
         Vector2 origin, Rect inkBounds, Brush brush, Matrix4x4 transform = default,
-        TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale)
+        TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
         => DrawHintedGlyphsRange(geometry, start, count, origin, inkBounds, brush,
-            transform, textRenderingMode, 0);
+            transform, textRenderingMode, 0, glyphCoverageTransfer);
 
     /// <summary>Records an explicit range with the source's unchanged hit owner.</summary>
     public void DrawHintedGlyphsRange(HintedGlyphGeometry geometry, int start, int count,
         Vector2 origin, Rect inkBounds, Brush brush, Matrix4x4 transform,
-        TextRenderingMode textRenderingMode, int hitTestId)
+        TextRenderingMode textRenderingMode, int hitTestId,
+        GlyphCoverageTransfer glyphCoverageTransfer = default)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(brush);
+        GlyphCoverageTransferPolicy.Validate(glyphCoverageTransfer, textRenderingMode);
         geometry.EnsureRecordingAdmission();
         Matrix4x4 actualTransform = transform == default ? Matrix4x4.Identity : transform;
         var command = new RenderCommand
@@ -75,7 +81,8 @@ public partial class DrawingContext
             Type = RenderCommandType.DrawHintedGlyphs,
             HintedGlyphGeometry = geometry, GlyphRangeStart = start, GlyphRangeCount = count,
             Position = origin, Rect = inkBounds, Brush = brush,
-            Transform = transform, TextRenderingMode = textRenderingMode, HitTestId = hitTestId
+            Transform = transform, TextRenderingMode = textRenderingMode, HitTestId = hitTestId,
+            GlyphCoverageTransfer = glyphCoverageTransfer
         };
         if (!HintedGlyphCommandGeometry.IsIdentityBasis(actualTransform) ||
             !HintedGlyphCommandGeometry.TryValidate(command, geometry.DpiScale,

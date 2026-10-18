@@ -18,7 +18,6 @@ bool semantic_scene_builder::add_text_style(
     std::uint32_t& style_index) noexcept {
     style_index = PROGPU_NATIVE_SCENE_NO_INDEX;
     progpu_native_scene_text_style style = source;
-    style.reserved0 = 0U;
     style.reserved1 = 0U;
     style.reserved2 = 0U;
     if (!semantic::is_valid_semantic_text_style(style)) {

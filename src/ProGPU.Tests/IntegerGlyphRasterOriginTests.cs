@@ -221,7 +221,7 @@ public sealed class IntegerGlyphRasterOriginTests
         context.Commands.Add(command);
         using var picture = context.CreatePictureSnapshot();
         using var clone = picture.Clone();
-        byte[] archive = PictureArchive.Serialize(clone, new SKRect(0, 0, 64, 64));
+        byte[] archive = PictureArchive.Serialize(clone, new SKRect(0, 0, 64, 64), 9);
         Assert.Equal(9, BinaryPrimitives.ReadInt32LittleEndian(archive.AsSpan(8, 4)));
         using var restored = SKPicture.Deserialize(archive);
         Assert.NotNull(restored);

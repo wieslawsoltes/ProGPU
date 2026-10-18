@@ -27,6 +27,15 @@
 #include "progpu_native_semantic_state.hpp"
 #include "progpu_native_semantic_identity.hpp"
 #include "progpu_native_semantic_text_style.hpp"
+#include "progpu_native_glyph_coverage_transfer.hpp"
+
+static_assert(progpu::native::valid_glyph_path_sampling(4U));
+static_assert(progpu::native::valid_glyph_path_sampling((13U << 8U) | 8U));
+static_assert(!progpu::native::valid_glyph_path_sampling((14U << 8U) | 8U));
+static_assert(!progpu::native::valid_glyph_path_sampling((1U << 8U) | 1U));
+static_assert(!progpu::native::valid_glyph_path_sampling(0x80000104U));
+static_assert(progpu::native::glyph_path_sample_grid(0xD08U) == 8U);
+static_assert(progpu::native::glyph_path_transfer(0xD08U) == -13.0F);
 #include "progpu_native_semantic_validation.hpp"
 #include "progpu_native_webgpu_synchronization.hpp"
 #include "progpu_native_submission_resources.hpp"
@@ -1269,7 +1278,21 @@ void semantic_text_style_page_is_validated_deduplicated_and_retained() {
     require(!progpu::native::semantic::try_get_command_text_style_index(
         page, 3U, packed_index));
 
+    for (std::uint32_t contrast = 0U; contrast <= 12U; ++contrast) {
+        auto explicit_style = style;
+        explicit_style.text_rendering_mode = PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE;
+        explicit_style.coverage_transfer = contrast + 1U;
+        std::memcpy(storage.data() + style_resource.payload_offset, &explicit_style, sizeof(explicit_style));
+        require(progpu::native::semantic::validate_text_style_table(storage.data(), style_resource, error_offset));
+        explicit_style.text_rendering_mode = PROGPU_NATIVE_SCENE_TEXT_ALIASED;
+        std::memcpy(storage.data() + style_resource.payload_offset, &explicit_style, sizeof(explicit_style));
+        require(!progpu::native::semantic::validate_text_style_table(storage.data(), style_resource, error_offset));
+    }
     auto invalid_style = style;
+    invalid_style.coverage_transfer = 14U;
+    std::memcpy(storage.data() + style_resource.payload_offset, &invalid_style, sizeof(invalid_style));
+    require(!progpu::native::semantic::validate_text_style_table(storage.data(), style_resource, error_offset));
+    invalid_style = style;
     invalid_style.text_rendering_mode = 3U;
     std::memcpy(
         storage.data() + style_resource.payload_offset,
@@ -1428,7 +1451,16 @@ void semantic_original_glyph_paint_wire_is_exact_and_independent() {
         paint.flags = flags; write();
         require(!validate_painted_glyph_draw(storage.data(), header, command, error));
     }
-    paint = valid_texture; paint.reserved = 1U; write();
+    for (std::uint32_t contrast = 0U; contrast <= 12U; ++contrast) {
+        paint = valid_texture;
+        paint.coverage_transfer = contrast + 1U;
+        draw.rendering_mode = PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE; write();
+        require(validate_painted_glyph_draw(storage.data(), header, command, error));
+        draw.rendering_mode = PROGPU_NATIVE_SCENE_TEXT_ALIASED; write();
+        require(!validate_painted_glyph_draw(storage.data(), header, command, error));
+    }
+    draw.rendering_mode = PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE;
+    paint = valid_texture; paint.coverage_transfer = 14U; write();
     require(!validate_painted_glyph_draw(storage.data(), header, command, error));
     paint = valid_texture; paint.sampling[2] = 0.5F; write();
     require(!validate_painted_glyph_draw(storage.data(), header, command, error));

@@ -1979,7 +1979,11 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -
         }
         let coverageGamma = select(1.0, input.cornerRadius, input.cornerRadius > 0.0);
         let correctedCoverage = pow(coverage, coverageGamma);
-        shapeAlpha = select(correctedCoverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);
+        var selectedCoverage = correctedCoverage;
+        if (input.cornerRadius < 0.0) {
+            selectedCoverage = source_grayscale_coverage(coverage, -input.cornerRadius);
+        }
+        shapeAlpha = select(selectedCoverage, select(0.0, 1.0, coverage >= 0.5), aliasedEdge);
     } else if (sType == 7u) {
         // Direct solid fill
         shapeAlpha = 1.0;

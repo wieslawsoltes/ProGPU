@@ -370,8 +370,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             rawCoverage = 1.0 - smoothstep(-0.5, 0.5, signedDeviceDistance);
         }
     }
+    var correctedCoverage = pow(clamp(rawCoverage * 1.15, 0.0, 1.0), max(input.coverageGamma, 0.0));
+    if (input.coverageGamma < 0.0) {
+        correctedCoverage = source_grayscale_coverage(rawCoverage, -input.coverageGamma);
+    }
     let coverage = select(
-        pow(clamp(rawCoverage * 1.15, 0.0, 1.0), input.coverageGamma),
+        correctedCoverage,
         select(0.0, 1.0, rawCoverage >= 0.5),
         grid == 1u);
     if (coverage <= 0.0) { discard; }

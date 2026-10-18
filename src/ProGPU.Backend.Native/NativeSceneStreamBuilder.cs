@@ -2385,6 +2385,7 @@ public ref struct NativeSceneStreamBuilder
             ResourceHasFlags(resourceIndex, NativeSceneRecordFlags.ColorGlyphBitmaps) ||
             !HasUsableCommandState(stateIndex, allowPerPoint: false) || !IsFiniteBounds(bounds) ||
             glyphs.Length > 1 << 24 || !originalPaint.IsCanonical ||
+            (originalPaint.CoverageTransfer != default && renderingMode != NativeSceneTextRenderingMode.Grayscale) ||
             renderingMode is not (NativeSceneTextRenderingMode.Grayscale or NativeSceneTextRenderingMode.Aliased) ||
             glyphBytes.Overlaps(_destination) || paintResourceIndex >= (uint)_resourceCount ||
             (originalPaint.Kind == NativeSceneGlyphPaint.Material
@@ -3736,7 +3737,9 @@ public ref struct NativeSceneStreamBuilder
             IsFinite(path.Color) && IsFinite(path.Transform) &&
             MathF.Abs(path.Transform.GetDeterminant()) > 0.000001f &&
             path.FillRule <= NativeFillRule.EvenOdd &&
-            path.SampleGrid is 1U or 4U or 8U &&
+            (path.SampleGrid & 0xFFU) is 1U or 4U or 8U &&
+            (path.SampleGrid >> 8) <= 13U &&
+            ((path.SampleGrid >> 8) == 0U || (path.SampleGrid & 0xFFU) != 1U) &&
             IsValidSceneBooleanProgram(in path, booleanNodes, available);
     }
 

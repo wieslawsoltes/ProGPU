@@ -2,6 +2,9 @@
 // Time complexity: O(1); one grayscale sample or three ClearType samples.
 // Space complexity: O(1), no intermediate coverage target or occurrence union.
 fn text_coverage_to_alpha(alpha: f32, contrast: f32, gamma: f32, aliasedText: bool) -> f32 {
+    if (contrast < 0.0) {
+        return source_grayscale_coverage(alpha, -contrast);
+    }
     let dilated = clamp(alpha * contrast, 0.0, 1.0);
     return select(pow(dilated, gamma), select(0.0, 1.0, alpha >= 0.5), aliasedText);
 }

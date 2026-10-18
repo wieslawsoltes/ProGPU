@@ -72,7 +72,7 @@ static_assert(offsetof(progpu_native_scene_glyph_paint, texture_quad23) == 64U);
 static_assert(offsetof(progpu_native_scene_glyph_paint, sampling) == 80U);
 
 bool is_valid_glyph_paint(const progpu_native_scene_glyph_paint& paint) noexcept {
-    if (paint.kind > PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE || paint.reserved != 0U ||
+    if (paint.kind > PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE || paint.coverage_transfer > 13U ||
         paint.source_offset_opacity[3] != 0.0F) return false;
     const auto finite4 = [](const float (&values)[4]) noexcept {
         for (const float value : values) if (!std::isfinite(value)) return false;
@@ -129,7 +129,8 @@ bool validate_painted_glyph_draw(const std::byte* bytes,
         draw.rendering_mode > PROGPU_NATIVE_SCENE_TEXT_ALIASED ||
         draw.reserved0 != 0U || draw.reserved1 != 0U || draw.reserved2 != 0U ||
         expected != command.payload_size || draw.paint_resource_index >= header.resource_count ||
-        !is_valid_glyph_paint(paint)) return false;
+        !is_valid_glyph_paint(paint) ||
+        (paint.coverage_transfer != 0U && draw.rendering_mode != PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE)) return false;
     const auto resource = read_resource(bytes, header, draw.paint_resource_index);
     if (paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_MATERIAL)
         return resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE &&

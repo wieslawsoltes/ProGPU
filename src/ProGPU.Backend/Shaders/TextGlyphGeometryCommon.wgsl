@@ -54,7 +54,9 @@ fn text_glyph_vertex(input: TextGlyphInstance, sharedColor: vec4<f32>, sharedRen
     let scaleRatio = input.scaleBoldItalicUseMvp.x;
     let boldOffset = input.scaleBoldItalicUseMvp.y;
     let italicSkew = input.scaleBoldItalicUseMvp.z;
-    let encodedTextFlags = input.scaleBoldItalicUseMvp.w;
+    let rawTextFlags = input.scaleBoldItalicUseMvp.w;
+    let coverageTransfer = floor(max(rawTextFlags, 0.0) / 16.0);
+    let encodedTextFlags = rawTextFlags - coverageTransfer * 16.0;
     let colorGlyph = encodedTextFlags > 5.5;
     let textFlags = select(encodedTextFlags, encodedTextFlags - 8.0, colorGlyph);
     let legacyAliasedText = textFlags < -0.5;
@@ -118,7 +120,9 @@ fn text_glyph_vertex(input: TextGlyphInstance, sharedColor: vec4<f32>, sharedRen
         texCoordMin + vec2<f32>(0.5),
         texCoordMax - vec2<f32>(0.5));
     output.cornerRadius = select(1.43, -1.43, aliasedText); // DefaultTextGamma, sign encodes aliased text
-    output.strokeThickness = 1.15; // DefaultTextContrast
+    // Negative values retain the explicit source transfer, independently of
+    // legacy gamma/contrast and of the shared color/rendering-mode stream.
+    output.strokeThickness = select(1.15, -coverageTransfer, coverageTransfer > 0.0);
     output.textMode = select(
         select(select(0.0, 2.0, clearTypeText), 1.0, aliasedText),
         3.0,

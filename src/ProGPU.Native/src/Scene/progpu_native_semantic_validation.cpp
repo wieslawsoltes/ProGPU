@@ -1,4 +1,5 @@
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_glyph_coverage_transfer.hpp"
 
 #include "progpu_native_geometry.hpp"
 #include "progpu_native_path_boolean_validation.hpp"
@@ -160,8 +161,7 @@ bool is_valid_semantic_path(
         path.max_x <= path.min_x || path.max_y <= path.min_y ||
         !is_finite(path.color) || !is_finite(path.transform) ||
         path.fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
-        (path.sample_grid != 1U && path.sample_grid != 4U &&
-            path.sample_grid != 8U)) {
+        !valid_glyph_path_sampling(path.sample_grid)) {
         return false;
     }
     if (!path_boolean::validate(
@@ -292,7 +292,9 @@ bool is_valid_semantic_text_style(
     const progpu_native_scene_text_style& style) noexcept {
     return is_finite(style.color) &&
         style.text_rendering_mode <= PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE &&
-        style.reserved0 == 0U && style.reserved1 == 0U &&
+        style.coverage_transfer <= 13U &&
+        (style.coverage_transfer == 0U || style.text_rendering_mode == PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE) &&
+        style.reserved1 == 0U &&
         style.reserved2 == 0U;
 }
 
