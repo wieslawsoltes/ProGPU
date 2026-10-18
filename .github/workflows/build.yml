@@ -1123,6 +1123,12 @@ jobs:
             -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
             -p:ProGpuNativePackageVersion="$version" -- --text-hinted-paragraph-render-only --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph package render consumer failed.' }
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj `
+            --configuration Release --runtime '${{ matrix.rid }}' --no-build `
+            -p:ProGpuUseDx12Runtime=true `
+            -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
+            -p:ProGpuNativePackageVersion="$version" -- --binary-glyph-originals-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw 'DX12 original binary glyph package consumer failed.' }
       - name: Publish and run full NativeAOT system-WARP consumer
         shell: pwsh
         run: |
@@ -1138,6 +1144,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Full DX12 NativeAOT consumer failed.' }
           & "$output/ProGPU.Native.PackageConsumer.exe" --text-hinted-paragraph-render-only --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph NativeAOT render consumer failed.' }
+          & "$output/ProGPU.Native.PackageConsumer.exe" --binary-glyph-originals-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw 'DX12 original binary glyph NativeAOT consumer failed.' }
 
   native-package-consumer:
     name: ${{ matrix.name }}

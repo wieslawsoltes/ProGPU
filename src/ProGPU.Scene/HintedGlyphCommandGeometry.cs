@@ -44,6 +44,15 @@ internal static class HintedGlyphCommandGeometry
             !IsFiniteNonnegative(command.Rect) ||
             !TryGetInkBounds(command, out Rect ink, out bool hasInk))
             return false;
+        if (command.HintedGlyphGeometry!.RequiresBinaryScanConversion)
+        {
+            if (command.TextRenderingMode != TextRenderingMode.Aliased ||
+                command.TextHintingMode != TextHintingMode.IntegerPixel) return false;
+            // Native compilation imports this whole immutable geometry, including
+            // unselected outlines. Both renderers use the same bounded inventory.
+            if (command.HintedGlyphGeometry.MaximumOutlineSegmentCount > GlyphAtlas.MaximumBinaryGlyphSegments)
+                return false;
+        }
         if (hasInk && (ink.X < command.Rect.X || ink.Y < command.Rect.Y ||
             ink.Right > command.Rect.Right || ink.Bottom > command.Rect.Bottom))
             return false;

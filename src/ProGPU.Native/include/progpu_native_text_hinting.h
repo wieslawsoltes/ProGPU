@@ -325,8 +325,29 @@ typedef enum progpu_native_hinted_outline_coverage {
     PROGPU_NATIVE_HINTED_COVERAGE_NONZERO_VECTOR = 1,
     /* Nonzero antialiased vector coverage retains B/W dropout metadata without
      * executing FreeType scan conversion. Existing coverage policies stay exact. */
-    PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR = 2
+    PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR = 2,
+    /* Already-positioned font batches only. Carries original contour scan
+     * policy in glyph-only segment metadata; not ordinary path geometry. */
+    /* PROGPU_CSHARP_ULONG: FontCoverageMonochrome */
+    PROGPU_NATIVE_HINTED_COVERAGE_MONOCHROME = 3ULL
 } progpu_native_hinted_outline_coverage;
+
+/* Glyph-only segment pad0 = marker | resolved raw SCANTYPE (0..7) |
+ * original outline flags << 16 | original contour override marker; pad1 = contour's
+ * segment offset relative to this outline, pad2 = contour segment count.
+ * All segments of the contour repeat the same immutable descriptor. Generic
+ * path records continue to require zero reserved fields. Old producers reject
+ * these records; record layout stability does not confer compatibility. */
+enum progpu_native_font_scan_metadata {
+    /* PROGPU_CSHARP_ULONG: FontScanSegmentMarker */
+    PROGPU_NATIVE_FONT_SCAN_SEGMENT_MARKER = 256ULL,
+    /* PROGPU_CSHARP_ULONG: FontScanContourOverride */
+    PROGPU_NATIVE_FONT_SCAN_CONTOUR_OVERRIDE = 512ULL,
+    /* OWNER, REVERSE_FILL, IGNORE_DROPOUTS, SMART_DROPOUTS,
+     * INCLUDE_STUBS and HIGH_PRECISION. Other original flags reject atomically. */
+    /* PROGPU_CSHARP_ULONG: FontScanOriginalFlagsMask */
+    PROGPU_NATIVE_FONT_SCAN_ORIGINAL_FLAGS_MASK = 20774912ULL
+};
 
 /* The view remains borrowed under the ORIGINAL selected renderer contract.
  * Every positioned run, including no-ink, needs exact reciprocal/product DPI

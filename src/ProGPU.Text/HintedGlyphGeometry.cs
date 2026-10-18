@@ -34,7 +34,17 @@ public sealed class HintedGlyphGeometry : IDisposable
     private readonly GpuSegment[] _segments;
     private readonly HintedGlyphOccurrence[] _occurrences;
     private readonly FontGlyphPlacement[]? _fontPlacements;
-    private readonly object _rasterGenerationIdentity;
+    private sealed class RasterGeneration
+    {
+        internal readonly uint MaximumSegments;
+        internal RasterGeneration(GpuGlyphRecord[] outlines)
+        {
+            ArgumentNullException.ThrowIfNull(outlines);
+            foreach (ref readonly GpuGlyphRecord outline in outlines.AsSpan())
+                MaximumSegments = Math.Max(MaximumSegments, outline.SegmentCount);
+        }
+    }
+    private readonly RasterGeneration _rasterGenerationIdentity;
     private IDisposable? _sourceOwner;
     private int _uses;
     private bool _disposed;
@@ -45,18 +55,18 @@ public sealed class HintedGlyphGeometry : IDisposable
     // lease here. No public constructor accepts manufactured geometry or owners.
     internal HintedGlyphGeometry(float dpiScale, GpuGlyphRecord[] outlines,
         GpuSegment[] segments, HintedGlyphOccurrence[] occurrences, IDisposable sourceOwner)
-        : this(dpiScale, outlines, segments, occurrences, sourceOwner, new object())
+        : this(dpiScale, outlines, segments, occurrences, sourceOwner, new RasterGeneration(outlines))
     {
     }
 
     internal static HintedGlyphGeometry FromFontPlacements(float dpiScale, GpuGlyphRecord[] outlines,
         GpuSegment[] segments, FontGlyphPlacement[] placements, IDisposable sourceOwner)
-        => new(dpiScale, outlines, segments, [], sourceOwner, new object(),
+        => new(dpiScale, outlines, segments, [], sourceOwner, new RasterGeneration(outlines),
             placements ?? throw new ArgumentNullException(nameof(placements)));
 
     private HintedGlyphGeometry(float dpiScale, GpuGlyphRecord[] outlines,
         GpuSegment[] segments, HintedGlyphOccurrence[] occurrences, IDisposable sourceOwner,
-        object rasterGenerationIdentity, FontGlyphPlacement[]? fontPlacements = null)
+        RasterGeneration rasterGenerationIdentity, FontGlyphPlacement[]? fontPlacements = null)
     {
         ArgumentNullException.ThrowIfNull(outlines);
         ArgumentNullException.ThrowIfNull(segments);
@@ -81,6 +91,11 @@ public sealed class HintedGlyphGeometry : IDisposable
     /// <summary>True only when the original producer retained shaping metadata.</summary>
     public bool HasShapingMetadata => _fontPlacements is null;
     public bool IsDisposed => Volatile.Read(ref _disposed);
+
+    // The batch adapter validates the complete immutable glyph-only descriptor.
+    // Binary scan metadata must never be consumed by the old AA rasterizer.
+    internal bool RequiresBinaryScanConversion => _segments.Length != 0 && _segments[0].Pad0 != 0;
+    internal uint MaximumOutlineSegmentCount => _rasterGenerationIdentity.MaximumSegments;
 
     /// <summary>Borrowed immutable physical outlines while this wrapper is live.</summary>
     public ReadOnlySpan<GpuGlyphRecord> Outlines { get { EnsureRecordingAdmission(); return _outlines; } }

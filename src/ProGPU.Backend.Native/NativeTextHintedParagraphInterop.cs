@@ -20,6 +20,11 @@ public enum NativeHintedCoverage : uint
     NonzeroVector = 1,
     /// <summary>Nonzero antialiased coverage retains B/W dropout metadata without executing B/W scan conversion.</summary>
     AntialiasedVector = 2,
+    /// <summary>
+    /// Already-positioned TrueType font batches only. Retains contour scan
+    /// policy for binary coverage; not source GDI/GDI+ qualification.
+    /// </summary>
+    Monochrome = (uint)NativeMethods.FontCoverageMonochrome,
 }
 
 // The authoritative public C header supplies these fields through the hosted

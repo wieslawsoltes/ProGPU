@@ -23,7 +23,7 @@ inline constexpr std::uint32_t hinted_no_outline = UINT32_MAX;
 // Antialiased vector coverage additionally retains documented B/W dropout
 // metadata without executing B/W scan conversion. Neither existing policy changes.
 enum class hinted_outline_coverage : std::uint32_t {
-    strict = 0, nonzero_vector = 1, antialiased_vector = 2,
+    strict = 0, nonzero_vector = 1, antialiased_vector = 2, monochrome = 3,
 };
 
 struct hinted_outline_requirements final {

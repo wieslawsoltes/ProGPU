@@ -414,7 +414,8 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("DefaultOutlineUploadChunkBytes = 256 * 1024", source, StringComparison.Ordinal);
         Assert.Contains("HasDynamicOffset = true", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateRingBindGroup()", source, StringComparison.Ordinal);
-        Assert.Contains("GetOrCreateBatchComputePass()", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateBatchComputePass(bool binary = false)", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateBatchComputePass(binary)", source, StringComparison.Ordinal);
         Assert.Contains("_batchCoverageCopies.Add(", source, StringComparison.Ordinal);
         Assert.Contains("new PendingCoverageCopy(", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateBatchRasterPass()", source, StringComparison.Ordinal);

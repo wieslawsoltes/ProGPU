@@ -33,6 +33,8 @@ public unsafe partial class GlyphAtlas
         GpuGlyphRecord record = outlines[(int)outlineIndex];
         ReadOnlySpan<GpuSegment> segments = geometry.RenderSegments;
         ValidateHintedRasterRecord(in record, segments.Length);
+        bool binary = segments[checked((int)record.StartSegment)].Pad0 != 0;
+        if (binary) ValidateBinaryRasterAdmission(record);
         var bounds = GetHintedRasterBounds(in record);
         ReserveRasterFailureTickets();
         if (!TryReuseFailedRasterRegion(bounds.Width, bounds.Height,
@@ -77,7 +79,7 @@ public unsafe partial class GlyphAtlas
                     XStart = bounds.XStart, YStart = bounds.YStart, Scale = 1f,
                     SubpixelX = 0f, GlyphIndex = slot, Width = bounds.Width, Height = bounds.Height,
                     AtlasX = x, AtlasY = y
-                }, x, y, bounds.Width, bounds.Height);
+                }, x, y, bounds.Width, bounds.Height, binary);
             }
 
             float texel = 1f / _atlasSize;

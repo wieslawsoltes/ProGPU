@@ -305,6 +305,20 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU GlyphRasterizer.wgsl shader"
     VERBATIM)
+set(generated_binary_glyph_rasterizer_shader
+    "${generated_directory}/BinaryGlyphRasterizerWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_binary_glyph_rasterizer_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/BinaryGlyphRasterizer.wgsl"
+        "-DOUTPUT=${generated_binary_glyph_rasterizer_shader}"
+        "-DSYMBOL=binary_glyph_rasterizer_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/BinaryGlyphRasterizer.wgsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the shared binary glyph scan shader"
+    VERBATIM)
 set(generated_text_shader
     "${generated_directory}/TextWgsl.generated.hpp")
 set(generated_rgb_glyph_rasterizer_shader "${generated_directory}/GlyphRgbRasterizerWgsl.generated.hpp")
@@ -691,6 +705,7 @@ add_custom_target(progpu_native_generated_shaders
         "${generated_path_signed_winding_evaluate_shader}"
         "${generated_path_signed_winding_coverage_shader}"
         "${generated_glyph_rasterizer_shader}"
+        "${generated_binary_glyph_rasterizer_shader}"
         "${generated_rgb_glyph_rasterizer_shader}"
         "${generated_rgb_glyph_composite_shader}"
         "${generated_target_clear_shader}"
