@@ -118,6 +118,12 @@ for package_id in "${selected_package_ids[@]}"; do
     exit 1
   fi
 
+  if [[ "${package_id}" == "ProGPU.Backend" ]]; then
+    for xlib_rid in linux-x64 linux-arm64; do
+      python3 "${repo_root}/eng/build-wgpu-native-linux.py" --rid "${xlib_rid}" --verify-package "${package}"
+    done
+  fi
+
   if [[ "${package_id}" == "ProGPU.Backend.Native" ]]; then
     for native_entry in \
       runtimes/linux-x64/native/libprogpu_native.so \

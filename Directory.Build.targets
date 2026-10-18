@@ -1,4 +1,9 @@
 <Project>
+  <PropertyGroup>
+    <ProGpuXlibSourceRuntimeRoot Condition="'$(ProGpuXlibSourceRuntimeRoot)' == '' And Exists('$(MSBuildThisFileDirectory)artifacts/progpu-xlib/package')">$(MSBuildThisFileDirectory)artifacts/progpu-xlib/package</ProGpuXlibSourceRuntimeRoot>
+  </PropertyGroup>
+  <Import Project="$(MSBuildThisFileDirectory)src/ProGPU.Backend/buildTransitive/ProGPU.Backend.targets"
+          Condition="'$(ProGpuXlibSourceRuntimeRoot)' != ''" />
   <Target Name="_ProGpuRemoveNetCoreWindowsBaseFacade"
           BeforeTargets="ResolveAssemblyReferences"
           DependsOnTargets="ResolveTargetingPackAssets;ResolveLockFileReferences"

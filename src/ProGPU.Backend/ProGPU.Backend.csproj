@@ -4,6 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ProGpuXlibRuntimeRoot Condition="'$(ProGpuXlibRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/progpu-xlib/package</ProGpuXlibRuntimeRoot>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Silk.NET.WebGPU" />
@@ -29,4 +30,18 @@
           Pack="true"
           PackagePath="buildTransitive/native/progpu-static-resolver-stub.c" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="$(ProGpuXlibRuntimeRoot)/linux-x64/native/*" Pack="true"
+          PackagePath="runtimes/linux-x64/native/%(Filename)%(Extension)" />
+    <None Include="$(ProGpuXlibRuntimeRoot)/linux-arm64/native/*" Pack="true"
+          PackagePath="runtimes/linux-arm64/native/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="ValidateProGpuXlibPackage" BeforeTargets="_GetPackageFiles;GenerateNuspec">
+    <ItemGroup>
+      <_ProGpuXlibPackageRid Include="linux-x64;linux-arm64" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(ProGpuXlibRuntimeRoot)/%(_ProGpuXlibPackageRid.Identity)/native/wgpu-native-linux.json')"
+           Text="Missing verified Linux WebGPU dependency for %(_ProGpuXlibPackageRid.Identity). Run eng/build-wgpu-native-linux.py on the matching Linux host first." />
+    <Exec Command="python3 &quot;$(MSBuildThisFileDirectory)../../eng/build-wgpu-native-linux.py&quot; --rid %(_ProGpuXlibPackageRid.Identity) --verify &quot;$(ProGpuXlibRuntimeRoot)/%(_ProGpuXlibPackageRid.Identity)/native&quot;" />
+  </Target>
 </Project>

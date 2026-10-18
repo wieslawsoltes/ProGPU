@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "nativeRevision": "33133da4ec5a0174cb21539ef2d3346f75200411",
+  "headersRevision": "aef5e428a1fdab2ea770581ae7c95d8779984e0a",
+  "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
+  "rustVersion": "1.99.0",
+  "libclangMajor": 18,
+  "backendAbi": "PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05",
+  "extension": "progpuWgpuCreateInstanceXlibV1",
+  "files": {
+    "wgpu-xlib-owned.patch": "558d6cfbe4ce6623ffbfb5a30fff8507a0788c21cd8543c07ffd7ca7a85dc324",
+    "wgpu-native-xlib-entry.patch": "ac3e525a70388bfd313b05cce9576bd0d2faa4013743b17081da5912eb98ce74",
+    "native-surface-probe.c": "bfbe98962ac1584e4116219b7e1493707707076c28c8d5ede96e31e8f140a06a"
+  },
+  "lockSha256": "c086896c62f4170b799db2507a0673a4a77cd455aab0330b0ea222581cbc185e"
+}

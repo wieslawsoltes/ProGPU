@@ -1,0 +1,61 @@
+Explicit Xlib EGL dependency investigation — 2026-10-18
+Status: reviewed dependency integration in progress; production package and source qualification pending.
+
+Original evidence: identical public preview69 multi-window binary succeeds on
+headless X11 (2.642199s) and fails before first presentation on owned GNOME50
+Wayland/Xwayland (2.645667s), run39084639920. Software llvmpipe, not GPU hardware.
+The original EGL implementation chooses Wayland at instance creation independently
+of the Xlib surface supplied later. Do not repair by replacing a live Inner:
+its destructor destroys the context and terminates the EGL display.
+
+Primary contracts and architecture examined:
+https://registry.khronos.org/EGL/extensions/KHR/EGL_KHR_platform_x11.txt
+An explicit X11 native connection and screen identify the platform display.
+https://registry.khronos.org/EGL/extensions/KHR/EGL_KHR_display_reference.txt
+Repeated initialize is not general ownership. Reference tracking is opt-in and
+not assumed present. A private connection must produce a distinct EGL display.
+https://xorg.freedesktop.org/archive/current/doc/libX11/libX11/libX11.html
+Borrow the original live display only to obtain its server name and screen;
+open an owned connection explicitly to that server, never ambient DISPLAY.
+https://skia.org/docs/user/api/skcanvas_creation/
+https://skia.org/docs/user/api/skcanvas_overview/
+https://skia.org/docs/dev/design/text_overview/
+Keep target/context ownership separate from reusable draw/text data. No Skia
+implementation copied; no change to retained commands or text contracts.
+https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1factory-createhwndrendertarget(constd2d1_render_target_properties_constd2d1_hwnd_render_target_properties_id2d1hwndrendertarget)
+https://learn.microsoft.com/en-us/windows/apps/develop/win2d/using-win2d-without-built-in-controls
+Bind the renderer to the actual host target and preserve explicit device and
+resource lifetime. Do not infer another platform from process environment.
+https://github.com/servo/webrender/blob/main/webrender/src/device/gl.rs
+Use the existing context/device organization rather than rebuilding per draw.
+https://github.com/linebender/vello/blob/main/vello/src/util.rs
+Surface-compatible device selection supports retaining actual target identity;
+its initialization TODO with no display is not evidence that implicit selection
+is correct for this old EGL backend.
+https://github.com/linebender/parley/blob/main/parley/src/context.rs
+https://harfbuzz.github.io/harfbuzz-hb-shape.html
+Preserve reusable font/layout/shaping contexts, original physical scale,
+quantization and shaping buffers. No text work belongs in display selection.
+
+Design comparison and scope:
+Startup: one explicit connection/context per GL instance; no repeated display
+probing, context replacement or per-frame connection. No timing improvement claim.
+Layout/shaping/fallback fonts/variable fonts/DPI/subpixel/hinting: unchanged.
+Display lists, visibility culling, glyph/texture/path cache keys and eviction,
+demand uploads, worker preparation and GPU batching/compute: unchanged. Existing
+owner-scoped caches retain the same device; no cross-context resource reuse.
+Device-loss/atlas generations: existing recovery recreates a complete instance;
+no silent reuse of a failed or different display generation is admitted.
+Ownership: source connection remains borrowed and must outlive source windows.
+Owned native connection, EGL context and display stay together until the last
+actual surface/adapter context lease retires. Reject aliasing with the source
+and any live explicit backend. Ordinary initialization remains independent.
+ABI: add a named versioned optional entry point; keep standard WebGPU descriptors
+unchanged. The existing native surface wire supplies screen0, so the first native
+entry point must reject other screens rather than claim unsupported transport.
+
+Independent native lifetime observation and Linux arm64 compilation passed in
+hosted run39086711084. Production two-architecture builds, generated ABI controls,
+original full headless/mixed app and pixels, cold/warm ownership,
+exact package producer and whole CI, performance/release gates. Local Rust type
+checking and the independent probe are not package/application qualification.

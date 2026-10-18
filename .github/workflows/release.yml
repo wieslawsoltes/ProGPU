@@ -40,6 +40,54 @@ jobs:
         shell: bash
         run: echo "commit=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
+  xlib-runtime:
+    name: Linux Xlib WebGPU runtime (${{ matrix.rid }})
+    needs: source
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Install pinned generator and Linux display dependencies
+        run: |
+          ./eng/progpu-install-linux-packages.sh clang-18 libclang-18-dev libx11-dev libegl1 libgles2 libgl1-mesa-dri xvfb xauth
+          rustup toolchain install 1.99.0 --profile minimal
+      - name: Verify dependency and asset admission controls
+        run: |
+          python3 -m unittest discover -s eng/tests -p test_xlib_runtime.py -v
+          for x64 in true false; do
+            for arm64 in true false; do
+              dotnet msbuild eng/test-xlib-package-targets.proj -p:TestX64=$x64 -p:TestArm64=$arm64 -nologo
+            done
+          done
+      - name: Build exact reviewed Linux runtime and generated ABI controls
+        run: python3 eng/build-wgpu-native-linux.py --rid '${{ matrix.rid }}'
+      - name: Verify native Xlib presentation and independent context retirement
+        run: |
+          native=$(find artifacts/wgpu-native-linux -mindepth 2 -maxdepth 2 -type d -name wgpu-native)
+          test -n "$native"
+          payload="$GITHUB_WORKSPACE/artifacts/progpu-xlib/package/${{ matrix.rid }}/native"
+          clang-18 -std=c11 eng/wgpu-xlib/native-surface-probe.c -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o artifacts/wgpu-native-linux/native-surface-probe
+          timeout 60s xvfb-run -a artifacts/wgpu-native-linux/native-surface-probe
+      - name: Upload verified Linux dependency
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-xlib-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-xlib/package
+          if-no-files-found: error
+
   dx12-runtime:
     name: Build Windows compiler runtime (${{ matrix.rid }})
     needs: source
@@ -77,7 +125,7 @@ jobs:
 
   native-runtime:
     name: Build native runtime (${{ matrix.rid }})
-    needs: source
+    needs: [source, xlib-runtime]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -112,6 +160,14 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      - name: Download verified Linux WebGPU dependency
+        if: runner.os == 'Linux'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-xlib-runtime-*
+          path: artifacts/progpu-xlib/package
+          merge-multiple: true
 
       - name: Install Linux WebGPU dependencies
         if: runner.os == 'Linux'
@@ -270,7 +326,7 @@ jobs:
 
   portable:
     name: Validate and pack portable packages
-    needs: [source, native-runtime, dx12-runtime]
+    needs: [source, native-runtime, dx12-runtime, xlib-runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -318,6 +374,13 @@ jobs:
           fi
           echo "PROGPU_PACKAGE_VERSION=${version}" >> "${GITHUB_ENV}"
           echo "Resolved ProGPU package version: ${version}"
+
+      - name: Download verified Linux WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-xlib-runtime-*
+          path: artifacts/progpu-xlib/package
+          merge-multiple: true
 
       - name: Download native runtimes
         uses: actions/download-artifact@v8

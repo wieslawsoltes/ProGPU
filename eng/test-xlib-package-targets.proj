@@ -1,0 +1,35 @@
+<Project DefaultTargets="Test">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <NativeCopyLocalItems Include="/packages/silk/runtimes/linux-x64/native/libwgpu_native.so" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
+    <NativeCopyLocalItems Include="/packages/silk/runtimes/linux-arm64/native/libwgpu_native.so" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
+    <NativeCopyLocalItems Include="/packages/silk/runtimes/android-arm64/native/libwgpu_native.so" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
+    <NativeCopyLocalItems Include="/packages/silk/runtimes/linux-x64/native/other.so" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
+    <NativeCopyLocalItems Include="/packages/caller/runtimes/linux-x64/native/libwgpu_native.so" NuGetPackageId="Caller" />
+    <NativeCopyLocalItems Include="/packages/silk/runtimes/win-x64/native/wgpu_native.dll" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
+    <NativeCopyLocalItems Include="/packages/silk/runtimes/osx-arm64/native/libwgpu_native.dylib" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
+    <NativeCopyLocalItems Include="/packages/ours/runtimes/linux-x64/native/libwgpu_native.so" NuGetPackageId="ProGPU.Backend" />
+    <NativeCopyLocalItems Include="caller/libwgpu_native.so" />
+    <RuntimeTargetsCopyLocalItems Include="@(NativeCopyLocalItems)" />
+    <_ResolvedCopyLocalPublishAssets Include="@(NativeCopyLocalItems)" />
+  </ItemGroup>
+  <Import Project="../src/ProGPU.Backend/buildTransitive/ProGPU.Backend.targets" />
+  <!-- Exercise metadata filtering without fabricating a runtime or package. -->
+  <PropertyGroup>
+    <_ProGpuXlibX64Available>$(TestX64)</_ProGpuXlibX64Available>
+    <_ProGpuXlibArm64Available>$(TestArm64)</_ProGpuXlibArm64Available>
+  </PropertyGroup>
+  <Target Name="Test" DependsOnTargets="SelectProGpuXlibBuildAssets;SelectProGpuXlibPublishAssets">
+    <ItemGroup>
+      <Expected Include="/packages/silk/runtimes/linux-x64/native/libwgpu_native.so" Condition="'$(TestX64)' != 'true'" />
+      <Expected Include="/packages/silk/runtimes/linux-arm64/native/libwgpu_native.so" Condition="'$(TestArm64)' != 'true'" />
+      <Expected Include="/packages/silk/runtimes/android-arm64/native/libwgpu_native.so;/packages/silk/runtimes/linux-x64/native/other.so;/packages/caller/runtimes/linux-x64/native/libwgpu_native.so;/packages/silk/runtimes/win-x64/native/wgpu_native.dll;/packages/silk/runtimes/osx-arm64/native/libwgpu_native.dylib;/packages/ours/runtimes/linux-x64/native/libwgpu_native.so;caller/libwgpu_native.so" />
+    </ItemGroup>
+    <Error Condition="'@(NativeCopyLocalItems)' != '@(Expected)'" Text="Incorrect RID-specific build asset selection: @(NativeCopyLocalItems)" />
+    <Error Condition="'@(RuntimeTargetsCopyLocalItems)' != '@(Expected)'" Text="Incorrect portable build asset selection." />
+    <Error Condition="'@(_ResolvedCopyLocalPublishAssets)' != '@(Expected)'" Text="Incorrect publish asset selection." />
+    <Message Importance="high" Text="Xlib package asset selection passed: x64=$(TestX64), arm64=$(TestArm64), RID=$(RuntimeIdentifier)." />
+  </Target>
+</Project>
