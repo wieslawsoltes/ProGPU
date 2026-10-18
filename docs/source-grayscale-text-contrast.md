@@ -56,6 +56,10 @@ and warm frames. The native internal contract suite also passes, and the source
 Forms consumer passes 15 coverage controls. The initial build exposed a missing test namespace, which was
 fixed; its original log is retained. These controls do not establish Microsoft
 font pixels, native provider execution, public-package or source-application
-qualification. Full renderer/headless and Svg.Skia gates, both rebuilt native
+qualification. The consolidated renderer run passes 6,333 cases with the ten
+established platform skips; all 230 headless cases pass. Initial source-contract
+failures were corrected by retaining the original shader prefix and immutable
+legacy gamma expression. Local dependency-path failures and the original CI
+failures remain recorded. Final-head Svg.Skia gates, both rebuilt native
 providers, original 72-case Forms images and final package/application checks
 remain required before release. Forms issue 174 remains open.
