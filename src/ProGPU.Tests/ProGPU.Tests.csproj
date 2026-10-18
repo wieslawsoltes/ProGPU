@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="TestData/SourceDeviceLines/metrics.json" LogicalName="SourceDeviceLines.metrics.json" />
     <EmbeddedResource Include="TestData/RasterCrossingReference/*.wgsl"
                       LogicalName="RasterCrossingReference.%(Filename)%(Extension)" />
     <None Update="xunit.runner.json">

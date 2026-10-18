@@ -11,3 +11,6 @@ eng/directx-graphics-samples/*.patch text eol=lf whitespace=-blank-at-eol
 
 # Dependency lock verification hashes the reviewed bytes on Windows as well.
 eng/wgpu-dxc/Cargo.lock text eol=lf
+
+# Original Windows metric receipt retains its captured bytes, including CRLF.
+src/ProGPU.Tests/TestData/SourceDeviceLines/metrics.json -text

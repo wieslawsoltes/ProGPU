@@ -59,13 +59,19 @@ public static class SfntVerticalDeviceMetrics
             if (cursor != table.Length) return false;
 
             int selected = -1;
+            int defaultCharsets = 0;
             for (int index = 0; index < ratios; index++)
             {
                 int ratio = 6 + index * 4;
                 int charset = table[ratio], x = table[ratio + 1], low = table[ratio + 2], high = table[ratio + 3];
                 bool fallback = x == 0 && low == 0 && high == 0;
-                if (charset > 1 || (!fallback && (x == 0 || low == 0 || low > high)) ||
-                    (fallback && index != ratios - 1)) return false;
+                if (charset > 1 || (!fallback && (x == 0 || low == 0 || low > high))) return false;
+                // Original version-zero fonts can end each distinct charset inventory
+                // with its own default (Microsoft Sans Serif). No subsequent entry may
+                // follow that charset's default. Version one has one shared inventory.
+                int charsetMask = version == 0 ? 1 << charset : 3;
+                if ((defaultCharsets & charsetMask) != 0) return false;
+                if (fallback) defaultCharsets |= charsetMask;
                 int offset = U16(table, 6 + ratios * 4 + index * 2);
                 if (starts.BinarySearch(offset) < 0) return false;
                 // Version 0 Windows metrics use the ANSI subset; v1 groups 0/1
