@@ -31,6 +31,12 @@ this admission. Ordinary font construction, line metrics, glyph layout and
 rendering remain unchanged. The returned metric has no font/resource ownership.
 
 The parser follows Microsoft's [OpenType VDMX specification](https://learn.microsoft.com/en-us/typography/opentype/spec/vdmx).
+The later original Microsoft Sans Serif capture establishes a legacy version-zero
+layout with separate terminal defaults for ANSI and non-ANSI inventories. Those
+inventories are validated independently for default ordering; version1 keeps a
+single final default. Full group/offset validation and first applicable selection
+remain unchanged. See [source device line metrics](source-device-line-metrics.md)
+for the exact native evidence and explicit paragraph policy.
 Version0 selects its ANSI subset; version1 accepts its all-glyph records for the
 explicit ANSI source contract. Other source charset policies and absent-table
 GDI metrics remain separate implementation work. Source consumers must explicitly

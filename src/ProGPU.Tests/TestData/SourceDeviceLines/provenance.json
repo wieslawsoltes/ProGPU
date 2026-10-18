@@ -1,0 +1,8 @@
+{
+  "run": 39080050996,
+  "revision": "6a5e20448debb74b1b65ca7be85f6121ef82b080",
+  "artifact": 12118408363,
+  "archiveSha256": "9c054d0a1681da8dfb2d3af1e78d8972a871b566ce35505df839d78a4e1e8acb",
+  "metricsSha256": "c587ffe7bc8b03486ef708934d97cc1ea2f4c00631f45d5692c79897b4af4cc4",
+  "purpose": "Unmodified independent GDI measurements and original metric tables; no original font outlines or implementation. Not package or UI qualification."
+}

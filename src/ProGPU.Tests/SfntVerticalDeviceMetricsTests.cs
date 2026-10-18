@@ -98,6 +98,25 @@ public partial class SfntFontFaceTests
             ("loca", BuildLocaTable()), ("glyf", BuildGlyfTable()) }.Concat(extra).ToArray());
 
     [Fact]
+    public void VdmxLegacyDefaultsTerminateTheirOwnCharsetInventoryOnly()
+    {
+        byte[] table = VdmxTable(); VdmxU16(table, 0, 0);
+        Array.Clear(table, 7, 3); // First inventory's ANSI default.
+        table[10] = 0; // Distinct non-ANSI inventory is ignored for selection.
+        Assert.True(SfntVerticalDeviceMetrics.TryRead(table, 12, 1, 1, out var metric, out bool found));
+        Assert.True(found); Assert.Equal(33, metric.Height);
+        Array.Clear(table, 11, 3); // Two original legacy defaults remain distinct.
+        Assert.True(SfntVerticalDeviceMetrics.TryRead(table, 12, 1, 1, out metric, out found));
+        Assert.True(found); Assert.Equal(33, metric.Height);
+        table[10] = 1;
+        Assert.False(SfntVerticalDeviceMetrics.TryRead(table, 12, 1, 1, out metric, out found));
+        Assert.False(found); Assert.Equal(default, metric);
+        table[10] = 0; VdmxU16(table, 0, 1);
+        Assert.False(SfntVerticalDeviceMetrics.TryRead(table, 12, 1, 1, out metric, out found));
+        Assert.False(found); Assert.Equal(default, metric);
+    }
+
+    [Fact]
     public void VdmxFontQueryPreservesOrdinaryLineMetricsAndMissingTable()
     {
         var font = new TtfFont(VdmxFont(("VDMX", VdmxTable())));

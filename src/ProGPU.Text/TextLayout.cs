@@ -28,6 +28,8 @@ public sealed class TextLayoutFormattingOptions
     public bool MeasureTrailingWhitespace { get; init; } = true;
     /// <summary>Retains the original managed writer's graphemes before fallback partitioning.</summary>
     public bool RetainOriginalGraphemeOwnership { get; init; }
+    /// <summary>Optional exact font-owned horizontal source line frame; ordinary layout remains unchanged.</summary>
+    public SourceDeviceLineMetrics? SourceDeviceLineMetrics { get; init; }
     public float FirstTabOffset { get; init; }
     public IReadOnlyList<float> TabStops { get; init; } = Array.Empty<float>();
 }
@@ -345,6 +347,9 @@ public class TextLayout
         TextShapingOptions? shapingOptions,
         TextLayoutFormattingOptions? formattingOptions = null)
     {
+        // Reject a mismatched source frame before mutating a pooled generation.
+        formattingOptions?.SourceDeviceLineMetrics?.Validate(font, fontSize,
+            (shapingOptions ?? TextShapingOptions.Default).Direction);
         Text = text ?? string.Empty;
         Font = font;
         FontSize = fontSize;
@@ -406,6 +411,8 @@ public class TextLayout
             ? OriginalGraphemePolicy.Capture(Text) : null;
         if (string.IsNullOrEmpty(Text))
         {
+            if (FormattingOptions.SourceDeviceLineMetrics is { } sourceMetrics)
+                _horizontalLines.Add(new LineRange(0, 0, height: sourceMetrics.Height, sourceEnd: 0));
             ContentSize = Vector2.Zero;
             MeasuredSize = Vector2.Zero;
             return;
@@ -424,8 +431,7 @@ public class TextLayout
         }
 
         float scale = FontSize / Font.UnitsPerEm;
-        float lineSpacing = (Font.Ascender - Font.Descender + Font.LineGap) * scale;
-        float fontAscent = Font.Ascender * scale;
+        (float lineSpacing, float fontAscent) = GetHorizontalLineMetrics(scale);
         List<LineRange> lines = _horizontalLines;
         lines.EnsureCapacity(EstimateLineCapacity(Text));
         var lineWidths = new List<float>(EstimateLineCapacity(Text));
@@ -623,8 +629,7 @@ public class TextLayout
             return false;
         }
 
-        float lineSpacing = (Font.Ascender - Font.Descender + Font.LineGap) * scale;
-        float fontAscent = Font.Ascender * scale;
+        (float lineSpacing, float fontAscent) = GetHorizontalLineMetrics(scale);
         float cursorX = 0f;
         Glyphs.EnsureCapacity(shaped.Length);
         for (var index = 0; index < shaped.Length; index++)
@@ -665,6 +670,11 @@ public class TextLayout
         MeasuredSize = new Vector2(float.IsInfinity(MaxWidth) ? width : MaxWidth, lineSpacing);
         return true;
     }
+
+    private (float Height, float Ascent) GetHorizontalLineMetrics(float scale)
+        => FormattingOptions.SourceDeviceLineMetrics is { } source
+            ? (source.Height, source.Ascent)
+            : ((Font.Ascender - Font.Descender + Font.LineGap) * scale, Font.Ascender * scale);
 
     private void GenerateVerticalShapedLayout()
     {

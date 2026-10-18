@@ -1,5 +1,16 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit horizontal source line metrics retain one immutable font's exact original
+VDMX record and pixel em. Validate owner, size and direction before replacing a
+layout generation; share signed ascent/height with shaping placement, blank rows
+and retained interaction. Preserve ordinary layouts, glyph advances, fallback and
+native positioned-glyph transport. Missing records remain separate; no nearest
+size or completed-height rounding. See docs/source-device-line-metrics.md;
+metric observations do not qualify source adapters or package/application pixels.
+Legacy version-zero defaults terminate their own original charset inventory;
+version1 shares one inventory. Keep full group/offset rejection and first
+applicable selection, including ignored legacy charset metadata.
+
 Explicit font device metrics use exact original VDMX size/ratio records after
 whole-table and raw selected-face directory validation. Preserve signed extrema,
 first applicable ratios, source ownership and atomic rejection. Never substitute
