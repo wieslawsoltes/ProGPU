@@ -32,9 +32,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="$(ProGpuXlibRuntimeRoot)/linux-x64/native/*" Pack="true"
-          PackagePath="runtimes/linux-x64/native/%(Filename)%(Extension)" />
+          PackagePath="runtimes/linux-x64/native/" />
     <None Include="$(ProGpuXlibRuntimeRoot)/linux-arm64/native/*" Pack="true"
-          PackagePath="runtimes/linux-arm64/native/%(Filename)%(Extension)" />
+          PackagePath="runtimes/linux-arm64/native/" />
   </ItemGroup>
   <Target Name="ValidateProGpuXlibPackage" BeforeTargets="_GetPackageFiles;GenerateNuspec">
     <ItemGroup>

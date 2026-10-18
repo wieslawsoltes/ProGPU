@@ -89,3 +89,14 @@ native lifetime behavior, then supplies the complete native and managed package
 matrix. Original source application pixels, the mixed-session app, final package
 closure and whole CI remain required before release. The authored native probe
 does not by itself close the source application issue.
+
+Production head `01471b2ea` passes both Linux runtime jobs, each with 94 native
+ABI tests and the three-context/five-presentation control. The actual payloads
+require GLIBC symbol versions no newer than 2.34; this is an ELF observation,
+not runtime qualification on every distribution. Local real-package validation
+found and repaired an extensionless-license package path, then passed eight
+build/publish asset checks across portable, Linux x64, Linux arm64 and Windows
+x64 consumers. Its original archive remains preserved. The initial Linux
+Avalonia source job also exposed missing staging of the new runtime; that job
+now depends on the same producer and downloads its payload before compilation.
+The complete repaired-head CI and original applications still remain required.

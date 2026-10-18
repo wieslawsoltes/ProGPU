@@ -1002,6 +1002,9 @@ jobs:
           dotnet pack src/ProGPU.Backend/ProGPU.Backend.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"
+          for xlib_rid in linux-x64 linux-arm64; do
+            python3 eng/build-wgpu-native-linux.py --rid "$xlib_rid" --verify-package "$output/ProGPU.Backend.$version.nupkg"
+          done
           dotnet pack src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}" \
@@ -1402,6 +1405,7 @@ jobs:
 
   avalonia-native-dawn-contract:
     name: Avalonia native Dawn contract (${{ matrix.os }})
+    needs: xlib-runtime
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -1418,6 +1422,14 @@ jobs:
         with:
           ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
+
+      - name: Download verified Linux WebGPU dependency
+        if: runner.os == 'Linux'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-xlib-runtime-*
+          path: artifacts/progpu-xlib/package
+          merge-multiple: true
 
       - name: Prepare pinned framework sources
         shell: bash
