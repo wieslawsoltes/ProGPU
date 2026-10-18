@@ -36,7 +36,7 @@ public static partial class NativeHintedGlyphGeometryFactory
             var nativeSegments = new NativePathSegment[checked((int)counts.Segments)];
             var descriptors = new NativeFontOutlineDescriptor[originalPositions.Length];
             owner.CopyTo(nativeOutlines, nativeSegments, descriptors);
-            ValidateGeometry(nativeOutlines, nativeSegments);
+            ValidateGeometry(nativeOutlines, nativeSegments, coverage == NativeHintedCoverage.Monochrome);
             ConvertGeometry(nativeOutlines, nativeSegments, out var outlines, out var segments);
             var placements = new FontGlyphPlacement[descriptors.Length];
             for (int i = 0; i < descriptors.Length; i++)

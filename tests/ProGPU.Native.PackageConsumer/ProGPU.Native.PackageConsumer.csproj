@@ -21,6 +21,8 @@
     <ProjectReference Include="..\..\src\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../Shared/BinaryGlyphOriginals.json" LogicalName="BinaryGlyphOriginals.json" />
+    <EmbeddedResource Include="../Shared/ProGPU-Authored-Scan-*.ttf" LogicalName="%(Filename)%(Extension)" />
     <None Include="..\..\src\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"
           Link="Inter-Regular.ttf"
           CopyToOutputDirectory="PreserveNewest"

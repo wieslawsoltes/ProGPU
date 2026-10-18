@@ -1,4 +1,5 @@
 #include "progpu_native_hinted_outline.hpp"
+#include "progpu_native_text_hinting.h"
 
 #include <algorithm>
 #include <array>
@@ -15,6 +16,8 @@
 // progpu_native_true_type_path.cpp, and cubic record policy in
 // progpu_native_cff_outline.cpp. No foreign contour implementation is used.
 namespace progpu::native::text {
+static_assert(static_cast<std::uint32_t>(hinted_outline_coverage::monochrome) ==
+    PROGPU_NATIVE_HINTED_COVERAGE_MONOCHROME);
 namespace {
 constexpr std::uint8_t conic = 0U, on_curve = 1U, cubic = 2U;
 constexpr float physical_scale = 1.0F / 64.0F;
@@ -151,7 +154,8 @@ struct glyph_info final {
 
 hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info,
     hinted_outline_coverage coverage) noexcept {
-    const bool antialiased = coverage == hinted_outline_coverage::antialiased_vector;
+    const bool monochrome = coverage == hinted_outline_coverage::monochrome;
+    const bool antialiased = coverage == hinted_outline_coverage::antialiased_vector || monochrome;
     const bool vector = coverage == hinted_outline_coverage::nonzero_vector || antialiased;
     const auto outline_flags = supported_outline_flags | (vector ? vector_outline_flags : 0U) |
         (antialiased ? antialiased_dropout_flags : 0U);
@@ -170,6 +174,10 @@ hinted_outline_error inspect_glyph(const hinted_glyph& glyph, glyph_info& info,
             (glyph.tags[index] & contour_scan_marker) == 0U)
             return hinted_outline_error::unsupported_flags;
         if (kind(glyph.tags[index]) == 3U) return hinted_outline_error::invalid_topology;
+        // This initial binary contract consumes captured TrueType lines and
+        // quadratics. A cubic source needs its own scan-conversion admission.
+        if (monochrome && kind(glyph.tags[index]) == cubic)
+            return hinted_outline_error::unsupported_policy;
         if (!exact_point(glyph.points[index])) return hinted_outline_error::unsupported_coordinates;
         const auto point = physical(glyph.points[index]);
         if (index == 0U) {
@@ -348,18 +356,28 @@ std::size_t write_cubic_contour(std::span<const std::uint8_t> tags,
 }
 
 std::size_t write_glyph(const hinted_glyph& glyph, hinted_outline_scratch scratch,
-    std::span<progpu_native_path_segment> segments, hinted_projection_path path) noexcept {
+    std::span<progpu_native_path_segment> segments, hinted_projection_path path,
+    bool monochrome) noexcept {
     convert_points(glyph.points, scratch.physical_points, path);
     for (std::size_t index = 0U; index < glyph.tags.size(); ++index)
         scratch.topology[index] = {0, 0, static_cast<std::uint8_t>(kind(glyph.tags[index]) == on_curve)};
     std::size_t start = 0U, written = 0U;
+    // Original public outline switches establish the initial contour policy.
+    // A marked contour start overrides it, including aliases 3/6/7; retain the
+    // raw mode rather than rewriting it to a convenient renderer default.
+    std::uint32_t scan_mode = (glyph.outline_flags & 0x08) != 0 ? 2U :
+        ((glyph.outline_flags & 0x10) != 0 ? 4U : 0U) |
+        ((glyph.outline_flags & 0x20) != 0 ? 0U : 1U);
     for (const auto raw_end : glyph.contour_ends) {
         const auto count = static_cast<std::size_t>(raw_end) + 1U - start;
         const auto tags = std::span{glyph.tags}.subspan(start, count);
         const auto physical_points = scratch.physical_points.subspan(start, count);
         const auto topology = scratch.topology.subspan(start, count);
         start += count;
+        if ((tags.front() & contour_scan_marker) != 0U)
+            scan_mode = (tags.front() & contour_scan_mode_bits) >> 5U;
         if (count < 2U) continue;
+        const auto contour_start = written;
         if (std::any_of(tags.begin(), tags.end(), [](std::uint8_t tag) { return kind(tag) == cubic; })) {
             written += write_cubic_contour(tags, physical_points, segments.subspan(written));
         } else {
@@ -370,6 +388,17 @@ std::size_t write_glyph(const hinted_glyph& glyph, hinted_outline_scratch scratc
             (void)sfnt_simple_glyph_path::try_write_varied_segments(std::span{&end, 1U},
                 topology, physical_points, segments.subspan(written), contour_written, nullptr);
             written += contour_written;
+        }
+        if (monochrome) {
+            for (auto index = contour_start; index < written; ++index) {
+                auto& segment = segments[index];
+                segment.pad0 = static_cast<std::uint32_t>(PROGPU_NATIVE_FONT_SCAN_SEGMENT_MARKER) |
+                    scan_mode | (static_cast<std::uint32_t>(glyph.outline_flags) << 16U) |
+                    ((tags.front() & contour_scan_marker) != 0U ?
+                        static_cast<std::uint32_t>(PROGPU_NATIVE_FONT_SCAN_CONTOUR_OVERRIDE) : 0U);
+                segment.pad1 = static_cast<std::uint32_t>(contour_start);
+                segment.pad2 = static_cast<std::uint32_t>(written - contour_start);
+            }
         }
     }
     return written;
@@ -387,7 +416,8 @@ void write_batch_geometry(const hinted_glyph_batch& batch,
         glyph_info info{};
         (void)inspect_glyph(glyph, info, coverage);
         if (!info.renderable) { source_outline_indices[index] = hinted_no_outline; continue; }
-        (void)write_glyph(glyph, scratch, segments.subspan(segment_offset, info.segments), path);
+        (void)write_glyph(glyph, scratch, segments.subspan(segment_offset, info.segments), path,
+            coverage == hinted_outline_coverage::monochrome);
         outlines[outline_index] = {segment_offset, info.segments,
             info.min_x, info.min_y, info.max_x, info.max_y, 1.0F, 0.0F};
         source_outline_indices[index] = static_cast<std::uint32_t>(outline_index++);
@@ -457,7 +487,7 @@ hinted_outline_error get_hinted_batch_outline_requirements(const hinted_glyph_ba
     auto error = select_path(policy, path);
     if (error != hinted_outline_error::none) return error;
     if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector &&
-        coverage != hinted_outline_coverage::antialiased_vector)
+        coverage != hinted_outline_coverage::antialiased_vector && coverage != hinted_outline_coverage::monochrome)
         return hinted_outline_error::unsupported_policy;
     std::array<memory_range, 1> output{};
     if (!range(std::span{&requirements, 1U}, output[0]) || aliases_batch(output, batch))
@@ -477,7 +507,7 @@ hinted_outline_error write_hinted_batch_outlines(const hinted_glyph_batch& batch
     auto error = select_path(policy, path);
     if (error != hinted_outline_error::none) return error;
     if (coverage != hinted_outline_coverage::strict && coverage != hinted_outline_coverage::nonzero_vector &&
-        coverage != hinted_outline_coverage::antialiased_vector)
+        coverage != hinted_outline_coverage::antialiased_vector && coverage != hinted_outline_coverage::monochrome)
         return hinted_outline_error::unsupported_policy;
     std::array<memory_range, 6> outputs{};
     if (!range(scratch.topology, outputs[0]) || !range(scratch.physical_points, outputs[1]) ||

@@ -1,4 +1,6 @@
 #include "progpu_native_hinted_outline.hpp"
+#include "progpu_native_text_hinting.h"
+#include "progpu_native_binary_glyph_contract.hpp"
 
 #include <algorithm>
 #include <array>
@@ -720,6 +722,109 @@ void explicit_antialiased_vector_coverage() {
         hinted_outline_coverage::antialiased_vector) == hinted_outline_error::invalid_argument && bytes(output) == before);
     require(observed->glyphs == raw_before);
 }
+void binary_contour_metadata() {
+    // Authored source contours, not a raster reference. Exercise every raw mode
+    // and inheritance across a zero-segment contour without rewriting aliases.
+    for (std::uint32_t mode = 0; mode < 8U; ++mode) {
+        auto retained = batch();
+        retained->glyphs = {
+            glyph(41U, {{0, 0}, {128, 0}, {128, 128}, {0, 128},
+                         {256, 0}, {384, 0}, {384, 128}, {256, 128},
+                         {512, 0}},
+                {static_cast<std::uint8_t>(5U | (mode << 5U)), 1, 1, 1,
+                 1, 1, 1, 1, 1}, {3, 7, 8}, 0x109),
+            glyph(41U, {}, {}, {}),
+            glyph(42U, {{0, 0}, {128, 256}, {256, 0}}, {1, 0, 1}, {2}, 0x131)
+        };
+        const auto original = retained->glyphs;
+        buffers antialiased;
+        require(write_hinted_batch_outlines(*retained, {antialiased.topology, antialiased.physical},
+            antialiased.outlines, antialiased.segments, antialiased.source, antialiased.written,
+            hinted_projection_policy::scalar_reference, hinted_outline_coverage::antialiased_vector) ==
+            hinted_outline_error::none);
+        buffers scalar;
+        for (const auto policy : {hinted_projection_policy::scalar_reference, hinted_projection_policy::intrinsic_simd}) {
+            buffers output;
+            const auto before = output;
+            hinted_outline_requirements required{};
+            require(get_hinted_batch_outline_requirements(*retained, required, policy,
+                hinted_outline_coverage::monochrome) == hinted_outline_error::none);
+            require(write_hinted_batch_outlines(*retained, {output.topology, output.physical}, output.outlines,
+                output.segments, output.source, output.written, policy, hinted_outline_coverage::monochrome) ==
+                hinted_outline_error::none && output.written == required);
+            require(output.source[1] == hinted_no_outline && output.source == antialiased.source &&
+                bytes(output.outlines) == bytes(antialiased.outlines) && retained->glyphs == original);
+            for (std::size_t i = 0; i < required.outlines; ++i) {
+                const auto outline = output.outlines[i];
+                const auto selected = std::span<const progpu_native_path_segment>{output.segments}.subspan(
+                    outline.segment_offset, outline.segment_count);
+                require(valid_glyph_scan_outline(outline, selected));
+                auto scaled = outline;
+                scaled.raster_scale = 2.0F;
+                require(!valid_glyph_scan_outline(scaled, selected));
+                scaled = outline; scaled.subpixel_x = 0.25F;
+                require(!valid_glyph_scan_outline(scaled, selected));
+                for (unsigned fault = 0; fault < 5U; ++fault) {
+                    auto changed = output.segments;
+                    auto& first = changed[outline.segment_offset];
+                    if (fault == 0U) first.pad0 |= 8U;
+                    if (fault == 1U) first.pad1 += 1U;
+                    if (fault == 2U) first.pad2 = 0U;
+                    if (fault == 3U) first.pad2 = static_cast<std::uint32_t>(outline.segment_count + 1U);
+                    if (fault == 4U) first.p0.x += 0.25F;
+                    require(!valid_glyph_scan_outline(outline,
+                        std::span<const progpu_native_path_segment>{changed}.subspan(
+                            outline.segment_offset, outline.segment_count)));
+                }
+            }
+            for (std::size_t i = 0; i < required.segments; ++i) {
+                const auto& segment = output.segments[i];
+                const auto expected_start = i < 8U ? (i < 4U ? 0U : 4U) : 0U;
+                const auto expected_count = i < 8U ? 4U : 2U;
+                const auto flags = i < 8U ? 0x109U : 0x131U;
+                const auto override = i < 4U ? PROGPU_NATIVE_FONT_SCAN_CONTOUR_OVERRIDE : 0U;
+                require(segment.pad0 == (PROGPU_NATIVE_FONT_SCAN_SEGMENT_MARKER | (i < 8U ? mode : 4U) |
+                    (flags << 16U) | override) &&
+                    segment.pad1 == expected_start && segment.pad2 == expected_count);
+                auto geometry_only = segment;
+                geometry_only.pad0 = geometry_only.pad1 = geometry_only.pad2 = 0U;
+                require(bytes(geometry_only) == bytes(antialiased.segments[i]));
+            }
+            for (std::size_t i = required.segments; i < output.segments.size(); ++i)
+                require(bytes(output.segments[i]) == bytes(before.segments[i]));
+            if (policy == hinted_projection_policy::scalar_reference) scalar = output;
+            else require(bytes(output) == bytes(scalar));
+        }
+        const auto reject = [&](const hinted_glyph_batch& invalid, hinted_outline_error expected) {
+            buffers output;
+            const auto before = bytes(output);
+            hinted_outline_requirements required{9, 8, 7, 6, 5};
+            const auto original_required = required;
+            require(get_hinted_batch_outline_requirements(invalid, required,
+                hinted_projection_policy::scalar_reference, hinted_outline_coverage::monochrome) == expected &&
+                required == original_required);
+            require(write_hinted_batch_outlines(invalid, {output.topology, output.physical}, output.outlines,
+                output.segments, output.source, output.written, hinted_projection_policy::scalar_reference,
+                hinted_outline_coverage::monochrome) == expected && bytes(output) == before);
+        };
+        auto invalid = *retained;
+        invalid.glyphs[0].tags[1] = 5U;
+        reject(invalid, hinted_outline_error::unsupported_flags);
+        invalid = *retained;
+        invalid.glyphs[0].tags[1] = 2U;
+        reject(invalid, hinted_outline_error::unsupported_policy);
+        invalid = *retained;
+        invalid.glyphs[0].outline_flags |= 0x200;
+        reject(invalid, hinted_outline_error::unsupported_flags);
+        buffers short_output;
+        const auto before = bytes(short_output);
+        require(write_hinted_batch_outlines(*retained, {short_output.topology, short_output.physical},
+            short_output.outlines, std::span(short_output.segments).first(9), short_output.source,
+            short_output.written, hinted_projection_policy::scalar_reference, hinted_outline_coverage::monochrome) ==
+            hinted_outline_error::insufficient_capacity && bytes(short_output) == before);
+    }
+}
+
 void original_batch_geometry() {
     const auto retained = batch();
     buffers rejected;
@@ -806,6 +911,7 @@ void original_batch_geometry() {
 
 int main() {
     try {
+        binary_contour_metadata();
         original_batch_geometry();
         source_geometry_and_phase();
         original_quadratic_differential();

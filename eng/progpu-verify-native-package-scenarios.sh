@@ -17,9 +17,9 @@ expected_mil="$(printf '%s\n' \
 # New text processes are independent of, and cannot replace, those nine cases.
 expected_text="$(printf '%s\n' \
   --text-device-advances-only --text-hinted-paragraph-render-only \
-  --text-hinted-paragraph-dawn-render-only | sort)"
-expected_text_group="$(printf '%s\n' --text-device-advances-only --text-hinted-paragraph-render-only | sort)"
-expected_dawn_group='--text-hinted-paragraph-dawn-render-only'
+  --text-hinted-paragraph-dawn-render-only --binary-glyph-originals-only --binary-glyph-originals-dawn-only | sort)"
+expected_text_group="$(printf '%s\n' --text-device-advances-only --text-hinted-paragraph-render-only --binary-glyph-originals-only | sort)"
+expected_dawn_group="$(printf '%s\n' --text-hinted-paragraph-dawn-render-only --binary-glyph-originals-dawn-only | sort)"
 expected_edit_word="$(printf '%s\n' --text-edit-word-boundaries-only --text-edit-word-boundaries-dawn-only | sort)"
 expected_all="$(printf '%s\n' "${expected_mil}" "${expected_text}" "${expected_edit_word}" | sort)"
 all="$("${selector}" all | sort)"
@@ -27,16 +27,15 @@ grouped_mil="$(for group in drawings visuals guidelines; do "${selector}" "${gro
 grouped_text="$(for group in text text-dawn; do "${selector}" "${group}"; done | sort)"
 if [[ "${all}" != "${expected_all}" || "${grouped_mil}" != "${expected_mil}" ||
       "${grouped_text}" != "${expected_text}" || "$("${selector}" text | sort)" != "${expected_text_group}" ||
-      "$("${selector}" text-dawn)" != "${expected_dawn_group}" ||
+      "$("${selector}" text-dawn | sort)" != "${expected_dawn_group}" ||
       "$("${selector}" edit-word | sort)" != "${expected_edit_word}" || -n "$("${selector}" core)" ]]; then
-  echo 'Native package groups must cover the original nine MIL, three text and two EDIT cases exactly once.' >&2
+  echo 'Native package groups must cover the original nine MIL, three text and two EDIT cases plus both binary glyph cases exactly once.' >&2
   exit 1
 fi
 for group in drawings visuals guidelines text text-dawn edit-word; do
   case "${group}" in
-    drawings|visuals|guidelines) count=3 ;;
-    text|edit-word) count=2 ;;
-    text-dawn) count=1 ;;
+    drawings|visuals|guidelines|text) count=3 ;;
+    text-dawn|edit-word) count=2 ;;
   esac
   if [[ "$("${selector}" "${group}" | wc -l | tr -d ' ')" != "${count}" ]]; then
     echo "Native package group ${group} must contain ${count} cases." >&2
@@ -50,4 +49,4 @@ if "${selector}" unknown >/dev/null 2>&1 || "${selector}" >/dev/null 2>&1 ||
   echo 'Native package scenario selection must reject invalid arguments.' >&2
   exit 1
 fi
-echo 'Native package groups preserve all nine MIL, three text and two EDIT JIT/NativeAOT cases exactly once.'
+echo 'Native package groups preserve all nine MIL, three text and two EDIT JIT/NativeAOT cases and add both binary glyph cases exactly once.'

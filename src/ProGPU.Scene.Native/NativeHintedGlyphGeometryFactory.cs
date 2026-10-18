@@ -324,7 +324,7 @@ public static partial class NativeHintedGlyphGeometryFactory
     private static bool Inside(Vector2 p, in NativeGlyphOutline o) =>
         p.X >= o.Minimum.X && p.X <= o.Maximum.X && p.Y >= o.Minimum.Y && p.Y <= o.Maximum.Y;
     private static void ValidateGeometry(ReadOnlySpan<NativeGlyphOutline> outlines,
-        ReadOnlySpan<NativePathSegment> segments)
+        ReadOnlySpan<NativePathSegment> segments, bool monochrome = false)
     {
         nuint geometryEnd = 0;
         foreach (ref readonly NativeGlyphOutline o in outlines)
@@ -333,14 +333,32 @@ public static partial class NativeHintedGlyphGeometryFactory
                 o.SegmentCount > 0 && o.SegmentCount <= (nuint)segments.Length - geometryEnd &&
                 o.RasterScale == 1f && o.SubpixelX == 0f && Finite(o.Minimum) && Finite(o.Maximum) &&
                 o.Maximum.X > o.Minimum.X && o.Maximum.Y > o.Minimum.Y);
+            if (monochrome) Require(o.SegmentCount <= GlyphAtlas.MaximumBinaryGlyphSegments);
             Vector2 first = default, previous = default;
             bool closed = true;
+            uint contourStart = 0, contourCount = 0, scanMode = 0;
             for (nuint j = 0; j < o.SegmentCount; j++)
             {
                 ref readonly NativePathSegment s = ref segments[checked((int)(o.SegmentOffset + j))];
-                Require((uint)s.Kind <= (uint)NativePathSegmentKind.Cubic && s.Pad0 == 0 && s.Pad1 == 0 && s.Pad2 == 0 &&
+                Require((uint)s.Kind <= (uint)(monochrome ? NativePathSegmentKind.Quadratic : NativePathSegmentKind.Cubic) &&
                     Finite(s.P0) && Finite(s.P1) && Finite(s.P2) && Finite(s.P3));
-                if (closed) first = s.P0;
+                bool contourBeginning = monochrome ? j == (nuint)contourStart + contourCount : closed;
+                if (monochrome)
+                {
+                    const uint allowed = NativeFontScanMetadata.SegmentMarker |
+                        NativeFontScanMetadata.ContourOverride | NativeFontScanMetadata.OriginalFlagsMask | 7U;
+                    Require((s.Pad0 & NativeFontScanMetadata.SegmentMarker) != 0 && (s.Pad0 & ~allowed) == 0);
+                    Require((s.Pad0 & NativeFontScanMetadata.OriginalFlagsMask) ==
+                        (segments[checked((int)o.SegmentOffset)].Pad0 & NativeFontScanMetadata.OriginalFlagsMask));
+                    if (contourBeginning)
+                    {
+                        Require(closed && s.Pad1 == j && s.Pad2 > 0 && s.Pad2 <= o.SegmentCount - j);
+                        contourStart = s.Pad1; contourCount = s.Pad2; scanMode = s.Pad0;
+                    }
+                    Require(s.Pad1 == contourStart && s.Pad2 == contourCount && s.Pad0 == scanMode);
+                }
+                else Require(s.Pad0 == 0 && s.Pad1 == 0 && s.Pad2 == 0);
+                if (contourBeginning) first = s.P0;
                 else Require(previous == s.P0);
                 Vector2 end = s.Kind == NativePathSegmentKind.Line ? s.P1 :
                     s.Kind == NativePathSegmentKind.Quadratic ? s.P2 : s.P3;
@@ -348,9 +366,10 @@ public static partial class NativeHintedGlyphGeometryFactory
                     ((uint)s.Kind < (uint)NativePathSegmentKind.Quadratic || Inside(s.P2, o)) &&
                     ((uint)s.Kind < (uint)NativePathSegmentKind.Cubic || Inside(s.P3, o)));
                 closed = end == first;
+                if (monochrome && j + 1 == (nuint)contourStart + contourCount) Require(closed);
                 previous = end;
             }
-            Require(closed);
+            Require(closed && (!monochrome || (nuint)contourStart + contourCount == o.SegmentCount));
             geometryEnd += o.SegmentCount;
         }
         Require(geometryEnd == (nuint)segments.Length);

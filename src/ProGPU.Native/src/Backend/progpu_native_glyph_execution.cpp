@@ -1,6 +1,7 @@
 #include "progpu_native_frame_execution_common.hpp"
 #include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_glyph_coverage_frame.hpp"
+#include "../Text/Font/progpu_native_binary_glyph_contract.hpp"
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__) || defined(_M_ARM64)
 #include <arm_neon.h>
@@ -972,6 +973,8 @@ progpu_native_status render_glyphs(
     std::vector<gpu_glyph_record> records;
     std::vector<gpu_glyph_uniforms> uniforms;
     std::vector<std::uint32_t> raster_work_indices;
+    bool has_binary_glyphs = false;
+    bool has_vector_glyphs = false;
     std::uint64_t coverage_staging_bytes = 0U;
     std::uint64_t outline_upload_bytes = 0U;
     std::uint32_t rasterized_glyph_count = 0U;
@@ -1000,13 +1003,7 @@ progpu_native_status render_glyphs(
                      index < frame->segment_count;
                      ++index) {
                     const auto& segment = frame->segments[index];
-                    if (segment.kind > PROGPU_NATIVE_PATH_SEGMENT_CUBIC ||
-                        !progpu::native::is_finite(segment.p0) ||
-                        !progpu::native::is_finite(segment.p1) ||
-                        !progpu::native::is_finite(segment.p2) ||
-                        !progpu::native::is_finite(segment.p3) ||
-                        segment.pad0 != 0U || segment.pad1 != 0U ||
-                        segment.pad2 != 0U) {
+                    if (!progpu::native::text::valid_glyph_scan_segment(segment)) {
                         return engine->fail(
                             PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A glyph segment kind, point, or reserved field is invalid.");
@@ -1045,6 +1042,19 @@ progpu_native_status render_glyphs(
                     }
                     const float scaled_min_x =
                         outline.min_x * outline.raster_scale;
+                    const auto original_segments = std::span(frame->segments, frame->segment_count).subspan(
+                        outline.segment_offset, outline.segment_count);
+                    if (!progpu::native::text::valid_glyph_scan_outline(outline, original_segments))
+                        return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                            "A glyph scan descriptor, contour partition, or physical raster frame is invalid.");
+                    const bool binary = original_segments.front().pad0 != 0U;
+                    if (binary && (engine->engine_flags & (PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
+                            PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
+                            PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U)
+                        return engine->fail(PROGPU_NATIVE_STATUS_UNSUPPORTED,
+                            "Binary glyph scan conversion requires native compute; vector coverage is not a substitute.");
+                    has_binary_glyphs = has_binary_glyphs || binary;
+                    has_vector_glyphs = has_vector_glyphs || !binary;
                     const float scaled_min_y =
                         -outline.max_y * outline.raster_scale;
                     const float scaled_max_x =
@@ -1072,7 +1082,7 @@ progpu_native_status render_glyphs(
                         static_cast<std::uint32_t>(outline.segment_offset),
                         static_cast<std::uint32_t>(outline.segment_count),
                         outline.min_x, outline.min_y, outline.max_x, outline.max_y,
-                        0U, 0U});
+                        binary ? 1U : 0U, 0U});
                     const auto identity = make_glyph_raster_identity(outline,
                         std::span(frame->segments, frame->segment_count).subspan(
                             outline.segment_offset, outline.segment_count));
@@ -1365,7 +1375,8 @@ progpu_native_status render_glyphs(
             ++engine->glyph_atlas_growth_count;
         }
     }
-    if (!create_glyph_resources(*engine) ||
+    if (!create_glyph_resources(*engine, has_vector_glyphs) ||
+        (has_binary_glyphs && !create_binary_glyph_resources(*engine)) ||
         !resize_glyph_atlas(*engine, required_atlas_size)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
@@ -1516,10 +1527,14 @@ progpu_native_status render_glyphs(
                 "ProGPU native glyph coverage staging",
                 coverage_staging_bytes,
                 WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+            if (has_binary_glyphs)
+                temporary.binary_horizontal = create_buffer("ProGPU native binary horizontal glyph coverage",
+                    coverage_staging_bytes, WGPUBufferUsage_Storage);
         }
         if (temporary.uniforms == nullptr || temporary.records == nullptr ||
             temporary.segments == nullptr ||
-            (!glyph_raster_shader_fallback && temporary.coverage == nullptr)) {
+            (!glyph_raster_shader_fallback && temporary.coverage == nullptr) ||
+            (has_binary_glyphs && temporary.binary_horizontal == nullptr)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The native glyph raster staging buffers could not be allocated.");
@@ -1570,13 +1585,25 @@ progpu_native_status render_glyphs(
             ? 3U
             : entries.size();
         bind_group_descriptor.entries = entries.data();
-        temporary.bind_group = wgpuDeviceCreateBindGroup(
-            engine->device,
-            &bind_group_descriptor);
-        if (temporary.bind_group == nullptr) {
+        if (has_vector_glyphs)
+            temporary.bind_group = wgpuDeviceCreateBindGroup(engine->device, &bind_group_descriptor);
+        if (has_vector_glyphs && temporary.bind_group == nullptr) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The native glyph raster bind group could not be created.");
+        }
+        if (has_binary_glyphs) {
+            std::array<WGPUBindGroupEntry, 5U> binary_entries{};
+            std::copy(entries.begin(), entries.end(), binary_entries.begin());
+            binary_entries[4] = {nullptr, 4U, temporary.binary_horizontal, 0U,
+                coverage_staging_bytes, nullptr, nullptr};
+            bind_group_descriptor.layout = engine->binary_glyph_pipelines.binding_layout;
+            bind_group_descriptor.entryCount = binary_entries.size();
+            bind_group_descriptor.entries = binary_entries.data();
+            temporary.binary_bind_group = wgpuDeviceCreateBindGroup(engine->device, &bind_group_descriptor);
+            if (temporary.binary_bind_group == nullptr)
+                return engine->fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The native binary glyph raster bind group could not be created.");
         }
         }
     }
@@ -1595,7 +1622,7 @@ progpu_native_status render_glyphs(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native positioned glyph command encoder could not be created.");
     }
-    if (temporary.bind_group != nullptr) {
+    if (temporary.bind_group != nullptr || temporary.binary_bind_group != nullptr) {
         if (glyph_raster_shader_fallback) {
             WGPURenderPassColorAttachment color_attachment{};
             progpu::native::webgpu::initialize_color_attachment(
@@ -1669,18 +1696,24 @@ progpu_native_status render_glyphs(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The native glyph compute pass could not be created.");
         }
-        wgpuComputePassEncoderSetPipeline(
-            compute_pass,
-            engine->glyph_raster_pipeline);
         for (const auto index : raster_work_indices) {
             const std::uint32_t dynamic_offset = index * 256U;
+            const bool binary = records[index].pad0 != 0U;
             wgpuComputePassEncoderSetBindGroup(
                 compute_pass,
                 0U,
-                temporary.bind_group,
+                binary ? temporary.binary_bind_group : temporary.bind_group,
                 1U,
                 &dynamic_offset);
             const auto& raster = engine->glyph_rasters[index];
+            if (binary) {
+                wgpuComputePassEncoderSetPipeline(compute_pass, engine->binary_glyph_pipelines.horizontal);
+                engine->dispatch_compute(compute_pass, engine->binary_glyph_pipelines.horizontal, 1U, raster.height, 1U);
+                wgpuComputePassEncoderSetPipeline(compute_pass, engine->binary_glyph_pipelines.vertical);
+                engine->dispatch_compute(compute_pass, engine->binary_glyph_pipelines.vertical, 1U, raster.width, 1U);
+                continue;
+            }
+            wgpuComputePassEncoderSetPipeline(compute_pass, engine->glyph_raster_pipeline);
             engine->dispatch_compute(
                 compute_pass,
                 engine->glyph_raster_pipeline,
@@ -1875,7 +1908,7 @@ progpu_native_status render_glyphs(
         metrics->outline_upload_bytes = outline_upload_bytes;
         metrics->coverage_staging_bytes = glyph_raster_shader_fallback
             ? 0U
-            : coverage_staging_bytes;
+            : coverage_staging_bytes * (has_binary_glyphs ? 2U : 1U);
         metrics->uniform_upload_bytes = uploaded_uniforms
             ? sizeof(gpu_uniforms)
             : 0U;

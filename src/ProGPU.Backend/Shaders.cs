@@ -45,6 +45,7 @@ public static class Shaders
     }
 
     public static readonly string GlyphRasterizerShader = ShaderResource.Load(typeof(Shaders), "GlyphRasterizer.wgsl");
+    public static readonly string BinaryGlyphRasterizerShader = ShaderResource.Load(typeof(Shaders), "BinaryGlyphRasterizer.wgsl");
 
     // These shared programs do not select RGB text for ordinary managed draws.
     // The optional source path must prove its full raster/opaque-target contract.

@@ -7,6 +7,29 @@
 // header has declared WGPUBuffer and WGPUBindGroup.
 namespace progpu::native {
 
+struct binary_glyph_pipeline_resources final {
+    WGPUShaderModule shader = nullptr;
+    WGPUBindGroupLayout binding_layout = nullptr;
+    WGPUPipelineLayout pipeline_layout = nullptr;
+    WGPUComputePipeline horizontal = nullptr;
+    WGPUComputePipeline vertical = nullptr;
+    binary_glyph_pipeline_resources() = default;
+    binary_glyph_pipeline_resources(const binary_glyph_pipeline_resources&) = delete;
+    binary_glyph_pipeline_resources& operator=(const binary_glyph_pipeline_resources&) = delete;
+    ~binary_glyph_pipeline_resources() { reset(); }
+    void reset() noexcept {
+        if (vertical != nullptr) wgpuComputePipelineRelease(vertical);
+        if (horizontal != nullptr) wgpuComputePipelineRelease(horizontal);
+        if (pipeline_layout != nullptr) wgpuPipelineLayoutRelease(pipeline_layout);
+        if (binding_layout != nullptr) wgpuBindGroupLayoutRelease(binding_layout);
+        if (shader != nullptr) wgpuShaderModuleRelease(shader);
+        vertical = horizontal = nullptr;
+        pipeline_layout = nullptr;
+        binding_layout = nullptr;
+        shader = nullptr;
+    }
+};
+
 struct target_clear_pipeline_resources final {
     WGPUShaderModule shader = nullptr;
     WGPUBindGroupLayout binding_layout = nullptr;
@@ -91,6 +114,10 @@ struct path_raster_resources {
     WGPUBuffer records = nullptr;
     WGPUBuffer segments = nullptr;
     WGPUBuffer coverage = nullptr;
+    // A binary vertical pass reads the completed horizontal result. Both
+    // buffers and the group follow this same actual submission-retirement lease.
+    WGPUBuffer binary_horizontal = nullptr;
+    WGPUBindGroup binary_bind_group = nullptr;
     WGPUBuffer coverage_combine_uniforms = nullptr;
     WGPUBuffer signed_coverage_combine_uniforms = nullptr;
     WGPUBindGroup bind_group = nullptr;
@@ -116,6 +143,8 @@ struct path_raster_resources {
     path_raster_resources& operator=(const path_raster_resources&) = delete;
 
     ~path_raster_resources() {
+        if (binary_bind_group != nullptr) wgpuBindGroupRelease(binary_bind_group);
+        release_buffer(binary_horizontal);
         if (rgb_composite != nullptr) wgpuBindGroupRelease(rgb_composite);
         if (rgb_backdrop_view != nullptr) wgpuTextureViewRelease(rgb_backdrop_view);
         if (rgb_backdrop != nullptr) wgpuTextureRelease(rgb_backdrop);

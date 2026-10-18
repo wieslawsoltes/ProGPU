@@ -6,6 +6,14 @@ namespace ProGPU.Backend.Native;
 public partial struct NativeFontOutlineCounts { }
 public partial struct NativeFontOutlineDescriptor { }
 
+/// <summary>Explicit glyph-only metadata. Generic path pads remain zero.</summary>
+public static class NativeFontScanMetadata
+{
+    public const uint SegmentMarker = (uint)NativeMethods.FontScanSegmentMarker;
+    public const uint ContourOverride = (uint)NativeMethods.FontScanContourOverride;
+    public const uint OriginalFlagsMask = (uint)NativeMethods.FontScanOriginalFlagsMask;
+}
+
 /// <summary>
 /// Immutable physical Y-up geometry retaining its original font batch. This
 /// resource survives batch/context disposal and does not choose source layout,

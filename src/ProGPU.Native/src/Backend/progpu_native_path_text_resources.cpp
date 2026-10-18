@@ -2,6 +2,7 @@
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "GlyphRasterizerWgsl.generated.hpp"
+#include "BinaryGlyphRasterizerWgsl.generated.hpp"
 #include "PathRasterizerWgsl.generated.hpp"
 #include "PathSignedWindingCoverageWgsl.generated.hpp"
 #include "PathSignedWindingEvaluateWgsl.generated.hpp"
@@ -335,41 +336,68 @@ bool ensure_path_raster_pipelines(
                 "cs_main", "ProGPU native path signed-winding pack pipeline")));
 }
 
-bool create_glyph_resources(progpu_native_engine& engine) {
-    const bool raster_shader_fallback =
-        (engine.engine_flags &
-            PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK) != 0U;
-    const bool glyph_raster_pipeline_ready = raster_shader_fallback
-        ? engine.glyph_raster_fallback_pipeline != nullptr
-        : engine.glyph_raster_pipeline != nullptr;
-    if (glyph_raster_pipeline_ready &&
-        engine.text_pipeline != nullptr &&
-        engine.text_uniform_bind_group != nullptr &&
-        engine.text_atlas_bind_group != nullptr) {
-        return true;
-    }
-    if (engine.glyph_raster_shader != nullptr ||
-        engine.glyph_raster_pipeline != nullptr ||
-        engine.glyph_raster_layout != nullptr ||
-        engine.glyph_raster_pipeline_layout != nullptr ||
-        engine.glyph_raster_fallback_pipeline != nullptr ||
-        engine.glyph_raster_fallback_layout != nullptr ||
-        engine.glyph_raster_fallback_pipeline_layout != nullptr ||
-        engine.text_shader != nullptr || engine.text_pipeline != nullptr ||
-        engine.text_uniform_layout != nullptr ||
-        engine.text_atlas_layout != nullptr ||
-        engine.text_style_buffer != nullptr ||
-        engine.text_uniform_bind_group != nullptr ||
-        engine.glyph_atlas_sampler != nullptr ||
-        engine.glyph_atlas_texture != nullptr ||
-        engine.glyph_atlas_texture_view != nullptr ||
-        engine.text_atlas_bind_group != nullptr) {
-        return false;
-    }
-    if (!create_analytic_resources(engine)) {
-        return false;
-    }
+bool create_binary_glyph_resources(progpu_native_engine& engine) {
+    auto& owned = engine.binary_glyph_pipelines;
+    if (owned.horizontal != nullptr && owned.vertical != nullptr) return true;
+    // No partially created family is published as ready. Failure leaves no
+    // orphan layout/module; a subsequent real demand may prepare a new family.
+    owned.reset();
+    const auto create = [&]() {
+        progpu::native::webgpu::wgsl_source source(
+            progpu::native::generated::binary_glyph_rasterizer_wgsl,
+            progpu::native::generated::binary_glyph_rasterizer_wgsl_size);
+        WGPUShaderModuleDescriptor module{};
+        module.nextInChain = source.chain();
+        module.label = progpu::native::webgpu::string_view("ProGPU binary glyph scan shader");
+        owned.shader = wgpuDeviceCreateShaderModule(engine.device, &module);
+        if (owned.shader == nullptr) return false;
+        std::array<WGPUBindGroupLayoutEntry, 5U> entries{};
+        for (std::uint32_t index = 0U; index < entries.size(); ++index) {
+            auto& entry = entries[index];
+            entry.binding = index;
+            entry.visibility = WGPUShaderStage_Compute;
+            entry.buffer.type = index == 0U ? WGPUBufferBindingType_Uniform :
+                index < 3U ? WGPUBufferBindingType_ReadOnlyStorage : WGPUBufferBindingType_Storage;
+            entry.buffer.hasDynamicOffset = index == 0U;
+            entry.buffer.minBindingSize = index == 0U ? sizeof(gpu_glyph_uniforms) :
+                index == 1U ? sizeof(gpu_glyph_record) : index == 2U ? sizeof(progpu_native_path_segment) : 4U;
+        }
+        WGPUBindGroupLayoutDescriptor bindings{};
+        bindings.entryCount = entries.size();
+        bindings.entries = entries.data();
+        owned.binding_layout = wgpuDeviceCreateBindGroupLayout(engine.device, &bindings);
+        if (owned.binding_layout == nullptr) return false;
+        WGPUPipelineLayoutDescriptor layout{};
+        layout.bindGroupLayoutCount = 1U;
+        layout.bindGroupLayouts = &owned.binding_layout;
+        owned.pipeline_layout = wgpuDeviceCreatePipelineLayout(engine.device, &layout);
+        if (owned.pipeline_layout == nullptr) return false;
+        WGPUComputePipelineDescriptor pipeline{};
+        pipeline.layout = owned.pipeline_layout;
+        pipeline.compute.module = owned.shader;
+        pipeline.label = progpu::native::webgpu::string_view("ProGPU binary horizontal glyph scan");
+        pipeline.compute.entryPoint = progpu::native::webgpu::string_view("cs_binary_horizontal");
+        owned.horizontal = wgpuDeviceCreateComputePipeline(engine.device, &pipeline);
+        if (owned.horizontal == nullptr) return false;
+        pipeline.label = progpu::native::webgpu::string_view("ProGPU binary vertical glyph scan");
+        pipeline.compute.entryPoint = progpu::native::webgpu::string_view("cs_binary_vertical");
+        owned.vertical = wgpuDeviceCreateComputePipeline(engine.device, &pipeline);
+        return owned.vertical != nullptr;
+    };
+    if (create()) return true;
+    owned.reset();
+    return false;
+}
 
+static bool create_vector_glyph_raster_resources(progpu_native_engine& engine) {
+    const bool raster_shader_fallback =
+        (engine.engine_flags & PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK) != 0U;
+    if (raster_shader_fallback ? engine.glyph_raster_fallback_pipeline != nullptr :
+            engine.glyph_raster_pipeline != nullptr) return true;
+    if (engine.glyph_raster_shader != nullptr || engine.glyph_raster_pipeline != nullptr ||
+        engine.glyph_raster_layout != nullptr || engine.glyph_raster_pipeline_layout != nullptr ||
+        engine.glyph_raster_fallback_pipeline != nullptr || engine.glyph_raster_fallback_layout != nullptr ||
+        engine.glyph_raster_fallback_pipeline_layout != nullptr) return false;
     progpu::native::webgpu::wgsl_source glyph_wgsl(
         progpu::native::generated::glyph_rasterizer_wgsl,
         progpu::native::generated::glyph_rasterizer_wgsl_size);
@@ -523,6 +551,20 @@ bool create_glyph_resources(progpu_native_engine& engine) {
         }
     }
 
+    return true;
+}
+
+bool create_glyph_resources(progpu_native_engine& engine, bool require_vector_raster) {
+    if (!create_analytic_resources(engine) ||
+        (require_vector_raster && !create_vector_glyph_raster_resources(engine))) return false;
+    if (engine.text_pipeline != nullptr && engine.text_uniform_bind_group != nullptr &&
+        engine.text_atlas_bind_group != nullptr) return true;
+    if (engine.text_shader != nullptr || engine.text_pipeline != nullptr ||
+        engine.text_uniform_layout != nullptr || engine.text_atlas_layout != nullptr ||
+        engine.text_style_buffer != nullptr || engine.text_uniform_bind_group != nullptr ||
+        engine.glyph_atlas_sampler != nullptr || engine.glyph_atlas_texture != nullptr ||
+        engine.glyph_atlas_texture_view != nullptr || engine.text_atlas_bind_group != nullptr) return false;
+
     progpu::native::webgpu::wgsl_source text_wgsl(
         progpu::native::generated::text_wgsl,
         progpu::native::generated::text_wgsl_size);
@@ -570,7 +612,8 @@ bool create_glyph_resources(progpu_native_engine& engine) {
 
     WGPUTextureDescriptor atlas_descriptor{};
     atlas_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained glyph atlas");
-    atlas_descriptor.usage = glyph_atlas_usage(raster_shader_fallback);
+    atlas_descriptor.usage = glyph_atlas_usage(
+        (engine.engine_flags & PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK) != 0U);
     atlas_descriptor.dimension = WGPUTextureDimension_2D;
     atlas_descriptor.size = {
         engine.glyph_atlas_size,
