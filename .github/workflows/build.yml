@@ -1977,6 +1977,10 @@ jobs:
           $testArgs = @(
             "test",
             "src/ProGPU.Tests/ProGPU.Tests.csproj",
+            "--logger",
+            "trx;LogFileName=core.trx",
+            "--results-directory",
+            "artifacts/core-test-results",
             "--configuration",
             "Release",
             "--runtime",
@@ -2090,6 +2094,19 @@ jobs:
               exit $LASTEXITCODE
             }
           }
+
+      - name: Summarize original core test failures
+        if: always()
+        shell: pwsh
+        run: ./eng/progpu-summarize-test-failures.ps1 -Directory artifacts/core-test-results
+
+      - name: Retain original core test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-core-test-results-${{ matrix.rid }}
+          path: artifacts/core-test-results/*.trx
+          if-no-files-found: warn
 
   pack:
     name: Pack portable packages
