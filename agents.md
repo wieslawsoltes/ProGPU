@@ -9,6 +9,12 @@ package/application qualification remain separate mandatory gates.
 
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit native Close enabled state remains separate from CanClose visibility.
+Preserve an unselected default, owned native menu/button identity, independent
+input and programmatic-close policy, and X11 advisory semantics. Do not hide the
+Close control to represent disabled state or qualify unsupported platforms from
+managed controls. See docs/native-close-button-enabled.md.
+
 Explicit integer glyph raster origins preserve original positioned arrays and
 round only at the actual physical target boundary, with half ties toward positive
 infinity. Keep O(1) recording, whole-range compilation preflight, exact positive

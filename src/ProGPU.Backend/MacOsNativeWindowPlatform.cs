@@ -112,7 +112,8 @@ internal sealed class MacOsNativeWindowPlatform : GlfwNativeWindowPlatform
         var showButtons =
             state.Decorations == NativeWindowDecorations.Full &&
             (!state.ExtendClientArea || wantsSystemChrome);
-        SetStandardButtonState(0, showButtons && state.CanClose, state.CanClose && _enabled);
+        SetStandardButtonState(0, showButtons && state.CanClose,
+            state.CanClose && state.CloseButtonEnabled != false && _enabled);
         SetStandardButtonState(1, showButtons, state.CanMinimize && _enabled);
         SetStandardButtonState(2, showButtons, state.CanMaximize && state.CanResize && _enabled);
         ApplyToolbar(

@@ -52,7 +52,7 @@ internal sealed unsafe partial class X11NativeWindowPlatform : GlfwNativeWindowP
         base.ApplyChrome(state);
         var nativeResizable = RequiresNativeResizableStyle(state);
         var functions = MotifFunctionMove;
-        if (state.CanClose)
+        if (state.CanClose && state.CloseButtonEnabled != false)
         {
             functions |= MotifFunctionClose;
         }

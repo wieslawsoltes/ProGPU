@@ -255,6 +255,10 @@ internal readonly record struct NativeWindowState(
     NativeWindowHandle Parent,
     bool IsPopup = false)
 {
+    // Null preserves the original platform behavior until explicitly selected.
+    // Visibility remains owned independently by CanClose.
+    public bool? CloseButtonEnabled { get; init; }
+
     public static NativeWindowState Default => new(
         NativeWindowDecorations.Full,
         CanResize: true,

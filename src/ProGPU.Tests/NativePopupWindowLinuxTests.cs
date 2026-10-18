@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
+using Silk.NET.Windowing;
 using Xunit;
 
 namespace ProGPU.Tests;
@@ -14,6 +15,50 @@ public unsafe partial class NativePopupWindowLinuxTests
             if (!OperatingSystem.IsLinux() || Environment.GetEnvironmentVariable("PROGPU_NATIVE_X11_POPUP_TEST") != "1")
                 Skip = "Requires the explicit X11 popup server-state lane (Xvfb or a desktop X server).";
         }
+    }
+
+    [X11Fact]
+    public void CloseEnabledPolicyPreservesOriginalNativeDecorations()
+    {
+        var options = WindowOptions.Default;
+        options.API = GraphicsAPI.None;
+        options.IsVisible = false;
+        using var dialog = Window.Create(options);
+        dialog.Initialize();
+        using var controller = new SilkWindowController(dialog);
+        Assert.True(controller.Attach());
+        Assert.Equal(NativeWindowKind.X11, controller.Handle.Kind);
+        nint display = controller.Handle.Display;
+        nuint window = (nuint)controller.Handle.Handle;
+        nuint motif = XInternAtom(display, "_MOTIF_WM_HINTS", 0);
+        nuint[] originalChrome = ReadMotif(display, window, motif);
+        Assert.NotEqual((nuint)0, originalChrome[1] & 32);
+        Assert.True(controller.SetCloseButtonEnabled(false));
+        nuint[] disabledChrome = ReadMotif(display, window, motif);
+        Assert.Equal(originalChrome[1] & ~(nuint)32, disabledChrome[1]);
+        Assert.Equal(originalChrome[2], disabledChrome[2]);
+        Assert.Equal(originalChrome[0], disabledChrome[0]);
+        controller.Reapply();
+        Assert.Equal(disabledChrome, ReadMotif(display, window, motif));
+        Assert.True(controller.SetCloseButtonEnabled(true));
+        Assert.Equal(originalChrome, ReadMotif(display, window, motif));
+        Assert.False(dialog.IsVisible);
+    }
+
+    private static nuint[] ReadMotif(nint display, nuint window, nuint property)
+    {
+        int result = XGetWindowProperty(display, window, property, 0, 5, 0, property,
+            out nuint type, out int format, out nuint count, out nuint remaining, out byte* data);
+        try
+        {
+            Assert.Equal(0, result);
+            Assert.Equal(property, type);
+            Assert.Equal(32, format);
+            Assert.Equal((nuint)5, count);
+            Assert.Equal((nuint)0, remaining);
+            return new ReadOnlySpan<nuint>(data, 5).ToArray();
+        }
+        finally { if (data != null) XFree(data); }
     }
 
     [X11Fact]
