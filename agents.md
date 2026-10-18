@@ -1,5 +1,13 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Linux source Xlib GL initialization uses the actual live window's display and
+screen before creating its EGL context. Keep borrowed toolkit state separate from
+the dependency's owned connection and last-context retirement. Reviewed patches
+belong in eng/wgpu-xlib and are applied only to external pinned dependencies;
+never patch consumer libraries or the NuGet cache. Preserve standard WebGPU ABI,
+other requested backends, exact two-architecture package provenance and original
+application/pixel gates. See docs/linux-source-xlib-runtime.md.
+
 Explicit horizontal source line metrics retain one immutable font's exact original
 VDMX record and pixel em. Validate owner, size and direction before replacing a
 layout generation; share signed ascent/height with shaping placement, blank rows

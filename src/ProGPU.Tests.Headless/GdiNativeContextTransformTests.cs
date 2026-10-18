@@ -19,6 +19,8 @@ public sealed class GdiNativeContextTransformTests
         using (var graphics = Graphics.FromProGpuDrawingContext(context, outerTransform))
         using (var brush = new SolidBrush(Color.CornflowerBlue))
         {
+            Assert.Equal(SmoothingMode.None, graphics.SmoothingMode);
+            Assert.Equal(System.Drawing.Text.TextRenderingHint.SystemDefault, graphics.TextRenderingHint);
             GraphicsState defaultState = graphics.Save();
 
             graphics.TranslateTransform(5f, 7f);
@@ -58,9 +60,9 @@ public sealed class GdiNativeContextTransformTests
             Assert.Equal(GraphicsUnit.Display, graphics.PageUnit);
             Assert.Equal(1f, graphics.PageScale);
             Assert.Equal(CompositingQuality.Default, graphics.CompositingQuality);
-            Assert.Equal(SmoothingMode.AntiAlias, graphics.SmoothingMode);
+            Assert.Equal(SmoothingMode.None, graphics.SmoothingMode);
             Assert.Equal(InterpolationMode.Bilinear, graphics.InterpolationMode);
-            Assert.Equal(System.Drawing.Text.TextRenderingHint.ClearTypeGridFit, graphics.TextRenderingHint);
+            Assert.Equal(System.Drawing.Text.TextRenderingHint.SystemDefault, graphics.TextRenderingHint);
             Assert.Equal(PixelOffsetMode.Default, graphics.PixelOffsetMode);
             graphics.FillRectangle(brush, 1f, 2f, 3f, 4f);
 

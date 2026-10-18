@@ -29,6 +29,28 @@ It rejects dirty source checkouts, unexpected remotes and symbolic-link targets.
 These source dependencies are ordinary disposable build inputs; they are not
 additional development worktrees. Keep local changes before refreshing them.
 
+The current source refresh selects LibreWPF
+`f9fc6aa1578a97cd6cf7ba8393c6cbd0cdba1b33` and LibreWinForms
+`72deff85037420f9c8b4ce7de82de336bbc6193f`. This includes the source taskbar
+interop contract, exact device text rows, integer border coverage and corrected
+Drawing smoothing/text state. The native-context state control expects the
+original `None` smoothing and `SystemDefault` text defaults both before saving
+and after restoration; its transforms and recorded drawing commands stay exact.
+An unchanged manifest would omit these framework fixes from producer packages.
+The complete producer and downstream package/application gates remain required
+for this combined source graph; framework CI alone is not its qualification.
+
+The Linux x64 original Drawing corpus in Build `39093206805` confirms four
+new passes after this refresh: `GraphicsTest.Save`, `BeginContainer`,
+`BeginContainer_Rect` and `BeginContainer_RectF`. Its unchanged 4,453 cases now
+produce 3,317 passes, 1,102 known failures and 34 skips, with no new failures.
+Remove exactly these four obsolete x64 failure entries; retain the other
+inventories, source exclusions, skips and independent ARM64 expectations.
+The same job passes all 921 owned Drawing quality tests. The original job still
+fails its old inventory comparison and remains retained as such; updating the
+inventory does not qualify the complete producer. Artifact `12122929010` has
+SHA-256 `f1a1ab2b3d82e578b8135c70d682b0263502cdeb3d3ab340722fe308abc0e58f`.
+
 Local coordinated development can supply `LibreWpfSourceRoot` and
 `LibreWinFormsSourceRoot` as MSBuild properties, or environment variables for
 the packaging scripts. Pass an explicit `ProGpuSourceRoot` as a global MSBuild

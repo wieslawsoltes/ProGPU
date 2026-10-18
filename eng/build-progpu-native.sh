@@ -168,6 +168,14 @@ if [[ -n "${requested_rid}" ]]; then
     osx-*) package_library="${package_root}/runtimes/${package_rid}/native/libwgpu_native.dylib" ;;
   esac
 fi
+# Use the reviewed Linux dependency when the producer has staged it. Validate
+# its exact source/patch/ELF receipt before linking; never patch the NuGet cache.
+xlib_runtime_root="${PROGPU_NATIVE_XLIB_RUNTIME_ROOT:-${repo_root}/artifacts/progpu-xlib/package}"
+if [[ "${package_rid}" == linux-* && -d "${xlib_runtime_root}" ]]; then
+  python3 "${repo_root}/eng/build-wgpu-native-linux.py" --rid "${package_rid}" \
+    --verify "${xlib_runtime_root}/${package_rid}/native"
+  package_library="${xlib_runtime_root}/${package_rid}/native/libwgpu_native.so"
+fi
 if [[ ! -f "${package_library}" ]]; then
   echo "Missing ${package_library}; restore ProGPU.Backend first." >&2
   exit 1

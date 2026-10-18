@@ -1064,7 +1064,19 @@ public unsafe class WgpuContext : IDisposable
             {
                 NextInChain = instanceExtras.Chain.SType == 0 ? null : &instanceExtras.Chain
             };
-            Instance = Wgpu.CreateInstance(&instanceDesc);
+            if (OperatingSystem.IsLinux() && !OperatingSystem.IsAndroid() &&
+                WgpuXlibInstance.IncludesGl(instanceBackends) && window?.Native?.X11 is { } xlib)
+            {
+                if (!CanCreateNativeSurface(window) ||
+                    !X11NativeWindowPlatform.TryGetSourceScreen(xlib.Display, xlib.Window, out int screen))
+                    throw new InvalidOperationException("A live owned source Xlib window is required before GL instance creation.");
+                Instance = WgpuXlibInstance.Create(&instanceDesc, xlib.Display, screen,
+                    ResolveDesktopWebGpuSymbol(WgpuXlibInstance.EntryPoint));
+            }
+            else
+            {
+                Instance = Wgpu.CreateInstance(&instanceDesc);
+            }
         }
         if (Instance == null)
         {

@@ -1,5 +1,45 @@
 <Project>
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm'">
+  <PropertyGroup>
+    <_ProGpuXlibRuntimeRoot Condition="'$(ProGpuXlibSourceRuntimeRoot)' != ''">$(ProGpuXlibSourceRuntimeRoot)</_ProGpuXlibRuntimeRoot>
+    <_ProGpuXlibRuntimeRoot Condition="'$(ProGpuXlibSourceRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)../runtimes</_ProGpuXlibRuntimeRoot>
+    <_ProGpuXlibX64Available Condition="Exists('$(_ProGpuXlibRuntimeRoot)/linux-x64/native/wgpu-native-linux.json') And Exists('$(_ProGpuXlibRuntimeRoot)/linux-x64/native/libwgpu_native.so')">true</_ProGpuXlibX64Available>
+    <_ProGpuXlibArm64Available Condition="Exists('$(_ProGpuXlibRuntimeRoot)/linux-arm64/native/wgpu-native-linux.json') And Exists('$(_ProGpuXlibRuntimeRoot)/linux-arm64/native/libwgpu_native.so')">true</_ProGpuXlibArm64Available>
+  </PropertyGroup>
+  <!-- Package consumers use ordinary native runtime assets. Project-reference
+       consumers stage the same verified payload explicitly at the app boundary. -->
+  <ItemGroup Condition="'$(ProGpuXlibSourceRuntimeRoot)' != '' And ('$(OutputType)' == 'Exe' Or '$(OutputType)' == 'WinExe' Or '$(IsTestProject)' == 'true')">
+    <Content Include="$(ProGpuXlibSourceRuntimeRoot)/linux-x64/native/*"
+             Condition="'$(_ProGpuXlibX64Available)' == 'true' And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-x64')"
+             Link="runtimes/linux-x64/native/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="$(ProGpuXlibSourceRuntimeRoot)/linux-arm64/native/*"
+             Condition="'$(_ProGpuXlibArm64Available)' == 'true' And ('$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-arm64')"
+             Link="runtimes/linux-arm64/native/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+  <!-- ResolvePackageAssets supplies two distinct lists for RID-specific and
+       portable builds. Only replace the exact old Silk Linux library paths. -->
+  <Target Name="SelectProGpuXlibBuildAssets" AfterTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <_ProGpuXlibOldAsset Include="@(NativeCopyLocalItems)"
+          Condition="'%(NativeCopyLocalItems.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And
+            (('$(_ProGpuXlibX64Available)' == 'true' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(NativeCopyLocalItems.Identity)', '[/\\]runtimes[/\\]linux-x64[/\\]native[/\\]libwgpu_native\.so$'))) Or
+             ('$(_ProGpuXlibArm64Available)' == 'true' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(NativeCopyLocalItems.Identity)', '[/\\]runtimes[/\\]linux-arm64[/\\]native[/\\]libwgpu_native\.so$'))))" />
+      <_ProGpuXlibOldAsset Include="@(RuntimeTargetsCopyLocalItems)"
+          Condition="'%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And
+            (('$(_ProGpuXlibX64Available)' == 'true' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(RuntimeTargetsCopyLocalItems.Identity)', '[/\\]runtimes[/\\]linux-x64[/\\]native[/\\]libwgpu_native\.so$'))) Or
+             ('$(_ProGpuXlibArm64Available)' == 'true' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(RuntimeTargetsCopyLocalItems.Identity)', '[/\\]runtimes[/\\]linux-arm64[/\\]native[/\\]libwgpu_native\.so$'))))" />
+      <NativeCopyLocalItems Remove="@(_ProGpuXlibOldAsset)" />
+      <RuntimeTargetsCopyLocalItems Remove="@(_ProGpuXlibOldAsset)" />
+    </ItemGroup>
+  </Target>
+  <Target Name="SelectProGpuXlibPublishAssets" AfterTargets="_ResolveCopyLocalAssetsForPublish">
+    <ItemGroup>
+      <_ResolvedCopyLocalPublishAssets Remove="@(_ResolvedCopyLocalPublishAssets)"
+          Condition="'%(_ResolvedCopyLocalPublishAssets.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And
+            (('$(_ProGpuXlibX64Available)' == 'true' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(_ResolvedCopyLocalPublishAssets.Identity)', '[/\\]runtimes[/\\]linux-x64[/\\]native[/\\]libwgpu_native\.so$'))) Or
+             ('$(_ProGpuXlibArm64Available)' == 'true' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(_ResolvedCopyLocalPublishAssets.Identity)', '[/\\]runtimes[/\\]linux-arm64[/\\]native[/\\]libwgpu_native\.so$'))))" />
+    </ItemGroup>
+  </Target>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(ProGpuXlibSourceRuntimeRoot)' == ''">
     <!-- Resolve the unreachable iOS static-link import when the portable backend
          assembly is consumed from a WebAssembly application. -->
     <NativeFileReference Include="$(MSBuildThisFileDirectory)native/progpu-static-resolver-stub.c" />
