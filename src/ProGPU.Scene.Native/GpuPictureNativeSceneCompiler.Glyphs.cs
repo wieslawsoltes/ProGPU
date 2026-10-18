@@ -36,6 +36,11 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
+        if (command.TextHintingMode == TextHintingMode.IntegerPixel)
+        {
+            error = NativePictureCompileError.UnsupportedCommand;
+            return false;
+        }
         if (command.Font is null || command.Text is null ||
             !float.IsFinite(command.FontSize) || command.FontSize <= 0f)
         {
@@ -156,7 +161,7 @@ public static partial class GpuPictureNativeSceneCompiler
         if (command.TextRenderingMode is < TextRenderingMode.Grayscale or
                 > TextRenderingMode.ClearType ||
             command.TextHintingMode is < TextHintingMode.Auto or
-                > TextHintingMode.Animated)
+                > TextHintingMode.IntegerPixel)
         {
             error = NativePictureCompileError.UnsupportedCommand;
             return false;
@@ -173,6 +178,13 @@ public static partial class GpuPictureNativeSceneCompiler
             rangeStart > glyphPositions.Length - rangeCount)
         {
             error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+
+        if (command.TextHintingMode == TextHintingMode.IntegerPixel &&
+            !IntegerGlyphRasterOrigin.IsSupported(command, ToMatrix4x4(transform), targetDpiScale))
+        {
+            error = NativePictureCompileError.UnsupportedTransform;
             return false;
         }
 
@@ -896,6 +908,12 @@ public static partial class GpuPictureNativeSceneCompiler
         bool transformedPlacement,
         TextHintingMode hintingMode)
     {
+        if (hintingMode == TextHintingMode.IntegerPixel)
+        {
+            if (transformedPlacement || !IntegerGlyphRasterOrigin.TryResolve(transformedPosition, dpiScale, out Vector2 pixelOrigin))
+                throw new InvalidOperationException("Integer glyph raster-origin preflight was not retained.");
+            return (0, pixelOrigin);
+        }
         if (hintingMode == TextHintingMode.Animated)
         {
             return (0, transformedPosition);

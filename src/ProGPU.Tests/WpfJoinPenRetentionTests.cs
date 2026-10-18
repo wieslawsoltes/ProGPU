@@ -40,7 +40,7 @@ public sealed class WpfJoinPenRetentionTests
         using var clone = picture.Clone();
         Assert.True(picture.SharesRetainedCommandStorageWith(clone));
         Assert.True(clone.GetCommand(0).Pen!.UseWpfJoinSemantics);
-        byte[] archive = PictureArchive.Serialize(clone, new SKRect(0, 0, 64, 64));
+        byte[] archive = PictureArchive.Serialize(clone, new SKRect(0, 0, 64, 64), 8);
         Assert.Equal(8, BinaryPrimitives.ReadInt32LittleEndian(archive.AsSpan(8, 4)));
         using SKPicture? restored = SKPicture.Deserialize(archive);
         Assert.NotNull(restored);

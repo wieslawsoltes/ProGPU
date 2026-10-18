@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 8;
+    private const int Version = 9;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -364,6 +364,8 @@ internal static class PictureArchive
         int depth,
         int version)
     {
+        if (version < 9 && command.TextHintingMode == TextHintingMode.IntegerPixel)
+            throw new NotSupportedException("Integer glyph raster origins require picture archive version 9.");
         if (command.SourceHitGeometry.Kind != SourceHitTestGeometryKind.None)
             throw new NotSupportedException("Picture archives do not yet encode source-input geometry overrides.");
         if (command.Texture is not null ||
@@ -446,6 +448,11 @@ internal static class PictureArchive
         writer.Write(command.ExtensionId);
         writer.Write(command.IntParam);
         writer.Write(command.FloatParam);
+        if (version >= 9)
+        {
+            writer.Write(command.PreferGlyphAtlas);
+            writer.Write(command.UseLogicalGlyphAtlasResolution);
+        }
     }
 
     private static RenderCommand ReadCommand(BinaryReader reader, int depth, int version)
@@ -523,6 +530,13 @@ internal static class PictureArchive
         command.ExtensionId = reader.ReadInt32();
         command.IntParam = reader.ReadInt32();
         command.FloatParam = reader.ReadSingle();
+        if (version >= 9)
+        {
+            command.PreferGlyphAtlas = reader.ReadBoolean();
+            command.UseLogicalGlyphAtlasResolution = reader.ReadBoolean();
+        }
+        if (version < 9 && command.TextHintingMode == TextHintingMode.IntegerPixel)
+            throw new InvalidDataException("Integer glyph raster origins are unavailable in this archive version.");
         return command;
     }
 
