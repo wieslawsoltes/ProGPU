@@ -189,6 +189,13 @@ selection controls verify explicit missing metadata and one final source release
 These controls establish the shared replay route; actual Drawing mode selection,
 contrast/coverage and original Microsoft application images remain unfinished.
 
+The existing native package text scenario also exercises the exported font-only
+geometry path against the loaded producer. It captures all four outline policies
+with both interpreters, compares scalar/automatic complete geometry, retains
+original duplicate and no-ink descriptor IDs, checks atomic short-buffer rejection
+and caller tails, and copies after public batch/context disposal. This adds an
+actual package-boundary gate; it does not replace the remaining Drawing images.
+
 Keep font execution lazy and out of frame replay, retain bounded exact-generation
 caches, and preserve original layout/interaction and GPU resource ownership.
 

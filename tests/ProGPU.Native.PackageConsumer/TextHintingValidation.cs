@@ -64,6 +64,7 @@ internal static class TextHintingValidation
             Check(rejected, "disposed generation rejected");
         }
         Console.WriteLine("package-consumer: retained hinted generations passed (both interpreters, exact phase, atomic tails, eviction, shared-library ownership, disposal)");
+        TextFontOutlineValidation.Run(fontPath);
         TextHintedRunValidation.Run(fontPath);
         TextHintedParagraphValidation.Run(fontPath);
     }
