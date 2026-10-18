@@ -488,7 +488,14 @@ public enum TextHintingMode
 {
     Auto,
     Fixed,
-    Animated
+    Animated,
+    /// <summary>
+    /// Whole physical pixel origins, with half ties toward positive infinity.
+    /// An explicit aliased, atlas-backed positioned-glyph contract; it neither
+    /// changes logical glyph positions nor executes font hinting instructions.
+    /// Requires a finite positive diagonal render frame and ordinary outline glyphs.
+    /// </summary>
+    IntegerPixel
 }
 
 [Flags]
@@ -4428,6 +4435,8 @@ public partial class DrawingContext :
         TextShapingOptions? textShapingOptions = null,
         TextAlignment textAlignment = TextAlignment.Left)
     {
+        if (textHintingMode == TextHintingMode.IntegerPixel)
+            throw new NotSupportedException("Integer glyph raster origins require explicit positioned glyphs.");
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawText,
@@ -4465,6 +4474,8 @@ public partial class DrawingContext :
         TextShapingOptions? textShapingOptions = null,
         TextAlignment textAlignment = TextAlignment.Left)
     {
+        if (textHintingMode == TextHintingMode.IntegerPixel)
+            throw new NotSupportedException("Integer glyph raster origins require explicit positioned glyphs.");
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawText,
@@ -4503,6 +4514,8 @@ public partial class DrawingContext :
         TextShapingOptions? textShapingOptions = null,
         TextAlignment textAlignment = TextAlignment.Left)
     {
+        if (textHintingMode == TextHintingMode.IntegerPixel)
+            throw new NotSupportedException("Integer glyph raster origins require explicit positioned glyphs.");
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawText,
@@ -4729,7 +4742,7 @@ public partial class DrawingContext :
         float fontScaleX,
         float fontSkewX)
     {
-        Commands.Add(new RenderCommand
+        var command = new RenderCommand
         {
             Type = RenderCommandType.DrawGlyphRun,
             GlyphIndices = glyphIndices,
@@ -4750,7 +4763,11 @@ public partial class DrawingContext :
             UseVectorGlyphRendering = useVectorGlyphRendering,
             PreferGlyphAtlas = preferGlyphAtlas,
             UseLogicalGlyphAtlasResolution = useLogicalGlyphAtlasResolution
-        });
+        };
+        if (textHintingMode == TextHintingMode.IntegerPixel &&
+            !IntegerGlyphRasterOrigin.IsDescriptorSupported(command, transform == default ? Matrix4x4.Identity : transform, 1f))
+            throw new NotSupportedException("Unsupported integer glyph raster-origin command.");
+        Commands.Add(command);
     }
 
     public void DrawTexture(GpuTexture texture, Rect rect)

@@ -607,6 +607,13 @@ public unsafe partial class Compositor : IDisposable
         bool isRotated,
         TextHintingMode textHintingMode)
     {
+        if (textHintingMode == TextHintingMode.IntegerPixel)
+        {
+            if (isRotated || !IntegerGlyphRasterOrigin.TryResolve(transformedPosition, dpiScale, out Vector2 pixelOrigin))
+                throw new NotSupportedException("Integer glyph raster origins require a finite axis-aligned physical frame.");
+            return (0, pixelOrigin);
+        }
+
         if (textHintingMode == TextHintingMode.Animated)
         {
             return (0, transformedPosition);
@@ -13616,6 +13623,9 @@ CompilePathStroke:
 
     private void CompileTextCommand(RenderCommand cmd, ITextLayoutProvider? textNode, Matrix4x4 transform)
     {
+        if (cmd.TextHintingMode == TextHintingMode.IntegerPixel)
+            throw new NotSupportedException("Integer glyph raster origins require explicit positioned glyphs.");
+
         cmd.TextRenderingMode = ResolveCachedTextRenderingMode(cmd.TextRenderingMode, _suppressCachedClearType);
         if (ActiveCompilationContext != null &&
             !ActiveCompilationContext.IsRecompiling &&
@@ -13903,6 +13913,11 @@ CompilePathStroke:
 
     private void CompileGlyphRunCommand(RenderCommand cmd, Matrix4x4 transform)
     {
+        if (cmd.TextHintingMode == TextHintingMode.IntegerPixel &&
+            (ActiveCompilationContext?.RetainedGlyphBuilder != null ||
+             !IntegerGlyphRasterOrigin.IsSupported(cmd, transform,
+                 _currentDpiScale * (ActiveCompilationContext?.StaticZoom ?? 1f))))
+            throw new NotSupportedException("Unsupported integer glyph raster-origin command or physical frame.");
         cmd.TextRenderingMode = ResolveCachedTextRenderingMode(cmd.TextRenderingMode, _suppressCachedClearType);
         if (ActiveCompilationContext != null &&
             !ActiveCompilationContext.IsRecompiling &&
@@ -14108,14 +14123,25 @@ CompilePathStroke:
                 cmd.PreferGlyphAtlas);
             if (info.Width == 0 || info.Height == 0)
             {
+                // Capacity fallback keeps the already resolved physical origin. Place
+                // an origin-relative outline with the same basis, avoiding inverse-
+                // transform/recomposition rounding and mutation of source positions.
+                var fallbackTransform = activeTransform;
+                var fallbackPosition = position + cmd.Position;
+                if (cmd.TextHintingMode == TextHintingMode.IntegerPixel)
+                {
+                    fallbackPosition = Vector2.Zero;
+                    fallbackTransform.M41 = snappedLogicalPos.X;
+                    fallbackTransform.M42 = snappedLogicalPos.Y;
+                }
                 CompileVectorGlyphFallback(
                     font,
                     glyphIdx,
                     cmd,
-                    position + cmd.Position,
+                    fallbackPosition,
                     glyphItalicSkew,
                     textPathCoverageGamma,
-                    activeTransform,
+                    fallbackTransform,
                     fontScaleX,
                     vectorGlyphRasterScale);
                 continue;

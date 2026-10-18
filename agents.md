@@ -1,5 +1,14 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit integer glyph raster origins preserve original positioned arrays and
+round only at the actual physical target boundary, with half ties toward positive
+infinity. Keep O(1) recording, whole-range compilation preflight, exact positive
+2D frame admission, phase-zero atlas identity and rounded origins through capacity
+fallback. Preserve default placement, source shaping and native MIL enums. Archive
+v9 retains atlas flags; older versions reject the new mode. See
+docs/integer-glyph-raster-origin.md; authored GPU controls are not original source
+or package qualification.
+
 Explicit native font outline-load targets retain separate exact cache identities
 from the interpreter, device size and phase. Keep the normal default, owned source,
 outline-only capture and atomic native fault behavior; only explicit unhinted
@@ -2372,7 +2381,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,300 renderer cases (6,290 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,328 renderer cases (6,318 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 
