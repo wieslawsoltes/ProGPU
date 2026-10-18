@@ -20,6 +20,43 @@ public sealed class RetainedHintedGlyphNativeCompilerTests
     private static readonly Rect SourceDomain = new(10, 15, 30, 20);
     private static readonly Vector2 Origin = new(5, 6);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IntegerOriginResolvesAfterTranslationWithoutChangingPhysicalOutlineOrSourceDomain(bool spatial)
+    {
+        using var geometry = FractionalGeometry(new Owner());
+        Brush brush = spatial
+            ? new LinearGradientBrush(Vector2.Zero, Vector2.UnitX,
+                [new GradientStop(Vector4.One, 0), new GradientStop(Vector4.One, 1)])
+            : new SolidColorBrush(Vector4.One);
+        var command = FractionalCommand(geometry, brush);
+        command.TextRenderingMode = TextRenderingMode.Aliased;
+        command.TextHintingMode = TextHintingMode.IntegerPixel;
+        command.Transform = Matrix4x4.CreateTranslation(.25f, .375f, 0);
+        using var picture = Picture(command);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(picture, 991, 3,
+            new NativePictureCompileOptions(2), out var compiled, out var failure), failure.ToString());
+        using var compiledUse = compiled;
+        var draw = Commands(compiled!.Stream).Single(x => x.Kind == (spatial
+            ? NativeSceneCommandKind.DrawPaintedGlyphRun : NativeSceneCommandKind.DrawGlyphRun));
+        // Paint payloads retain their independent descriptor before the glyphs.
+        int offset = spatial ? 32 + Unsafe.SizeOf<NativeSceneGlyphPaint>() : 24;
+        var glyph = MemoryMarshal.Read<NativePositionedGlyph>(compiled.Stream.Slice((int)draw.PayloadOffset + offset));
+        Assert.Equal(new Vector2(17.5f, 26f), glyph.Position);
+        Assert.Equal(new Vector2(12.125f, 19.375f), geometry.Occurrences[0].Position);
+        Assert.Equal(FractionalCommand(geometry, brush).Rect, picture.GetCommand(0).Rect);
+        var resource = Resources(compiled.Stream).Single(x => x.Kind == NativeSceneResourceKind.GlyphRun);
+        var outline = MemoryMarshal.Read<NativeSceneGlyphOutline>(compiled.Stream.Slice((int)resource.PayloadOffset));
+        Assert.Equal(new Vector2(-.3f, 3.25f), outline.Minimum);
+        Assert.Equal(new Vector2(4.25f, 9.5f), outline.Maximum);
+        Assert.Equal(0f, outline.SubpixelX);
+        Assert.True(HintedGlyphCommandGeometry.TryGetRasterBounds(command, new(.25f, .375f), out var raster, out bool ink));
+        Assert.True(ink);
+        Assert.True(GpuPictureBounds.TryGetBounds(picture, out var pictureBounds));
+        Assert.Equal(raster, pictureBounds);
+    }
+
     [Fact]
     public void FontPlacementReplayMatchesOriginalNativeWireWithoutShapingMetadata()
     {

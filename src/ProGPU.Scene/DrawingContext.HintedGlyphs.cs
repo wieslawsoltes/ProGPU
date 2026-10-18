@@ -70,6 +70,37 @@ public partial class DrawingContext
         Vector2 origin, Rect inkBounds, Brush brush, Matrix4x4 transform,
         TextRenderingMode textRenderingMode, int hitTestId,
         GlyphCoverageTransfer glyphCoverageTransfer = default)
+        => DrawHintedGlyphsRangeCore(geometry, start, count, origin, inkBounds, brush,
+            transform, textRenderingMode, hitTestId, glyphCoverageTransfer, TextHintingMode.Auto);
+
+    /// <summary>
+    /// Records original physical outlines with an explicit raster-origin policy.
+    /// IntegerPixel rounds the complete target-space origin at replay, preserving
+    /// source placement, ink/brush bounds and outline generation. It requires
+    /// aliased coverage and does not select a font interpreter or dropout policy.
+    /// </summary>
+    public void DrawHintedGlyphsWithRasterOrigin(HintedGlyphGeometry geometry, Vector2 origin,
+        Rect inkBounds, Brush brush, TextHintingMode textHintingMode,
+        Matrix4x4 transform = default, TextRenderingMode textRenderingMode = TextRenderingMode.Aliased,
+        int hitTestId = 0, GlyphCoverageTransfer glyphCoverageTransfer = default)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        DrawHintedGlyphsRangeCore(geometry, 0, geometry.OccurrenceCount, origin, inkBounds,
+            brush, transform, textRenderingMode, hitTestId, glyphCoverageTransfer, textHintingMode);
+    }
+
+    /// <summary>Records a selected original range with an explicit raster-origin policy.</summary>
+    public void DrawHintedGlyphsRangeWithRasterOrigin(HintedGlyphGeometry geometry, int start, int count,
+        Vector2 origin, Rect inkBounds, Brush brush, TextHintingMode textHintingMode,
+        Matrix4x4 transform = default, TextRenderingMode textRenderingMode = TextRenderingMode.Aliased,
+        int hitTestId = 0, GlyphCoverageTransfer glyphCoverageTransfer = default)
+        => DrawHintedGlyphsRangeCore(geometry, start, count, origin, inkBounds, brush,
+            transform, textRenderingMode, hitTestId, glyphCoverageTransfer, textHintingMode);
+
+    private void DrawHintedGlyphsRangeCore(HintedGlyphGeometry geometry, int start, int count,
+        Vector2 origin, Rect inkBounds, Brush brush, Matrix4x4 transform,
+        TextRenderingMode textRenderingMode, int hitTestId,
+        GlyphCoverageTransfer glyphCoverageTransfer, TextHintingMode textHintingMode)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(brush);
@@ -82,7 +113,7 @@ public partial class DrawingContext
             HintedGlyphGeometry = geometry, GlyphRangeStart = start, GlyphRangeCount = count,
             Position = origin, Rect = inkBounds, Brush = brush,
             Transform = transform, TextRenderingMode = textRenderingMode, HitTestId = hitTestId,
-            GlyphCoverageTransfer = glyphCoverageTransfer
+            GlyphCoverageTransfer = glyphCoverageTransfer, TextHintingMode = textHintingMode
         };
         if (!HintedGlyphCommandGeometry.IsIdentityBasis(actualTransform) ||
             !HintedGlyphCommandGeometry.TryValidate(command, geometry.DpiScale,

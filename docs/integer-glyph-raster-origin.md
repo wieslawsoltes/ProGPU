@@ -46,6 +46,60 @@ Consumers need the matching rebuilt producer before selecting the new API.
 
 ## Original observations and remaining qualification
 
+### Prepared physical outlines
+
+`DrawHintedGlyphsWithRasterOrigin` and its explicit-range counterpart carry
+`IntegerPixel` through the original retained command. Existing overloads keep
+`Auto` and their unsnapped placement. Prepared outlines retain their exact DPI,
+identity basis, generation, original physical phase and source ink/brush domain;
+the new option admits only aliased coverage. It does not rerun font instructions
+or change the existing coverage/dropout algorithm.
+
+Both managed atlas replay and native picture compilation reuse the original
+`IntegerGlyphRasterOrigin.TryResolve` implementation in this repository. The
+complete occurrence position, draw origin and effective translation are composed
+before rounding. Full selected-range preflight includes no-ink occurrences and
+rejects physical overflow before resource/style/atlas publication. Private raster
+bounds use that same resolved target origin, including nested picture translation;
+they never subtract a translation and add it back after rounding. Source hit and
+brush bounds remain unrounded. An unavailable atlas retains its existing failure
+policy rather than silently changing this prepared-outline contract.
+
+Recording and compilation add O(G) work with O(1) temporary storage for G selected
+occurrences to the existing whole-range validation. Placement uses `Vector2`
+arithmetic and the existing independent-axis rounding helper. No font callbacks,
+GPU readback, coverage reupload, per-glyph submission or new cache namespace is
+introduced. Physical outline generation remains the raster-cache identity.
+Snapshots retain the existing command field. Hinted-geometry archive support is
+unchanged; this does not claim portable serialization of its resource owner.
+
+The native compiler emits the already-supported resolved `NativePositionedGlyph`
+position with the unchanged unit basis and original physical outlines. Both native
+providers therefore consume the same existing ABI and shader. No C++ or WGSL
+policy fork is needed. Managed full-frame cold/warm controls and independent native
+wire/bounds controls cover the new placement. Final producer/provider, package,
+original grid-fit phase and application qualification remain required before
+source release admission; integer-origin support is not Microsoft raster parity.
+
+Local validation of this extension: 121 focused controls pass, including six
+cold/warm full-frame GPU comparisons at 1, 1.5 and 2 DPI. The complete renderer
+suite passes 6,352 tests with 12 platform skips; all 230 headless tests pass.
+The 19 added tests pass. Every outcome in the retained earlier renderer TRX is
+unchanged; the additional Linux Close control already exists in the parent and
+is skipped on macOS. The prepared Drawing consumer and its test sources compile
+with the explicit producer override (zero errors); they have not executed against
+an unqualified native payload. The initial focused compile caught an ambiguous
+test-only color constructor, corrected before any test executed.
+
+The design sources below were rechecked for this extension. Skia and HarfBuzz
+support retaining the original prepared layout; DirectWrite and Win2D keep
+raster-origin, contrast and grid-fit choices independent. WebRender informs exact
+generation/device identity. Vello/Parley reinforce leaving reusable layout on the
+CPU while existing GPU coverage stays batched. Startup/lazy initialization,
+visibility, eviction, demand uploads, worker preparation, variable/fallback font
+selection and device-loss invalidation keep their existing ownership and policies.
+No performance improvement is claimed and no external implementation was copied.
+
 The original Windows raster-phase run
 [39123876508](https://github.com/wieslawsoltes/LibreWinForms/actions/runs/39123876508)
 retains 328 original PNG frames: 324 explicit-position cases and four whole-string

@@ -8,7 +8,8 @@ namespace ProGPU.Scene;
 public unsafe partial class Compositor
 {
     // The original GlyphAtlas/Text.wgsl contract owns coverage and composition.
-    // This seam adds original physical records, never a font, layout or snap.
+    // Original physical records retain their own font/layout generation; only
+    // an explicit target-boundary raster-origin policy may adjust paint placement.
     private void CompileHintedGlyphCommand(RenderCommand command, Matrix4x4 transform)
     {
         GlyphCoverageTransferPolicy.Validate(command.GlyphCoverageTransfer, command.TextRenderingMode);
@@ -61,7 +62,8 @@ public unsafe partial class Compositor
             GpuGlyphRecord record = outlines[checked((int)occurrence.OutlineIndex)];
             GlyphAtlas.ValidateHintedRasterRecord(in record, segmentCount);
             var bounds = GlyphAtlas.GetHintedRasterBounds(in record);
-            Vector2 position = occurrence.Position + command.Position;
+            if (!HintedGlyphCommandGeometry.TryGetRasterOrigin(command, occurrence.Position, Vector2.Zero, out Vector2 position))
+                throw new InvalidOperationException("Original hinted raster origin overflows the admitted logical frame.");
             // Match the canonical Text vertex's physical bearing/size divided
             // by target DPI, without snapping the original writer position.
             Vector2 offset = new Vector2(bounds.XStart, bounds.YStart) * inverseDpi;
@@ -258,8 +260,7 @@ public unsafe partial class Compositor
             FontGlyphPlacement occurrence = geometry.GetRenderPlacement(index);
             if (occurrence.OutlineIndex == uint.MaxValue) continue;
             GpuGlyphRecord record = outlines[checked((int)occurrence.OutlineIndex)];
-            Vector2 position = occurrence.Position + command.Position + translation;
-            if (!float.IsFinite(position.X) || !float.IsFinite(position.Y))
+            if (!HintedGlyphCommandGeometry.TryGetRasterOrigin(command, occurrence.Position, translation, out Vector2 position))
                 throw new InvalidOperationException("Original hinted placement overflows the admitted logical frame.");
             var bounds = GlyphAtlas.GetHintedRasterBounds(in record);
             if (_activeClipRect is Rect clip)
@@ -275,7 +276,7 @@ public unsafe partial class Compositor
             GlyphInfo info = _atlas.GetOrCreateHintedGlyph(geometry, occurrence.OutlineIndex);
             _textVerticesList.Add(new GlyphInstance
             {
-                SnappedLogicalPos = position, // Original writer position; deliberately unsnapped.
+                SnappedLogicalPos = position, // Explicit raster policy never changes the retained writer position.
                 BasisX = Vector2.UnitX, BasisY = Vector2.UnitY,
                 BearSize = new Vector4(info.BearX, info.BearY, info.Width, info.Height),
                 TexCoords = new Vector4(info.X, info.Y, info.X + info.Width, info.Y + info.Height),

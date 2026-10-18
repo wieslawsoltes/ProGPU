@@ -151,7 +151,10 @@ public static partial class GpuPictureNativeSceneCompiler
         for (int i = start; i < start + count; i++)
             if (retained.GetRenderPlacement(i).OutlineIndex != uint.MaxValue) inkCount++;
         if (inkCount == 0) return true;
-        if (!HintedGlyphCommandGeometry.TryGetRasterBounds(command, out storageBounds, out bool hasInk) || !hasInk)
+        bool integerOrigin = command.TextHintingMode == TextHintingMode.IntegerPixel;
+        Vector2 translation = new(transform.M31, transform.M32);
+        if (!HintedGlyphCommandGeometry.TryGetRasterBounds(command,
+                integerOrigin ? translation : Vector2.Zero, out storageBounds, out bool hasInk) || !hasInk)
             return false;
         ReadOnlySpan<GpuGlyphRecord> sourceOutlines = retained.RenderOutlines;
         ReadOnlySpan<GpuSegment> sourceSegments = retained.RenderSegments;
@@ -171,19 +174,18 @@ public static partial class GpuPictureNativeSceneCompiler
                 s.P0, s.P1, s.P2, s.P3, s.Pad0, s.Pad1, s.Pad2);
         }
         int destination = 0;
-        Vector2 translation = new(transform.M31, transform.M32);
         for (int i = start; i < start + count; i++)
         {
             FontGlyphPlacement owner = retained.GetRenderPlacement(i);
             if (owner.OutlineIndex == uint.MaxValue) continue;
-            Vector2 origin = owner.Position + command.Position + translation;
-            if (!IsFinite(origin)) return false;
+            if (!HintedGlyphCommandGeometry.TryGetRasterOrigin(command, owner.Position, translation, out Vector2 origin))
+                return false;
             // Original physical Y-up outline bytes are untouched. Native glyph
             // execution flips Y exactly once; no second snap or raster scale.
             glyphs[destination++] = new NativePositionedGlyph(owner.OutlineIndex,
                 origin, Vector2.UnitX, Vector2.UnitY, Vector4.One, 1f);
         }
-        bounds = TransformBounds(storageBounds, transform);
+        bounds = TransformBounds(storageBounds, integerOrigin ? Matrix3x2.Identity : transform);
         return float.IsFinite(bounds.X) && float.IsFinite(bounds.Y) &&
             float.IsFinite(bounds.Width) && float.IsFinite(bounds.Height) &&
             float.IsFinite(bounds.X + bounds.Width) && float.IsFinite(bounds.Y + bounds.Height);
