@@ -4,7 +4,8 @@ on:
 permissions:
   contents: read
 env:
-  PROGPU_QUALIFIED_COMMIT: ${{ github.sha }}
+  # The diagnostic selects a job; source-inspection tests must see the full product tree.
+  PROGPU_QUALIFIED_COMMIT: 983a01bea68c31684d99c77f77bc72d79cd02c62
 jobs:
   build-test:
     name: Build and test (${{ matrix.os }})
@@ -351,4 +352,3 @@ jobs:
           name: progpu-core-test-results-${{ matrix.rid }}
           path: artifacts/core-test-results/*.trx
           if-no-files-found: warn
-
