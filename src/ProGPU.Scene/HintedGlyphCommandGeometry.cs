@@ -31,6 +31,9 @@ internal static class HintedGlyphCommandGeometry
     {
         start = count = 0;
         if (!GlyphCoverageTransferPolicy.IsSupported(command.GlyphCoverageTransfer, command.TextRenderingMode) ||
+            command.TextHintingMode is not (TextHintingMode.Auto or TextHintingMode.IntegerPixel) ||
+            (command.TextHintingMode == TextHintingMode.IntegerPixel &&
+                command.TextRenderingMode != TextRenderingMode.Aliased) ||
             !TryGetRange(command, out start, out count) ||
             BitConverter.SingleToInt32Bits(command.HintedGlyphGeometry!.DpiScale) !=
                 BitConverter.SingleToInt32Bits(targetDpiScale) ||
@@ -44,6 +47,17 @@ internal static class HintedGlyphCommandGeometry
         if (hasInk && (ink.X < command.Rect.X || ink.Y < command.Rect.Y ||
             ink.Right > command.Rect.Right || ink.Bottom > command.Rect.Bottom))
             return false;
+        if (command.TextHintingMode == TextHintingMode.IntegerPixel)
+        {
+            Vector2 translation = new(effectiveTransform.M31, effectiveTransform.M32);
+            // Validate every selected occurrence, including no-ink slots, before
+            // a renderer retains resources or mutates its atlas/style/draw lists.
+            for (int i = start; i < start + count; i++)
+                if (!TryGetRasterOrigin(command,
+                    command.HintedGlyphGeometry!.GetRenderPlacement(i).Position, translation, out _))
+                    return false;
+            return TryGetRasterBounds(command, translation, out _, out _);
+        }
         // Translation is admitted but every selected ink endpoint must remain
         // finite in the actual target frame. No epsilon or resnap is used.
         return !hasInk || (float.IsFinite(ink.X + effectiveTransform.M31) &&
@@ -99,6 +113,22 @@ internal static class HintedGlyphCommandGeometry
     // Private culling/coverage storage only. This is not glyph input geometry
     // or a replacement for the authoritative source brush/ink domain.
     internal static bool TryGetRasterBounds(in RenderCommand command, out Rect bounds, out bool hasInk)
+        => TryGetRasterBounds(command, Vector2.Zero, out bounds, out hasInk);
+
+    internal static bool TryGetRasterOrigin(in RenderCommand command, Vector2 position,
+        Vector2 translation, out Vector2 origin)
+    {
+        origin = position + command.Position + translation;
+        if (command.TextHintingMode == TextHintingMode.IntegerPixel)
+            return IntegerGlyphRasterOrigin.TryResolve(origin, command.HintedGlyphGeometry!.DpiScale, out origin);
+        return command.TextHintingMode == TextHintingMode.Auto &&
+            float.IsFinite(origin.X) && float.IsFinite(origin.Y);
+    }
+
+    // Translation must precede integer rounding. Returning target-space storage
+    // avoids subtracting and later reapplying a fractional source translation.
+    internal static bool TryGetRasterBounds(in RenderCommand command, Vector2 translation,
+        out Rect bounds, out bool hasInk)
     {
         bounds = default;
         hasInk = false;
@@ -115,7 +145,8 @@ internal static class HintedGlyphCommandGeometry
                 if (occurrence.OutlineIndex >= (uint)outlines.Length) return false;
                 GpuGlyphRecord outline = outlines[(int)occurrence.OutlineIndex];
                 var raster = GlyphAtlas.GetHintedRasterBounds(in outline);
-                Vector2 origin = occurrence.Position + command.Position;
+                if (!TryGetRasterOrigin(command, occurrence.Position, translation, out Vector2 origin))
+                    return false;
                 Vector2 offset = new(raster.XStart / geometry.DpiScale, raster.YStart / geometry.DpiScale);
                 Vector2 extent = new(raster.Width / geometry.DpiScale, raster.Height / geometry.DpiScale);
                 Vector2 low = origin + offset;

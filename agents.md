@@ -7,6 +7,15 @@ parity, or claim old native producers support the new reserved-word semantics.
 See docs/source-grayscale-text-contrast.md; original pixels and whole-provider/
 package/application qualification remain separate mandatory gates.
 
+Explicit integer origins on prepared hinted outlines compose the complete actual
+target translation before rounding. Preserve original writer positions, physical
+outline generation/phase, source ink/brush domains and exact prepared DPI. Validate
+every selected occurrence, including no-ink slots, before renderer mutation; share
+the resolved origin with private raster bounds and both renderers. Existing APIs
+keep unsnapped Auto behavior. IntegerPixel requires aliased identity-basis replay;
+it is not a font/dropout policy or original Microsoft qualification. See
+docs/integer-glyph-raster-origin.md.
+
 # Agent Guidelines & Reference Handbook (agents.md)
 
 Explicit native Close enabled state remains separate from CanClose visibility.

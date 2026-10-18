@@ -493,7 +493,8 @@ public enum TextHintingMode
     /// Whole physical pixel origins, with half ties toward positive infinity.
     /// An explicit aliased, atlas-backed positioned-glyph contract; it neither
     /// changes logical glyph positions nor executes font hinting instructions.
-    /// Requires a finite positive diagonal render frame and ordinary outline glyphs.
+    /// Ordinary outlines require a finite positive diagonal frame. Prepared hinted
+    /// outlines require their exact original DPI and an identity basis.
     /// </summary>
     IntegerPixel
 }

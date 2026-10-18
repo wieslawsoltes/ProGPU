@@ -16,6 +16,54 @@ public sealed class HintedGlyphCompositorReplayTests
 {
     [Theory]
     [InlineData(1f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(2f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.5f, true)]
+    [InlineData(2f, true)]
+    public void IntegerHintedOriginsMatchIndependentFinalPlacementColdAndWarm(float dpi, bool spatial)
+    {
+        using var original = CreateBox(dpi);
+        Vector2 source = original.Occurrences[0].Position;
+        Vector2 offset = new(.3f, .2f), translation = new(.3f, .4f);
+        Vector2 physical = (source + offset + translation) * dpi;
+        Vector2 expected = new((float)Math.Floor((double)physical.X + .5) / dpi,
+            (float)Math.Floor((double)physical.Y + .5) / dpi);
+        using var reference = HintedGlyphGeometry.FromFontPlacements(dpi,
+            original.Outlines.ToArray(), original.Segments.ToArray(),
+            [new FontGlyphPlacement(0, 7, 0, expected)], new CountingOwner());
+        using var actualWindow = CreateWindow((uint)(64 * dpi));
+        using var referenceWindow = CreateWindow((uint)(64 * dpi));
+        actualWindow.Content = new IntegerOriginVisual(original, offset, translation, spatial, true);
+        referenceWindow.Content = new IntegerOriginVisual(reference, Vector2.Zero, Vector2.Zero, spatial, false);
+        ulong uploads = 0, submissions = 0;
+        byte[]? cold = null;
+        for (int frame = 0; frame < 2; frame++)
+        {
+            actualWindow.RenderAtDpi(64, 64, dpi);
+            referenceWindow.RenderAtDpi(64, 64, dpi);
+            byte[] actual = actualWindow.ReadPixels();
+            Assert.Equal(referenceWindow.ReadPixels(), actual);
+            Assert.Contains((byte)0, actual); // Actual colored ink, not just opaque target alpha.
+            if (frame == 0)
+            {
+                cold = actual;
+                uploads = actualWindow.Compositor.Atlas.OutlineUploadWriteCount;
+                submissions = actualWindow.Compositor.Atlas.RasterBatchSubmissionCount;
+                Assert.True(uploads > 0 && submissions > 0);
+            }
+            else
+            {
+                Assert.Equal(cold, actual);
+                Assert.Equal(uploads, actualWindow.Compositor.Atlas.OutlineUploadWriteCount);
+                Assert.Equal(submissions, actualWindow.Compositor.Atlas.RasterBatchSubmissionCount);
+            }
+        }
+        Assert.Equal(source, original.Occurrences[0].Position);
+    }
+
+    [Theory]
+    [InlineData(1f, false)]
     [InlineData(2f, false)]
     [InlineData(1f, true)]
     [InlineData(2f, true)]
@@ -512,6 +560,26 @@ public sealed class HintedGlyphCompositorReplayTests
             context.DrawHintedGlyphs(geometry, Vector2.Zero, new Rect(0, 0, 64, 64), brush);
             if (spatial) context.PopOpacity();
             if (clip) context.PopGeometryClip();
+        }
+    }
+
+    private sealed class IntegerOriginVisual(HintedGlyphGeometry geometry, Vector2 origin,
+        Vector2 translation, bool spatial, bool integer) : FrameworkElement
+    {
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(new SolidColorBrush(Vector4.One), null, new Rect(0, 0, 64, 64));
+            Brush brush = spatial
+                ? new LinearGradientBrush(Vector2.Zero, Vector2.UnitX,
+                    [new GradientStop(new(1, 0, 0, 1), 0), new GradientStop(new(1, 0, 0, 1), 1)])
+                : new SolidColorBrush(new Vector4(1, 0, 0, 1));
+            Assert.True(DrawingContext.TryGetHintedGlyphInkBounds(geometry, origin, out var ink, out _));
+            var transform = Matrix4x4.CreateTranslation(translation.X, translation.Y, 0);
+            if (integer)
+                context.DrawHintedGlyphsWithRasterOrigin(geometry, origin, ink, brush,
+                    TextHintingMode.IntegerPixel, transform);
+            else
+                context.DrawHintedGlyphs(geometry, origin, ink, brush, transform, TextRenderingMode.Aliased);
         }
     }
 

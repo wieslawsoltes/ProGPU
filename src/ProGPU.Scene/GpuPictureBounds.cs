@@ -108,13 +108,16 @@ public static class GpuPictureBounds
 
                 if (command.Type == RenderCommandType.DrawHintedGlyphs)
                 {
+                    bool integerOrigin = command.TextHintingMode == TextHintingMode.IntegerPixel;
                     if (command.HintedGlyphGeometry is null ||
                         !HintedGlyphCommandGeometry.IsIdentityBasis(commandTransform) ||
                         !HintedGlyphCommandGeometry.TryValidate(command,
                             command.HintedGlyphGeometry!.DpiScale,
                             new Matrix3x2(1f, 0f, 0f, 1f, commandTransform.M41, commandTransform.M42),
                             out _, out _) ||
-                        !HintedGlyphCommandGeometry.TryGetRasterBounds(command, out Rect rasterBounds, out bool hasInk))
+                        !HintedGlyphCommandGeometry.TryGetRasterBounds(command,
+                            integerOrigin ? new Vector2(commandTransform.M41, commandTransform.M42) : Vector2.Zero,
+                            out Rect rasterBounds, out bool hasInk))
                         return false;
                     if (hasInk)
                     {
@@ -124,7 +127,7 @@ public static class GpuPictureBounds
                         {
                             Type = RenderCommandType.DrawRect,
                             Rect = rasterBounds, Brush = command.Brush
-                        }, commandTransform, picture);
+                        }, integerOrigin ? Matrix4x4.Identity : commandTransform, picture);
                     }
                     continue;
                 }
