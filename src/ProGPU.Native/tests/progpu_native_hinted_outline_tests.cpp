@@ -782,7 +782,7 @@ void binary_contour_metadata() {
                 const auto expected_start = i < 8U ? (i < 4U ? 0U : 4U) : 0U;
                 const auto expected_count = i < 8U ? 4U : 2U;
                 const auto flags = i < 8U ? 0x109U : 0x131U;
-                const auto override = i < 4U ? PROGPU_NATIVE_FONT_SCAN_CONTOUR_OVERRIDE : 0U;
+                const auto override = i < 4U ? static_cast<std::uint32_t>(PROGPU_NATIVE_FONT_SCAN_CONTOUR_OVERRIDE) : 0U;
                 require(segment.pad0 == (PROGPU_NATIVE_FONT_SCAN_SEGMENT_MARKER | (i < 8U ? mode : 4U) |
                     (flags << 16U) | override) &&
                     segment.pad1 == expected_start && segment.pad2 == expected_count);
