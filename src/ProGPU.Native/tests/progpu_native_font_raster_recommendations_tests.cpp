@@ -108,7 +108,8 @@ int main() {
         auto tail = table; tail.push_back(std::byte{}); rejected(tail);
         rejected(table, 0U);
     }
-    for (const auto [offset, value] : std::array<std::pair<unsigned, std::uint16_t>, 7>{
+    struct table_mutation { unsigned offset; std::uint16_t value; };
+    for (const auto& [offset, value] : std::array<table_mutation, 7>{
         {{0U, 2U}, {2U, 2U}, {2U, 65535U}, {8U, 8U}, {12U, 18U}, {12U, 19U}, {14U, 16U}}}) {
         auto table = original_table(true); put16(table, offset, value); rejected(table);
     }
