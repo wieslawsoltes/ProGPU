@@ -23,7 +23,7 @@ public enum NativeFontOutlinePolicy : uint
 /// its exclusive handle lease; context disposal and cache eviction cannot
 /// invalidate it. This explicit batch does not enable source Display layout.
 /// </summary>
-public sealed unsafe class NativeHintedFontBatch : IDisposable
+public sealed unsafe partial class NativeHintedFontBatch : IDisposable
 {
     private readonly NativeTextContextOwner _owner = null!;
 

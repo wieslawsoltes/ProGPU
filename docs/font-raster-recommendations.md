@@ -133,11 +133,37 @@ outline points, with caller-owned scratch bounded by the largest glyph.
 
 This private writer is shared by both native providers and is the geometry source
 for the managed native-font bridge; a second managed contour algorithm is not
-introduced. It still needs retained public geometry transport and Drawing replay
-integration. Its antialiased vector policy does not implement monochrome dropout,
+introduced. Drawing replay integration remains required. Its antialiased vector
+policy does not implement monochrome dropout,
 Microsoft contrast or ClearType coverage. Synthetic original-contour controls and
 actual captured batches after context disposal verify this geometry step; they do
 not qualify the source rendering defect.
+
+`NativeHintedFontBatch.CreateGeometry` exposes that same writer through an owned
+immutable native geometry handle. The handle retains the exact captured batch
+after its public batch and context retire. Creation allocates one complete
+candidate and bounded largest-glyph scratch before publication; failures leave
+the previous handle unchanged. Counts and descriptor records are generated from
+the public C header, while outlines and segments reuse existing ABI records.
+No shaped-run metadata, clusters, advances or caller positions are fabricated.
+
+One synchronous `CopyTo` transfers the complete outlines, segments and original
+descriptor mapping to pinned caller spans. Counts and copy operations make no
+font, allocation or GPU calls. Complete capacities must be mutually disjoint and
+outside the retained owner, geometry storage and original batch/font storage;
+validation finishes before any write. Unused tails remain unchanged. No-ink
+descriptors retain their original IDs with an absent-outline sentinel. Empty
+batches remain valid with zero counts. Managed handles use the existing exclusive
+native resource lease and constructor-failure cleanup, including finalization.
+Both native providers share this implementation; the managed bridge imports its
+geometry without a second contour converter. Ordinary rendering is unchanged.
+
+Controls cover all four outline targets with both interpreters, exact geometry
+and descriptor copies after context/batch disposal, retained lifetime and final
+release, insufficient and overlapping outputs, original font-storage rejection,
+invalid/unsupported policy rollback, empty batches and managed generated layouts.
+These are ownership/transport controls, not GDI/GDI+ pixel qualification or a
+claim that vector antialiasing implements the remaining source raster policies.
 
 Keep font execution lazy and out of frame replay, retain bounded exact-generation
 caches, and preserve original layout/interaction and GPU resource ownership.

@@ -7,6 +7,7 @@
 #include "../progpu_native_text_cluster_breaks_internal.hpp"
 #include "../Font/progpu_native_hinted_transport.hpp"
 #include "../Font/progpu_native_hinted_shaper.hpp"
+#include "../Font/progpu_native_hinted_outline.hpp"
 #include "progpu_native_hinted_paragraph_internal.hpp"
 #include "progpu_native_hinted_source_fitting.hpp"
 #include "progpu_native_hinted_source_resource_cache.hpp"
@@ -48,6 +49,13 @@ struct progpu_native_text_owned_font final {
 
 struct progpu_native_hinted_batch final {
     std::shared_ptr<const progpu::native::text::hinted_glyph_batch> generation{};
+};
+
+struct progpu_native_font_outline_geometry final {
+    std::shared_ptr<const progpu::native::text::hinted_glyph_batch> source{};
+    std::vector<progpu_native_glyph_outline> outlines{};
+    std::vector<progpu_native_path_segment> segments{};
+    std::vector<std::uint32_t> source_indices{};
 };
 
 struct progpu_native_hinted_run final {
@@ -4108,6 +4116,87 @@ progpu_native_status progpu_native_hinted_batch_copy(
 }
 
 void progpu_native_hinted_batch_destroy(progpu_native_hinted_batch* batch) { delete batch; }
+
+static bool font_geometry_output_aliases(const progpu_native_font_outline_geometry& geometry,
+    void* output, std::size_t bytes) noexcept {
+    return byte_ranges_overlap(output, bytes, &geometry, sizeof(geometry)) ||
+        byte_ranges_overlap(output, bytes, geometry.outlines.data(), geometry.outlines.capacity() * sizeof(progpu_native_glyph_outline)) ||
+        byte_ranges_overlap(output, bytes, geometry.segments.data(), geometry.segments.capacity() * sizeof(progpu_native_path_segment)) ||
+        byte_ranges_overlap(output, bytes, geometry.source_indices.data(), geometry.source_indices.capacity() * sizeof(std::uint32_t)) ||
+        progpu::native::text::hinted_batch_output_aliases(*geometry.source,
+            std::span{static_cast<std::byte*>(output), bytes});
+}
+
+progpu_native_status progpu_native_hinted_batch_create_geometry(const progpu_native_hinted_batch* batch,
+    std::uint32_t projection_policy, std::uint32_t coverage, progpu_native_font_outline_geometry** geometry) {
+    using namespace progpu::native::text;
+    if (!valid_hinted_buffer(batch, 1U) || !valid_hinted_buffer(geometry, 1U) || batch->generation == nullptr ||
+        projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE || coverage > PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR ||
+        byte_ranges_overlap(batch, sizeof(*batch), geometry, sizeof(*geometry)) ||
+        hinted_batch_output_aliases(*batch->generation, std::as_writable_bytes(std::span{geometry, 1U})))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const auto projection = static_cast<hinted_projection_policy>(projection_policy);
+    const auto selected_coverage = static_cast<hinted_outline_coverage>(coverage);
+    hinted_outline_requirements required{};
+    const auto inspected = get_hinted_batch_outline_requirements(*batch->generation, required, projection, selected_coverage);
+    if (inspected != hinted_outline_error::none)
+        return inspected == hinted_outline_error::invalid_argument || inspected == hinted_outline_error::invalid_run ?
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT : PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    try {
+        auto candidate = std::make_unique<progpu_native_font_outline_geometry>();
+        candidate->source = batch->generation;
+        candidate->outlines.resize(required.outlines);
+        candidate->segments.resize(required.segments);
+        candidate->source_indices.resize(required.source_slots);
+        std::vector<sfnt_outline_point> topology(required.scratch_points);
+        std::vector<progpu_native_point> physical(required.scratch_points);
+        hinted_outline_requirements written{};
+        const auto copied = write_hinted_batch_outlines(*candidate->source, {topology, physical}, candidate->outlines,
+            candidate->segments, candidate->source_indices, written, projection, selected_coverage);
+        if (copied != hinted_outline_error::none || written != required) return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+        *geometry = candidate.release();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) { return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY; }
+    catch (...) { return PROGPU_NATIVE_STATUS_INTERNAL_ERROR; }
+}
+
+progpu_native_status progpu_native_font_outline_geometry_get_counts(
+    const progpu_native_font_outline_geometry* geometry, progpu_native_font_outline_counts* counts) {
+    if (!valid_hinted_buffer(geometry, 1U) || !valid_hinted_buffer(counts, 1U) || geometry->source == nullptr ||
+        font_geometry_output_aliases(*geometry, counts, sizeof(*counts))) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *counts = {static_cast<std::uint32_t>(geometry->source_indices.size()),
+        static_cast<std::uint32_t>(geometry->outlines.size()), static_cast<std::uint32_t>(geometry->segments.size())};
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_font_outline_geometry_copy(const progpu_native_font_outline_geometry* geometry,
+    progpu_native_glyph_outline* outlines, std::uint32_t outline_capacity,
+    progpu_native_path_segment* segments, std::uint32_t segment_capacity,
+    progpu_native_font_outline_descriptor* descriptors, std::uint32_t descriptor_capacity) {
+    if (!valid_hinted_buffer(geometry, 1U) || geometry->source == nullptr ||
+        !valid_hinted_buffer(outlines, outline_capacity) || !valid_hinted_buffer(segments, segment_capacity) ||
+        !valid_hinted_buffer(descriptors, descriptor_capacity) || outline_capacity < geometry->outlines.size() ||
+        segment_capacity < geometry->segments.size() || descriptor_capacity < geometry->source_indices.size())
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    const std::array<std::pair<void*, std::size_t>, 3> outputs{{
+        {outlines, static_cast<std::size_t>(outline_capacity) * sizeof(*outlines)},
+        {segments, static_cast<std::size_t>(segment_capacity) * sizeof(*segments)},
+        {descriptors, static_cast<std::size_t>(descriptor_capacity) * sizeof(*descriptors)}}};
+    for (std::size_t first = 0U; first < outputs.size(); ++first) {
+        if (font_geometry_output_aliases(*geometry, outputs[first].first, outputs[first].second))
+            return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+        for (std::size_t second = first + 1U; second < outputs.size(); ++second)
+            if (byte_ranges_overlap(outputs[first].first, outputs[first].second, outputs[second].first, outputs[second].second))
+                return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!geometry->outlines.empty()) std::copy(geometry->outlines.begin(), geometry->outlines.end(), outlines);
+    if (!geometry->segments.empty()) std::copy(geometry->segments.begin(), geometry->segments.end(), segments);
+    for (std::size_t index = 0U; index < geometry->source_indices.size(); ++index)
+        descriptors[index] = {geometry->source->glyphs[index].glyph_index, geometry->source_indices[index]};
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+void progpu_native_font_outline_geometry_destroy(progpu_native_font_outline_geometry* geometry) { delete geometry; }
 
 progpu_native_status progpu_native_text_context_shape_hinted_run(
     progpu_native_text_context* context, const progpu_native_hinted_font_request* hint_request,

@@ -15,6 +15,10 @@ missing export or infer source raster policy from successful outline capture.
 Already-positioned batch geometry shares the original run contour writer without
 fabricated shaping records. Validate every descriptor, retain no-ink/duplicate
 source slots and full-capacity aliases, and keep caller placement independent.
+Owned batch geometry retains that exact captured generation beyond context and
+batch disposal. Its complete copies reuse existing path records, validate all
+output capacities before writing and keep original source bytes immutable.
+Do not reconstruct shaping metadata or execute fonts during copies or replay.
 
 Explicit static font raster recommendations retain the selected face's complete
 original gasp range inventory and independent grayscale/symmetric flags. Validate

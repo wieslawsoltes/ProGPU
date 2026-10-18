@@ -236,6 +236,23 @@ public partial struct NativeHintedBatchCounts
     public uint Contours;
 }
 
+// Native source: progpu_native_font_outline_counts.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeFontOutlineCounts
+{
+    public uint Descriptors;
+    public uint Outlines;
+    public uint Segments;
+}
+
+// Native source: progpu_native_font_outline_descriptor.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeFontOutlineDescriptor
+{
+    public uint GlyphIndex;
+    public uint OutlineIndex;
+}
+
 // Native source: progpu_native_hinted_paragraph_device_style.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeHintedParagraphDeviceStyle
