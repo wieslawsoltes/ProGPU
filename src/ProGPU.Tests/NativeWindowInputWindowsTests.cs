@@ -50,6 +50,56 @@ public partial class NativeWindowInputWindowsTests
     private static partial int IsWindowEnabled(nint window);
 
     [WindowsFact]
+    public void CloseEnabledPolicyPreservesSystemMenuVisibilityAndOtherWindowActions()
+    {
+        var options = WindowOptions.Default;
+        options.API = GraphicsAPI.None;
+        options.IsVisible = false;
+        using var window = Window.Create(options);
+        window.Initialize();
+        using var controller = new SilkWindowController(window);
+        Assert.True(controller.Attach());
+        nint handle = controller.Handle.Handle;
+        nint menu = GetSystemMenu(handle, 0);
+        Assert.NotEqual(0, menu);
+        uint minimize = GetMenuState(menu, 0xF020, 0);
+        uint maximize = GetMenuState(menu, 0xF030, 0);
+        Assert.NotEqual(uint.MaxValue, EnableMenuItem(menu, 0xF060, 3));
+        controller.Reapply(); // An unselected policy must not enable another caller's Close item.
+        Assert.NotEqual(0U, GetMenuState(menu, 0xF060, 0) & 3U);
+        Assert.True(controller.SetCloseButtonEnabled(true));
+        Assert.Equal(0U, GetMenuState(menu, 0xF060, 0) & 3U);
+        Assert.True(controller.SetCloseButtonEnabled(false));
+        Assert.NotEqual(0, GetWindowLong(handle, -16) & 0x00080000);
+        Assert.NotEqual(0, IsWindowEnabled(handle));
+        Assert.NotEqual(0, GetSystemMenu(handle, 0));
+        Assert.NotEqual(uint.MaxValue, GetMenuState(menu, 0xF060, 0));
+        Assert.NotEqual(0U, GetMenuState(menu, 0xF060, 0) & 3U);
+        Assert.Equal(minimize, GetMenuState(menu, 0xF020, 0));
+        Assert.Equal(maximize, GetMenuState(menu, 0xF030, 0));
+        controller.Reapply();
+        Assert.NotEqual(0U, GetMenuState(GetSystemMenu(handle, 0), 0xF060, 0) & 3U);
+        Assert.True(controller.SetCloseButtonEnabled(true));
+        Assert.Equal(0U, GetMenuState(GetSystemMenu(handle, 0), 0xF060, 0) & 3U);
+        Assert.True(controller.SetCanClose(false));
+        Assert.Equal(0, GetWindowLong(handle, -16) & 0x00080000);
+        Assert.True(controller.SetCloseButtonEnabled(false));
+        Assert.Equal(0, GetWindowLong(handle, -16) & 0x00080000);
+        Assert.True(controller.SetCanClose(true));
+        Assert.NotEqual(0U, GetMenuState(GetSystemMenu(handle, 0), 0xF060, 0) & 3U);
+        Assert.False(window.IsVisible);
+    }
+
+    [LibraryImport("user32.dll")]
+    private static partial nint GetSystemMenu(nint window, int revert);
+    [LibraryImport("user32.dll")]
+    private static partial uint GetMenuState(nint menu, uint item, uint flags);
+    [LibraryImport("user32.dll")]
+    private static partial uint EnableMenuItem(nint menu, uint item, uint flags);
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    private static partial int GetWindowLong(nint window, int index);
+
+    [WindowsFact]
     public unsafe void NativeCaretMirrorRetainsClientPositionAndNeverShowsAnExtraCaret()
     {
         var options = WindowOptions.Default;

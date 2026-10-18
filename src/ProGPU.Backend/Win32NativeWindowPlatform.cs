@@ -140,8 +140,22 @@ internal sealed partial class Win32NativeWindowPlatform :
         _ = RegisterTouchWindow(_hwnd, 0);
         RefreshFrame();
         SetBackdrop(_backdrop);
+        if (state.CanClose && state.CloseButtonEnabled is { } closeEnabled)
+        {
+            nint menu = GetSystemMenu(_hwnd, 0);
+            // MF_BYCOMMAND, with MF_DISABLED | MF_GRAYED when disabled.
+            if (menu == 0 || EnableMenuItem(menu, 0xF060, closeEnabled ? 0U : 3U) == uint.MaxValue)
+                return false;
+            return DrawMenuBar(_hwnd) != 0;
+        }
         return true;
     }
+
+    [LibraryImport("user32.dll")]
+    private static partial uint EnableMenuItem(nint menu, uint item, uint flags);
+
+    [LibraryImport("user32.dll")]
+    private static partial int DrawMenuBar(nint window);
 
     public override bool SetTopMost(bool value)
     {

@@ -149,6 +149,27 @@ public sealed class SilkWindowController : IDisposable
         return Apply(ApplyChromeAndShadow);
     }
 
+    /// <summary>
+    /// Enables or disables the existing close control without changing its
+    /// visibility, window enabled state, or programmatic close policy. X11
+    /// publishes the corresponding window-manager hint; desktop acceptance is
+    /// independent of that publication. Unsupported providers return false.
+    /// </summary>
+    public bool SetCloseButtonEnabled(bool value)
+    {
+        _state = _state with { CloseButtonEnabled = value };
+        return Apply((platform, state) =>
+        {
+            if (!platform.Capabilities.Supports(NativeWindowFeatures.CloseButton))
+                return false;
+            bool applied = platform.ApplyChrome(state);
+            _ = platform.SetWindowShadow(state.AddShadow);
+            // A successful unrelated shadow update must not hide a failed
+            // native close-command update.
+            return applied;
+        });
+    }
+
     public bool SetCanMinimize(bool value)
     {
         _state = _state with { CanMinimize = value };
