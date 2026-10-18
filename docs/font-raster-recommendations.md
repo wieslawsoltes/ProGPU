@@ -70,10 +70,35 @@ does not carry that policy into glyph replay. [GDI font quality](https://learn.m
 and [GDI+ antialiasing](https://learn.microsoft.com/en-us/windows/win32/gdiplus/-gdiplus-antialiasing-with-text-use)
 are separate contracts. Never infer that Draft/Proof means non-antialiased output.
 
-The native font adapter currently selects `FT_LOAD_TARGET_NORMAL`. The public
+The native font adapter defaults to `FT_LOAD_TARGET_NORMAL`. Its explicit
+private outline-load policy can also select monochrome, horizontal LCD or
+unhinted scaled outlines, independently of interpreter35/40. Only the explicit
+unhinted policy disables native glyph instructions; ordinary native faults retain
+their failure and atomic rollback behavior. Every selection keeps outline-only,
+no-auto-hinter loading, original phase/size and full slot capture. No CPU bitmap
+rasterization is introduced. The public
 [FreeType glyph retrieval contract](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html)
 distinguishes load targets from raster formats and requires cache identity to
 reflect policy changes. Interpreter35/40 availability is not Microsoft parity.
+The exact outline policy belongs to each retained font identity and bounded
+cache key. A warm request may reuse only its own generation; switching targets
+creates a distinct face while retaining the same immutable source owner. Existing
+public requests and paragraphs still select normal; admitting a source mode
+requires the separate typed transport, source policy and pixel gates below.
+Independent public-API face controls compare all metrics, points, tags, contours
+and flags for both interpreters, all four policies, fractional/nonuniform sizes
+and phases. Controls retain post-disposal transport, warm target switching and
+invalid-target rollback. The signed-source producer and admission verifier
+require `outlineLoadPolicies` and `outlinePolicyIdentity` evidence on every RID;
+older receipts cannot qualify this updated producer contract.
+
+Both native providers and the managed native-font bridge use this common native
+font execution service. There is no second managed TrueType instruction executor
+to modify. The managed glyph geometry importer retains the captured points;
+it must not re-hint them. No public wire field, source rendering selection,
+generic placement mode or GPU coverage policy changes in this private execution
+step. Existing whole-provider/package and Microsoft source comparisons remain
+required before claiming the Forms rendering defect fixed.
 Keep font execution lazy and out of frame replay, retain bounded exact-generation
 caches, and preserve original layout/interaction and GPU resource ownership.
 

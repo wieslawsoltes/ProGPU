@@ -32,6 +32,7 @@ bool matches(const hinted_font_identity& identity,
         identity.x_pixels_per_em_26_6 == configuration.x_pixels_per_em_26_6 &&
         identity.y_pixels_per_em_26_6 == configuration.y_pixels_per_em_26_6 &&
         identity.policy == configuration.policy &&
+        identity.outline_policy == configuration.outline_policy &&
         identity.x_phase_26_6 == configuration.x_phase_26_6 &&
         identity.y_phase_26_6 == configuration.y_phase_26_6 &&
         equal_values<std::int32_t>(identity.variation_coordinates_16_16, configuration.variation_coordinates_16_16);

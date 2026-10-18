@@ -1,5 +1,12 @@
 # Agent Guidelines & Reference Handbook (agents.md)
 
+Explicit native font outline-load targets retain separate exact cache identities
+from the interpreter, device size and phase. Keep the normal default, owned source,
+outline-only capture and atomic native fault behavior; only explicit unhinted
+loading may omit instructions. Do not alias targets to source GDI/GDI+ policies
+or enable CPU bitmap rendering. Require producer evidence for all targets and
+warm cache isolation. See docs/font-raster-recommendations.md.
+
 Explicit static font raster recommendations retain the selected face's complete
 original gasp range inventory and independent grayscale/symmetric flags. Validate
 raw directory duplicates, extents, versions and every later range before output;

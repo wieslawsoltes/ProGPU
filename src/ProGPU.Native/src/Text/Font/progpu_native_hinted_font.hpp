@@ -16,6 +16,15 @@ enum class font_hint_policy : std::uint32_t {
     truetype_40 = 40U,
 };
 
+// Outline-load selection is independent of the interpreter and later GPU
+// coverage. These are explicit dependency targets, not GDI/GDI+ mode aliases.
+enum class font_outline_load_policy : std::uint32_t {
+    normal,
+    monochrome,
+    horizontal_lcd,
+    unhinted,
+};
+
 enum class hinted_font_error : std::uint32_t {
     none,
     invalid_argument,
@@ -36,6 +45,7 @@ struct hinted_font_configuration final {
     // Variable TrueType fonts require every axis in original fvar order.
     // Empty coordinates admit only a non-variable font, never a guessed default.
     std::span<const std::int32_t> variation_coordinates_16_16{};
+    font_outline_load_policy outline_policy = font_outline_load_policy::normal;
 };
 
 // Actual selected native size, not requested em / UPM or rounded ppem inferred
@@ -67,6 +77,7 @@ struct hinted_font_identity final {
     std::uint32_t x_phase_26_6 = 0U;
     std::uint32_t y_phase_26_6 = 0U;
     hinted_font_device_frame device_frame{};
+    font_outline_load_policy outline_policy = font_outline_load_policy::normal;
 };
 
 // Private C++ representation, not a wire record. The native dependency's exact

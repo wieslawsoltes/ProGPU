@@ -168,9 +168,9 @@ def validate_install(value, rid):
                                 "independentPolicies": True, "invalidPolicyRejected": True},
               "glyphProbe": {"glyphBatchControls": True, "nativeHintsObserved": True,
                              "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True,
-                             "actualDeviceFrame": True, "hintedProjectionSIMD": True, "retainedAnchorPoints": True},
+                             "actualDeviceFrame": True, "hintedProjectionSIMD": True, "retainedAnchorPoints": True, "outlineLoadPolicies": True},
               "transportProbe": {"fixedWidthTransport": True, "exactIntegerDifferential": True, "atomicTailControls": True},
-              "cacheProbe": {"boundedOwnedCache": True, "exactGenerationReuse": True, "nativeFaultAtomicity": True}}
+              "cacheProbe": {"boundedOwnedCache": True, "exactGenerationReuse": True, "nativeFaultAtomicity": True, "outlinePolicyIdentity": True}}
     if any(not exact_json(receipt.get(key), expected) for key, expected in probes.items()):
         raise ValueError("Dependency producer controls are missing or incomplete")
     legal = canonical(str(install / "share/progpu-freetype/licenses"), directory=True)

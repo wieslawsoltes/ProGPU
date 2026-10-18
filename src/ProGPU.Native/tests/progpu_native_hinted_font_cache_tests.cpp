@@ -128,6 +128,40 @@ void verify_cache(font_hint_policy policy)
     transport_require(retained->identity->source != nullptr && retained->identity->source->face_index == 0U);
     tests::verify_hinted_transport(*retained);
 }
+void verify_outline_policy_cache()
+{
+    const auto input = progpu::native::tests::make_hint_fault_font();
+    auto source = std::make_shared<const owned_font_source>(input, 0U);
+    constexpr std::array modes{font_outline_load_policy::normal, font_outline_load_policy::monochrome,
+        font_outline_load_policy::horizontal_lcd, font_outline_load_policy::unhinted};
+    const std::array<std::uint32_t, 3> ids{1U, 1U, 0U};
+    for (const auto interpreter : {font_hint_policy::truetype_35, font_hint_policy::truetype_40}) {
+        hinted_font_cache cache;
+        hinted_font_configuration configuration{13U * 64U, 13U * 64U, interpreter, 0U, 0U, {}};
+        std::array<std::shared_ptr<const hinted_glyph_batch>, 4> generations;
+        hinted_font_error error{};
+        for (std::size_t i = 0; i < modes.size(); ++i) {
+            configuration.outline_policy = modes[i];
+            transport_require(cache.try_capture(source, configuration, ids, generations[i], error));
+            transport_require(generations[i]->identity->outline_policy == modes[i] &&
+                generations[i]->identity->source == source);
+            for (std::size_t j = 0; j < i; ++j)
+                transport_require(generations[i]->identity != generations[j]->identity);
+        }
+        for (std::size_t i = 0; i < modes.size(); ++i) {
+            configuration.outline_policy = modes[i];
+            std::shared_ptr<const hinted_glyph_batch> batch;
+            transport_require(cache.try_capture(source, configuration, ids, batch, error) && batch == generations[i]);
+            auto invalid = configuration;
+            invalid.outline_policy = static_cast<font_outline_load_policy>(4U);
+            transport_require(!cache.try_capture(source, invalid, ids, batch, error) &&
+                error == hinted_font_error::invalid_argument && batch == generations[i]);
+        }
+        const auto stats = cache.statistics();
+        transport_require(stats.live_entries == 4U && stats.face_creations == 4U &&
+            stats.glyph_captures == 4U && stats.batch_hits == 4U);
+    }
+}
 } // namespace
 
 int main()
@@ -135,7 +169,9 @@ int main()
     try {
         verify_cache(font_hint_policy::truetype_35);
         verify_cache(font_hint_policy::truetype_40);
-        std::cout << "{\"boundedOwnedCache\":true,\"exactGenerationReuse\":true,\"nativeFaultAtomicity\":true}\n";
+        verify_outline_policy_cache();
+        std::cout << "{\"boundedOwnedCache\":true,\"exactGenerationReuse\":true,\"nativeFaultAtomicity\":true,"
+                     "\"outlinePolicyIdentity\":true}\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

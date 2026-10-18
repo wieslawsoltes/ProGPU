@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <mutex>
 #include <new>
@@ -99,7 +100,25 @@ bool valid_configuration(const hinted_font_configuration& value) noexcept
         value.x_pixels_per_em_26_6 <= static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) &&
         value.y_pixels_per_em_26_6 <= static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) &&
         value.x_phase_26_6 < 64U && value.y_phase_26_6 < 64U &&
+        (value.outline_policy == font_outline_load_policy::normal ||
+            value.outline_policy == font_outline_load_policy::monochrome ||
+            value.outline_policy == font_outline_load_policy::horizontal_lcd ||
+            value.outline_policy == font_outline_load_policy::unhinted) &&
         (value.policy == font_hint_policy::truetype_35 || value.policy == font_hint_policy::truetype_40);
+}
+
+FT_Int32 outline_load_flags(font_outline_load_policy policy) noexcept
+{
+    constexpr FT_Int32 common = FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT | FT_LOAD_PEDANTIC;
+    switch (policy) {
+    case font_outline_load_policy::monochrome: return common | FT_LOAD_TARGET_MONO;
+    case font_outline_load_policy::horizontal_lcd: return common | FT_LOAD_TARGET_LCD;
+    case font_outline_load_policy::unhinted: return common | FT_LOAD_NO_HINTING | FT_LOAD_TARGET_NORMAL;
+    case font_outline_load_policy::normal: return common | FT_LOAD_TARGET_NORMAL;
+    }
+    // Every identity is validated before a face is created. Never call this
+    // helper to turn an invalid caller policy into an admitted default.
+    std::terminate();
 }
 
 // Original ProGPU provenance: SIMD glyph-ID admission in
@@ -188,6 +207,7 @@ bool hinted_font::try_create(std::shared_ptr<const owned_font_source> source,
         identity->x_pixels_per_em_26_6 = configuration.x_pixels_per_em_26_6;
         identity->y_pixels_per_em_26_6 = configuration.y_pixels_per_em_26_6;
         identity->policy = configuration.policy;
+        identity->outline_policy = configuration.outline_policy;
         identity->x_phase_26_6 = configuration.x_phase_26_6;
         identity->y_phase_26_6 = configuration.y_phase_26_6;
         auto value = std::make_unique<state>();
@@ -259,9 +279,8 @@ bool hinted_font::try_capture(std::span<const std::uint32_t> glyph_indices,
         // Algorithm: sequential native glyph execution and immediate slot capture.
         // Time: O(H + P + C + G), H = dependent bytecode work, P/C = points/contours.
         // Space: O(P + C + G); exact geometry uses bulk copies, not scalar conversion.
+        const FT_Int32 flags = outline_load_flags(state_->identity->outline_policy);
         for (const auto glyph_index : glyph_indices) {
-            constexpr FT_Int32 flags = FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT |
-                FT_LOAD_PEDANTIC | FT_LOAD_TARGET_NORMAL;
             if (FT_Load_Glyph(state_->face, glyph_index, flags) != 0)
                 return fail(hinted_font_error::hinting_failed, error);
             const auto slot = state_->face->glyph;

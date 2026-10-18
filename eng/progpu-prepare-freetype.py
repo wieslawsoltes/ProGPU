@@ -250,7 +250,7 @@ def prepare(args):
     glyph_probe = json.loads(run([str(glyph_executable), str(test_font)]).stdout)
     if glyph_probe != {"glyphBatchControls": True, "nativeHintsObserved": True,
                       "slotDifferential": True, "nativeFaultAtomicity": True, "fixedWidthTransport": True,
-                      "actualDeviceFrame": True, "hintedProjectionSIMD": True, "retainedAnchorPoints": True}:
+                      "actualDeviceFrame": True, "hintedProjectionSIMD": True, "retainedAnchorPoints": True, "outlineLoadPolicies": True}:
         raise ValueError("Native hinted-font batch controls returned unexpected evidence")
     transport_executable = probe_build / ("progpu_native_hinted_transport_tests.exe"
                                         if args.rid.startswith("win-") else "progpu_native_hinted_transport_tests")
@@ -260,7 +260,7 @@ def prepare(args):
     cache_executable = probe_build / ("progpu_native_hinted_font_cache_tests.exe"
                                     if args.rid.startswith("win-") else "progpu_native_hinted_font_cache_tests")
     cache_probe = json.loads(run([str(cache_executable)]).stdout)
-    if cache_probe != {"boundedOwnedCache": True, "exactGenerationReuse": True, "nativeFaultAtomicity": True}:
+    if cache_probe != {"boundedOwnedCache": True, "exactGenerationReuse": True, "nativeFaultAtomicity": True, "outlinePolicyIdentity": True}:
         raise ValueError("Native hinted-font cache controls returned unexpected evidence")
     if hashlib.sha256(test_font.read_bytes()).hexdigest() != test_font_hash:
         raise ValueError("The hinted-font control input changed during execution")
