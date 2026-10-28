@@ -1,0 +1,101 @@
+name: Original production Linux runtime on corrected Mesa
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths: ['eng/diagnostics/gles-production/**', '.github/workflows/gles-production.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    if: github.head_ref == 'diag/gles-production-20261028'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, rid: linux-x64}
+          - {os: ubuntu-24.04-arm, rid: linux-arm64}
+    env:
+      RID: ${{ matrix.rid }}
+      SOURCE: ${{ github.workspace }}/source
+      BUILD_PAYLOAD: ${{ github.workspace }}/payload
+    steps:
+      - uses: actions/checkout@v7
+        with: {ref: '${{ github.event.pull_request.head.sha }}', path: diagnostic, persist-credentials: false}
+      - uses: actions/checkout@v7
+        with: {ref: 1f81f86e6f004bac53e939e18d1a239fac464c49, path: source, persist-credentials: false}
+      - uses: actions/setup-dotnet@v5
+        with: {global-json-file: source/global.json}
+      - name: Original pinned source dependencies and controls
+        working-directory: source
+        run: |
+          set -euo pipefail
+          ./eng/progpu-install-linux-packages.sh clang-18 libclang-18-dev libx11-dev libegl1 libgles2 libgl1-mesa-dri xvfb xauth
+          rustup toolchain install 1.99.0 --profile minimal
+          python3 -m unittest discover -s eng/tests -p test_xlib_runtime.py -v
+          for x64 in true false; do
+            for arm64 in true false; do
+              dotnet msbuild eng/test-xlib-package-targets.proj -p:TestX64=$x64 -p:TestArm64=$arm64 -nologo
+            done
+          done
+      - name: Original dependency build and ABI tests, then original C probes
+        working-directory: source
+        run: |
+          set -euo pipefail
+          mkdir -p ../build-evidence
+          python3 eng/build-wgpu-native-linux.py --rid "$RID" 2>&1 | tee ../build-evidence/builder.log
+          native=$(find artifacts/wgpu-native-linux -mindepth 2 -maxdepth 2 -type d -name wgpu-native)
+          test -n "$native"
+          payload="$PWD/artifacts/progpu-xlib/package/$RID/native"
+          for probe in native-surface-probe native-resolve-scissor-probe; do
+            clang-18 -std=c11 "eng/wgpu-xlib/$probe.c" -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o "artifacts/wgpu-native-linux/$probe"
+          done
+      - name: Freeze source, native ABI and original probes without executing them
+        run: python3 diagnostic/eng/diagnostics/gles-production/build_receipt.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unqualified-gles-production-${{ matrix.rid }}-${{ github.run_id }}
+          path: payload
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gles-production-build-evidence-${{ matrix.rid }}
+          path: build-evidence
+          if-no-files-found: warn
+  control:
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, rid: linux-x64}
+          - {os: ubuntu-24.04-arm, rid: linux-arm64}
+    env:
+      RID: ${{ matrix.rid }}
+      BUILD_PAYLOAD: ${{ github.workspace }}/payload
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with: {ref: '${{ github.event.pull_request.head.sha }}', persist-credentials: false}
+      - uses: actions/download-artifact@v8
+        with:
+          name: unqualified-gles-production-${{ matrix.rid }}-${{ github.run_id }}
+          path: payload
+          digest-mismatch: error
+      - name: Validate source-only provenance and rejection controls
+        run: python3 -m unittest discover -s eng/diagnostics/gles-production -p test_controls.py -v
+      - name: One original lifetime and resolve process on corrected driver
+        run: python3 eng/diagnostics/gles-production/run.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gles-production-corrected-${{ matrix.rid }}
+          path: |
+            eng/diagnostics/gles-production/evidence/**
+            !eng/diagnostics/gles-production/evidence/container/verified-debs/**
+          if-no-files-found: error

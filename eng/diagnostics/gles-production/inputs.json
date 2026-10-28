@@ -1,0 +1,130 @@
+{
+  "producerCommit": "1f81f86e6f004bac53e939e18d1a239fac464c49",
+  "architectures": {
+    "linux-x64": {
+      "architecture": "x86_64",
+      "dockerArchitecture": "amd64",
+      "platform": "linux/amd64",
+      "image": "docker.io/library/ubuntu@sha256:157dc3d6e4a3e4f2c68d12df9df9ed6e808b59af6d4c3757b432b4f519916725",
+      "imageDigest": "sha256:157dc3d6e4a3e4f2c68d12df9df9ed6e808b59af6d4c3757b432b4f519916725",
+      "mesaPackages": [
+        {
+          "Package": "libegl-mesa0",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Filename": "pool/main/m/mesa/libegl-mesa0_26.0.8-1ubuntu0.3_amd64.deb",
+          "SHA256": "938813d9d6bb7ccf8315af1f8bb2770ad4b9d240ad177f0da420db3e94600d6b"
+        },
+        {
+          "Package": "libgbm1",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Filename": "pool/main/m/mesa/libgbm1_26.0.8-1ubuntu0.3_amd64.deb",
+          "SHA256": "5d2d1eaf0f72c5a2c4aef692e5660c6fa61e46542c4d9cb5593ba8bd020b2eea"
+        },
+        {
+          "Package": "libgl1-mesa-dri",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Filename": "pool/main/m/mesa/libgl1-mesa-dri_26.0.8-1ubuntu0.3_amd64.deb",
+          "SHA256": "585dfac64d7ca95a9813faad9f14c361d788069b7578859fb426c657dd528f08"
+        },
+        {
+          "Package": "libglx-mesa0",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Filename": "pool/main/m/mesa/libglx-mesa0_26.0.8-1ubuntu0.3_amd64.deb",
+          "SHA256": "17ff6239daaf75337d3697c1e5f1ef3e190c4c2dd73a9f0edfc36868ef41905c"
+        },
+        {
+          "Package": "mesa-libgallium",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Filename": "pool/main/m/mesa/mesa-libgallium_26.0.8-1ubuntu0.3_amd64.deb",
+          "SHA256": "7f123a545774034793ba3516c5fad0be88de68ad91319a4b220d98b32a289451"
+        }
+      ]
+    },
+    "linux-arm64": {
+      "architecture": "aarch64",
+      "dockerArchitecture": "arm64",
+      "platform": "linux/arm64",
+      "image": "docker.io/library/ubuntu@sha256:86eb1bc1059720a19a777ba5a109e9ee3690d5dfe3e319871a6d6beb86fb7f85",
+      "imageDigest": "sha256:86eb1bc1059720a19a777ba5a109e9ee3690d5dfe3e319871a6d6beb86fb7f85",
+      "mesaPackages": [
+        {
+          "Package": "libegl-mesa0",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Architecture": "arm64",
+          "Filename": "pool/main/m/mesa/libegl-mesa0_26.0.8-1ubuntu0.3_arm64.deb",
+          "Size": "122936",
+          "SHA256": "97e44f9b28abbc58afd7c9a5bae99cdd62bed68a0338a701ec08fabd92936c6b"
+        },
+        {
+          "Package": "libgbm1",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Architecture": "arm64",
+          "Filename": "pool/main/m/mesa/libgbm1_26.0.8-1ubuntu0.3_arm64.deb",
+          "Size": "41802",
+          "SHA256": "6455ee2c28ca4a5d33469d824818cd37b0dd564a82838a9025ed642d4befbadc"
+        },
+        {
+          "Package": "libgl1-mesa-dri",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Architecture": "arm64",
+          "Filename": "pool/main/m/mesa/libgl1-mesa-dri_26.0.8-1ubuntu0.3_arm64.deb",
+          "Size": "37084",
+          "SHA256": "f279a6cdc08dd441baa27a05cd5eceaba65b6a08160f0f933295d0a941c467b6"
+        },
+        {
+          "Package": "libglx-mesa0",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Architecture": "arm64",
+          "Filename": "pool/main/m/mesa/libglx-mesa0_26.0.8-1ubuntu0.3_arm64.deb",
+          "Size": "117376",
+          "SHA256": "dc2bdafdfe76a8d3abbe7874fd8aad2dbb21b2be9337c3b5a343400cefc686a1"
+        },
+        {
+          "Package": "mesa-libgallium",
+          "Version": "26.0.8-1ubuntu0.3",
+          "Architecture": "arm64",
+          "Filename": "pool/main/m/mesa/mesa-libgallium_26.0.8-1ubuntu0.3_arm64.deb",
+          "Size": "12311360",
+          "SHA256": "55c272dbd275a27b4c32ae0f11655e5ba56f39e7fc576dd7a4cb0ecf8f356ae6"
+        }
+      ]
+    }
+  },
+  "sharedHelperProvenance": {
+    "head": "3e69da5149012f920636f9df8ad98fe07b0ba9dc",
+    "pr": 417,
+    "run": 40728021230,
+    "sameBytes": {
+      "shared_host.py": "354276169022b0521dffa0a8946d3b238c775aeed79211491ab2eef0c618e258",
+      "shared_inside.py": "15a7e54524a9781c11a5036631c9f980ea6045f459c0e4b191d28d04eaf07bd1",
+      "bootstrap.sh": "4482dbf9101ba4a578eb9c0ddf746f9e735d2c35f120e43cad8faf259c385d2c"
+    },
+    "setupAdaptation": {
+      "originalSha256": "0766d37c1df3ed228b6748185c4e99a9278550657ffef5490c3de7f08a755418",
+      "change": "Select the exact RID hash file; package names/versions, signed apt and setup bound unchanged."
+    }
+  },
+  "files": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "bootstrap.sh": "4482dbf9101ba4a578eb9c0ddf746f9e735d2c35f120e43cad8faf259c385d2c",
+    "build_receipt.py": "0a45c6ec26a55e4ed96f16ee1d9d3844ee8d83c6efbafc95503999254f3edb30",
+    "corrected-source-proof.json": "4446a7a63b6fade40cd66eac9db50dae5ffd5e11ab019442880dfab0424ff02f",
+    "inside.py": "8aa022e15c68bb9ead069736779dedaa9bafc089ef2f8875639a07df6f97a79b",
+    "linux-arm64.sha256": "bf5cfddd8d1bb1e3f1ec996775c182906bf4e42936f1718c2c270c22df9478dc",
+    "linux-x64.sha256": "294303662e4d695ea40d6f68e3bf59b1f8c8c942fe0459d473c3beb08eee9c48",
+    "run.py": "c9d676bc3187a688abef3da6903381da7251c0ff66809c7a69a521dc5e6a99cf",
+    "setup.sh": "2b16f5b6997bafe881e322f614364cf58d9a23f572b17ebe2c43ad8d9130b242",
+    "shared_host.py": "354276169022b0521dffa0a8946d3b238c775aeed79211491ab2eef0c618e258",
+    "shared_inside.py": "15a7e54524a9781c11a5036631c9f980ea6045f459c0e4b191d28d04eaf07bd1",
+    "test_controls.py": "e36cdd7e439423987cc9dc3ff823fb0a42bd573090803821258161f9f5b424f7",
+    "workflow.yml": "8ace327c612dcf55c6991f811ce0c2aded7047347e62563e60ab90e8267a44f4"
+  },
+  "producerSourceHashes": {
+    "eng/build-wgpu-native-linux.py": "5d235edc1af723ed3b01f1d46f000e023c55f86b6c9858099d9be17f4c3de95c",
+    "eng/wgpu-xlib/build-inputs.json": "4c9c69e67d1ea8094860b5d3d7d110ebfe360b8d64caa0a4e7b1528112302209",
+    "eng/wgpu-xlib/wgpu-xlib-owned.patch": "c6818e03a0fbcc0d8ba4d65c652e1736fa5dec4d031ed22e11ed59cdcb6fd55d",
+    "eng/wgpu-xlib/wgpu-native-xlib-entry.patch": "ac3e525a70388bfd313b05cce9576bd0d2faa4013743b17081da5912eb98ce74",
+    "eng/wgpu-xlib/native-surface-probe.c": "bfbe98962ac1584e4116219b7e1493707707076c28c8d5ede96e31e8f140a06a",
+    "eng/wgpu-xlib/native-resolve-scissor-probe.c": "56b409ad5c9e9533afe52824d3132656a807f6b20eac2c98cb72423f7dd6d92e"
+  }
+}
