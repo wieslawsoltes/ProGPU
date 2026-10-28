@@ -1,0 +1,43 @@
+name: Temporary hidden Win32 popup deployment validation
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths: [.github/workflows/temporary-popup-deployment.yml, eng/TemporaryPopupDeployment/**]
+permissions:
+  contents: read
+jobs:
+  popup-deployment:
+    name: Hidden popup regular single-file and NativeAOT
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Retain the exact original product commit for source admission
+        shell: pwsh
+        run: |
+          git cat-file -e dcaac6c708371ffee2f6dfa7f304307e57623437
+          if ($LASTEXITCODE -ne 0) {
+            git fetch --no-tags --depth=1 origin dcaac6c708371ffee2f6dfa7f304307e57623437
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Validate original manifest transport and timeout receipts without native execution
+        run: python -m unittest discover -s eng/TemporaryPopupDeployment -p test_probe.py -v
+      - name: Validate immutable source and run three hidden native deployment checks
+        env:
+          PROBE_EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python eng/TemporaryPopupDeployment/run.py
+      - name: Retain original publish failures and native receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hidden-popup-deployment
+          path: artifacts/temporary-popup-deployment
+          if-no-files-found: warn
+          retention-days: 14
