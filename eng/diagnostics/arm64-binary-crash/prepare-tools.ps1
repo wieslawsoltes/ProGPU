@@ -1,3 +1,4 @@
+param([ValidateSet('CrashControl','FirstChanceControl')][string]$Control='CrashControl')
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if ([Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'Arm64') { throw 'Native ARM64 host required.' }
@@ -38,6 +39,6 @@ Import-Module (Join-Path $Vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll'
 Enter-VsDevShell -VsInstallPath $Vs -SkipAutomaticLocation -DevCmdArguments '-arch=arm64 -host_arch=arm64' | Out-Null
 Push-Location $Output
 try {
-    & cl.exe /nologo /Zi /Od "/Fe:$Output/CrashControl.exe" "$PSScriptRoot/CrashControl.cpp" /link /DEBUG
+    & cl.exe /nologo /Zi /Od "/Fe:$Output/$Control.exe" "$PSScriptRoot/$Control.cpp" /link /DEBUG
     if ($LASTEXITCODE -ne 0) { throw 'CPU capture control failed to compile.' }
 } finally { Pop-Location }

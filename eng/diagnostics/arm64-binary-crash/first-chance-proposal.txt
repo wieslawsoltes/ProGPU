@@ -1,0 +1,48 @@
+Changed diagnostic: observe the native exception preceding the retained WARP PAC failure.
+
+The original 686 product/package remains unchanged. PR410's prior diagnostic
+captured one original DXC workload failure in 3.079 seconds: 0xC0000409 subtype
+0x49 at d3d10warp!PixelJITProcessor::ExecuteJIT+0x40. Matching public symbols and
+read-only image disassembly show an E_FAIL handler path before the failing PAC
+epilogue; the original dump cannot identify the preceding event. Independent
+SEH decoding found one scope around the indirect JIT call. Its filter checks
+only a saved context flag, not the exception code. An AV-only filter would be
+unjustified.
+
+Use the same verified signed native ARM64 ProcDump and CDB, unchanged original
+artifact12816562451 and source686, same public binary arguments and DXC/ordered
+environment. Only diagnostic observation changes to ProcDump -g -e 1 -fx E0434352
+-mm -n 8 -x. Native mode avoids managed debugger interception. CLR's managed
+exception code is the only added exclusion. Initial debugger breakpoints retain
+ProcDump's default treatment (-b is absent). All other observed native exception
+codes, including unknown/application-defined codes, remain eligible. The target's
+own exception handlers determine handling; no custom continue-as-handled command,
+exception patch, source change or debugger memory write is used.
+
+Capture at most eight mini dumps in one owned process-tree launch with the same
+60-second bound and 20-minute job. No retry. If the count or time bound is reached,
+the diagnostic is incomplete and all evidence remains. Each dump receives a
+bounded read-only CDB exception/context/selected-stack/all-thread/module analysis.
+Raw dump order/timestamps, hashes, original capture log and full exception records
+are retained. This is attribution, not qualification. The original PAC result
+and all three original CI failures stay preserved independently.
+
+Before the product, a new native CPU control deliberately raises a continuable
+application-defined native exception E0421234, catches it in its original SEH
+handler, prints/flushes a continuation marker, then executes __fastfail(7).
+Admission requires the first exact native exception with flags0, the actual
+continuation marker, a final subtype7 dump with a selected FirstChanceControl
+frame, and completed native analysis. Dumps, stacks, capture log and bounded
+process receipt are hash-bound in an admission record. A failed control prevents
+the product from executing. This proves first-chance collection preserves the
+original handled path rather than relying on an assumed debugger response.
+
+No driver replacement, local VM use, input action, graphics setting, package pin,
+threshold, original workload assertion or product renderer code changes.
+
+Official semantics:
+https://learn.microsoft.com/en-us/sysinternals/downloads/procdump
+(-e 1 captures first-chance exceptions; -g selects a native debugger; -fx excludes
+matching exception strings; -n bounds dump count.)
+https://learn.microsoft.com/en-us/windows/win32/debug/debugger-exception-handling
+(first-chance debugger observation precedes the application's exception handlers).
