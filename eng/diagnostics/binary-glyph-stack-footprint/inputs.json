@@ -1,0 +1,127 @@
+{
+  "productHead": "686a34bb092ada9eec73b3ce1381dcb592e276b6",
+  "originalWgslSha256": "cd502eedde7eac0635f9d63d9b3de700e8ce877109187ab78833d19c927e1f9b",
+  "candidateWgslSha256": "c02b3dd957f057fdac92f5b4c5f9ca0d29f5341e730ff77be320c36c2b379253",
+  "generation": {
+    "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
+    "patchedWriterSha256": "26ce406b7a707d7d46f903e86e0f6dbdbc1693ae0c7b0e0a88811678b6dadad2",
+    "translatorSha256": "8416df0dfd1bbb022cae5a5a5cf90c5e04bf84dd5544b5d862cca05ca0b4066a",
+    "shaderModels": [
+      "V5_1",
+      "V6_0"
+    ],
+    "perVariantModelOutputsByteIdentical": true,
+    "baselineMatchesOriginalRetainedGeneration": true
+  },
+  "compilerOptions": {
+    "fxc": {
+      "target": "cs_5_1",
+      "flags1": "0x800",
+      "flags2": 0
+    },
+    "dxc": {
+      "target": "cs_6_0",
+      "flags": [
+        "-Ges",
+        "-Vd",
+        "-HV",
+        "2018"
+      ],
+      "validatorFlags": "InPlaceEdit"
+    }
+  },
+  "limits": {
+    "perCompilerProcessSeconds": 60,
+    "gpuExecutions": 0,
+    "inputActions": 0
+  },
+  "files": [
+    {
+      "path": "CompilerProbe.cpp",
+      "sha256": "c7ec3cca56d8e4fc776d0150e56f3abb20f7ee2505deba43f1fdbcefa57ae41b",
+      "bytes": 5522
+    },
+    {
+      "path": "prepare.py",
+      "sha256": "3c24ff4934f749b8aa4c15b044fcefad5326a5182ad47ea4d8e6bdb78ab7def3",
+      "bytes": 1207
+    },
+    {
+      "path": "run.py",
+      "sha256": "084b7c396da667acbf3764991d879aead825bbf1ad40265f1cfb3720bf793476",
+      "bytes": 2826
+    },
+    {
+      "path": "owned_process.py",
+      "sha256": "0a8fa56baac388c3996a239cce1522e07fb54c7d0f3d13450acc80cdc57655f8",
+      "bytes": 5095
+    },
+    {
+      "path": "compiler-package.json",
+      "sha256": "2868183500f479a1bf3933d1274374fba5cdfaf6634564ad90e55bd6b4344ad5",
+      "bytes": 1041
+    },
+    {
+      "path": "baseline.wgsl",
+      "sha256": "cd502eedde7eac0635f9d63d9b3de700e8ce877109187ab78833d19c927e1f9b",
+      "bytes": 21825
+    },
+    {
+      "path": "index-loop.wgsl",
+      "sha256": "c02b3dd957f057fdac92f5b4c5f9ca0d29f5341e730ff77be320c36c2b379253",
+      "bytes": 22020
+    },
+    {
+      "path": "baseline-fxc.hlsl",
+      "sha256": "a1cb8605cffc29a4dd3bd0e50e238968bc91620c68a2fd5422c152d5a6fcd0f0",
+      "bytes": 42721
+    },
+    {
+      "path": "baseline-dxc.hlsl",
+      "sha256": "a1cb8605cffc29a4dd3bd0e50e238968bc91620c68a2fd5422c152d5a6fcd0f0",
+      "bytes": 42721
+    },
+    {
+      "path": "candidate-fxc.hlsl",
+      "sha256": "0a056f8b5007213295d01b6a2360193870a45066eb134ef70b140d4c274c9e18",
+      "bytes": 43470
+    },
+    {
+      "path": "candidate-dxc.hlsl",
+      "sha256": "0a056f8b5007213295d01b6a2360193870a45066eb134ef70b140d4c274c9e18",
+      "bytes": 43470
+    },
+    {
+      "path": "generator.rs",
+      "sha256": "c15f95dc0424dcb071cf9ac63e6d29f84d40775c688d75c68274478fb06934ea",
+      "bytes": 1358
+    },
+    {
+      "path": "generator-Cargo.lock",
+      "sha256": "fb4657986b2cbdc816ecfedbf52eab45a2f4fa7197321d47e69ff0944b8d764c",
+      "bytes": 5579
+    },
+    {
+      "path": "producer-inputs.json",
+      "sha256": "ae71fdc538621d4cd59cf59b1563e3f4ab87123749c5f1550c524b8e24d28fa6",
+      "bytes": 443
+    },
+    {
+      "path": "index-loop.diff",
+      "sha256": "d6d063faa671c5d7ff078c730c7c80376ba56bdef582445fd06882752b2bf3ea",
+      "bytes": 1082
+    }
+  ],
+  "compilerSourceProvenance": [
+    {
+      "path": "shader_compilation.rs",
+      "sha256": "419ce7fe4df2973845851fac045dab21157eec6b26a573012f22fa41fc130b5b",
+      "bytes": 10881
+    },
+    {
+      "path": "device.rs",
+      "sha256": "bc8ec1c2c38107123b29b9d3bdcbe57ad2a205625d0ebeeb3920f1d10f87ae91",
+      "bytes": 65340
+    }
+  ]
+}
