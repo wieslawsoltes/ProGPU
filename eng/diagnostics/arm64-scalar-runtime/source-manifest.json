@@ -1,0 +1,9 @@
+{
+  "candidate.wgsl": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7",
+  "run.py": "604343011e6b56ba145a347e0367fe4e1d652768174e2540175ccec45cc4bb1c",
+  "workflow.yml": "38b85f8c1d1f59402a02ad21de533fbc79b33dc6e1d28662681f6a23afae99b1",
+  "owned_process.py": "5b80cb85404fadc5db96c2893dfd6777ce57eaa2587c755d859be0b9b9f18618",
+  "test_guards.py": "f495b83cdec3dba94c6728fa38b7788a3da4d9f0447a7bbb21c5457956b027fa",
+  "stage.py": "d5b177c4a8f8208a09d19d39193aec3557628c591239d1f3cf68ca1b48d99ebc",
+  "build_receipt.py": "9e5d34d0e22f0c1026f0057b831aa7f57aef605a7d91cbded19b2e48e0f66bc2"
+}

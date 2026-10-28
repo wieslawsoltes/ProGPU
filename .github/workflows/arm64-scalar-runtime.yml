@@ -1,0 +1,194 @@
+name: ARM64 scalar source build and original runtime diagnosis
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      receipt-sha256: ${{ steps.receipt.outputs.receipt-sha256 }}
+    env:
+      CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+      PAYLOAD: ${{ github.workspace }}/candidate-payload
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        path: diagnostic
+    - uses: actions/checkout@v7
+      with:
+        ref: 1f81f86e6f004bac53e939e18d1a239fac464c49
+        path: candidate
+        submodules: recursive
+    - uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: candidate/global.json
+    - uses: actions/download-artifact@v8
+      with:
+        artifact-ids: '12831320057'
+        run-id: '40720344709'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path: candidate/artifacts/progpu-wgpu-windows/package
+        merge-multiple: true
+        digest-mismatch: error
+    - name: Prepare exact original font and EDIT dependencies
+      working-directory: candidate
+      shell: pwsh
+      run: 'python eng/progpu-prepare-framework-sources.py
+
+        if ($LASTEXITCODE -ne 0) { throw ''Exact framework preparation failed.'' }
+
+        $fontWorkspace = Join-Path $env:RUNNER_TEMP (''progpu-freetype.'' + [Guid]::NewGuid().ToString(''N''))
+
+        "PROGPU_FREETYPE_WORKSPACE=$fontWorkspace" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+        ./eng/progpu-prepare-freetype-windows.ps1 -Rid win-arm64 -Workspace $fontWorkspace
+
+        $pin = Get-Content -Raw eng/native-edit-word-icu.json | ConvertFrom-Json
+
+        $archive = Join-Path $env:RUNNER_TEMP (''progpu-edit-icu.'' + [Guid]::NewGuid().ToString(''N'') + ''.tgz'')
+
+        Invoke-WebRequest -Uri $pin.sourceUrl -OutFile $archive
+
+        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.sourceSha256) { throw
+        ''EDIT source hash differs.'' }
+
+        "PROGPU_EDIT_WORD_ICU_ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
+    - name: Build changed C++ source once using retained Windows dependency
+      working-directory: candidate
+      shell: pwsh
+      run: './eng/build-progpu-native-windows.ps1 -Rid win-arm64 -BuildOnly -FontManifest "$env:PROGPU_FREETYPE_WORKSPACE/install/progpu-freetype.json"
+        -EditWordIcuArchive "$env:PROGPU_EDIT_WORD_ICU_ARCHIVE"
+
+        if ($LASTEXITCODE -ne 0) { throw ''Unqualified native source build failed.'' }'
+    - name: Admit actual generated shader and native source products
+      id: receipt
+      shell: pwsh
+      run: '$vswhere=Join-Path ${env:ProgramFiles(x86)} ''Microsoft Visual Studio/Installer/vswhere.exe''
+
+        $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+
+        if ($LASTEXITCODE -ne 0 -or -not $vs) { throw ''Native tool host unavailable.'' }
+
+        Import-Module (Join-Path $vs ''Common7/Tools/Microsoft.VisualStudio.DevShell.dll'')
+
+        Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments ''-arch=arm64 -host_arch=arm64'' | Out-Null
+
+        python diagnostic/eng/diagnostics/arm64-scalar-runtime/build_receipt.py
+
+        if ($LASTEXITCODE -ne 0) { throw ''Candidate build admission failed.'' }'
+    - uses: actions/upload-artifact@v7
+      id: upload
+      with:
+        name: arm64-scalar-candidate-native
+        path: candidate-payload
+        if-no-files-found: error
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: arm64-scalar-build-evidence
+        path: 'candidate/artifacts/progpu-native/build-win-arm64/CMakeFiles/**/*.log
+
+          candidate/artifacts/progpu-native/build-win-arm64/CMakeCache.txt
+
+          candidate/artifacts/progpu-native/build-win-arm64/generated/BinaryGlyphRasterizerWgsl.generated.hpp'
+        if-no-files-found: warn
+  run:
+    runs-on: windows-11-arm
+    timeout-minutes: ${{ matrix.minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - route: fxc
+          minutes: 15
+        - route: dxc
+          minutes: 20
+        - route: dawn
+          minutes: 15
+    env:
+      ROUTE: ${{ matrix.route }}
+      CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+      ORIGINAL: ${{ github.workspace }}/original
+      FEED: ${{ github.workspace }}/packages
+      PAYLOAD: ${{ github.workspace }}/payload
+      EVIDENCE: ${{ github.workspace }}/evidence
+      EXECUTION: ${{ github.workspace }}/execution
+      PROGPU_HIT_TEST_EXECUTION: ordered-stages
+      PROGPU_BACKEND_DIAGNOSTICS: '1'
+      PROGPU_DX12_SHADER_COMPILER: ${{ matrix.route == 'dxc' && 'dxc' || '' }}
+      CANDIDATE_RECEIPT_SHA256: ${{ needs.build.outputs.receipt-sha256 }}
+      CANDIDATE_ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+      CANDIDATE_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact-digest }}
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        path: diagnostic
+    - uses: actions/checkout@v7
+      with:
+        ref: 686a34bb092ada9eec73b3ce1381dcb592e276b6
+        path: original
+    - uses: actions/checkout@v7
+      with:
+        ref: 1f81f86e6f004bac53e939e18d1a239fac464c49
+        path: candidate
+    - uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: original/global.json
+    - uses: actions/download-artifact@v8
+      with:
+        artifact-ids: '12816562451'
+        run-id: '40682174680'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path: packages
+        merge-multiple: true
+        digest-mismatch: error
+    - uses: actions/download-artifact@v8
+      with:
+        artifact-ids: ${{ needs.build.outputs.artifact-id }}
+        run-id: ${{ github.run_id }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path: payload
+        merge-multiple: true
+        digest-mismatch: error
+    - name: Prepare original consumer and private two-DLL overlay
+      shell: pwsh
+      run: "python diagnostic/eng/diagnostics/arm64-scalar-runtime/stage.py prepare\nif ($LASTEXITCODE -ne 0) { throw 'Original\
+        \ source/package identity failed.' }\nPush-Location original\ntry {\n  python eng/progpu-prepare-framework-sources.py\n\
+        \  if ($LASTEXITCODE -ne 0) { throw 'Framework source preparation failed.' }\n  $properties=@()\n  if ($env:ROUTE\
+        \ -eq 'dxc') { $properties+='-p:ProGpuUseDx12Runtime=true' }\n  if ($env:ROUTE -eq 'dawn') { $properties+='-p:ProGpuDawnSystemWarpTestRid=win-arm64'\
+        \ }\n  dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj --configuration Release\
+        \ --runtime win-arm64 -p:ProGpuNativePackageSource=\"$env:FEED\" -p:ProGpuNativePackageVersion=0.1.0-preview.3676.ci\
+        \ @properties\n  if ($LASTEXITCODE -ne 0) { throw 'Original package consumer build failed.' }\n} finally { Pop-Location\
+        \ }\n$vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'\n$vs=& $vswhere -latest\
+        \ -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath\nif ($LASTEXITCODE\
+        \ -ne 0 -or -not $vs) { throw 'Native tool host unavailable.' }\nImport-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')\n\
+        Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=arm64 -host_arch=arm64' | Out-Null\n\
+        python diagnostic/eng/diagnostics/arm64-scalar-runtime/stage.py artifact\nif ($LASTEXITCODE -ne 0) { throw 'Candidate\
+        \ artifact admission failed.' }\npython diagnostic/eng/diagnostics/arm64-scalar-runtime/stage.py stage\nif ($LASTEXITCODE\
+        \ -ne 0) { throw 'Private overlay admission failed.' }\n"
+    - name: Run original six groups once with changed native source
+      shell: pwsh
+      run: 'python diagnostic/eng/diagnostics/arm64-scalar-runtime/run.py
+
+        if ($LASTEXITCODE -ne 0) { throw ''Changed-source runtime diagnostic failed; no retry.'' }
+
+        '
+    - uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: arm64-scalar-runtime-${{ matrix.route }}
+        path: evidence
+        if-no-files-found: error
+    needs: build
+'on':
+  pull_request:
+    branches:
+    - fix/source-binary-glyph-raster
+    paths:
+    - eng/diagnostics/arm64-scalar-runtime/**
+    - .github/workflows/arm64-scalar-runtime.yml
