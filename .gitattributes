@@ -21,3 +21,6 @@ src/ProGPU.Tests/TestData/SourceDeviceLines/metrics.json -text
 # Do not rewrite their original LF bytes when core.autocrlf is enabled.
 tests/Shared/BinaryGlyphOriginals.json -text
 tests/Shared/BinaryGlyphCurveOriginals.json -text
+
+# Exact bytes for temporary source runtime diagnostic admission.
+eng/diagnostics/dawn-arm64-abba/** -text

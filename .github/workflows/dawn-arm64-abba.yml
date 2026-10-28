@@ -1,0 +1,92 @@
+name: Dawn ARM64 matched ABBA timing diagnosis
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths: ['eng/diagnostics/dawn-arm64-abba/**', '.github/workflows/dawn-arm64-abba.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  timing:
+    if: github.head_ref == 'diag/dawn-arm64-abba-20261028'
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+      ORIGINAL: ${{ github.workspace }}/original
+      FEED: ${{ github.workspace }}/packages
+      PAYLOAD_A: ${{ github.workspace }}/payload-A
+      PAYLOAD_B: ${{ github.workspace }}/payload-B
+      EXECUTION: ${{ github.workspace }}/execution
+      EVIDENCE: ${{ github.workspace }}/evidence
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: diagnostic
+      - uses: actions/checkout@v7
+        with:
+          ref: 686a34bb092ada9eec73b3ce1381dcb592e276b6
+          path: original
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: original/global.json
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: '12816562451'
+          run-id: '40682174680'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: packages
+          merge-multiple: true
+          digest-mismatch: error
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: '12833125381'
+          run-id: '40723636434'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: payload-A
+          merge-multiple: true
+          digest-mismatch: error
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: '12836410169'
+          run-id: '40730474790'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: payload-B
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Admit immutable sources and build the original consumer once
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git -C diagnostic fetch --no-tags --depth=1 origin 1f81f86e6f004bac53e939e18d1a239fac464c49 98594ac0817865c5ebe3097d204fdb6b609b86b2
+          if ($LASTEXITCODE -ne 0) { throw 'Immutable source fetch failed' }
+          python diagnostic/eng/diagnostics/dawn-arm64-abba/prepare.py packages
+          if ($LASTEXITCODE -ne 0) { throw 'Original package admission failed' }
+          Push-Location original
+          try {
+            python eng/progpu-prepare-framework-sources.py
+            if ($LASTEXITCODE -ne 0) { throw 'Original framework preparation failed' }
+            dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj --configuration Release --runtime win-arm64 -p:ProGpuNativePackageSource="$env:FEED" -p:ProGpuNativePackageVersion=0.1.0-preview.3676.ci -p:ProGpuDawnSystemWarpTestRid=win-arm64
+            if ($LASTEXITCODE -ne 0) { throw 'Original consumer build failed' }
+          } finally { Pop-Location }
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $vs) { throw 'Native tool host unavailable' }
+          Import-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=arm64 -host_arch=arm64' | Out-Null
+          python diagnostic/eng/diagnostics/dawn-arm64-abba/prepare.py payloads
+          if ($LASTEXITCODE -ne 0) { throw 'Coherent native pair admission failed' }
+          python diagnostic/eng/diagnostics/dawn-arm64-abba/test_controls.py
+          if ($LASTEXITCODE -ne 0) { throw 'Finite-set admission controls failed' }
+      - name: Execute exactly A B B A with unchanged original 60-second processes
+        shell: pwsh
+        run: |
+          python diagnostic/eng/diagnostics/dawn-arm64-abba/run_set.py
+          if ($LASTEXITCODE -ne 0) { throw 'Timing diagnosis incomplete; preserve evidence and do not retry' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: dawn-arm64-abba-evidence
+          path: evidence
+          if-no-files-found: warn
