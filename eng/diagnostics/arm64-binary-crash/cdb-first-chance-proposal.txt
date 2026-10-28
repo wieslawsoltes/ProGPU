@@ -46,3 +46,12 @@ https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/controlling-
 https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/cdb-command-line-options
 https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/-dump--create-dump-file-
 https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/pseudo-register-syntax
+
+Preparation correction after retained 3a403d859 control failure:
+SX quoted strings consume escape characters; generated callback paths now double
+Windows backslashes at that command-string boundary only. Unquoted dump paths
+remain unchanged. The actual signed CDB's SX inventory additionally exposes svh,
+vs, rto and rtt as named native faults. These now receive the same callbacks;
+product admission validates the full retained named default-unhandled inventory,
+rejecting unknown/missing callbacks. The original failed control has no dumps
+and never executed the product. Its exact archive and script text are retained.

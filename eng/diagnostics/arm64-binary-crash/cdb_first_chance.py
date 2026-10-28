@@ -2,7 +2,7 @@
 import hashlib, json, os, pathlib, re, struct, sys
 from owned_process import run
 from read_dump import read
-from cdb_event_scripts import prepare
+from cdb_event_scripts import prepare, validate_filter_inventory
 
 out=pathlib.Path(os.environ['CAPTURE_OUTPUT']).resolve()
 def sha(p):return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
@@ -63,6 +63,7 @@ continued=marker.encode() in raw or marker.encode('utf-16-le') in raw
 summary={'process':process,'records':records,'countLimit':8,'countLimitReached':len(dumps)==8,'handledContinuationObserved':continued,'allAnalysisComplete':bool(analyses_complete),'qualification':False,'events':events,'targetExitObserved':exit_observed}
 save(dest/'summary.json',summary)
 if process['timedOut'] or len(dumps)==8:raise RuntimeError('Diagnostic bound reached; evidence retained, no retry.')
+validate_filter_inventory(capture_text)
 if not exit_observed or len(events)!=len(dumps) or [e['index'] for e in events]!=list(range(len(dumps))):raise RuntimeError('Native event/exit sequence incomplete; no product admission.')
 if any(e['code']!=r['code'] for e,r in zip(events,records)):raise RuntimeError('Native event/dump identity mismatch.')
 if not analyses_complete:raise RuntimeError('Native exception analysis incomplete; original dumps retained.')

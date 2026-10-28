@@ -1,0 +1,90 @@
+PROGPU_FILTERS_BEGIN
+0:000> sx
+  ct - Create thread - ignore
+  et - Exit thread - ignore
+ cpr - Create process - ignore
+ epr - Exit process - break
+       Command: ".echo PROGPU_TARGET_EXIT; .lastevent; q"
+  ld - Load module - output
+  ud - Unload module - ignore
+ ser - System error - ignore
+ ibp - Initial breakpoint - break
+ iml - Initial module load - ignore
+ out - Debuggee output - output
+
+  av - Access violation - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+asrt - Assertion failure - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ aph - Application hang - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ bpe - Break instruction exception - break
+bpec - Break instruction exception continue - handled
+  eh - C++ EH exception - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ clr - CLR exception - ignore - not handled
+clrn - CLR notification exception - second-chance break - handled
+ cce - Control-Break exception - break
+  cc - Control-Break exception continue - handled
+ cce - Control-C exception - break
+  cc - Control-C exception continue - handled
+  dm - Data misaligned - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+dbce - Debugger command exception - ignore - handled
+  gp - Guard page violation - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+  ii - Illegal instruction - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+  ip - In-page I/O error - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+  dz - Integer divide-by-zero - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ iov - Integer overflow - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+  ch - Invalid handle - break
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+  hc - Invalid handle continue - not handled
+ lsq - Invalid lock sequence - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ isc - Invalid system call - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+  3c - Port disconnected - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ svh - Service hang - break - not handled
+ sse - Single step exception - break
+ssec - Single step exception continue - handled
+ sbo - Security check failure or stack buffer overrun - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ sov - Stack overflow - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+  vs - Verifier stop - break - not handled
+vcpp - Visual C++ exception - ignore - handled
+ wkd - Wake debugger - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+ rto - Windows Runtime Originate Error - second-chance break - not handled
+ rtt - Windows Runtime Transform Error - second-chance break - not handled
+ wob - WOW64 breakpoint - break - handled
+ wos - WOW64 single step exception - break - handled
+
+   * - Other exception - break - not handled
+       Command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-1.cmd"
+       Second command: "$$><C:aProGPUProGPUevidencecdb-first-chance-controlevent-chance-2.cmd"
+0:000> .echo PROGPU_FILTERS_END
+PROGPU_FILTERS_END
