@@ -17,6 +17,13 @@ contained; explicit disposal keeps its original exception behavior. This defect
 does not attribute the historical Linux collector miss; see
 docs/retained-image-finalization.md.
 
+Native owner registry lookups retain one exact weak registration across provider
+callbacks. Invoke getters outside the registry lock, recheck entry identity after
+each callback and remove only the captured dead entry. Never retry into a new
+owner or publish a handle after provider retirement; keep original callback
+exceptions and registration tokens. Lookup is a snapshot, not a native lifetime
+lease or application qualification. See docs/native-owner-registry-lifetime.md.
+
 Explicit source grayscale contrast is immutable draw metadata. Preserve original
 layout/glyph positions, raw contrast 0..12, grayscale-only admission and default
 legacy rendering. Carry it through every retained/archive/native style, direct

@@ -30,6 +30,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\ProGPU.Backend.Tests\NativeWindowOwnerRegistryTests.cs"
+             Link="Backend\NativeWindowOwnerRegistryTests.cs" />
     <Compile Include="..\..\tools\ProGPU.SampleMemoryProfiler\DrawingTraceMethodRequirement.cs"
              Link="Diagnostics\DrawingTraceMethodRequirement.cs" />
     <Compile Include="..\..\tests\ProGPU.Native.PackageConsumer\NativeHintedPaintFailureReceipt.cs"
