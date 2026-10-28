@@ -1,0 +1,36 @@
+name: Paired GLES full-target resolve diagnostic
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths:
+      - '.github/workflows/gles-resolve-paired.yml'
+      - 'eng/diagnostics/gles-resolve-paired/**'
+permissions:
+  contents: read
+jobs:
+  paired:
+    if: github.head_ref == 'diag/gles-resolve-paired-20261028'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Exact producer prerequisites
+        run: |
+          ./eng/progpu-install-linux-packages.sh clang-18 libclang-18-dev libx11-dev libegl1 libgles2 libegl-dev libgles-dev libgl1-mesa-dri xvfb xauth
+          rustup toolchain install 1.99.0 --profile minimal
+      - name: Exact source derivation controls
+        run: python3 -m unittest discover -s eng/diagnostics/gles-resolve-paired -p 'test_prepare.py' -v
+      - name: One paired authored-workload observation
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 eng/diagnostics/gles-resolve-paired/run.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gles-resolve-paired
+          path: |
+            eng/diagnostics/gles-resolve-paired/evidence/**
+            !eng/diagnostics/gles-resolve-paired/evidence/owned-source/**
+          if-no-files-found: error

@@ -1,0 +1,22 @@
+{
+  "base": "1f81f86e6f004bac53e939e18d1a239fac464c49",
+  "diagnosticFiles": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "prepare.py": "e525e93f5ffff35978fbc2ff9e7844f05eccebbb645fdf67d85dea3f4c8ab61c",
+    "run.py": "6c44fa9bc8f1c0d69187ac52d43f605eca8eee6c9127fb6b86f53761cc77a039",
+    "test_prepare.py": "9da1efe67860ce0603d22031cfdd486695b485f1b29ee80f342e70042141bf55",
+    "workflow.yml": "edab6241ac4057f5cbd0aa579c4accb89c20e786f662e2e48d19824424efc79d",
+    "queue-product.rs": "56cd5a8baf54e62d20e5010d7a706192aeef1e9f26f8bebaa2e7cd19220b0bdc",
+    "probe-product.c": "56b409ad5c9e9533afe52824d3132656a807f6b20eac2c98cb72423f7dd6d92e",
+    "standalone-egl.c": "dfb20f458ffb4449d98c69973ec520449f761f0c5a2be160d0d433b71d0c6286"
+  },
+  "productFiles": {
+    "eng/build-wgpu-native-linux.py": "5d235edc1af723ed3b01f1d46f000e023c55f86b6c9858099d9be17f4c3de95c",
+    "eng/progpu-install-linux-packages.sh": "caa31893185b31e485b8827c700b370d49afae3509ef929c60c84bc408b298b9",
+    "eng/wgpu-xlib/build-inputs.json": "4c9c69e67d1ea8094860b5d3d7d110ebfe360b8d64caa0a4e7b1528112302209",
+    "eng/wgpu-xlib/wgpu-xlib-owned.patch": "c6818e03a0fbcc0d8ba4d65c652e1736fa5dec4d031ed22e11ed59cdcb6fd55d",
+    "eng/wgpu-xlib/wgpu-native-xlib-entry.patch": "ac3e525a70388bfd313b05cce9576bd0d2faa4013743b17081da5912eb98ce74",
+    "eng/wgpu-xlib/native-surface-probe.c": "bfbe98962ac1584e4116219b7e1493707707076c28c8d5ede96e31e8f140a06a",
+    "eng/wgpu-xlib/native-resolve-scissor-probe.c": "56b409ad5c9e9533afe52824d3132656a807f6b20eac2c98cb72423f7dd6d92e"
+  }
+}
