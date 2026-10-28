@@ -29,7 +29,9 @@ struct Segment {
 };
 struct Crossing { x: f32, delta: i32, parameter: f32 };
 struct Crossings { x: vec2<f32>, delta: vec2<i32>, parameter: vec2<f32> };
-struct Event { x: f32, delta: i32, source: u32, order: u32 };
+// The original ordinal is 2*lane+root with lane<256. Recover source as
+// order/2, retaining the actual analytic parameter without enlarging Event.
+struct Event { x: f32, delta: i32, parameter: f32, order: u32 };
 
 @group(0) @binding(0) var<uniform> uniforms: GlyphUniforms;
 @group(0) @binding(1) var<storage, read> glyphRecords: array<GlyphRecord>;
@@ -110,6 +112,10 @@ fn crossings(segment: Segment, level: f32, vertical: bool) -> Crossings {
         vec2<f32>(first.parameter, second.parameter));
 }
 
+fn event_source(event: Event) -> u32 {
+    return event.order / 2u;
+}
+
 fn event_less(a: Event, b: Event) -> bool {
     return a.x < b.x || (a.x == b.x && a.order < b.order);
 }
@@ -119,8 +125,8 @@ fn prepare_scan(record: GlyphRecord, level: f32, vertical: bool, lane: u32) {
     if lane < record.segmentCount {
         roots = crossings(segments[record.startSegment + lane], level, vertical);
     }
-    events[lane * 2u] = Event(roots.x.x, roots.delta.x, lane, lane * 2u);
-    events[lane * 2u + 1u] = Event(roots.x.y, roots.delta.y, lane, lane * 2u + 1u);
+    events[lane * 2u] = Event(roots.x.x, roots.delta.x, roots.parameter.x, lane * 2u);
+    events[lane * 2u + 1u] = Event(roots.x.y, roots.delta.y, roots.parameter.y, lane * 2u + 1u);
     workgroupBarrier();
     for (var size = 2u; size <= 512u; size *= 2u) {
         for (var distance = size / 2u; distance > 0u; distance /= 2u) {
@@ -204,7 +210,7 @@ fn base_covered(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool
     // boundary. Straight/flat boundaries keep their independent admission.
     // No epsilon or antialiasing threshold participates in this decision.
     if low < 512u && events[low].x == x {
-        let edge = segments[record.startSegment + events[low].source];
+        let edge = segments[record.startSegment + event_source(events[low])];
         let a = edge.p1 - edge.p0;
         let b = edge.p2 - edge.p0;
         return edge.segmentType == 1u && a.x * b.y != a.y * b.x;
@@ -279,9 +285,9 @@ fn segment_end(segment: Segment) -> vec2<f32> {
 // Both cases require the actual connecting edge and original contour endpoints.
 fn has_flat_cap(record: GlyphRecord, beginning: Event, finish: Event,
     left: f32, level: f32, direction: f32, vertical: bool) -> bool {
-    let a = segments[record.startSegment + beginning.source];
-    let b = segments[record.startSegment + finish.source];
-    if beginning.source == finish.source || a.contourStart != b.contourStart { return false; }
+    let a = segments[record.startSegment + event_source(beginning)];
+    let b = segments[record.startSegment + event_source(finish)];
+    if event_source(beginning) == event_source(finish) || a.contourStart != b.contourStart { return false; }
     let orthogonal = a.segmentType == 0u && b.segmentType == 0u &&
         axis_point(a.p0, vertical).x == axis_point(a.p1, vertical).x &&
         axis_point(b.p0, vertical).x == axis_point(b.p1, vertical).x;
@@ -347,10 +353,10 @@ fn vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
 // Exact endpoint/dyadic roots retain their original coordinate. Base winding
 // and gap admission continue to use independent analytic intersections.
 fn smart_curve_crossing(record: GlyphRecord, event: Event, level: f32, vertical: bool) -> f32 {
-    let segment = segments[record.startSegment + event.source];
+    let segment = segments[record.startSegment + event_source(event)];
     if segment.segmentType == 0u { return event.x; }
-    let original = crossings(segment, level, vertical);
-    var t = select(original.parameter.x, original.parameter.y, event.order % 2u != 0u);
+    // Retain the selected root from this scan, including exact endpoint values.
+    var t = event.parameter;
     var a = axis_point(segment.p0, vertical);
     var b = axis_point(segment.p1, vertical);
     var c = axis_point(segment.p2, vertical);
@@ -377,7 +383,7 @@ fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     let beginning = events[index];
     if beginning.delta == 0 || winding[index] == 0 { return; }
     if index > 0u && winding[index - 1u] != 0 { return; }
-    let mode = segments[record.startSegment + beginning.source].scanDescriptor & 7u;
+    let mode = segments[record.startSegment + event_source(beginning)].scanDescriptor & 7u;
     if mode == 2u || mode == 3u || mode == 6u || mode == 7u { return; }
     var end = index + 1u;
     while end < 512u && winding[end] != 0 { end++; }
@@ -409,26 +415,15 @@ fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     }
     var selected = left;
     if mode == 4u || mode == 5u {
-        let first_segment = segments[record.startSegment + beginning.source];
-        let last_segment = segments[record.startSegment + events[end].source];
+        let first_segment = segments[record.startSegment + event_source(beginning)];
+        let last_segment = segments[record.startSegment + event_source(events[end])];
         var midpoint = (beginning.x + finish) * 0.5;
         if first_segment.segmentType == 1u || last_segment.segmentType == 1u {
             // Curved transitions use the nearest 26.6 midpoint, with exact
             // half-unit ties toward the lower unit. Line-only intervals keep
             // their original arithmetic; this is not a global glyph snap.
-            // Existing guards prove index < end < 512: visit the two original
-            // endpoint events in order through one subdivision call site.
-            let endpoint_step = end - index;
-            var first_crossing = 0.0;
-            var second_crossing = 0.0;
-            for (var endpoint = index; endpoint <= end; endpoint += endpoint_step) {
-                var selected_event = beginning;
-                if endpoint != index { selected_event = events[end]; }
-                let crossing = smart_curve_crossing(record, selected_event, level, vertical);
-                if endpoint == index { first_crossing = crossing; }
-                else { second_crossing = crossing; }
-            }
-            midpoint = ceil((first_crossing + second_crossing) * 32.0 - 0.5) / 64.0;
+            midpoint = ceil((smart_curve_crossing(record, beginning, level, vertical) +
+                smart_curve_crossing(record, events[end], level, vertical)) * 32.0 - 0.5) / 64.0;
         }
         if midpoint > right { selected = right; }
     }

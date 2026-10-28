@@ -76,7 +76,8 @@ resource budgeting. Managed `GlyphAtlas.CoverageStagingBytes` reports both alloc
 coverage rings after binary demand; ordinary demand keeps its original reservation
 and warm binary replay reuses both rings. This allocated-reservation metric remains
 separate from native per-operation staging bytes. Pipelines remain lazy; binary-only
-demand does not compile the ordinary vector rasterizer. Immutable source bytes participate in raster identity.
+demand does not compile the ordinary vector rasterizer. Immutable source bytes
+participate in raster identity.
 Shared command admission requires aliased integer-origin replay and the complete
 bounded outline inventory; the inventory maximum is retained once per generation,
 including selected views. Unsupported execution paths reject instead of selecting
@@ -212,6 +213,31 @@ Both DXIL entries now retain one 32-step subdivision body inside the endpoint
 loop, with five square-root sites instead of six and no local arrays. FXC
 temporary counts remain 27/25. These measured compiler changes do not establish
 actual Windows runtime safety; the original three runtime routes remain required.
+
+That shared-endpoint revision subsequently passes all six original groups through
+DXC in 11.71 seconds and FXC in 50.49 seconds, but Dawn exceeds the unchanged
+60-second limit during the sixth group. A fixed same-host A/B/B/A comparison
+retains source-coherent native pairs and identical noncandidate modules: the
+preceding scalar revision passes in 52.40 and 52.30 seconds, while the shared-loop
+revision times out in 60.03 and 60.04 seconds at the same sixth-group frame. These
+censored measurements demonstrate a revision-specific Dawn cost on that host;
+they do not establish its exact completion time or erase the failed original run.
+
+The next implementation retains the original analytic parameter already computed
+for each scan event. The event ordinal is exactly `2 * lane + root`, so `order / 2`
+recovers the original segment index, including inactive slots. Sorting only swaps
+complete events. Replacing the redundant source word with the actual parameter
+preserves the 16-byte event and 10 KiB workgroup inventory. It avoids repeating the
+same quadratic solve inside smart subdivision and restores the original two
+explicit endpoint calls and their single midpoint addition. Root admission,
+subdivision arithmetic, barriers, source coordinates and sample policy remain
+unchanged. The ordinal proof covers all 512 slots for every admitted segment
+count; it is not a substitute for actual compiler, pixel and runtime validation.
+All 36 managed controls and all six original 880-case groups on each rebuilt
+local native provider pass with zero pixel differences. The actual generated
+header equals the complete canonical shader plus NUL and occurs exactly once in
+each library. Windows compiler/runtime and whole-producer qualification remain
+pending; local controls do not establish Windows timing or source UI parity.
 
 The rejected global midpoint quantizer regressed earlier diagonal controls and
 was removed. Its failed captures remain retained. The bounded curved candidate
