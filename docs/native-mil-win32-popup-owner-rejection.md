@@ -21,6 +21,18 @@ retains a nonactivation hook that was present before this attempt. A
 diagnostic must not show an unowned window or turn this rejection into a managed
 renderer fallback.
 
+The four subclass helpers resolve together from one retained common-controls v6
+module. `GetWindowSubclass` is not a named export in the legacy module selected by
+an unmanifested application. A library-owned embedded manifest selects v6 only
+while loading that module; the original calling activation context is restored
+before window work. This does not require an application visual-styles manifest
+or change the application's default theme. Single-file/NativeAOT deployment uses
+the same embedded manifest through a temporary file removed after acquisition.
+Partial acquisitions free their module/context and reject before HWND mutation.
+The complete module remains loaded while native subclass callbacks may exist.
+The original unmanifested Windows test host remains unchanged and checks calling
+activation-context preservation on both successful and rejected configuration.
+
 An exact Windows 11 ARM64 Parallels Toolkit source-overlay run with ProGPU
 native semantic-scene checkpoint build `1dfda315e4b82c889de1b0a14eee90a2001204fa`
 reached popup validation and rejected the selected native owner at

@@ -2,7 +2,7 @@ namespace ProGPU.Backend;
 
 // Original implementation of the documented Win32 hidden owned-window contract.
 // O(1) calls/state, one persistent input hook and two temporary identity hooks;
-// no managed allocation or device work.
+// no managed allocation after shared native API initialization, or device work.
 internal static class Win32PopupConfiguration
 {
     internal const int Style = -16;

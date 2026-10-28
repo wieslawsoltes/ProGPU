@@ -27,7 +27,7 @@ public partial class NativePopupWindowWindowsTests
                 0, 0, 16, 16, 0, 0, 0, 0);
             Assert.NotEqual(0, popup);
             nint foreground = GetForegroundWindow();
-            Assert.True(NativePopupWindow.TryConfigureOwner(
+            Assert.True(ConfigureOwnerPreservingActivationContext(
                 new(NativeWindowKind.Win32, owner, 0, "HWND"), new(NativeWindowKind.Win32, popup, 0, "HWND")));
             Assert.Equal(owner, GetWindow(popup, 4)); // GW_OWNER
             uint style = ReadStyle(popup, -16);
@@ -68,7 +68,7 @@ public partial class NativePopupWindowWindowsTests
             _frameCallbackReowned = false;
             Assert.NotEqual(0, SetWindowSubclass(popup, &ReownerDuringFrameCallback, 1, (nuint)otherOwner));
 
-            Assert.False(NativePopupWindow.TryConfigureOwner(
+            Assert.False(ConfigureOwnerPreservingActivationContext(
                 new(NativeWindowKind.Win32, owner, 0, "HWND"), new(NativeWindowKind.Win32, popup, 0, "HWND")));
             Assert.True(_frameCallbackReowned);
             Assert.Equal((nint)0, GetWindow(popup, 4));
@@ -137,11 +137,33 @@ public partial class NativePopupWindowWindowsTests
     private static uint ReadStyle(nint window, int index) => unchecked((uint)(nint.Size == 8
         ? GetWindowLongPtrW(window, index) : GetWindowLongW(window, index)));
 
+    private static bool ConfigureOwnerPreservingActivationContext(NativeWindowHandle owner, NativeWindowHandle popup)
+    {
+        Assert.NotEqual(0, GetCurrentActCtx(out nint original));
+        nint after = 0;
+        try
+        {
+            bool accepted = NativePopupWindow.TryConfigureOwner(owner, popup);
+            Assert.NotEqual(0, GetCurrentActCtx(out after));
+            Assert.Equal(original, after);
+            return accepted;
+        }
+        finally
+        {
+            if (after != 0) ReleaseActCtx(after);
+            if (original != 0) ReleaseActCtx(original);
+        }
+    }
+
     [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     private static partial nint CreateWindowExW(uint extended, string className, string title, uint style,
         int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
     [LibraryImport("user32.dll")]
     private static partial int DestroyWindow(nint window);
+    [LibraryImport("kernel32.dll")]
+    private static partial int GetCurrentActCtx(out nint context);
+    [LibraryImport("kernel32.dll")]
+    private static partial void ReleaseActCtx(nint context);
     [LibraryImport("user32.dll")]
     private static partial int IsWindowVisible(nint window);
     [LibraryImport("user32.dll")]

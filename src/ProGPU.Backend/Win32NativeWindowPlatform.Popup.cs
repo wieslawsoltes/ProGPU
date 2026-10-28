@@ -50,8 +50,8 @@ internal sealed partial class Win32NativeWindowPlatform
             long next = Interlocked.Increment(ref s_popupConfigurationIdentity);
             if (next <= 0 || (ulong)next > nuint.MaxValue) return false;
             _identity = (nuint)next;
-            if (SetWindowSubclass(owner, &ConfigurationIdentityProcedure, _identity, 0) != 0 &&
-                SetWindowSubclass(popup, &ConfigurationIdentityProcedure, _identity, 0) != 0 &&
+            if (Win32PopupCommonControls.Set(owner, &ConfigurationIdentityProcedure, _identity, 0) != 0 &&
+                Win32PopupCommonControls.Set(popup, &ConfigurationIdentityProcedure, _identity, 0) != 0 &&
                 HasConfigurationIdentity(owner, popup)) return true;
             EndConfigurationIdentity(owner, popup);
             return false;
@@ -61,13 +61,13 @@ internal sealed partial class Win32NativeWindowPlatform
             AreLocalWindows(owner, popup) && HasIdentity(owner) && HasIdentity(popup);
 
         private bool HasIdentity(nint window) => _identity != 0 &&
-            GetWindowSubclass(window, &ConfigurationIdentityProcedure, _identity, out _) != 0;
+            Win32PopupCommonControls.Get(window, &ConfigurationIdentityProcedure, _identity, out _) != 0;
 
         public void EndConfigurationIdentity(nint owner, nint popup)
         {
             // A recycled numeric HWND cannot retain this attempt's unique hook.
-            if (HasIdentity(popup)) _ = RemoveWindowSubclass(popup, &ConfigurationIdentityProcedure, _identity);
-            if (HasIdentity(owner)) _ = RemoveWindowSubclass(owner, &ConfigurationIdentityProcedure, _identity);
+            if (HasIdentity(popup)) _ = Win32PopupCommonControls.Remove(popup, &ConfigurationIdentityProcedure, _identity);
+            if (HasIdentity(owner)) _ = Win32PopupCommonControls.Remove(owner, &ConfigurationIdentityProcedure, _identity);
             _identity = 0;
         }
 
@@ -98,13 +98,13 @@ internal sealed partial class Win32NativeWindowPlatform
             SwpNoMove | SwpNoSize | SwpNoZOrder | PopupNoOwnerZOrder | SwpNoActivate | SwpFrameChanged);
 
         public bool InstallNonActivationHook(nint window) =>
-            SetWindowSubclass(window, &PopupSubclassProcedure, PopupSubclassId, 0) != 0;
+            Win32PopupCommonControls.Set(window, &PopupSubclassProcedure, PopupSubclassId, 0) != 0;
 
         public bool HasNonActivationHook(nint window) =>
-            GetWindowSubclass(window, &PopupSubclassProcedure, PopupSubclassId, out _) != 0;
+            Win32PopupCommonControls.Get(window, &PopupSubclassProcedure, PopupSubclassId, out _) != 0;
 
         public void RemoveNonActivationHook(nint window) =>
-            _ = RemoveWindowSubclass(window, &PopupSubclassProcedure, PopupSubclassId);
+            _ = Win32PopupCommonControls.Remove(window, &PopupSubclassProcedure, PopupSubclassId);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -112,8 +112,8 @@ internal sealed partial class Win32NativeWindowPlatform
         nuint wParam, nint lParam, nuint subclassId, nuint referenceData)
     {
         if (message == 0x0082) // WM_NCDESTROY ends this exact HWND lifetime.
-            _ = RemoveWindowSubclass(window, &ConfigurationIdentityProcedure, subclassId);
-        return DefSubclassProc(window, message, wParam, lParam);
+            _ = Win32PopupCommonControls.Remove(window, &ConfigurationIdentityProcedure, subclassId);
+        return Win32PopupCommonControls.Next(window, message, wParam, lParam);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -123,28 +123,9 @@ internal sealed partial class Win32NativeWindowPlatform
         // Keep the owner's active input queue and still deliver the mouse click.
         if (message == 0x0021) return 3; // WM_MOUSEACTIVATE -> MA_NOACTIVATE
         if (message == 0x0082) // WM_NCDESTROY: remove only our lifetime hook.
-            _ = RemoveWindowSubclass(window, &PopupSubclassProcedure, subclassId);
-        return DefSubclassProc(window, message, wParam, lParam);
+            _ = Win32PopupCommonControls.Remove(window, &PopupSubclassProcedure, subclassId);
+        return Win32PopupCommonControls.Next(window, message, wParam, lParam);
     }
-
-    [LibraryImport("comctl32.dll")]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
-    private static unsafe partial int SetWindowSubclass(nint window,
-        delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nuint, nuint, nint> callback, nuint id, nuint data);
-
-    [LibraryImport("comctl32.dll")]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
-    private static unsafe partial int GetWindowSubclass(nint window,
-        delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nuint, nuint, nint> callback, nuint id, out nuint data);
-
-    [LibraryImport("comctl32.dll")]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
-    private static unsafe partial int RemoveWindowSubclass(nint window,
-        delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nuint, nuint, nint> callback, nuint id);
-
-    [LibraryImport("comctl32.dll")]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
-    private static partial nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
 
     [LibraryImport("user32.dll")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]

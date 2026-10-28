@@ -4,9 +4,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>Win32PopupCommonControls.manifest</ApplicationManifest>
     <ProGpuXlibRuntimeRoot Condition="'$(ProGpuXlibRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/progpu-xlib/package</ProGpuXlibRuntimeRoot>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Win32PopupCommonControls.manifest" LogicalName="ProGPU.Backend.Win32PopupCommonControls.manifest" />
     <PackageReference Include="Silk.NET.WebGPU" />
     <PackageReference Include="Silk.NET.WebGPU.Native.WGPU" />
     <PackageReference Include="Silk.NET.Windowing.Common" />
