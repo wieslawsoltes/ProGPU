@@ -1,0 +1,80 @@
+name: ARM64 binary original crash capture
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths: ['eng/diagnostics/arm64-binary-crash/**', '.github/workflows/arm64-binary-crash.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  capture:
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    env:
+      PRODUCT_ROOT: ${{ github.workspace }}/product
+      PACKAGE_SOURCE: ${{ github.workspace }}/packages
+      CAPTURE_OUTPUT: ${{ github.workspace }}/evidence
+      PROGPU_HIT_TEST_EXECUTION: ordered-stages
+      PROGPU_DX12_SHADER_COMPILER: dxc
+      PROGPU_BACKEND_DIAGNOSTICS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: diagnostic
+      - uses: actions/checkout@v7
+        with:
+          ref: 686a34bb092ada9eec73b3ce1381dcb592e276b6
+          path: product
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: product/global.json
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: '12816562451'
+          run-id: '40682174680'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: packages
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Prepare original source and record immutable inputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:CAPTURE_OUTPUT | Out-Null
+          $size=(Get-ChildItem -LiteralPath $env:PACKAGE_SOURCE -Recurse -File | Measure-Object Length -Sum).Sum
+          if ($size -gt 512MB) { throw 'Failed package retrieval exceeds the 512 MiB cap.' }
+          git -C product rev-parse HEAD | Set-Content "$env:CAPTURE_OUTPUT/product-head.txt"
+          git -C diagnostic rev-parse HEAD | Set-Content "$env:CAPTURE_OUTPUT/diagnostic-head.txt"
+          dotnet --info | Set-Content "$env:CAPTURE_OUTPUT/dotnet-info.txt"
+          Push-Location product
+          try { python eng/progpu-prepare-framework-sources.py; if ($LASTEXITCODE -ne 0) { throw 'Framework source preparation failed.' } }
+          finally { Pop-Location }
+          python diagnostic/eng/diagnostics/arm64-binary-crash/run.py prepare
+          if ($LASTEXITCODE -ne 0) { throw 'Original package/source admission failed.' }
+      - name: Verify native debugger tools and compile independent CPU control
+        shell: pwsh
+        run: ./diagnostic/eng/diagnostics/arm64-binary-crash/prepare-tools.ps1
+      - name: Prove original exception and native stack capture before product execution
+        shell: pwsh
+        run: |
+          python diagnostic/eng/diagnostics/arm64-binary-crash/run.py control
+          if ($LASTEXITCODE -ne 0) { throw 'Capture control failed; original product is not run.' }
+      - name: Build unchanged original packaged consumer
+        shell: pwsh
+        run: |
+          $version=(Get-Content -Raw "$env:CAPTURE_OUTPUT/package-version.txt").Trim()
+          dotnet build product/tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj --configuration Release --runtime win-arm64 `
+            -p:ProGpuUseDx12Runtime=true -p:ProGpuNativePackageSource="$env:PACKAGE_SOURCE" -p:ProGpuNativePackageVersion="$version"
+          if ($LASTEXITCODE -ne 0) { throw 'Original consumer build failed.' }
+      - name: Capture one unchanged original binary workload, at most 60 seconds
+        shell: pwsh
+        run: |
+          python diagnostic/eng/diagnostics/arm64-binary-crash/run.py workload
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic incomplete; no retry or qualification claim.' }
+      - name: Retain original dump, stack, inputs and all failed diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm64-binary-crash-original-686
+          path: evidence
+          if-no-files-found: error

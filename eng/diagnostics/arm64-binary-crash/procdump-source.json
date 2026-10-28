@@ -1,0 +1,31 @@
+{
+  "url": "https://download.sysinternals.com/files/Procdump.zip",
+  "documentation": "https://learn.microsoft.com/en-us/sysinternals/downloads/procdump",
+  "zipSha256": "5fe68e81632f13188930affff20a9a9910170bae654360850d3108cead708a2d",
+  "size": 1295601,
+  "files": [
+    {
+      "name": "procdump.exe",
+      "size": 1374520,
+      "sha256": "099fd0cd771b583d283814a225a8fbbdb3faa47cc8a644568d6201893ad76bd9",
+      "peMachine": "0x14c"
+    },
+    {
+      "name": "procdump64.exe",
+      "size": 743752,
+      "sha256": "22c2a2b09ade73a342a18dab838354385f73fc98e324b9903fd61fff949c5124",
+      "peMachine": "0x8664"
+    },
+    {
+      "name": "procdump64a.exe",
+      "size": 749344,
+      "sha256": "3448555503526053bd819c760ad7b40368e130db8348f535f5212e12e9ab2ea5",
+      "peMachine": "0xaa64"
+    },
+    {
+      "name": "Eula.txt",
+      "size": 7490,
+      "sha256": "8329bcbadc7f81539a4969ca13f0be5b8eb7652b912324a1926fc9bfb6ec005a"
+    }
+  ]
+}

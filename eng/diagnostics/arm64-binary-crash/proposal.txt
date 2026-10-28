@@ -1,0 +1,51 @@
+One read-only crash diagnostic against failed ProGPU 686a34bb092ada9eec73b3ce1381dcb592e276b6.
+
+Original evidence: Build 40682174680, DXC ARM64 job 122822608045, frame 0
+BinaryGlyphOriginals.json/original-segments reached render then wait and exited
+-1073740791 (0xC0000409). Ordinary FXC and Dawn ARM64 independently failed with
+the same native exit. This code alone does not identify the fast-fail reason,
+stack-overrun, TDR, or responsible module.
+
+The diagnostic consumes original artifact 12816562451, SHA256
+e57537ad9943836f2dc7bb6bf0aa95cb0dd91d3c901275300ea4745f4b181657,
+331947186 bytes. Download-artifact rejects a digest mismatch; the expanded
+package feed has a 512 MiB admission cap. Package repository commits and exact
+versions must agree with 686. No source, fixture, shader, package or native DLL
+is changed. The exact original DXC and ordered-stage environment is retained.
+The previously passing full/paragraph processes are not repeated: this one
+diagnostic launches only the original failed binary process from its unchanged
+compiled apphost, once, with the same two public arguments. It is not a CI gate
+replacement or qualification run.
+
+Microsoft ProcDump ARM64 12.02 is pinned by archive and PE hashes, ARM64 machine,
+and a valid Microsoft Authenticode signature. Native-debugger mode (-g), one
+unhandled-exception mini dump (-e -mm -n 1), and owned launch (-x) preserve the
+exception record, parameters, thread context, stacks and module inventory.
+No first-chance swallowing, input actions, graphics setting changes, registry
+WER changes or global debugger registration are used. A new suspended ProcDump
+process is assigned to an owned kill-on-close job before its first instruction;
+all descendants share that job. The 60-second capture budget is stricter than
+the original CI's 20-minute job limit. Timeout kills only this owned job; cleanup
+reaps it. Dump writing does not extend the process budget. There is no retry.
+
+Before product execution, a separate native ARM64 CPU control performs
+__fastfail(7). Capture must retain 0xC0000409, parameter 0 = 7, and a native
+CrashControl stack/module using CDB. A failed control prevents product execution.
+CDB is Microsoft's ARM64 SDK debugger with signature, hash and version receipt.
+If absent, the disposable runner's already-installed, signed SDK installer may
+add only its WindowsDesktopDebuggers component within 120 seconds. This is tool
+preparation inside the same 20-minute job; no local VM is involved. Failure to
+prepare the tool prevents product execution.
+
+CDB analysis is read-only and independently capped at 60 seconds. It prints the
+original exception, registers, selected/all-thread stacks and module inventory;
+no execution continuation or target-memory writes. The original minidump and
+raw analysis remain even if analysis fails. A bounds-checked reader separately
+records exception parameter 0 and the module containing the exception address.
+The dump and all receipts are preserved, including failures. No successful
+diagnostic observation can erase the three original product failures.
+
+Official tool and exception documentation:
+https://learn.microsoft.com/en-us/sysinternals/downloads/procdump
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugging-arm64
+https://learn.microsoft.com/en-us/cpp/intrinsics/fastfail
