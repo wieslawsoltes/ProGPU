@@ -1,0 +1,18 @@
+{
+  "productHead": "45981bf7619d2e809f08ceda491fad2be535d3b0",
+  "originalWgslSha256": "a2c10ae341defaabf7a3637d4a3e4e7d16c64a9e3d1d9e9632f52f487ac6c427",
+  "candidate": "3",
+  "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
+  "nagaVersion": "0.19.2",
+  "sha256": {
+    "candidate.wgsl": "1cdc4e0979981ff01510ca94f28c177a7f5baec13cdc4c8334a1406231d23dfa",
+    "candidate.hlsl": "d688f5ede049a8b64be84466dadfd50de9cec9a7505a57252f2b6d664c1e7c4c",
+    "Program.cs": "8ba9263a5e13b421abb9dc00ba5b74d2833a114167b6d4a0ee321f5205cb6fd4",
+    "Probe.csproj": "12194a99cdfa230ecd8c7d65f45abb5670d5fde5497cb2541d8e4af10edb14f1",
+    "run.py": "6e575dd368b08032b54bf0ef5881bdbf90087e51ab38b6c044fa599be33d46e4",
+    "generator.rs": "13710d963a8388340b2265316df270ebde228874a5108b5be5ed3810f8b03c16",
+    "generator-Cargo.lock": "fb4657986b2cbdc816ecfedbf52eab45a2f4fa7197321d47e69ff0944b8d764c",
+    "generation.json": "8a5e4a3e3da10d90470b34d2f50ef8974446d3d20ffd43adf9e828773e3dbf41",
+    ".gitattributes": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9"
+  }
+}
