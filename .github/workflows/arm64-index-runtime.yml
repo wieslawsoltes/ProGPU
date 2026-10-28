@@ -1,0 +1,100 @@
+name: ARM64 binary changed-source runtime
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths: ['eng/diagnostics/arm64-index-runtime/**', '.github/workflows/arm64-index-runtime.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  run:
+    runs-on: windows-11-arm
+    timeout-minutes: ${{ matrix.minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - route: fxc
+            minutes: 15
+          - route: dxc
+            minutes: 20
+          - route: dawn
+            minutes: 15
+    env:
+      ROUTE: ${{ matrix.route }}
+      CANDIDATE_ROOT: ${{ github.workspace }}/candidate
+      ORIGINAL: ${{ github.workspace }}/original
+      FEED: ${{ github.workspace }}/packages
+      PAYLOAD: ${{ github.workspace }}/payload
+      EVIDENCE: ${{ github.workspace }}/evidence
+      EXECUTION: ${{ github.workspace }}/execution
+      PROGPU_HIT_TEST_EXECUTION: ordered-stages
+      PROGPU_BACKEND_DIAGNOSTICS: '1'
+      PROGPU_DX12_SHADER_COMPILER: ${{ matrix.route == 'dxc' && 'dxc' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: diagnostic
+      - uses: actions/checkout@v7
+        with:
+          ref: 686a34bb092ada9eec73b3ce1381dcb592e276b6
+          path: original
+      - uses: actions/checkout@v7
+        with:
+          ref: b7c191f2b442277c7484f599fc9b48b6df2f31ae
+          path: candidate
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: original/global.json
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: '12816562451'
+          run-id: '40682174680'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: packages
+          merge-multiple: true
+          digest-mismatch: error
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: '12826034029'
+          run-id: '40707705399'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: payload
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Prepare original consumer and private two-DLL overlay
+        shell: pwsh
+        run: |
+          python diagnostic/eng/diagnostics/arm64-index-runtime/stage.py prepare
+          if ($LASTEXITCODE -ne 0) { throw 'Original source/package identity failed.' }
+          Push-Location original
+          try {
+            python eng/progpu-prepare-framework-sources.py
+            if ($LASTEXITCODE -ne 0) { throw 'Framework source preparation failed.' }
+            $properties=@()
+            if ($env:ROUTE -eq 'dxc') { $properties+='-p:ProGpuUseDx12Runtime=true' }
+            if ($env:ROUTE -eq 'dawn') { $properties+='-p:ProGpuDawnSystemWarpTestRid=win-arm64' }
+            dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj --configuration Release --runtime win-arm64 -p:ProGpuNativePackageSource="$env:FEED" -p:ProGpuNativePackageVersion=0.1.0-preview.3676.ci @properties
+            if ($LASTEXITCODE -ne 0) { throw 'Original package consumer build failed.' }
+          } finally { Pop-Location }
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $vs) { throw 'Native tool host unavailable.' }
+          Import-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=arm64 -host_arch=arm64' | Out-Null
+          python diagnostic/eng/diagnostics/arm64-index-runtime/stage.py artifact
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate artifact admission failed.' }
+          python diagnostic/eng/diagnostics/arm64-index-runtime/stage.py stage
+          if ($LASTEXITCODE -ne 0) { throw 'Private overlay admission failed.' }
+      - name: Run original six groups once with changed native source
+        shell: pwsh
+        run: |
+          python diagnostic/eng/diagnostics/arm64-index-runtime/run.py
+          if ($LASTEXITCODE -ne 0) { throw 'Changed-source runtime diagnostic failed; no retry.' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: arm64-index-runtime-${{ matrix.route }}
+          path: evidence
+          if-no-files-found: error
