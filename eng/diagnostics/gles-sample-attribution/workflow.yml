@@ -1,0 +1,33 @@
+name: Original GLES per-sample attribution
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths:
+      - '.github/workflows/gles-sample-attribution.yml'
+      - 'eng/diagnostics/gles-sample-attribution/**'
+permissions:
+  contents: read
+jobs:
+  samples:
+    if: github.head_ref == 'diag/gles-sample-attribution-20261028'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Native diagnostic prerequisites
+        run: ./eng/progpu-install-linux-packages.sh clang-18 libx11-dev libegl-dev libgles-dev libgl1-mesa-dri xvfb xauth
+      - name: Source identity and original drawing controls
+        run: python3 -m unittest discover -s eng/diagnostics/gles-sample-attribution -p test_source.py -v
+      - name: One original-sample observation before ordinary resolve
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: python3 eng/diagnostics/gles-sample-attribution/run.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gles-sample-attribution
+          path: eng/diagnostics/gles-sample-attribution/evidence
+          if-no-files-found: error
