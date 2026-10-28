@@ -1,0 +1,20 @@
+{
+  "productHead": "45981bf7619d2e809f08ceda491fad2be535d3b0",
+  "originalWgslSha256": "a2c10ae341defaabf7a3637d4a3e4e7d16c64a9e3d1d9e9632f52f487ac6c427",
+  "qualification": false,
+  "sha256": {
+    "skip-optimization.hlsl": "b48fc6e142c0a0bf9c494e407b099c592272262a50f706ad489b9a60634a0033",
+    "curve-loop.hlsl": "e938de9adde1c6cdbfa36e7ad493b6f2e27c0befa15802a96c44e3446720fab5",
+    "all-loops.hlsl": "c677c0d80ed00d118f46903a92b4eb5b40ef4a48263199b3695a17b9e1912663",
+    "candidate.wgsl": "cd502eedde7eac0635f9d63d9b3de700e8ce877109187ab78833d19c927e1f9b",
+    "Program.cs": "d8c8c9e564a999723c83130c3fef2c9c13f561779631a46033128dff6e8faaea",
+    "Probe.csproj": "12194a99cdfa230ecd8c7d65f45abb5670d5fde5497cb2541d8e4af10edb14f1",
+    "run.py": "d7ce741a14c1341ce79cb57158c9d614a0a1ce2c7f167340dba3cf052116e7c9",
+    "process-metrics.py": "a5120975c1be39d6d92b718461965888ee96692a74e2e122923545f7a9bdcad8",
+    "generator.rs": "13710d963a8388340b2265316df270ebde228874a5108b5be5ed3810f8b03c16",
+    "generator-Cargo.lock": "fb4657986b2cbdc816ecfedbf52eab45a2f4fa7197321d47e69ff0944b8d764c",
+    "generation.json": "e98efd9c8dc92ffde45668fcb3d196f4cb445c7f2f1f869dc6f9471e74dd86e8",
+    "variants.json": "94b49f20afe1e5995df25da14d912358e3b0b9874bce85d6d1beead21ca4dde7",
+    ".gitattributes": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "baselineHlslSha256": "b48fc6e142c0a0bf9c494e407b099c592272262a50f706ad489b9a60634a0033",
+  "originalTimeouts": "PR406 both release entrypoints60s; no unchanged release-flags repetition",
+  "variants": {
+    "skip-optimization": {
+      "flags1": 2052,
+      "flags2": 0,
+      "target": "cs_5_1",
+      "entrypoint": "cs_binary_horizontal",
+      "insertedAttributeBeforeOriginalLines": [],
+      "sha256": "b48fc6e142c0a0bf9c494e407b099c592272262a50f706ad489b9a60634a0033"
+    },
+    "curve-loop": {
+      "flags1": 2048,
+      "flags2": 0,
+      "target": "cs_5_1",
+      "entrypoint": "cs_binary_horizontal",
+      "insertedAttributeBeforeOriginalLines": [
+        740
+      ],
+      "sha256": "e938de9adde1c6cdbfa36e7ad493b6f2e27c0befa15802a96c44e3446720fab5"
+    },
+    "all-loops": {
+      "flags1": 2048,
+      "flags2": 0,
+      "target": "cs_5_1",
+      "entrypoint": "cs_binary_horizontal",
+      "insertedAttributeBeforeOriginalLines": [
+        228,
+        243,
+        282,
+        342,
+        403,
+        502,
+        521,
+        549,
+        610,
+        740,
+        823,
+        865,
+        946,
+        979
+      ],
+      "sha256": "c677c0d80ed00d118f46903a92b4eb5b40ef4a48263199b3695a17b9e1912663"
+    }
+  },
+  "qualification": false
+}
