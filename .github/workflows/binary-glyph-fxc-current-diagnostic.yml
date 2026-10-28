@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [stub-curve, stub-continuation, distributed-zero]
+        variant: [cs_binary_horizontal, cs_binary_vertical]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Compiler-only component isolation; invalid for rendering
+      - name: Patched producer, original shader and release compiler flags
         shell: pwsh
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}

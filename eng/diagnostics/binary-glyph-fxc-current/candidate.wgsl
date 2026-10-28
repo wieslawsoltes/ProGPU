@@ -245,35 +245,18 @@ fn continuation_crossings(record: GlyphRecord, left: f32, level: f32, direction:
         let across = crossings(segment, opposite, vertical);
         let side0 = crossings(segment, left, !vertical);
         let side1 = crossings(segment, left + 1.0, !vertical);
-        if across.delta.x != 0 && across.x.x >= left && across.x.x <= left + 1.0 {
-            let position = vec2<f32>(across.x.x, opposite);
-            if count == 0u { first = position; count = 1u; }
-            else if any(first != position) { return 2u; }
-        }
-        if side0.delta.x != 0 && side0.x.x >= bottom && side0.x.x <= top {
-            let position = vec2<f32>(left, side0.x.x);
-            if count == 0u { first = position; count = 1u; }
-            else if any(first != position) { return 2u; }
-        }
-        if side1.delta.x != 0 && side1.x.x >= bottom && side1.x.x <= top {
-            let position = vec2<f32>(left + 1.0, side1.x.x);
-            if count == 0u { first = position; count = 1u; }
-            else if any(first != position) { return 2u; }
-        }
-        if across.delta.y != 0 && across.x.y >= left && across.x.y <= left + 1.0 {
-            let position = vec2<f32>(across.x.y, opposite);
-            if count == 0u { first = position; count = 1u; }
-            else if any(first != position) { return 2u; }
-        }
-        if side0.delta.y != 0 && side0.x.y >= bottom && side0.x.y <= top {
-            let position = vec2<f32>(left, side0.x.y);
-            if count == 0u { first = position; count = 1u; }
-            else if any(first != position) { return 2u; }
-        }
-        if side1.delta.y != 0 && side1.x.y >= bottom && side1.x.y <= top {
-            let position = vec2<f32>(left + 1.0, side1.x.y);
-            if count == 0u { first = position; count = 1u; }
-            else if any(first != position) { return 2u; }
+        for (var j = 0u; j < 2u; j++) {
+            var positions = array<vec2<f32>, 3>(vec2<f32>(across.x[j], opposite),
+                vec2<f32>(left, side0.x[j]), vec2<f32>(left + 1.0, side1.x[j]));
+            var admitted = array<bool, 3>(
+                (across.delta[j] != 0 && across.x[j] >= left && across.x[j] <= left + 1.0),
+                (side0.delta[j] != 0 && side0.x[j] >= bottom && side0.x[j] <= top),
+                (side1.delta[j] != 0 && side1.x[j] >= bottom && side1.x[j] <= top));
+            for (var edge = 0u; edge < 3u; edge++) {
+                if !admitted[edge] { continue; }
+                if count == 0u { first = positions[edge]; count = 1u; }
+                else if any(first != positions[edge]) { return 2u; }
+            }
         }
     }
     return count;
@@ -456,9 +439,8 @@ fn cs_binary_horizontal(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_
         if base_covered(record, point.x, level, false) { paint(point, true); }
     }
     // Dropout eligibility reads the immutable analytic base, not these writes.
-    for (var index = lane; index < 512u; index += 256u) {
-        dropout(record, index, level, false);
-    }
+    dropout(record, lane, level, false);
+    dropout(record, lane + 256u, level, false);
     vertex_dropout(record, lane, level, false);
 }
 
@@ -471,8 +453,7 @@ fn cs_binary_vertical(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_in
     let bounds = raster_bounds(record);
     prepare_scan(record, level, true, lane);
     if level < bounds.x || level >= bounds.z { return; }
-    for (var index = lane; index < 512u; index += 256u) {
-        dropout(record, index, level, true);
-    }
+    dropout(record, lane, level, true);
+    dropout(record, lane + 256u, level, true);
     vertex_dropout(record, lane, level, true);
 }

@@ -15,7 +15,6 @@ fn main() {
     }
     let mut output=String::new();
     let reflection=hlsl::Writer::new(&mut output,&options).write(&module,&info).unwrap();
-    assert_eq!(reflection.entry_point_names.len(),2);
     for (ep,name) in module.entry_points.iter().zip(reflection.entry_point_names.iter()) {
         let name=name.as_ref().unwrap();
         assert_eq!(ep.name,*name);

@@ -1,0 +1,127 @@
+{
+  "translatorSha256": "11af1e9ee1b30439db8c6204208fa17827113507af6a1d358ef0b9586adaae81",
+  "originalTranslatorSha256": "94c055493d2233204418f10980f98a714bed2de31a70520802d39de64bde2001",
+  "gpuExecution": false,
+  "cases": [
+    {
+      "case": "xyz-1",
+      "workgroupSize": [
+        4,
+        3,
+        2
+      ],
+      "arrayLength": 1,
+      "wgslSha256": "5e4817429ca822a372778864b8a11f6d90f1db72bd25e5cd0d65b444a3bb02bd",
+      "hlslSha256": "1a9d2463857c3c589b91845a9ed1eac78a93371bac96c2fabe68afcd71eaf21b",
+      "passed": true
+    },
+    {
+      "case": "xyz-7",
+      "workgroupSize": [
+        4,
+        3,
+        2
+      ],
+      "arrayLength": 7,
+      "wgslSha256": "f76c3e0305de7c11c602a42d946b2983a320f5ecc125d30a04d74a66ec944380",
+      "hlslSha256": "1671378c9af6af90963927cc9f86b88094af380cb54ed4dc909850ab563adc4e",
+      "passed": true
+    },
+    {
+      "case": "xyz-24",
+      "workgroupSize": [
+        4,
+        3,
+        2
+      ],
+      "arrayLength": 24,
+      "wgslSha256": "387f4389031a428b2d9d1b06ef547c182265573c71431e079382175b894d628b",
+      "hlslSha256": "d161392143fb2a9397387e775ecb26694f4f746bed433c56c4704a8d92d3da63",
+      "passed": true
+    },
+    {
+      "case": "xyz-25",
+      "workgroupSize": [
+        4,
+        3,
+        2
+      ],
+      "arrayLength": 25,
+      "wgslSha256": "1bec08f0114f93be49f3709dfcdbfc4d0cc375f8e9cfb3de77bef31f784253c7",
+      "hlslSha256": "08c21167b85d69b7c921292a5dead41bafe4074420991a7356b025ec22cebf07",
+      "passed": true
+    },
+    {
+      "case": "xyz-53",
+      "workgroupSize": [
+        4,
+        3,
+        2
+      ],
+      "arrayLength": 53,
+      "wgslSha256": "840eb38b7ed92e1213ddeb4e3ad1c35a0e4c32b7b8ed1b6b9bc4b7d72ea25c85",
+      "hlslSha256": "14018c39596a8ca7baa81bcf68a696073e8b8fbb2f68b41dd31a4123c7a00b53",
+      "passed": true
+    },
+    {
+      "case": "binary-shape",
+      "workgroupSize": [
+        256,
+        1,
+        1
+      ],
+      "arrayLength": 512,
+      "wgslSha256": "7a40fbd698aca100adcb0e349a142de65ec8cabf47bcf219cbe463a20f941422",
+      "hlslSha256": "84f07f4d27e1b17ece07204a333cd158156de90b07f2038af7abc32bed96e668",
+      "passed": true
+    },
+    {
+      "case": "atomic",
+      "workgroupSize": [
+        2,
+        3,
+        4
+      ],
+      "arrayLength": 25,
+      "wgslSha256": "b74b327f7d51bfbb6b03cfdfb7eef39f446deb8a8a9b483f6c8a9fbbf24dfd1c",
+      "hlslSha256": "c09a5807e1c32519088f5822ed296544ed294732d31a466c47d25cba66bc6f9f",
+      "passed": true
+    },
+    {
+      "case": "nested",
+      "workgroupSize": [
+        2,
+        2,
+        2
+      ],
+      "arrayLength": 17,
+      "wgslSha256": "c3aff208c2c0bf3b3eae834b5c20693ed9f9fc6ac25f4aba55b40120d9096d4e",
+      "hlslSha256": "692425e432f7094351dcf519a9b36a65be80d1d13b32f0a431efb15256c61a1f",
+      "passed": true
+    },
+    {
+      "case": "struct-element",
+      "workgroupSize": [
+        2,
+        3,
+        2
+      ],
+      "arrayLength": 29,
+      "wgslSha256": "7075cf4c38c8c5ff2b6735cf53cabaf24e8c1d2cdf3a92e8888d2382cac4dee9",
+      "hlslSha256": "4e2ca6578f38186f782e480c72cc6405a0cee39932f35e99fb87caab1518cd3c",
+      "passed": true
+    },
+    {
+      "case": "scalar-only",
+      "workgroupSize": [
+        3,
+        2,
+        1
+      ],
+      "arrayLength": 0,
+      "wgslSha256": "d75c89518023ac6b32f275bf890a754c94f31abf5392f74234c87c167f4795d5",
+      "hlslSha256": "0f29fc600f1965bc75a10b4215e7d96324fef231ea7d9e6e531bacbf54d4ba0a",
+      "passed": true
+    }
+  ]
+}

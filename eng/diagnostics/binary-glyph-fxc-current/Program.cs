@@ -28,7 +28,7 @@ internal static unsafe class Program
         if (!OperatingSystem.IsWindows() || args.Length!=3) return 2;
         var input=Path.GetFullPath(args[0]); var output=Path.GetFullPath(args[1]);
         Directory.CreateDirectory(output);
-        if (args[2] is not ("stub-curve" or "stub-continuation" or "distributed-zero")) return 2;
+        if (args[2] is not ("cs_binary_horizontal" or "cs_binary_vertical")) return 2;
         uint flags = 0x800u;
         var compiler=Path.Combine(Environment.SystemDirectory,"d3dcompiler_47.dll");
         nint module=NativeLibrary.Load(compiler);
@@ -40,8 +40,8 @@ internal static unsafe class Program
             gpuDeviceCreated=false,inputActions=0
         },new JsonSerializerOptions{WriteIndented=true}));
         bool accepted=true;
-        foreach (string variant in new[]{args[2]})
-        foreach (string entry in new[]{"cs_binary_horizontal"})
+        foreach (string variant in new[]{"candidate"})
+        foreach (string entry in new[]{args[2]})
         {
             var source=File.ReadAllBytes(Path.Combine(input,variant+".hlsl"));
             nint code=0,error=0; string stem=variant+"-"+entry;

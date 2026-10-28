@@ -32,8 +32,8 @@ assert build.returncode == 0, 'Compile-only harness build failed'
 (OUT / 'harness.json').write_text(json.dumps({'sha256':sha(ROOT / 'compiled/Probe.dll')}, indent=2))
 import runpy
 sample = runpy.run_path(str(ROOT / 'process-metrics.py'))['sample']
-if len(sys.argv) != 2 or sys.argv[1] not in ['stub-curve','stub-continuation','distributed-zero']:
-    raise SystemExit('Expected one reviewed compiler variant.')
+if len(sys.argv) != 2 or sys.argv[1] not in ['cs_binary_horizontal','cs_binary_vertical']:
+    raise SystemExit('Expected one original shader entrypoint.')
 results = []
 for variant in [sys.argv[1]]:
     evidence = OUT / variant

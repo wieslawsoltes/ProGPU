@@ -104,9 +104,9 @@ Crossing quadratic_crossing(float2 p0_, float2 p1_, float2 p2_, float a_1, float
         }
     }
     float _expr32 = derivative;
-    bool admitted = ((_expr32 > 0.0) ? ((t_1 >= 0.0) && (t_1 < 1.0)) : ((t_1 > 0.0) && (t_1 <= 1.0)));
+    bool admitted_1 = ((_expr32 > 0.0) ? ((t_1 >= 0.0) && (t_1 < 1.0)) : ((t_1 > 0.0) && (t_1 <= 1.0)));
     float _expr36 = derivative;
-    if ((admitted && (_expr36 != 0.0))) {
+    if ((admitted_1 && (_expr36 != 0.0))) {
         const float _e43 = quadratic_at(p0_.x, p1_.x, p2_.x, t_1);
         float _expr46 = derivative;
         const Crossing crossing = ConstructCrossing(_e43, ((_expr46 > 0.0) ? 1 : -1), t_1);
@@ -425,10 +425,10 @@ bool base_covered(GlyphRecord record_3, float x_2, float level_3, bool vertical_
     if (((_expr29 < 512u) && (_expr36 == x_2))) {
         uint _expr42 = low_2;
         uint _expr45 = events[_expr42].source;
-        Segment edge = ConstructSegment(asfloat(segments.Load2((record_3.startSegment + _expr45)*48+0)), asfloat(segments.Load2((record_3.startSegment + _expr45)*48+8)), asfloat(segments.Load2((record_3.startSegment + _expr45)*48+16)), asfloat(segments.Load2((record_3.startSegment + _expr45)*48+24)), asuint(segments.Load((record_3.startSegment + _expr45)*48+32)), asuint(segments.Load((record_3.startSegment + _expr45)*48+36)), asuint(segments.Load((record_3.startSegment + _expr45)*48+40)), asuint(segments.Load((record_3.startSegment + _expr45)*48+44)));
-        float2 a_6 = (edge.p1_ - edge.p0_);
-        float2 b_6 = (edge.p2_ - edge.p0_);
-        return ((edge.segmentType == 1u) && ((a_6.x * b_6.y) != (a_6.y * b_6.x)));
+        Segment edge_1 = ConstructSegment(asfloat(segments.Load2((record_3.startSegment + _expr45)*48+0)), asfloat(segments.Load2((record_3.startSegment + _expr45)*48+8)), asfloat(segments.Load2((record_3.startSegment + _expr45)*48+16)), asfloat(segments.Load2((record_3.startSegment + _expr45)*48+24)), asuint(segments.Load((record_3.startSegment + _expr45)*48+32)), asuint(segments.Load((record_3.startSegment + _expr45)*48+36)), asuint(segments.Load((record_3.startSegment + _expr45)*48+40)), asuint(segments.Load((record_3.startSegment + _expr45)*48+44)));
+        float2 a_6 = (edge_1.p1_ - edge_1.p0_);
+        float2 b_6 = (edge_1.p2_ - edge_1.p0_);
+        return ((edge_1.segmentType == 1u) && ((a_6.x * b_6.y) != (a_6.y * b_6.x)));
     }
     uint _expr66 = low_2;
     uint _expr70 = low_2;
@@ -473,11 +473,27 @@ bool horizontal_covered(float2 point_3, GlyphRecord record_4)
     return (((_expr10 >> _e6.y) & 255u) != 0u);
 }
 
+typedef float2 ret_Constructarray3_float2_[3];
+ret_Constructarray3_float2_ Constructarray3_float2_(float2 arg0, float2 arg1, float2 arg2) {
+    float2 ret[3] = { arg0, arg1, arg2 };
+    return ret;
+}
+
+typedef bool ret_Constructarray3_bool_[3];
+ret_Constructarray3_bool_ Constructarray3_bool_(bool arg0, bool arg1, bool arg2) {
+    bool ret[3] = { arg0, arg1, arg2 };
+    return ret;
+}
+
 uint continuation_crossings(GlyphRecord record_5, float left, float level_4, float direction, bool vertical_5)
 {
     uint count = 0u;
     float2 first = (0.0).xx;
     uint i_1 = 0u;
+    uint j = (uint)0;
+    float2 positions[3] = (float2[3])0;
+    bool admitted[3] = (bool[3])0;
+    uint edge = (uint)0;
 
     float opposite = (level_4 + direction);
     float bottom = min(level_4, opposite);
@@ -485,8 +501,8 @@ uint continuation_crossings(GlyphRecord record_5, float left, float level_4, flo
     bool loop_init_4 = true;
     while(true) {
         if (!loop_init_4) {
-            uint _expr178 = i_1;
-            i_1 = (_expr178 + 1u);
+            uint _expr131 = i_1;
+            i_1 = (_expr131 + 1u);
         }
         loop_init_4 = false;
         uint _expr15 = i_1;
@@ -500,88 +516,75 @@ uint continuation_crossings(GlyphRecord record_5, float left, float level_4, flo
             const Crossings _e24 = crossings(segment_3, opposite, vertical_5);
             const Crossings _e26 = crossings(segment_3, left, !(vertical_5));
             const Crossings _e30 = crossings(segment_3, (left + 1.0), !(vertical_5));
-            if ((((_e24.delta.x != 0) && (_e24.x.x >= left)) && (_e24.x.x <= (left + 1.0)))) {
-                float2 position = float2(_e24.x.x, opposite);
-                uint _expr48 = count;
-                if ((_expr48 == 0u)) {
-                    first = position;
-                    count = 1u;
-                } else {
-                    float2 _expr52 = first;
-                    if (any((_expr52 != position))) {
-                        return 2u;
-                    }
+            j = 0u;
+            bool loop_init_5 = true;
+            while(true) {
+                if (!loop_init_5) {
+                    uint _expr128 = j;
+                    j = (_expr128 + 1u);
                 }
-            }
-            if ((((_e26.delta.x != 0) && (_e26.x.x >= bottom)) && (_e26.x.x <= top))) {
-                float2 position_1 = float2(left, _e26.x.x);
-                uint _expr71 = count;
-                if ((_expr71 == 0u)) {
-                    first = position_1;
-                    count = 1u;
+                loop_init_5 = false;
+                uint _expr33 = j;
+                if ((_expr33 < 2u)) {
                 } else {
-                    float2 _expr75 = first;
-                    if (any((_expr75 != position_1))) {
-                        return 2u;
-                    }
+                    break;
                 }
-            }
-            if ((((_e30.delta.x != 0) && (_e30.x.x >= bottom)) && (_e30.x.x <= top))) {
-                float2 position_2 = float2((left + 1.0), _e30.x.x);
-                uint _expr96 = count;
-                if ((_expr96 == 0u)) {
-                    first = position_2;
-                    count = 1u;
-                } else {
-                    float2 _expr100 = first;
-                    if (any((_expr100 != position_2))) {
-                        return 2u;
-                    }
-                }
-            }
-            if ((((_e24.delta.y != 0) && (_e24.x.y >= left)) && (_e24.x.y <= (left + 1.0)))) {
-                float2 position_3 = float2(_e24.x.y, opposite);
-                uint _expr121 = count;
-                if ((_expr121 == 0u)) {
-                    first = position_3;
-                    count = 1u;
-                } else {
-                    float2 _expr125 = first;
-                    if (any((_expr125 != position_3))) {
-                        return 2u;
-                    }
-                }
-            }
-            if ((((_e26.delta.y != 0) && (_e26.x.y >= bottom)) && (_e26.x.y <= top))) {
-                float2 position_4 = float2(left, _e26.x.y);
-                uint _expr144 = count;
-                if ((_expr144 == 0u)) {
-                    first = position_4;
-                    count = 1u;
-                } else {
-                    float2 _expr148 = first;
-                    if (any((_expr148 != position_4))) {
-                        return 2u;
-                    }
-                }
-            }
-            if ((((_e30.delta.y != 0) && (_e30.x.y >= bottom)) && (_e30.x.y <= top))) {
-                float2 position_5 = float2((left + 1.0), _e30.x.y);
-                uint _expr169 = count;
-                if ((_expr169 == 0u)) {
-                    first = position_5;
-                    count = 1u;
-                } else {
-                    float2 _expr173 = first;
-                    if (any((_expr173 != position_5))) {
-                        return 2u;
+                {
+                    uint _expr37 = j;
+                    uint _expr41 = j;
+                    uint _expr47 = j;
+                    positions = Constructarray3_float2_(float2(_e24.x[_expr37], opposite), float2(left, _e26.x[_expr41]), float2((left + 1.0), _e30.x[_expr47]));
+                    uint _expr53 = j;
+                    uint _expr58 = j;
+                    uint _expr63 = j;
+                    uint _expr70 = j;
+                    uint _expr75 = j;
+                    uint _expr80 = j;
+                    uint _expr85 = j;
+                    uint _expr90 = j;
+                    uint _expr95 = j;
+                    admitted = Constructarray3_bool_((((_e24.delta[_expr53] != 0) && (_e24.x[_expr58] >= left)) && (_e24.x[_expr63] <= (left + 1.0))), (((_e26.delta[_expr70] != 0) && (_e26.x[_expr75] >= bottom)) && (_e26.x[_expr80] <= top)), (((_e30.delta[_expr85] != 0) && (_e30.x[_expr90] >= bottom)) && (_e30.x[_expr95] <= top)));
+                    edge = 0u;
+                    bool loop_init_6 = true;
+                    while(true) {
+                        if (!loop_init_6) {
+                            uint _expr125 = edge;
+                            edge = (_expr125 + 1u);
+                        }
+                        loop_init_6 = false;
+                        uint _expr103 = edge;
+                        if ((_expr103 < 3u)) {
+                        } else {
+                            break;
+                        }
+                        {
+                            uint _expr106 = edge;
+                            bool _expr108 = admitted[_expr106];
+                            if (!(_expr108)) {
+                                continue;
+                            }
+                            uint _expr110 = count;
+                            if ((_expr110 == 0u)) {
+                                uint _expr113 = edge;
+                                float2 _expr115 = positions[_expr113];
+                                first = _expr115;
+                                count = 1u;
+                            } else {
+                                float2 _expr117 = first;
+                                uint _expr118 = edge;
+                                float2 _expr120 = positions[_expr118];
+                                if (any((_expr117 != _expr120))) {
+                                    return 2u;
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    uint _expr180 = count;
-    return _expr180;
+    uint _expr133 = count;
+    return _expr133;
 }
 
 float2 segment_end(Segment segment_1)
@@ -603,13 +606,13 @@ bool has_flat_cap(GlyphRecord record_6, Event beginning, Event finish, float lef
     const float2 _e43 = axis_point(b_7.p0_, vertical_6);
     const float2 _e46 = axis_point(b_7.p1_, vertical_6);
     bool orthogonal = ((((a_7.segmentType == 0u) && (b_7.segmentType == 0u)) && (_e35.x == _e38.x)) && (_e43.x == _e46.x));
-    bool loop_init_5 = true;
+    bool loop_init_7 = true;
     while(true) {
-        if (!loop_init_5) {
+        if (!loop_init_7) {
             uint _expr137 = i_2;
             i_2 = (_expr137 + 1u);
         }
-        loop_init_5 = false;
+        loop_init_7 = false;
         uint _expr52 = i_2;
         if ((_expr52 < a_7.contourCount)) {
         } else {
@@ -641,20 +644,20 @@ bool has_flat_cap(GlyphRecord record_6, Event beginning, Event finish, float lef
     return false;
 }
 
-void vertex_dropout(GlyphRecord record_7, uint index_2, float level_6, bool vertical_7)
+void vertex_dropout(GlyphRecord record_7, uint index, float level_6, bool vertical_7)
 {
     float2 before = (float2)0;
     float2 after = (float2)0;
 
-    if ((index_2 >= record_7.segmentCount)) {
+    if ((index >= record_7.segmentCount)) {
         return;
     }
-    Segment segment_4 = ConstructSegment(asfloat(segments.Load2((record_7.startSegment + index_2)*48+0)), asfloat(segments.Load2((record_7.startSegment + index_2)*48+8)), asfloat(segments.Load2((record_7.startSegment + index_2)*48+16)), asfloat(segments.Load2((record_7.startSegment + index_2)*48+24)), asuint(segments.Load((record_7.startSegment + index_2)*48+32)), asuint(segments.Load((record_7.startSegment + index_2)*48+36)), asuint(segments.Load((record_7.startSegment + index_2)*48+40)), asuint(segments.Load((record_7.startSegment + index_2)*48+44)));
+    Segment segment_4 = ConstructSegment(asfloat(segments.Load2((record_7.startSegment + index)*48+0)), asfloat(segments.Load2((record_7.startSegment + index)*48+8)), asfloat(segments.Load2((record_7.startSegment + index)*48+16)), asfloat(segments.Load2((record_7.startSegment + index)*48+24)), asuint(segments.Load((record_7.startSegment + index)*48+32)), asuint(segments.Load((record_7.startSegment + index)*48+36)), asuint(segments.Load((record_7.startSegment + index)*48+40)), asuint(segments.Load((record_7.startSegment + index)*48+44)));
     uint mode = (segment_4.scanDescriptor & 7u);
     if (((mode != 0u) && (mode != 4u))) {
         return;
     }
-    uint previous_index = ((index_2 == segment_4.contourStart) ? ((segment_4.contourStart + segment_4.contourCount) - 1u) : (index_2 - 1u));
+    uint previous_index = ((index == segment_4.contourStart) ? ((segment_4.contourStart + segment_4.contourCount) - 1u) : (index - 1u));
     Segment previous = ConstructSegment(asfloat(segments.Load2((record_7.startSegment + previous_index)*48+0)), asfloat(segments.Load2((record_7.startSegment + previous_index)*48+8)), asfloat(segments.Load2((record_7.startSegment + previous_index)*48+16)), asfloat(segments.Load2((record_7.startSegment + previous_index)*48+24)), asuint(segments.Load((record_7.startSegment + previous_index)*48+32)), asuint(segments.Load((record_7.startSegment + previous_index)*48+36)), asuint(segments.Load((record_7.startSegment + previous_index)*48+40)), asuint(segments.Load((record_7.startSegment + previous_index)*48+44)));
     const float2 _e35 = axis_point(segment_4.p0_, vertical_7);
     const float2 _e37 = axis_point(previous.p0_, vertical_7);
@@ -733,13 +736,13 @@ float smart_curve_crossing(GlyphRecord record_8, Event event, float level_7, boo
         float _expr35 = t_2;
         t_2 = (1.0 - _expr35);
     }
-    bool loop_init_6 = true;
+    bool loop_init_8 = true;
     while(true) {
-        if (!loop_init_6) {
+        if (!loop_init_8) {
             uint _expr108 = depth;
             depth = (_expr108 + 1u);
         }
-        loop_init_6 = false;
+        loop_init_8 = false;
         uint _expr40 = depth;
         if ((_expr40 < 32u)) {
         } else {
@@ -795,20 +798,20 @@ float smart_curve_crossing(GlyphRecord record_8, Event event, float level_7, boo
     return (floor((_expr111 * 64.0)) / 64.0);
 }
 
-void dropout(GlyphRecord record_9, uint index_3, float level_8, bool vertical_9)
+void dropout(GlyphRecord record_9, uint index_1, float level_8, bool vertical_9)
 {
     uint end = (uint)0;
     uint side = 0u;
     float selected = (float)0;
     float midpoint = (float)0;
 
-    Event beginning_1 = events[index_3];
-    int _expr12 = winding[index_3];
+    Event beginning_1 = events[index_1];
+    int _expr12 = winding[index_1];
     if (((beginning_1.delta == 0) || (_expr12 == 0))) {
         return;
     }
-    int _expr22 = winding[(index_3 - 1u)];
-    if (((index_3 > 0u) && (_expr22 != 0))) {
+    int _expr22 = winding[(index_1 - 1u)];
+    if (((index_1 > 0u) && (_expr22 != 0))) {
         return;
     }
     uint _expr32 = asuint(segments.Load(36+(record_9.startSegment + beginning_1.source)*48));
@@ -816,7 +819,7 @@ void dropout(GlyphRecord record_9, uint index_3, float level_8, bool vertical_9)
     if (((((mode_1 == 2u) || (mode_1 == 3u)) || (mode_1 == 6u)) || (mode_1 == 7u))) {
         return;
     }
-    end = (index_3 + 1u);
+    end = (index_1 + 1u);
     while(true) {
         uint _expr49 = end;
         uint _expr53 = end;
@@ -858,13 +861,13 @@ void dropout(GlyphRecord record_9, uint index_3, float level_8, bool vertical_9)
         }
     }
     if (((mode_1 == 1u) || (mode_1 == 5u))) {
-        bool loop_init_7 = true;
+        bool loop_init_9 = true;
         while(true) {
-            if (!loop_init_7) {
+            if (!loop_init_9) {
                 uint _expr148 = side;
                 side = (_expr148 + 1u);
             }
-            loop_init_7 = false;
+            loop_init_9 = false;
             uint _expr124 = side;
             if ((_expr124 < 2u)) {
             } else {
@@ -925,14 +928,18 @@ GlyphRecord ConstructGlyphRecord(uint arg0, uint arg1, float arg2, float arg3, f
 [numthreads(256, 1, 1)]
 void cs_binary_horizontal(uint3 group : SV_GroupID, uint lane : SV_GroupIndex, uint3 __local_invocation_id : SV_GroupThreadID)
 {
-    if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        events = (Event[512])0;
-        winding = (int[512])0;
+    uint workgroup_zero_local_index = __local_invocation_id.x + 256u * (__local_invocation_id.y + 1u * __local_invocation_id.z);
+    for (uint workgroup_zero_index = workgroup_zero_local_index; workgroup_zero_index < 512u; ) {
+        events[workgroup_zero_index] = (Event)0;
+        workgroup_zero_index += 256u;
+    }
+    for (uint workgroup_zero_index_1 = workgroup_zero_local_index; workgroup_zero_index_1 < 512u; ) {
+        winding[workgroup_zero_index_1] = (int)0;
+        workgroup_zero_index_1 += 256u;
     }
     GroupMemoryBarrierWithGroupSync();
     uint word = (uint)0;
     uint x = (uint)0;
-    uint index = (uint)0;
 
     uint row = group.y;
     uint _expr5 = uniforms.height;
@@ -940,13 +947,13 @@ void cs_binary_horizontal(uint3 group : SV_GroupID, uint lane : SV_GroupIndex, u
         return;
     }
     word = lane;
-    bool loop_init_8 = true;
+    bool loop_init_10 = true;
     while(true) {
-        if (!loop_init_8) {
+        if (!loop_init_10) {
             uint _expr30 = word;
             word = (_expr30 + 256u);
         }
-        loop_init_8 = false;
+        loop_init_10 = false;
         uint _expr8 = word;
         uint _expr11 = uniforms.outputRowWords;
         if ((_expr8 < _expr11)) {
@@ -973,13 +980,13 @@ void cs_binary_horizontal(uint3 group : SV_GroupID, uint lane : SV_GroupIndex, u
         return;
     }
     x = lane;
-    bool loop_init_9 = true;
+    bool loop_init_11 = true;
     while(true) {
-        if (!loop_init_9) {
+        if (!loop_init_11) {
             uint _expr73 = x;
             x = (_expr73 + 256u);
         }
-        loop_init_9 = false;
+        loop_init_11 = false;
         uint _expr54 = x;
         uint _expr57 = uniforms.width;
         if ((_expr54 < _expr57)) {
@@ -996,24 +1003,8 @@ void cs_binary_horizontal(uint3 group : SV_GroupID, uint lane : SV_GroupIndex, u
             }
         }
     }
-    index = lane;
-    bool loop_init_10 = true;
-    while(true) {
-        if (!loop_init_10) {
-            uint _expr82 = index;
-            index = (_expr82 + 256u);
-        }
-        loop_init_10 = false;
-        uint _expr76 = index;
-        if ((_expr76 < 512u)) {
-        } else {
-            break;
-        }
-        {
-            uint _expr79 = index;
-            dropout(record_10, _expr79, level_9, false);
-        }
-    }
+    dropout(record_10, lane, level_9, false);
+    dropout(record_10, (lane + 256u), level_9, false);
     vertex_dropout(record_10, lane, level_9, false);
     return;
 }
@@ -1021,13 +1012,16 @@ void cs_binary_horizontal(uint3 group : SV_GroupID, uint lane : SV_GroupIndex, u
 [numthreads(256, 1, 1)]
 void cs_binary_vertical(uint3 group_1 : SV_GroupID, uint lane_1 : SV_GroupIndex, uint3 __local_invocation_id : SV_GroupThreadID)
 {
-    if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        events = (Event[512])0;
-        winding = (int[512])0;
+    uint workgroup_zero_local_index_1 = __local_invocation_id.x + 256u * (__local_invocation_id.y + 1u * __local_invocation_id.z);
+    for (uint workgroup_zero_index_2 = workgroup_zero_local_index_1; workgroup_zero_index_2 < 512u; ) {
+        events[workgroup_zero_index_2] = (Event)0;
+        workgroup_zero_index_2 += 256u;
+    }
+    for (uint workgroup_zero_index_3 = workgroup_zero_local_index_1; workgroup_zero_index_3 < 512u; ) {
+        winding[workgroup_zero_index_3] = (int)0;
+        workgroup_zero_index_3 += 256u;
     }
     GroupMemoryBarrierWithGroupSync();
-    uint index_1 = (uint)0;
-
     uint column = group_1.y;
     uint _expr5 = uniforms.width;
     if ((column >= _expr5)) {
@@ -1042,24 +1036,8 @@ void cs_binary_vertical(uint3 group_1 : SV_GroupID, uint lane_1 : SV_GroupIndex,
     if (((level_10 < _e20.x) || (level_10 >= _e20.z))) {
         return;
     }
-    index_1 = lane_1;
-    bool loop_init_11 = true;
-    while(true) {
-        if (!loop_init_11) {
-            uint _expr34 = index_1;
-            index_1 = (_expr34 + 256u);
-        }
-        loop_init_11 = false;
-        uint _expr28 = index_1;
-        if ((_expr28 < 512u)) {
-        } else {
-            break;
-        }
-        {
-            uint _expr31 = index_1;
-            dropout(record_11, _expr31, level_10, true);
-        }
-    }
+    dropout(record_11, lane_1, level_10, true);
+    dropout(record_11, (lane_1 + 256u), level_10, true);
     vertex_dropout(record_11, lane_1, level_10, true);
     return;
 }

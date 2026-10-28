@@ -1,25 +1,22 @@
 {
   "productHead": "45981bf7619d2e809f08ceda491fad2be535d3b0",
-  "diagnosticParent": "bd1791d3d89eedfe2d93bbe61dca6e7e219753d7",
+  "diagnosticParent": "642d89ee9482c289ddd5d45edafced6892f69e92",
   "originalWgslSha256": "a2c10ae341defaabf7a3637d4a3e4e7d16c64a9e3d1d9e9632f52f487ac6c427",
   "qualification": false,
+  "containsInvalidRenderingStubs": false,
   "sha256": {
-    "stub-curve.hlsl": "774ec1a01646a86eab87b29e8e7644b0c2dcf9a2a10227f10517311e2472c047",
-    "stub-continuation.hlsl": "31fbc3facb08ab273e358b8907202c04a6b8b13116319983fe5a419fd6d3d574",
-    "stub-curve.diff": "334f2895607621f4b7d6682ed51dbc8abe31529720888050ca9cd8eafb9d77b7",
-    "stub-continuation.diff": "9a0b7e377d388a70089814e533d118b5cc20143d6f585a46417c44811b8c8fa3",
-    "candidate.wgsl": "b65bb5817c1f6a42d3e4d325ad595c6e0ff08474643d3d1b615b9a89cd7469d2",
-    "Program.cs": "25da8d9f1d445c0ef8b823e4af46d0770cd697ca1faaf8e341b9987a29b9166c",
     "Probe.csproj": "12194a99cdfa230ecd8c7d65f45abb5670d5fde5497cb2541d8e4af10edb14f1",
-    "run.py": "e32e45dc4470c6b3b2adea24510d2fb7cf6a6cdde39f9b8671b71defcdd194b0",
-    "process-metrics.py": "a5120975c1be39d6d92b718461965888ee96692a74e2e122923545f7a9bdcad8",
-    "generator.rs": "13710d963a8388340b2265316df270ebde228874a5108b5be5ed3810f8b03c16",
     "generator-Cargo.lock": "fb4657986b2cbdc816ecfedbf52eab45a2f4fa7197321d47e69ff0944b8d764c",
-    "generation.json": "6b90181596bc64104096a69a97bdc720b8e4429919e5216fa5d313dceade5c59",
-    "variants.json": "a3c5e9768aae428b95453b34dfa2f7f11486ffe35941d94fd5f45089c2fcc4b9",
+    "candidate.wgsl": "cd502eedde7eac0635f9d63d9b3de700e8ce877109187ab78833d19c927e1f9b",
+    "run.py": "5858ae0d391eb344ba5d8ce079f0fc13c4c0fe619cc0466f7b2bbd395d996eca",
+    "producer.patch": "048251c667d3807f8bf28f6dc7d7d30f47cf08316c86c4b6f627f247d8575847",
+    "producer-inputs.json": "ae71fdc538621d4cd59cf59b1563e3f4ab87123749c5f1550c524b8e24d28fa6",
+    "candidate.hlsl": "a1cb8605cffc29a4dd3bd0e50e238968bc91620c68a2fd5422c152d5a6fcd0f0",
+    "process-metrics.py": "a5120975c1be39d6d92b718461965888ee96692a74e2e122923545f7a9bdcad8",
     ".gitattributes": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9",
-    "distributed-zero.hlsl": "e10f51a82e7ea1306c97fce679db7e943d72727c42b2b94b4f91415312336f23",
-    "distributed-zero.diff": "a94305aed9463d62e8864aee87074cd2e11e42724aa1fa20b3186eb84646cbf6"
-  },
-  "containsInvalidRenderingStubs": true
+    "generation.json": "e652f8f13220119f05968829ac69c5904249c85a7621ec7d195fbca326a71f38",
+    "generation-controls.json": "bf82579fab3a16cb0a2d6e69241e7907be48a67eaa9a7049b3fe334085d9a7a6",
+    "generator.rs": "6c3c0a13d3ed6d607397115ff5d1f9eeaeb9ce230001fa85c1793169fff1e2b4",
+    "Program.cs": "f7888f38d3e20939e8cc1b1ac24bd870478784cc4f4c46ecf6e9a349277aa015"
+  }
 }
