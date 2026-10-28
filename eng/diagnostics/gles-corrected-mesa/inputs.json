@@ -1,0 +1,60 @@
+{
+  "image": "docker.io/library/ubuntu@sha256:157dc3d6e4a3e4f2c68d12df9df9ed6e808b59af6d4c3757b432b4f519916725",
+  "imageDigest": "sha256:157dc3d6e4a3e4f2c68d12df9df9ed6e808b59af6d4c3757b432b4f519916725",
+  "artifact": {
+    "id": 12830983137,
+    "run": 40722674022,
+    "head": "e0769d9ee7265f87703aefbe43bf20d065c301cc",
+    "bytes": 5251918,
+    "sha256": "8e2b204c0d08a466429ab86e05a93f16ec1f830ecc4f53a9c5baa369867e1b5d"
+  },
+  "binaryHashes": {
+    "probe": "849a1c6e54e04b90a449c875e28d72a94fdf014de6da30983c5f30f675eb56d5",
+    "libwgpu_native.so": "9d67df29c6e174e818f900c5703445e80b53b25b6ec5609e9c3a5a603cec7b7f"
+  },
+  "mesaPackages": [
+    {
+      "Package": "libegl-mesa0",
+      "Version": "26.0.8-1ubuntu0.3",
+      "Filename": "pool/main/m/mesa/libegl-mesa0_26.0.8-1ubuntu0.3_amd64.deb",
+      "SHA256": "938813d9d6bb7ccf8315af1f8bb2770ad4b9d240ad177f0da420db3e94600d6b"
+    },
+    {
+      "Package": "libgbm1",
+      "Version": "26.0.8-1ubuntu0.3",
+      "Filename": "pool/main/m/mesa/libgbm1_26.0.8-1ubuntu0.3_amd64.deb",
+      "SHA256": "5d2d1eaf0f72c5a2c4aef692e5660c6fa61e46542c4d9cb5593ba8bd020b2eea"
+    },
+    {
+      "Package": "libgl1-mesa-dri",
+      "Version": "26.0.8-1ubuntu0.3",
+      "Filename": "pool/main/m/mesa/libgl1-mesa-dri_26.0.8-1ubuntu0.3_amd64.deb",
+      "SHA256": "585dfac64d7ca95a9813faad9f14c361d788069b7578859fb426c657dd528f08"
+    },
+    {
+      "Package": "libglx-mesa0",
+      "Version": "26.0.8-1ubuntu0.3",
+      "Filename": "pool/main/m/mesa/libglx-mesa0_26.0.8-1ubuntu0.3_amd64.deb",
+      "SHA256": "17ff6239daaf75337d3697c1e5f1ef3e190c4c2dd73a9f0edfc36868ef41905c"
+    },
+    {
+      "Package": "mesa-libgallium",
+      "Version": "26.0.8-1ubuntu0.3",
+      "Filename": "pool/main/m/mesa/mesa-libgallium_26.0.8-1ubuntu0.3_amd64.deb",
+      "SHA256": "7f123a545774034793ba3516c5fad0be88de68ad91319a4b220d98b32a289451"
+    }
+  ],
+  "files": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "bootstrap.sh": "4482dbf9101ba4a578eb9c0ddf746f9e735d2c35f120e43cad8faf259c385d2c",
+    "setup.sh": "0766d37c1df3ed228b6748185c4e99a9278550657ffef5490c3de7f08a755418",
+    "inside.py": "15a7e54524a9781c11a5036631c9f980ea6045f459c0e4b191d28d04eaf07bd1",
+    "run.py": "354276169022b0521dffa0a8946d3b238c775aeed79211491ab2eef0c618e258",
+    "test_controls.py": "75718ba4f4ed895992a61af604a93c468e5c2de0dde8da1a4264e0b10c9da64a",
+    "workflow.yml": "8c91eda73ec9fb8eaba21a14070b754bd75d502132e0e8af0d0e50b7426e4635",
+    "mesa-debs.sha256": "294303662e4d695ea40d6f68e3bf59b1f8c8c942fe0459d473c3beb08eee9c48",
+    "corrected-source-proof.json": "4446a7a63b6fade40cd66eac9db50dae5ffd5e11ab019442880dfab0424ff02f",
+    "ubuntu-source-archives.json": "5b6687a9ce9edfc9d500b19c61c9915d04efaf1057a9aaf873815643bc71473d",
+    "container-identity.json": "00aecb9b3f2740995d3a229d977002a5f176c4fda2e0a06a0841d14465ed6517"
+  }
+}

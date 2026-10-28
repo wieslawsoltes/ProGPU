@@ -1,0 +1,34 @@
+name: Corrected Mesa driver original pixel control
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths:
+      - '.github/workflows/gles-corrected-mesa.yml'
+      - 'eng/diagnostics/gles-corrected-mesa/**'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  corrected-driver:
+    if: github.head_ref == 'diag/gles-corrected-mesa-20261028'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Ownership and admission controls
+        run: python3 -m unittest discover -s eng/diagnostics/gles-corrected-mesa -p test_controls.py -v
+      - name: One unchanged Ubuntu24 binary control in private Ubuntu26 driver environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 eng/diagnostics/gles-corrected-mesa/run.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gles-corrected-mesa
+          path: |
+            eng/diagnostics/gles-corrected-mesa/evidence/**
+            !eng/diagnostics/gles-corrected-mesa/evidence/container/verified-debs/**
+          if-no-files-found: error

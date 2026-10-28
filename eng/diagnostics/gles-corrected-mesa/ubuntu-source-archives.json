@@ -1,0 +1,12 @@
+[
+  {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/main/m/mesa/mesa_26.0.8.orig.tar.xz",
+    "bytes": 44001316,
+    "sha256": "caf1c0061a68e88dfa74967a7e780c0e85d65b6c4e334cd69095a5dc54ad78bc"
+  },
+  {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/main/m/mesa/mesa_26.0.8-1ubuntu0.3.debian.tar.xz",
+    "bytes": 108276,
+    "sha256": "fd7e379e86b8e4bc58b9910006ce4fce102722a9fb711f292c1d20b0301a77ff"
+  }
+]

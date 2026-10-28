@@ -1,0 +1,44 @@
+{
+  "sourceVersion": "26.0.8-1ubuntu0.3",
+  "upstreamFix": "92550b106c70408cd9f5c25a50c311e68af06d6b",
+  "officialSourceHashesVerifiedAgainstDsc": true,
+  "dscSignatureIndependentlyVerified": false,
+  "sourceFiles": [
+    {
+      "path": "src/gallium/drivers/llvmpipe/lp_setup.c",
+      "sha256": "f1d8d4c203fee9fa28bbfd9828928adea9f034e6bc1abbf80f11c7a00626d4c7",
+      "addedLinesPresent": true,
+      "missing": []
+    },
+    {
+      "path": "src/gallium/drivers/llvmpipe/lp_setup_context.h",
+      "sha256": "c9cbb579886117d3fd50fa2893e4a2076022473fd4d66f4fbc726968839d8162",
+      "addedLinesPresent": true,
+      "missing": []
+    },
+    {
+      "path": "src/gallium/drivers/llvmpipe/lp_setup_line.c",
+      "sha256": "4281b46efbf8c06253146b83691509d9a72fb402ca079423734ecba4250ea350",
+      "addedLinesPresent": true,
+      "missing": []
+    },
+    {
+      "path": "src/gallium/drivers/llvmpipe/lp_setup_tri.c",
+      "sha256": "527456571ccecef3059a07a0706cc3531774685ca9431d91b2cb18460d6912c3",
+      "addedLinesPresent": true,
+      "missing": []
+    }
+  ],
+  "debianPatchesTouchingFiles": [],
+  "scope": "Preparation only; execution will additionally use signed APT metadata and exact recorded Mesa deb hashes.",
+  "binaryReuse": {
+    "artifact": 12830983137,
+    "sha256": "8e2b204c0d08a466429ab86e05a93f16ec1f830ecc4f53a9c5baa369867e1b5d",
+    "member": "disabled",
+    "runtimeSha256": "9d67df29c6e174e818f900c5703445e80b53b25b6ec5609e9c3a5a603cec7b7f",
+    "probeSha256": "849a1c6e54e04b90a449c875e28d72a94fdf014de6da30983c5f30f675eb56d5",
+    "queueSha256": "ce927ff6649f9594081d15c20d131f537dbca4a96ea5ef4d7c136607ecc835a0",
+    "sourceBuildOS": "Ubuntu24.04",
+    "observationInstrumentationRetainedUnchanged": true
+  }
+}
