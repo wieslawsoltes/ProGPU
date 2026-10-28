@@ -72,8 +72,11 @@ Both renderers use the same shader and preserve actual submission ownership.
 Managed work uses the existing uniform/output rings, including oversized glyphs;
 native work retains both buffers and bindings in its existing raster lease. The
 extra buffer participates in native memory inventory, staging metrics and semantic
-resource budgeting. Pipelines remain lazy; binary-only demand does not compile the
-ordinary vector rasterizer. Immutable source bytes participate in raster identity.
+resource budgeting. Managed `GlyphAtlas.CoverageStagingBytes` reports both allocated
+coverage rings after binary demand; ordinary demand keeps its original reservation
+and warm binary replay reuses both rings. This allocated-reservation metric remains
+separate from native per-operation staging bytes. Pipelines remain lazy; binary-only
+demand does not compile the ordinary vector rasterizer. Immutable source bytes participate in raster identity.
 Shared command admission requires aliased integer-origin replay and the complete
 bounded outline inventory; the inventory maximum is retained once per generation,
 including selected views. Unsupported execution paths reject instead of selecting

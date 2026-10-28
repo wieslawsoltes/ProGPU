@@ -78,9 +78,12 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
         using var context = new WgpuContext { ComputeExecutionPreference = GpuComputeExecutionPreference.NativeCompute };
         context.Initialize(null);
         Assert.Equal(GpuComputeExecutionPath.NativeCompute, context.GlyphRasterizationPath);
+        const uint coverageRingBytes = 1024 * 1024;
         using var atlas = new GlyphAtlas(context, atlasSize: 2048, initialAtlasSize: 2048,
             colorAtlasSize: 64, initialColorAtlasSize: 64, uniformRingBufferSize: 4096,
-            coverageRingBufferSize: 1024 * 1024);
+            coverageRingBufferSize: coverageRingBytes);
+        // The ordinary ring is eager; binary horizontal scratch remains lazy.
+        ulong initialCoverageBytes = atlas.CoverageStagingBytes;
         var locations = new GlyphInfo[cases.Length];
         atlas.BeginBatch();
         try
@@ -90,6 +93,7 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
         }
         finally { atlas.EndBatch(); }
         byte[] cold = atlas.AtlasTexture.ReadPixels();
+        ulong coldCoverageBytes = atlas.CoverageStagingBytes;
         Assert.Equal(2048 * 2048, cold.Length);
         Assert.Equal(1, context.CachedDeviceShaderModuleCount);
         Assert.Equal(2, context.CachedDeviceComputePipelineCount);
@@ -133,9 +137,15 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
         Assert.Equal(bindings, atlas.RasterBindGroupCreationCount);
         Assert.Equal(passes, atlas.RasterComputePassCount);
         Assert.Equal(cold, atlas.AtlasTexture.ReadPixels());
+        // Replaying the same captured geometry must reuse both actual rings.
+        ulong warmCoverageBytes = atlas.CoverageStagingBytes;
         retained.Dispose();
         Assert.Equal(1, owner.Disposals);
         Assert.True(failedCases == 0,
             $"Original binary coverage: {failedCases}/880 cases and {failedPixels} pixels differ. " + string.Join("; ", differences));
+        // Check accounting only after completing every original cold/warm pixel.
+        Assert.Equal((ulong)coverageRingBytes, initialCoverageBytes);
+        Assert.Equal(2UL * coverageRingBytes, coldCoverageBytes);
+        Assert.Equal(2UL * coverageRingBytes, warmCoverageBytes);
     }
 }

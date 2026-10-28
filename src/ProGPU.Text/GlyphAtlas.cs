@@ -465,7 +465,9 @@ public unsafe partial class GlyphAtlas : IDisposable
         (ulong)_atlasSize * _atlasSize +
         (ulong)_colorAtlasSize * _colorAtlasSize * 4UL;
 
-    public ulong CoverageStagingBytes => _coverageRingBuffer?.Size ?? 0UL;
+    public ulong CoverageStagingBytes =>
+        (_coverageRingBuffer?.Size ?? 0UL) +
+        (_binaryHorizontalRingBuffer?.Size ?? 0UL);
 
     public ulong UniformStagingBytes => _uniformRingBuffer.Size;
 
