@@ -1,5 +1,115 @@
 # Retained image finalization
 
+## Portable context cache and raster ownership, 2026-10-28
+
+The optional `SKImage` context cache had a separate ownership gap. Direct image
+finalization skipped `DisposeManaged`, leaving an independently retained cached
+texture alive. A finalizing image shader instead called its retained image's
+ordinary `Dispose`, whose cache cleanup took the cached texture's `RenderLock`.
+The earlier primary `TextureStorage` correction did not cover either path.
+
+Ten actual-device controls against unchanged `SKImage.cs` at `98acaf8170`
+(source SHA-256
+`bb3bdec4f6fd6df3dd4faf58b8c763d4ce11cce01244ee2386e7851cd11f78c9`)
+produced six failures and four explicit-disposal passes. On each of stock
+wgpu-native and Dawn, a directly abandoned image retained its cache texture;
+an image shader and nested matrix shader missed the original five-second
+lock-held join and completed after unlocking. The tests retain the actual cache
+texture and, for nested disposal, the actual retained image wrapper. They do not
+rely on finalizer ordering to exercise the owner being checked.
+
+Cache release now covers both image disposal paths, preserving the original
+explicit `DisposeNative`/`DisposeManaged` hook order. Each entry uses its
+own actual context through `GpuTexture.DisposeFromFinalizer` during direct or
+nested finalization; ordinary disposal still calls `Dispose`. Shared primary
+storage counts, borrowed textures, context-cache keys, pixel bytes and source
+callbacks remain unchanged. Selection is O(1) per entry and cleanup is O(C) for
+C materialized contexts, matching existing explicit cleanup. There is no new
+worker, readback, allocation threshold, collection mode or timeout.
+
+This uses the original `SKNativeObject` finalizer-context scope and
+`GpuTexture` atomic queue-only retirement. Both managed providers share the
+same optional image cache and have paired controls. The C++ renderer's owned
+resource batches in `progpu_native_submission_resources.hpp` retire against
+their recorded completion token; they do not own this cross-`WgpuContext`
+`SKImage` cache or invoke CLR finalization. Its submission and native raster
+resource contracts are unaffected. The independent .NET finalization contract
+linked below was checked again; no external implementation was copied.
+
+The same `DisposeManaged` boundary also excluded direct finalization from
+freeing the image's raster `GCHandle` and invoking its original raster release
+callback. A separate ten-case original control set produced six failures and
+four explicit-disposal passes across both providers. Test-only reflection
+observes the actual private pin owner rather than inferring a leak from a
+process-wide pin count. Live borrowed pixmaps correctly keep their image and
+pointer alive; after pixmap disposal, the abandoned image previously left its
+pin allocated. Source callbacks were also missing after image finalization.
+The failing pin controls release their observed handle after assertions, avoiding
+a leak from the diagnostic itself. The initial six-case inventory, complete
+ten-case original run and all failures are preserved separately.
+
+Raster cleanup now runs at the common disposal boundary, releases the actual
+pin and clears its pixel array, then invokes the original callback once outside
+the raster lock. Its pointer/context are unchanged. Exceptions from callbacks
+are contained only during actual direct or nested finalization; explicit
+disposal still propagates them. This is O(1) CPU ownership work. The CLR pin and
+callback belong to this managed image wrapper, with no counterpart in the
+native submission-retention implementation.
+
+The final combined run passes all 38 image-finalizer cases, 13 original
+cache-sampler cases and 47 selected existing image/API/canvas ownership cases
+on macOS ARM64: 98 passes, zero skips. It includes four exception-context
+controls and preserves the original five-second bounds. Original failed and
+successful logs/TRX, source snapshots and hashes are retained in the task's
+`2026/10/28/progpu-portable-image-371` evidence directory. Hosted whole-Build,
+package and application qualification remain required. These additional
+ownership defects do not attribute the original Linux collector miss in #371;
+that still requires its own stack/timing evidence.
+
+## Surface-owned resources, 2026-10-28
+
+The bounded adjacent surface audit demonstrated another skipped
+`DisposeManaged` ownership boundary. Against unchanged `SKSurface.cs` SHA-256
+`4bd7e1f1596af93334edb097355b533c97de8f4ad9b9698f8048f20feb38c964`,
+20 paired stock/Dawn controls produced ten failures and ten passes. Abandoned
+surfaces left their actual owned texture alive, retained an owned HGlobal, kept
+a 512-byte readback buffer allocated, and omitted original release callbacks.
+Explicit disposal, borrowed textures and retained snapshot pixels already
+passed. Negative controls retain actual child owners; they release observed
+HGlobals/readback buffers after assertions rather than leaking test artifacts.
+
+Direct finalization now retires the actual owned texture and readback buffer
+through existing queue-only paths, releases the surface's counted immutable
+generation and frees its own CPU storage. It does not flush pending drawing,
+dispose the canvas, poll, unmap or enter RenderLock. Command unsubscription and
+canvas detachment only remove managed references. The original explicit
+`DisposeManaged` flush and caller-thread teardown order remain intact. Borrowed
+textures and CPU pointers remain caller-owned, and a live snapshot retains its
+own generation lease. Original release callbacks run once; only actual
+finalizer callback exceptions are contained. This reuses original surface,
+image-generation and backend retirement code, with O(1) owner work and no new
+worker, resource registry, rendering algorithm or native ABI.
+
+Review additionally found that a finalizing surface's short weak registry entry
+was already cleared before `Unregister`. Two actual surface controls failed
+while the live replacement-owner control passed. Unregistration now removes a
+dead entry just as `TryPresent` already did, preserving every live replacement
+at the same framebuffer address. The [documented weak-reference lifetime](https://learn.microsoft.com/en-us/dotnet/standard/garbage-collection/weak-references)
+was consulted; no external implementation was copied.
+
+The final focused run passes all 179 selected image, surface, cache-retirement
+and compatibility controls with zero skips, including all 23 surface controls.
+The original five-second collector bound remains unchanged.
+
+Both managed providers share these owners and their paired controls. The native
+C++ submission-retention implementation neither owns this `SKSurface` HGlobal/
+callback/weak-registration state nor participates in CLR finalization; its GPU
+submission/resource-completion contract is unchanged. Original failures, final
+results, source hashes and control inventories are retained in the task's
+`2026/10/28/progpu-surface-finalizer-371` evidence directory. This fixes the
+demonstrated owner defects; it does not attribute the historical Linux deadline
+miss or replace hosted, package or application qualification.
+
 ## Observed lock cycle
 
 An abandoned `SKImage` releases its last counted `TextureStorage` reference from

@@ -7,6 +7,7 @@ internal sealed partial class Win32NativeWindowPlatform
 {
     private const nuint PopupSubclassId = 0x50525050;
     private const uint PopupNoOwnerZOrder = 0x0200;
+    private static long s_popupConfigurationIdentity;
     internal static bool TryConfigurePopupOwner(nint owner, nint popup)
     {
         var api = new PopupOperations();
@@ -40,8 +41,36 @@ internal sealed partial class Win32NativeWindowPlatform
             $"currentProcess={Environment.ProcessId} ownerProcess={ownerProcess} popupProcess={popupProcess}");
     }
 
-    private readonly unsafe struct PopupOperations : IWin32PopupOperations
+    private unsafe struct PopupOperations : IWin32PopupOperations
     {
+        private nuint _identity;
+
+        public bool BeginConfigurationIdentity(nint owner, nint popup)
+        {
+            long next = Interlocked.Increment(ref s_popupConfigurationIdentity);
+            if (next <= 0 || (ulong)next > nuint.MaxValue) return false;
+            _identity = (nuint)next;
+            if (SetWindowSubclass(owner, &ConfigurationIdentityProcedure, _identity, 0) != 0 &&
+                SetWindowSubclass(popup, &ConfigurationIdentityProcedure, _identity, 0) != 0 &&
+                HasConfigurationIdentity(owner, popup)) return true;
+            EndConfigurationIdentity(owner, popup);
+            return false;
+        }
+
+        public bool HasConfigurationIdentity(nint owner, nint popup) =>
+            AreLocalWindows(owner, popup) && HasIdentity(owner) && HasIdentity(popup);
+
+        private bool HasIdentity(nint window) => _identity != 0 &&
+            GetWindowSubclass(window, &ConfigurationIdentityProcedure, _identity, out _) != 0;
+
+        public void EndConfigurationIdentity(nint owner, nint popup)
+        {
+            // A recycled numeric HWND cannot retain this attempt's unique hook.
+            if (HasIdentity(popup)) _ = RemoveWindowSubclass(popup, &ConfigurationIdentityProcedure, _identity);
+            if (HasIdentity(owner)) _ = RemoveWindowSubclass(owner, &ConfigurationIdentityProcedure, _identity);
+            _identity = 0;
+        }
+
         public bool AreLocalWindows(nint owner, nint popup)
         {
             uint ownerThread = GetWindowThreadProcessId(owner, out uint ownerProcess);
@@ -71,8 +100,20 @@ internal sealed partial class Win32NativeWindowPlatform
         public bool InstallNonActivationHook(nint window) =>
             SetWindowSubclass(window, &PopupSubclassProcedure, PopupSubclassId, 0) != 0;
 
+        public bool HasNonActivationHook(nint window) =>
+            GetWindowSubclass(window, &PopupSubclassProcedure, PopupSubclassId, out _) != 0;
+
         public void RemoveNonActivationHook(nint window) =>
             _ = RemoveWindowSubclass(window, &PopupSubclassProcedure, PopupSubclassId);
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe nint ConfigurationIdentityProcedure(nint window, uint message,
+        nuint wParam, nint lParam, nuint subclassId, nuint referenceData)
+    {
+        if (message == 0x0082) // WM_NCDESTROY ends this exact HWND lifetime.
+            _ = RemoveWindowSubclass(window, &ConfigurationIdentityProcedure, subclassId);
+        return DefSubclassProc(window, message, wParam, lParam);
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -90,6 +131,11 @@ internal sealed partial class Win32NativeWindowPlatform
     [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
     private static unsafe partial int SetWindowSubclass(nint window,
         delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nuint, nuint, nint> callback, nuint id, nuint data);
+
+    [LibraryImport("comctl32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe partial int GetWindowSubclass(nint window,
+        delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nuint, nuint, nint> callback, nuint id, out nuint data);
 
     [LibraryImport("comctl32.dll")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]

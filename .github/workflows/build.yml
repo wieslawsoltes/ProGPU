@@ -1889,6 +1889,23 @@ jobs:
           path: artifacts/owned-cocoa-popup
           if-no-files-found: warn
 
+      - name: Run Win32 popup owner and frame callback contracts
+        if: runner.os == 'Windows'
+        run: >-
+          dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj
+          --configuration Release --runtime ${{ matrix.rid }} --no-build
+          --filter "FullyQualifiedName~Win32PopupConfigurationTests|FullyQualifiedName~NativePopupWindowWindowsTests"
+          --logger "trx;LogFileName=native-win32-popup.trx"
+          --results-directory artifacts/native-win32-popup
+
+      - name: Upload Win32 popup contract results
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-win32-popup-${{ matrix.rid }}
+          path: artifacts/native-win32-popup
+          if-no-files-found: warn
+
       - name: Run X11 popup server-state contracts
         if: runner.os == 'Linux'
         shell: bash

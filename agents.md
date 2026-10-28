@@ -1,3 +1,22 @@
+Abandoned SKSurface owners retire only their actual owned texture/readback,
+counted immutable generation and CPU storage. Finalization must not flush,
+dispose the canvas, poll, unmap or take RenderLock. Preserve explicit teardown
+order, borrowed pointers/textures, retained snapshots and once-only source
+callbacks. Remove dead weak framebuffer entries without deleting any live
+replacement owner. See docs/retained-image-finalization.md; historical Linux
+deadline attribution and full provider/package qualification remain separate.
+
+Portable SKImage context caches retire their actual owned textures on direct and
+nested finalization through the existing queue-only path. Preserve the actual
+cached context, shared primary storage counts, borrowed textures and explicit
+disposal notifications. Keep independently rooted cache children in paired
+stock/Dawn controls and the original five-second bound. The image also retires
+its actual raster pin and original once-only release callback; a live borrowed
+pixmap retains its source image. Only actual finalizer callback exceptions are
+contained; explicit disposal keeps its original exception behavior. This defect
+does not attribute the historical Linux collector miss; see
+docs/retained-image-finalization.md.
+
 Explicit source grayscale contrast is immutable draw metadata. Preserve original
 layout/glyph positions, raw contrast 0..12, grayscale-only admission and default
 legacy rendering. Carry it through every retained/archive/native style, direct
@@ -2405,7 +2424,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,343 renderer cases (6,333 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,428 renderer cases (6,415 passes and 13 platform skips on macOS) and 230 headless tests. The additional Windows popup callback case is exercised by its dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 

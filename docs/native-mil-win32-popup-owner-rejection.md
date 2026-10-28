@@ -1,10 +1,23 @@
 # Win32 native popup-owner rejection diagnostics
 
 `NativePopupWindow.TryConfigureOwner` must admit two distinct, live, same-thread
-top-level HWNDs while the popup is hidden. It then writes the owner and
+top-level HWNDs while the popup is hidden. A temporary unique subclass identity
+on each original HWND spans configuration and rollback, then is removed. Every
+attribute/hook/frame mutation rechecks those identities; same-thread numeric HWND
+reuse after destruction cannot receive subsequent writes. The attempt rejects
+before attribute mutation if either identity hook cannot be installed. It then writes the owner and
 nonactivating popup styles, installs its native mouse-activation lifetime hook,
-and refreshes the frame. Any failed write/hook/refresh restores the original
-attributes and returns false; the caller must dispose the rejected popup. A
+and refreshes the frame. Before success, it reads back the live same-thread pair,
+top-level owner, exact requested popup owner/styles (including hidden state), and
+the installed nonactivation subclass. Style changes and frame refresh dispatch
+synchronous window messages; a callback may replace those values even when every
+native operation succeeds. Such a mismatch or unreadable state reports
+`ConfigurationChanged`, attempts the same original-attribute restoration, and
+returns false. Any failed write/hook/refresh also attempts restoration; the caller
+must dispose the rejected popup. Restoration cannot recover a destroyed HWND. A
+lifetime and locality check precedes each cleanup mutation so retirement cannot redirect
+remaining writes to a reused, invalid or foreign-thread HWND. Rejected reconfiguration
+retains a nonactivation hook that was present before this attempt. A
 diagnostic must not show an unowned window or turn this rejection into a managed
 renderer fallback.
 
@@ -21,7 +34,8 @@ attempts then write one line to standard error with a stable reason, the borrowe
 HWND values, and current/owner/popup native thread and process IDs. Accepted
 attempts and ordinary runs perform no diagnostic reads or logging. The reason
 distinguishes invalid identity, locality, each original-attribute read, child
-or visible styles, each write, the nonactivation hook, and frame refresh. This
+or visible styles, each write, the nonactivation hook, frame refresh, and changed
+configuration after synchronous callbacks. This
 instrumentation does not bypass any admission condition or retain an HWND.
 
 Qualification requires overlaying the exact built `ProGPU.Backend.dll` in the
@@ -31,3 +45,12 @@ the fake-operation fixture is only a unit contract; it cannot qualify GLFW
 hidden-window creation, Win32 modality, Toolkit input, floating windows, or the
 assembled LibreWPF SDK package. Fix the observed native/source integration cause
 before declaring the popup gate closed.
+
+The focused controls cover callback changes to the owner, hidden/style state,
+nonactivation style/hook, owner kind, locality and read availability. A separate
+Windows-only control replaces an actual hidden HWND's owner inside its original
+`WM_NCCALCSIZE` dispatch and requires rejection plus restoration. It synthesizes
+no pointer or keyboard input and does not qualify the broader popup appearance,
+placement, dismissal or package matrix. The native contracts are documented by
+[SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos)
+and [GetWindowSubclass](https://learn.microsoft.com/en-us/windows/win32/api/commctrl/nf-commctrl-getwindowsubclass).

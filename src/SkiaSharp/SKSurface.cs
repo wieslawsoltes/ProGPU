@@ -881,7 +881,62 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
         return (byte)Math.Min(255, (value * 255 + alpha / 2) / alpha);
     }
 
-    protected override void Dispose(bool disposing) => base.Dispose(disposing);
+    protected override void Dispose(bool disposing)
+    {
+        if (!disposing)
+        {
+            // Abandonment cannot flush pending drawing, unmap, poll, or wait for
+            // RenderLock. Retire only this surface's actual owned resources.
+            _drawingContext?.UnsubscribeCommandAdded(_invalidateSnapshotGeneration);
+            Canvas?.DetachSurface(this);
+            if (_pixels != IntPtr.Zero)
+                GpuFramebufferPresentationRegistry.Unregister(_pixels, this);
+
+            try
+            {
+                if (_surfaceOwnsCurrentTexture)
+                    _gpuTexture?.DisposeFromFinalizer();
+            }
+            finally
+            {
+                try
+                {
+                    // The shared generation owns its counted reference; a live
+                    // snapshot keeps its own lease and must retain the texture.
+                    _immutableSnapshotGeneration?.Dispose();
+                    _immutableSnapshotGeneration = null;
+                }
+                finally
+                {
+                    _readbackBuffer?.DisposeFromFinalizer();
+                    _readbackBuffer = null;
+                    _readbackPixels = null;
+                    ReleaseCpuStorage();
+                }
+            }
+        }
+        base.Dispose(disposing);
+    }
+
+    private void ReleaseCpuStorage()
+    {
+        if (_releaseProc != null && Interlocked.Exchange(ref _releaseInvoked, 1) == 0)
+        {
+            try { _releaseProc(_pixels, _releaseContext!); }
+            catch when (IsFinalizingNativeObject)
+            {
+                // Keep original caller-thread exceptions, but user callbacks
+                // must not terminate direct or nested finalization.
+            }
+        }
+
+        if (_ownsCpuPixels && _pixels != IntPtr.Zero)
+        {
+            Marshal.FreeHGlobal(_pixels);
+            _pixels = IntPtr.Zero;
+            _ownsCpuPixels = false;
+        }
+    }
 
     protected override void DisposeManaged()
     {
@@ -931,17 +986,7 @@ public partial class SKSurface : SKObject, IGpuFramebufferPresenter
                     }
 
                     _surfaceProperties.Dispose();
-                    if (_releaseProc != null && Interlocked.Exchange(ref _releaseInvoked, 1) == 0)
-                    {
-                        _releaseProc(_pixels, _releaseContext!);
-                    }
-
-                    if (_ownsCpuPixels && _pixels != IntPtr.Zero)
-                    {
-                        Marshal.FreeHGlobal(_pixels);
-                        _pixels = IntPtr.Zero;
-                        _ownsCpuPixels = false;
-                    }
+                    ReleaseCpuStorage();
                 }
             }
         }

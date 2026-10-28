@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using ProGPU.Backend;
 using Xunit;
@@ -44,6 +45,61 @@ public partial class NativePopupWindowWindowsTests
             if (popup != 0) _ = DestroyWindow(popup);
             _ = DestroyWindow(owner);
         }
+    }
+
+    [WindowsFact]
+    public unsafe void FrameCallbackCannotReplaceTheConfiguredOwnerAndReportSuccess()
+    {
+        nint owner = CreateWindowExW(0, "STATIC", "ProGPU reentrant owner", 0,
+            0, 0, 32, 32, 0, 0, 0, 0);
+        nint otherOwner = 0;
+        nint popup = 0;
+        Assert.NotEqual(0, owner);
+        try
+        {
+            otherOwner = CreateWindowExW(0, "STATIC", "ProGPU replacement owner", 0,
+                0, 0, 32, 32, 0, 0, 0, 0);
+            Assert.NotEqual(0, otherOwner);
+            popup = CreateWindowExW(0x00040000, "STATIC", "ProGPU reentrant popup", 0x00cf0000,
+                0, 0, 16, 16, 0, 0, 0, 0);
+            Assert.NotEqual(0, popup);
+            uint originalStyle = ReadStyle(popup, -16);
+            uint originalExtended = ReadStyle(popup, -20);
+            _frameCallbackReowned = false;
+            Assert.NotEqual(0, SetWindowSubclass(popup, &ReownerDuringFrameCallback, 1, (nuint)otherOwner));
+
+            Assert.False(NativePopupWindow.TryConfigureOwner(
+                new(NativeWindowKind.Win32, owner, 0, "HWND"), new(NativeWindowKind.Win32, popup, 0, "HWND")));
+            Assert.True(_frameCallbackReowned);
+            Assert.Equal((nint)0, GetWindow(popup, 4));
+            Assert.Equal(originalStyle, ReadStyle(popup, -16));
+            Assert.Equal(originalExtended, ReadStyle(popup, -20));
+            Assert.Equal(0, IsWindowVisible(popup));
+        }
+        finally
+        {
+            if (popup != 0) _ = DestroyWindow(popup);
+            if (otherOwner != 0) _ = DestroyWindow(otherOwner);
+            _ = DestroyWindow(owner);
+        }
+    }
+
+    [ThreadStatic]
+    private static bool _frameCallbackReowned;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe nint ReownerDuringFrameCallback(nint window, uint message,
+        nuint wParam, nint lParam, nuint id, nuint referenceData)
+    {
+        if (message != 0x0083) return DefSubclassProc(window, message, wParam, lParam); // WM_NCCALCSIZE
+        // One-shot, hidden, same-thread mutation after the original procedure.
+        // No input synthesis, message pumping or process-global hook is involved.
+        _ = RemoveWindowSubclass(window, &ReownerDuringFrameCallback, id);
+        nint result = DefSubclassProc(window, message, wParam, lParam);
+        if (nint.Size == 8) _ = SetWindowLongPtrW(window, -8, (nint)referenceData);
+        else _ = SetWindowLongW(window, -8, (int)referenceData);
+        _frameCallbackReowned = GetWindow(window, 4) == (nint)referenceData;
+        return result;
     }
 
     [WindowsFact]
@@ -98,4 +154,19 @@ public partial class NativePopupWindowWindowsTests
     private static partial nint GetWindowLongPtrW(nint window, int index);
     [LibraryImport("user32.dll")]
     private static partial int GetWindowLongW(nint window, int index);
+    [LibraryImport("user32.dll")]
+    private static partial nint SetWindowLongPtrW(nint window, int index, nint value);
+    [LibraryImport("user32.dll")]
+    private static partial int SetWindowLongW(nint window, int index, int value);
+    [LibraryImport("comctl32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe partial int SetWindowSubclass(nint window,
+        delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nuint, nuint, nint> callback, nuint id, nuint data);
+    [LibraryImport("comctl32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe partial int RemoveWindowSubclass(nint window,
+        delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nuint, nuint, nint> callback, nuint id);
+    [LibraryImport("comctl32.dll")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvStdcall)])]
+    private static partial nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
 }
