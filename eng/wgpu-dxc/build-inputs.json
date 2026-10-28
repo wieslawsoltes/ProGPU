@@ -1,6 +1,6 @@
 {
   "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
   "rustVersion": "1.98.1",
-  "lockSha256": "9361a74fc393209fdfa7b5950f9aaede47507562b51025b0898423031e833157",
+  "lockSha256": "3740ec190969a9f4d7a244bed8790c1b947df4b943bb4d71045bf3a6f4e01163",
   "feature": "dxc_shader_compiler"
 }

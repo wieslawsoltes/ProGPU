@@ -11,6 +11,37 @@ WgpuContext.OnWebGpuError += (type, message) =>
 WgpuContext.OnWebGpuDeviceLost += (reason, message) =>
     Console.Error.WriteLine($"package-consumer: WebGPU device lost {reason}: {message}");
 
+if (args.Length == 1 && args[0] == "--windows-runtime-metadata-controls-only")
+{
+    WindowsOwnedRuntimeValidation.RunMetadataControls();
+    return;
+}
+
+if (args.Contains("--binary-glyph-originals-only", StringComparer.Ordinal))
+{
+    using var binaryContext = new WgpuContext
+    {
+        ComputeExecutionPreference = GpuComputeExecutionPreference.NativeCompute,
+        ForceFallbackAdapter = OperatingSystem.IsWindows() || args.Contains("--software-adapter", StringComparer.Ordinal)
+    };
+    binaryContext.Initialize(null);
+    WindowsOwnedRuntimeValidation.Verify(binaryContext);
+    BinaryGlyphOriginalValidation.Run(binaryContext, () => new NativeCompositor(binaryContext, TextureFormat.Rgba8Unorm));
+    return;
+}
+
+if (args.Contains("--binary-glyph-originals-dawn-only", StringComparer.Ordinal))
+{
+    BackendType backend = OperatingSystem.IsMacOS() ? BackendType.Metal
+        : OperatingSystem.IsWindows() ? BackendType.D3D12 : BackendType.Vulkan;
+    using var dawn = OperatingSystem.IsWindows() ? DawnGpuContext.CreateSystemWarpOffscreen()
+        : DawnGpuContext.CreateOffscreen(backend,
+            forceFallbackAdapter: args.Contains("--software-adapter", StringComparer.Ordinal));
+    BinaryGlyphOriginalValidation.Run(dawn.Context,
+        () => NativeDawnAdapter.CreateCompositor(dawn, TextureFormat.Rgba8Unorm));
+    return;
+}
+
 if (args.Length == 1 && args[0] is "--text-edit-word-boundaries-only" or "--text-edit-word-boundaries-dawn-only")
 {
     TextEditWordBoundaryValidation.Run(dawn: args[0] == "--text-edit-word-boundaries-dawn-only");
@@ -79,6 +110,7 @@ if (args.Contains("--webgpu-init-only", StringComparer.Ordinal))
     using var probeContext = new WgpuContext { ForceFallbackAdapter = args.Contains("--software-adapter", StringComparer.Ordinal) };
     Console.WriteLine("package-consumer: WebGPU context constructed");
     probeContext.Initialize(window: null);
+    WindowsOwnedRuntimeValidation.Verify(probeContext);
     Console.WriteLine("ProGPU.Backend WebGPU initialization smoke passed.");
     return;
 }

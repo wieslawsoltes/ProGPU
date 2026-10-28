@@ -15,11 +15,8 @@ $BuildPin = Get-Content -Raw (Join-Path $PSScriptRoot 'wgpu-dxc/build-inputs.jso
 $CompilerPin = Get-Content -Raw (Join-Path $PSScriptRoot 'wgpu-dxc/compiler-package.json') | ConvertFrom-Json
 $Dependency = Get-Content -Raw (Join-Path $DependencyDirectory 'wgpu-native-build.json') | ConvertFrom-Json
 $Compiler = Get-Content -Raw (Join-Path $CompilerDirectory 'dxc-compiler-package.json') | ConvertFrom-Json
-if ($Dependency.schemaVersion -ne 1 -or $Dependency.rid -cne $Rid -or
-    $Dependency.backendAbi -cne $NativePin.backendAbi -or $Dependency.nativeRevision -cne $NativePin.revision -or
-    $Dependency.headersRevision -cne $NativePin.webGpuHeadersRevision -or
-    $Dependency.wgpuRevision -cne $BuildPin.wgpuRevision -or $Dependency.lockSha256 -cne $BuildPin.lockSha256 -or
-    $Dependency.compilerFeature -cne $BuildPin.feature) { throw 'Native dependency provenance differs from the reviewed pins.' }
+& python (Join-Path $PSScriptRoot 'progpu-wgpu-windows-runtime.py') --rid $Rid --verify-dependency $DependencyDirectory
+if ($LASTEXITCODE -ne 0) { throw 'Native dependency provenance differs from reviewed inputs.' }
 if ($Compiler.schemaVersion -ne 1 -or $Compiler.rid -cne $Rid -or
     $Compiler.packageId -cne $CompilerPin.packageId -or $Compiler.packageVersion -cne $CompilerPin.version -or
     $Compiler.packageSha256 -cne $CompilerPin.sha256 -or
@@ -53,7 +50,7 @@ $Pending = Join-Path $Parent ('.dx12-staging-' + [Guid]::NewGuid().ToString('N')
 [IO.Directory]::CreateDirectory($Pending) | Out-Null
 try {
     # Exact allowlist: no runtime directory glob and no WARP/system binaries.
-    foreach ($Name in @('wgpu_native.dll', 'wgpu-native-build.json', 'LICENSE.MIT', 'LICENSE.APACHE')) {
+    foreach ($Name in @('wgpu_native.dll', 'wgpu-native-build.json', 'LICENSE.MIT', 'LICENSE.APACHE', 'wgpu-LICENSE.MIT', 'wgpu-LICENSE.APACHE', 'webgpu-headers-LICENSE')) {
         Copy-Item -LiteralPath (Join-Path $DependencyDirectory $Name) -Destination $Pending
     }
     foreach ($Name in @('dxcompiler.dll', 'dxil.dll', 'dxc-compiler-package.json', 'LICENSE-LLVM.txt', 'LICENSE-MS.txt', 'LICENCE-MIT.txt')) {
@@ -66,6 +63,15 @@ try {
         if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Pending $File.Name)).Hash -ine $File.Hash) {
             throw 'Runtime changed during staging.'
         }
+    }
+    foreach ($Property in $Dependency.files.PSObject.Properties) {
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Pending $Property.Name)).Hash -ine $Property.Value) {
+            throw 'Native dependency notice or runtime changed during staging.'
+        }
+    }
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Pending 'wgpu-native-build.json')).Hash -ne
+        (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $DependencyDirectory 'wgpu-native-build.json')).Hash) {
+        throw 'Native dependency receipt changed during staging.'
     }
     [ordered]@{ schemaVersion = 1; rid = $Rid; nativeRevision = $Dependency.nativeRevision;
         librarySha256 = $Dependency.librarySha256; compilerPackageSha256 = $Compiler.packageSha256;

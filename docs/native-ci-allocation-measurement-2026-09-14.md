@@ -105,3 +105,40 @@ bounded allocation and nonblocking generation-2 collection passes 100 exact-zero
 measurements and 100 positive controls. These are local measurement controls,
 not Linux qualification or native renderer performance evidence. Logs, TRX and
 the direct-invocation harness are retained in `artifacts/image-effect-allocation`.
+
+## Retained picture failure, inspected 2026-10-28
+
+The original Intel macOS job `117766935289` in Build `39158462041`, at
+`98acaf8170e8fb55aba8be8b3bd79f4b647639ea`, failed on .NET 10.0.13. The
+unchanged 391-command picture, four warmup frames and eight measured frames
+charged 12,336 bytes during managed submission at frame 4. Every other managed
+frame, every native frame and every completion-wait interval measured zero.
+The average of 1,542 bytes is not eight independent allocating frames.
+
+The automatic diagnostic replay passed those same inputs with zero measured
+bytes. Its original artifact `12148558763` is 865,080 bytes, SHA-256
+`de62932e3fb3889e47d0c6ffc1eada2b47416eff78e9dd69702c0dc696ae9306`.
+The 6,288,278-byte trace, SHA-256
+`2b0aef7378299f91826694b7a50a30572e0fe80ba3280631af63572a4c462f22`,
+contains 29,911 decoded events and 6,380 sampled allocation events with zero lost
+events. No allocation sample has either measured helper on its stack. This is
+a successful instrumented replay, not an allocation trace of the failed
+measurement; sampled absence cannot attribute or repair that failure.
+
+Failure output now retains the three original absolute allocation-counter
+values and the two existing start timestamps for each measured sample. The
+measurement calls, order and boundaries remain unchanged; no observer callback,
+additional counter read or log call is inserted into those windows. The value
+records are stored in the already preallocated sample arrays and printed only
+after all measurements and image checks. The extra record fields can change
+process timing, so a subsequent pass still cannot close attribution by itself.
+
+These values help distinguish counter transitions inside measured phases from
+changes between frames. They are not object-allocation attribution. The exact
+zero-byte gate, original warmup/iteration counts, alternating renderer order,
+pixel checks and failed result remain intact. Issue [#378](https://github.com/wieslawsoltes/ProGPU/issues/378)
+remains open until the charged allocation or runtime transition is established
+and a justified fix passes the original controls. The proposed upstream
+[runtime fix](https://github.com/dotnet/runtime/pull/134855) was still draft and
+unmerged when inspected; its description is not evidence that this failure has
+the same cause.

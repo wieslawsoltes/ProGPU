@@ -29,9 +29,9 @@ It rejects dirty source checkouts, unexpected remotes and symbolic-link targets.
 These source dependencies are ordinary disposable build inputs; they are not
 additional development worktrees. Keep local changes before refreshing them.
 
-The current source refresh selects LibreWPF
+The initial source refresh selected LibreWPF
 `f9fc6aa1578a97cd6cf7ba8393c6cbd0cdba1b33` and LibreWinForms
-`72deff85037420f9c8b4ce7de82de336bbc6193f`. This includes the source taskbar
+`72deff85037420f9c8b4ce7de82de336bbc6193f`. It included the source taskbar
 interop contract, exact device text rows, integer border coverage and corrected
 Drawing smoothing/text state. The native-context state control expects the
 original `None` smoothing and `SystemDefault` text defaults both before saving
@@ -50,6 +50,46 @@ The same job passes all 921 owned Drawing quality tests. The original job still
 fails its old inventory comparison and remains retained as such; updating the
 inventory does not qualify the complete producer. Artifact `12122929010` has
 SHA-256 `f1a1ab2b3d82e578b8135c70d682b0263502cdeb3d3ab340722fe308abc0e58f`.
+
+The current manifest selects the committed LibreWPF
+`4ab76a8a111a1b176d66bcd332f2d65e1c7dabca` and LibreWinForms
+`bcb2b4385a3d0f8eed51326963e8b3c3ac0ca717` sources. Interop adds the source
+caption, Close-enabled and X11 taskbar callbacks; Drawing includes the committed
+raster-target, positioned native glyph, integer-origin, source contrast, system
+policy and atomic paint-preflight work. Uncommitted downstream adapter changes
+are not included or qualified by this pin.
+
+The original Linux x64 corpus at producer `4545ed71` independently confirms the
+pinned Drawing repair from `fce7e797db`: the `Format32bppPArgb` case of
+`BitmapTests.CustomPixelFormat_GetPixels_ReturnsExpected` now passes its original
+GetPixel colors and all eight LockBits bytes. The pinned Microsoft test source is
+unchanged. Its selected CPU storage and truncated reciprocal are supported by the
+retained 32,896-pair original Windows observation; no native rendering threshold
+or expected pixel changed. The complete 4,453-case inventory now records 3,318
+passes, 1,101 known failures and the same 34 skips. Tighten only this x64 method's
+failure count from six to five and the corresponding summary; all other failures,
+skips, discovery counts and ARM64 expectations remain unchanged. The original
+inventory-mismatch failure remains retained in artifact `12838029499` (SHA-256
+`e53ca5421b3b9ae1f21ff43bd6da40f6eabab2c17544e73ac78ccd51de44e240`). This reviewed
+improvement does not qualify the cancelled whole producer or the remaining GDI
+source/application contracts.
+
+The Forms sparse checkout now also retains its owned `eng` targets. Drawing's
+build targets import `LibreWinForms.NativeRuntime.targets` and
+`LibreWinForms.WindowsRuntime.props`; omitting them fails project evaluation.
+They resolve back to the one selected producer and never initialize another
+ProGPU checkout. Real sparse-checkout controls retain the complete import chain,
+and exact-source MSBuild evaluation preserves `LibreWPF.Interop` /
+`ProGPU.Wpf.Interop` and `ProGPU.System.Drawing.Common` /
+`System.Drawing.Common, Version=10.0.0.0`. Native-dependent Drawing tests must
+receive this producer's staged runtime; Windows source guards similarly require
+the exact owned Windows payload. No test is skipped to admit a missing runtime.
+
+This source graph still needs the complete new producer Build. Downstream
+engine pins advance only after that qualification. If later Drawing adapter
+changes are committed, they require another explicit source-manifest update and
+producer/package validation; changing a consumer gitlink alone cannot update
+Drawing bytes already published in the producer's package closure.
 
 Local coordinated development can supply `LibreWpfSourceRoot` and
 `LibreWinFormsSourceRoot` as MSBuild properties, or environment variables for

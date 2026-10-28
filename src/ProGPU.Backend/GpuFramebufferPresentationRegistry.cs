@@ -56,9 +56,12 @@ public static class GpuFramebufferPresentationRegistry
         lock (s_sync)
         {
             if (s_presenters.TryGetValue(framebufferAddress, out var weak)
-                && weak.TryGetTarget(out var registered)
-                && ReferenceEquals(registered, presenter))
+                && (!weak.TryGetTarget(out var registered)
+                    || ReferenceEquals(registered, presenter)))
             {
+                // Short weak references can already be cleared when an owner
+                // unregisters during finalization. Retire that stale entry,
+                // while preserving any live replacement at the same address.
                 s_presenters.Remove(framebufferAddress);
             }
         }

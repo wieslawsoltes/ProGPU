@@ -17,6 +17,7 @@ inline void collect_memory(gpu_memory_inventory& inventory, const path_raster_re
     inventory.buffer(value.records);
     inventory.buffer(value.segments);
     inventory.buffer(value.coverage);
+    inventory.buffer(value.binary_horizontal);
     inventory.buffer(value.coverage_combine_uniforms);
     inventory.buffer(value.signed_coverage_combine_uniforms);
     inventory.buffer(value.rgb_policy);

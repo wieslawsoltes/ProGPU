@@ -4131,7 +4131,7 @@ progpu_native_status progpu_native_hinted_batch_create_geometry(const progpu_nat
     std::uint32_t projection_policy, std::uint32_t coverage, progpu_native_font_outline_geometry** geometry) {
     using namespace progpu::native::text;
     if (!valid_hinted_buffer(batch, 1U) || !valid_hinted_buffer(geometry, 1U) || batch->generation == nullptr ||
-        projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE || coverage > PROGPU_NATIVE_HINTED_COVERAGE_ANTIALIASED_VECTOR ||
+        projection_policy > PROGPU_NATIVE_HINTED_PROJECTION_SCALAR_REFERENCE || coverage > PROGPU_NATIVE_HINTED_COVERAGE_MONOCHROME ||
         byte_ranges_overlap(batch, sizeof(*batch), geometry, sizeof(*geometry)) ||
         hinted_batch_output_aliases(*batch->generation, std::as_writable_bytes(std::span{geometry, 1U})))
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;

@@ -1,3 +1,54 @@
+Binary glyph dropout traversal keeps the original ordered lane and lane+256
+visits in one bounded per-invocation loop. Preserve helper arithmetic, shared
+memory, atomics, barriers and the subsequent vertex dropout in the common shader.
+Immutable two-root vectors select their original scalar components only for the
+proven loop indices 0/1. Retain each original analytic parameter in its sorted
+event; the immutable 2*lane+root ordinal recovers its original source as order/2.
+Preserve both root slots, exact parameter bits, 16-byte events, shared memory and
+edge visit order without recomputation or arithmetic interpolation. Paired
+smart-curve endpoints keep their original explicit evaluations and single
+midpoint addition; each retains the original 32-step subdivision bound.
+Reduced compiler output does not prove WARP stack safety or original pixel/package
+qualification. Never replace drivers or alter compiler defaults to hide the
+original ARM64 failure; see docs/binary-font-scan-metadata.md.
+
+Pinned Windows HLSL workgroup initialization distributes fixed array elements
+across the complete XYZ local index and stride. Preserve typed zero, exactly one
+write per element, unchanged non-array initialization and the original barrier
+before user code. Never disable zero initialization or change compiler flags to
+hide compilation failures. Apply the hash-pinned writer patch only to isolated
+external dependency sources. Default FXC and optional DXC consume the same owned
+DLL per RID; only the optional package carries DXC/DXIL. Retain exact source,
+patch, lock, architecture and package receipts and the original whole-provider,
+source/application and pixel gates. See eng/wgpu-hlsl/README.md and
+docs/native-windows-shader-compiler.md.
+
+Abandoned SKSurface owners retire only their actual owned texture/readback,
+counted immutable generation and CPU storage. Finalization must not flush,
+dispose the canvas, poll, unmap or take RenderLock. Preserve explicit teardown
+order, borrowed pointers/textures, retained snapshots and once-only source
+callbacks. Remove dead weak framebuffer entries without deleting any live
+replacement owner. See docs/retained-image-finalization.md; historical Linux
+deadline attribution and full provider/package qualification remain separate.
+
+Portable SKImage context caches retire their actual owned textures on direct and
+nested finalization through the existing queue-only path. Preserve the actual
+cached context, shared primary storage counts, borrowed textures and explicit
+disposal notifications. Keep independently rooted cache children in paired
+stock/Dawn controls and the original five-second bound. The image also retires
+its actual raster pin and original once-only release callback; a live borrowed
+pixmap retains its source image. Only actual finalizer callback exceptions are
+contained; explicit disposal keeps its original exception behavior. This defect
+does not attribute the historical Linux collector miss; see
+docs/retained-image-finalization.md.
+
+Native owner registry lookups retain one exact weak registration across provider
+callbacks. Invoke getters outside the registry lock, recheck entry identity after
+each callback and remove only the captured dead entry. Never retry into a new
+owner or publish a handle after provider retirement; keep original callback
+exceptions and registration tokens. Lookup is a snapshot, not a native lifetime
+lease or application qualification. See docs/native-owner-registry-lifetime.md.
+
 Explicit source grayscale contrast is immutable draw metadata. Preserve original
 layout/glyph positions, raw contrast 0..12, grayscale-only admission and default
 legacy rendering. Carry it through every retained/archive/native style, direct
@@ -1110,8 +1161,9 @@ publication. Never infer architecture from an archive folder, relax pure-ARM64
 admission for a hybrid payload, overwrite existing artifacts, or include testing-
 only WARP in compiler packages. Artifact provenance is not runtime qualification.
 
-The optional DX12 runtime package selects only the known Silk Windows native
-asset in both build and publish. Keep explicit RID admission, original notices,
+The optional DX12 runtime package replaces only known Silk Windows native assets
+and exact owned ProGPU.Backend Windows payload members after verifying identical
+DLL bytes in build and publish. Keep explicit RID admission, original notices,
 fresh verified payload staging and pre-NuGet completeness checks. Never edit
 the package cache/system DLLs, discard caller-owned same-name assets, distribute
 WARP or infer qualified defaults from package presence. Both renderer modes
@@ -2405,26 +2457,26 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,343 renderer cases (6,333 passes and 10 established platform skips on macOS) and 230 headless tests. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,430 renderer cases (6,417 applicable cases and 13 platform skips on macOS) and 230 headless tests. The Windows popup callback and borderless-state controls are exercised by their dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 
 Build once, then measure the exact final binaries:
 
 ```bash
-dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:ProGpuSamplesDesktopPortableOnly=true
 
 PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
 PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=240 \
 PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=480 \
 PROGPU_SAMPLE_BENCHMARK_VSYNC=true \
-dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+dotnet src/ProGPU.Samples.Desktop/bin/Release/net10.0/ProGPU.Samples.Desktop.dll
 
 PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
 PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=240 \
 PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=480 \
 PROGPU_SAMPLE_BENCHMARK_VSYNC=false \
-dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+dotnet src/ProGPU.Samples.Desktop/bin/Release/net10.0/ProGPU.Samples.Desktop.dll
 ```
 
 On the current 120 Hz reference machine, the protected targets are about 120 FPS and 12,000 LOL/s with VSync, and at least 36,000 LOL/s uncapped. The current measured values are 11,996 and 48,905 LOL/s. Compare on the same machine and window state; investigate a repeatable drop greater than 10% before merging.

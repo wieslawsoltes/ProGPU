@@ -73,7 +73,8 @@ struct path_raster_pipeline_requirements {
 bool ensure_path_raster_pipelines(
     progpu_native_engine& engine,
     const path_raster_pipeline_requirements& required);
-bool create_glyph_resources(progpu_native_engine& engine);
+bool create_glyph_resources(progpu_native_engine& engine, bool require_vector_raster = true);
+bool create_binary_glyph_resources(progpu_native_engine& engine);
 bool ensure_text_style_buffer(
     progpu_native_engine& engine,
     std::uint64_t required_size);

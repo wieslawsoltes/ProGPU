@@ -22,6 +22,14 @@ public sealed class WgpuDx12CompilerTests
         Assert.Equal(WgpuDx12CompilerArtifact.HeadersRevision, native.RootElement.GetProperty("webGpuHeadersRevision").GetString());
         Assert.Equal(WgpuDx12CompilerArtifact.WgpuRevision, compiler.RootElement.GetProperty("wgpuRevision").GetString());
         Assert.Equal(WgpuDx12CompilerArtifact.LockSha256, compiler.RootElement.GetProperty("lockSha256").GetString());
+        using var shader = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory.FullName, "eng", "wgpu-hlsl", "build-inputs.json")));
+        Assert.Equal(WgpuDx12CompilerArtifact.WgpuRevision, shader.RootElement.GetProperty("wgpuRevision").GetString());
+        Assert.Equal(WgpuDx12CompilerArtifact.NagaVersion, shader.RootElement.GetProperty("nagaVersion").GetString());
+        Assert.Equal(WgpuDx12CompilerArtifact.ShaderPatchSha256, shader.RootElement.GetProperty("patchSha256").GetString());
+        JsonElement writer = Assert.Single(shader.RootElement.GetProperty("modifiedFiles").EnumerateArray());
+        Assert.Equal("naga/src/back/hlsl/writer.rs", writer.GetProperty("path").GetString());
+        Assert.Equal(WgpuDx12CompilerArtifact.OriginalWriterSha256, writer.GetProperty("originalSha256").GetString());
+        Assert.Equal(WgpuDx12CompilerArtifact.PatchedWriterSha256, writer.GetProperty("patchedSha256").GetString());
     }
 
     [Theory]
@@ -85,9 +93,49 @@ public sealed class WgpuDx12CompilerTests
     public void MismatchedArtifactIsRejected(string field, string value)
     {
         using var fixture = new ArtifactFixture(Architecture.Arm64);
-        fixture.Manifest[field] = field == "schemaVersion" ? 2 : value;
+        fixture.Manifest[field] = field == "schemaVersion" ? 1 : value;
         fixture.WriteManifest();
         Assert.Throws<NotSupportedException>(() => WgpuDx12CompilerArtifact.Validate(fixture.Library, null, Architecture.Arm64));
+    }
+
+    [Theory]
+    [InlineData("wgpuRevision")]
+    [InlineData("nagaVersion")]
+    [InlineData("patchSha256")]
+    [InlineData("path")]
+    [InlineData("originalSha256")]
+    [InlineData("patchedSha256")]
+    public void DifferentShaderSourceCannotAdmitDxc(string field)
+    {
+        using var fixture = new ArtifactFixture(Architecture.Arm64);
+        var fields = field is "path" or "originalSha256" or "patchedSha256"
+            ? fixture.WriterInputs : fixture.ShaderInputs;
+        fields[field] = "different";
+        fixture.WriteManifest();
+        Assert.Throws<NotSupportedException>(() => WgpuDx12CompilerArtifact.Validate(fixture.Library, null, Architecture.Arm64));
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("null")]
+    [InlineData("array")]
+    [InlineData("empty-files")]
+    [InlineData("duplicate-files")]
+    [InlineData("invalid-file")]
+    public void IncompleteShaderProvenanceCannotAdmitDxc(string kind)
+    {
+        using var fixture = new ArtifactFixture(Architecture.X64);
+        switch (kind)
+        {
+            case "missing": fixture.Manifest.Remove("shaderInputs"); break;
+            case "null": fixture.Manifest["shaderInputs"] = null!; break;
+            case "array": fixture.Manifest["shaderInputs"] = Array.Empty<object>(); break;
+            case "empty-files": fixture.ShaderInputs["modifiedFiles"] = Array.Empty<object>(); break;
+            case "duplicate-files": fixture.ShaderInputs["modifiedFiles"] = new[] { fixture.WriterInputs, fixture.WriterInputs }; break;
+            case "invalid-file": fixture.ShaderInputs["modifiedFiles"] = new object[] { 1 }; break;
+        }
+        fixture.WriteManifest();
+        Assert.Throws<NotSupportedException>(() => WgpuDx12CompilerArtifact.Validate(fixture.Library, null, Architecture.X64));
     }
 
     [Fact]
@@ -138,15 +186,29 @@ public sealed class WgpuDx12CompilerTests
         internal string Library => Path.Combine(Directory, "wgpu_native.dll");
         internal string ManifestPath => Path.Combine(Directory, "wgpu-native-build.json");
         internal Dictionary<string, object> Manifest { get; }
+        internal Dictionary<string, object> WriterInputs { get; } = new()
+        {
+            ["path"] = "naga/src/back/hlsl/writer.rs",
+            ["originalSha256"] = WgpuDx12CompilerArtifact.OriginalWriterSha256,
+            ["patchedSha256"] = WgpuDx12CompilerArtifact.PatchedWriterSha256
+        };
+        internal Dictionary<string, object> ShaderInputs { get; }
 
         internal ArtifactFixture(Architecture architecture)
         {
             System.IO.Directory.CreateDirectory(Directory);
             foreach (string name in new[] { "wgpu_native.dll", "dxcompiler.dll", "dxil.dll" })
                 WritePe(Path.Combine(Directory, name), architecture);
+            ShaderInputs = new()
+            {
+                ["wgpuRevision"] = WgpuDx12CompilerArtifact.WgpuRevision,
+                ["nagaVersion"] = WgpuDx12CompilerArtifact.NagaVersion,
+                ["patchSha256"] = WgpuDx12CompilerArtifact.ShaderPatchSha256,
+                ["modifiedFiles"] = new[] { WriterInputs }
+            };
             Manifest = new()
             {
-                ["schemaVersion"] = 1,
+                ["schemaVersion"] = 2,
                 ["rid"] = architecture == Architecture.Arm64 ? "win-arm64" : "win-x64",
                 ["backendAbi"] = "PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05",
                 ["nativeRevision"] = WgpuDx12CompilerArtifact.NativeRevision,
@@ -154,6 +216,7 @@ public sealed class WgpuDx12CompilerTests
                 ["wgpuRevision"] = WgpuDx12CompilerArtifact.WgpuRevision,
                 ["compilerFeature"] = "dxc_shader_compiler",
                 ["lockSha256"] = WgpuDx12CompilerArtifact.LockSha256,
+                ["shaderInputs"] = ShaderInputs,
                 ["librarySha256"] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Library)))
             };
             WriteManifest();

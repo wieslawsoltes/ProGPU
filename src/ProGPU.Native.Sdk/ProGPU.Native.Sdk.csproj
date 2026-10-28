@@ -9,11 +9,24 @@
     <ProGpuNativeRuntimeRoot Condition="'$(ProGpuNativeRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\progpu-native\package</ProGpuNativeRuntimeRoot>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
+  <!-- The staging artifact stays self-contained. These exact Windows files
+       belong to the ProGPU.Backend package, not a second native owner. -->
+  <ItemGroup>
+    <_ProGpuBackendOwnedWindowsRid Include="win-x64;win-arm64" />
+    <_ProGpuBackendOwnedWindowsAsset Include="@(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\wgpu_native.dll');
+        @(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\wgpu-native-build.json');
+        @(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\LICENSE.MIT');
+        @(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\LICENSE.APACHE');
+        @(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\wgpu-LICENSE.MIT');
+        @(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\wgpu-LICENSE.APACHE');
+        @(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\webgpu-headers-LICENSE');
+        @(_ProGpuBackendOwnedWindowsRid->'$(ProGpuNativeRuntimeRoot)\runtimes\%(Identity)\native\wgpu-native-windows.json')" />
+  </ItemGroup>
   <ItemGroup>
     <!-- Preserve the original runtime-root-relative paths, including extensionless
          notices. The runtime libraries stay in ProGPU.Backend.Native. -->
     <None Include="$(ProGpuNativeRuntimeRoot)\**\*"
-          Exclude="$(ProGpuNativeRuntimeRoot)\runtimes\*\native\*.dll;$(ProGpuNativeRuntimeRoot)\runtimes\*\native\*.dylib;$(ProGpuNativeRuntimeRoot)\runtimes\*\native\*.so"
+          Exclude="@(_ProGpuBackendOwnedWindowsAsset);$(ProGpuNativeRuntimeRoot)\runtimes\*\native\*.dll;$(ProGpuNativeRuntimeRoot)\runtimes\*\native\*.dylib;$(ProGpuNativeRuntimeRoot)\runtimes\*\native\*.so"
           Pack="true" PackagePath="" Visible="false" />
   </ItemGroup>
   <Import Project="../../eng/ProGPU.Native.PackageValidation.targets" />

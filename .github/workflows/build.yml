@@ -33,12 +33,19 @@ jobs:
             rid: win-x64
           - os: windows-11-arm
             rid: win-arm64
+    needs: dx12-runtime
     runs-on: ${{ matrix.os }}
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
+
       - name: Prepare pinned framework sources
         shell: bash
         working-directory: ${{ github.workspace }}
@@ -69,12 +76,19 @@ jobs:
           - os: windows-11-arm
             rid: win-arm64
             architecture: arm64
+    needs: dx12-runtime
     runs-on: ${{ matrix.os }}
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
+
       - name: Prepare pinned framework sources
         shell: bash
         working-directory: ${{ github.workspace }}
@@ -126,6 +140,7 @@ jobs:
 
   windows-system-fonts:
     name: Windows system font reference (${{ matrix.rid }})
+    needs: [dx12-runtime]
     strategy:
       fail-fast: false
       matrix:
@@ -145,6 +160,11 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+      - name: Stage the matching owned Windows runtime for source test admission
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
       - name: Compare actual Microsoft and portable system font descriptors
         shell: pwsh
         run: ./eng/progpu-verify-windows-system-fonts.ps1 -Rid '${{ matrix.rid }}'
@@ -168,6 +188,7 @@ jobs:
 
   system-drawing-contract:
     name: System.Drawing API, quality, and performance
+    needs: [native-cpp]
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -196,6 +217,12 @@ jobs:
       - name: Verify pinned API contract
         shell: bash
         run: ./eng/progpu-verify-system-drawing-api.sh
+
+      - name: Stage the exact native renderer for source Drawing tests
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-native-runtime-linux-x64
+          path: artifacts/progpu-native/package
 
       - name: Run focused quality and allocation gates
         run: |
@@ -305,8 +332,8 @@ jobs:
             artifacts/progpu-native/browser-evidence/progpu-native-browser-gallery.json
           if-no-files-found: warn
 
-  xlib-runtime:
-    name: Linux Xlib WebGPU runtime (${{ matrix.rid }})
+  xlib-runtime-build:
+    name: Build Linux Xlib WebGPU runtime (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -345,15 +372,79 @@ jobs:
           payload="$GITHUB_WORKSPACE/artifacts/progpu-xlib/package/${{ matrix.rid }}/native"
           clang-18 -std=c11 eng/wgpu-xlib/native-surface-probe.c -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o artifacts/wgpu-native-linux/native-surface-probe
           timeout 60s xvfb-run -a artifacts/wgpu-native-linux/native-surface-probe
+      - name: Compile unchanged multisample resolve control
+        run: |
+          native=$(find artifacts/wgpu-native-linux -mindepth 2 -maxdepth 2 -type d -name wgpu-native)
+          test -n "$native"
+          payload="$GITHUB_WORKSPACE/artifacts/progpu-xlib/package/${{ matrix.rid }}/native"
+          clang-18 -std=c11 eng/wgpu-xlib/native-resolve-scissor-probe.c -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o artifacts/wgpu-native-linux/native-resolve-scissor-probe
+      - name: Freeze same-source candidate after original host lifetime check
+        env:
+          RID: ${{ matrix.rid }}
+          EXPECTED_HEAD: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+          BUILD_PAYLOAD: ${{ github.workspace }}/artifacts/xlib-candidate
+        run: python3 eng/wgpu-xlib/mesa-profile/build_receipt.py
+      - name: Upload unqualified candidate for original pixel control
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-xlib-candidate-${{ matrix.rid }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/xlib-candidate
+          if-no-files-found: error
+
+  xlib-runtime:
+    name: Verify Linux Xlib WebGPU runtime (${{ matrix.rid }})
+    needs: [xlib-runtime-build]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+    env:
+      RID: ${{ matrix.rid }}
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      BUILD_PAYLOAD: ${{ github.workspace }}/artifacts/xlib-candidate
+      PROFILE_EVIDENCE: ${{ github.workspace }}/artifacts/xlib-mesa-evidence
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: progpu-xlib-candidate-${{ matrix.rid }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/xlib-candidate
+          digest-mismatch: error
+      - name: Verify private driver and candidate rejection controls
+        run: python3 -m unittest discover -s eng/wgpu-xlib/mesa-profile -p test_controls.py -v
+      - name: Verify all original MSAA pixels on the pinned private software driver
+        run: python3 eng/wgpu-xlib/mesa-profile/run.py
+      - name: Stage only the verified original runtime package
+        run: |
+          python3 eng/build-wgpu-native-linux.py --rid "$RID" --verify "$BUILD_PAYLOAD/native"
+          mkdir -p "artifacts/progpu-xlib/package/$RID"
+          cp -a "$BUILD_PAYLOAD/native" "artifacts/progpu-xlib/package/$RID/native"
       - name: Upload verified Linux dependency
         uses: actions/upload-artifact@v7
         with:
           name: progpu-xlib-runtime-${{ matrix.rid }}
           path: artifacts/progpu-xlib/package
           if-no-files-found: error
+      - name: Retain private driver and original pixel evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-xlib-mesa-evidence-${{ matrix.rid }}
+          path: |
+            artifacts/xlib-mesa-evidence/**
+            !artifacts/xlib-mesa-evidence/container/verified-debs/**
+          if-no-files-found: warn
 
   dx12-runtime:
-    name: Windows compiler runtime (${{ matrix.rid }})
+    name: Windows WebGPU and compiler runtimes (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -379,11 +470,15 @@ jobs:
         uses: actions/cache@v5
         with:
           path: artifacts/wgpu-native-windows/${{ matrix.rid }}
-          key: progpu-dx12-${{ matrix.rid }}-${{ hashFiles('eng/wgpu-dxc/**', 'eng/progpu-native-wgpu.version.json', 'eng/build-wgpu-native-windows.ps1') }}
+          key: progpu-dx12-${{ matrix.rid }}-${{ hashFiles('eng/wgpu-dxc/**', 'eng/wgpu-hlsl/**', 'eng/progpu-native-wgpu.version.json', 'eng/build-wgpu-native-windows.ps1') }}
       - name: Build and verify Windows runtime payload
         shell: pwsh
         run: |
           ./eng/test-dx12-runtime-inputs.ps1
+          python -B -m unittest discover -s eng/tests -p test_wgpu_windows_runtime.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Windows WebGPU runtime provenance controls failed.' }
+          python -B eng/tests/test_wgpu_windows_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows WebGPU runtime asset selection failed.' }
           foreach ($rid in @('win-x64', 'win-arm64', 'linux-x64')) {
             dotnet msbuild eng/test-dx12-package-targets.proj -p:RuntimeIdentifier=$rid -nologo
             if ($LASTEXITCODE -ne 0) { throw 'DX12 package asset selection failed.' }
@@ -396,9 +491,16 @@ jobs:
           path: artifacts/progpu-dx12/package
           if-no-files-found: error
 
+      - name: Upload verified default Windows WebGPU runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
+          if-no-files-found: error
+
   native-cpp:
     name: Native C++ renderer (${{ matrix.rid }})
-    needs: xlib-runtime
+    needs: [xlib-runtime, dx12-runtime]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -432,6 +534,15 @@ jobs:
         with:
           pattern: progpu-xlib-runtime-*
           path: artifacts/progpu-xlib/package
+          merge-multiple: true
+
+      # The macOS WebScene source-independent check also packs Backend and
+      # therefore needs both Windows payloads in its private package feed.
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-wgpu-windows-runtime-*
+          path: artifacts/progpu-wgpu-windows/package
           merge-multiple: true
 
       - name: Prepare pinned framework sources
@@ -861,6 +972,7 @@ jobs:
 
   native-cpp-compiler-compat:
     name: Native C++20 compiler compatibility (${{ matrix.compiler }})
+    needs: dx12-runtime
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -878,6 +990,13 @@ jobs:
         with:
           ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
+
+      - name: Download verified Windows WebGPU dependency
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-win-x64
+          path: artifacts/progpu-wgpu-windows/package
 
       - name: Prepare pinned framework sources
         shell: bash
@@ -950,6 +1069,13 @@ jobs:
         with:
           ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
 
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-wgpu-windows-runtime-*
+          path: artifacts/progpu-wgpu-windows/package
+          merge-multiple: true
+
       - name: Prepare pinned framework sources
         shell: bash
         working-directory: ${{ github.workspace }}
@@ -1003,6 +1129,9 @@ jobs:
             -p:Version="${version}" -p:PackageVersion="${version}"
           for xlib_rid in linux-x64 linux-arm64; do
             python3 eng/build-wgpu-native-linux.py --rid "$xlib_rid" --verify-package "$output/ProGPU.Backend.$version.nupkg"
+          done
+          for windows_rid in win-x64 win-arm64; do
+            python3 eng/progpu-wgpu-windows-runtime.py --rid "$windows_rid" --verify-package "$output/ProGPU.Backend.$version.nupkg"
           done
           dotnet pack src/ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj \
             --configuration Release --output "${output}" \
@@ -1123,6 +1252,12 @@ jobs:
             -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
             -p:ProGpuNativePackageVersion="$version" -- --text-hinted-paragraph-render-only --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph package render consumer failed.' }
+          dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj `
+            --configuration Release --runtime '${{ matrix.rid }}' --no-build `
+            -p:ProGpuUseDx12Runtime=true `
+            -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
+            -p:ProGpuNativePackageVersion="$version" -- --binary-glyph-originals-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw "DX12 original binary glyph package consumer failed with exit code $LASTEXITCODE." }
       - name: Publish and run full NativeAOT system-WARP consumer
         shell: pwsh
         run: |
@@ -1138,6 +1273,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Full DX12 NativeAOT consumer failed.' }
           & "$output/ProGPU.Native.PackageConsumer.exe" --text-hinted-paragraph-render-only --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph NativeAOT render consumer failed.' }
+          & "$output/ProGPU.Native.PackageConsumer.exe" --binary-glyph-originals-only --software-adapter
+          if ($LASTEXITCODE -ne 0) { throw "DX12 original binary glyph NativeAOT consumer failed with exit code $LASTEXITCODE." }
 
   native-package-consumer:
     name: ${{ matrix.name }}
@@ -1296,10 +1433,14 @@ jobs:
               -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
               -p:ProGpuNativePackageVersion="${version}" -- "${broad_scene_args[@]}"
           fi
+          consumer_launcher=()
+          if [[ '${{ runner.os }}' == Windows ]]; then
+            consumer_launcher=(python eng/progpu-run-native-with-exit-code.py)
+          fi
           while IFS= read -r scenario; do
             [[ -n "${scenario}" ]] || continue
             echo "Independent JIT package scene: ${scenario}"
-            dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            "${consumer_launcher[@]}" dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
               --configuration Release --no-build \
               -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
               -p:ProGpuNativePackageVersion="${version}" -- "${scenario}"
@@ -1346,10 +1487,14 @@ jobs:
           if [[ '${{ matrix.suite }}' == all || '${{ matrix.suite }}' == core ]]; then
             "${executable}" "${broad_scene_args[@]}"
           fi
+          consumer_launcher=()
+          if [[ '${{ runner.os }}' == Windows ]]; then
+            consumer_launcher=(python eng/progpu-run-native-with-exit-code.py)
+          fi
           while IFS= read -r scenario; do
             [[ -n "${scenario}" ]] || continue
             echo "Independent NativeAOT package scene: ${scenario}"
-            "${executable}" "${scenario}"
+            "${consumer_launcher[@]}" "${executable}" "${scenario}"
           done <<< "${scenarios}"
 
   avalonia-compositor-contract:
@@ -1404,7 +1549,7 @@ jobs:
 
   avalonia-native-dawn-contract:
     name: Avalonia native Dawn contract (${{ matrix.os }})
-    needs: xlib-runtime
+    needs: [xlib-runtime, dx12-runtime]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -1429,6 +1574,13 @@ jobs:
           pattern: progpu-xlib-runtime-*
           path: artifacts/progpu-xlib/package
           merge-multiple: true
+
+      - name: Download verified Windows WebGPU dependency
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-win-x64
+          path: artifacts/progpu-wgpu-windows/package
 
       - name: Prepare pinned framework sources
         shell: bash
@@ -1688,6 +1840,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
+
       - name: Prepare pinned framework sources
         shell: bash
         working-directory: ${{ github.workspace }}
@@ -1757,7 +1915,7 @@ jobs:
 
   build-test:
     name: Build and test (${{ matrix.os }})
-    needs: xlib-runtime
+    needs: [xlib-runtime, dx12-runtime]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -1788,6 +1946,13 @@ jobs:
           pattern: progpu-xlib-runtime-*
           path: artifacts/progpu-xlib/package
           merge-multiple: true
+
+      - name: Download verified Windows WebGPU dependency
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
 
       - name: Prepare pinned framework sources
         shell: bash
@@ -1836,10 +2001,12 @@ jobs:
       # package-consumer jobs still build and execute against actual packages.
       - name: Compile native package consumer sources
         if: runner.os == 'Linux'
-        run: >-
-          dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj
-          --configuration Release -p:ProGpuNativeUseProjectReference=true
-          -p:ContinuousIntegrationBuild=true
+        run: |
+          dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            --configuration Release -p:ProGpuNativeUseProjectReference=true \
+            -p:ContinuousIntegrationBuild=true
+          dotnet tests/ProGPU.Native.PackageConsumer/bin/Release/net10.0/ProGPU.Native.PackageConsumer.dll \
+            --windows-runtime-metadata-controls-only
 
       - name: Restore
         run: |
@@ -1879,6 +2046,23 @@ jobs:
         with:
           name: owned-cocoa-popup-${{ matrix.rid }}
           path: artifacts/owned-cocoa-popup
+          if-no-files-found: warn
+
+      - name: Run Win32 popup owner and frame callback contracts
+        if: runner.os == 'Windows'
+        run: >-
+          dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj
+          --configuration Release --runtime ${{ matrix.rid }} --no-build
+          --filter "FullyQualifiedName~Win32PopupConfigurationTests|FullyQualifiedName~NativePopupWindowWindowsTests"
+          --logger "trx;LogFileName=native-win32-popup.trx"
+          --results-directory artifacts/native-win32-popup
+
+      - name: Upload Win32 popup contract results
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-win32-popup-${{ matrix.rid }}
+          path: artifacts/native-win32-popup
           if-no-files-found: warn
 
       - name: Run X11 popup server-state contracts
@@ -1993,7 +2177,7 @@ jobs:
           if ($IsWindows) {
             $testArgs += @(
               "--filter",
-              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests|FullyQualifiedName~PipelineCacheFinalizerTests|FullyQualifiedName~NativeMouseButtonPacketTests|FullyQualifiedName~NativeWindowInputWindowsTests.OriginalButtonPacket|FullyQualifiedName~NativeWindowInputWindowsTests.CloseEnabledPolicy"
+              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests|FullyQualifiedName~PipelineCacheFinalizerTests|FullyQualifiedName~SkImageFinalizerRetirementTests|FullyQualifiedName~SkSurfaceFinalizerRetirementTests|FullyQualifiedName~CacheSamplerRetirementTests|FullyQualifiedName~NativeMouseButtonPacketTests|FullyQualifiedName~NativeWindowOwnerRegistryTests|FullyQualifiedName~NativeWindowInputWindowsTests.OriginalButtonPacket|FullyQualifiedName~NativeWindowInputWindowsTests.CloseEnabledPolicy"
             )
           } elseif ($IsMacOS) {
             # macOS 26's hosted Metal compiler rejects the historical contextual
@@ -2120,6 +2304,13 @@ jobs:
         with:
           ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
+
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-wgpu-windows-runtime-*
+          path: artifacts/progpu-wgpu-windows/package
+          merge-multiple: true
 
       - name: Prepare pinned framework sources
         shell: bash

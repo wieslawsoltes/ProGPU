@@ -103,6 +103,19 @@ The receipt repair passes all 59 offline Android controls, including original
 byte preservation and live/exited owned-process observation. It does not yet
 attribute the device disconnect or qualify that failed rendering run.
 
+Run `39156253329` again failed before application launch: the continuous logcat
+collector exited 255 at 33.668 seconds while the owned emulator remained alive.
+The emulator reported boot completion and a failed attempt to enlarge logcat's
+buffer; the available evidence does not establish that operation as the cause.
+The original artifact `12146568472` is retained with SHA-256
+`d10d3e9b55b6feb322d137cea29a18ca08627e12e55c2eb673d2a032ecb883ec`.
+The collector now records its own ADB transport/socket diagnostics separately
+from unmodified device stdout, without changing the server or other children's
+environment. All 60 offline controls pass, including an actual exit-255 child
+with distinct binary output streams. Collector exit still fails immediately;
+there is no retry, new input or deadline change. This improves attribution and
+does not claim the startup failure is fixed.
+
 `eng/progpu-test-android-emulator.sh` attaches to one already-running adb target;
 it does not create another emulator or VM. It resolves the package's actual
 launcher activity, installs the signed APK and launches it. Evidence includes

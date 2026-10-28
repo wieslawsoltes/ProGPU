@@ -3,6 +3,7 @@
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "../Text/Font/progpu_native_binary_glyph_contract.hpp"
 #include "progpu_native_semantic_rgb_glyph.hpp"
 #include "progpu_native_target_clear.hpp"
 #include "progpu_native_shader_effect_resource.hpp"
@@ -848,6 +849,9 @@ progpu_native_status render_scene(
     std::uint64_t semantic_color_glyph_bitmap_count = 0U;
     std::uint64_t semantic_color_glyph_pixel_bytes = 0U;
     bool semantic_has_styled_glyphs = false;
+    bool semantic_has_binary_glyphs = false;
+    bool semantic_has_vector_glyphs = false;
+    std::uint64_t semantic_glyph_coverage_bytes = 0U;
     std::uint32_t semantic_glyph_paint_count = 0U;
     bool semantic_has_image_color_matrices = false;
     bool semantic_has_state_masks = false;
@@ -1628,7 +1632,9 @@ progpu_native_status render_scene(
                         bytes + resource.auxiliary_offset +
                             segment_index * sizeof(segment),
                         sizeof(segment));
-                    valid = is_valid_semantic_segment(segment, false);
+                    valid = text::valid_glyph_scan_segment(segment);
+                    semantic_has_binary_glyphs |= segment.pad0 != 0U;
+                    semantic_has_vector_glyphs |= segment.pad0 == 0U;
                 }
                 for (std::uint64_t outline_index = 0U;
                      valid && budget_valid && first_semantic_glyph_resource &&
@@ -1648,6 +1654,15 @@ progpu_native_status render_scene(
                         outline,
                         segment_count,
                         &outline_coverage_bytes);
+                    if (valid) {
+                        valid = text::valid_glyph_scan_outline(outline,
+                            static_cast<std::size_t>(outline.segment_count), [&](std::size_t index) {
+                                progpu_native_path_segment segment{};
+                                std::memcpy(&segment, bytes + resource.auxiliary_offset +
+                                    (outline.segment_offset + index) * sizeof(segment), sizeof(segment));
+                                return segment;
+                            });
+                    }
                     budget_valid = valid &&
                         outline_coverage_bytes <=
                             semantic_max_coverage_bytes -
@@ -1842,6 +1857,7 @@ progpu_native_status render_scene(
         }
         if (semantic::is_glyph_command(command.kind) &&
             first_semantic_glyph_resource) {
+            semantic_glyph_coverage_bytes += compiled_coverage_bytes;
             semantic_glyph_resources_budgeted[
                 command.resource_index] = 1U;
         }
@@ -2031,6 +2047,15 @@ progpu_native_status render_scene(
     const std::uint64_t semantic_material_bytes =
         semantic_brush_bytes + semantic_gradient_stop_bytes +
             semantic_text_style_bytes;
+    // Glyph resources are flattened into one native raster page. If any outline
+    // needs the horizontal snapshot, its allocation spans the complete page,
+    // including vector outlines from other resources. Budget that actual second
+    // buffer once, independently of source resource ordering or duplication.
+    if (semantic_has_binary_glyphs && !compilation_budget.add(
+            0U, 0U, 0U, semantic_glyph_coverage_bytes)) {
+        return engine->fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The semantic binary glyph snapshot exceeds the aggregate compilation budget.");
+    }
     const std::uint64_t compiled_payload_bytes =
         compilation_budget.total_bytes();
     const bool invalid_compiled_materials =
@@ -2133,7 +2158,7 @@ progpu_native_status render_scene(
         }
     }
     if (semantic_has_styled_glyphs) {
-        if (!create_glyph_resources(*engine)) {
+        if (!create_glyph_resources(*engine, semantic_has_vector_glyphs)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The semantic retained text-style pipeline could not be created.");

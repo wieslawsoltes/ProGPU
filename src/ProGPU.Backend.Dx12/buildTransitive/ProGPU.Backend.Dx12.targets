@@ -15,20 +15,62 @@
     <Error Condition="'$(_ProGpuDx12Selected)' == 'true' And !Exists('$(_ProGpuDx12Payload)progpu-dx12-runtime.json')"
            Text="The selected ProGPU.Backend.Dx12 runtime payload is missing." />
   </Target>
-  <!-- Replace only the known package asset, never arbitrary caller libraries.
-       ResolvePackageAssets feeds build; publish also resolves its own asset list. -->
+  <!-- Optional compiler assets may replace only our same-byte default payload.
+       Check the actual DLL before removing known package/source identities. -->
+  <Target Name="SelectProGpuDx12SourceAssets" BeforeTargets="AssignTargetPaths"
+          Condition="'$(_ProGpuDx12Selected)' == 'true'">
+    <ItemGroup>
+      <_ProGpuDx12SourceDefaultDll Include="@(Content)" Condition="'%(Content.ProGpuWgpuWindowsOwnedAsset)' == 'true' And '%(Content.ProGpuWgpuWindowsRid)' == '$(RuntimeIdentifier)' And '%(Content.Filename)%(Content.Extension)' == 'wgpu_native.dll'" />
+    </ItemGroup>
+    <GetFileHash Files="$(_ProGpuDx12Payload)wgpu_native.dll" Condition="'@(_ProGpuDx12SourceDefaultDll)' != ''">
+      <Output TaskParameter="Items" ItemName="_ProGpuDx12SourceOptionalDllHash" />
+    </GetFileHash>
+    <GetFileHash Files="@(_ProGpuDx12SourceDefaultDll)">
+      <Output TaskParameter="Items" ItemName="_ProGpuDx12SourceDefaultDllHash" />
+    </GetFileHash>
+    <Error Condition="'%(_ProGpuDx12SourceDefaultDllHash.FileHash)' != '' And '%(_ProGpuDx12SourceDefaultDllHash.FileHash)' != '@(_ProGpuDx12SourceOptionalDllHash->'%(FileHash)')'"
+           Text="The optional DX12 runtime and default owned Windows WebGPU DLL must have identical bytes." />
+
+    <ItemGroup>
+      <Content Remove="@(Content)" Condition="'%(Content.ProGpuWgpuWindowsOwnedAsset)' == 'true' And '%(Content.ProGpuWgpuWindowsRid)' == '$(RuntimeIdentifier)' And '%(Content.Filename)%(Content.Extension)' != 'wgpu-native-windows.json'" />
+    </ItemGroup>
+  </Target>
   <Target Name="SelectProGpuDx12BuildAsset" AfterTargets="ResolvePackageAssets"
           Condition="'$(_ProGpuDx12Selected)' == 'true'">
     <ItemGroup>
-      <NativeCopyLocalItems Remove="@(NativeCopyLocalItems)"
-          Condition="'%(NativeCopyLocalItems.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And '%(NativeCopyLocalItems.Filename)%(NativeCopyLocalItems.Extension)' == 'wgpu_native.dll'" />
+      <_ProGpuDx12BuildDefaultDll Include="@(NativeCopyLocalItems)" Condition="'%(NativeCopyLocalItems.NuGetPackageId)' == 'ProGPU.Backend' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(NativeCopyLocalItems.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\]wgpu_native\.dll$'))" />
+      <_ProGpuDx12BuildDefaultDll Include="@(RuntimeTargetsCopyLocalItems)" Condition="'%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'ProGPU.Backend' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(RuntimeTargetsCopyLocalItems.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\]wgpu_native\.dll$'))" />
+    </ItemGroup>
+    <GetFileHash Files="$(_ProGpuDx12Payload)wgpu_native.dll" Condition="'@(_ProGpuDx12BuildDefaultDll)' != ''">
+      <Output TaskParameter="Items" ItemName="_ProGpuDx12BuildOptionalDllHash" />
+    </GetFileHash>
+    <GetFileHash Files="@(_ProGpuDx12BuildDefaultDll)">
+      <Output TaskParameter="Items" ItemName="_ProGpuDx12BuildDefaultDllHash" />
+    </GetFileHash>
+    <Error Condition="'%(_ProGpuDx12BuildDefaultDllHash.FileHash)' != '' And '%(_ProGpuDx12BuildDefaultDllHash.FileHash)' != '@(_ProGpuDx12BuildOptionalDllHash->'%(FileHash)')'"
+           Text="The optional DX12 runtime and default owned Windows WebGPU DLL must have identical bytes." />
+
+    <ItemGroup>
+      <NativeCopyLocalItems Remove="@(NativeCopyLocalItems)" Condition="('%(NativeCopyLocalItems.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(NativeCopyLocalItems.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\]wgpu_native\.dll$'))) Or ('%(NativeCopyLocalItems.NuGetPackageId)' == 'ProGPU.Backend' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(NativeCopyLocalItems.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\](wgpu_native\.dll|wgpu-native-build\.json|LICENSE\.MIT|LICENSE\.APACHE|wgpu-LICENSE\.MIT|wgpu-LICENSE\.APACHE|webgpu-headers-LICENSE)$')))" />
+      <RuntimeTargetsCopyLocalItems Remove="@(RuntimeTargetsCopyLocalItems)" Condition="('%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(RuntimeTargetsCopyLocalItems.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\]wgpu_native\.dll$'))) Or ('%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'ProGPU.Backend' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(RuntimeTargetsCopyLocalItems.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\](wgpu_native\.dll|wgpu-native-build\.json|LICENSE\.MIT|LICENSE\.APACHE|wgpu-LICENSE\.MIT|wgpu-LICENSE\.APACHE|webgpu-headers-LICENSE)$')))" />
     </ItemGroup>
   </Target>
   <Target Name="SelectProGpuDx12PublishAsset" AfterTargets="_ResolveCopyLocalAssetsForPublish"
           Condition="'$(_ProGpuDx12Selected)' == 'true'">
     <ItemGroup>
-      <_ResolvedCopyLocalPublishAssets Remove="@(_ResolvedCopyLocalPublishAssets)"
-          Condition="'%(_ResolvedCopyLocalPublishAssets.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And '%(_ResolvedCopyLocalPublishAssets.Filename)%(_ResolvedCopyLocalPublishAssets.Extension)' == 'wgpu_native.dll'" />
+      <_ProGpuDx12PublishDefaultDll Include="@(_ResolvedCopyLocalPublishAssets)" Condition="'%(_ResolvedCopyLocalPublishAssets.NuGetPackageId)' == 'ProGPU.Backend' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(_ResolvedCopyLocalPublishAssets.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\]wgpu_native\.dll$'))" />
+    </ItemGroup>
+    <GetFileHash Files="$(_ProGpuDx12Payload)wgpu_native.dll" Condition="'@(_ProGpuDx12PublishDefaultDll)' != ''">
+      <Output TaskParameter="Items" ItemName="_ProGpuDx12PublishOptionalDllHash" />
+    </GetFileHash>
+    <GetFileHash Files="@(_ProGpuDx12PublishDefaultDll)">
+      <Output TaskParameter="Items" ItemName="_ProGpuDx12PublishDefaultDllHash" />
+    </GetFileHash>
+    <Error Condition="'%(_ProGpuDx12PublishDefaultDllHash.FileHash)' != '' And '%(_ProGpuDx12PublishDefaultDllHash.FileHash)' != '@(_ProGpuDx12PublishOptionalDllHash->'%(FileHash)')'"
+           Text="The optional DX12 runtime and default owned Windows WebGPU DLL must have identical bytes." />
+
+    <ItemGroup>
+      <_ResolvedCopyLocalPublishAssets Remove="@(_ResolvedCopyLocalPublishAssets)" Condition="('%(_ResolvedCopyLocalPublishAssets.NuGetPackageId)' == 'Silk.NET.WebGPU.Native.WGPU' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(_ResolvedCopyLocalPublishAssets.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\]wgpu_native\.dll$'))) Or ('%(_ResolvedCopyLocalPublishAssets.NuGetPackageId)' == 'ProGPU.Backend' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(_ResolvedCopyLocalPublishAssets.Identity)', '[/\\]runtimes[/\\]$(RuntimeIdentifier)[/\\]native[/\\](wgpu_native\.dll|wgpu-native-build\.json|LICENSE\.MIT|LICENSE\.APACHE|wgpu-LICENSE\.MIT|wgpu-LICENSE\.APACHE|webgpu-headers-LICENSE)$')))" />
     </ItemGroup>
   </Target>
 </Project>

@@ -107,3 +107,105 @@ runtime payloads only on Linux hosts. Native jobs also produce cross-platform
 managed packages, so both Build and Release now download the original Linux
 payloads on every native matrix host. Package validation remains mandatory;
 the original failure is retained and the complete corrected producer must pass.
+
+
+## MSAA attachment resolution and draw scissors
+
+The same pinned GLES dependency resolves a multisampled color attachment with
+`glBlitFramebuffer`. The last draw's scissor must not limit this attachment
+operation: OpenGL ES 3.1 section 16.2 specifies that framebuffer blits are affected
+by the scissor test ([specification](https://registry.khronos.org/OpenGL/specs/es/3.1/es_spec_3.1.pdf)).
+The original `ResolveAttachment` path left that test enabled. A final caption
+scissor could therefore resolve the caption while leaving the rest of the
+single-sample target unchanged.
+
+The reviewed external patch disables `SCISSOR_TEST` immediately before the
+attachment resolve. It preserves the scissor box and all draw commands. The
+next `SetScissor` explicitly enables its own test, while a new render pass resets
+framebuffer state. Both intermediate and final attachment resolves use this
+path; EGL surface presentation already disables the test independently. No
+consumer draw, default sample count, source layout or WebGPU ABI changes.
+
+The separate `native-resolve-scissor-probe.c` control uses the original owned
+Xlib setup and verifies the loaded runtime path. It compares all 576 RGBA pixels
+across three authored MSAA4 passes: a clipped draw over a clear with a prefilled
+resolve destination, a different clipped draw after reuse, and a subsequent
+full clear. It has its own 60-second process limit; the original native lifetime
+probe and its limit remain unchanged. Both Linux architecture producer jobs
+must run these controls against their actual staged runtime.
+
+The motivating qualified LibreWPF source run retained complete body commands,
+opaque vertices, ordered draw calls and matching live/cached contexts, yet its
+ManagedPortable dialog captures showed only the final caption region. Its logs
+identify OpenGL/llvmpipe and its MSAA allocation has four samples. The original
+closure's runtime hash is retained; that observer did not independently report
+the loaded native image path. These observations support the resolve defect but
+are not fixed application pixels. The candidate still requires rebuilt
+two-architecture producer controls, whole CI, package admission and the unchanged
+source application visual checks before source pin advancement or release.
+
+The original-runtime control in [run 40713803026](https://github.com/wieslawsoltes/LibreWPF/actions/runs/40713803026)
+loads the exact retained ARM64 runtime
+`bf19f91a7fcbe78044ea590a07fb554a963dc0609e8e9211d96d1050b22c9653`
+and witnesses its actual image path with `dladdr`. All 576 pixels are checked:
+the first clipped resolve leaves 128 blue destination pixels unchanged, the
+second leaves 64 stale green pixels, and the final full clear has zero
+mismatches. The probe exits 1 after 7.68 seconds, preserving the expected product
+failure. The diagnostic workflow succeeds only in recording that negative
+result; it does not qualify the original runtime. This is an authored GLES
+control on llvmpipe, not the final source application or candidate result.
+
+The repaired runtime at `1f81f86e6` passes the original surface/lifetime control
+on both Linux architectures, but the new pixel control fails with counts
+`0/13/0` on Mesa 25.2.8 llvmpipe. The shifted scissor has twelve half-covered
+outside pixels and one quarter-covered corner. A
+[paired direct-EGL diagnostic](https://github.com/wieslawsoltes/ProGPU/pull/414)
+reproduces the fringe without wgpu. Disabling scissor for resolve and enabling a
+full-target box produce byte-identical pixels; the latter alternative is rejected.
+
+A separate [source-sample diagnostic](https://github.com/wieslawsoltes/ProGPU/pull/416)
+captures all 2,304 samples of a four-sample texture before resolve. Its fringe is
+already present in the source samples; all 576 resolved pixels match their
+actual sample means. This is a texture attribution control, separate from the
+original renderbuffer observation. Exact Mesa and Ubuntu source inspection
+matches every captured sample to llvmpipe's lower scissor-plane arithmetic.
+The upstream [scissor-plane correction](https://gitlab.freedesktop.org/mesa/mesa/-/commit/92550b106c70408cd9f5c25a50c311e68af06d6b)
+addresses those edges and is present in Ubuntu's Mesa 26.0.8 source. These
+observations do not change the expected pixels or qualify the failing driver.
+
+The original LibreWPF modal captures record Ubuntu 26.04, installed Mesa 26.0.8
+and actual llvmpipe rendering, but not the loaded GL version. They retain their
+independent resolve defect and must still pass the original application checks.
+Ubuntu 24.04 remains an existing WPF OpenGL CI environment; the new driver
+finding does not silently remove that coverage or establish fixed application
+pixels. No system driver, package dependency or CI acceptance gate is changed
+by this diagnosis.
+
+The [corrected-driver comparison](https://github.com/wieslawsoltes/ProGPU/pull/417)
+reuses the exact x64 instrumented probe and runtime from the failed paired test.
+In a digest-pinned private Ubuntu 26.04 container with verified Mesa 26.0.8
+packages, all 576 original pixels pass in 0.16 seconds, including all three
+frames and fourteen unchanged GL state observations. Actual loaded EGL/Gallium
+images match their prehashed package files, and GL reports Mesa 26.0.8 llvmpipe.
+The container and newly pulled image are removed after retaining the evidence.
+This confirms the instrumented driver comparison on x64, separately from the
+production and application controls.
+
+The [two-architecture production control](https://github.com/wieslawsoltes/ProGPU/pull/420)
+then rebuilds the exact `1f81f86e6` dependency and original uninstrumented probes
+on native Ubuntu 24.04 runners. Both architectures pass all 94 generated ABI
+controls and all 576 original pixels in private corrected-Mesa containers.
+The original lifetime/resolve processes take 0.31/0.21 seconds on x64 and
+0.26/0.36 seconds on ARM64. Loaded EGL/Gallium images match their verified
+package hashes; the unchanged production probes do not report GL_VERSION.
+Owned containers and newly pulled images are removed on both architectures.
+
+Build and Release now share the [private driver profile](../eng/wgpu-xlib/mesa-profile/README.md).
+Native Ubuntu 24.04 builds, ABI checks and the original host lifetime probe stay
+unchanged. A separate stage verifies the exact same-run, same-attempt candidate
+and runs the original 576-pixel probe on the pinned corrected driver, preserving
+its 60-second limit. Only that successful stage publishes the existing runtime
+artifact to downstream consumers. Driver files never enter the host or product
+package. The original Mesa 25.2.8 failure remains documented; this environment
+repair does not qualify that driver, replace the original WPF application gates
+or establish whole-producer/package qualification.

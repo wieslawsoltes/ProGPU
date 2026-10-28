@@ -1,4 +1,5 @@
 <Project>
+  <Import Project="$(MSBuildThisFileDirectory)ProGPU.Backend.Windows.targets" />
   <PropertyGroup>
     <_ProGpuXlibRuntimeRoot Condition="'$(ProGpuXlibSourceRuntimeRoot)' != ''">$(ProGpuXlibSourceRuntimeRoot)</_ProGpuXlibRuntimeRoot>
     <_ProGpuXlibRuntimeRoot Condition="'$(ProGpuXlibSourceRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)../runtimes</_ProGpuXlibRuntimeRoot>
@@ -39,7 +40,7 @@
              ('$(_ProGpuXlibArm64Available)' == 'true' And $([System.Text.RegularExpressions.Regex]::IsMatch('%(_ResolvedCopyLocalPublishAssets.Identity)', '[/\\]runtimes[/\\]linux-arm64[/\\]native[/\\]libwgpu_native\.so$'))))" />
     </ItemGroup>
   </Target>
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(ProGpuXlibSourceRuntimeRoot)' == ''">
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'browser-wasm' And '$(ProGpuXlibSourceRuntimeRoot)' == '' And '$(ProGpuWgpuWindowsSourceRuntimeRoot)' == ''">
     <!-- Resolve the unreachable iOS static-link import when the portable backend
          assembly is consumed from a WebAssembly application. -->
     <NativeFileReference Include="$(MSBuildThisFileDirectory)native/progpu-static-resolver-stub.c" />

@@ -10,7 +10,7 @@ public unsafe partial class GlyphAtlas
     // design-font and retained physical-geometry callers. No font decoding,
     // phase selection or execution-policy substitution occurs in this helper.
     private void RasterizeGpuGlyph(GlyphUniforms uniforms,
-        uint posX, uint posY, uint gW, uint gH)
+        uint posX, uint posY, uint gW, uint gH, bool binary = false)
     {
         uint coverageBytesPerRow = GpuCoverageUpload.GetBytesPerRow(gW);
         uint coverageBytes = checked(coverageBytesPerRow * gH);
@@ -25,14 +25,14 @@ public unsafe partial class GlyphAtlas
                 coverageBytes > ComputeCoverageRingBuffer.Size)
             {
                 FlushBatchEncoder();
-                RasterizeOversizedGlyph(
+                RasterizeImmediateComputeGlyph(
                     uniforms,
                     coverageBytes,
                     coverageBytesPerRow,
                     posX,
                     posY,
                     gW,
-                    gH);
+                    gH, oversized: true, binary: binary);
                 CreateBatchEncoder();
                 return;
             }
@@ -85,8 +85,9 @@ public unsafe partial class GlyphAtlas
             }
             else
             {
-                var pass = GetOrCreateBatchComputePass();
-                var bg = GetOrCreateRingBindGroup();
+                var pass = GetOrCreateBatchComputePass(binary);
+                var bg = binary ? GetOrCreateBinaryRingBindGroup() : GetOrCreateRingBindGroup();
+                if (!binary) _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
                 _context.Api.ComputePassEncoderSetBindGroup(
                     pass,
                     0,
@@ -96,8 +97,8 @@ public unsafe partial class GlyphAtlas
                 uint workgroupsX = DivRoundUp(
                     DivRoundUp(gW, 4), 16);
                 uint workgroupsY = DivRoundUp(gH, 16);
-                _context.Api.ComputePassEncoderDispatchWorkgroups(
-                    pass, workgroupsX, workgroupsY, 1);
+                if (binary) DispatchBinaryGlyph(pass, gW, gH);
+                else _context.Api.ComputePassEncoderDispatchWorkgroups(pass, workgroupsX, workgroupsY, 1);
                 _batchCoverageCopies.Add(
                     new PendingCoverageCopy(
                         _coverageRingOffset,
@@ -121,15 +122,16 @@ public unsafe partial class GlyphAtlas
                 return;
             }
             RasterizeImmediateComputeGlyph(uniforms, coverageBytes, coverageBytesPerRow,
-                posX, posY, gW, gH, oversized: false);
+                posX, posY, gW, gH, oversized: false, binary: binary);
         }
     }
 
     private void RasterizeImmediateComputeGlyph(GlyphUniforms uniforms,
         uint coverageBytes, uint coverageBytesPerRow, uint atlasX, uint atlasY,
-        uint width, uint height, bool oversized)
+        uint width, uint height, bool oversized, bool binary = false)
     {
-        EnsureComputePipeline();
+        if (binary) EnsureBinaryPipeline();
+        else EnsureComputePipeline();
         uniforms.OutputOffsetWords = 0;
         uniforms.OutputRowWords = coverageBytesPerRow / 4;
         using var uniformsBuffer = new GpuBuffer(_context,
@@ -138,12 +140,16 @@ public unsafe partial class GlyphAtlas
         using var coverageBuffer = new GpuBuffer(_context, coverageBytes,
             BufferUsage.Storage | BufferUsage.CopySrc,
             oversized ? "Oversized Glyph Coverage Staging Buffer" : "Glyph Coverage Staging Buffer");
+        using var horizontalBuffer = binary ? new GpuBuffer(_context, coverageBytes,
+            BufferUsage.Storage, "Binary Glyph Horizontal Coverage Buffer") : null;
         uniformsBuffer.WriteSingle(uniforms);
-        var entries = stackalloc BindGroupEntry[4];
+        var entries = stackalloc BindGroupEntry[5];
         entries[0] = new BindGroupEntry { Binding = 0, Buffer = uniformsBuffer.BufferPtr, Offset = 0, Size = uniformsBuffer.Size };
         entries[1] = new BindGroupEntry { Binding = 1, Buffer = _recordsBuffer.BufferPtr, Offset = 0, Size = _recordsBuffer.Size };
         entries[2] = new BindGroupEntry { Binding = 2, Buffer = _segmentsBuffer.BufferPtr, Offset = 0, Size = _segmentsBuffer.Size };
         entries[3] = new BindGroupEntry { Binding = 3, Buffer = coverageBuffer.BufferPtr, Offset = 0, Size = coverageBuffer.Size };
+        if (binary) entries[4] = new BindGroupEntry { Binding = 4, Buffer = horizontalBuffer!.BufferPtr,
+            Offset = 0, Size = horizontalBuffer.Size };
         BindGroup* bindGroup = null;
         CommandEncoder* encoder = null;
         ComputePassEncoder* pass = null;
@@ -152,7 +158,8 @@ public unsafe partial class GlyphAtlas
         {
             var descriptor = new BindGroupDescriptor
             {
-                Layout = _computeBindGroupLayout, EntryCount = 4, Entries = entries
+                Layout = binary ? _binaryBindGroupLayoutLease!.Handle : _computeBindGroupLayout,
+                EntryCount = binary ? 5U : 4U, Entries = entries
             };
             bindGroup = _context.Api.DeviceCreateBindGroup(_context.Device, &descriptor);
             if (bindGroup == null) throw new InvalidOperationException("Failed to create the immediate glyph compute bind group.");
@@ -162,11 +169,12 @@ public unsafe partial class GlyphAtlas
             var passDescriptor = new ComputePassDescriptor();
             pass = _context.Api.CommandEncoderBeginComputePass(encoder, &passDescriptor);
             if (pass == null) throw new InvalidOperationException("Failed to begin the immediate glyph compute pass.");
-            _context.Api.ComputePassEncoderSetPipeline(pass, _computePipeline);
+            _context.Api.ComputePassEncoderSetPipeline(pass, binary ? _binaryHorizontalPipeline : _computePipeline);
             uint dynamicOffset = 0;
             _context.Api.ComputePassEncoderSetBindGroup(pass, 0, bindGroup, 1, &dynamicOffset);
-            _context.Api.ComputePassEncoderDispatchWorkgroups(pass,
-                DivRoundUp(DivRoundUp(width, 4), 16), DivRoundUp(height, 16), 1);
+            if (binary) DispatchBinaryGlyph(pass, width, height);
+            else _context.Api.ComputePassEncoderDispatchWorkgroups(pass,
+                    DivRoundUp(DivRoundUp(width, 4), 16), DivRoundUp(height, 16), 1);
             _context.Api.ComputePassEncoderEnd(pass);
             _context.Api.ComputePassEncoderRelease(pass);
             pass = null;

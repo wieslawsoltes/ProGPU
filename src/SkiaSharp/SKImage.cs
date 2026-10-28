@@ -1060,7 +1060,7 @@ public partial class SKImage : SKObject
         return (byte)((value * alpha + 127) / 255);
     }
 
-    protected override void DisposeManaged()
+    private void ReleasePortableTextures()
     {
         var optionalState = Volatile.Read(ref _optionalState);
         if (optionalState is not null)
@@ -1071,16 +1071,27 @@ public partial class SKImage : SKObject
                 Volatile.Write(ref optionalState.LastPortableTexture, null);
                 if (optionalState.PortableTextures is not null)
                 {
-                    foreach (var texture in optionalState.PortableTextures.Values)
+                    foreach (var entry in optionalState.PortableTextures)
                     {
-                        texture.Dispose();
+                        // A shader can synchronously dispose its retained image
+                        // while the shader itself is finalizing. Use the actual
+                        // finalizer context, including that nested ownership path.
+                        if (IsFinalizingNativeObject) entry.Value.DisposeFromFinalizer();
+                        else entry.Value.Dispose();
                     }
 
                     optionalState.PortableTextures.Clear();
                     optionalState.PortableTextures = null;
                 }
             }
+        }
+    }
 
+    private void ReleaseRasterPixels()
+    {
+        var optionalState = Volatile.Read(ref _optionalState);
+        if (optionalState is not null)
+        {
             lock (optionalState.RasterPixelLock)
             {
                 if (optionalState.RasterPixelsHandle.IsAllocated)
@@ -1093,21 +1104,42 @@ public partial class SKImage : SKObject
 
             if (Interlocked.Exchange(ref optionalState.ReleaseInvoked, 1) == 0)
             {
-                optionalState.RasterReleaseProc?.Invoke(
-                    optionalState.RasterReleasePixels,
-                    optionalState.ReleaseContext!);
+                try
+                {
+                    optionalState.RasterReleaseProc?.Invoke(
+                        optionalState.RasterReleasePixels,
+                        optionalState.ReleaseContext!);
+                }
+                catch when (IsFinalizingNativeObject)
+                {
+                    // User callbacks must not escape direct or nested
+                    // finalization and terminate the finalizer thread.
+                }
             }
         }
-
-        base.DisposeManaged();
     }
 
     private ImageOptionalState EnsureOptionalState() =>
         LazyInitializer.EnsureInitialized(ref _optionalState);
 
+    protected override void DisposeManaged()
+    {
+        ReleasePortableTextures();
+        ReleaseRasterPixels();
+        base.DisposeManaged();
+    }
+
     protected override void Dispose(bool disposing)
     {
         _textureStorage.ReleaseReference();
+        // These textures belong to this image wrapper, independently of the
+        // shared primary storage. Direct finalization skips DisposeManaged;
+        // explicit/nested disposal keeps its original virtual-hook ordering.
+        if (!disposing)
+        {
+            ReleasePortableTextures();
+            ReleaseRasterPixels();
+        }
         base.Dispose(disposing);
     }
 

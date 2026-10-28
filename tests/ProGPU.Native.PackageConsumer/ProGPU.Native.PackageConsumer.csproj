@@ -21,6 +21,13 @@
     <ProjectReference Include="..\..\src\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../../eng/progpu-native-wgpu.version.json" LogicalName="WindowsNativePin.json" />
+    <EmbeddedResource Include="../../eng/wgpu-dxc/build-inputs.json" LogicalName="WindowsBuildPin.json" />
+    <EmbeddedResource Include="../../eng/wgpu-hlsl/build-inputs.json" LogicalName="WindowsShaderPin.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphOriginals.json" LogicalName="BinaryGlyphOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphCurveOriginals.json" LogicalName="BinaryGlyphCurveOriginals.json" />
+    <EmbeddedResource Include="../Shared/ProGPU-Authored-Scan-*.ttf" LogicalName="%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../Shared/ProGPU-Authored-Curve-Scan-*.ttf" LogicalName="%(Filename)%(Extension)" />
     <None Include="..\..\src\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"
           Link="Inter-Regular.ttf"
           CopyToOutputDirectory="PreserveNewest"

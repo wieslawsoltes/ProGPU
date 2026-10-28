@@ -2,6 +2,7 @@
 
 #include "progpu_native_semantic_validation.hpp"
 #include "progpu_native_semantic_rgb_glyph.hpp"
+#include "../../Text/Font/progpu_native_binary_glyph_contract.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -94,7 +95,9 @@ bool semantic_scene_builder::add_glyph_outlines(
         if (outline.segment_offset > covered_segment_end ||
             !semantic::is_valid_semantic_glyph_outline(
                 outline,
-                segments.size())) {
+                segments.size()) ||
+            !text::valid_glyph_scan_outline(outline,
+                segments.subspan(outline.segment_offset, outline.segment_count))) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
         covered_segment_end = std::max(
@@ -105,7 +108,7 @@ bool semantic_scene_builder::add_glyph_outlines(
         return implementation_->fail(scene_build_error::invalid_argument);
     }
     for (const auto& segment : segments) {
-        if (!semantic::is_valid_semantic_segment(segment, false)) {
+        if (!text::valid_glyph_scan_segment(segment)) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
     }

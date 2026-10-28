@@ -3,7 +3,7 @@
     <OutputType>Library</OutputType>
   </PropertyGroup>
   <ItemGroup>
-    <NativeCopyLocalItems Include="stock/wgpu_native.dll" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
+    <NativeCopyLocalItems Include="stock/runtimes/$(RuntimeIdentifier)/native/wgpu_native.dll" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
     <NativeCopyLocalItems Include="caller/wgpu_native.dll" NuGetPackageId="Caller" />
     <NativeCopyLocalItems Include="stock/other.dll" NuGetPackageId="Silk.NET.WebGPU.Native.WGPU" />
     <_ResolvedCopyLocalPublishAssets Include="@(NativeCopyLocalItems)" />

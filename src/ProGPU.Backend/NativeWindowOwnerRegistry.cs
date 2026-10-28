@@ -62,45 +62,64 @@ public static class NativeWindowOwnerRegistry
     public static bool TryResolve(
         nint presentationHandle,
         [NotNullWhen(true)] out INativeWindowOwner? owner)
+        => TryResolveEntry(presentationHandle, out owner, out _);
+
+    private static bool TryResolveEntry(
+        nint presentationHandle,
+        [NotNullWhen(true)] out INativeWindowOwner? owner,
+        [NotNullWhen(true)] out Entry? resolvedEntry)
     {
         owner = null;
-        if (presentationHandle == 0)
-        {
-            return false;
-        }
+        resolvedEntry = null;
+        if (presentationHandle == 0) return false;
 
+        Entry entry;
+        INativeWindowOwner registeredOwner;
         lock (s_sync)
         {
-            if (!s_owners.TryGetValue(presentationHandle, out Entry? entry))
-            {
-                return false;
-            }
-
-            if (!entry.Owner.TryGetTarget(out INativeWindowOwner? registeredOwner)
-                || !registeredOwner.IsAlive)
+            if (!s_owners.TryGetValue(presentationHandle, out entry!)) return false;
+            if (!entry.Owner.TryGetTarget(out registeredOwner!))
             {
                 s_owners.Remove(presentationHandle);
                 return false;
             }
-
-            owner = registeredOwner;
-            return true;
         }
+
+        // Provider callbacks may retire or replace this exact registration.
+        // Do not hold the registry lock across them or retry into a replacement.
+        bool isAlive = registeredOwner.IsAlive;
+        if (!ValidateEntry(presentationHandle, entry, isAlive)) return false;
+        owner = registeredOwner;
+        resolvedEntry = entry;
+        return true;
     }
 
     public static bool TryResolveNativeHandle(
         nint presentationHandle,
         out NativeWindowHandle nativeHandle)
     {
-        if (TryResolve(presentationHandle, out INativeWindowOwner? owner)
-            && owner.NativeHandle is { IsValid: true } resolvedHandle)
-        {
-            nativeHandle = resolvedHandle;
-            return true;
-        }
-
         nativeHandle = NativeWindowHandle.Empty;
-        return false;
+        if (!TryResolveEntry(presentationHandle, out INativeWindowOwner? owner, out Entry? entry)) return false;
+
+        NativeWindowHandle resolvedHandle = owner.NativeHandle;
+        // Revalidate immediately after the native getter, before invoking the
+        // old provider again. A valid numeric handle is not a lifetime lease.
+        if (!ValidateEntry(presentationHandle, entry, true) || !resolvedHandle.IsValid) return false;
+        bool isAlive = owner.IsAlive;
+        if (!ValidateEntry(presentationHandle, entry, isAlive)) return false;
+        nativeHandle = resolvedHandle;
+        return true;
+    }
+
+    private static bool ValidateEntry(nint presentationHandle, Entry entry, bool isAlive)
+    {
+        lock (s_sync)
+        {
+            if (!s_owners.TryGetValue(presentationHandle, out Entry? current) || !ReferenceEquals(current, entry))
+                return false;
+            if (!isAlive) s_owners.Remove(presentationHandle);
+            return isAlive;
+        }
     }
 
     private static void Unregister(nint presentationHandle, long registrationId)

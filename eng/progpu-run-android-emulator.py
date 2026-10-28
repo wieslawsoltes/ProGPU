@@ -208,6 +208,16 @@ def command(arguments, env, timeout=None, input_text=None, merge_error=False):
     return output
 
 
+def start_boot_logcat(adb, env, boot_log, transport_log):
+    # Trace only this owned collector. Keep diagnostic stderr out of the raw
+    # device log and do not change the adb server or another child's environment.
+    collector_env = dict(env)
+    collector_env["ADB_TRACE"] = "transport,sockets"
+    return subprocess.Popen([adb, "-s", SERIAL, "logcat", "-b", "all", "-v", "threadtime"],
+                            env=collector_env, stdin=subprocess.DEVNULL, stdout=boot_log,
+                            stderr=transport_log, start_new_session=True)
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS") != "true" or platform.system() != "Linux" or platform.machine() != "x86_64":
         raise ValueError("This lifecycle is restricted to the Linux x64 Actions lane")
@@ -244,7 +254,9 @@ def main():
 
     emulator_process = logcat_process = probe_process = None
     admitted = False
-    with (evidence / "emulator-launch.log").open("wb") as emulator_log, (evidence / "boot-logcat.txt").open("wb") as boot_log:
+    with (evidence / "emulator-launch.log").open("wb") as emulator_log, \
+         (evidence / "boot-logcat.txt").open("wb") as boot_log, \
+         (evidence / "boot-logcat-transport.txt").open("wb") as transport_log:
         try:
             deadline = time.monotonic() + BOOT_SECONDS
             emulator_process = subprocess.Popen([str(emulator), "-port", "5554", "-avd", AVD_NAME, *OPTIONS],
@@ -283,8 +295,7 @@ def main():
                 if not connected:
                     return None
                 if logcat_process is None:
-                    logcat_process = subprocess.Popen([adb, "-s", SERIAL, "logcat", "-b", "all", "-v", "threadtime"],
-                                                      env=env, stdout=boot_log, stderr=subprocess.STDOUT, start_new_session=True)
+                    logcat_process = start_boot_logcat(adb, env, boot_log, transport_log)
                 if logcat_process.poll() is not None:
                     raise RuntimeError("Boot logcat collection stopped")
                 reject_boot_failures("", (evidence / "boot-logcat.txt").read_text(errors="replace"))

@@ -196,7 +196,7 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("\"--runtime\",", workflow, StringComparison.Ordinal);
         Assert.Contains("\"${{ matrix.rid }}\",", workflow, StringComparison.Ordinal);
         Assert.Contains("if ($IsWindows)", workflow, StringComparison.Ordinal);
-        Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests|FullyQualifiedName~PipelineCacheFinalizerTests|FullyQualifiedName~NativeMouseButtonPacketTests|FullyQualifiedName~NativeWindowInputWindowsTests.OriginalButtonPacket|FullyQualifiedName~NativeWindowInputWindowsTests.CloseEnabledPolicy\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("\"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests|FullyQualifiedName~PipelineCacheFinalizerTests|FullyQualifiedName~SkImageFinalizerRetirementTests|FullyQualifiedName~SkSurfaceFinalizerRetirementTests|FullyQualifiedName~CacheSamplerRetirementTests|FullyQualifiedName~NativeMouseButtonPacketTests|FullyQualifiedName~NativeWindowOwnerRegistryTests|FullyQualifiedName~NativeWindowInputWindowsTests.OriginalButtonPacket|FullyQualifiedName~NativeWindowInputWindowsTests.CloseEnabledPolicy\"", workflow, StringComparison.Ordinal);
         Assert.DoesNotContain("$shapingArgs = $testArgs + @(", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet @testArgs", workflow, StringComparison.Ordinal);
         Assert.Contains("FullyQualifiedName!~ShapingContractsTests", workflow, StringComparison.Ordinal);
@@ -414,7 +414,8 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("DefaultOutlineUploadChunkBytes = 256 * 1024", source, StringComparison.Ordinal);
         Assert.Contains("HasDynamicOffset = true", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateRingBindGroup()", source, StringComparison.Ordinal);
-        Assert.Contains("GetOrCreateBatchComputePass()", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateBatchComputePass(bool binary = false)", source, StringComparison.Ordinal);
+        Assert.Contains("GetOrCreateBatchComputePass(binary)", source, StringComparison.Ordinal);
         Assert.Contains("_batchCoverageCopies.Add(", source, StringComparison.Ordinal);
         Assert.Contains("new PendingCoverageCopy(", source, StringComparison.Ordinal);
         Assert.Contains("GetOrCreateBatchRasterPass()", source, StringComparison.Ordinal);

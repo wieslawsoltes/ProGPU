@@ -17,6 +17,14 @@ internal static unsafe partial class NativeMethods
     internal const ulong FontOutlineHorizontalLcd = 2UL;
     // Native source: PROGPU_NATIVE_FONT_OUTLINE_UNHINTED.
     internal const ulong FontOutlineUnhinted = 3UL;
+    // Native source: PROGPU_NATIVE_HINTED_COVERAGE_MONOCHROME.
+    internal const ulong FontCoverageMonochrome = 3UL;
+    // Native source: PROGPU_NATIVE_FONT_SCAN_SEGMENT_MARKER.
+    internal const ulong FontScanSegmentMarker = 256UL;
+    // Native source: PROGPU_NATIVE_FONT_SCAN_CONTOUR_OVERRIDE.
+    internal const ulong FontScanContourOverride = 512UL;
+    // Native source: PROGPU_NATIVE_FONT_SCAN_ORIGINAL_FLAGS_MASK.
+    internal const ulong FontScanOriginalFlagsMask = 20774912UL;
 }
 
 internal static unsafe partial class NativeMethods

@@ -359,14 +359,15 @@ public unsafe partial class GlyphAtlas : IDisposable
         _batchBindGroups.Clear();
     }
 
-    private ComputePassEncoder* GetOrCreateBatchComputePass()
+    private ComputePassEncoder* GetOrCreateBatchComputePass(bool binary = false)
     {
+        if (binary) EnsureBinaryPipeline();
+        else EnsureComputePipeline();
         if (_batchComputePass != null)
         {
             return _batchComputePass;
         }
 
-        EnsureComputePipeline();
         var descriptor = new ComputePassDescriptor();
         _batchComputePass = _context.Api.CommandEncoderBeginComputePass(
             _batchEncoder,
@@ -375,7 +376,7 @@ public unsafe partial class GlyphAtlas : IDisposable
         {
             throw new InvalidOperationException("Failed to begin the glyph rasterization batch pass.");
         }
-        _context.Api.ComputePassEncoderSetPipeline(_batchComputePass, _computePipeline);
+        _context.Api.ComputePassEncoderSetPipeline(_batchComputePass, binary ? _binaryHorizontalPipeline : _computePipeline);
         RasterComputePassCount++;
         return _batchComputePass;
     }
@@ -464,7 +465,9 @@ public unsafe partial class GlyphAtlas : IDisposable
         (ulong)_atlasSize * _atlasSize +
         (ulong)_colorAtlasSize * _colorAtlasSize * 4UL;
 
-    public ulong CoverageStagingBytes => _coverageRingBuffer?.Size ?? 0UL;
+    public ulong CoverageStagingBytes =>
+        (_coverageRingBuffer?.Size ?? 0UL) +
+        (_binaryHorizontalRingBuffer?.Size ?? 0UL);
 
     public ulong UniformStagingBytes => _uniformRingBuffer.Size;
 
@@ -1228,19 +1231,6 @@ public unsafe partial class GlyphAtlas : IDisposable
             LastUsedFrame = _frameNumber,
             IsCapacityFallback = isCapacityFallback
         };
-    }
-
-    private void RasterizeOversizedGlyph(
-        GlyphUniforms uniforms,
-        uint coverageBytes,
-        uint coverageBytesPerRow,
-        uint atlasX,
-        uint atlasY,
-        uint width,
-        uint height)
-    {
-        RasterizeImmediateComputeGlyph(uniforms, coverageBytes, coverageBytesPerRow,
-            atlasX, atlasY, width, height, oversized: true);
     }
 
     private void RasterizeGlyphWithRasterShader(
@@ -2049,13 +2039,14 @@ public unsafe partial class GlyphAtlas : IDisposable
 
     private void InvalidateRingBindGroup()
     {
-        if (_ringBindGroup == null && _rasterRingBindGroup == null)
+        if (_ringBindGroup == null && _rasterRingBindGroup == null && _binaryRingBindGroup == null)
         {
             return;
         }
 
         ReleaseOrDeferBindGroup(ref _ringBindGroup);
         ReleaseOrDeferBindGroup(ref _rasterRingBindGroup);
+        ReleaseOrDeferBindGroup(ref _binaryRingBindGroup);
     }
 
     private void ReleaseOrDeferBindGroup(ref BindGroup* bindGroup)
@@ -2101,6 +2092,7 @@ public unsafe partial class GlyphAtlas : IDisposable
         InvalidateRingBindGroup();
         _uniformRingBuffer.Dispose();
         _coverageRingBuffer?.Dispose();
+        _binaryHorizontalRingBuffer?.Dispose();
         _recordsBuffer.Dispose();
         _segmentsBuffer.Dispose();
         _fontGpuData.Clear();
@@ -2111,6 +2103,8 @@ public unsafe partial class GlyphAtlas : IDisposable
         _pendingSegmentUploads.Clear();
 
         _pipelineCache.Dispose();
+        _binaryPipelineLayoutLease?.Dispose();
+        _binaryBindGroupLayoutLease?.Dispose();
         _rasterPipelineLayoutLease?.Dispose();
         _rasterBindGroupLayoutLease?.Dispose();
         _computePipelineLayoutLease?.Dispose();

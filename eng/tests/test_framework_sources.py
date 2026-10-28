@@ -62,6 +62,29 @@ class FrameworkSourceTests(unittest.TestCase):
         self.prepare()
         self.assertEqual(GIT(self.checkout, "status", "--porcelain"), "")
 
+    def test_drawing_sparse_checkout_retains_owned_native_runtime_imports(self):
+        # Current Drawing targets import these source-owned files. They must be
+        # present even though the nested ProGPU submodule stays uninitialized.
+        project = self.origin / "src/ProGPU.Drawing"
+        project.mkdir(parents=True)
+        (project / "Directory.Build.targets").write_text(
+            '<Project><Import Project="../../eng/LibreWinForms.NativeRuntime.targets" /></Project>')
+        (self.origin / "eng/LibreWinForms.NativeRuntime.targets").write_text(
+            '<Project><Import Project="LibreWinForms.WindowsRuntime.props" /></Project>')
+        (self.origin / "eng/LibreWinForms.WindowsRuntime.props").write_text('<Project />')
+        GIT(self.origin, "add", ".")
+        GIT(self.origin, "commit", "--quiet", "-m", "Owned Drawing import closure")
+        revision = GIT(self.origin, "rev-parse", "HEAD")
+        SOURCES.prepare("LibreWinForms", revision)
+        checkout = self.producer / "external/LibreWinForms"
+        for relative in ("src/ProGPU.Drawing/Directory.Build.targets",
+                         "eng/LibreWinForms.NativeRuntime.targets",
+                         "eng/LibreWinForms.WindowsRuntime.props"):
+            self.assertEqual((checkout / relative).read_bytes(), (self.origin / relative).read_bytes())
+        self.assertFalse((checkout / "external/ProGPU/.git").exists())
+        self.assertFalse((checkout / "unselected").exists())
+        self.assertEqual(GIT(checkout, "rev-parse", "HEAD"), revision)
+
     def test_local_changes_and_untracked_files_are_preserved(self):
         self.prepare()
         for relative in ("src/ProGPU.Wpf.Interop/original.txt", "uncommitted.txt"):
