@@ -1,0 +1,155 @@
+{
+  "baselineProductHead": "b7c191f2b442277c7484f599fc9b48b6df2f31ae",
+  "baselineWgslSha256": "c02b3dd957f057fdac92f5b4c5f9ca0d29f5341e730ff77be320c36c2b379253",
+  "candidateWgslSha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7",
+  "generation": {
+    "originalShaderSha256": "c02b3dd957f057fdac92f5b4c5f9ca0d29f5341e730ff77be320c36c2b379253",
+    "candidateShaderSha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7",
+    "generatorArchiveSha256": "3f1771c8889a6edfda52858b4ed695d3eae0ef52d0ccd739959319ee2a5d01c9",
+    "originalDXILAllocas": "eight [2 x float/i32] slots in each candidate entry; exact remaining indexed immutable root vectors targeted",
+    "semanticScope": "j is proven0/1 by existing loop; event.order modulo2 is0/1. Select original scalar component; preserve both root slots, edge arrays/order, all arithmetic/barriers/resources/dispatch and pixels.",
+    "hlsl": {
+      "fxc": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8",
+      "dxc": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8"
+    },
+    "baselineGeneratorExact": true,
+    "commands": [
+      {
+        "compiler": "fxc",
+        "returncode": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": ""
+      },
+      {
+        "compiler": "dxc",
+        "returncode": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": ""
+      }
+    ],
+    "gpuExecuted": false,
+    "dxilCompilerExecuted": false,
+    "productChanged": false
+  },
+  "compilerOptions": {
+    "fxc": {
+      "target": "cs_5_1",
+      "flags1": "0x800",
+      "flags2": 0
+    },
+    "dxc": {
+      "target": "cs_6_0",
+      "flags": [
+        "-Ges",
+        "-Vd",
+        "-HV",
+        "2018"
+      ],
+      "validatorFlags": "InPlaceEdit"
+    }
+  },
+  "limits": {
+    "perCompilerProcessSeconds": 60,
+    "totalCompilerProcesses": 4,
+    "baselineCompilerProcesses": 0,
+    "gpuExecutions": 0,
+    "nativeInputActions": 0
+  },
+  "files": [
+    {
+      "path": "CompilerProbe.cpp",
+      "bytes": 5522,
+      "sha256": "c7ec3cca56d8e4fc776d0150e56f3abb20f7ee2505deba43f1fdbcefa57ae41b"
+    },
+    {
+      "path": "baseline-dxc.hlsl",
+      "bytes": 43470,
+      "sha256": "0a056f8b5007213295d01b6a2360193870a45066eb134ef70b140d4c274c9e18"
+    },
+    {
+      "path": "baseline-fxc.hlsl",
+      "bytes": 43470,
+      "sha256": "0a056f8b5007213295d01b6a2360193870a45066eb134ef70b140d4c274c9e18"
+    },
+    {
+      "path": "baseline.wgsl",
+      "bytes": 22020,
+      "sha256": "c02b3dd957f057fdac92f5b4c5f9ca0d29f5341e730ff77be320c36c2b379253"
+    },
+    {
+      "path": "candidate-dxc.hlsl",
+      "bytes": 43678,
+      "sha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8"
+    },
+    {
+      "path": "candidate-fxc.hlsl",
+      "bytes": 43678,
+      "sha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8"
+    },
+    {
+      "path": "candidate.diff",
+      "bytes": 2310,
+      "sha256": "29cede9698610920acb7ae0601b2907b5968e0608e42ec9fdca392ab7d5ad7b8"
+    },
+    {
+      "path": "candidate.wgsl",
+      "bytes": 22545,
+      "sha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7"
+    },
+    {
+      "path": "comparison.py",
+      "bytes": 1858,
+      "sha256": "c64947d6ee5499b2a962b8646bdcd9d2a821c4a0643dd2fdc0c69eb2c3421fb9"
+    },
+    {
+      "path": "compiler-package.json",
+      "bytes": 1041,
+      "sha256": "2868183500f479a1bf3933d1274374fba5cdfaf6634564ad90e55bd6b4344ad5"
+    },
+    {
+      "path": "horizontal-dxc-baseline-disassembly.txt",
+      "bytes": 152519,
+      "sha256": "5d91b98960b6675ed23d3a0a8aadd17096a4361b3150cec38be1452b56cb4901"
+    },
+    {
+      "path": "horizontal-fxc-baseline-disassembly.txt",
+      "bytes": 86419,
+      "sha256": "1a996e4ef419836ca393b83b0d164f0ad16d2faf703ccdd36b28c341484db133"
+    },
+    {
+      "path": "owned_process.py",
+      "bytes": 5095,
+      "sha256": "0a8fa56baac388c3996a239cce1522e07fb54c7d0f3d13450acc80cdc57655f8"
+    },
+    {
+      "path": "prepare.py",
+      "bytes": 1207,
+      "sha256": "3c24ff4934f749b8aa4c15b044fcefad5326a5182ad47ea4d8e6bdb78ab7def3"
+    },
+    {
+      "path": "retained-baseline.json",
+      "bytes": 13511,
+      "sha256": "bb6e3e8efddd9631375ea3fc9154950837a6f90ceb272332eb5e4d44655e161d"
+    },
+    {
+      "path": "run.py",
+      "bytes": 3164,
+      "sha256": "bef87ac83618da0c310ee91e8323fce961e628a57be06f02ce951f14edc08a44"
+    },
+    {
+      "path": "vertical-dxc-baseline-disassembly.txt",
+      "bytes": 113016,
+      "sha256": "926db2ef6f10183b292b088e0fb0de6700ae46041ad0e221294250dbdb0f219d"
+    },
+    {
+      "path": "vertical-fxc-baseline-disassembly.txt",
+      "bytes": 66318,
+      "sha256": "6de5f333967e7bd4279c4dcc0fa9a1889bc267ec8d54b816434c1e5b5857c0b6"
+    },
+    {
+      "path": ".gitattributes",
+      "bytes": 74,
+      "sha256": "4bdc6dc30a430f091566f270ab2fda6b6eb2db107e65065b73e47c99bcacc99a"
+    }
+  ]
+}

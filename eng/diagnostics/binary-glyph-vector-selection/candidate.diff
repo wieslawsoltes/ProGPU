@@ -1,0 +1,36 @@
+--- b7/BinaryGlyphRasterizer.wgsl
++++ candidate/BinaryGlyphRasterizer.wgsl
+@@ -246,12 +246,19 @@
+         let side0 = crossings(segment, left, !vertical);
+         let side1 = crossings(segment, left + 1.0, !vertical);
+         for (var j = 0u; j < 2u; j++) {
+-            var positions = array<vec2<f32>, 3>(vec2<f32>(across.x[j], opposite),
+-                vec2<f32>(left, side0.x[j]), vec2<f32>(left + 1.0, side1.x[j]));
++            // Both retained root slots are scalar selections; no addressable vector copy.
++            let across_x = select(across.x.x, across.x.y, j != 0u);
++            let across_delta = select(across.delta.x, across.delta.y, j != 0u);
++            let side0_x = select(side0.x.x, side0.x.y, j != 0u);
++            let side0_delta = select(side0.delta.x, side0.delta.y, j != 0u);
++            let side1_x = select(side1.x.x, side1.x.y, j != 0u);
++            let side1_delta = select(side1.delta.x, side1.delta.y, j != 0u);
++            var positions = array<vec2<f32>, 3>(vec2<f32>(across_x, opposite),
++                vec2<f32>(left, side0_x), vec2<f32>(left + 1.0, side1_x));
+             var admitted = array<bool, 3>(
+-                (across.delta[j] != 0 && across.x[j] >= left && across.x[j] <= left + 1.0),
+-                (side0.delta[j] != 0 && side0.x[j] >= bottom && side0.x[j] <= top),
+-                (side1.delta[j] != 0 && side1.x[j] >= bottom && side1.x[j] <= top));
++                (across_delta != 0 && across_x >= left && across_x <= left + 1.0),
++                (side0_delta != 0 && side0_x >= bottom && side0_x <= top),
++                (side1_delta != 0 && side1_x >= bottom && side1_x <= top));
+             for (var edge = 0u; edge < 3u; edge++) {
+                 if !admitted[edge] { continue; }
+                 if count == 0u { first = positions[edge]; count = 1u; }
+@@ -343,7 +350,7 @@
+     let segment = segments[record.startSegment + event.source];
+     if segment.segmentType == 0u { return event.x; }
+     let original = crossings(segment, level, vertical);
+-    var t = original.parameter[event.order % 2u];
++    var t = select(original.parameter.x, original.parameter.y, event.order % 2u != 0u);
+     var a = axis_point(segment.p0, vertical);
+     var b = axis_point(segment.p1, vertical);
+     var c = axis_point(segment.p2, vertical);
