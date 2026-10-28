@@ -1,0 +1,21 @@
+{
+  "productHead": "45981bf7619d2e809f08ceda491fad2be535d3b0",
+  "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
+  "nagaVersion": "0.19.2",
+  "shaderModel": "5_1",
+  "flags1": 2048,
+  "flags2": 0,
+  "sha256": {
+    "original-45981.wgsl": "a2c10ae341defaabf7a3637d4a3e4e7d16c64a9e3d1d9e9632f52f487ac6c427",
+    "candidate.wgsl": "f735d21dbc802f65df4eb6734872ddfd7ce8f819601c5016668be0e7590085e2",
+    "original.hlsl": "66d81ac8a05daac0eec3fab033f021ab50197a81a69ba1334a896ee64aa94892",
+    "candidate.hlsl": "12255bc9bc78d3a7d2ca96d16e9c0eb8c5ba6a24f4a3fb94a5467c6a9b1da859",
+    "Program.cs": "2d3000f04b4648cd2b1562fcb0596809c19561ea0dc57f9bbbfba576ddc1dae1",
+    "Probe.csproj": "12194a99cdfa230ecd8c7d65f45abb5670d5fde5497cb2541d8e4af10edb14f1",
+    "run.py": "a49d137b8bb8b154b03b4a6f7dbc25d39d46516626d81279e9c863260b2281cc",
+    "generator.rs": "13710d963a8388340b2265316df270ebde228874a5108b5be5ed3810f8b03c16",
+    "generator-Cargo.lock": "fb4657986b2cbdc816ecfedbf52eab45a2f4fa7197321d47e69ff0944b8d764c",
+    "generation.json": "92d72d20d44923931a4eef860ec37f96f38efaeb0264da40290ab931bcf2a5e2",
+    ".gitattributes": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9"
+  }
+}

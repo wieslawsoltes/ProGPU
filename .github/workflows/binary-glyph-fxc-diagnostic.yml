@@ -1,0 +1,33 @@
+name: Binary glyph FXC compile diagnostic
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths:
+      - '.github/workflows/binary-glyph-fxc-diagnostic.yml'
+      - 'eng/diagnostics/binary-glyph-fxc/**'
+permissions:
+  contents: read
+jobs:
+  compile:
+    if: github.head_ref == 'diag/binary-glyph-fxc-20261028'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Exact original and repaired compile, without GPU
+        shell: pwsh
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python eng/diagnostics/binary-glyph-fxc/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-and-candidate-fxc
+          path: eng/diagnostics/binary-glyph-fxc/evidence
+          if-no-files-found: error
