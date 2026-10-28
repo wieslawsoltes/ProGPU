@@ -1,6 +1,6 @@
 # Windows shader compiler dependency
 
-## Acceptance path and scope
+## Original acceptance path and scope (September 2026)
 
 `ProGPU.Wpf.ShowcaseApp` startup and first source input are blocked by slow
 FXC compilation and a separate installed-WARP execution failure. The matched
@@ -10,7 +10,7 @@ fixture with development WARP, with family submissions around one second.
 System WARP still crashes with either compiler. Neither a compiler switch nor
 the testing-only WARP package qualifies the application or permits a merge.
 
-`eng/build-wgpu-native-windows.ps1` builds that optional dependency from pinned
+At the September checkpoint, `eng/build-wgpu-native-windows.ps1` built that optional dependency from pinned
 inputs. `WgpuDx12CompilerOptions` now connects explicit selection to the shared
 product device factory. This does not change automatic selection, the stock
 Silk package payload, the renderer, or existing application/CI gates.
@@ -292,3 +292,65 @@ Microsoft Basic Render Driver. The common candidate WGSL SHA256 was
 `bd60a7d8e4b739a9b990a1bf15fcb6e38a49b8ad306217b422bc86cb535fa839`.
 These checks establish compilation only; final whole-producer, rendered-pixel,
 package and source-application checks remain required.
+
+
+## Owned Windows producer with reviewed workgroup initialization (October 2026)
+
+The original optimized FXC diagnostic isolates a compiler-cost defect in Naga's
+whole-array workgroup zero initialization. The same generated shader compiled in
+1.845 seconds after changing only that initialization to equivalent distributed
+zero stores, while the two functional-component stubs still exceeded the original
+60-second compiler deadline. This is compiler evidence, not rendering or package
+qualification. The reviewed dependency change is pinned separately in
+`eng/wgpu-hlsl/build-inputs.json`; ordinary FXC selection and optimization flags
+remain unchanged. Its source equivalence and controls are documented with the
+patch, independently of the earlier optional DXC investigation above.
+
+`build-wgpu-native-windows.ps1` now uses a separate owned `wgpu` checkout inside
+its build directory. It verifies the exact revision and original/patched file
+hashes, rejects unrelated or untracked changes, applies the reviewed patch there,
+and selects that one local Naga through Cargo's source patch mechanism. The
+Windows lock changes only the Naga source identity from pinned Git to this exact
+local implementation; all package versions and checksums remain unchanged. The
+resolved graph must contain exactly one patched Naga and one original pinned HAL
+with the existing optional DXC capability. A post-build read-only source check,
+unchanged lock, actual PE architecture and required exports precede publication.
+No Cargo/Git cache, NuGet cache or retained external checkout is patched.
+
+`build-progpu-dx12-runtime-windows.ps1` builds once per RID and stages that exact
+DLL into two fresh outputs:
+
+- `artifacts/progpu-wgpu-windows/package/<RID>/native` is the default runtime. It
+  contains no DXC or DXIL binary and continues using FXC by default.
+- `artifacts/progpu-dx12/package/<RID>/native` adds the independently verified
+  optional compiler payload. Its native DLL has the same source, patch and hash.
+
+The schema-2 `wgpu-native-build.json` records exact source/header revisions,
+reviewed patch and modified-source hashes, locked graph, tool versions, exported
+symbols and all six runtime/license hashes. Both payloads retain original native,
+wgpu and WebGPU-header notices. The default schema-1 `wgpu-native-windows.json`
+additionally binds the complete seven-file dependency payload to those inputs.
+`eng/progpu-wgpu-windows-runtime.py` verifies staged and packed default payloads,
+rejecting links, duplicate/missing/unexpected members, modified bytes and wrong
+PE architecture. Staging uses a fresh temporary sibling and publishes only after
+rechecking copied bytes. An existing output is never replaced.
+
+The native Windows C++ builder now imports and executes this verified owned DLL
+instead of obtaining its binary from the Silk NuGet cache. It retains the same
+binding/header ABI, verifies the copied runtime hash, and carries the producer
+receipts and notices into native SDK/runtime staging. This is not an admission
+of a new ABI or of a different renderer. Hosted x64 and ARM64 builds, the original
+optimized shader/compiler checks, provider/pixel suites, package consumers and
+source applications still must qualify the actual loaded payload before release.
+
+The local producer controls pass 13 cases covering both PE architectures,
+original notices and exact copying, old/wrong source receipts, link/extra-file
+rejection, copy failure before publication, existing-output preservation,
+isolated source patch/retry/foreign-edit rejection, read-only post-build checks,
+and an actual `core.autocrlf=true` checkout of the pinned patch. The existing six
+metadata/process controls and nine optional-runtime input controls also pass.
+Actual `cargo metadata --locked` resolves the intended graph for both Windows
+triples without changing the lock. That local graph check used available Cargo
+1.90; production still requires pinned Rust/Cargo 1.98.1. No Windows native build,
+application execution or package/pixel qualification is inferred from these
+cross-platform controls.

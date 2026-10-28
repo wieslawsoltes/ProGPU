@@ -11,7 +11,7 @@ param(
     [int] $Jobs = 2
 )
 
-# Builds an optional dependency artifact, not a qualified ProGPU package.
+# Builds the shared default-FXC/optional-DXC dependency, not a qualified package.
 # The caller supplies a matching MSVC developer shell and build-time libclang.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -35,6 +35,9 @@ if ($ArtifactDirectory) {
 $Target = if ($Rid -eq 'win-arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
 $ExpectedMachine = if ($Rid -eq 'win-arm64') { 0xAA64 } else { 0x8664 }
 $Source = Join-Path $BuildDirectory 'source'
+$WgpuSource = Join-Path $BuildDirectory 'wgpu'
+$Verifier = Join-Path $PSScriptRoot 'progpu-wgpu-windows-runtime.py'
+$ShaderInputs = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'wgpu-hlsl/build-inputs.json') | ConvertFrom-Json
 $TargetDirectory = Join-Path $BuildDirectory 'target'
 
 function Invoke-Checked([string] $Executable, [string[]] $Arguments) {
@@ -63,7 +66,7 @@ if ($RustVersion -notmatch "^rustc $([regex]::Escape($Inputs.rustVersion)) " -or
     $CargoVersion -notmatch "^cargo $([regex]::Escape($Inputs.rustVersion)) ") {
     throw "Use Rust and Cargo $($Inputs.rustVersion); found $RustVersion / $CargoVersion."
 }
-Get-Command cl.exe, link.exe, git.exe -CommandType Application -ErrorAction Stop | Out-Null
+Get-Command cl.exe, link.exe, dumpbin.exe, git.exe, python -CommandType Application -ErrorAction Stop | Out-Null
 if (-not $env:LIBCLANG_PATH -or -not (Test-Path -LiteralPath (Join-Path $env:LIBCLANG_PATH 'libclang.dll'))) {
     throw 'LIBCLANG_PATH must identify the installed build-time libclang.dll.'
 }
@@ -98,13 +101,24 @@ if ($HeaderRevision -cne $Pin.webGpuHeadersRevision -or
     @(Invoke-Checked 'git.exe' @('-C', $Headers, 'status', '--porcelain')).Count -ne 0) {
     throw 'The WebGPU header revision or contents differ from the binding pin.'
 }
+# Never patch a Cargo cache or a retained dependency checkout. This owned build
+# directory contains an independent pinned clone used only by this producer.
+if (-not (Test-Path -LiteralPath $WgpuSource)) {
+    Invoke-Checked 'git.exe' @('clone', '--filter=blob:none', '--no-checkout', 'https://github.com/gfx-rs/wgpu.git', $WgpuSource)
+    Invoke-Checked 'git.exe' @('-C', $WgpuSource, 'fetch', '--depth', '1', 'origin', $Inputs.wgpuRevision)
+    Invoke-Checked 'git.exe' @('-C', $WgpuSource, '-c', 'core.autocrlf=false', 'checkout', '--detach', $Inputs.wgpuRevision)
+}
+Invoke-Checked 'python' @($Verifier, '--prepare-source', $WgpuSource) | Out-Null
+$NagaPath = [IO.Path]::GetFullPath((Join-Path $WgpuSource 'naga')).Replace('\', '/')
+$NagaTomlPath = ConvertTo-Json -Compress -InputObject $NagaPath
 $OriginalManifest = (Invoke-Checked 'git.exe' @('--no-pager', '-C', $Source, 'show', 'HEAD:Cargo.toml') | Out-String).Replace("`r`n", "`n")
 $OriginalLock = (Invoke-Checked 'git.exe' @('--no-pager', '-C', $Source, 'show', 'HEAD:Cargo.lock') | Out-String).Replace("`r`n", "`n")
 $Overlay = [IO.File]::ReadAllText((Join-Path $InputRoot 'dependency.toml')).Replace("`r`n", "`n")
 if (-not $Overlay.Contains($Inputs.wgpuRevision) -or -not $Overlay.Contains($Inputs.feature)) {
     throw 'The reviewed compiler feature and dependency metadata disagree.'
 }
-Set-ReviewedInput (Join-Path $Source 'Cargo.toml') $OriginalManifest ($OriginalManifest.TrimEnd() + "`n`n" + $Overlay.TrimStart())
+$PatchOverlay = '[patch."https://github.com/gfx-rs/wgpu"]' + "`n" + "naga = { path = $NagaTomlPath }"
+Set-ReviewedInput (Join-Path $Source 'Cargo.toml') $OriginalManifest ($OriginalManifest.TrimEnd() + "`n`n" + $Overlay.TrimEnd() + "`n`n" + $PatchOverlay)
 Set-ReviewedInput (Join-Path $Source 'Cargo.lock') $OriginalLock ([IO.File]::ReadAllText($LockFile))
 
 $PreviousRustc = $env:RUSTC
@@ -122,6 +136,11 @@ try {
         $HalNode = @($Metadata.resolve.nodes | Where-Object { $_.id -eq $Hal[0].id })
         if ($HalNode.Count -ne 1 -or $Inputs.feature -notin $HalNode[0].features) {
             throw 'The resolved native dependency does not enable DXC.'
+        }
+        $Naga = @($Metadata.packages | Where-Object { $_.name -eq 'naga' })
+        if ($Naga.Count -ne 1 -or $Naga[0].version -cne $ShaderInputs.nagaVersion -or $Naga[0].source -or
+            [IO.Path]::GetFullPath($Naga[0].manifest_path) -ine [IO.Path]::GetFullPath((Join-Path $NagaPath 'Cargo.toml'))) {
+            throw 'Expected only the reviewed isolated Naga implementation in the resolved graph.'
         }
         Invoke-Checked $CargoExecutable @('build', '--locked', '--release', '--target', $Target, '--jobs', "$Jobs")
     } finally { Pop-Location }
@@ -144,6 +163,15 @@ try {
     }
 } finally { $Reader.Dispose() }
 
+# Recheck source inputs after compilation without repairing any modified bytes.
+Invoke-Checked 'python' @($Verifier, '--verify-source', $WgpuSource) | Out-Null
+$Exports = @(Invoke-Checked 'dumpbin.exe' @('/nologo', '/exports', $Dll) | ForEach-Object {
+    if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+([A-Za-z_][A-Za-z0-9_@?$]*)') { $Matches[1] }
+} | Sort-Object -Unique)
+foreach ($Required in @('wgpuCreateInstance', 'wgpuInstanceRequestAdapter', 'wgpuAdapterRequestDevice', 'wgpuDeviceCreateShaderModule', 'wgpuDeviceCreateComputePipeline', 'wgpuGetVersion')) {
+    if ($Required -cnotin $Exports) { throw "The native dependency is missing export $Required." }
+}
+
 # Publish into a fresh directory only after successful feature, lock and PE checks.
 # No NuGet cache, existing consumer, system DLL or default product asset is replaced.
 $Publication = if ($ArtifactDirectory) { $ArtifactDirectory } else {
@@ -152,8 +180,15 @@ $Publication = if ($ArtifactDirectory) { $ArtifactDirectory } else {
 New-Item -ItemType Directory -Path $Publication | Out-Null
 Copy-Item -LiteralPath $Dll -Destination $Publication
 Copy-Item -LiteralPath (Join-Path $Source 'LICENSE.MIT'), (Join-Path $Source 'LICENSE.APACHE') -Destination $Publication
+Copy-Item -LiteralPath (Join-Path $WgpuSource 'LICENSE.MIT') -Destination (Join-Path $Publication 'wgpu-LICENSE.MIT')
+Copy-Item -LiteralPath (Join-Path $WgpuSource 'LICENSE.APACHE') -Destination (Join-Path $Publication 'wgpu-LICENSE.APACHE')
+Copy-Item -LiteralPath (Join-Path $Headers 'LICENSE') -Destination (Join-Path $Publication 'webgpu-headers-LICENSE')
+$FileHashes = [ordered]@{}
+foreach ($Name in @('wgpu_native.dll', 'LICENSE.MIT', 'LICENSE.APACHE', 'wgpu-LICENSE.MIT', 'wgpu-LICENSE.APACHE', 'webgpu-headers-LICENSE')) {
+    $FileHashes[$Name] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $Publication $Name)).Hash.ToLowerInvariant()
+}
 $Manifest = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     rid = $Rid
     backendAbi = $Pin.backendAbi
     nativeRevision = $Pin.revision
@@ -167,7 +202,11 @@ $Manifest = [ordered]@{
     libclangHostRid = $HostRid
     libclangSha256 = $LibclangHash
     librarySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Dll).Hash.ToLowerInvariant()
+    shaderInputs = $ShaderInputs
+    exports = $Exports
+    files = $FileHashes
     qualification = 'build-only'
 }
-$Manifest | ConvertTo-Json | Set-Content -Encoding utf8NoBOM -LiteralPath (Join-Path $Publication 'wgpu-native-build.json')
-Write-Output "Built unqualified DXC-capable native dependency: $Publication"
+$Manifest | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8NoBOM -LiteralPath (Join-Path $Publication 'wgpu-native-build.json')
+Invoke-Checked 'python' @($Verifier, '--rid', $Rid, '--verify-dependency', $Publication) | Out-Null
+Write-Output "Built unqualified shared FXC/DXC-capable native dependency: $Publication"

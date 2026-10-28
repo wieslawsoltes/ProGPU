@@ -43,3 +43,7 @@ if (-not (Test-Path -LiteralPath $Archive)) { Invoke-WebRequest -Uri $Pin.url -O
 $Compiler = Join-Path $Root "artifacts/progpu-dx12/compiler/$Rid"
 & (Join-Path $PSScriptRoot 'stage-dxc-compiler.ps1') -Rid $Rid -PackagePath $Archive -OutputDirectory $Compiler
 & (Join-Path $PSScriptRoot 'stage-dx12-runtime.ps1') -Rid $Rid -DependencyDirectory $Dependency -CompilerDirectory $Compiler -OutputDirectory (Join-Path $Root "artifacts/progpu-dx12/package/$Rid/native")
+
+# The default FXC payload uses these exact source-built bytes without DXC/DXIL.
+& python (Join-Path $PSScriptRoot 'progpu-wgpu-windows-runtime.py') --rid $Rid --stage $Dependency --output (Join-Path $Root "artifacts/progpu-wgpu-windows/package/$Rid/native")
+if ($LASTEXITCODE -ne 0) { throw 'Default Windows runtime staging failed.' }

@@ -10,7 +10,8 @@ param(
     [switch] $SkipExtendedIntegration,
     [switch] $BuildOnly,
     [string] $FontManifest = "",
-    [string] $EditWordIcuArchive = ""
+    [string] $EditWordIcuArchive = "",
+    [string] $WgpuRuntimeRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +22,6 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ExpectedCommit = "33133da4ec5a0174cb21539ef2d3346f75200411"
 $ExpectedHeadersCommit = "aef5e428a1fdab2ea770581ae7c95d8779984e0a"
 $ExpectedDawnHeadersCommit = "01addc4ba8a2915a061b7095a6768b512071ab96"
-$PackageVersion = "2.23.0"
 $SourceDir = Join-Path $RepoRoot "artifacts/wgpu-native-src"
 $DawnHeadersDir = Join-Path $RepoRoot "artifacts/webgpu-headers-dawn"
 $BuildDir = Join-Path $RepoRoot "artifacts/progpu-native/build-$Rid"
@@ -84,17 +84,21 @@ if (-not $SkipExtendedIntegration) {
     }
 }
 
-$GlobalPackagesLine = (dotnet nuget locals global-packages --list | Select-Object -First 1)
-$GlobalPackages = ($GlobalPackagesLine -replace '^[^:]+:\s*', '').TrimEnd('/', '\')
-$WgpuDll = Join-Path $GlobalPackages "silk.net.webgpu.native.wgpu/$PackageVersion/runtimes/$PackageRid/native/wgpu_native.dll"
-if (-not (Test-Path $WgpuDll)) {
-    throw "The pinned Silk.NET wgpu-native runtime is missing: $WgpuDll"
-}
+if (-not $WgpuRuntimeRoot) { $WgpuRuntimeRoot = Join-Path $RepoRoot 'artifacts/progpu-wgpu-windows/package' }
+$WgpuPayload = Join-Path $WgpuRuntimeRoot "$Rid/native"
+$WgpuVerifier = Join-Path $PSScriptRoot 'progpu-wgpu-windows-runtime.py'
+& python $WgpuVerifier --rid $Rid --verify $WgpuPayload
+if ($LASTEXITCODE -ne 0) { throw 'The owned Windows runtime did not pass source/patch/hash verification.' }
+$WgpuDll = Join-Path $WgpuPayload 'wgpu_native.dll'
+$WgpuReceipt = Get-Content -Raw -LiteralPath (Join-Path $WgpuPayload 'wgpu-native-windows.json') | ConvertFrom-Json
 
 New-Item -ItemType Directory -Force -Path $IncludeDir, $RuntimeDir, $PackageStage | Out-Null
 Copy-Item (Join-Path $SourceDir "ffi/webgpu-headers/webgpu.h") $IncludeDir -Force
 Copy-Item (Join-Path $SourceDir "ffi/wgpu.h") $IncludeDir -Force
 Copy-Item $WgpuDll (Join-Path $RuntimeDir "wgpu_native.dll") -Force
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $RuntimeDir 'wgpu_native.dll')).Hash -ine $WgpuReceipt.files.'wgpu_native.dll') {
+    throw 'The native build runtime differs from the admitted producer.'
+}
 
 $VsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
 $VsInstall = (& $VsWhere -latest -products * -requires $ToolComponent -property installationPath | Select-Object -First 1)
@@ -199,6 +203,15 @@ function Stage-NativePackage {
         $SdkLibrary = Join-Path $BinaryDirectory $SdkLibraryName
         if (-not (Test-Path $SdkLibrary -PathType Leaf) -or (Get-Item $SdkLibrary).Length -eq 0) {
             throw "The native C++ SDK library was not produced: $SdkLibrary"
+        }
+    }
+    & python $WgpuVerifier --rid $Rid --verify $WgpuPayload
+    if ($LASTEXITCODE -ne 0) { throw 'Windows producer inputs changed before native package staging.' }
+    foreach ($Name in @('wgpu_native.dll', 'wgpu-native-build.json', 'wgpu-native-windows.json', 'LICENSE.MIT', 'LICENSE.APACHE', 'wgpu-LICENSE.MIT', 'wgpu-LICENSE.APACHE', 'webgpu-headers-LICENSE')) {
+        Copy-Item -LiteralPath (Join-Path $WgpuPayload $Name) -Destination (Join-Path $PackageStage $Name) -Force
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $PackageStage $Name)).Hash -ne
+            (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $WgpuPayload $Name)).Hash) {
+            throw "Native package producer input changed while copying $Name."
         }
     }
     Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force

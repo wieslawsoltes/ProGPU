@@ -74,7 +74,11 @@ internal static partial class WgpuDx12CompilerArtifact
     internal const string NativeRevision = "33133da4ec5a0174cb21539ef2d3346f75200411";
     internal const string HeadersRevision = "aef5e428a1fdab2ea770581ae7c95d8779984e0a";
     internal const string WgpuRevision = "87576b72b37c6b78b41104eb25fc31893af94092";
-    internal const string LockSha256 = "9361a74fc393209fdfa7b5950f9aaede47507562b51025b0898423031e833157";
+    internal const string LockSha256 = "3740ec190969a9f4d7a244bed8790c1b947df4b943bb4d71045bf3a6f4e01163";
+    internal const string NagaVersion = "0.19.2";
+    internal const string ShaderPatchSha256 = "048251c667d3807f8bf28f6dc7d7d30f47cf08316c86c4b6f627f247d8575847";
+    internal const string OriginalWriterSha256 = "8e61501bae6982273a525734d3e446694d4bf7a081419ec312c32b354e89d3ef";
+    internal const string PatchedWriterSha256 = "26ce406b7a707d7d46f903e86e0f6dbdbc1693ae0c7b0e0a88811678b6dadad2";
     private const string BackendAbi = "PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05";
 
     internal static WgpuDx12CompilerPaths Validate(string libraryPath, string? compilerDirectory, Architecture architecture)
@@ -91,14 +95,15 @@ internal static partial class WgpuDx12CompilerArtifact
             throw new NotSupportedException($"Forced DXC requires the feature-enabled native build manifest beside the loaded library: {manifestPath}");
         using var manifest = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
         JsonElement root = manifest.RootElement;
-        if (root.GetProperty("schemaVersion").GetInt32() != 1 ||
+        if (root.GetProperty("schemaVersion").GetInt32() != 2 ||
             root.GetProperty("rid").GetString() != rid ||
             root.GetProperty("backendAbi").GetString() != BackendAbi ||
             root.GetProperty("nativeRevision").GetString() != NativeRevision ||
             root.GetProperty("headersRevision").GetString() != HeadersRevision ||
             root.GetProperty("wgpuRevision").GetString() != WgpuRevision ||
             root.GetProperty("compilerFeature").GetString() != "dxc_shader_compiler" ||
-            root.GetProperty("lockSha256").GetString() != LockSha256)
+            root.GetProperty("lockSha256").GetString() != LockSha256 ||
+            !HasReviewedShaderInputs(root))
             throw new NotSupportedException("The loaded native compiler artifact does not match the pinned DXC feature/ABI contract.");
         using (var library = File.OpenRead(libraryPath))
         {
@@ -114,6 +119,27 @@ internal static partial class WgpuDx12CompilerArtifact
         ValidateMachine(validator, architecture);
         return new(compiler, validator);
     }
+
+    private static bool HasReviewedShaderInputs(JsonElement root)
+    {
+        if (!root.TryGetProperty("shaderInputs", out JsonElement inputs) ||
+            inputs.ValueKind != JsonValueKind.Object ||
+            !HasString(inputs, "wgpuRevision", WgpuRevision) ||
+            !HasString(inputs, "nagaVersion", NagaVersion) ||
+            !HasString(inputs, "patchSha256", ShaderPatchSha256) ||
+            !inputs.TryGetProperty("modifiedFiles", out JsonElement files) ||
+            files.ValueKind != JsonValueKind.Array || files.GetArrayLength() != 1)
+            return false;
+        JsonElement writer = files[0];
+        return writer.ValueKind == JsonValueKind.Object &&
+            HasString(writer, "path", "naga/src/back/hlsl/writer.rs") &&
+            HasString(writer, "originalSha256", OriginalWriterSha256) &&
+            HasString(writer, "patchedSha256", PatchedWriterSha256);
+    }
+
+    private static bool HasString(JsonElement value, string name, string expected) =>
+        value.TryGetProperty(name, out JsonElement property) &&
+        property.ValueKind == JsonValueKind.String && property.GetString() == expected;
 
     internal static void ValidateMachine(string path, Architecture architecture)
     {

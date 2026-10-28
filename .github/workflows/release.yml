@@ -89,7 +89,7 @@ jobs:
           if-no-files-found: error
 
   dx12-runtime:
-    name: Build Windows compiler runtime (${{ matrix.rid }})
+    name: Build Windows WebGPU and compiler runtimes (${{ matrix.rid }})
     needs: source
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -116,6 +116,10 @@ jobs:
         shell: pwsh
         run: |
           ./eng/test-dx12-runtime-inputs.ps1
+          python -B -m unittest discover -s eng/tests -p test_wgpu_windows_runtime.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Windows WebGPU runtime provenance controls failed.' }
+          python -B eng/tests/test_wgpu_windows_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows WebGPU runtime asset selection failed.' }
           ./eng/build-progpu-dx12-runtime-windows.ps1 -Rid '${{ matrix.rid }}'
       - uses: actions/upload-artifact@v7
         with:
@@ -123,9 +127,16 @@ jobs:
           path: artifacts/progpu-dx12/package
           if-no-files-found: error
 
+      - name: Upload verified default Windows WebGPU runtime
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
+          if-no-files-found: error
+
   native-runtime:
     name: Build native runtime (${{ matrix.rid }})
-    needs: [source, xlib-runtime]
+    needs: [source, xlib-runtime, dx12-runtime]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -151,6 +162,15 @@ jobs:
         with:
           ref: ${{ needs.source.outputs.commit }}
           submodules: recursive
+
+      # The macOS WebScene source-independent check also packs Backend and
+      # therefore needs both Windows payloads in its private package feed.
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-wgpu-windows-runtime-*
+          path: artifacts/progpu-wgpu-windows/package
+          merge-multiple: true
 
       - name: Prepare pinned framework sources
         shell: bash
@@ -335,6 +355,13 @@ jobs:
         with:
           ref: ${{ needs.source.outputs.commit }}
           submodules: recursive
+
+      - name: Download verified Windows WebGPU dependency
+        uses: actions/download-artifact@v8
+        with:
+          pattern: progpu-wgpu-windows-runtime-*
+          path: artifacts/progpu-wgpu-windows/package
+          merge-multiple: true
 
       - name: Prepare pinned framework sources
         shell: bash

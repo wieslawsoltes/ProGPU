@@ -1,9 +1,11 @@
 <Project>
   <PropertyGroup>
     <ProGpuXlibSourceRuntimeRoot Condition="'$(ProGpuXlibSourceRuntimeRoot)' == '' And Exists('$(MSBuildThisFileDirectory)artifacts/progpu-xlib/package')">$(MSBuildThisFileDirectory)artifacts/progpu-xlib/package</ProGpuXlibSourceRuntimeRoot>
+    <ProGpuWgpuWindowsSourceRuntimeRoot Condition="'$(ProGpuWgpuWindowsSourceRuntimeRoot)' == '' And '$(ProGpuWgpuWindowsRuntimeRoot)' != ''">$(ProGpuWgpuWindowsRuntimeRoot)</ProGpuWgpuWindowsSourceRuntimeRoot>
+    <ProGpuWgpuWindowsSourceRuntimeRoot Condition="'$(ProGpuWgpuWindowsSourceRuntimeRoot)' == '' And Exists('$(MSBuildThisFileDirectory)artifacts/progpu-wgpu-windows/package')">$(MSBuildThisFileDirectory)artifacts/progpu-wgpu-windows/package</ProGpuWgpuWindowsSourceRuntimeRoot>
   </PropertyGroup>
   <Import Project="$(MSBuildThisFileDirectory)src/ProGPU.Backend/buildTransitive/ProGPU.Backend.targets"
-          Condition="'$(ProGpuXlibSourceRuntimeRoot)' != ''" />
+          Condition="'$(ProGpuXlibSourceRuntimeRoot)' != '' Or '$(ProGpuWgpuWindowsSourceRuntimeRoot)' != ''" />
   <Target Name="_ProGpuRemoveNetCoreWindowsBaseFacade"
           BeforeTargets="ResolveAssemblyReferences"
           DependsOnTargets="ResolveTargetingPackAssets;ResolveLockFileReferences"

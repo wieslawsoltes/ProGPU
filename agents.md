@@ -1,3 +1,14 @@
+Pinned Windows HLSL workgroup initialization distributes fixed array elements
+across the complete XYZ local index and stride. Preserve typed zero, exactly one
+write per element, unchanged non-array initialization and the original barrier
+before user code. Never disable zero initialization or change compiler flags to
+hide compilation failures. Apply the hash-pinned writer patch only to isolated
+external dependency sources. Default FXC and optional DXC consume the same owned
+DLL per RID; only the optional package carries DXC/DXIL. Retain exact source,
+patch, lock, architecture and package receipts and the original whole-provider,
+source/application and pixel gates. See eng/wgpu-hlsl/README.md and
+docs/native-windows-shader-compiler.md.
+
 Abandoned SKSurface owners retire only their actual owned texture/readback,
 counted immutable generation and CPU storage. Finalization must not flush,
 dispose the canvas, poll, unmap or take RenderLock. Preserve explicit teardown
@@ -1136,8 +1147,9 @@ publication. Never infer architecture from an archive folder, relax pure-ARM64
 admission for a hybrid payload, overwrite existing artifacts, or include testing-
 only WARP in compiler packages. Artifact provenance is not runtime qualification.
 
-The optional DX12 runtime package selects only the known Silk Windows native
-asset in both build and publish. Keep explicit RID admission, original notices,
+The optional DX12 runtime package replaces only known Silk Windows native assets
+and exact owned ProGPU.Backend Windows payload members after verifying identical
+DLL bytes in build and publish. Keep explicit RID admission, original notices,
 fresh verified payload staging and pre-NuGet completeness checks. Never edit
 the package cache/system DLLs, discard caller-owned same-name assets, distribute
 WARP or infer qualified defaults from package presence. Both renderer modes

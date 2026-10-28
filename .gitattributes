@@ -11,6 +11,8 @@ eng/directx-graphics-samples/*.patch text eol=lf whitespace=-blank-at-eol
 
 # Dependency lock verification hashes the reviewed bytes on Windows as well.
 eng/wgpu-dxc/Cargo.lock text eol=lf
+# A unified patch retains leading-space blank context lines, including at its end.
+eng/wgpu-hlsl/*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
 
 # Original Windows metric receipt retains its captured bytes, including CRLF.
 src/ProGPU.Tests/TestData/SourceDeviceLines/metrics.json -text

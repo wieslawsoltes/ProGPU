@@ -11,6 +11,12 @@ WgpuContext.OnWebGpuError += (type, message) =>
 WgpuContext.OnWebGpuDeviceLost += (reason, message) =>
     Console.Error.WriteLine($"package-consumer: WebGPU device lost {reason}: {message}");
 
+if (args.Length == 1 && args[0] == "--windows-runtime-metadata-controls-only")
+{
+    WindowsOwnedRuntimeValidation.RunMetadataControls();
+    return;
+}
+
 if (args.Contains("--binary-glyph-originals-only", StringComparer.Ordinal))
 {
     using var binaryContext = new WgpuContext
@@ -19,6 +25,7 @@ if (args.Contains("--binary-glyph-originals-only", StringComparer.Ordinal))
         ForceFallbackAdapter = OperatingSystem.IsWindows() || args.Contains("--software-adapter", StringComparer.Ordinal)
     };
     binaryContext.Initialize(null);
+    WindowsOwnedRuntimeValidation.Verify(binaryContext);
     BinaryGlyphOriginalValidation.Run(binaryContext, () => new NativeCompositor(binaryContext, TextureFormat.Rgba8Unorm));
     return;
 }
@@ -103,6 +110,7 @@ if (args.Contains("--webgpu-init-only", StringComparer.Ordinal))
     using var probeContext = new WgpuContext { ForceFallbackAdapter = args.Contains("--software-adapter", StringComparer.Ordinal) };
     Console.WriteLine("package-consumer: WebGPU context constructed");
     probeContext.Initialize(window: null);
+    WindowsOwnedRuntimeValidation.Verify(probeContext);
     Console.WriteLine("ProGPU.Backend WebGPU initialization smoke passed.");
     return;
 }

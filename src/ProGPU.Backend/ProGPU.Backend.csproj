@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>Win32PopupCommonControls.manifest</ApplicationManifest>
+    <ProGpuWgpuWindowsRuntimeRoot Condition="'$(ProGpuWgpuWindowsRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/progpu-wgpu-windows/package</ProGpuWgpuWindowsRuntimeRoot>
     <ProGpuXlibRuntimeRoot Condition="'$(ProGpuXlibRuntimeRoot)' == ''">$(MSBuildThisFileDirectory)../../artifacts/progpu-xlib/package</ProGpuXlibRuntimeRoot>
   </PropertyGroup>
   <ItemGroup>
@@ -28,6 +29,7 @@
     <None Update="buildTransitive/ProGPU.Backend.targets"
           Pack="true"
           PackagePath="buildTransitive/ProGPU.Backend.targets" />
+    <None Update="buildTransitive/ProGPU.Backend.Windows.targets" Pack="true" PackagePath="buildTransitive/ProGPU.Backend.Windows.targets" />
     <None Update="Native/progpu-static-resolver-stub.c"
           Pack="true"
           PackagePath="buildTransitive/native/progpu-static-resolver-stub.c" />
@@ -38,6 +40,15 @@
     <None Include="$(ProGpuXlibRuntimeRoot)/linux-arm64/native/*" Pack="true"
           PackagePath="runtimes/linux-arm64/native/" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="$(ProGpuWgpuWindowsRuntimeRoot)/win-x64/native/*" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="$(ProGpuWgpuWindowsRuntimeRoot)/win-arm64/native/*" Pack="true" PackagePath="runtimes/win-arm64/native/" />
+  </ItemGroup>
+  <Target Name="ValidateProGpuWgpuWindowsPackage" BeforeTargets="_GetPackageFiles;GenerateNuspec">
+    <ItemGroup><_ProGpuWgpuWindowsPackageRid Include="win-x64;win-arm64" /></ItemGroup>
+    <Error Condition="!Exists('$(ProGpuWgpuWindowsRuntimeRoot)/%(_ProGpuWgpuWindowsPackageRid.Identity)/native/wgpu-native-windows.json')" Text="Missing verified Windows WebGPU dependency for %(_ProGpuWgpuWindowsPackageRid.Identity). Build and stage the owned Windows runtime first." />
+    <Exec Command="python3 &quot;$(MSBuildThisFileDirectory)../../eng/progpu-wgpu-windows-runtime.py&quot; --rid %(_ProGpuWgpuWindowsPackageRid.Identity) --verify &quot;$(ProGpuWgpuWindowsRuntimeRoot)/%(_ProGpuWgpuWindowsPackageRid.Identity)/native&quot;" />
+  </Target>
   <Target Name="ValidateProGpuXlibPackage" BeforeTargets="_GetPackageFiles;GenerateNuspec">
     <ItemGroup>
       <_ProGpuXlibPackageRid Include="linux-x64;linux-arm64" />

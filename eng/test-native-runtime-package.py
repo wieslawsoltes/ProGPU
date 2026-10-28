@@ -2,6 +2,7 @@
 """Exercise the real native-runtime Pack item with synthetic, non-runnable files."""
 
 from pathlib import Path
+from copy import deepcopy
 import shutil
 import subprocess
 import tempfile
@@ -58,6 +59,7 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
             shutil.copyfile(ROOT / "global.json", root / "global.json")
             runtime = root / "payload"
             expected = {}
+            backend_owned = set()
             for rid in RIDS:
                 for relative in ("licenses/edit-word-icu/LICENSE", "licenses/freetype/LICENSE.TXT",
                                  "sdk/progpu-native-edit-word-dependency.json", "sdk/fixture.a",
@@ -68,6 +70,15 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(data)
                     expected[name] = data
+
+            for rid in ("win-x64", "win-arm64"):
+                for relative in ("wgpu_native.dll", "wgpu-native-build.json", "LICENSE.MIT", "LICENSE.APACHE",
+                                 "wgpu-LICENSE.MIT", "wgpu-LICENSE.APACHE", "webgpu-headers-LICENSE", "wgpu-native-windows.json"):
+                    name = f"runtimes/{rid}/native/{relative}"
+                    data = f"Synthetic Backend-owned package control: {name}\n".encode()
+                    (runtime / name).write_bytes(data)
+                    expected[name] = data
+                    backend_owned.add(name)
 
             # Use the unchanged production item, not an imitation of its glob or
             # NuGet's file/directory interpretation. No renderer or dependency is built.
@@ -80,7 +91,12 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
                 "NuGetAudit": "false", "ProGpuNativeRuntimeRoot": str(runtime),
             }.items():
                 ET.SubElement(properties, name).text = value
-            ET.SubElement(project, "ItemGroup").append(items[0])
+            owned_inventory = source.find("./ItemGroup[_ProGpuBackendOwnedWindowsRid]")
+            self.assertIsNotNone(owned_inventory)
+            owned_group = deepcopy(owned_inventory)
+            project.append(owned_group)
+            runtime_group = ET.SubElement(project, "ItemGroup")
+            runtime_group.append(items[0])
             sdk_reference = source.find("./ItemGroup/ProjectReference[@Include='..\\ProGPU.Native.Sdk\\ProGPU.Native.Sdk.csproj']")
             self.assertIsNotNone(sdk_reference)
             # Preserve the real project/reference metadata while keeping restore
@@ -93,7 +109,7 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
             sdk_copy_path.parent.mkdir()
             sdk_copy.write(sdk_copy_path, encoding="utf-8", xml_declaration=True)
             sdk_reference.set("Include", str(sdk_copy_path))
-            project.find("ItemGroup").append(sdk_reference)
+            runtime_group.append(sdk_reference)
             project_path = root / "RuntimePack.csproj"
             ET.ElementTree(project).write(project_path, encoding="utf-8", xml_declaration=True)
             for arguments in (["restore", str(project_path), "--ignore-failed-sources"],
@@ -103,7 +119,7 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
                 self.assertEqual(result.returncode, 0, result.stdout)
             with zipfile.ZipFile(root / "output/ProGPU.Native.Runtime.PackContract.1.0.0.nupkg") as archive:
                 actual = [name for name in archive.namelist() if name.startswith("runtimes/")]
-                runtime_expected = {k: v for k, v in expected.items() if "/native/sdk/" not in k}
+                runtime_expected = {k: v for k, v in expected.items() if "/native/sdk/" not in k and k not in backend_owned}
                 self.assertCountEqual(actual, runtime_expected)
                 for name, data in runtime_expected.items():
                     self.assertEqual(archive.read(name), data, name)
@@ -116,7 +132,11 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
             sdk_items = [item for item in sdk.findall("./ItemGroup/None")
                          if item.get("Include") == "$(ProGpuNativeRuntimeRoot)\\**\\*"]
             self.assertEqual(len(sdk_items), 1)
-            group = project.find("ItemGroup")
+            group = runtime_group
+            project.remove(owned_group)
+            sdk_owned_inventory = sdk.find("./ItemGroup[_ProGpuBackendOwnedWindowsRid]")
+            self.assertIsNotNone(sdk_owned_inventory)
+            project.insert(1, deepcopy(sdk_owned_inventory))
             group.remove(items[0])
             group.remove(sdk_reference)
             properties.find("SuppressDependenciesWhenPacking").text = "true"
@@ -136,7 +156,7 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
                 for name, data in sdk_expected.items():
                     self.assertEqual(archive.read(name), data, name)
                 self.assertEqual(archive.read("build/native/ProGPUNativeSdkVersion.txt").decode().strip(), "1.0.0")
-            self.assertEqual(set(runtime_expected) | set(sdk_expected), set(expected))
+            self.assertEqual(set(runtime_expected) | set(sdk_expected), set(expected) - backend_owned)
 
             # Also exercise the exact production admission target. Missing
             # runtimes must fail before NuGet creates even a local package.
@@ -147,7 +167,7 @@ dotnet() { [[ "$1" == pack ]]; printf '%s\\n' "$2"; }
             target = validation.find("./Target[@Name='ValidateProGpuNativePackageRuntimes']")
             self.assertIsNotNone(target)
             project.append(target)
-            ET.SubElement(project.find("ItemGroup"), "None", Include=str(project_path),
+            ET.SubElement(runtime_group, "None", Include=str(project_path),
                           Pack="true", PackagePath="contract/RuntimePack.csproj")
             ET.ElementTree(project).write(project_path, encoding="utf-8", xml_declaration=True)
             rejected_output = root / "rejected-output"
