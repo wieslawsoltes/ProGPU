@@ -1,0 +1,48 @@
+Changed diagnostic: CDB native first/second-chance observation, no renderer changes.
+
+The preceding ProcDump preparation failed before the product ran. It captured
+E0421234 and the original handler marker, then repeated second-chance C0000409
+subtype 7 seven times until the eight-dump cap. Its raw archive and failure remain.
+We do not increase that cap or treat repeated unhandled delivery as admission.
+
+Use the same verified signed native ARM64 CDB in the existing suspended owned-job
+launcher, with a 60-second capture limit and eight-dump maximum. CDB -hd preserves
+the normal target heap instead of enabling its debug heap; -noshell prevents shell
+commands. At the initial loader breakpoint, install read-only callback scripts
+and use ordinary g for that debugger initialization event. Thereafter, configure
+all documented named native fault filters plus wildcard for unknown native codes.
+Both first and second chance callbacks retain a numbered mini dump, raw exception
+and event record, then explicitly gN (not handled). This lets application SEH run
+on first chance and lets Windows terminate a still-unhandled second chance.
+
+Wildcard does not cover CDB's named filters, hence their explicit enumeration.
+CLR managed E0434352 is excluded. Debugger protocol notifications (including the
+initial breakpoint, CLR notification, thread naming and debug output) retain
+CDB's standard handling; they are not silently converted to unhandled faults.
+The complete actual sx inventory is retained for review. This is native-fault
+attribution, not an assertion that every debugger protocol event was dumped.
+Only debugger-local $t0 is written; no target memory/register/policy is changed.
+A ninth event stops the diagnostic with a cap marker. Reaching eight dumps or the
+time bound is incomplete, with all evidence retained and no product admission.
+
+The independent native control is unchanged. Require precisely its first-chance
+E0421234, original handler continuation marker, and second-chance subtype 7 with
+an actual selected control frame. Check only EXCEPTION_NONCONTINUABLE bit zero,
+retaining the observed Windows 0x80 flags. Require target process-exit evidence
+with original C0000409 code, not merely a debugger process exit. Hash-bind dumps,
+analyses, callback/setup scripts, log and process/summary receipts before product.
+
+Only after this control passes may the unchanged 686 DXC binary-glyph workload
+execute once with its exact package, arguments and environment. Preserve native
+exception ordering/chance/code/raw flags/parameters/modules/stacks, and require
+the retained PAC outcome as a final second chance for diagnostic completeness.
+No qualification, retry, driver replacement, threshold change or VM/input use.
+The previous original PAC failure remains independent evidence.
+
+Primary command semantics:
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/gn--gn--go-with-exception-not-handled-
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/sx--sxd--sxe--sxi--sxn--sxr--sx---set-exceptions-
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/controlling-exceptions-and-events
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/cdb-command-line-options
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/-dump--create-dump-file-
+https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/pseudo-register-syntax

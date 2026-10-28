@@ -1,0 +1,54 @@
+{
+  "previousDiagnosticHead": "e51b29ab6c8d3f2ff115206b197987acec020596",
+  "productHead": "686a34bb092ada9eec73b3ce1381dcb592e276b6",
+  "previousProductExecuted": false,
+  "qualification": false,
+  "localControls": 3,
+  "files": [
+    {
+      "path": "cdb_event_scripts.py",
+      "size": 1668,
+      "sha256": "68ef67f999c6a08e57b8d3c579d4633d64bf10a23df33e6de3b0608f4bad0ab4"
+    },
+    {
+      "path": "cdb_first_chance.py",
+      "size": 6720,
+      "sha256": "5b26c7675f3bf4cc96d5bd923de8c169ac32d1f2b1f28b816d700d2be647bce8"
+    },
+    {
+      "path": "cdb-first-chance-workflow.yml",
+      "size": 3949,
+      "sha256": "376ffceac1bde5b20041dcd785528170de734f035decff4a164d206066b0283a"
+    },
+    {
+      "path": "cdb-first-chance-proposal.txt",
+      "size": 3447,
+      "sha256": "ea2e78477fdd87999bd3329fbf20f55f54966dc106d8595176e50484086e57c3"
+    },
+    {
+      "path": "test_cdb_event_scripts.py",
+      "size": 1177,
+      "sha256": "3c29f22654ca0640ffb65f007415ecd232e93300ba2e77f54ebdfa84b4c03dc2"
+    },
+    {
+      "path": "FirstChanceControl.cpp",
+      "size": 360,
+      "sha256": "94cb6720e5db8c877223c83fed2b253db62f6c516d58190795c44ef3d7558f70"
+    },
+    {
+      "path": "owned_process.py",
+      "size": 5095,
+      "sha256": "0a8fa56baac388c3996a239cce1522e07fb54c7d0f3d13450acc80cdc57655f8"
+    },
+    {
+      "path": "read_dump.py",
+      "size": 2719,
+      "sha256": "8f893ceb2fac4faf08971e48255bc7febaf053c4a6e4c44d34fc997d7c2b1dc1"
+    },
+    {
+      "path": "prepare-tools.ps1",
+      "size": 3519,
+      "sha256": "50597613c49a8aa5b503bd504510dead8fa07fbf5b9592d7df3af956689d379a"
+    }
+  ]
+}

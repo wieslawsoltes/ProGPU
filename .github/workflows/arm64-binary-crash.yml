@@ -1,4 +1,4 @@
-name: ARM64 original first-chance exception capture
+name: ARM64 original CDB native exception capture
 on:
   pull_request:
     branches: [fix/source-binary-glyph-raster]
@@ -57,7 +57,7 @@ jobs:
       - name: Prove original handled native continuation and final exception capture
         shell: pwsh
         run: |
-          python diagnostic/eng/diagnostics/arm64-binary-crash/first_chance.py control
+          python diagnostic/eng/diagnostics/arm64-binary-crash/cdb_first_chance.py control
           if ($LASTEXITCODE -ne 0) { throw 'Capture control failed; original product is not run.' }
       - name: Build unchanged original packaged consumer
         shell: pwsh
@@ -69,12 +69,12 @@ jobs:
       - name: Capture first-chance exceptions from one original workload, at most 60 seconds
         shell: pwsh
         run: |
-          python diagnostic/eng/diagnostics/arm64-binary-crash/first_chance.py workload
+          python diagnostic/eng/diagnostics/arm64-binary-crash/cdb_first_chance.py workload
           if ($LASTEXITCODE -ne 0) { throw 'Diagnostic incomplete; no retry or qualification claim.' }
       - name: Retain original dump, stack, inputs and all failed diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: arm64-binary-first-chance-original-686
+          name: arm64-binary-cdb-first-chance-original-686
           path: evidence
           if-no-files-found: error
