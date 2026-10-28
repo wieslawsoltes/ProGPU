@@ -184,6 +184,32 @@ ARM64 runtime execution must still establish whether it removes the remaining
 generated-code failure; compilation and local pixel agreement do not qualify
 the source or package.
 
+The scalar-selection source at `1f81f86e6` subsequently passes all six original
+ARM64 groups on default FXC in 40.49 seconds and Dawn in 52.90 seconds. Explicit
+DXC still fails during the first frame wait after 3.10 seconds with exit code
+`0xC0000409`, before completing a comparison group. Removing DXC's local arrays
+therefore does not establish a runtime repair. The exact generated header, two
+native DLLs, original package closure and failure receipt remain retained; a new
+bounded capture independently records a first invalid store to `0x2074` in an
+`0x2080` JIT frame. Five events complete in 6.53 seconds without exhausting the
+eight-event cap. The observed shifted-register ADD uses XZR, not SP; removing
+DXIL arrays did not repair the generated address.
+
+The next source revision shares the two original smart-curve endpoint evaluations
+through one bounded loop. Existing admission proves `index < end < 512`; stepping
+by `end - index` visits exactly those two endpoints in order. Each result is assigned
+to its own scalar, preserving the single original addition and subsequent midpoint
+arithmetic. There is no zero-seeded accumulation, interpolation, reordered edge or
+new raster policy. The helper's original 32-step bound, all early returns, barriers,
+atomics, shared memory and dispatches are unchanged. Both managed and native
+renderers consume this same canonical shader. All 36 managed controls and all six
+original 880-case groups in each local native provider still pass with zero pixel
+differences. All four original Windows release-flag compiler cases also pass.
+Both DXIL entries now retain one 32-step subdivision body inside the endpoint
+loop, with five square-root sites instead of six and no local arrays. FXC
+temporary counts remain 27/25. These measured compiler changes do not establish
+actual Windows runtime safety; the original three runtime routes remain required.
+
 The rejected global midpoint quantizer regressed earlier diagonal controls and
 was removed. Its failed captures remain retained. The bounded curved candidate
 passes all original and new cases through native wgpu and Dawn, including actual

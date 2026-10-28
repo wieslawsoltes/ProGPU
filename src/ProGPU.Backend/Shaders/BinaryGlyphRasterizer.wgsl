@@ -416,8 +416,19 @@ fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
             // Curved transitions use the nearest 26.6 midpoint, with exact
             // half-unit ties toward the lower unit. Line-only intervals keep
             // their original arithmetic; this is not a global glyph snap.
-            midpoint = ceil((smart_curve_crossing(record, beginning, level, vertical) +
-                smart_curve_crossing(record, events[end], level, vertical)) * 32.0 - 0.5) / 64.0;
+            // Existing guards prove index < end < 512: visit the two original
+            // endpoint events in order through one subdivision call site.
+            let endpoint_step = end - index;
+            var first_crossing = 0.0;
+            var second_crossing = 0.0;
+            for (var endpoint = index; endpoint <= end; endpoint += endpoint_step) {
+                var selected_event = beginning;
+                if endpoint != index { selected_event = events[end]; }
+                let crossing = smart_curve_crossing(record, selected_event, level, vertical);
+                if endpoint == index { first_crossing = crossing; }
+                else { second_crossing = crossing; }
+            }
+            midpoint = ceil((first_crossing + second_crossing) * 32.0 - 0.5) / 64.0;
         }
         if midpoint > right { selected = right; }
     }
