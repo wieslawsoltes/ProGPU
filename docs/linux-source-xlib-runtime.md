@@ -107,3 +107,50 @@ runtime payloads only on Linux hosts. Native jobs also produce cross-platform
 managed packages, so both Build and Release now download the original Linux
 payloads on every native matrix host. Package validation remains mandatory;
 the original failure is retained and the complete corrected producer must pass.
+
+
+## MSAA attachment resolution and draw scissors
+
+The same pinned GLES dependency resolves a multisampled color attachment with
+`glBlitFramebuffer`. The last draw's scissor must not limit this attachment
+operation: OpenGL ES 3.1 section 16.2 specifies that framebuffer blits are affected
+by the scissor test ([specification](https://registry.khronos.org/OpenGL/specs/es/3.1/es_spec_3.1.pdf)).
+The original `ResolveAttachment` path left that test enabled. A final caption
+scissor could therefore resolve the caption while leaving the rest of the
+single-sample target unchanged.
+
+The reviewed external patch disables `SCISSOR_TEST` immediately before the
+attachment resolve. It preserves the scissor box and all draw commands. The
+next `SetScissor` explicitly enables its own test, while a new render pass resets
+framebuffer state. Both intermediate and final attachment resolves use this
+path; EGL surface presentation already disables the test independently. No
+consumer draw, default sample count, source layout or WebGPU ABI changes.
+
+The separate `native-resolve-scissor-probe.c` control uses the original owned
+Xlib setup and verifies the loaded runtime path. It compares all 576 RGBA pixels
+across three authored MSAA4 passes: a clipped draw over a clear with a prefilled
+resolve destination, a different clipped draw after reuse, and a subsequent
+full clear. It has its own 60-second process limit; the original native lifetime
+probe and its limit remain unchanged. Both Linux architecture producer jobs
+must run these controls against their actual staged runtime.
+
+The motivating qualified LibreWPF source run retained complete body commands,
+opaque vertices, ordered draw calls and matching live/cached contexts, yet its
+ManagedPortable dialog captures showed only the final caption region. Its logs
+identify OpenGL/llvmpipe and its MSAA allocation has four samples. The original
+closure's runtime hash is retained; that observer did not independently report
+the loaded native image path. These observations support the resolve defect but
+are not fixed application pixels. The candidate still requires rebuilt
+two-architecture producer controls, whole CI, package admission and the unchanged
+source application visual checks before source pin advancement or release.
+
+The original-runtime control in [run 40713803026](https://github.com/wieslawsoltes/LibreWPF/actions/runs/40713803026)
+loads the exact retained ARM64 runtime
+`bf19f91a7fcbe78044ea590a07fb554a963dc0609e8e9211d96d1050b22c9653`
+and witnesses its actual image path with `dladdr`. All 576 pixels are checked:
+the first clipped resolve leaves 128 blue destination pixels unchanged, the
+second leaves 64 stale green pixels, and the final full clear has zero
+mismatches. The probe exits 1 after 7.68 seconds, preserving the expected product
+failure. The diagnostic workflow succeeds only in recording that negative
+result; it does not qualify the original runtime. This is an authored GLES
+control on llvmpipe, not the final source application or candidate result.

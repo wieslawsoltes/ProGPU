@@ -81,6 +81,13 @@ jobs:
           payload="$GITHUB_WORKSPACE/artifacts/progpu-xlib/package/${{ matrix.rid }}/native"
           clang-18 -std=c11 eng/wgpu-xlib/native-surface-probe.c -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o artifacts/wgpu-native-linux/native-surface-probe
           timeout 60s xvfb-run -a artifacts/wgpu-native-linux/native-surface-probe
+      - name: Verify multisample resolves ignore the preceding draw scissor
+        run: |
+          native=$(find artifacts/wgpu-native-linux -mindepth 2 -maxdepth 2 -type d -name wgpu-native)
+          test -n "$native"
+          payload="$GITHUB_WORKSPACE/artifacts/progpu-xlib/package/${{ matrix.rid }}/native"
+          clang-18 -std=c11 eng/wgpu-xlib/native-resolve-scissor-probe.c -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o artifacts/wgpu-native-linux/native-resolve-scissor-probe
+          timeout 60s xvfb-run -a artifacts/wgpu-native-linux/native-resolve-scissor-probe "$payload/libwgpu_native.so"
       - name: Upload verified Linux dependency
         uses: actions/upload-artifact@v7
         with:

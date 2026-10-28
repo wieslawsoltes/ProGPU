@@ -275,3 +275,21 @@ index 8b2eb49..87750d4 100644
          #[cfg_attr(any(target_os = "android", Emscripten), allow(unused_mut))]
          let mut inner = self.inner.lock();
  
+diff --git a/wgpu-hal/src/gles/queue.rs b/wgpu-hal/src/gles/queue.rs
+--- a/wgpu-hal/src/gles/queue.rs
++++ b/wgpu-hal/src/gles/queue.rs
+@@ -1027,8 +1027,14 @@
+                 attachment,
+                 ref dst,
+                 ref size,
+             } => {
++                // Attachment resolves cover the complete render area, independently
++                // of the last draw's scissor. GLES framebuffer blits otherwise
++                // inherit SCISSOR_TEST and silently discard unresolved pixels.
++                // A later pass resets framebuffer state; SetScissor re-enables
++                // the test for its own draws without changing the saved box here.
++                unsafe { gl.disable(glow::SCISSOR_TEST) };
+                 unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(self.draw_fbo)) };
+                 unsafe { gl.read_buffer(attachment) };
+                 unsafe { gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(self.copy_fbo)) };
+                 unsafe {
