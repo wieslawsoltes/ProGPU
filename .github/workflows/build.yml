@@ -140,6 +140,7 @@ jobs:
 
   windows-system-fonts:
     name: Windows system font reference (${{ matrix.rid }})
+    needs: [dx12-runtime]
     strategy:
       fail-fast: false
       matrix:
@@ -159,6 +160,11 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+      - name: Stage the matching owned Windows runtime for source test admission
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-wgpu-windows-runtime-${{ matrix.rid }}
+          path: artifacts/progpu-wgpu-windows/package
       - name: Compare actual Microsoft and portable system font descriptors
         shell: pwsh
         run: ./eng/progpu-verify-windows-system-fonts.ps1 -Rid '${{ matrix.rid }}'
@@ -182,6 +188,7 @@ jobs:
 
   system-drawing-contract:
     name: System.Drawing API, quality, and performance
+    needs: [native-cpp]
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -210,6 +217,12 @@ jobs:
       - name: Verify pinned API contract
         shell: bash
         run: ./eng/progpu-verify-system-drawing-api.sh
+
+      - name: Stage the exact native renderer for source Drawing tests
+        uses: actions/download-artifact@v8
+        with:
+          name: progpu-native-runtime-linux-x64
+          path: artifacts/progpu-native/package
 
       - name: Run focused quality and allocation gates
         run: |

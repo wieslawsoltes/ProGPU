@@ -10,7 +10,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = {
     "LibreWPF": ["src/ProGPU.Wpf.Interop", "src/ProGPU.Compatibility", "eng"],
-    "LibreWinForms": ["src/ProGPU.Drawing"],
+    "LibreWinForms": ["src/ProGPU.Drawing", "eng"],
 }
 
 
