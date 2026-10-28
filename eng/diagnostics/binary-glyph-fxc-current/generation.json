@@ -1,0 +1,60 @@
+{
+  "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
+  "nagaVersion": "0.19.2",
+  "generationCommand": "progpu-pinned-hlsl-diagnostic candidate.wgsl candidate.hlsl",
+  "options": {
+    "shaderModel": "V5_1",
+    "fakeMissingBindings": false,
+    "zeroInitializeWorkgroupMemory": true,
+    "pushConstants": null,
+    "specialConstants": {
+      "space": 0,
+      "register": 1
+    },
+    "group0Registers": {
+      "0": "b0",
+      "1": "t0",
+      "2": "t1",
+      "3": "u0",
+      "4": "u1"
+    }
+  },
+  "compiler": {
+    "target": "cs_5_1",
+    "flags1": 2048,
+    "flags2": 0,
+    "sourceName": "ProGPU binary glyph scan shader",
+    "basis": "Pinned compile_fxc always ENABLE_STRICTNESS; release native library defaults no DEBUG, so no DEBUG/SKIP_OPTIMIZATION additions."
+  },
+  "sourceSha256": {
+    "naga/src/back/hlsl/mod.rs": "c677ebbb649a1c5f85f350d8da7129457d50ff52b1c88c1f0fac4a9d11eb020c",
+    "naga/src/back/hlsl/writer.rs": "8e61501bae6982273a525734d3e446694d4bf7a081419ec312c32b354e89d3ef",
+    "wgpu-hal/src/dx12/device.rs": "bc8ec1c2c38107123b29b9d3bdcbe57ad2a205625d0ebeeb3920f1d10f87ae91",
+    "wgpu-hal/src/dx12/shader_compilation.rs": "419ce7fe4df2973845851fac045dab21157eec6b26a573012f22fa41fc130b5b",
+    "wgpu-core/src/device/resource.rs": "d4ca33e552f3ede654bd4e522b98bdb953ce6e9e96bc17b42c422ddd00968cc0",
+    "wgpu-types/src/lib.rs": "8ac225af8134ecedd12fcf12ca9cbe07bb5829c36019fc2cc9668970e0d7c1d7"
+  },
+  "translatorBinarySha256": "94c055493d2233204418f10980f98a714bed2de31a70520802d39de64bde2001",
+  "originalLocations": {
+    "163": "result.x[_expr152] = _e157;",
+    "500": "while(true) in continuation_crossings",
+    "863": "while(true) in dropout"
+  },
+  "limits": "Compiler-only diagnosis; no native package, runtime, GPU or original-pixel qualification.",
+  "candidate": "4: one source dropout call per entrypoint in a two-item loop, preserving the two exact indices and call order",
+  "originalFailureEvidence": {
+    "pr": 405,
+    "sha256": "f35ed6cb3edb3c4d4cf22b3e341b24797bfc8daa25e6988f34d26ce681038f29",
+    "result": "Both original entries failX3550/X3511; candidate1horizontal unfinished at originalwhole60s cutoff"
+  },
+  "priorOptimizerEvidence": {
+    "pr": 407,
+    "archiveSha256": "8325a1e978737333c779a4d79b571cfc4f44881f8f8949147167843e3f9ed336",
+    "result": "SkipOptimization compiled9.352s; loopattribute releasevariants each60stimeout"
+  },
+  "priorCandidateEvidence": {
+    "pr": 408,
+    "sha256": "c3211da06be89bd62ee2e3346db7698b6d9f09be24a236df61eb90812bc2ee51",
+    "result": "Both original-release entrypoints timed out independently at60s"
+  }
+}
