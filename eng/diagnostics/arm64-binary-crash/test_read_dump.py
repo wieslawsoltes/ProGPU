@@ -41,6 +41,16 @@ class DumpControls(unittest.TestCase):
     def test_duplicate_stream_rejected(self):
         b=fixture();struct.pack_into('<I',b,56,6)
         with self.assertRaises(ValueError):self.parse(b)
+    def test_repeated_empty_unused_entries_retained(self):
+        b=fixture();struct.pack_into('<I',b,8,5)
+        # Move the enlarged directory to spare bytes, preserving all streams.
+        b[400:436]=b[32:68];struct.pack_into('<I',b,12,400)
+        r=self.parse(b)
+        self.assertEqual(r['directoryEntries'][-2:],[{'type':0,'size':0,'rva':0}]*2)
+        self.assertEqual(r['parameters'],['0x7'])
+    def test_nonempty_unused_entry_rejected(self):
+        b=fixture();struct.pack_into('<I',b,32,0)
+        with self.assertRaises(ValueError):self.parse(b)
     def test_module_count_overflow_rejected(self):
         b=fixture();struct.pack_into('<I',b,240,2)
         with self.assertRaises(ValueError):self.parse(b)
