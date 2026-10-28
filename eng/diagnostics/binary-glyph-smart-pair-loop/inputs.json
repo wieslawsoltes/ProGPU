@@ -1,0 +1,154 @@
+{
+  "baselineProductHead": "1f81f86e6f004bac53e939e18d1a239fac464c49",
+  "baselineWgslSha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7",
+  "candidateWgslSha256": "e48c9e0428888a560902600c0e625684c13b600f534215b309dc2f24b6159707",
+  "generation": {
+    "generatorSha256": "8416df0dfd1bbb022cae5a5a5cf90c5e04bf84dd5544b5d862cca05ca0b4066a",
+    "baselineWgslSha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7",
+    "candidateWgslSha256": "e48c9e0428888a560902600c0e625684c13b600f534215b309dc2f24b6159707",
+    "baselineExact": true,
+    "hlsl": {
+      "fxc": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e",
+      "dxc": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+    },
+    "commands": [
+      {
+        "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/candidate.wgsl",
+        "model": "fxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": ""
+      },
+      {
+        "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/smart-pair-loop/candidate.wgsl",
+        "model": "fxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": ""
+      },
+      {
+        "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/candidate.wgsl",
+        "model": "dxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": ""
+      },
+      {
+        "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/smart-pair-loop/candidate.wgsl",
+        "model": "dxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": ""
+      }
+    ],
+    "gpuExecuted": false,
+    "compilerExecuted": false
+  },
+  "compilerOptions": {
+    "fxc": {
+      "target": "cs_5_1",
+      "flags1": "0x800",
+      "flags2": 0
+    },
+    "dxc": {
+      "target": "cs_6_0",
+      "flags": [
+        "-Ges",
+        "-Vd",
+        "-HV",
+        "2018"
+      ],
+      "validatorFlags": "InPlaceEdit"
+    }
+  },
+  "limits": {
+    "perCompilerProcessSeconds": 60,
+    "totalCompilerProcesses": 4,
+    "baselineCompilerProcesses": 0,
+    "gpuExecutions": 0,
+    "nativeInputActions": 0
+  },
+  "files": [
+    {
+      "path": "CompilerProbe.cpp",
+      "sha256": "c7ec3cca56d8e4fc776d0150e56f3abb20f7ee2505deba43f1fdbcefa57ae41b"
+    },
+    {
+      "path": "baseline-dxc.hlsl",
+      "sha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8"
+    },
+    {
+      "path": "baseline-fxc.hlsl",
+      "sha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8"
+    },
+    {
+      "path": "baseline.wgsl",
+      "sha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7"
+    },
+    {
+      "path": "candidate-dxc.hlsl",
+      "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+    },
+    {
+      "path": "candidate-fxc.hlsl",
+      "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+    },
+    {
+      "path": "candidate.diff",
+      "sha256": "6dbef943ab1843a093377ae260bc3de541c79cde2e6b72aed2fc0d3ca8877b9a"
+    },
+    {
+      "path": "candidate.wgsl",
+      "sha256": "e48c9e0428888a560902600c0e625684c13b600f534215b309dc2f24b6159707"
+    },
+    {
+      "path": "comparison.py",
+      "sha256": "9bac079ea731d21f53695665fc06a8d952666268a735db6981a9e330aeac11d6"
+    },
+    {
+      "path": "compiler-package.json",
+      "sha256": "2868183500f479a1bf3933d1274374fba5cdfaf6634564ad90e55bd6b4344ad5"
+    },
+    {
+      "path": "horizontal-dxc-baseline-disassembly.txt",
+      "sha256": "0bf2a985f7873b4c7d93860dfad00ea8205dfd14f4f1f44dcd3057f3d20d54a7"
+    },
+    {
+      "path": "horizontal-fxc-baseline-disassembly.txt",
+      "sha256": "6ec17d0d60ccab3a8ff3370068b0caaff8068a4fe7050d56403babb6d04c6965"
+    },
+    {
+      "path": "owned_process.py",
+      "sha256": "0a8fa56baac388c3996a239cce1522e07fb54c7d0f3d13450acc80cdc57655f8"
+    },
+    {
+      "path": "prepare.py",
+      "sha256": "3c24ff4934f749b8aa4c15b044fcefad5326a5182ad47ea4d8e6bdb78ab7def3"
+    },
+    {
+      "path": "retained-baseline.json",
+      "sha256": "d9f8e42ecb26b5428976d08c349633647ed78a9156a699f2c6e947ff93349e2e"
+    },
+    {
+      "path": "run.py",
+      "sha256": "bef87ac83618da0c310ee91e8323fce961e628a57be06f02ce951f14edc08a44"
+    },
+    {
+      "path": "translation-receipt.json",
+      "sha256": "e780c14d1336af511d43217a489562ad65d423d3251a257335de59dddc4cf092"
+    },
+    {
+      "path": "vertical-dxc-baseline-disassembly.txt",
+      "sha256": "2a15913ba82835ba66e1cca1c66cc3ba4c0b149839c3740804b485ea192fa299"
+    },
+    {
+      "path": "vertical-fxc-baseline-disassembly.txt",
+      "sha256": "f05d6da033e8237aedc4c1a1a062ebaf1808275d3dfe8769b5dbe54c82f18028"
+    },
+    {
+      "path": "workflow.yml",
+      "sha256": "c496ecd320753a36f5b4df31bd61c50f6695f83365d8065b0b0f556d9186b4cd"
+    }
+  ],
+  "scope": "Compiler-only paired endpoint loop. No device, input, native renderer or baseline re-execution. Compiler IR is not physical WARP stack or runtime qualification."
+}

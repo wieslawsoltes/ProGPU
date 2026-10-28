@@ -1,0 +1,42 @@
+{
+  "generatorSha256": "8416df0dfd1bbb022cae5a5a5cf90c5e04bf84dd5544b5d862cca05ca0b4066a",
+  "baselineWgslSha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7",
+  "candidateWgslSha256": "e48c9e0428888a560902600c0e625684c13b600f534215b309dc2f24b6159707",
+  "baselineExact": true,
+  "hlsl": {
+    "fxc": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e",
+    "dxc": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+  },
+  "commands": [
+    {
+      "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/candidate.wgsl",
+      "model": "fxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": ""
+    },
+    {
+      "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/smart-pair-loop/candidate.wgsl",
+      "model": "fxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": ""
+    },
+    {
+      "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/candidate.wgsl",
+      "model": "dxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": ""
+    },
+    {
+      "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/binary-glyph-arm64-crash/workaround-review/dynamic-vector-selection/smart-pair-loop/candidate.wgsl",
+      "model": "dxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": ""
+    }
+  ],
+  "gpuExecuted": false,
+  "compilerExecuted": false
+}

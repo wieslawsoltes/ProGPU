@@ -1,0 +1,395 @@
+{
+  "run": 40719520729,
+  "productHead": "1f81f86e6f004bac53e939e18d1a239fac464c49",
+  "wgslSha256": "29dcaa9d94eab309cb7367ee4b5721c011592766b4cbf9dbcd76b62e62d711c7",
+  "entries": {
+    "cs_binary_vertical": {
+      "identity": {
+        "entry": "vertical",
+        "fxc": {
+          "sha256": "C6D1A5BC660EB61D43EC364F09602677B75AA952CEBB6FC7784B022FF6B7D6CD",
+          "path": "C:\\Windows/System32/d3dcompiler_47.dll",
+          "architecture": "ARM64",
+          "version": "10.0.26100.9711 (WinBuild.160101.0800)"
+        },
+        "dxc": {
+          "packageSha256": "44b0b17c972acfe1129d1d35e59f6a620149a9af084eabcc848013e97d9e9518",
+          "files": [
+            {
+              "path": "dxcapi.h",
+              "sha256": "caf915a318579b0b48d51271d457107cecd4042e01d0f3308e498a18df24a546",
+              "bytes": 54636
+            },
+            {
+              "path": "dxcompiler.dll",
+              "sha256": "add120337487e273af0d649446aa61ff0b90475dc1a31ffb2774e870d4ec6830",
+              "bytes": 22285856
+            },
+            {
+              "path": "dxil.dll",
+              "sha256": "9b2ad850ea6ee3d621044f739231a22823c8bd759b34a2c34dc2f4c0d450a6a8",
+              "bytes": 1770016
+            }
+          ]
+        }
+      },
+      "records": {
+        "fxc": {
+          "compiler": "fxc",
+          "entry": "cs_binary_vertical",
+          "sourceSha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8",
+          "process": {
+            "argv": [
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\probe.exe",
+              "fxc",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\candidate-fxc.hlsl",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\fxc",
+              "cs_binary_vertical",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\compiler"
+            ],
+            "seconds": 60,
+            "started": 1793202519.7273715,
+            "timedOut": false,
+            "pid": 11004,
+            "exitUnsigned": 0,
+            "exitHex": "0x00000000",
+            "elapsedSeconds": 1.78450289999995,
+            "finished": 1793202521.5135946
+          },
+          "files": [
+            {
+              "path": "code.dxbc",
+              "bytes": 37100,
+              "sha256": "6d0302a382d237bae48c2d15e8682c1848d55b9dd426564206e5ebd98a309b24"
+            },
+            {
+              "path": "disassembly.txt",
+              "bytes": 65425,
+              "sha256": "f05d6da033e8237aedc4c1a1a062ebaf1808275d3dfe8769b5dbe54c82f18028"
+            },
+            {
+              "path": "errors.bin",
+              "bytes": 3042,
+              "sha256": "6626c01ea44ad1a980e0a13f43e9da9211cc9eeb7ed18af08fc13b78245e9f57"
+            },
+            {
+              "path": "process.json",
+              "bytes": 669,
+              "sha256": "cde57aaa156a75548ba00d9f00ddddaa9ae383f2c71f8a87c9aa55150963804d"
+            },
+            {
+              "path": "process.log",
+              "bytes": 0,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "path": "status.json",
+              "bytes": 47,
+              "sha256": "b0caf8534bc7d98f7a381b6a721ad6b7c79d34d6f8397814fd189c15abbb7ec3"
+            }
+          ],
+          "baselineMetrics": {
+            "textBytes": 66318,
+            "lines": 1708,
+            "fxcTemps": [
+              "24"
+            ],
+            "fxcLoopInstructions": 5,
+            "dxilAllocaInstructions": 0,
+            "dxilTwoElementAllocas": 0
+          },
+          "candidateMetrics": {
+            "textBytes": 65425,
+            "lines": 1688,
+            "fxcTemps": [
+              "25"
+            ],
+            "fxcLoopInstructions": 5,
+            "dxilAllocaInstructions": 0,
+            "dxilTwoElementAllocas": 0
+          },
+          "retainedDisassembly": "vertical-fxc-baseline-disassembly.txt"
+        },
+        "dxc": {
+          "compiler": "dxc",
+          "entry": "cs_binary_vertical",
+          "sourceSha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8",
+          "process": {
+            "argv": [
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\probe.exe",
+              "dxc",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\candidate-dxc.hlsl",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\dxc",
+              "cs_binary_vertical",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\compiler"
+            ],
+            "seconds": 60,
+            "started": 1793202521.5276518,
+            "timedOut": false,
+            "pid": 2668,
+            "exitUnsigned": 0,
+            "exitHex": "0x00000000",
+            "elapsedSeconds": 0.3199693000000252,
+            "finished": 1793202521.8484664
+          },
+          "files": [
+            {
+              "path": "code-unvalidated.dxil",
+              "bytes": 15436,
+              "sha256": "18dad9075aa6d312c2a08c3cb00c8a83e21e901cfb4bad61bbaccf3971e7b926"
+            },
+            {
+              "path": "code.dxil",
+              "bytes": 15436,
+              "sha256": "2db37aec2efa169849fb421fcef9312994e7b55e84419c15afbfdef8cd13a4e9"
+            },
+            {
+              "path": "disassembly.txt",
+              "bytes": 110812,
+              "sha256": "2a15913ba82835ba66e1cca1c66cc3ba4c0b149839c3740804b485ea192fa299"
+            },
+            {
+              "path": "errors.bin",
+              "bytes": 7469,
+              "sha256": "3dc64c73f6cef8c7c6a11a3fcaf0e7226b53ff1ac7d1b3b4901a66c66985fc04"
+            },
+            {
+              "path": "process.json",
+              "bytes": 670,
+              "sha256": "58cb29aa4a7c531881e82077ae0995721b6e9e8298421b27457b9e94c40592d2"
+            },
+            {
+              "path": "process.log",
+              "bytes": 0,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "path": "status.json",
+              "bytes": 47,
+              "sha256": "b0caf8534bc7d98f7a381b6a721ad6b7c79d34d6f8397814fd189c15abbb7ec3"
+            },
+            {
+              "path": "validation-errors.bin",
+              "bytes": 0,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ],
+          "baselineMetrics": {
+            "textBytes": 113016,
+            "lines": 2513,
+            "fxcTemps": [],
+            "fxcLoopInstructions": 0,
+            "dxilAllocaInstructions": 8,
+            "dxilTwoElementAllocas": 8
+          },
+          "candidateMetrics": {
+            "textBytes": 110812,
+            "lines": 2467,
+            "fxcTemps": [],
+            "fxcLoopInstructions": 0,
+            "dxilAllocaInstructions": 0,
+            "dxilTwoElementAllocas": 0
+          },
+          "retainedDisassembly": "vertical-dxc-baseline-disassembly.txt"
+        }
+      },
+      "artifactId": 12828404474,
+      "archiveSha256": "2efdf5fd5d1f01784ed9ada398dec52f62ab0b962e7cc0409c47a80aade74d95",
+      "diagnosticHead": "915425efab8cc9634221c9f00f4524604c8e41fc"
+    },
+    "cs_binary_horizontal": {
+      "identity": {
+        "entry": "horizontal",
+        "fxc": {
+          "sha256": "C6D1A5BC660EB61D43EC364F09602677B75AA952CEBB6FC7784B022FF6B7D6CD",
+          "architecture": "ARM64",
+          "version": "10.0.26100.9711 (WinBuild.160101.0800)",
+          "path": "C:\\Windows/System32/d3dcompiler_47.dll"
+        },
+        "dxc": {
+          "packageSha256": "44b0b17c972acfe1129d1d35e59f6a620149a9af084eabcc848013e97d9e9518",
+          "files": [
+            {
+              "path": "dxcapi.h",
+              "sha256": "caf915a318579b0b48d51271d457107cecd4042e01d0f3308e498a18df24a546",
+              "bytes": 54636
+            },
+            {
+              "path": "dxcompiler.dll",
+              "sha256": "add120337487e273af0d649446aa61ff0b90475dc1a31ffb2774e870d4ec6830",
+              "bytes": 22285856
+            },
+            {
+              "path": "dxil.dll",
+              "sha256": "9b2ad850ea6ee3d621044f739231a22823c8bd759b34a2c34dc2f4c0d450a6a8",
+              "bytes": 1770016
+            }
+          ]
+        }
+      },
+      "records": {
+        "fxc": {
+          "compiler": "fxc",
+          "entry": "cs_binary_horizontal",
+          "sourceSha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8",
+          "process": {
+            "argv": [
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\probe.exe",
+              "fxc",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\candidate-fxc.hlsl",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\fxc",
+              "cs_binary_horizontal",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\compiler"
+            ],
+            "seconds": 60,
+            "started": 1793202525.2840734,
+            "timedOut": false,
+            "pid": 1808,
+            "exitUnsigned": 0,
+            "exitHex": "0x00000000",
+            "elapsedSeconds": 2.6328807999999526,
+            "finished": 1793202527.918685
+          },
+          "files": [
+            {
+              "path": "code.dxbc",
+              "bytes": 50200,
+              "sha256": "50ace4e83caf7548982fad17eadbe9c49b8ccae81ca5b96b67cd8e05099be6c2"
+            },
+            {
+              "path": "disassembly.txt",
+              "bytes": 85787,
+              "sha256": "6ec17d0d60ccab3a8ff3370068b0caaff8068a4fe7050d56403babb6d04c6965"
+            },
+            {
+              "path": "errors.bin",
+              "bytes": 3030,
+              "sha256": "d87327fd414ed3a889e978537dcccd67fc9d9e7dd7420a02e79a44610cd157b0"
+            },
+            {
+              "path": "process.json",
+              "bytes": 671,
+              "sha256": "760b50d76c25e7635c589ecdc8280b0850c5108ef9ec79ca123da814278b3097"
+            },
+            {
+              "path": "process.log",
+              "bytes": 0,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "path": "status.json",
+              "bytes": 47,
+              "sha256": "b0caf8534bc7d98f7a381b6a721ad6b7c79d34d6f8397814fd189c15abbb7ec3"
+            }
+          ],
+          "baselineMetrics": {
+            "textBytes": 86419,
+            "lines": 2326,
+            "fxcTemps": [
+              "26"
+            ],
+            "fxcLoopInstructions": 7,
+            "dxilAllocaInstructions": 0,
+            "dxilTwoElementAllocas": 0
+          },
+          "candidateMetrics": {
+            "textBytes": 85787,
+            "lines": 2314,
+            "fxcTemps": [
+              "27"
+            ],
+            "fxcLoopInstructions": 7,
+            "dxilAllocaInstructions": 0,
+            "dxilTwoElementAllocas": 0
+          },
+          "retainedDisassembly": "horizontal-fxc-baseline-disassembly.txt"
+        },
+        "dxc": {
+          "compiler": "dxc",
+          "entry": "cs_binary_horizontal",
+          "sourceSha256": "7a3514f44b42679967a1cf560b8f9c3c063d925663976259bed61d82effc4bf8",
+          "process": {
+            "argv": [
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\probe.exe",
+              "dxc",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\candidate-dxc.hlsl",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\dxc",
+              "cs_binary_horizontal",
+              "C:\\a\\ProGPU\\ProGPU\\eng\\diagnostics\\binary-glyph-vector-selection\\evidence\\compiler"
+            ],
+            "seconds": 60,
+            "started": 1793202527.934099,
+            "timedOut": false,
+            "pid": 4852,
+            "exitUnsigned": 0,
+            "exitHex": "0x00000000",
+            "elapsedSeconds": 0.19934230000001207,
+            "finished": 1793202528.134257
+          },
+          "files": [
+            {
+              "path": "code-unvalidated.dxil",
+              "bytes": 19508,
+              "sha256": "51b21e1b4fff992970e3832b5e5c621c8b360c8b604b3b06ef01faf13c11e2ce"
+            },
+            {
+              "path": "code.dxil",
+              "bytes": 19508,
+              "sha256": "daa7f7a147ce9292d559e4e96a67f1ba5acf63dc350343a4bb54d767c61efb38"
+            },
+            {
+              "path": "disassembly.txt",
+              "bytes": 150374,
+              "sha256": "0bf2a985f7873b4c7d93860dfad00ea8205dfd14f4f1f44dcd3057f3d20d54a7"
+            },
+            {
+              "path": "errors.bin",
+              "bytes": 7469,
+              "sha256": "3dc64c73f6cef8c7c6a11a3fcaf0e7226b53ff1ac7d1b3b4901a66c66985fc04"
+            },
+            {
+              "path": "process.json",
+              "bytes": 671,
+              "sha256": "53d9be43f68231d9d65722e92a3641d86711a4aad1ac4248c0a7e0b40879acf3"
+            },
+            {
+              "path": "process.log",
+              "bytes": 0,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            {
+              "path": "status.json",
+              "bytes": 47,
+              "sha256": "b0caf8534bc7d98f7a381b6a721ad6b7c79d34d6f8397814fd189c15abbb7ec3"
+            },
+            {
+              "path": "validation-errors.bin",
+              "bytes": 0,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ],
+          "baselineMetrics": {
+            "textBytes": 152519,
+            "lines": 3332,
+            "fxcTemps": [],
+            "fxcLoopInstructions": 0,
+            "dxilAllocaInstructions": 8,
+            "dxilTwoElementAllocas": 8
+          },
+          "candidateMetrics": {
+            "textBytes": 150374,
+            "lines": 3286,
+            "fxcTemps": [],
+            "fxcLoopInstructions": 0,
+            "dxilAllocaInstructions": 0,
+            "dxilTwoElementAllocas": 0
+          },
+          "retainedDisassembly": "horizontal-dxc-baseline-disassembly.txt"
+        }
+      },
+      "artifactId": 12829603144,
+      "archiveSha256": "fb50f5e6ba5eaa8fefb840d4c6693c9e73d0b3d2f278f86895fb95df0cbd74ed",
+      "diagnosticHead": "915425efab8cc9634221c9f00f4524604c8e41fc"
+    }
+  }
+}

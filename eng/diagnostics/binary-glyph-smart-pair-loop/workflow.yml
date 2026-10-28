@@ -1,0 +1,49 @@
+name: Binary glyph paired-subdivision compiler comparison
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths: ['eng/diagnostics/binary-glyph-smart-pair-loop/**', '.github/workflows/binary-glyph-smart-pair-loop.yml']
+permissions:
+  contents: read
+jobs:
+  compile:
+    if: github.head_ref == 'diag/binary-glyph-smart-pair-loop-20261028'
+    runs-on: windows-11-arm
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: [cs_binary_horizontal, cs_binary_vertical]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Verify exact retained compilers and compile two candidate entry variants
+        shell: pwsh
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir='eng/diagnostics/binary-glyph-smart-pair-loop'
+          git fetch --no-tags --depth=1 origin 1f81f86e6f004bac53e939e18d1a239fac464c49
+          if($LASTEXITCODE -ne 0){throw 'Exact baseline source fetch failed'}
+          python "$dir/prepare.py"
+          if($LASTEXITCODE -ne 0){throw 'Compiler input admission failed'}
+          $vswhere="${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
+          if(-not $vs){throw 'Native ARM64 compiler is absent'}
+          & "$vs/Common7/Tools/Launch-VsDevShell.ps1" -Arch arm64 -HostArch arm64 -SkipAutomaticLocation
+          $fxc="$env:WINDIR/System32/d3dcompiler_47.dll"
+          @{path=$fxc;sha256=(Get-FileHash $fxc -Algorithm SHA256).Hash;version=(Get-Item $fxc).VersionInfo.FileVersion;architecture=$env:PROCESSOR_ARCHITECTURE} | ConvertTo-Json | Set-Content "$dir/evidence/system-compiler.json"
+          python "$dir/run.py" "${{ matrix.entry }}"
+          if($LASTEXITCODE -ne 0){throw 'Bounded compile comparison failed'}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: smart-pair-loop-${{ matrix.entry }}
+          path: eng/diagnostics/binary-glyph-smart-pair-loop/evidence
+          if-no-files-found: error
