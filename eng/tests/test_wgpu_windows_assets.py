@@ -7,11 +7,39 @@ import subprocess
 import tempfile
 import unittest
 from xml.sax.saxutils import escape
+import xml.etree.ElementTree as ET
+from copy import deepcopy
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 FILES = ('wgpu_native.dll', 'wgpu-native-build.json', 'LICENSE.MIT', 'LICENSE.APACHE',
          'wgpu-LICENSE.MIT', 'wgpu-LICENSE.APACHE', 'webgpu-headers-LICENSE', 'wgpu-native-windows.json')
 LISTS = ('NativeCopyLocalItems', 'RuntimeTargetsCopyLocalItems', '_ResolvedCopyLocalPublishAssets')
+
+
+def run_msbuild(command):
+    try:
+        return subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, timeout=30)
+    except subprocess.TimeoutExpired as error:
+        def captured(value):
+            return value.decode(errors='replace') if isinstance(value, bytes) else value or ''
+        raise AssertionError(
+            f"MSBuild metadata query exceeded its original 30-second bound: {command!r}\n"
+            f"Captured stdout:\n{captured(error.stdout)}\nCaptured stderr:\n{captured(error.stderr)}") from error
+
+class MetadataDeadlineTests(unittest.TestCase):
+    def test_timeout_preserves_partial_output_without_retry(self):
+        error = subprocess.TimeoutExpired(['dotnet', 'msbuild'], 30,
+                                          output=b'original partial stdout', stderr=b'original stderr')
+        with patch('subprocess.run', side_effect=error) as run:
+            with self.assertRaises(AssertionError) as failed:
+                run_msbuild(['dotnet', 'msbuild'])
+        self.assertIn('original partial stdout', str(failed.exception))
+        self.assertIn('original stderr', str(failed.exception))
+        self.assertEqual(1, run.call_count)
+        self.assertEqual(30, run.call_args.kwargs['timeout'])
+
 
 class WindowsAssetSelectionTests(unittest.TestCase):
     def setUp(self):
@@ -66,7 +94,7 @@ class WindowsAssetSelectionTests(unittest.TestCase):
         command = [os.environ.get('DOTNET_HOST_PATH') or shutil.which('dotnet'), 'msbuild', str(path), '-nologo',
                    '-target:' + (targets or 'ResolvePackageAssets;_ResolveCopyLocalAssetsForPublish;AssignTargetPaths;ValidateProGpuWgpuWindowsSourceSelection'),
                    '-getItem:' + ','.join(LISTS + ('Content', 'NativeFileReference'))]
-        result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        result = run_msbuild(command)
         if result.returncode: return result, None
         output = json.loads(result.stdout[result.stdout.index('{'):])['Items']
         for values in output.values():
@@ -106,6 +134,7 @@ class WindowsAssetSelectionTests(unittest.TestCase):
                 self.assertEqual(set(FILES), {Path(x['Identity']).name for x in contents})
                 self.assertTrue(all('/' + rid + '/' in x['Identity'] for x in contents))
                 self.assertTrue(all(x['ExcludeFromSingleFile'] == 'true' for x in contents))
+                self.assertEqual(set(FILES), {x['Link'] for x in contents})
 
     def test_directory_import_uses_explicit_default_runtime_root_without_xlib(self):
         items = self.require_success(directory_import=True)
@@ -114,6 +143,8 @@ class WindowsAssetSelectionTests(unittest.TestCase):
     def test_portable_source_stages_both_rids(self):
         items = self.require_success(source=True, rid='')
         self.assertEqual(16, len(items['Content']))
+        self.assertEqual({f'runtimes/{rid}/native/{name}' for rid in ('win-x64', 'win-arm64') for name in FILES},
+                         {x['Link'] for x in items['Content']})
 
     def test_non_windows_source_stages_no_windows_content(self):
         items = self.require_success(source=True, rid='linux-x64')
@@ -175,11 +206,27 @@ class NativePackageInventoryTests(unittest.TestCase):
                     staged.add(str(path))
             for project in ('ProGPU.Backend.Native', 'ProGPU.Native.Sdk'):
                 with self.subTest(project=project):
+                    # Evaluate the exact production item declarations without initializing
+                    # an unrelated SDK/workload resolver. The separate real nupkg
+                    # control exercises full SDK packing under its original bound.
+                    source = ET.parse(ROOT / 'src' / project / (project + '.csproj'))
+                    fixture = ET.Element('Project')
+                    properties = ET.SubElement(fixture, 'PropertyGroup')
+                    ET.SubElement(properties, 'ProGpuNativeRuntimeRoot').text = str(payload)
+                    for group in source.findall('./ItemGroup'):
+                        if (group.find('_ProGpuBackendOwnedWindowsRid') is not None or
+                                group.find('ProjectReference') is not None or
+                                any(item.get('Include') == '$(ProGpuNativeRuntimeRoot)\\**\\*'
+                                    for item in group.findall('None'))):
+                            fixture.append(deepcopy(group))
+                    fixture_path = payload.parent / (payload.name + '-' + project + '.inventory.proj')
+                    ET.ElementTree(fixture).write(fixture_path, encoding='unicode')
                     command = [os.environ.get('DOTNET_HOST_PATH') or shutil.which('dotnet'), 'msbuild',
-                        str(ROOT / 'src' / project / (project + '.csproj')), '-nologo',
-                        '-p:ProGpuNativeRuntimeRoot=' + str(payload), '-getItem:None,ProjectReference']
-                    result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT, timeout=30)
+                        str(fixture_path), '-nologo', '-getItem:None,ProjectReference']
+                    try:
+                        result = run_msbuild(command)
+                    finally:
+                        fixture_path.unlink(missing_ok=True)
                     self.assertEqual(0, result.returncode, result.stdout)
                     items = json.loads(result.stdout[result.stdout.index('{'):])['Items']
                     packed = {str(Path(x['Identity']).resolve()) for x in items['None']

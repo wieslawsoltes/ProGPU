@@ -202,6 +202,12 @@ class SourceOwnershipTests(unittest.TestCase):
         runtime.prepare_source(self.source, apply=False)
         self.assertEqual((self.source / "unrelated.rs").read_text(), "untouched\n")
 
+    def test_apply_under_windows_autocrlf_keeps_exact_reviewed_lf_bytes(self):
+        self.git("config", "core.autocrlf", "true")
+        runtime.prepare_source(self.source)
+        self.assertEqual((self.source / "writer.rs").read_bytes(), b"reviewed\n")
+        runtime.prepare_source(self.source, apply=False)
+
     def test_read_only_postbuild_check_never_repairs_original_source(self):
         with self.assertRaisesRegex(ValueError, "patched bytes"):
             runtime.prepare_source(self.source, apply=False)

@@ -343,11 +343,13 @@ of a new ABI or of a different renderer. Hosted x64 and ARM64 builds, the origin
 optimized shader/compiler checks, provider/pixel suites, package consumers and
 source applications still must qualify the actual loaded payload before release.
 
-The local producer controls pass 13 cases covering both PE architectures,
+The local producer controls pass 14 cases covering both PE architectures,
 original notices and exact copying, old/wrong source receipts, link/extra-file
 rejection, copy failure before publication, existing-output preservation,
 isolated source patch/retry/foreign-edit rejection, read-only post-build checks,
-and an actual `core.autocrlf=true` checkout of the pinned patch. The existing six
+an actual `core.autocrlf=true` checkout of the pinned patch, and patch application
+under that same Windows setting. Both `git apply --check` and `git apply` explicitly
+disable CRLF conversion; expected source hashes remain unchanged. The existing six
 metadata/process controls and nine optional-runtime input controls also pass.
 Actual `cargo metadata --locked` resolves the intended graph for both Windows
 triples without changing the lock. That local graph check used available Cargo

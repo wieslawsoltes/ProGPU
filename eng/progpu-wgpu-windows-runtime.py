@@ -158,8 +158,8 @@ def prepare_source(directory, apply=True):
     hashes = {name: sha(directory / name) for name in expected}
     if apply and all(hashes[name] == entry["originalSha256"] for name, entry in expected.items()):
         patch = ROOT / "eng/wgpu-hlsl/naga-workgroup-zero-init.patch"
-        subprocess.run(["git", "-C", str(directory), "apply", "--check", str(patch)], check=True, timeout=60)
-        subprocess.run(["git", "-C", str(directory), "apply", str(patch)], check=True, timeout=60)
+        subprocess.run(["git", "-C", str(directory), "-c", "core.autocrlf=false", "apply", "--check", str(patch)], check=True, timeout=60)
+        subprocess.run(["git", "-C", str(directory), "-c", "core.autocrlf=false", "apply", str(patch)], check=True, timeout=60)
     if any(sha(directory / name) != entry["patchedSha256"] for name, entry in expected.items()):
         raise ValueError("Dependency implementation differs from reviewed patched bytes")
     return inputs
