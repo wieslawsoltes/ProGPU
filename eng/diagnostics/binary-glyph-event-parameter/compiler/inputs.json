@@ -1,0 +1,148 @@
+{
+  "baselineProductHead": "4545ed7133e953f14672728ad7297a53d3ea23ee",
+  "baselineWgslSha256": "e48c9e0428888a560902600c0e625684c13b600f534215b309dc2f24b6159707",
+  "candidateWgslSha256": "fc395e36b2ab81cf6f199f5988827ee4dd7ce4c066d269164219c16ad50f22d9",
+  "generation": {
+    "generatorSha256": "8416df0dfd1bbb022cae5a5a5cf90c5e04bf84dd5544b5d862cca05ca0b4066a",
+    "baselineExact": true,
+    "records": [
+      {
+        "kind": "baseline",
+        "compiler": "fxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": "",
+        "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+      },
+      {
+        "kind": "candidate",
+        "compiler": "fxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": "",
+        "sha256": "4bcf9d4431b30aa73af02824a01af50bcd539061355f9526b3ccf0a59cea9467"
+      },
+      {
+        "kind": "baseline",
+        "compiler": "dxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": "",
+        "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+      },
+      {
+        "kind": "candidate",
+        "compiler": "dxc",
+        "exit": 0,
+        "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+        "stderr": "",
+        "sha256": "4bcf9d4431b30aa73af02824a01af50bcd539061355f9526b3ccf0a59cea9467"
+      }
+    ],
+    "nativeExecuted": false,
+    "qualification": false
+  },
+  "compilerOptions": {
+    "fxc": {
+      "target": "cs_5_1",
+      "flags1": "0x800",
+      "flags2": 0
+    },
+    "dxc": {
+      "target": "cs_6_0",
+      "flags": [
+        "-Ges",
+        "-Vd",
+        "-HV",
+        "2018"
+      ],
+      "validatorFlags": "InPlaceEdit"
+    }
+  },
+  "limits": {
+    "perCompilerProcessSeconds": 60,
+    "totalCompilerProcesses": 4,
+    "baselineCompilerProcesses": 0,
+    "gpuExecutions": 0,
+    "nativeInputActions": 0
+  },
+  "files": [
+    {
+      "path": "CompilerProbe.cpp",
+      "sha256": "c7ec3cca56d8e4fc776d0150e56f3abb20f7ee2505deba43f1fdbcefa57ae41b"
+    },
+    {
+      "path": "baseline-dxc.hlsl",
+      "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+    },
+    {
+      "path": "baseline-fxc.hlsl",
+      "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+    },
+    {
+      "path": "baseline.wgsl",
+      "sha256": "e48c9e0428888a560902600c0e625684c13b600f534215b309dc2f24b6159707"
+    },
+    {
+      "path": "candidate-dxc.hlsl",
+      "sha256": "4bcf9d4431b30aa73af02824a01af50bcd539061355f9526b3ccf0a59cea9467"
+    },
+    {
+      "path": "candidate-fxc.hlsl",
+      "sha256": "4bcf9d4431b30aa73af02824a01af50bcd539061355f9526b3ccf0a59cea9467"
+    },
+    {
+      "path": "candidate.diff",
+      "sha256": "a0b64e268086c9308eee4e4dce32bebde7cfede4c88aa6295b4735a9454adaae"
+    },
+    {
+      "path": "candidate.wgsl",
+      "sha256": "fc395e36b2ab81cf6f199f5988827ee4dd7ce4c066d269164219c16ad50f22d9"
+    },
+    {
+      "path": "comparison.py",
+      "sha256": "9bac079ea731d21f53695665fc06a8d952666268a735db6981a9e330aeac11d6"
+    },
+    {
+      "path": "compiler-package.json",
+      "sha256": "2868183500f479a1bf3933d1274374fba5cdfaf6634564ad90e55bd6b4344ad5"
+    },
+    {
+      "path": "horizontal-dxc-baseline-disassembly.txt",
+      "sha256": "2ce7c668c40f0c1b2c3d30ea9c58b9eca7e4d301f7a1992e2dc69ac6dfd80d41"
+    },
+    {
+      "path": "horizontal-fxc-baseline-disassembly.txt",
+      "sha256": "61b9c85a08f5b54c0cbb4badc000bd7ff597826c4778acd9a2328e7ca70d9962"
+    },
+    {
+      "path": "owned_process.py",
+      "sha256": "0a8fa56baac388c3996a239cce1522e07fb54c7d0f3d13450acc80cdc57655f8"
+    },
+    {
+      "path": "prepare.py",
+      "sha256": "3c24ff4934f749b8aa4c15b044fcefad5326a5182ad47ea4d8e6bdb78ab7def3"
+    },
+    {
+      "path": "retained-baseline.json",
+      "sha256": "600a04ffd1bc52838fbdacd5fc8710b19df7ed79b338cd2b5d60b71dabee371c"
+    },
+    {
+      "path": "run.py",
+      "sha256": "bef87ac83618da0c310ee91e8323fce961e628a57be06f02ce951f14edc08a44"
+    },
+    {
+      "path": "translation-receipt.json",
+      "sha256": "589fa26eac6f5912acc5f57c6d704ad854290cc60b3d6d4818c1a3a1fd974b91"
+    },
+    {
+      "path": "vertical-dxc-baseline-disassembly.txt",
+      "sha256": "3decbd047f269092e0b32b93fede2156695a689ead4c61921e40cd13dc85a49c"
+    },
+    {
+      "path": "vertical-fxc-baseline-disassembly.txt",
+      "sha256": "0486b5c56b274c800b1a4b036d0f4ee428ddea38cc8724cb359e0dfc5bb6d5c9"
+    }
+  ],
+  "scope": "Compiler-only paired endpoint loop. No device, input, native renderer or baseline re-execution. Compiler IR is not physical WARP stack or runtime qualification."
+}

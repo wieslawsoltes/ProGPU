@@ -1,0 +1,40 @@
+{
+  "generatorSha256": "8416df0dfd1bbb022cae5a5a5cf90c5e04bf84dd5544b5d862cca05ca0b4066a",
+  "baselineExact": true,
+  "records": [
+    {
+      "kind": "baseline",
+      "compiler": "fxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": "",
+      "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+    },
+    {
+      "kind": "candidate",
+      "compiler": "fxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": "",
+      "sha256": "4bcf9d4431b30aa73af02824a01af50bcd539061355f9526b3ccf0a59cea9467"
+    },
+    {
+      "kind": "baseline",
+      "compiler": "dxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": "",
+      "sha256": "f35abd4b0a3794c9e81712e01f921a44eed5398e16a2cf0773fc1a5cb1f0fa2e"
+    },
+    {
+      "kind": "candidate",
+      "compiler": "dxc",
+      "exit": 0,
+      "stdout": "entrypoint=cs_binary_horizontal\nentrypoint=cs_binary_vertical\n",
+      "stderr": "",
+      "sha256": "4bcf9d4431b30aa73af02824a01af50bcd539061355f9526b3ccf0a59cea9467"
+    }
+  ],
+  "nativeExecuted": false,
+  "qualification": false
+}
