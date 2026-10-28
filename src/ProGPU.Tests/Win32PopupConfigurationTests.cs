@@ -5,10 +5,13 @@ namespace ProGPU.Tests;
 
 public class Win32PopupConfigurationTests
 {
-    [Fact]
-    public void ConfiguresOwnedNonactivatingToolPopupWithoutDiscardingUnrelatedStyles()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConfiguresOwnedNonactivatingToolPopupWithoutDiscardingUnrelatedStyles(bool raisedWindowEdge)
     {
         var api = new FakeOperations();
+        if (raisedWindowEdge) api.Values[-20] |= 0x00000100;
         Assert.True(Win32PopupConfiguration.Apply(11, 22, ref api));
         Assert.Equal((nint)11, api.Values[-8]);
         Assert.Equal(0x82000000u, unchecked((uint)api.Values[-16])); // retain ClipChildren
@@ -34,6 +37,19 @@ public class Win32PopupConfigurationTests
         Assert.Equal((nint)0x02cf0000, api.Values[-16]);
         Assert.Equal((nint)0x000c0000, api.Values[-20]);
         Assert.Equal(new[] { -20, -16, -8, 0 }, api.Writes.TakeLast(4));
+        Assert.False(api.HookInstalled);
+    }
+
+    [Fact]
+    public void FailedBorderlessConfigurationRestoresOriginalRaisedEdge()
+    {
+        var api = new FakeOperations { FailingCall = 5 };
+        api.Values[-20] |= 0x00000100;
+        Assert.False(Win32PopupConfiguration.Apply(11, 22, ref api, out var failure));
+        Assert.Equal(Win32PopupConfigurationFailure.FrameRefresh, failure);
+        Assert.Equal((nint)0x000c0100, api.Values[-20]); // original edge, app-window and layered bits
+        Assert.Equal((nint)0x02cf0000, api.Values[-16]);
+        Assert.Equal((nint)33, api.Values[-8]);
         Assert.False(api.HookInstalled);
     }
 

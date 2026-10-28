@@ -15,6 +15,7 @@ internal static class Win32PopupConfiguration
     private const uint NoActivate = 0x08000000;
     private const uint ToolWindow = 0x00000080;
     private const uint AppWindow = 0x00040000;
+    private const uint WindowEdge = 0x00000100;
 
     internal static bool Apply<T>(nint owner, nint popup, ref T api) where T : IWin32PopupOperations =>
         Apply(owner, popup, ref api, out _);
@@ -70,7 +71,10 @@ internal static class Win32PopupConfiguration
         }
 
         uint popupStyle = (unchecked((uint)style) | Popup) & ~OverlappedChrome;
-        uint popupExtended = (unchecked((uint)extended) | NoActivate | ToolWindow) & ~AppWindow;
+        // The raised outer edge belongs to the removed nonclient frame. Win32
+        // normalizes it away when the caption/sizing frame is removed; request
+        // that borderless state explicitly so exact final readback remains valid.
+        uint popupExtended = (unchecked((uint)extended) | NoActivate | ToolWindow) & ~(AppWindow | WindowEdge);
         bool hadNonActivationHook = api.HasNonActivationHook(popup);
         if (!api.BeginConfigurationIdentity(owner, popup))
         {

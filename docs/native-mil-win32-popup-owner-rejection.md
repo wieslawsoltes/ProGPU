@@ -21,6 +21,15 @@ retains a nonactivation hook that was present before this attempt. A
 diagnostic must not show an unowned window or turn this rejection into a managed
 renderer fallback.
 
+Removing the caption and sizing frame also removes `WS_EX_WINDOWEDGE` from the
+requested extended style. An independent Windows STATIC-window observation kept
+the original values: style `04CF0000`/extended `00040100` became style `84000000`,
+and Windows normalized requested extended `08000180` to `08000080`, both before
+and after frame refresh. The target explicitly requests that borderless state;
+the final comparison still requires the complete exact style words. Unrelated
+extended styles such as layered rendering remain intact, and rejected operations
+retain their original restoration values.
+
 The four subclass helpers resolve together from one retained common-controls v6
 module. `GetWindowSubclass` is not a named export in the legacy module selected by
 an unmanifested application. A library-owned embedded manifest selects v6 only

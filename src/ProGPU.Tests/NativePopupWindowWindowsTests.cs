@@ -35,6 +35,7 @@ public partial class NativePopupWindowWindowsTests
             Assert.Equal(0x80000000u, style & 0xc0000000u); // popup, not child
             Assert.Equal(0u, style & 0x00cf0000u);
             Assert.Equal(0x08000080u, extended & 0x08040080u);
+            Assert.Equal(0u, extended & 0x00000100u); // no raised nonclient edge
             Assert.Equal(0, IsWindowVisible(popup));
             Assert.Equal((nint)3, SendMessageW(popup, 0x0021, (nuint)owner, 0x02010001));
             Assert.Equal(foreground, GetForegroundWindow());
