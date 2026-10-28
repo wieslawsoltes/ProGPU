@@ -1,0 +1,246 @@
+name: Diagnostic finalizer371 original Linux
+'on':
+  pull_request:
+    branches:
+    - fix/source-binary-glyph-raster
+    paths:
+    - .github/workflows/diagnostic-finalizer-371.yml
+    - eng/diagnostics/finalizer-371/**
+permissions:
+  contents: read
+  actions: read
+env:
+  PROGPU_QUALIFIED_COMMIT: 45981bf7619d2e809f08ceda491fad2be535d3b0
+jobs:
+  diagnostic:
+    name: 'Diagnostic only: one original Linux suite with prearmed contention stacks'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: ubuntu-latest
+          rid: linux-x64
+          native_output: src/ProGPU.Tests/bin/Release/net10.0/linux-x64
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        submodules: recursive
+        fetch-depth: 2
+    - name: Verify diagnostic-only source delta and record exact identities
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 eng/diagnostics/finalizer-371/prepare.py identity
+
+        '
+    - name: Download verified Linux WebGPU dependency
+      if: runner.os == 'Linux'
+      uses: actions/download-artifact@v8
+      with:
+        artifact-ids: '12799723111'
+        run-id: '40652693827'
+        github-token: ${{ github.token }}
+        path: artifacts/progpu-xlib/package
+        merge-multiple: true
+        digest-mismatch: error
+    - name: Prepare pinned framework sources
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: python3 eng/progpu-prepare-framework-sources.py
+    - name: Install Linux WebGPU dependencies
+      if: runner.os == 'Linux'
+      timeout-minutes: 10
+      run: "./eng/progpu-install-linux-packages.sh \\\n  libc++1 \\\n  libvulkan1 \\\n  mesa-vulkan-drivers \\\n  libx11-xcb1 \\\n  libxcb1 \\\
+        \n  libxcb-randr0 \\\n  libxcb-render0 \\\n  libxcb-shape0 \\\n  libxcb-shm0 \\\n  libxcb-xfixes0 \\\n  libxcb-present0 \\\n  libxkbcommon0\n"
+    - name: Verify isolated font-hinting dependency admission controls
+      if: runner.os == 'Linux'
+      run: python3 -m unittest discover -s eng/tests -p '*freetype.py' -v
+    - name: Verify private EDIT dictionary dependency admission controls
+      if: runner.os == 'Linux'
+      run: python3 eng/test-edit-word-icu-dependency.py
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: global.json
+    - name: Verify native NuGet runtime paths and pre-package rejection
+      if: runner.os == 'Linux'
+      run: 'python3 eng/test-native-runtime-package.py
+
+        python3 eng/tests/test_framework_sources.py
+
+        python3 eng/test-package-sizes.py
+
+        python3 eng/test-native-sdk-cmake.py
+
+        '
+    - name: Compile native package consumer sources
+      if: runner.os == 'Linux'
+      run: dotnet build tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj --configuration Release -p:ProGpuNativeUseProjectReference=true
+        -p:ContinuousIntegrationBuild=true
+    - name: Restore
+      run: 'dotnet restore src/ProGPU.Tests/ProGPU.Tests.csproj --runtime ${{ matrix.rid }}
+
+        dotnet restore src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --runtime ${{ matrix.rid }}
+
+        '
+    - name: Build tests
+      run: 'dotnet build src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
+
+        dotnet build src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj --configuration Release --runtime ${{ matrix.rid }} --no-restore -p:ContinuousIntegrationBuild=true
+
+        '
+    - name: Compile source Display comparison probe
+      if: runner.os == 'Linux'
+      shell: bash
+      run: "set -euo pipefail\ntest -s src/ProGPU.Backend.Native/bin/Release/net10.0/ProGPU.Backend.Native.dll\ntest -s src/ProGPU.Text/bin/Release/net10.0/ProGPU.Text.dll\n\
+        dotnet build eng/SourceDisplayPolicyProbe/SourceDisplayPolicyProbe.csproj \\\n  --configuration Release --runtime '${{ matrix.rid }}'\
+        \ \\\n  -p:BuildProjectReferences=false -p:ContinuousIntegrationBuild=true\n"
+    - name: Run owned Cocoa popup lifecycle contracts
+      run: dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-build --filter "FullyQualifiedName~CocoaPopup|FullyQualifiedName~CocoaOwnedPopupSurfaceTests"
+        --logger "trx;LogFileName=owned-cocoa-popup.trx" --results-directory artifacts/owned-cocoa-popup
+    - name: Upload owned Cocoa popup lifecycle results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: owned-cocoa-popup-${{ matrix.rid }}
+        path: artifacts/owned-cocoa-popup
+        if-no-files-found: warn
+    - name: Run Win32 popup owner and frame callback contracts
+      if: runner.os == 'Windows'
+      run: dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj --configuration Release --runtime ${{ matrix.rid }} --no-build --filter "FullyQualifiedName~Win32PopupConfigurationTests|FullyQualifiedName~NativePopupWindowWindowsTests"
+        --logger "trx;LogFileName=native-win32-popup.trx" --results-directory artifacts/native-win32-popup
+    - name: Upload Win32 popup contract results
+      if: runner.os == 'Windows' && always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: native-win32-popup-${{ matrix.rid }}
+        path: artifacts/native-win32-popup
+        if-no-files-found: warn
+    - name: Run X11 popup server-state contracts
+      if: runner.os == 'Linux'
+      shell: bash
+      run: "./eng/progpu-install-linux-packages.sh xvfb xauth libx11-6\nxvfb-run -a env PROGPU_NATIVE_X11_POPUP_TEST=1 \\\n  dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj\
+        \ \\\n    --configuration Release --runtime ${{ matrix.rid }} --no-build \\\n    --filter \"FullyQualifiedName~NativePopupWindowLinuxTests\"\
+        \ \\\n    --logger \"trx;LogFileName=native-x11-popup.trx\" \\\n    --results-directory artifacts/native-x11-popup\n"
+    - name: Upload X11 popup server-state results
+      if: runner.os == 'Linux' && always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: native-x11-popup-${{ matrix.rid }}
+        path: artifacts/native-x11-popup
+        if-no-files-found: warn
+    - name: Verify browser indirect command transport
+      run: node --experimental-vm-modules eng/progpu-test-browser-indirect-dispatch.mjs
+    - name: Compare ordered GPU query stages with original shader
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        PROGPU_HIT_TEST_EXECUTION: ordered-stages
+      run: "git fetch --no-tags --depth=1 origin 20bbf7f1f65d15bc05b6e12e17d635ccaefa7162\ngit show 20bbf7f1f65d15bc05b6e12e17d635ccaefa7162:src/ProGPU.Vector/Shaders/GpuHitTesting.wgsl\
+        \ > \"$RUNNER_TEMP/progpu-hit-query-reference.wgsl\"\ndotnet run --project tests/ProGPU.HitQuery.ContractTests --configuration Release\
+        \ -- \\\n  --product --reference-shader \"$RUNNER_TEMP/progpu-hit-query-reference.wgsl\" \\\n  --write-reference \"$RUNNER_TEMP/progpu-hit-query-reference.bin\"\
+        \ndotnet run --project tests/ProGPU.HitQuery.ContractTests --configuration Release --no-build -- \\\n  --product --sparse \\\n  --write-reference\
+        \ \"$RUNNER_TEMP/progpu-hit-query-sparse-reference.bin\"\ndotnet run --project tests/ProGPU.HitQuery.ContractTests --configuration Release\
+        \ --no-build -- \\\n  --product --sparse --large-capacity \\\n  --write-reference \"$RUNNER_TEMP/progpu-hit-query-large-reference.bin\"\
+        \n"
+    - name: Compare Dawn ordered GPU queries with the independent reference
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        PROGPU_HIT_TEST_EXECUTION: ordered-stages
+      run: "dotnet run --project tests/ProGPU.HitQuery.ContractTests --configuration Release --no-build -- \\\n  --dawn --product --reference-shader\
+        \ \"$RUNNER_TEMP/progpu-hit-query-reference.wgsl\" \\\n  --expected-results \"$RUNNER_TEMP/progpu-hit-query-reference.bin\"\ndotnet run\
+        \ --project tests/ProGPU.HitQuery.ContractTests --configuration Release --no-build -- \\\n  --dawn --product --sparse --reference-shader\
+        \ \"$RUNNER_TEMP/progpu-hit-query-reference.wgsl\" \\\n  --expected-results \"$RUNNER_TEMP/progpu-hit-query-sparse-reference.bin\"\ndotnet\
+        \ run --project tests/ProGPU.HitQuery.ContractTests --configuration Release --no-build -- \\\n  --dawn --product --sparse --large-capacity\
+        \ --reference-shader \"$RUNNER_TEMP/progpu-hit-query-reference.wgsl\" \\\n  --expected-results \"$RUNNER_TEMP/progpu-hit-query-large-reference.bin\"\
+        \ndotnet run --project tests/ProGPU.HitQuery.ContractTests --configuration Release --no-build -- \\\n  --dawn --product --sparse --large-capacity\
+        \ --admitted-index \\\n  --reference-shader \"$RUNNER_TEMP/progpu-hit-query-reference.wgsl\" \\\n  --write-reference \"$RUNNER_TEMP/progpu-hit-query-native-reference.bin\"\
+        \n"
+    - name: Upload ordered query reference
+      if: runner.os != 'Windows' && always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: progpu-ordered-hit-query-${{ matrix.rid }}
+        path: '${{ runner.temp }}/progpu-hit-query-reference.wgsl
+
+          ${{ runner.temp }}/progpu-hit-query-reference.bin
+
+          ${{ runner.temp }}/progpu-hit-query-sparse-reference.bin
+
+          ${{ runner.temp }}/progpu-hit-query-large-reference.bin
+
+          ${{ runner.temp }}/progpu-hit-query-native-reference.bin
+
+          '
+        if-no-files-found: warn
+    - name: Require same-host blocked-finalizer positive trace control
+      shell: bash
+      env:
+        DOTNET_TieredCompilation: '0'
+      run: python3 eng/diagnostics/finalizer-371/prepare.py control
+    - name: Original Test command with only core-host startup tracing added
+      shell: pwsh
+      env:
+        DOTNET_TieredCompilation: '0'
+      run: "$nativeRoot = Join-Path $env:GITHUB_WORKSPACE \"${{ matrix.native_output }}\"\n$nativeRidRoot = Join-Path $nativeRoot \"runtimes/${{\
+        \ matrix.rid }}/native\"\n$headlessNativeRoot = Join-Path $env:GITHUB_WORKSPACE \"src/ProGPU.Tests.Headless/bin/Release/net10.0/${{ matrix.rid\
+        \ }}\"\n$headlessNativeRidRoot = Join-Path $headlessNativeRoot \"runtimes/${{ matrix.rid }}/native\"\nif ($IsWindows) {\n  $env:PATH =\
+        \ \"$nativeRoot;$nativeRidRoot;$headlessNativeRoot;$headlessNativeRidRoot;$env:PATH\"\n} elseif ($IsMacOS) {\n  $env:DYLD_LIBRARY_PATH\
+        \ = \"$nativeRoot`:$nativeRidRoot`:$headlessNativeRoot`:$headlessNativeRidRoot`:$env:DYLD_LIBRARY_PATH\"\n} else {\n  $env:LD_LIBRARY_PATH\
+        \ = \"$nativeRoot`:$nativeRidRoot`:$headlessNativeRoot`:$headlessNativeRidRoot`:$env:LD_LIBRARY_PATH\"\n}\n\n$testArgs = @(\n  \"test\"\
+        ,\n  \"src/ProGPU.Tests/ProGPU.Tests.csproj\",\n  \"--logger\",\n  \"trx;LogFileName=core.trx\",\n  \"--results-directory\",\n  \"artifacts/core-test-results\"\
+        ,\n  \"--configuration\",\n  \"Release\",\n  \"--runtime\",\n  \"${{ matrix.rid }}\",\n  \"--no-build\",\n  \"--verbosity\",\n  \"normal\"\
+        \n)\n\nif ($IsWindows) {\n  $testArgs += @(\n    \"--filter\",\n    \"FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests|FullyQualifiedName~PipelineCacheFinalizerTests|FullyQualifiedName~SkImageFinalizerRetirementTests|FullyQualifiedName~SkSurfaceFinalizerRetirementTests|FullyQualifiedName~CacheSamplerRetirementTests|FullyQualifiedName~NativeMouseButtonPacketTests|FullyQualifiedName~NativeWindowInputWindowsTests.OriginalButtonPacket|FullyQualifiedName~NativeWindowInputWindowsTests.CloseEnabledPolicy\"\
+        \n  )\n} elseif ($IsMacOS) {\n  # macOS 26's hosted Metal compiler rejects the historical contextual\n  # OpenType entry point even when\
+        \ its WGSL is restored byte-for-byte.\n  # Keep all other core and headless macOS coverage. Software D3D12 and\n  # Vulkan do not complete\
+        \ this compiler-heavy suite in a practical CI\n  # time, so the complete contract remains a local hardware validation.\n  $testArgs +=\
+        \ @(\n    \"--filter\",\n    \"FullyQualifiedName!~ShapingContractsTests\"\n  )\n} elseif ($IsLinux) {\n  # The shaping contract suite\
+        \ repeatedly initializes and dispatches GPU\n  # pipelines; under Mesa software execution it dominates this lane. The\n  # complete contract\
+        \ remains a local hardware validation, while Linux\n  # keeps the remaining core tests and all headless render coverage.\n  $testArgs\
+        \ += @(\n    \"--filter\",\n    \"FullyQualifiedName!~ShapingContractsTests\"\n  )\n}\n\n$testArgs += @(\"--settings\", (Join-Path $env:GITHUB_WORKSPACE\
+        \ \"artifacts/finalizer-371/core.runsettings\"))\ndotnet @testArgs\n$coreExit = $LASTEXITCODE\n@{ exitCode = $coreExit; diagnosticOnly\
+        \ = $true; qualification = $false; attempts = 1 } | ConvertTo-Json | Set-Content artifacts/finalizer-371/original-core-exit.json\n$LASTEXITCODE\
+        \ = $coreExit\nif ($LASTEXITCODE -ne 0) {\n  exit $LASTEXITCODE\n}\n\n$headlessArgs = @(\n  \"test\",\n  \"src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj\"\
+        ,\n  \"--configuration\",\n  \"Release\",\n  \"--runtime\",\n  \"${{ matrix.rid }}\",\n  \"--no-build\",\n  \"--verbosity\",\n  \"normal\"\
+        \n)\n\nif ($IsWindows) {\n  # Keep native WebGPU lifetime bounded on the hosted Windows runner.\n  # Sample pages share one retained headless\
+        \ device, while ordinary headless,\n  # image effects, ShaderToy, and the large multilingual specimen each get a\n  # fresh process. Image\
+        \ effects creates the largest transient texture graph.\n  $headlessArgs += @(\n    \"--filter\",\n    \"FullyQualifiedName!~SamplePagesTests\"\
+        \n  )\n}\n\ndotnet @headlessArgs\nif ($LASTEXITCODE -ne 0) {\n  exit $LASTEXITCODE\n}\n\nif ($IsWindows) {\n  dotnet test `\n    src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj\
+        \ `\n    --configuration Release `\n    --runtime \"${{ matrix.rid }}\" `\n    --no-build `\n    --verbosity normal `\n    --filter \"\
+        FullyQualifiedName~SamplePagesTests&FullyQualifiedName!~ShaderToy&FullyQualifiedName!~ImageEffects&FullyQualifiedName!~Test_TypographyScriptsPage_Renders\"\
+        \n  if ($LASTEXITCODE -ne 0) {\n    exit $LASTEXITCODE\n  }\n\n  dotnet test `\n    src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj\
+        \ `\n    --configuration Release `\n    --runtime \"${{ matrix.rid }}\" `\n    --no-build `\n    --verbosity normal `\n    --filter \"\
+        FullyQualifiedName~SamplePagesTests.Test_ImageEffectsPage_Renders\"\n  if ($LASTEXITCODE -ne 0) {\n    exit $LASTEXITCODE\n  }\n\n  dotnet\
+        \ test `\n    src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj `\n    --configuration Release `\n    --runtime \"${{ matrix.rid\
+        \ }}\" `\n    --no-build `\n    --verbosity normal `\n    --filter \"FullyQualifiedName~SamplePagesTests&FullyQualifiedName~ShaderToy\"\
+        \n  if ($LASTEXITCODE -ne 0) {\n    exit $LASTEXITCODE\n  }\n\n  dotnet test `\n    src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj\
+        \ `\n    --configuration Release `\n    --runtime \"${{ matrix.rid }}\" `\n    --no-build `\n    --verbosity normal `\n    --filter \"\
+        FullyQualifiedName=ProGPU.Tests.Headless.SamplePagesTests.Test_TypographyScriptsPage_Renders\"\n  if ($LASTEXITCODE -ne 0) {\n    exit\
+        \ $LASTEXITCODE\n  }\n}\n"
+    - name: Summarize original core test failures
+      if: always()
+      shell: pwsh
+      run: ./eng/progpu-summarize-test-failures.ps1 -Directory artifacts/core-test-results
+    - name: Retain original core test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: progpu-core-test-results-${{ matrix.rid }}
+        path: artifacts/core-test-results/*.trx
+        if-no-files-found: warn
+    - name: Decode retained contention stacks without rerunning tests
+      if: always()
+      shell: bash
+      run: python3 eng/diagnostics/finalizer-371/prepare.py decode
+    - name: Retain original diagnostic traces, control and receipts
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: finalizer-371-original-linux
+        path: artifacts/finalizer-371
+        if-no-files-found: error
