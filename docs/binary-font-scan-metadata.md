@@ -130,6 +130,33 @@ Original consumer progress now distinguishes render from submission wait, and
 Windows failure receipts retain the full native exit code before shell narrowing;
 these observations change no inputs, assertions, workload sequence or deadlines.
 
+The owned Naga workgroup-initialization repair subsequently resolves that FXC
+optimizer stall; see `native-windows-shader-compiler.md`. At `686a34bb`, all x64
+package lanes pass, while ARM64 FXC, DXC and Dawn reach the first original frame
+and fail during submission wait. A bounded original DXC capture retains a preceding
+write access violation in WARP-generated code: `mov w28,#0x31a4; add x28,xzr,x28;
+str w4,[x28]`. The shifted-register ADD uses the zero register rather than SP,
+exactly constructing the captured invalid address. The later return-address
+failure is in `PixelJITProcessor::ExecuteJIT`. The capture reached its eight-dump
+cap; it remains incomplete diagnostic evidence, not a successful product gate.
+
+Each entrypoint now visits its two original dropout indices through one bounded
+loop: start at the invocation's lane, add 256, stop below 512. For every lane
+0–255 this preserves the exact ordered pair, helper arithmetic, early returns,
+shared-memory contents, atomics and subsequent vertex dropout. Both renderers and
+both native providers consume this same shader. No compiler flag, adapter default,
+native dependency, resource layout, dispatch count or pixel expectation changes.
+
+Matched native ARM64 release compilations retain the loop. Horizontal/vertical
+FXC bytecode falls from 81,296/64,088 to 50,484/37,524 bytes; DXC falls from
+28,900/23,528 to 19,776/15,728 bytes and its local allocations fall from 16 to 8.
+FXC temporary-register counts are mixed, so this is not a uniform register-pressure
+or runtime-speed claim. All eight compiler cases pass. Local validation passes
+36 managed binary/shader controls and six complete 880-case comparisons through
+each rebuilt native provider with zero differing pixels. Actual ARM64 WARP
+execution and whole package qualification remain required before calling this a
+runtime fix or advancing consumers.
+
 The rejected global midpoint quantizer regressed earlier diagonal controls and
 was removed. Its failed captures remain retained. The bounded curved candidate
 passes all original and new cases through native wgpu and Dawn, including actual

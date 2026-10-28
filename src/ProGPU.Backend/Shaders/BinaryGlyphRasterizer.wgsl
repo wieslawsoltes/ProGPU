@@ -439,8 +439,10 @@ fn cs_binary_horizontal(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_
         if base_covered(record, point.x, level, false) { paint(point, true); }
     }
     // Dropout eligibility reads the immutable analytic base, not these writes.
-    dropout(record, lane, level, false);
-    dropout(record, lane + 256u, level, false);
+    // Preserve the two original per-lane visits with one helper call site.
+    for (var index = lane; index < 512u; index += 256u) {
+        dropout(record, index, level, false);
+    }
     vertex_dropout(record, lane, level, false);
 }
 
@@ -453,7 +455,9 @@ fn cs_binary_vertical(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_in
     let bounds = raster_bounds(record);
     prepare_scan(record, level, true, lane);
     if level < bounds.x || level >= bounds.z { return; }
-    dropout(record, lane, level, true);
-    dropout(record, lane + 256u, level, true);
+    // Preserve the two original per-lane visits with one helper call site.
+    for (var index = lane; index < 512u; index += 256u) {
+        dropout(record, index, level, true);
+    }
     vertex_dropout(record, lane, level, true);
 }

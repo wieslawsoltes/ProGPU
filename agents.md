@@ -1,3 +1,10 @@
+Binary glyph dropout traversal keeps the original ordered lane and lane+256
+visits in one bounded per-invocation loop. Preserve helper arithmetic, shared
+memory, atomics, barriers and the subsequent vertex dropout in the common shader.
+Reduced compiler output does not prove WARP stack safety or original pixel/package
+qualification. Never replace drivers or alter compiler defaults to hide the
+original ARM64 failure; see docs/binary-font-scan-metadata.md.
+
 Pinned Windows HLSL workgroup initialization distributes fixed array elements
 across the complete XYZ local index and stride. Preserve typed zero, exactly one
 write per element, unchanged non-array initialization and the original barrier
