@@ -24,3 +24,4 @@ tests/Shared/BinaryGlyphCurveOriginals.json -text
 
 # Preserve reviewed temporary diagnostic source bytes.
 eng/diagnostics/arm64-scalar-runtime/** -text
+eng/diagnostics/arm64-scalar-cdb/** -text

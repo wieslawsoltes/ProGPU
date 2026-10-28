@@ -1,0 +1,274 @@
+{
+  "docs__FTL.TXT.txt": {
+    "sha256": "308dca54b5aaa4a6ba0880621fe3bcf287956821aa948430263062a8333625c0",
+    "size": 6912
+  },
+  "docs__GPLv2.TXT.txt": {
+    "sha256": "6046da9f0fbc470892625b2f1313f16b5ca375b5c869b3540ea7ef2ad8877a12",
+    "size": 18334
+  },
+  "dxc-compiler-package.json": {
+    "sha256": "6a31deb960b0599757bbe7412a87d2d58408c5f44776d1fc0b66a870d7f072bd",
+    "size": 776
+  },
+  "dxcompiler.dll": {
+    "sha256": "add120337487e273af0d649446aa61ff0b90475dc1a31ffb2774e870d4ec6830",
+    "size": 22285856
+  },
+  "dxil.dll": {
+    "sha256": "9b2ad850ea6ee3d621044f739231a22823c8bd759b34a2c34dc2f4c0d450a6a8",
+    "size": 1770016
+  },
+  "glfw3.dll": {
+    "sha256": "27e2e66a20e2aab6ae90126034c62b14a3d060c3e70f45545feb6f7e0dccc14c",
+    "size": 228864
+  },
+  "include__freetype__internal__fthash.h.txt": {
+    "sha256": "05ad27522c8664e100b1c4faaeb137d28ece2a7650dd5e6215beb2d0e468a455",
+    "size": 1636
+  },
+  "Inter-Regular.ttf": {
+    "sha256": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
+    "size": 411640
+  },
+  "InterVariable.ttf": {
+    "sha256": "4989b125924991b90d05b2d16e0e388c48f7d5bb8b30539bbf9c755278d0ccaf",
+    "size": 879708
+  },
+  "LICENCE-MIT.txt": {
+    "sha256": "903df5512f7d02609fed0c780a9b704f5a3eeb6e4d84ebe42a29845c81899a3c",
+    "size": 1093
+  },
+  "LICENSE": {
+    "sha256": "e55522d81edc687a341a4411e0776e54ca654e90147f354a90458aaced4116af",
+    "size": 27718
+  },
+  "LICENSE-LLVM.txt": {
+    "sha256": "729615317e28dd03907e46f0fc3b5e88f7853cee61d1a1471d2749335516b46f",
+    "size": 1979
+  },
+  "LICENSE-MS.txt": {
+    "sha256": "734f72f239fe7b07b4c7203f294c1a7ce27095687278bab7e56d630d7c672963",
+    "size": 13163
+  },
+  "LICENSE.APACHE": {
+    "sha256": "6d1d968fb225eca367cb7f0b8831ab012a35d92b547e945e17ef8e7b05c3e5cc",
+    "size": 10349
+  },
+  "LICENSE.MIT": {
+    "sha256": "885bec93203d42cd1e93c5b273626e1cf52b519a31fc49f45bd689f77ff62378",
+    "size": 1099
+  },
+  "LICENSE.TXT.txt": {
+    "sha256": "84f47dc7f0887dd56b05f2f218060581c055e443bd7af18e46677bec3dcc2473",
+    "size": 2196
+  },
+  "Microsoft.Direct3D.DXC.package.xml": {
+    "sha256": "baebf693cd55f7fc1b4202865e2b6a2180894cb72b0ce8a2e6d06ca62ae28862",
+    "size": 936
+  },
+  "Microsoft.DotNet.PlatformAbstractions.dll": {
+    "sha256": "b1f4ad169fb192747f5d2d3111c01db4257e3ec1f7f18f301f7fc4be3b869ff3",
+    "size": 23424
+  },
+  "Microsoft.Extensions.DependencyModel.dll": {
+    "sha256": "48cb00c7cb7debe78133f435d66dfe92c951897c608b58fb993d73254d0973ac",
+    "size": 85280
+  },
+  "NOTICE.txt": {
+    "sha256": "8885c8e1d4e046163bb4207b8bc2794b0cf767445e1ae842a863eab837a16640",
+    "size": 240
+  },
+  "progpu-dx12-runtime.json": {
+    "sha256": "cf445d3c1b7dc478d980794e178da7566716c51c0efec6037949dbfb9f72503b",
+    "size": 342
+  },
+  "progpu-native-edit-word-dependency.json": {
+    "sha256": "f31ca0db17ddf5f79130177fa091dc331dbab3fc9d7edb1839e3db0a937b4a39",
+    "size": 1612
+  },
+  "progpu-native-font-dependency.json": {
+    "sha256": "10ad475f7cca00af41ec72e7cb32b5c72146bc7e84d320d45af171929faa2546",
+    "size": 2656
+  },
+  "ProGPU.Backend.Dawn.dll": {
+    "sha256": "c5c1796b0cd76489b155bdee78d8f896398d7e6d3c9e45181247fbeb5074ed8d",
+    "size": 134144
+  },
+  "ProGPU.Backend.dll": {
+    "sha256": "abc053f8f65b350eea8420da75670d492406bd9dd62017525968a9df413a63e3",
+    "size": 952320
+  },
+  "ProGPU.Backend.Native.dll": {
+    "sha256": "807745406232cdcfbdf0bb184423a22584bbcc6837bcd0663854057578c5bb1c",
+    "size": 579072
+  },
+  "ProGPU.Native.PackageConsumer.deps.json": {
+    "sha256": "dcb40196eaa03af74bf0f1c8884e10dfe584aea37084fb0bcce42be99ee1bdfd",
+    "size": 15072
+  },
+  "ProGPU.Native.PackageConsumer.dll": {
+    "sha256": "d813888a4ad23026ef63fddf4203e2f19a12b71659dbe3c8e3e62fa64a9dbefd",
+    "size": 776192
+  },
+  "ProGPU.Native.PackageConsumer.exe": {
+    "sha256": "19c78d27691df8a5b1fd7392c55982447c2e74a8aa8abdf90f0fb2de9d0e31f6",
+    "size": 140288
+  },
+  "ProGPU.Native.PackageConsumer.pdb": {
+    "sha256": "dac4136fafe8c2bc9e49daf99a5789d550fcdd5cc5a7a3ef6fb39eb951dd6f04",
+    "size": 68820
+  },
+  "ProGPU.Native.PackageConsumer.runtimeconfig.json": {
+    "sha256": "c230a317a54dd960bcbeb5f347f52e18dc665a26f7efda2159fced9a5ac7e097",
+    "size": 342
+  },
+  "progpu_native.dll": {
+    "sha256": "f59175cf82f6bbee71ff07246d063f8516f61a5d45b79ce023c5d036dd0938fb",
+    "size": 38555136
+  },
+  "progpu_native_compression.lib": {
+    "sha256": "26085ee77dea4fce4700de3c777da58fd5ff8b6e28dc7f31ed7fa991554f8075",
+    "size": 18380
+  },
+  "progpu_native_dawn.dll": {
+    "sha256": "fa7843001a23ee25e254abb6fc6999e722065801bf99cef15a6a972d180656ab",
+    "size": 38608384
+  },
+  "progpu_native_dawn.lib": {
+    "sha256": "bcfc89e9fb11f7cc2224c77436d29e71cb86ece034a0beb0a115cf1eaa3a6140",
+    "size": 65460
+  },
+  "progpu_native_direct2d.dll": {
+    "sha256": "7d5efef7baf8171a12533026b822f0885187c4bbdfffa0652d4098ab42a1654d",
+    "size": 925184
+  },
+  "progpu_native_direct2d_core.lib": {
+    "sha256": "c23b6888ba6ed16c3111444bc9c3b9c0cb7ceea3805b9671ac6f65df1e3a117e",
+    "size": 1872030
+  },
+  "progpu_native_edit_icu.lib": {
+    "sha256": "a1d4851575cfcbdefb167b3461ebabe2b660cef8dfd0953628856431e5af20bf",
+    "size": 38187022
+  },
+  "progpu_native_freetype.lib": {
+    "sha256": "4ffbe33a1734312008f2ac4cd5812a78bb8b53e0fb786a40cfd8f0134e8b577c",
+    "size": 2070022
+  },
+  "progpu_native_hit_testing.lib": {
+    "sha256": "25156596841e2371806075d92956a7d0473ff328f476b61352fdb034a474d785",
+    "size": 34516
+  },
+  "progpu_native_image.lib": {
+    "sha256": "54d274dd93b09edf3718660d2ff910deea0cf533c1176a5352f446859a101351",
+    "size": 19600
+  },
+  "progpu_native_mil.lib": {
+    "sha256": "88e08068581f6b7dbca4aa9a806e3f61bcfdf035a05beb010aa8b9c77979b551",
+    "size": 2925968
+  },
+  "progpu_native_scene_builder.lib": {
+    "sha256": "14e42efec86bfe9d30daea4d95573be7c54712f5e89b28dcdb8a1fb416a3ed56",
+    "size": 891754
+  },
+  "progpu_native_text.lib": {
+    "sha256": "279bf36b111ec6e31e8f88a111c5dd622d7b6d099cf39a22b9c7a47832a60b4c",
+    "size": 3483598
+  },
+  "Silk.NET.Core.dll": {
+    "sha256": "56e4a018bd9a4e0fb94f97331191db7e86af98b0e23082ea36863f146e217a5c",
+    "size": 310032
+  },
+  "Silk.NET.GLFW.dll": {
+    "sha256": "9c3c71d2fe0b01bb4fd00e7047001b99db8869384b7ba6b9750f389eece224dc",
+    "size": 84752
+  },
+  "Silk.NET.Input.Common.dll": {
+    "sha256": "4979f2a0afd682e740c247fb103cdd8368d87381728cf633d3bfa4515c0289d1",
+    "size": 41232
+  },
+  "Silk.NET.Input.Glfw.dll": {
+    "sha256": "43d615b40d28824c7b7eb488e2b891a09ed6353dd3d0d73a366c67abe8b5270e",
+    "size": 49424
+  },
+  "Silk.NET.Maths.dll": {
+    "sha256": "c3b2b856435a1824f21d0467241f7ef7929980fc11a61d651166ce60828475eb",
+    "size": 324368
+  },
+  "Silk.NET.WebGPU.dll": {
+    "sha256": "dcfcccf3d8ca49c6fa3d688f3ed474cc2966fccb34cab35600a0dc71f4e14835",
+    "size": 268048
+  },
+  "Silk.NET.Windowing.Common.dll": {
+    "sha256": "7c80870d5135714dc30efa71e4adb0de9a8c699602cd7e5409d6b21eaa5fad21",
+    "size": 54032
+  },
+  "Silk.NET.Windowing.Glfw.dll": {
+    "sha256": "62d66480ff7e9973a231c5898e7c293d814558e5e156f59898ba41db2b98f4a8",
+    "size": 41744
+  },
+  "src__autofit__ft-hb-decls.h.txt": {
+    "sha256": "92e1e5b8a82542458e7a4ccb2466f4a0ee94536b84c2a8de47ad24750c284062",
+    "size": 1413
+  },
+  "src__autofit__ft-hb-ft.c.txt": {
+    "sha256": "be5d06853f2b15f647ccb47f51325286a5112c868aba3444aefcc65245518395",
+    "size": 1175
+  },
+  "src__autofit__ft-hb-types.h.txt": {
+    "sha256": "043b70c92d3b555a4674a94face69aa9447ff4e4d9a8a8d59d215ed098d18e62",
+    "size": 1493
+  },
+  "src__autofit__hb-script-list.h.txt": {
+    "sha256": "63b0ed68c327488d4752009ba8631cfeedc4cb8bd3f71d5b7ae208815d66869a",
+    "size": 1226
+  },
+  "src__base__fthash.c.txt": {
+    "sha256": "eb516e074e574fa24dec7adb04b6fa70e8f833e58557d8dffcca3e6a47061463",
+    "size": 1627
+  },
+  "src__bdf__README.txt": {
+    "sha256": "5a810592dc77bea5d6aaf7202d81c3a355b00792e3e6e410d4577b96310a5b79",
+    "size": 6124
+  },
+  "src__gzip__zlib.h.txt": {
+    "sha256": "36bbf559e8540020cd01e5e61547ed0f295e3cba735569702ca6f284ecbd5acc",
+    "size": 1359
+  },
+  "src__pcf__README.txt": {
+    "sha256": "8ed3ed3d30b5d652a4e6c50ed398f421c540a7b2b30074891832fa42657b188a",
+    "size": 3407
+  },
+  "WebGpuSharp.dll": {
+    "sha256": "3bc70857f0cfaf658134b2af5fbbc3d99c9d2537e8d6c262ebb72436cedb9dda",
+    "size": 211456
+  },
+  "webgpu_dawn.dll": {
+    "sha256": "68e388593559c1a5dad9537873b0377f02aaec55d5f30b5eb5246b8df9743dc6",
+    "size": 11457536
+  },
+  "wgpu-LICENSE.APACHE": {
+    "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+    "size": 10173
+  },
+  "wgpu-LICENSE.MIT": {
+    "sha256": "c7fea58d1cfe49634cd92e54fc10a9d871f4b275321a4cd8c09e449122caaeb4",
+    "size": 1078
+  },
+  "wgpu-native-build.json": {
+    "sha256": "433fd7533c28ff1e8474d70c8d1fc81c6e26b5abaf3f800ce5b541335a936cb7",
+    "size": 11416
+  },
+  "wgpu-native-windows.json": {
+    "sha256": "2657378ab0f6ac36fd1a26eb2600cffa6f06bbeb181e7889fcd34e9fa46cfda0",
+    "size": 1968
+  },
+  "wgpu_native.dll": {
+    "sha256": "4c78555a7fa5fbb97d19fa0c7a0aaa97d3d8eebe63de89514e5fd08053c8a6e0",
+    "size": 6877184
+  },
+  "webgpu-headers-LICENSE/win-arm64/native/webgpu-headers-LICENSE": {
+    "sha256": "55fdaed683a2d7330a4102faf61f45ec12a0526aada329c4f89f7df0a523116a",
+    "size": 1563
+  }
+}
