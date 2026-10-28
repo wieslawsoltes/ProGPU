@@ -348,6 +348,13 @@ internal static class ManagedPictureBenchmark
                     $"managedTotal={managedSample.AllocatedBytes}, " +
                     $"managedSubmit={managedSample.SubmissionAllocatedBytes}, " +
                     $"managedWait={managedSample.CompletionWaitAllocatedBytes}.");
+                Console.WriteLine(
+                    $"frame={index}, counterBoundaries=" +
+                    $"native[{nativeSample.AllocationStart},{nativeSample.SubmittedAllocation},{nativeSample.CompletedAllocation}], " +
+                    $"managed[{managedSample.AllocationStart},{managedSample.SubmittedAllocation},{managedSample.CompletedAllocation}], " +
+                    $"timestampFrequency={Stopwatch.Frequency}, " +
+                    $"nativeSubmitStart={nativeSample.SubmitStart}, nativeWaitStart={nativeSample.WaitStart}, " +
+                    $"managedSubmitStart={managedSample.SubmitStart}, managedWaitStart={managedSample.WaitStart}.");
             }
             throw new InvalidOperationException(
                 "Matched stable replay must allocate zero managed bytes per " +
@@ -384,7 +391,12 @@ internal static class ManagedPictureBenchmark
                 total,
                 completedAllocation - allocationStart,
                 submittedAllocation - allocationStart,
-                completedAllocation - submittedAllocation);
+                completedAllocation - submittedAllocation,
+                allocationStart,
+                submittedAllocation,
+                completedAllocation,
+                submitStart,
+                waitStart);
         }
 
         TimingSample MeasureManaged()
@@ -405,7 +417,12 @@ internal static class ManagedPictureBenchmark
                 total,
                 completedAllocation - allocationStart,
                 submittedAllocation - allocationStart,
-                completedAllocation - submittedAllocation);
+                completedAllocation - submittedAllocation,
+                allocationStart,
+                submittedAllocation,
+                completedAllocation,
+                submitStart,
+                waitStart);
         }
     }
 
@@ -1089,7 +1106,16 @@ internal static class ManagedPictureBenchmark
         double TotalMilliseconds,
         long AllocatedBytes,
         long SubmissionAllocatedBytes,
-        long CompletionWaitAllocatedBytes);
+        long CompletionWaitAllocatedBytes,
+        // Preserve the original reads; do not add observer calls inside either
+        // measured interval. Absolute boundaries distinguish a charged interval
+        // from counter changes between frames without reconstructing them from
+        // averages or treating a later successful trace replay as attribution.
+        long AllocationStart,
+        long SubmittedAllocation,
+        long CompletedAllocation,
+        long SubmitStart,
+        long WaitStart);
 
     private sealed record ManagedPictureBenchmarkReport(
         string Runtime,
