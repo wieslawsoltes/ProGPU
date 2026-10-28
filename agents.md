@@ -2462,19 +2462,19 @@ The optional wavefront vector engine must remain lazy. Selecting the default atl
 Build once, then measure the exact final binaries:
 
 ```bash
-dotnet build src/ProGPU.Samples/ProGPU.Samples.csproj -c Release
+dotnet build src/ProGPU.Samples.Desktop/ProGPU.Samples.Desktop.csproj -c Release -f net10.0 -p:ProGpuSamplesDesktopPortableOnly=true
 
 PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
 PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=240 \
 PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=480 \
 PROGPU_SAMPLE_BENCHMARK_VSYNC=true \
-dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+dotnet src/ProGPU.Samples.Desktop/bin/Release/net10.0/ProGPU.Samples.Desktop.dll
 
 PROGPU_SAMPLE_BENCHMARK_PAGE='LOL/s Benchmark' \
 PROGPU_SAMPLE_BENCHMARK_WARMUP_FRAMES=240 \
 PROGPU_SAMPLE_BENCHMARK_MEASURE_FRAMES=480 \
 PROGPU_SAMPLE_BENCHMARK_VSYNC=false \
-dotnet run --project src/ProGPU.Samples/ProGPU.Samples.csproj -c Release --no-build
+dotnet src/ProGPU.Samples.Desktop/bin/Release/net10.0/ProGPU.Samples.Desktop.dll
 ```
 
 On the current 120 Hz reference machine, the protected targets are about 120 FPS and 12,000 LOL/s with VSync, and at least 36,000 LOL/s uncapped. The current measured values are 11,996 and 48,905 LOL/s. Compare on the same machine and window state; investigate a repeatable drop greater than 10% before merging.
