@@ -59,6 +59,21 @@ raster-target, positioned native glyph, integer-origin, source contrast, system
 policy and atomic paint-preflight work. Uncommitted downstream adapter changes
 are not included or qualified by this pin.
 
+The original Linux x64 corpus at producer `4545ed71` independently confirms the
+pinned Drawing repair from `fce7e797db`: the `Format32bppPArgb` case of
+`BitmapTests.CustomPixelFormat_GetPixels_ReturnsExpected` now passes its original
+GetPixel colors and all eight LockBits bytes. The pinned Microsoft test source is
+unchanged. Its selected CPU storage and truncated reciprocal are supported by the
+retained 32,896-pair original Windows observation; no native rendering threshold
+or expected pixel changed. The complete 4,453-case inventory now records 3,318
+passes, 1,101 known failures and the same 34 skips. Tighten only this x64 method's
+failure count from six to five and the corresponding summary; all other failures,
+skips, discovery counts and ARM64 expectations remain unchanged. The original
+inventory-mismatch failure remains retained in artifact `12838029499` (SHA-256
+`e53ca5421b3b9ae1f21ff43bd6da40f6eabab2c17544e73ac78ccd51de44e240`). This reviewed
+improvement does not qualify the cancelled whole producer or the remaining GDI
+source/application contracts.
+
 The Forms sparse checkout now also retains its owned `eng` targets. Drawing's
 build targets import `LibreWinForms.NativeRuntime.targets` and
 `LibreWinForms.WindowsRuntime.props`; omitting them fails project evaluation.

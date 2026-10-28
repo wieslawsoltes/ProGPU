@@ -577,6 +577,7 @@
 5|System.Drawing.Drawing2D.Tests.PathGradientBrushTests.Blend_InvalidFactorPositions_ThrowsArgumentException|Xunit.Sdk.EqualException
 5|System.Drawing.Drawing2D.Tests.PathGradientBrushTests.Ctor_PointsWrapMode_ReturnsExpected|Xunit.Sdk.EqualException
 5|System.Drawing.Imaging.Tests.ImageAttributesTests.ClearOutputChannelColorProfile_Type_Success|System.PlatformNotSupportedException
+5|System.Drawing.Tests.BitmapTests.CustomPixelFormat_GetPixels_ReturnsExpected|Xunit.Sdk.EqualException
 5|System.Drawing.Tests.BitmapTests.GetPixel_ValidPixelFormat_Success|Xunit.Sdk.EqualException
 5|System.Drawing.Tests.PenTests.Ctor_Brush|Xunit.Sdk.ThrowsException
 5|System.Drawing.Tests.RegionTests.Complement_GraphicsPath_Success|System.NotSupportedException
@@ -584,7 +585,6 @@
 6|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Ctor_RectangleF_Color_Color_Angle_IsAngleScalable|System.NullReferenceException
 6|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Ctor_Rectangle_Color_Color_Angle_IsAngleScalable|System.NullReferenceException
 6|System.Drawing.Tests.BitmapTests.Clone_InvalidRect_ThrowsExternalException|Xunit.Sdk.ThrowsException
-6|System.Drawing.Tests.BitmapTests.CustomPixelFormat_GetPixels_ReturnsExpected|Xunit.Sdk.EqualException
 6|System.Drawing.Tests.FontTests.ToLogFont_InvokeGraphics_ReturnsExpected|System.ArgumentException
 6|System.Drawing.Tests.ImageAnimatorTests.CanAnimate_ReturnsTrue_ForAnimatedImages|Xunit.Sdk.TrueException
 6|System.Drawing.Tests.RegionTests.Intersect_GraphicsPath_Success|System.NotSupportedException
