@@ -1,0 +1,50 @@
+name: Qualified original Unhinted64 Windows 2025 x64 diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-unhinted64-x64:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      UNHINTED64_RUNNER_LABEL: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Require reviewed whole producer qualification before download
+        id: producer
+        shell: pwsh
+        run: python eng/TemporaryUnhinted64X64/stage.py preflight
+      - name: Retrieve only the original native package artifact
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ steps.producer.outputs.artifact_id }}
+          run-id: 40740184789
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/unhinted64-x64-package-artifact
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Build original reference and diagnostic from isolated package feed
+        shell: pwsh
+        run: python eng/TemporaryUnhinted64X64/stage.py build
+      - name: Run original no-input diagnostic once
+        shell: pwsh
+        run: python eng/TemporaryUnhinted64X64/run.py --closure "$env:RUNNER_TEMP/unhinted64-x64-stage/closure.json"
+      - name: Retain original receipts and captures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: original-unhinted64-windows2025-x64
+          path: |
+            ${{ runner.temp }}/unhinted64-x64-stage/evidence/
+            ${{ runner.temp }}/unhinted64-x64-stage/closure.json
+            ${{ runner.temp }}/unhinted64-x64-owned-results/
+          if-no-files-found: error
+          retention-days: 14

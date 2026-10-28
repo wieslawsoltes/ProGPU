@@ -1,0 +1,2147 @@
+{
+  "schema": 1,
+  "width": 384,
+  "height": 64,
+  "dpi": 96,
+  "text": "Name Age 123 Hello Windows Forms",
+  "artifactId": 12141786964,
+  "artifactSha256": "57ef66ec9f8d20524426708179c81eae2c9afef876c6269ca784121aaedd62c2",
+  "fonts": [
+    {
+      "requested": "Microsoft Sans Serif",
+      "points": 9.75,
+      "bytes": 857472,
+      "sha256": "89b42a12ea0379133fb2f4a1d1bd53058fb61e2343c1d509452d5761acc85b7a"
+    },
+    {
+      "requested": "Segoe UI",
+      "points": 9,
+      "bytes": 959752,
+      "sha256": "8134dbcd09e7b123c9a7f229d49cffbcb01352cc72ea5e1076b65d0dca9f73cd"
+    }
+  ],
+  "cases": [
+    {
+      "font": 0,
+      "sourceIndex": 0,
+      "glyphId": 49,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-00.rgba.gz",
+      "rgbaSha256": "c68c414f856c5d9b835de3a976f7a2af449b80a56b2aaa731dbdaec5b9e81071",
+      "originalPNG": {
+        "name": "glyph-064-SingleBitPerPixel-0.png",
+        "bytes": 431,
+        "sha256": "c15408983774e5777fefead629d375c458e085217ffb5cfa6e5d52f6b0ebe3bd"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 0,
+        "character": 78,
+        "glyphIndex": 49,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 92,
+        "blackBoxX": 7,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 10,
+        "cellIncY": 0,
+        "sha256": "b0183718ac82a9067ac278ebe66a797ea23bf317d6fd087b135261bfed9d516a",
+        "nativeOutlineBase64": "XAAAABgAAAAAWAgAAAAAAAEACQAAFAcAAAAAAAA0AgAAWAcAADQCAAAAAAAADAEAAAAAAAAMAQAAUAkAAEwCAABQCQAALAcAAPgBAAAsBwAAUAkAAFgIAABQCQA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 1,
+      "glyphId": 68,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-01.rgba.gz",
+      "rgbaSha256": "e7cecb48a7b9de25ad18cf365bc579c7ab39d73ce67943404af59743dd059ea7",
+      "originalPNG": {
+        "name": "glyph-065-SingleBitPerPixel-1.png",
+        "bytes": 404,
+        "sha256": "e46552a7c1c3d08d4092707298bc994e1e7ce84cebaddab151550b0481fa261d"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 1,
+        "character": 97,
+        "glyphIndex": 68,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 344,
+        "blackBoxX": 6,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "9299b46676ee61703b713bd6566bfa4588b49df6ba8c2c6d83440c655994750b",
+        "nativeOutlineBase64": "cAAAABgAAAAAJAUAAMQBAAEAAgAAJAUAAEQDAABUBAAARAMAAgACAAC8AQAARAMAALwBAADYAQACAAMAALwBAABUAQAAfAIAAMgAAAAkAwAAyAAAAgADAAC4AwAAyAAAANQEAABQAQAAJAUAAMQBAOgAAAAYAAAAACQFAACwAAACAAIAADwEAADY//8AzAIAANj//wIAAwAAzAEAANj//wCAAAAA7AAAAIAAAADIAQACAAIAAIAAAAAkBAAAkAQAACQEAAEAAQAAJAUAACQEAAIABAAAJAUAAOAEAAAABQAAhAUAAEwEAAD0BQAAiAMAAPQFAAIAAgAA8AEAAPQFAADkAQAA0AQAAQABAACwAAAA0AQAAgACAADUAAAA5AYAAJgDAADkBgACAAMAAOQEAADkBgAAWAYAANwFAABYBgAAXAQAAQACAABYBgAAAAAAACQFAAAAAAA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 2,
+      "glyphId": 80,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-02.rgba.gz",
+      "rgbaSha256": "d27ae62ee4cffc7b6696c572aae6e9915716020039e6e1b58bbf93fcb2eb045c",
+      "originalPNG": {
+        "name": "glyph-066-SingleBitPerPixel-2.png",
+        "bytes": 411,
+        "sha256": "90d960e933f32308f0a8172e67f3e7faea90944b37b26a14c357102ade83ce5b"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 2,
+        "character": 109,
+        "glyphIndex": 80,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 292,
+        "blackBoxX": 9,
+        "blackBoxY": 7,
+        "originX": 1,
+        "originY": 7,
+        "cellIncX": 11,
+        "cellIncY": 0,
+        "sha256": "35f9312f11dbc6ffbc94386e7efdfa8648370c0ae8572138fe713ba29dbe1c64",
+        "nativeOutlineBase64": "JAEAABgAAAAA/AkAAAAAAAEAAgAAyAgAAAAAAADICAAAXAQAAgADAADICAAAMAUAAEwIAADoBQAAvAcAAOgFAAIAAgAA4AYAAOgFAAAIBgAA1AQAAQADAAAIBgAAAAAAANgEAAAAAAAA2AQAAFwEAAIAAwAA2AQAADAFAABcBAAA6AUAAMgDAADoBQACAAIAAOgCAADoBQAAFAIAANQEAAEABQAAFAIAAAAAAADgAAAAAAAAAOAAAAC8BgAAFAIAALwGAAAUAgAA4AUAAgACAADwAgAA5AYAAPgDAADkBgACAAIAAHQFAADkBgAA3AUAAKwFAAIAAwAAiAYAAHgGAAB4BwAA5AYAAOwHAADkBgACAAIAAPwJAADkBgAA/AkAAGgEAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 3,
+      "glyphId": 72,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-03.rgba.gz",
+      "rgbaSha256": "6fd933ff32194fc62bede026418d0e8ad3c8afad805249de7664991724c1080a",
+      "originalPNG": {
+        "name": "glyph-067-SingleBitPerPixel-3.png",
+        "bytes": 400,
+        "sha256": "c3d9de071370ad01bab046966be96fb68161f2774a75ab1e38e635ae4b508287"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 3,
+        "character": 101,
+        "glyphIndex": 72,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 288,
+        "blackBoxX": 7,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "3664840d6ed1c600b9a6de90b0ad3e772b144ddf6c47b3873a07e85ff2790592",
+        "nativeOutlineBase64": "2AAAABgAAAAAwAMAANj//wIAAwAARAIAANj//wB0AAAAtAEAAHQAAABcAwACAAMAAHQAAAAEBQAANAIAAOQGAACcAwAA5AYAAgADAAAMBQAA5AYAAMQGAAAMBQAAxAYAAFwDAAEAAgAAxAYAABQDAAC0AQAAFAMAAgADAADIAQAA6AEAAOgCAADIAAAAwAMAAMgAAAIAAwAAYAQAAMgAAABkBQAAbAEAAGgFAAAEAgABAAEAAKQGAAAEAgACAAMAAIAGAAD4AAAA6AQAANj//wDAAwAA2P//SAAAABgAAAAAhAUAAAQEAAIAAwAAXAUAAPwEAABYBAAA9AUAAJwDAAD0BQACAAMAAOQCAAD0BQAA3AEAAAAFAAC8AQAABAQA"
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 4,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-04.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-068-SingleBitPerPixel-4.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 4,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 5,
+      "glyphId": 36,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-05.rgba.gz",
+      "rgbaSha256": "3332c120cd3f9bf22d8d4a882c0c31e0c40168942da3fbaf2619af186b67196d",
+      "originalPNG": {
+        "name": "glyph-069-SingleBitPerPixel-5.png",
+        "bytes": 420,
+        "sha256": "595394609f90ad8dcf9d404afdda71d43a77b18d1455722f6649bbdc1e2889cf"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 5,
+        "character": 65,
+        "glyphIndex": 36,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 112,
+        "blackBoxX": 9,
+        "blackBoxY": 9,
+        "originX": 0,
+        "originY": 9,
+        "cellIncX": 9,
+        "cellIncY": 0,
+        "sha256": "021378f70d85c5b1fea30363c6ea00c78740936e7c8df3e30fef0d387f69159c",
+        "nativeOutlineBase64": "JAAAABgAAAAA3AUAANADAAEAAgAAOAQAACAIAACoAgAA0AMATAAAABgAAAAAsAgAAAAAAAEABwAATAcAAAAAAAA4BgAA1AIAAFACAADUAgAASAEAAAAAAAD8//8AAAAAAJADAABQCQAA5AQAAFAJAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 6,
+      "glyphId": 74,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-06.rgba.gz",
+      "rgbaSha256": "f45d45b9a7f08af11c9ab3bda7430275b5027eb03645a54aced0b80e8c8ad57b",
+      "originalPNG": {
+        "name": "glyph-070-SingleBitPerPixel-6.png",
+        "bytes": 418,
+        "sha256": "d7fc769dc10e6b4517b5c6f8b6f63b1998f5c9f6549016215fa8c2f92e44b6c7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 6,
+        "character": 103,
+        "glyphIndex": 74,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 376,
+        "blackBoxX": 6,
+        "blackBoxY": 10,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "631a157299e87de17568e0d1f8b33e64c9519e685caa6ad70ed694d4682ab5d7",
+        "nativeOutlineBase64": "/AAAABgAAAAAWAYAAIQAAAIAAgAAWAYAAET9/wBoAwAARP3/AgADAAAkAgAARP3/AKwAAABg/v8ArAAAAFD//wEAAQAA6AEAAFD//wIAAgAA6AEAADT+/wBkAwAANP7/AgADAAA8BAAANP7/ACQFAAAg//8AJAUAAHgAAAEAAQAAJAUAANAAAAIAAgAAWAQAANj//wA4AwAA2P//AgADAADoAQAA2P//AHQAAAC4AQAAdAAAAFADAAIAAwAAdAAAAPgEAAAUAgAA5AYAAEwDAADkBgACAAIAAGQEAADkBgAAJAUAADgGAAEAAgAAJAUAALwGAABYBgAAvAYAfAAAABgAAAAAJAUAAPABAAEAAQAAJAUAACQFAAIAAgAAYAQAAPQFAABgAwAA9AUAAgADAACcAgAA9AUAALABAACgBAAAsAEAAFADAAIAAwAAsAEAABACAACQAgAAyAAAAFQDAADIAAACAAIAAFQEAADIAAAAJAUAAPABAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 7,
+      "glyphId": 72,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-07.rgba.gz",
+      "rgbaSha256": "6fd933ff32194fc62bede026418d0e8ad3c8afad805249de7664991724c1080a",
+      "originalPNG": {
+        "name": "glyph-071-SingleBitPerPixel-7.png",
+        "bytes": 400,
+        "sha256": "c3d9de071370ad01bab046966be96fb68161f2774a75ab1e38e635ae4b508287"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 7,
+        "character": 101,
+        "glyphIndex": 72,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 288,
+        "blackBoxX": 7,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "3664840d6ed1c600b9a6de90b0ad3e772b144ddf6c47b3873a07e85ff2790592",
+        "nativeOutlineBase64": "2AAAABgAAAAAwAMAANj//wIAAwAARAIAANj//wB0AAAAtAEAAHQAAABcAwACAAMAAHQAAAAEBQAANAIAAOQGAACcAwAA5AYAAgADAAAMBQAA5AYAAMQGAAAMBQAAxAYAAFwDAAEAAgAAxAYAABQDAAC0AQAAFAMAAgADAADIAQAA6AEAAOgCAADIAAAAwAMAAMgAAAIAAwAAYAQAAMgAAABkBQAAbAEAAGgFAAAEAgABAAEAAKQGAAAEAgACAAMAAIAGAAD4AAAA6AQAANj//wDAAwAA2P//SAAAABgAAAAAhAUAAAQEAAIAAwAAXAUAAPwEAABYBAAA9AUAAJwDAAD0BQACAAMAAOQCAAD0BQAA3AEAAAAFAAC8AQAABAQA"
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 8,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-08.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-072-SingleBitPerPixel-8.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 8,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 9,
+      "glyphId": 20,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-09.rgba.gz",
+      "rgbaSha256": "785e9afb890aad099934d14653640edf6f8b20b2f3206396c776d64f55543dd3",
+      "originalPNG": {
+        "name": "glyph-073-SingleBitPerPixel-9.png",
+        "bytes": 395,
+        "sha256": "a917dcd240868c97d0178b0be902b93f4badbf77d9e831b386129ac08effd57f"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 9,
+        "character": 49,
+        "glyphIndex": 20,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 100,
+        "blackBoxX": 4,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "2a19dd8d8433a194e087866bc9d43e722237823c797cca24b15c313e65df5ec8",
+        "nativeOutlineBase64": "ZAAAABgAAAAA4AQAAAAAAAEAAgAAsAMAAAAAAACwAwAAUAcAAgACAAD0AgAA2AYAAHABAADYBgABAAEAAHABAADIBwACAAIAAKADAADIBwAA9AMAAHgJAAEAAQAA4AQAAHgJAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 10,
+      "glyphId": 21,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-10.rgba.gz",
+      "rgbaSha256": "11ceb4749695df5313b2585ba0d984de242dbc0b58b9bd18691efefd974b93aa",
+      "originalPNG": {
+        "name": "glyph-074-SingleBitPerPixel-10.png",
+        "bytes": 403,
+        "sha256": "63e433f3a537b5cf94837e5a087b164b9776075f02897636a635f16d85c73c7a"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 10,
+        "character": 50,
+        "glyphIndex": 21,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 244,
+        "blackBoxX": 7,
+        "blackBoxY": 9,
+        "originX": 0,
+        "originY": 9,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "c8792914edb941c9142e8d6f69c6b252500f9a8ada1fc9b55ebacff115d6947c",
+        "nativeOutlineBase64": "9AAAABgAAAAAkAYAAAAAAAEAAQAAaAAAAAAAAAIABQAAaAAAANgAAAB0AQAAaAIAAEQEAACsBAAAUAUAAAQGAABQBQAA4AYAAgADAABQBQAApAcAAGwEAACICAAAnAMAAIgIAAIAAwAA6AIAAIgIAADsAQAApAcAANwBAADEBgABAAEAAKAAAADEBgACAAMAALgAAAAACAAAVAIAAHgJAACkAwAAeAkAAgADAAAIBQAAeAkAAIgGAAD4BwAAiAYAANgGAAIABAAAiAYAANQFAABsBQAASAQAABgCAACEAQAAEAIAABwBAAEAAQAAkAYAABwBAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 11,
+      "glyphId": 22,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-11.rgba.gz",
+      "rgbaSha256": "7edfea8559b55123e269cd5bca41a47c70ef383fa3542824482e27de35a561ed",
+      "originalPNG": {
+        "name": "glyph-075-SingleBitPerPixel-11.png",
+        "bytes": 404,
+        "sha256": "76799b1078f1a80191dfa4e9cb65969c9c79351988c04fa337100d9bbea914e5"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 11,
+        "character": 51,
+        "glyphIndex": 22,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 388,
+        "blackBoxX": 6,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "c174b6abd0df1fac6b58d8f42c6bb2e12accc6862c2e1fe1a5a81413a3be5038",
+        "nativeOutlineBase64": "hAEAABgAAAAA6AQAABwFAAIAAwAAwAUAAOQEAACsBgAAnAMAAKwGAADAAgACAAMAAKwGAAB0AQAA6AQAANj//wCYAwAA2P//AgADAABIAgAA2P//AKQAAABIAQAAlAAAAHQCAAEAAQAA0AEAAHQCAAIAAwAA0AEAAMQBAAC8AgAAyAAAAJgDAADIAAACAAMAAHAEAADIAAAAcAUAANwBAABwBQAAuAIAAgADAABwBQAAmAMAAGgEAACIBAAAaAMAAIgEAAEAAwAA9AIAAIgEAAD0AgAAeAUAADgDAAB4BQACAAIAAPgEAAB4BQAA+AQAABQHAAIAAwAA+AQAAMgHAAA0BAAAiAgAAIQDAACICAACAAIAABgCAACICAAA7AEAAAwHAAEAAQAAsAAAAAwHAAIAAwAA1AAAADwIAABcAgAAeAkAAHwDAAB4CQACAAMAALwEAAB4CQAANAYAABwIAAA0BgAADAcAAgADAAA0BgAAdAYAAJAFAABkBQAA6AQAABwFAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 12,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-12.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-076-SingleBitPerPixel-12.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 12,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 13,
+      "glyphId": 43,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-13.rgba.gz",
+      "rgbaSha256": "732008d91d474f92f3a8f33517a76dcba044edfd810af46c19812fa1ff05bd23",
+      "originalPNG": {
+        "name": "glyph-077-SingleBitPerPixel-13.png",
+        "bytes": 414,
+        "sha256": "3b43f82d9309f29a6b85ccff6224091d551797711801eded9f89be4adb459289"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 13,
+        "character": 72,
+        "glyphIndex": 43,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 108,
+        "blackBoxX": 7,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 10,
+        "cellIncY": 0,
+        "sha256": "10fd4c52b4b1eed052c5e8913f0bc742b95fae258ec5a2f7a65e7bf25b3b8c64",
+        "nativeOutlineBase64": "bAAAABgAAAAAWAgAAAAAAAEACwAAHAcAAAAAAAAcBwAAYAQAAEQCAABgBAAARAIAAAAAAAAMAQAAAAAAAAwBAABQCQAARAIAAFAJAABEAgAAfAUAABwHAAB8BQAAHAcAAFAJAABYCAAAUAkA"
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 14,
+      "glyphId": 72,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-14.rgba.gz",
+      "rgbaSha256": "6fd933ff32194fc62bede026418d0e8ad3c8afad805249de7664991724c1080a",
+      "originalPNG": {
+        "name": "glyph-078-SingleBitPerPixel-14.png",
+        "bytes": 400,
+        "sha256": "c3d9de071370ad01bab046966be96fb68161f2774a75ab1e38e635ae4b508287"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 14,
+        "character": 101,
+        "glyphIndex": 72,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 288,
+        "blackBoxX": 7,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "3664840d6ed1c600b9a6de90b0ad3e772b144ddf6c47b3873a07e85ff2790592",
+        "nativeOutlineBase64": "2AAAABgAAAAAwAMAANj//wIAAwAARAIAANj//wB0AAAAtAEAAHQAAABcAwACAAMAAHQAAAAEBQAANAIAAOQGAACcAwAA5AYAAgADAAAMBQAA5AYAAMQGAAAMBQAAxAYAAFwDAAEAAgAAxAYAABQDAAC0AQAAFAMAAgADAADIAQAA6AEAAOgCAADIAAAAwAMAAMgAAAIAAwAAYAQAAMgAAABkBQAAbAEAAGgFAAAEAgABAAEAAKQGAAAEAgACAAMAAIAGAAD4AAAA6AQAANj//wDAAwAA2P//SAAAABgAAAAAhAUAAAQEAAIAAwAAXAUAAPwEAABYBAAA9AUAAJwDAAD0BQACAAMAAOQCAAD0BQAA3AEAAAAFAAC8AQAABAQA"
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 15,
+      "glyphId": 79,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-15.rgba.gz",
+      "rgbaSha256": "081d2283d94b020215c44ac4464501f24f50060a2a298fb4014122f72840fc8e",
+      "originalPNG": {
+        "name": "glyph-079-SingleBitPerPixel-15.png",
+        "bytes": 388,
+        "sha256": "1bb591fdaa3f78c981198b5ed7d34a5a83a607d7ce19e344ffe191655ce7a735"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 15,
+        "character": 108,
+        "glyphIndex": 79,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 44,
+        "blackBoxX": 1,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "72b1400a4f907c30c43a5be4faa6691dc82abecf17933108db9e02b779419950",
+        "nativeOutlineBase64": "LAAAABgAAAAAFAIAAAAAAAEAAwAA4AAAAAAAAADgAAAAUAkAABQCAABQCQA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 16,
+      "glyphId": 79,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-16.rgba.gz",
+      "rgbaSha256": "081d2283d94b020215c44ac4464501f24f50060a2a298fb4014122f72840fc8e",
+      "originalPNG": {
+        "name": "glyph-080-SingleBitPerPixel-16.png",
+        "bytes": 388,
+        "sha256": "1bb591fdaa3f78c981198b5ed7d34a5a83a607d7ce19e344ffe191655ce7a735"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 16,
+        "character": 108,
+        "glyphIndex": 79,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 44,
+        "blackBoxX": 1,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "72b1400a4f907c30c43a5be4faa6691dc82abecf17933108db9e02b779419950",
+        "nativeOutlineBase64": "LAAAABgAAAAAFAIAAAAAAAEAAwAA4AAAAAAAAADgAAAAUAkAABQCAABQCQA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 17,
+      "glyphId": 82,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-17.rgba.gz",
+      "rgbaSha256": "d80089047a2f2e5c9b599a897ba048f0adc3f7a1c2f2fc57f8b27bf5dcf34792",
+      "originalPNG": {
+        "name": "glyph-081-SingleBitPerPixel-17.png",
+        "bytes": 407,
+        "sha256": "5ecf93c26dc273cf4059b3b62d0ce23a679fa90b22c7096c0608b5270d817cf3"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 17,
+        "character": 111,
+        "glyphIndex": 82,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 256,
+        "blackBoxX": 7,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "bf0db4e0dbd1b9a527db5737afc61b4dca313d9869cd58b36aa7a2cbbc844516",
+        "nativeOutlineBase64": "gAAAABgAAAAAnAMAAOQGAAIAAwAADAUAAOQGAADEBgAADAUAAMQGAABcAwACAAMAAMQGAACwAQAADAUAANj//wCcAwAA2P//AgADAAAsAgAA2P//AHQAAACwAQAAdAAAAFwDAAIAAwAAdAAAAAwFAAAsAgAA5AYAAJwDAADkBgCAAAAAGAAAAACcAwAAyAAAAgADAAB4BAAAyAAAAIgFAAAUAgAAiAUAAFwDAAIAAwAAiAUAAKgEAAB4BAAA9AUAAJwDAAD0BQACAAMAAMACAAD0BQAAsAEAAKgEAACwAQAAXAMAAgADAACwAQAAFAIAAMACAADIAAAAnAMAAMgAAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 18,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-18.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-082-SingleBitPerPixel-18.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 18,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 19,
+      "glyphId": 58,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-19.rgba.gz",
+      "rgbaSha256": "a843c72172a02ba3cca6cae1391023f44a01c8c2f1df123862fa4bab775bd9a5",
+      "originalPNG": {
+        "name": "glyph-083-SingleBitPerPixel-19.png",
+        "bytes": 436,
+        "sha256": "1fb8535eab7d08b9bb446840729e6b8fb305d66a12d2a3a690fae7602e75071b"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 19,
+        "character": 87,
+        "glyphIndex": 58,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 116,
+        "blackBoxX": 12,
+        "blackBoxY": 9,
+        "originX": 0,
+        "originY": 9,
+        "cellIncX": 13,
+        "cellIncY": 0,
+        "sha256": "0501e085b4bb2a77ebb4397877f83665afa5632298c0b5ac1dd9bff03d67d695",
+        "nativeOutlineBase64": "dAAAABgAAAAAJAwAAFAJAAEADAAAkAkAAAAAAABkCAAAAAAAACgGAAAYCAAA6AMAAAAAAAC8AgAAAAAAACgAAABQCQAAdAEAAFAJAABQAwAAvAEAAGgFAABQCQAA5AYAAFAJAAD8CAAAvAEAANgKAABQCQA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 20,
+      "glyphId": 76,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-20.rgba.gz",
+      "rgbaSha256": "70abaa91558b64cd47542dbfe2429c269b2b7c622f31f2a98e677a3675f605e1",
+      "originalPNG": {
+        "name": "glyph-084-SingleBitPerPixel-20.png",
+        "bytes": 387,
+        "sha256": "15302f5fa06b588e37ef37d890fcb24e9693e9ea1ce66e3f5ac42139a7a71d84"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 20,
+        "character": 105,
+        "glyphIndex": 76,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 88,
+        "blackBoxX": 1,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "43fdffe3dd583bbd7df5ed9244a7aa3ad19d0078f325f606640b98d5b5f62972",
+        "nativeOutlineBase64": "LAAAABgAAAAAFAIAAAAAAAEAAwAA4AAAAAAAAADgAAAAvAYAABQCAAC8BgAsAAAAGAAAAAAUAgAABAgAAQADAADgAAAABAgAAOAAAABQCQAAFAIAAFAJAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 21,
+      "glyphId": 81,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-21.rgba.gz",
+      "rgbaSha256": "b9901b2b51dd3a428c9eff880df3219dca353cf500f5731481f70e065bf7dfce",
+      "originalPNG": {
+        "name": "glyph-085-SingleBitPerPixel-21.png",
+        "bytes": 405,
+        "sha256": "d0316f8bc8f387cbf8a4d3843ebd9f557a1eea98208accd1d3ffc87470e94d60"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 21,
+        "character": 110,
+        "glyphIndex": 81,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 168,
+        "blackBoxX": 5,
+        "blackBoxY": 7,
+        "originX": 1,
+        "originY": 7,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "0c82cd3abe883a4c33455cd520539f307745ec17933ad37d6b8b6cfb04eb7923",
+        "nativeOutlineBase64": "qAAAABgAAAAAFAIAAOAFAAIAAgAA/AIAAOQGAAAYBAAA5AYAAgACAABgBgAA5AYAAGAGAABoBAABAAMAAGAGAAAAAAAALAUAAAAAAAAsBQAAXAQAAgADAAAsBQAAMAUAAJQEAADoBQAA6AMAAOgFAAIAAgAAAAMAAOgFAAAUAgAA1AQAAQAEAAAUAgAAAAAAAOAAAAAAAAAA4AAAALwGAAAUAgAAvAYA"
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 22,
+      "glyphId": 71,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-22.rgba.gz",
+      "rgbaSha256": "348df52b0d68a436cfd5a461379030f12337145a780718cc03cf627f280fc080",
+      "originalPNG": {
+        "name": "glyph-086-SingleBitPerPixel-22.png",
+        "bytes": 415,
+        "sha256": "ca59631869cbb2acdb9fa9b27b4294249542f49b9c28bcfa5ba1af02b033d33e"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 22,
+        "character": 100,
+        "glyphIndex": 71,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 272,
+        "blackBoxX": 6,
+        "blackBoxY": 9,
+        "originX": 0,
+        "originY": 9,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "9209f439420f236ac788d0ada8c8be292715493b05af5fb4f56ee985532b8b8b",
+        "nativeOutlineBase64": "fAAAABgAAAAAJAUAAPABAAEAAQAAJAUAACQFAAIAAgAAYAQAAPQFAABgAwAA9AUAAgADAACcAgAA9AUAALABAACgBAAAsAEAAFADAAIAAwAAsAEAABACAACQAgAAyAAAAFQDAADIAAACAAIAAFQEAADIAAAAJAUAAPABAJQAAAAYAAAAACQFAADQAAACAAIAAFgEAADY//8AOAMAANj//wIAAwAA6AEAANj//wB0AAAAuAEAAHQAAABQAwACAAMAAHQAAAD4BAAAFAIAAOQGAABMAwAA5AYAAgACAABkBAAA5AYAACQFAAA4BgABAAQAACQFAABQCQAAWAYAAFAJAABYBgAAAAAAACQFAAAAAAA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 23,
+      "glyphId": 82,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-23.rgba.gz",
+      "rgbaSha256": "d80089047a2f2e5c9b599a897ba048f0adc3f7a1c2f2fc57f8b27bf5dcf34792",
+      "originalPNG": {
+        "name": "glyph-087-SingleBitPerPixel-23.png",
+        "bytes": 407,
+        "sha256": "5ecf93c26dc273cf4059b3b62d0ce23a679fa90b22c7096c0608b5270d817cf3"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 23,
+        "character": 111,
+        "glyphIndex": 82,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 256,
+        "blackBoxX": 7,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "bf0db4e0dbd1b9a527db5737afc61b4dca313d9869cd58b36aa7a2cbbc844516",
+        "nativeOutlineBase64": "gAAAABgAAAAAnAMAAOQGAAIAAwAADAUAAOQGAADEBgAADAUAAMQGAABcAwACAAMAAMQGAACwAQAADAUAANj//wCcAwAA2P//AgADAAAsAgAA2P//AHQAAACwAQAAdAAAAFwDAAIAAwAAdAAAAAwFAAAsAgAA5AYAAJwDAADkBgCAAAAAGAAAAACcAwAAyAAAAgADAAB4BAAAyAAAAIgFAAAUAgAAiAUAAFwDAAIAAwAAiAUAAKgEAAB4BAAA9AUAAJwDAAD0BQACAAMAAMACAAD0BQAAsAEAAKgEAACwAQAAXAMAAgADAACwAQAAFAIAAMACAADIAAAAnAMAAMgAAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 24,
+      "glyphId": 90,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-24.rgba.gz",
+      "rgbaSha256": "0a8f9a029c3a60e594c364875b489aaf0137b014d684c47fa8bf47b1d6dc999b",
+      "originalPNG": {
+        "name": "glyph-088-SingleBitPerPixel-24.png",
+        "bytes": 414,
+        "sha256": "082f2d981ba4f2d0a2a277d70f23f6a94c959f080eed4c02b3dabae7322220eb"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 24,
+        "character": 119,
+        "glyphIndex": 90,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 116,
+        "blackBoxX": 9,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 9,
+        "cellIncY": 0,
+        "sha256": "ff5c220054c0519756b61c54d3a7c32e49c200a342e7351a9b8fc674506536db",
+        "nativeOutlineBase64": "dAAAABgAAAAAUAkAALwGAAEADAAATAcAAAAAAAAoBgAAAAAAALAEAAD0BAAAPAMAAAAAAAAYAgAAAAAAABAAAAC8BgAAZAEAALwGAACgAgAAmAEAACQEAAC8BgAAPAUAALwGAADEBgAAmAEAAAAIAAC8BgA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 25,
+      "glyphId": 86,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-25.rgba.gz",
+      "rgbaSha256": "9b2b72976f8597ed8f07de7b8b63a68dc7cede45f6801eab00db1fd5545e4706",
+      "originalPNG": {
+        "name": "glyph-089-SingleBitPerPixel-25.png",
+        "bytes": 395,
+        "sha256": "059fc9b115e5c02ea0bd5a5056015d20bfd3a7a568b47633127edfa4deeefb4d"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 25,
+        "character": 115,
+        "glyphIndex": 86,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 320,
+        "blackBoxX": 6,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "1afac8bc61c9cc4dfa93c505d10ee4a632997da2b2be8061ab7eec570555b3f8",
+        "nativeOutlineBase64": "QAEAABgAAAAASAMAANj//wIAAgAAiAAAANj//wBoAAAABAIAAQABAACYAQAABAIAAgACAACcAQAAyAAAAEgDAADIAAACAAMAAAQEAADIAAAAzAQAAGQBAADMBAAA3AEAAgAFAADMBAAAUAIAAAgEAACwAgAAqAEAAEgDAACQAAAACAQAAJAAAAD0BAACAAMAAJAAAADMBQAA7AEAAOQGAAAQAwAA5AYAAgACAAC4BQAA5AYAAMQFAAAABQABAAEAAJQEAAAABQACAAIAAIQEAAD0BQAAKAMAAPQFAAIAAwAAjAIAAPQFAADAAQAAgAUAAMABAAAQBQACAAUAAMABAACsBAAAXAIAAFAEAADQBAAAuAMAAAAGAADwAgAAAAYAAPgBAAIAAwAAAAYAAAwBAACIBAAA2P//AEgDAADY//8="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 26,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-26.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-090-SingleBitPerPixel-26.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 26,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 27,
+      "glyphId": 41,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-27.rgba.gz",
+      "rgbaSha256": "587d792ab1b4ab459a21f5134d6775086b0c8c647e26351d26d5d70b68ae2969",
+      "originalPNG": {
+        "name": "glyph-091-SingleBitPerPixel-27.png",
+        "bytes": 396,
+        "sha256": "9de3ebed499e490376e6bc26230b2cada6f457a39fcb54450dae686553b6d345"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 27,
+        "character": 70,
+        "glyphIndex": 41,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 92,
+        "blackBoxX": 6,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "0f350f59e653fe92292d66615800a9d765ed6716dc5e24f173c7ab04404c7c3f",
+        "nativeOutlineBase64": "XAAAABgAAAAAUAcAADQIAAEACQAARAIAADQIAABEAgAAUAUAAKQGAABQBQAApAYAADgEAABEAgAAOAQAAEQCAAAAAAAADAEAAAAAAAAMAQAAUAkAAFAHAABQCQA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 28,
+      "glyphId": 82,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-28.rgba.gz",
+      "rgbaSha256": "d80089047a2f2e5c9b599a897ba048f0adc3f7a1c2f2fc57f8b27bf5dcf34792",
+      "originalPNG": {
+        "name": "glyph-092-SingleBitPerPixel-28.png",
+        "bytes": 407,
+        "sha256": "5ecf93c26dc273cf4059b3b62d0ce23a679fa90b22c7096c0608b5270d817cf3"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 28,
+        "character": 111,
+        "glyphIndex": 82,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 256,
+        "blackBoxX": 7,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "bf0db4e0dbd1b9a527db5737afc61b4dca313d9869cd58b36aa7a2cbbc844516",
+        "nativeOutlineBase64": "gAAAABgAAAAAnAMAAOQGAAIAAwAADAUAAOQGAADEBgAADAUAAMQGAABcAwACAAMAAMQGAACwAQAADAUAANj//wCcAwAA2P//AgADAAAsAgAA2P//AHQAAACwAQAAdAAAAFwDAAIAAwAAdAAAAAwFAAAsAgAA5AYAAJwDAADkBgCAAAAAGAAAAACcAwAAyAAAAgADAAB4BAAAyAAAAIgFAAAUAgAAiAUAAFwDAAIAAwAAiAUAAKgEAAB4BAAA9AUAAJwDAAD0BQACAAMAAMACAAD0BQAAsAEAAKgEAACwAQAAXAMAAgADAACwAQAAFAIAAMACAADIAAAAnAMAAMgAAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 29,
+      "glyphId": 85,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-29.rgba.gz",
+      "rgbaSha256": "a8f65229643e7a25ee8385b94568b44c07d9bfc34bce5cff49c8a83eba47577a",
+      "originalPNG": {
+        "name": "glyph-093-SingleBitPerPixel-29.png",
+        "bytes": 391,
+        "sha256": "fb0e7f16c8cd8a333400e5b5164451b9d902856fdd005fab6ac0d9473fe22da2"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 29,
+        "character": 114,
+        "glyphIndex": 85,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 140,
+        "blackBoxX": 3,
+        "blackBoxY": 7,
+        "originX": 1,
+        "originY": 7,
+        "cellIncX": 4,
+        "cellIncY": 0,
+        "sha256": "f530aeb592610252284bf11f613141edcb3c7453170c29d101a12d76a1939e05",
+        "nativeOutlineBase64": "jAAAABgAAAAAYAQAAKQFAAIAAgAAIAQAALgFAACoAwAAuAUAAgACAAC8AgAAuAUAABQCAADEBAABAAUAABQCAAAAAAAA4AAAAAAAAADgAAAAvAYAABQCAAC8BgAAFAIAAMwFAAIAAgAA2AIAAOQGAADUAwAA5AYAAgACAAAYBAAA5AYAAGAEAADYBgA="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 30,
+      "glyphId": 80,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-30.rgba.gz",
+      "rgbaSha256": "d27ae62ee4cffc7b6696c572aae6e9915716020039e6e1b58bbf93fcb2eb045c",
+      "originalPNG": {
+        "name": "glyph-094-SingleBitPerPixel-30.png",
+        "bytes": 411,
+        "sha256": "90d960e933f32308f0a8172e67f3e7faea90944b37b26a14c357102ade83ce5b"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 30,
+        "character": 109,
+        "glyphIndex": 80,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 292,
+        "blackBoxX": 9,
+        "blackBoxY": 7,
+        "originX": 1,
+        "originY": 7,
+        "cellIncX": 11,
+        "cellIncY": 0,
+        "sha256": "35f9312f11dbc6ffbc94386e7efdfa8648370c0ae8572138fe713ba29dbe1c64",
+        "nativeOutlineBase64": "JAEAABgAAAAA/AkAAAAAAAEAAgAAyAgAAAAAAADICAAAXAQAAgADAADICAAAMAUAAEwIAADoBQAAvAcAAOgFAAIAAgAA4AYAAOgFAAAIBgAA1AQAAQADAAAIBgAAAAAAANgEAAAAAAAA2AQAAFwEAAIAAwAA2AQAADAFAABcBAAA6AUAAMgDAADoBQACAAIAAOgCAADoBQAAFAIAANQEAAEABQAAFAIAAAAAAADgAAAAAAAAAOAAAAC8BgAAFAIAALwGAAAUAgAA4AUAAgACAADwAgAA5AYAAPgDAADkBgACAAIAAHQFAADkBgAA3AUAAKwFAAIAAwAAiAYAAHgGAAB4BwAA5AYAAOwHAADkBgACAAIAAPwJAADkBgAA/AkAAGgEAA=="
+      }
+    },
+    {
+      "font": 0,
+      "sourceIndex": 31,
+      "glyphId": 86,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "0-31.rgba.gz",
+      "rgbaSha256": "9b2b72976f8597ed8f07de7b8b63a68dc7cede45f6801eab00db1fd5545e4706",
+      "originalPNG": {
+        "name": "glyph-095-SingleBitPerPixel-31.png",
+        "bytes": 395,
+        "sha256": "059fc9b115e5c02ea0bd5a5056015d20bfd3a7a568b47633127edfa4deeefb4d"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 31,
+        "character": 115,
+        "glyphIndex": 86,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 320,
+        "blackBoxX": 6,
+        "blackBoxY": 7,
+        "originX": 0,
+        "originY": 7,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "1afac8bc61c9cc4dfa93c505d10ee4a632997da2b2be8061ab7eec570555b3f8",
+        "nativeOutlineBase64": "QAEAABgAAAAASAMAANj//wIAAgAAiAAAANj//wBoAAAABAIAAQABAACYAQAABAIAAgACAACcAQAAyAAAAEgDAADIAAACAAMAAAQEAADIAAAAzAQAAGQBAADMBAAA3AEAAgAFAADMBAAAUAIAAAgEAACwAgAAqAEAAEgDAACQAAAACAQAAJAAAAD0BAACAAMAAJAAAADMBQAA7AEAAOQGAAAQAwAA5AYAAgACAAC4BQAA5AYAAMQFAAAABQABAAEAAJQEAAAABQACAAIAAIQEAAD0BQAAKAMAAPQFAAIAAwAAjAIAAPQFAADAAQAAgAUAAMABAAAQBQACAAUAAMABAACsBAAAXAIAAFAEAADQBAAAuAMAAAAGAADwAgAAAAYAAPgBAAIAAwAAAAYAAAwBAACIBAAA2P//AEgDAADY//8="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 0,
+      "glyphId": 49,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-00.rgba.gz",
+      "rgbaSha256": "eea9d4025f2f4978e64885815e2a1fa94179e5412b4eac9f6d96d482c4623894",
+      "originalPNG": {
+        "name": "glyph-256-SingleBitPerPixel-0.png",
+        "bytes": 420,
+        "sha256": "b182c8849b84abb6803f1e70b1f77ed6e1f99599c757585144f9c5f2c51f4842"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 0,
+        "character": 78,
+        "glyphIndex": 49,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 204,
+        "blackBoxX": 7,
+        "blackBoxY": 8,
+        "originX": 1,
+        "originY": 8,
+        "cellIncX": 9,
+        "cellIncY": 0,
+        "sha256": "8f8a23458af820dad1c6f33b3f513ac800b53ef6f09e8d6a43cf7a6fb08ca252",
+        "nativeOutlineBase64": "zAAAABgAAAAA4AcAAAAAAAEAAgAArAYAAAAAAABYAgAAtAYAAgACAAAwAgAA9AYAABQCAAA4BwABAAEAAAwCAAA4BwACAAIAABgCAAD0BgAAGAIAABQGAAEABQAAGAIAAAAAAAAcAQAAAAAAABwBAABoCAAAYAIAAGgIAACYBgAA0AEAAgACAADYBgAAaAEAAOwGAABAAQABAAEAAPQGAABAAQACAAIAAOQGAACcAQAA5AYAAHwCAAEAAgAA5AYAAGgIAADgBwAAaAgA"
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 1,
+      "glyphId": 68,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-01.rgba.gz",
+      "rgbaSha256": "de20b5c0b970726b3f8fef5d28e3f23f998689814eeacb777225164a42ab3278",
+      "originalPNG": {
+        "name": "glyph-257-SingleBitPerPixel-1.png",
+        "bytes": 387,
+        "sha256": "8b5616d7711a270d1a890da682f9916d6a5dbdbd6ffee32c879529796cfabd2a"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 1,
+        "character": 97,
+        "glyphIndex": 68,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 328,
+        "blackBoxX": 4,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "8b7b275176c97e6fb01e32c444aadcfec3f840fc6a632d48cb40f21b9875302c",
+        "nativeOutlineBase64": "2AAAABgAAAAARAUAAAAAAAEAAwAAUAQAAAAAAABQBAAA8AAAAEgEAADwAAACAAIAAKgDAADc//8AcAIAANz//wIAAwAAjAEAANz//wCIAAAA0AAAAIgAAACYAQACAAIAAIgAAABIAwAAhAIAAIwDAAEAAQAAUAQAAMwDAAIAAgAAUAQAAFQFAAAUAwAAVAUAAgACAAD8AQAAVAUAABwBAACYBAABAAEAABwBAACUBQACAAIAAAACAAAkBgAAKAMAACQGAAIAAgAARAUAACQGAABEBQAA6AMAcAAAABgAAAAAUAQAAAgDAAEAAQAA3AIAANgCAAIAAwAAMAIAAMACAACEAQAARAIAAIQBAACsAQACAAMAAIQBAAA4AQAAJAIAAKwAAACoAgAArAAAAgADAABgAwAArAAAAFAEAACsAQAAUAQAAHACAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 2,
+      "glyphId": 80,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-02.rgba.gz",
+      "rgbaSha256": "97123633161af4cac0f104cd9c055e0e293fafb4c123dd33d22d8b1ce5ee9d43",
+      "originalPNG": {
+        "name": "glyph-258-SingleBitPerPixel-2.png",
+        "bytes": 401,
+        "sha256": "fa0d80270b6d8fc8b5a771662d553d8bce102a5db37e0abff1982cd0ed328063"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 2,
+        "character": 109,
+        "glyphIndex": 80,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 308,
+        "blackBoxX": 9,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 11,
+        "cellIncY": 0,
+        "sha256": "ec8fc3dcf83d9983ee8b6df23ac35755bac6c073972e486e51474199d204b972",
+        "nativeOutlineBase64": "NAEAABgAAAAAgAkAAAAAAAEAAgAAiAgAAAAAAACICAAAdAMAAgADAACICAAAcAQAAOwHAABUBQAAMAcAAFQFAAIAAwAAlAYAAFQFAAC4BQAANAQAALgFAABsAwABAAMAALgFAAAAAAAAwAQAAAAAAADABAAAkAMAAgACAADABAAAVAUAAGQDAABUBQACAAMAAMACAABUBQAA8AEAAEQEAADwAQAAbAMAAQAGAADwAQAAAAAAAPgAAAAAAAAA+AAAAAAGAADwAQAAAAYAAPABAAAMBQAA9AEAAAwFAAIAAgAAmAIAACQGAADUAwAAJAYAAgADAABwBAAAJAYAAFgFAAB0BQAAhAUAAOgEAAIAAgAAMAYAACQGAACEBwAAJAYAAgACAACACQAAJAYAAIAJAAC0AwA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 3,
+      "glyphId": 72,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-03.rgba.gz",
+      "rgbaSha256": "ee5c9d66627ea4cc351afaac8269a31e6d6e1f48e18b625f2c6fe4d226d4ec2b",
+      "originalPNG": {
+        "name": "glyph-259-SingleBitPerPixel-3.png",
+        "bytes": 391,
+        "sha256": "a47e0176c692cf852cb8182ddcf839840313263d3736a959cd5bd4e2b90cbc11"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 3,
+        "character": 101,
+        "glyphIndex": 72,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 264,
+        "blackBoxX": 5,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "0526698dcdf1a1e3f28a17bad6ef0bc6eb65440b1a50a365b106ea40d80d61c6",
+        "nativeOutlineBase64": "wAAAABgAAAAAzAUAAMQCAAEAAQAAkAEAAMQCAAIAAwAAlAEAAMQBAACcAgAArAAAAIQDAACsAAACAAIAAIgEAACsAAAAYAUAAFgBAAEAAQAAYAUAAHAAAAIAAgAAmAQAANz//wBIAwAA3P//AgADAAAEAgAA3P//AJAAAACAAQAAkAAAAPwCAAIAAwAAkAAAAGAEAAAoAgAAJAYAAFQDAAAkBgACAAMAAIAEAAAkBgAAzAUAAKAEAADMBQAARAMASAAAABgAAAAA0AQAAJQDAAIAAwAA0AQAAGgEAAAEBAAAVAUAAFADAABUBQACAAMAAKACAABUBQAAsAEAAFwEAACUAQAAlAMA"
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 4,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-04.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-260-SingleBitPerPixel-4.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 4,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 5,
+      "glyphId": 36,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-05.rgba.gz",
+      "rgbaSha256": "04348865fcbe4e513ea8aeb6b64e1c7f4127ec1e6fe3f7c6bf0e8d813c5d4894",
+      "originalPNG": {
+        "name": "glyph-261-SingleBitPerPixel-5.png",
+        "bytes": 410,
+        "sha256": "fa53b4d41c9b376ec71608935afa45e253a002b72d130f0ec983853a5c3ebaa1"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 5,
+        "character": 65,
+        "glyphIndex": 36,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 168,
+        "blackBoxX": 8,
+        "blackBoxY": 8,
+        "originX": 0,
+        "originY": 8,
+        "cellIncX": 8,
+        "cellIncY": 0,
+        "sha256": "e942874a982b07ed5712e654228751a62d9e30fc5599ffe011249b65fd5de19c",
+        "nativeOutlineBase64": "TAAAABgAAAAAnAcAAAAAAAEABwAAhAYAAAAAAACgBQAAXAIAABACAABcAgAAOAEAAAAAAAAgAAAAAAAAAFwDAABoCAAAYAQAAGgIAFwAAAAYAAAAAEwFAAA8AwABAAEAAPwDAADUBgACAAIAAOwDAAAABwAA3AMAAGQHAAEAAQAA1AMAAGQHAAIAAgAAyAMAAAgHAAC0AwAA1AYAAQABAABkAgAAPAMA"
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 6,
+      "glyphId": 74,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-06.rgba.gz",
+      "rgbaSha256": "c3f4e1c0590820e8f7869da3f613f1fc025b46ae021ea7a63d4e29fb3a56a1ee",
+      "originalPNG": {
+        "name": "glyph-262-SingleBitPerPixel-6.png",
+        "bytes": 407,
+        "sha256": "6ae580664c73e095d43f40c4c9c080481a6182f3371ffa796464bc75e132bda8"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 6,
+        "character": 103,
+        "glyphIndex": 74,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 392,
+        "blackBoxX": 5,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "0ea9871036e617f5dcede26b6090b273a6c7652ba90874f083e748a31c9e984c",
+        "nativeOutlineBase64": "/AAAABgAAAAAGAYAAHwAAAIAAgAAGAYAACz9/wDwAgAALP3/AgACAADQAQAALP3/APwAAACY/f8BAAEAAPwAAACQ/v8CAAIAAAACAAAA/v8A7AIAAAD+/wIAAgAAJAUAAAD+/wAkBQAAXAAAAQACAAAkBQAABAEAABwFAAAEAQACAAIAAGwEAADc//8ADAMAANz//wIAAwAA7AEAANz//wCQAAAAdAEAAJAAAADQAgACAAMAAJAAAABYBAAACAIAACQGAABQAwAAJAYAAgACAACIBAAAJAYAABwFAAAsBQABAAMAACQFAAAsBQAAJAUAAAAGAAAYBgAAAAYAjAAAABgAAAAAJAUAALgCAAEAAQAAJAUAAJgDAAIAAwAAJAUAAFAEAAAsBAAAVAUAAHQDAABUBQACAAMAAJACAABUBQAAjAEAAAgEAACMAQAA4AIAAgADAACMAQAA4AEAAIQCAACsAAAAUAMAAKwAAAIAAwAAIAQAAKwAAAAkBQAA0AEAACQFAAC4AgA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 7,
+      "glyphId": 72,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-07.rgba.gz",
+      "rgbaSha256": "ee5c9d66627ea4cc351afaac8269a31e6d6e1f48e18b625f2c6fe4d226d4ec2b",
+      "originalPNG": {
+        "name": "glyph-263-SingleBitPerPixel-7.png",
+        "bytes": 391,
+        "sha256": "a47e0176c692cf852cb8182ddcf839840313263d3736a959cd5bd4e2b90cbc11"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 7,
+        "character": 101,
+        "glyphIndex": 72,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 264,
+        "blackBoxX": 5,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "0526698dcdf1a1e3f28a17bad6ef0bc6eb65440b1a50a365b106ea40d80d61c6",
+        "nativeOutlineBase64": "wAAAABgAAAAAzAUAAMQCAAEAAQAAkAEAAMQCAAIAAwAAlAEAAMQBAACcAgAArAAAAIQDAACsAAACAAIAAIgEAACsAAAAYAUAAFgBAAEAAQAAYAUAAHAAAAIAAgAAmAQAANz//wBIAwAA3P//AgADAAAEAgAA3P//AJAAAACAAQAAkAAAAPwCAAIAAwAAkAAAAGAEAAAoAgAAJAYAAFQDAAAkBgACAAMAAIAEAAAkBgAAzAUAAKAEAADMBQAARAMASAAAABgAAAAA0AQAAJQDAAIAAwAA0AQAAGgEAAAEBAAAVAUAAFADAABUBQACAAMAAKACAABUBQAAsAEAAFwEAACUAQAAlAMA"
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 8,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-08.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-264-SingleBitPerPixel-8.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 8,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 9,
+      "glyphId": 20,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-09.rgba.gz",
+      "rgbaSha256": "38f464078be0f362a623eeb67604917ec71265f64c53eabae28702bc07a8f514",
+      "originalPNG": {
+        "name": "glyph-265-SingleBitPerPixel-9.png",
+        "bytes": 389,
+        "sha256": "9f30d5a9014799931f7090d816ba3ca9fa672c81d8908f38ae943c6ab6cb8a5b"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 9,
+        "character": 49,
+        "glyphIndex": 20,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 148,
+        "blackBoxX": 3,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "20722b5e748074c957dbdc622388a84a7061d1ac07adfe5e4a8137527c5a43df",
+        "nativeOutlineBase64": "lAAAABgAAAAAQAQAAAAAAAEAAgAASAMAAAAAAABIAwAARAcAAgAFAAAsAwAAKAcAAMACAADcBgAANAIAAJQGAACgAQAAVAYAAFgBAABEBgABAAEAAFgBAAA8BwACAAUAAKgBAABUBwAAXAIAAKAHAAAMAwAAAAgAAKgDAABkCAAA4AMAAJgIAAEAAQAAQAQAAJgIAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 10,
+      "glyphId": 21,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-10.rgba.gz",
+      "rgbaSha256": "cb048745131d3aef07167656699ec6d63a64e1158483e4065de99b6221d4b43d",
+      "originalPNG": {
+        "name": "glyph-266-SingleBitPerPixel-10.png",
+        "bytes": 400,
+        "sha256": "f313896e1582ad9308328314c323b5b88eb7853f25f212ed393ad9d3b3ab9392"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 10,
+        "character": 50,
+        "glyphIndex": 21,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 400,
+        "blackBoxX": 5,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "9bde6e46f9fb6bcb76d33084fd74c66bf9e9335b904cb1277d52e4771008a3a6",
+        "nativeOutlineBase64": "kAEAABgAAAAAiAQAADQGAAIABQAAiAQAAJgGAABIBAAAKAcAAOADAACMBwAAUAMAALwHAAD8AgAAvAcAAgAFAAC0AgAAvAcAACgCAACUBwAApAEAAFAHAAAsAQAA8AYAAPgAAAC0BgABAAEAAPgAAAC8BwACAAMAAGABAAAgCAAAYAIAAIwIAAAYAwAAjAgAAgAFAACcAwAAjAgAAHwEAABACAAAJAUAAKwHAACABQAA1AYAAIAFAABIBgACAAUAAIAFAADIBQAASAUAAPgEAADQBAAARAQAABwEAACcAwAApAMAAEQDAAIABQAADAMAANgCAABIAgAAQAIAANQBAAC4AQAApAEAADQBAACkAQAA3AAAAQAEAADUBQAA3AAAANQFAAAAAAAApAAAAAAAAACkAAAAbAAAAgAFAACkAAAA9AAAAOAAAADIAQAAaAEAAIQCAABIAgAAQAMAAOwCAAC4AwACAAUAAGADAAAMBAAA/AMAAKQEAABcBAAAPAUAAIgEAADcBQAAiAQAADQGAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 11,
+      "glyphId": 22,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-11.rgba.gz",
+      "rgbaSha256": "e6e5bfa3794295affa3a6cf6cdf789a914b0cf23646a8dc2ee05ded96b1e9123",
+      "originalPNG": {
+        "name": "glyph-267-SingleBitPerPixel-11.png",
+        "bytes": 399,
+        "sha256": "a2a85392f3eb351b9aff23d39cce796c20f7105d1c31aa02526f823bdd189272"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 11,
+        "character": 51,
+        "glyphIndex": 22,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 416,
+        "blackBoxX": 5,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "0bbd5a3faf62e9f646ef9dd379e372afa275632267d8510d3406f961f982d465",
+        "nativeOutlineBase64": "oAEAABgAAAAAlAUAAGACAAIABQAAlAUAANABAAAoBQAA4AAAAGAEAAA4AAAASAMAANz//wCgAgAA3P//AgACAABwAQAA3P//ALgAAABQAAABAAEAALgAAABYAQACAAIAAJQBAACsAAAArAIAAKwAAAIABQAAHAMAAKwAAADQAwAA5AAAAFQEAABQAQAAmAQAAOwBAACYBAAATAIAAgACAACYBAAA8AMAAEACAADwAwABAAMAAJABAADwAwAAkAEAAMAEAAA4AgAAwAQAAgACAABMBAAAwAQAAEwEAABMBgACAAIAAEwEAAC8BwAAuAIAALwHAAIAAgAA1AEAALwHAAAMAQAAIAcAAQABAAAMAQAAEAgAAgACAADYAQAAjAgAAPQCAACMCAACAAUAAHwDAACMCAAAWAQAAEAIAAD0BAAAuAcAAEgFAAD8BgAASAUAAIwGAAIAAgAASAUAAOAEAACcAwAAaAQAAQABAACcAwAAZAQAAgAFAAAIBAAAWAQAAMQEAAAEBAAASAUAAIADAACUBQAAzAIAAJQFAABgAgA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 12,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-12.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-268-SingleBitPerPixel-12.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 12,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 13,
+      "glyphId": 43,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-13.rgba.gz",
+      "rgbaSha256": "e430f129ad732e9761a2f0b2f476ede335efd925e7b3212c3fa1d1c2f252bb11",
+      "originalPNG": {
+        "name": "glyph-269-SingleBitPerPixel-13.png",
+        "bytes": 409,
+        "sha256": "d39bc81e982dcb523b6db3d66d2c678fb67f38e49aac12d996ef662028199942"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 13,
+        "character": 72,
+        "glyphIndex": 43,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 108,
+        "blackBoxX": 6,
+        "blackBoxY": 8,
+        "originX": 1,
+        "originY": 8,
+        "cellIncX": 9,
+        "cellIncY": 0,
+        "sha256": "9cf093a36d1f41a577bcd9e4e4ff6bf8f3c0e9e706eab7d41e154350f9f9d2cc",
+        "nativeOutlineBase64": "bAAAABgAAAAAbAcAAAAAAAEACwAAcAYAAAAAAABwBgAA1AMAABgCAADUAwAAGAIAAAAAAAAcAQAAAAAAABwBAABoCAAAGAIAAGgIAAAYAgAAuAQAAHAGAAC4BAAAcAYAAGgIAABsBwAAaAgA"
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 14,
+      "glyphId": 72,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-14.rgba.gz",
+      "rgbaSha256": "ee5c9d66627ea4cc351afaac8269a31e6d6e1f48e18b625f2c6fe4d226d4ec2b",
+      "originalPNG": {
+        "name": "glyph-270-SingleBitPerPixel-14.png",
+        "bytes": 391,
+        "sha256": "a47e0176c692cf852cb8182ddcf839840313263d3736a959cd5bd4e2b90cbc11"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 14,
+        "character": 101,
+        "glyphIndex": 72,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 264,
+        "blackBoxX": 5,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "0526698dcdf1a1e3f28a17bad6ef0bc6eb65440b1a50a365b106ea40d80d61c6",
+        "nativeOutlineBase64": "wAAAABgAAAAAzAUAAMQCAAEAAQAAkAEAAMQCAAIAAwAAlAEAAMQBAACcAgAArAAAAIQDAACsAAACAAIAAIgEAACsAAAAYAUAAFgBAAEAAQAAYAUAAHAAAAIAAgAAmAQAANz//wBIAwAA3P//AgADAAAEAgAA3P//AJAAAACAAQAAkAAAAPwCAAIAAwAAkAAAAGAEAAAoAgAAJAYAAFQDAAAkBgACAAMAAIAEAAAkBgAAzAUAAKAEAADMBQAARAMASAAAABgAAAAA0AQAAJQDAAIAAwAA0AQAAGgEAAAEBAAAVAUAAFADAABUBQACAAMAAKACAABUBQAAsAEAAFwEAACUAQAAlAMA"
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 15,
+      "glyphId": 79,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-15.rgba.gz",
+      "rgbaSha256": "081d2283d94b020215c44ac4464501f24f50060a2a298fb4014122f72840fc8e",
+      "originalPNG": {
+        "name": "glyph-271-SingleBitPerPixel-15.png",
+        "bytes": 388,
+        "sha256": "1bb591fdaa3f78c981198b5ed7d34a5a83a607d7ce19e344ffe191655ce7a735"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 15,
+        "character": 108,
+        "glyphIndex": 79,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 44,
+        "blackBoxX": 1,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "208aa2506cc0e28d9609028187efdc5c67a4cc30d8ac2fa332abe8841913c26a",
+        "nativeOutlineBase64": "LAAAABgAAAAA8AEAAAAAAAEAAwAA+AAAAAAAAAD4AAAA5AgAAPABAADkCAA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 16,
+      "glyphId": 79,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-16.rgba.gz",
+      "rgbaSha256": "081d2283d94b020215c44ac4464501f24f50060a2a298fb4014122f72840fc8e",
+      "originalPNG": {
+        "name": "glyph-272-SingleBitPerPixel-16.png",
+        "bytes": 388,
+        "sha256": "1bb591fdaa3f78c981198b5ed7d34a5a83a607d7ce19e344ffe191655ce7a735"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 16,
+        "character": 108,
+        "glyphIndex": 79,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 44,
+        "blackBoxX": 1,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "208aa2506cc0e28d9609028187efdc5c67a4cc30d8ac2fa332abe8841913c26a",
+        "nativeOutlineBase64": "LAAAABgAAAAA8AEAAAAAAAEAAwAA+AAAAAAAAAD4AAAA5AgAAPABAADkCAA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 17,
+      "glyphId": 82,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-17.rgba.gz",
+      "rgbaSha256": "ccf66bdba68c9ef7f49ea20d331953facf20e2fb0c5b854a5d760323fbffb5d1",
+      "originalPNG": {
+        "name": "glyph-273-SingleBitPerPixel-17.png",
+        "bytes": 393,
+        "sha256": "2f6adda3354c64af24f518c90c793c054e20e1e6b0835fbb5340fedba07f2aa6"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 17,
+        "character": 111,
+        "glyphIndex": 82,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 256,
+        "blackBoxX": 5,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "cdb56f67dbef8f70c0fab0263b0f57e71c01d3771d2a4a1e95c4cb17c5b73668",
+        "nativeOutlineBase64": "gAAAABgAAAAAfAMAANz//wIAAwAAKAIAANz//wCQAAAAjAEAAJAAAADwAgACAAMAAJAAAABwBAAAOAIAACQGAACgAwAAJAYAAgADAAD4BAAAJAYAAHgGAAB8BAAAeAYAAAgDAAIAAwAAeAYAAJgBAADYBAAA3P//AHwDAADc//+AAAAAGAAAAACMAwAAVAUAAgADAACgAgAAVAUAAIwBAAAUBAAAjAEAAPgCAAIAAwAAjAEAAOgBAACkAgAArAAAAIwDAACsAAACAAMAAHwEAACsAAAAfAUAAOABAAB8BQAA/AIAAgADAAB8BQAAHAQAAHwEAABUBQAAjAMAAFQFAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 18,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-18.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-274-SingleBitPerPixel-18.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 18,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 19,
+      "glyphId": 58,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-19.rgba.gz",
+      "rgbaSha256": "3998a48e24884a207be82a3cdabcb46c11dc5faa590a207571a45f5da8874e7c",
+      "originalPNG": {
+        "name": "glyph-275-SingleBitPerPixel-19.png",
+        "bytes": 419,
+        "sha256": "fd8db6b019e6a03d8ebba3408560e0493dd439a216de529857c05654fff7082a"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 19,
+        "character": 87,
+        "glyphIndex": 58,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 284,
+        "blackBoxX": 11,
+        "blackBoxY": 8,
+        "originX": 0,
+        "originY": 8,
+        "cellIncX": 11,
+        "cellIncY": 0,
+        "sha256": "27069bce064b7a04bde4f8f1495eede6834829297c9cbb915042247746ecc298",
+        "nativeOutlineBase64": "HAEAABgAAAAAEAsAAGgIAAEAAwAAsAgAAAAAAACIBwAAAAAAANAFAAAkBgACAAIAALQFAACIBgAArAUAAAAHAAEAAQAAqAUAAAAHAAIAAgAAnAUAAJAGAACABQAAKAYAAQAFAADAAwAAAAAAAJwCAAAAAAAAKAAAAGgIAAA8AQAAaAgAAAgDAAD0AQACAAIAACQDAACMAQAALAMAABwBAAEAAQAAMAMAABwBAAIAAgAAOAMAAGwBAABgAwAA9AEAAQADAAA8BQAAaAgAACwGAABoCAAA9AcAAOgBAAIAAgAADAgAAJQBAAAYCAAAIAEAAQABAAAgCAAAIAEAAgACAAAkCAAAcAEAAEgIAADwAQABAAEAAAAKAABoCAA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 20,
+      "glyphId": 76,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-20.rgba.gz",
+      "rgbaSha256": "266fd2d2697099e49f19ca822d62f6596d8f3b95dc844f928e56a69e4952525e",
+      "originalPNG": {
+        "name": "glyph-276-SingleBitPerPixel-20.png",
+        "bytes": 384,
+        "sha256": "71713dc63d602dc2b6bd822ae3f96ce17112afff5508a8d6f2abed429da306b5"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 20,
+        "character": 105,
+        "glyphIndex": 76,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 172,
+        "blackBoxX": 1,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "6f208675204efb46f0b2c2f4ccc352a96d28f739305b71ed35fc7bb7840f0a95",
+        "nativeOutlineBase64": "gAAAABgAAAAAeAEAAIgHAAIAAwAANAEAAIgHAADYAAAA4AcAANgAAAAkCAACAAMAANgAAABsCAAANAEAAMQIAAB4AQAAxAgAAgADAAC8AQAAxAgAABgCAABsCAAAGAIAACQIAAIAAwAAGAIAAOQHAAC8AQAAiAcAAHgBAACIBwAsAAAAGAAAAADwAQAAAAAAAQADAAD4AAAAAAAAAPgAAAAABgAA8AEAAAAGAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 21,
+      "glyphId": 81,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-21.rgba.gz",
+      "rgbaSha256": "f9a11b370d230596976c095f17c62616d2f8495abe70db0befe56cf54005a82b",
+      "originalPNG": {
+        "name": "glyph-277-SingleBitPerPixel-21.png",
+        "bytes": 393,
+        "sha256": "78244796a74af53f7505bbaefaf9e83717b53b6ee3e2503243c4f594a2fc60e9"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 21,
+        "character": 110,
+        "glyphIndex": 81,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 184,
+        "blackBoxX": 5,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "b25ee9acd8f7d0e38e0ef93f2b710ebbea79ba535977fb90e67a8705df251df9",
+        "nativeOutlineBase64": "uAAAABgAAAAA9AUAAAAAAAEAAgAAAAUAAAAAAAAABQAAbAMAAgACAAAABQAAVAUAAJgDAABUBQACAAMAAOACAABUBQAA8AEAAEAEAADwAQAAbAMAAQAGAADwAQAAAAAAAPgAAAAAAAAA+AAAAAAGAADwAQAAAAYAAPABAAAABQAA9AEAAAAFAAIAAgAApAIAACQGAADsAwAAJAYAAgADAADoBAAAJAYAAPQFAADgBAAA9AUAAKwDAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 22,
+      "glyphId": 71,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-22.rgba.gz",
+      "rgbaSha256": "01206a3fafa419a7d20d5cdb7cc49e8e12a1dec1415cc3df390a8f8b50389fdf",
+      "originalPNG": {
+        "name": "glyph-278-SingleBitPerPixel-22.png",
+        "bytes": 409,
+        "sha256": "4da61af3199aeda3222225683620d1a433b15a63af494a5654e49ea2cf676472"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 22,
+        "character": 100,
+        "glyphIndex": 71,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 308,
+        "blackBoxX": 5,
+        "blackBoxY": 9,
+        "originX": 1,
+        "originY": 9,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "c2719d31d1643fd415a36a84dc2c370feece16682187510ec43acd8510aa6ddd",
+        "nativeOutlineBase64": "qAAAABgAAAAAGAYAAAAAAAEAAwAAJAUAAAAAAAAkBQAABAEAABwFAAAEAQACAAIAAHAEAADc//8ADAMAANz//wIAAwAA7AEAANz//wCQAAAAeAEAAJAAAADcAgACAAMAAJAAAABYBAAAEAIAACQGAABQAwAAJAYAAgACAACMBAAAJAYAABwFAAAsBQABAAMAACQFAAAsBQAAJAUAAOQIAAAYBgAA5AgAjAAAABgAAAAAJAUAALgCAAEAAQAAJAUAAJgDAAIAAwAAJAUAAFQEAAAsBAAAVAUAAHADAABUBQACAAMAAJACAABUBQAAjAEAAAwEAACMAQAA6AIAAgADAACMAQAA4AEAAIQCAACsAAAAVAMAAKwAAAIAAwAAIAQAAKwAAAAkBQAA1AEAACQFAAC4AgA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 23,
+      "glyphId": 82,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-23.rgba.gz",
+      "rgbaSha256": "ccf66bdba68c9ef7f49ea20d331953facf20e2fb0c5b854a5d760323fbffb5d1",
+      "originalPNG": {
+        "name": "glyph-279-SingleBitPerPixel-23.png",
+        "bytes": 393,
+        "sha256": "2f6adda3354c64af24f518c90c793c054e20e1e6b0835fbb5340fedba07f2aa6"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 23,
+        "character": 111,
+        "glyphIndex": 82,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 256,
+        "blackBoxX": 5,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "cdb56f67dbef8f70c0fab0263b0f57e71c01d3771d2a4a1e95c4cb17c5b73668",
+        "nativeOutlineBase64": "gAAAABgAAAAAfAMAANz//wIAAwAAKAIAANz//wCQAAAAjAEAAJAAAADwAgACAAMAAJAAAABwBAAAOAIAACQGAACgAwAAJAYAAgADAAD4BAAAJAYAAHgGAAB8BAAAeAYAAAgDAAIAAwAAeAYAAJgBAADYBAAA3P//AHwDAADc//+AAAAAGAAAAACMAwAAVAUAAgADAACgAgAAVAUAAIwBAAAUBAAAjAEAAPgCAAIAAwAAjAEAAOgBAACkAgAArAAAAIwDAACsAAACAAMAAHwEAACsAAAAfAUAAOABAAB8BQAA/AIAAgADAAB8BQAAHAQAAHwEAABUBQAAjAMAAFQFAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 24,
+      "glyphId": 90,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-24.rgba.gz",
+      "rgbaSha256": "ef723a8418124caf17767ce8d544e94b41946f6479284a55b3f7bc063335e3d0",
+      "originalPNG": {
+        "name": "glyph-280-SingleBitPerPixel-24.png",
+        "bytes": 404,
+        "sha256": "4a001bcc0d15a501f0fc6220bbb5aa740694e870e5ee39d2d11e1a16d0d83bee"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 24,
+        "character": 119,
+        "glyphIndex": 90,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 284,
+        "blackBoxX": 9,
+        "blackBoxY": 6,
+        "originX": 0,
+        "originY": 6,
+        "cellIncX": 9,
+        "cellIncY": 0,
+        "sha256": "a66903a26243911bd7943434047628c77d5698c03278f2605b395a594b3c75cb",
+        "nativeOutlineBase64": "HAEAABgAAAAAiAgAAAAGAAEAAwAAvAYAAAAAAAC8BQAAAAAAAIAEAABMBAACAAIAAHAEAACMBAAAaAQAANwEAAEAAQAAZAQAANwEAAIAAgAAXAQAAKQEAABEBAAAUAQAAQAFAADsAgAAAAAAAPQBAAAAAAAAJAAAAAAGAAAoAQAAAAYAAGQCAAB8AQACAAIAAHQCAABIAQAAeAIAAPQAAAEAAQAAhAIAAPQAAAIAAgAAiAIAADQBAACgAgAAgAEAAQADAAAEBAAAAAYAAOQEAAAABgAAIAYAAHwBAAIAAgAAMAYAAEQBAAA4BgAA8AAAAQABAABEBgAA8AAAAgACAABIBgAALAEAAFwGAAB8AQABAAEAAJQHAAAABgA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 25,
+      "glyphId": 86,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-25.rgba.gz",
+      "rgbaSha256": "95ed0360e0e23b132477eacc264a7f45de5d92c6bd641ba69509105468928194",
+      "originalPNG": {
+        "name": "glyph-281-SingleBitPerPixel-25.png",
+        "bytes": 383,
+        "sha256": "29beae472c1bbf057d6a011f86094f84c301a14fa1b9e3d7f4b0fb467ce22144"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 25,
+        "character": 115,
+        "glyphIndex": 86,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 448,
+        "blackBoxX": 4,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 5,
+        "cellIncY": 0,
+        "sha256": "1c4f63890477b22bae5d56daa73052452c95f9b75481107fa0b66d81eee46911",
+        "nativeOutlineBase64": "wAEAABgAAAAAnAAAADgAAAEAAQAAnAAAAEABAAIAAgAAZAEAAKwAAABYAgAArAAAAgACAACcAwAArAAAAJwDAACEAQACAAUAAJwDAADAAQAAZAMAABgCAAAEAwAAWAIAAIQCAACMAgAAPAIAAKgCAAIABQAA1AEAANACAAA8AQAAJAMAANQAAACMAwAAoAAAABAEAACgAAAAaAQAAgAFAACgAAAA1AQAAAQBAAB8BQAAqAEAAOwFAAB8AgAAJAYAAOwCAAAkBgACAAIAALQDAAAkBgAAUAQAAOAFAAEAAQAAUAQAAOgEAAIAAgAAqAMAAFQFAADMAgAAVAUAAgAFAACEAgAAVAUAABgCAAA0BQAAyAEAAPwEAACcAQAArAQAAJwBAAB8BAACAAUAAJwBAABABAAAyAEAAPADAAAcAgAAsAMAAJQCAACAAwAA4AIAAGADAAIABQAARAMAADgDAADoAwAA6AIAAFgEAACAAgAAmAQAAPgBAACYBAAAnAEAAgAFAACYBAAAKAEAADQEAACAAAAAjAMAABQAAACwAgAA3P//ADgCAADc//8CAAIAAEwBAADc//8AnAAAADgAAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 26,
+      "glyphId": 3,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-26.rgba.gz",
+      "rgbaSha256": "1bffa7ef9c11319de313a60f5ae2cbcc486e5e40ebb3e25f31b550ca8aa916b0",
+      "originalPNG": {
+        "name": "glyph-282-SingleBitPerPixel-26.png",
+        "bytes": 356,
+        "sha256": "a7ab862025d809370bcc923ea696b026fec88c5fae821e788c9f11ce9f00a9b7"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 26,
+        "character": 32,
+        "glyphIndex": 3,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 0,
+        "blackBoxX": 1,
+        "blackBoxY": 1,
+        "originX": 0,
+        "originY": 0,
+        "cellIncX": 3,
+        "cellIncY": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "nativeOutlineBase64": ""
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 27,
+      "glyphId": 41,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-27.rgba.gz",
+      "rgbaSha256": "82ec89d29d440f5706cafe1d3722ed7bac926cd8c0e64d374e5539bdd073ec1d",
+      "originalPNG": {
+        "name": "glyph-283-SingleBitPerPixel-27.png",
+        "bytes": 391,
+        "sha256": "b15e8dcfc83d6255a832787737fb7e831746216c51fe2990cd8a0a9b22414d1b"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 27,
+        "character": 70,
+        "glyphIndex": 41,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 92,
+        "blackBoxX": 4,
+        "blackBoxY": 8,
+        "originX": 1,
+        "originY": 8,
+        "cellIncX": 6,
+        "cellIncY": 0,
+        "sha256": "4795946bd5bb1cc7d8066321ab2e48679cd6e4576f676e5b499c383f20686074",
+        "nativeOutlineBase64": "XAAAABgAAAAAYAUAAIQHAAEACQAAGAIAAIQHAAAYAgAAnAQAACAFAACcBAAAIAUAALgDAAAYAgAAuAMAABgCAAAAAAAAHAEAAAAAAAAcAQAAaAgAAGAFAABoCAA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 28,
+      "glyphId": 82,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-28.rgba.gz",
+      "rgbaSha256": "ccf66bdba68c9ef7f49ea20d331953facf20e2fb0c5b854a5d760323fbffb5d1",
+      "originalPNG": {
+        "name": "glyph-284-SingleBitPerPixel-28.png",
+        "bytes": 393,
+        "sha256": "2f6adda3354c64af24f518c90c793c054e20e1e6b0835fbb5340fedba07f2aa6"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 28,
+        "character": 111,
+        "glyphIndex": 82,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 256,
+        "blackBoxX": 5,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 7,
+        "cellIncY": 0,
+        "sha256": "cdb56f67dbef8f70c0fab0263b0f57e71c01d3771d2a4a1e95c4cb17c5b73668",
+        "nativeOutlineBase64": "gAAAABgAAAAAfAMAANz//wIAAwAAKAIAANz//wCQAAAAjAEAAJAAAADwAgACAAMAAJAAAABwBAAAOAIAACQGAACgAwAAJAYAAgADAAD4BAAAJAYAAHgGAAB8BAAAeAYAAAgDAAIAAwAAeAYAAJgBAADYBAAA3P//AHwDAADc//+AAAAAGAAAAACMAwAAVAUAAgADAACgAgAAVAUAAIwBAAAUBAAAjAEAAPgCAAIAAwAAjAEAAOgBAACkAgAArAAAAIwDAACsAAACAAMAAHwEAACsAAAAfAUAAOABAAB8BQAA/AIAAgADAAB8BQAAHAQAAHwEAABUBQAAjAMAAFQFAA=="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 29,
+      "glyphId": 85,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-29.rgba.gz",
+      "rgbaSha256": "4085db58563d518ca070b6947839a5305f7e3ddf64bf534f992f7bbcaa68e99d",
+      "originalPNG": {
+        "name": "glyph-285-SingleBitPerPixel-29.png",
+        "bytes": 380,
+        "sha256": "7fb2a4fd6e69f4d6e1ec4d4daece4597cc8164a20f0ea55d8b3ce1c7b70180be"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 29,
+        "character": 114,
+        "glyphIndex": 85,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 164,
+        "blackBoxX": 3,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 4,
+        "cellIncY": 0,
+        "sha256": "811ec7cfe64cf94681eadd3e2ffebe5de508cff7fbf5e08ae31a844b3888eb14",
+        "nativeOutlineBase64": "pAAAABgAAAAAHAQAAAgFAAIAAgAA2AMAADgFAABgAwAAOAUAAgADAADEAgAAOAUAAPABAAAQBAAA8AEAABADAAEABgAA8AEAAAAAAAD4AAAAAAAAAPgAAAAABgAA8AEAAAAGAADwAQAAxAQAAPQBAADEBAACAAMAACgCAABkBQAAAAMAABwGAACIAwAAHAYAAgACAADoAwAAHAYAABwEAAAIBgA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 30,
+      "glyphId": 80,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-30.rgba.gz",
+      "rgbaSha256": "97123633161af4cac0f104cd9c055e0e293fafb4c123dd33d22d8b1ce5ee9d43",
+      "originalPNG": {
+        "name": "glyph-286-SingleBitPerPixel-30.png",
+        "bytes": 401,
+        "sha256": "fa0d80270b6d8fc8b5a771662d553d8bce102a5db37e0abff1982cd0ed328063"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 30,
+        "character": 109,
+        "glyphIndex": 80,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 308,
+        "blackBoxX": 9,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 11,
+        "cellIncY": 0,
+        "sha256": "ec8fc3dcf83d9983ee8b6df23ac35755bac6c073972e486e51474199d204b972",
+        "nativeOutlineBase64": "NAEAABgAAAAAgAkAAAAAAAEAAgAAiAgAAAAAAACICAAAdAMAAgADAACICAAAcAQAAOwHAABUBQAAMAcAAFQFAAIAAwAAlAYAAFQFAAC4BQAANAQAALgFAABsAwABAAMAALgFAAAAAAAAwAQAAAAAAADABAAAkAMAAgACAADABAAAVAUAAGQDAABUBQACAAMAAMACAABUBQAA8AEAAEQEAADwAQAAbAMAAQAGAADwAQAAAAAAAPgAAAAAAAAA+AAAAAAGAADwAQAAAAYAAPABAAAMBQAA9AEAAAwFAAIAAgAAmAIAACQGAADUAwAAJAYAAgADAABwBAAAJAYAAFgFAAB0BQAAhAUAAOgEAAIAAgAAMAYAACQGAACEBwAAJAYAAgACAACACQAAJAYAAIAJAAC0AwA="
+      }
+    },
+    {
+      "font": 1,
+      "sourceIndex": 31,
+      "glyphId": 86,
+      "origin": [
+        16,
+        32
+      ],
+      "rgba": "1-31.rgba.gz",
+      "rgbaSha256": "95ed0360e0e23b132477eacc264a7f45de5d92c6bd641ba69509105468928194",
+      "originalPNG": {
+        "name": "glyph-287-SingleBitPerPixel-31.png",
+        "bytes": 383,
+        "sha256": "29beae472c1bbf057d6a011f86094f84c301a14fa1b9e3d7f4b0fb467ce22144"
+      },
+      "originalUnhintedOutline": {
+        "sourceIndex": 31,
+        "character": 115,
+        "glyphIndex": 86,
+        "unhinted": true,
+        "format": 386,
+        "bytes": 448,
+        "blackBoxX": 4,
+        "blackBoxY": 6,
+        "originX": 1,
+        "originY": 6,
+        "cellIncX": 5,
+        "cellIncY": 0,
+        "sha256": "1c4f63890477b22bae5d56daa73052452c95f9b75481107fa0b66d81eee46911",
+        "nativeOutlineBase64": "wAEAABgAAAAAnAAAADgAAAEAAQAAnAAAAEABAAIAAgAAZAEAAKwAAABYAgAArAAAAgACAACcAwAArAAAAJwDAACEAQACAAUAAJwDAADAAQAAZAMAABgCAAAEAwAAWAIAAIQCAACMAgAAPAIAAKgCAAIABQAA1AEAANACAAA8AQAAJAMAANQAAACMAwAAoAAAABAEAACgAAAAaAQAAgAFAACgAAAA1AQAAAQBAAB8BQAAqAEAAOwFAAB8AgAAJAYAAOwCAAAkBgACAAIAALQDAAAkBgAAUAQAAOAFAAEAAQAAUAQAAOgEAAIAAgAAqAMAAFQFAADMAgAAVAUAAgAFAACEAgAAVAUAABgCAAA0BQAAyAEAAPwEAACcAQAArAQAAJwBAAB8BAACAAUAAJwBAABABAAAyAEAAPADAAAcAgAAsAMAAJQCAACAAwAA4AIAAGADAAIABQAARAMAADgDAADoAwAA6AIAAFgEAACAAgAAmAQAAPgBAACYBAAAnAEAAgAFAACYBAAAKAEAADQEAACAAAAAjAMAABQAAACwAgAA3P//ADgCAADc//8CAAIAAEwBAADc//8AnAAAADgAAA=="
+      }
+    }
+  ],
+  "original72RGBA": [
+    "c3ffa4baa28c57a0975c81c49f92c04c9f9aaa84bea05db4ba9de9d9de4d403d",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "218604170eb0dad6c26286df01415f54640717058750fd17f402bb69430a9fdb",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "6416d8dc6177e8dd124fb537b887d4f47559bb7a321ed9687cb95accccaaba08",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "bf3f1693e5ad14c11dcdbbb080707f04ff742fa88efefecc3f1ce1e13e327900",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "bf3f1693e5ad14c11dcdbbb080707f04ff742fa88efefecc3f1ce1e13e327900",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "bf3f1693e5ad14c11dcdbbb080707f04ff742fa88efefecc3f1ce1e13e327900",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "2ccfc59670b4eb42c023dc330138fc8d71c8840ef2e43ea9e226fd6dae804c66",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "2ccfc59670b4eb42c023dc330138fc8d71c8840ef2e43ea9e226fd6dae804c66",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "2ccfc59670b4eb42c023dc330138fc8d71c8840ef2e43ea9e226fd6dae804c66",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "bf3f1693e5ad14c11dcdbbb080707f04ff742fa88efefecc3f1ce1e13e327900",
+    "b3bc19e20918e65e1edd6d12803f7e69991f3ce9fb7611e097055ba2daf1c8fa",
+    "bf3f1693e5ad14c11dcdbbb080707f04ff742fa88efefecc3f1ce1e13e327900",
+    "b3bc19e20918e65e1edd6d12803f7e69991f3ce9fb7611e097055ba2daf1c8fa",
+    "bf3f1693e5ad14c11dcdbbb080707f04ff742fa88efefecc3f1ce1e13e327900",
+    "b3bc19e20918e65e1edd6d12803f7e69991f3ce9fb7611e097055ba2daf1c8fa",
+    "c058cfeebafbe700ad1e17b228b391920452bca6678a5d6a68220af0973e028a",
+    "b3bc19e20918e65e1edd6d12803f7e69991f3ce9fb7611e097055ba2daf1c8fa",
+    "6b5fd3af8b96900faf48576d028a1183352ce0edda9f88e4d6df15aa8456de70",
+    "b3bc19e20918e65e1edd6d12803f7e69991f3ce9fb7611e097055ba2daf1c8fa",
+    "6b5be450dddd7f25b6117bbaac3597c27158015bb453bfbf052d21e66640e3b9",
+    "b3bc19e20918e65e1edd6d12803f7e69991f3ce9fb7611e097055ba2daf1c8fa",
+    "c3ffa4baa28c57a0975c81c49f92c04c9f9aaa84bea05db4ba9de9d9de4d403d",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "218604170eb0dad6c26286df01415f54640717058750fd17f402bb69430a9fdb",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "6416d8dc6177e8dd124fb537b887d4f47559bb7a321ed9687cb95accccaaba08",
+    "599de53925ac5bfae48d02e4750a7098a792d3085ea91f849ef80e155a19c985",
+    "1023610f2a606422369ecff7f0d14486a067fb7efe7122f4a4439cb71f3375d9",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "d06b0ad28df93a4c9124d7775777b72465f2dac0d5892102ab8e02598fa552eb",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "2d4a410934d9d4dc3a6dc4d235394dc495ce3b82063995c403b0a658f08d3391",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "86f7339bca152041e1dfeba7957439fc47be8856c2aae5635bdc92b9a192837c",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "86f7339bca152041e1dfeba7957439fc47be8856c2aae5635bdc92b9a192837c",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "86f7339bca152041e1dfeba7957439fc47be8856c2aae5635bdc92b9a192837c",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "99e92b964699a7a54bf0793ebb917472b8a50d636d2607d906587230052f16e7",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "99e92b964699a7a54bf0793ebb917472b8a50d636d2607d906587230052f16e7",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "99e92b964699a7a54bf0793ebb917472b8a50d636d2607d906587230052f16e7",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "e7895e50df4ba5e23757ae9747acf61a77efb6ee93c6e0fe2ecd0b4b7b3eb9f3",
+    "44446d0b955dca741babe429a594dc05080efa63ce82d3a10d325145216d6c15",
+    "0bf591d71221fb03145375c9f426d9f00568b6d06f27dfcbadd2915011703d43",
+    "44446d0b955dca741babe429a594dc05080efa63ce82d3a10d325145216d6c15",
+    "712428773005e90b07e5012725aded44297844dda11d7ddd2d2cf47cee174d7e",
+    "44446d0b955dca741babe429a594dc05080efa63ce82d3a10d325145216d6c15",
+    "cdf28964513b51432f0d6a5976de35ec0b2c55f155531d6ecc76bbf96430e5e7",
+    "44446d0b955dca741babe429a594dc05080efa63ce82d3a10d325145216d6c15",
+    "327b282e464aa99936e60d801a23a53a8fe002890d9a66be27eadd563a001b0f",
+    "44446d0b955dca741babe429a594dc05080efa63ce82d3a10d325145216d6c15",
+    "b3ad343b798656bcc16611991b31a03876a8795147e803f4acecbb5f651e5c85",
+    "44446d0b955dca741babe429a594dc05080efa63ce82d3a10d325145216d6c15",
+    "1023610f2a606422369ecff7f0d14486a067fb7efe7122f4a4439cb71f3375d9",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "d06b0ad28df93a4c9124d7775777b72465f2dac0d5892102ab8e02598fa552eb",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d",
+    "2d4a410934d9d4dc3a6dc4d235394dc495ce3b82063995c403b0a658f08d3391",
+    "dbb08e7158cd8d0d797d241f6ae80c07ead1524b78adacc13ec60f437d3c533d"
+  ]
+}

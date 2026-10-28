@@ -1,0 +1,35 @@
+{
+  "productHead": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+  "wholeBuildRun": 40740184789,
+  "qualificationReviewed": true,
+  "dispatched": false,
+  "originalArm64Changed": false,
+  "oldManifestSha256": "f47b424b8de28eb522eb3a5f1dd2e8b16c2660af254ce8803ef3066398e36843",
+  "newManifestSha256": "d9cb2ecc06f9c7af897510d2dcfc08f496e7f61b56cad43f2cbe4269cd39276a",
+  "byteIdenticalSourceFiles": 85,
+  "changedSourceFiles": [
+    "native/Program.cs",
+    "run.py",
+    "stage.py",
+    "test_stage.py",
+    "workflow-prepared.yml"
+  ],
+  "originalImmutableInputs": 67,
+  "artifactIdentityKnown": true,
+  "producerWholeConclusion": "success",
+  "repositoryEdits": false,
+  "originalInputHashesUnchanged": true,
+  "offlineControls": {
+    "passed": 23,
+    "failed": 0,
+    "wrongArchitectureRejected": true,
+    "wholeQualificationFalseRejects": true,
+    "pythonSyntax": "pass",
+    "oldArmManifestVerifiedAfterPreparation": true
+  },
+  "proposalSha256": "88df7ae738af851a239fe5f6f022883836b7d13e330d6c2ef1d19ae1fa7d4cb2",
+  "deltaSha256": "bce5bdef367e4421e85eea94d03ee6a45aa4cc6d68f820215a153142d93129c8",
+  "rootApprovedExecution": true,
+  "rootProGpuMerge": "642a61968f443d1c88ac9114050620095aa31f4d",
+  "independentReview": "popup reviewed coherent architecture-only delta; no blocker"
+}

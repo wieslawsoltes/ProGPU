@@ -1,0 +1,37 @@
+Separate original Unhinted64 Windows 2025 x64 route — prepared only
+
+The approved metadata inventory identifies exact original Segoe UI on official
+windows-2025 image 20261021.278.1. This new route is explicitly x64 and does not
+replace or qualify the unchanged ARM64 preparation. No source adapter is enabled.
+
+Reuse the immutable original 67 input/reference files: both original font hashes,
+all 72 same-run original reference image hashes, 64 per-glyph descriptors including
+ten no-ink slots, untouched contour/point/tag/scan flags and source positions.
+Capture the same 128 cold/warm full RGBA frames per provider, using original actual
+geometry after source/batch retirement. Keep both owned default FXC and Dawn/WARP
+providers, original 45-second app/60-second process and16MiB capture bounds. No
+input, visible windows, local VM, substituted font or fitted pixel policy.
+
+Architecture-only changes select win-x64 packages, AMD64 native PE and X64 process,
+with explicit windows-2025 job admission and separate temporary directories. The
+unchanged producer Windows validator still verifies both complete RID payloads;
+the unchanged loaded-module observer selects win-x64 from actual process identity.
+Native provider bytes, owned WGPU receipts/notices, Dawn companion, exact private
+NuGet closure and dependency versions still match their original selected package
+members. No optional DXC package is added. All native math and reference draw code
+remain unchanged. Actual hosted image identity is retained for each execution.
+
+Exact 6208 artifact12842266302 is downloaded and hash/CRC/nuspec inspected locally,
+version0.1.0-preview.3680.ci. Its actual four selected package hashes are populated,
+but qualificationReviewed is FALSE and wholeBuildConclusion remains null. No
+package restore, build, app or native workload has run in this route. Whole exact
+Build40740184789 and companion checks must finish successfully, with root-reviewed
+original evidence, before download/build/execution admission can change.
+
+After root reviews this delta and whole qualification is complete, publish the
+separately named source folder eng/TemporaryUnhinted64X64 in an isolated temporary
+branch and the prepared manual workflow at the existing native-path-diagnostics.yml
+workflow path. Verify exact source manifest and original input identities, dispatch
+once, retain all outcomes and close unmerged. Original72 mismatches or font changes
+stop admission; current metadata match does not predict pixel success. This is a
+bounded source-policy diagnostic; source Forms/package/application gates remain.
