@@ -1,0 +1,55 @@
+name: Temporary Win32 original popup style observation
+on:
+  pull_request:
+    branches: [fix/source-binary-glyph-raster]
+    paths: [.github/workflows/temporary-popup-style.yml, eng/TemporaryPopupStyle/**]
+permissions:
+  contents: read
+jobs:
+  original-popup-style:
+    name: Original hidden STATIC style observation
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Build original producer and no-input observer
+        run: dotnet build eng/TemporaryPopupStyle/Probe.csproj -c Release
+      - name: Observe original native attributes within sixty seconds
+        shell: python
+        env:
+          PROGPU_NATIVE_TRACE_POPUP_OWNER: '1'
+          PROBE_EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          import subprocess, pathlib, json, os, time, hashlib
+          root = pathlib.Path('artifacts/temporary-popup-style')
+          root.mkdir(parents=True, exist_ok=True)
+          command = ['dotnet', 'eng/TemporaryPopupStyle/bin/Release/net10.0/Probe.dll']
+          start = time.monotonic()
+          with (root / 'original.log').open('w') as output:
+              process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT)
+              try:
+                  code = process.wait(timeout=60)
+                  timed_out = False
+              except subprocess.TimeoutExpired:
+                  subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=5)
+                  process.wait(timeout=5)
+                  code, timed_out = 124, True
+          receipt = {'parent': 'b65f592211a9f9b8c883ca06c99dd5f46583e829', 'eventHead': os.environ['PROBE_EVENT_HEAD'], 'checkedOutHead': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'eventMergeSha': os.environ['GITHUB_SHA'], 'processExit': code, 'timeout': timed_out, 'deadlineSeconds': 60, 'elapsedSeconds': time.monotonic()-start, 'command': command, 'inputActions': 0}
+          receipt['binaries'] = {name: hashlib.sha256((pathlib.Path('eng/TemporaryPopupStyle/bin/Release/net10.0') / name).read_bytes()).hexdigest() for name in ['Probe.dll', 'ProGPU.Backend.dll']}
+          assert receipt['checkedOutHead'] == receipt['eventHead']
+          (root / 'receipt.json').write_text(json.dumps(receipt, indent=2))
+          print((root / 'original.log').read_text())
+          print(json.dumps(receipt))
+          raise SystemExit(code)
+      - name: Retain original observations
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: temporary-popup-style-original
+          path: artifacts/temporary-popup-style
+          if-no-files-found: warn
