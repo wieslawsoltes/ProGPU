@@ -332,8 +332,8 @@ jobs:
             artifacts/progpu-native/browser-evidence/progpu-native-browser-gallery.json
           if-no-files-found: warn
 
-  xlib-runtime:
-    name: Linux Xlib WebGPU runtime (${{ matrix.rid }})
+  xlib-runtime-build:
+    name: Build Linux Xlib WebGPU runtime (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -372,19 +372,76 @@ jobs:
           payload="$GITHUB_WORKSPACE/artifacts/progpu-xlib/package/${{ matrix.rid }}/native"
           clang-18 -std=c11 eng/wgpu-xlib/native-surface-probe.c -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o artifacts/wgpu-native-linux/native-surface-probe
           timeout 60s xvfb-run -a artifacts/wgpu-native-linux/native-surface-probe
-      - name: Verify multisample resolves ignore the preceding draw scissor
+      - name: Compile unchanged multisample resolve control
         run: |
           native=$(find artifacts/wgpu-native-linux -mindepth 2 -maxdepth 2 -type d -name wgpu-native)
           test -n "$native"
           payload="$GITHUB_WORKSPACE/artifacts/progpu-xlib/package/${{ matrix.rid }}/native"
           clang-18 -std=c11 eng/wgpu-xlib/native-resolve-scissor-probe.c -I "$native/ffi" -I "$native/ffi/webgpu-headers" -L "$payload" -Wl,-rpath,"$payload" -lwgpu_native -lX11 -ldl -o artifacts/wgpu-native-linux/native-resolve-scissor-probe
-          timeout 60s xvfb-run -a artifacts/wgpu-native-linux/native-resolve-scissor-probe "$payload/libwgpu_native.so"
+      - name: Freeze same-source candidate after original host lifetime check
+        env:
+          RID: ${{ matrix.rid }}
+          EXPECTED_HEAD: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+          BUILD_PAYLOAD: ${{ github.workspace }}/artifacts/xlib-candidate
+        run: python3 eng/wgpu-xlib/mesa-profile/build_receipt.py
+      - name: Upload unqualified candidate for original pixel control
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-xlib-candidate-${{ matrix.rid }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/xlib-candidate
+          if-no-files-found: error
+
+  xlib-runtime:
+    name: Verify Linux Xlib WebGPU runtime (${{ matrix.rid }})
+    needs: [xlib-runtime-build]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+    env:
+      RID: ${{ matrix.rid }}
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      BUILD_PAYLOAD: ${{ github.workspace }}/artifacts/xlib-candidate
+      PROFILE_EVIDENCE: ${{ github.workspace }}/artifacts/xlib-mesa-evidence
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: progpu-xlib-candidate-${{ matrix.rid }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/xlib-candidate
+          digest-mismatch: error
+      - name: Verify private driver and candidate rejection controls
+        run: python3 -m unittest discover -s eng/wgpu-xlib/mesa-profile -p test_controls.py -v
+      - name: Verify all original MSAA pixels on the pinned private software driver
+        run: python3 eng/wgpu-xlib/mesa-profile/run.py
+      - name: Stage only the verified original runtime package
+        run: |
+          python3 eng/build-wgpu-native-linux.py --rid "$RID" --verify "$BUILD_PAYLOAD/native"
+          mkdir -p "artifacts/progpu-xlib/package/$RID"
+          cp -a "$BUILD_PAYLOAD/native" "artifacts/progpu-xlib/package/$RID/native"
       - name: Upload verified Linux dependency
         uses: actions/upload-artifact@v7
         with:
           name: progpu-xlib-runtime-${{ matrix.rid }}
           path: artifacts/progpu-xlib/package
           if-no-files-found: error
+      - name: Retain private driver and original pixel evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: progpu-xlib-mesa-evidence-${{ matrix.rid }}
+          path: |
+            artifacts/xlib-mesa-evidence/**
+            !artifacts/xlib-mesa-evidence/container/verified-debs/**
+          if-no-files-found: warn
 
   dx12-runtime:
     name: Windows WebGPU and compiler runtimes (${{ matrix.rid }})

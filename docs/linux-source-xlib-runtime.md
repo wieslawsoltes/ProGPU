@@ -188,5 +188,24 @@ packages, all 576 original pixels pass in 0.16 seconds, including all three
 frames and fourteen unchanged GL state observations. Actual loaded EGL/Gallium
 images match their prehashed package files, and GL reports Mesa 26.0.8 llvmpipe.
 The container and newly pulled image are removed after retaining the evidence.
-This confirms the driver comparison on x64; production uninstrumented controls,
-ARM64, the older-driver acceptance decision and full source/package gates remain.
+This confirms the instrumented driver comparison on x64, separately from the
+production and application controls.
+
+The [two-architecture production control](https://github.com/wieslawsoltes/ProGPU/pull/420)
+then rebuilds the exact `1f81f86e6` dependency and original uninstrumented probes
+on native Ubuntu 24.04 runners. Both architectures pass all 94 generated ABI
+controls and all 576 original pixels in private corrected-Mesa containers.
+The original lifetime/resolve processes take 0.31/0.21 seconds on x64 and
+0.26/0.36 seconds on ARM64. Loaded EGL/Gallium images match their verified
+package hashes; the unchanged production probes do not report GL_VERSION.
+Owned containers and newly pulled images are removed on both architectures.
+
+Build and Release now share the [private driver profile](../eng/wgpu-xlib/mesa-profile/README.md).
+Native Ubuntu 24.04 builds, ABI checks and the original host lifetime probe stay
+unchanged. A separate stage verifies the exact same-run, same-attempt candidate
+and runs the original 576-pixel probe on the pinned corrected driver, preserving
+its 60-second limit. Only that successful stage publishes the existing runtime
+artifact to downstream consumers. Driver files never enter the host or product
+package. The original Mesa 25.2.8 failure remains documented; this environment
+repair does not qualify that driver, replace the original WPF application gates
+or establish whole-producer/package qualification.
