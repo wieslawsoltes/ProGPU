@@ -143,11 +143,13 @@ internal static class BinaryGlyphOriginalValidation
         byte[]? cold = null;
         for (int frame = 0; frame < 2; frame++)
         {
+            Console.WriteLine($"binary-original-progress provider={context.BackendKind} source={source} frame={frame} stage=render");
             var before = renderer.GetLastSubmissionToken();
             var metrics = renderer.RenderGlyphs(target, 1f, outlines, payload, glyphs,
                 Vector4.Zero, contentRevision: 1);
             var token = renderer.GetLastSubmissionToken();
             Check(token.IsValid && token.Value > before.Value, "actual native submission");
+            Console.WriteLine($"binary-original-progress provider={context.BackendKind} source={source} frame={frame} stage=wait");
             renderer.WaitForSubmission(token);
             Check(renderer.IsSubmissionComplete(token), "actual completed native submission");
             byte[] pixels = target.ReadPixels();

@@ -108,6 +108,28 @@ attributes retain each original blob byte and its original digest. No fixture,
 font, expected pixel, digest assertion or renderer changes in this repair. The
 failed runs remain retained; complete corrected-head CI is still required.
 
+The subsequent Windows wgpu package runs exposed an FXC compiler failure: the
+two-root loop wrote dynamically indexed vector components. The pinned Naga
+translation reports that exact write at HLSL line 163, followed by forced loop
+unrolling errors in the enclosing contour/dropout paths. Each quadratic root now
+uses the same scalar helper, in the original order, before constructing the
+two-lane result. Derivative arithmetic, endpoint admission, rejected-root
+sentinels, stable root calculation and every scan/dropout operation are unchanged.
+The helper changes no wire layout or dispatch ordering.
+
+Local validation passes all 36 managed binary/shader controls and all six original
+880-case executions through each rebuilt native provider, including unchanged
+cold/warm pixels and ownership assertions. A first fixed-component-write
+candidate did not return from FXC within its diagnostic's remaining 42 seconds;
+that failed attempt remains retained and is not compiler qualification. The
+scalar-helper candidate then exceeded independent 60-second compiler-only bounds
+for both entry points, without a returned HRESULT or bytecode. Those failures
+remain retained; compiler optimization behavior and complete package CI are
+still unresolved. The local pixel passes do not qualify Windows compilation.
+Original consumer progress now distinguishes render from submission wait, and
+Windows failure receipts retain the full native exit code before shell narrowing;
+these observations change no inputs, assertions, workload sequence or deadlines.
+
 The rejected global midpoint quantizer regressed earlier diagonal controls and
 was removed. Its failed captures remain retained. The bounded curved candidate
 passes all original and new cases through native wgpu and Dawn, including actual

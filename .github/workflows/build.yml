@@ -1128,7 +1128,7 @@ jobs:
             -p:ProGpuUseDx12Runtime=true `
             -p:ProGpuNativePackageSource="$env:GITHUB_WORKSPACE/artifacts/packages-native/Release" `
             -p:ProGpuNativePackageVersion="$version" -- --binary-glyph-originals-only --software-adapter
-          if ($LASTEXITCODE -ne 0) { throw 'DX12 original binary glyph package consumer failed.' }
+          if ($LASTEXITCODE -ne 0) { throw "DX12 original binary glyph package consumer failed with exit code $LASTEXITCODE." }
       - name: Publish and run full NativeAOT system-WARP consumer
         shell: pwsh
         run: |
@@ -1145,7 +1145,7 @@ jobs:
           & "$output/ProGPU.Native.PackageConsumer.exe" --text-hinted-paragraph-render-only --software-adapter
           if ($LASTEXITCODE -ne 0) { throw 'DX12 hinted paragraph NativeAOT render consumer failed.' }
           & "$output/ProGPU.Native.PackageConsumer.exe" --binary-glyph-originals-only --software-adapter
-          if ($LASTEXITCODE -ne 0) { throw 'DX12 original binary glyph NativeAOT consumer failed.' }
+          if ($LASTEXITCODE -ne 0) { throw "DX12 original binary glyph NativeAOT consumer failed with exit code $LASTEXITCODE." }
 
   native-package-consumer:
     name: ${{ matrix.name }}
@@ -1304,10 +1304,14 @@ jobs:
               -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
               -p:ProGpuNativePackageVersion="${version}" -- "${broad_scene_args[@]}"
           fi
+          consumer_launcher=()
+          if [[ '${{ runner.os }}' == Windows ]]; then
+            consumer_launcher=(python eng/progpu-run-native-with-exit-code.py)
+          fi
           while IFS= read -r scenario; do
             [[ -n "${scenario}" ]] || continue
             echo "Independent JIT package scene: ${scenario}"
-            dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
+            "${consumer_launcher[@]}" dotnet run --project tests/ProGPU.Native.PackageConsumer/ProGPU.Native.PackageConsumer.csproj \
               --configuration Release --no-build \
               -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
               -p:ProGpuNativePackageVersion="${version}" -- "${scenario}"
@@ -1354,10 +1358,14 @@ jobs:
           if [[ '${{ matrix.suite }}' == all || '${{ matrix.suite }}' == core ]]; then
             "${executable}" "${broad_scene_args[@]}"
           fi
+          consumer_launcher=()
+          if [[ '${{ runner.os }}' == Windows ]]; then
+            consumer_launcher=(python eng/progpu-run-native-with-exit-code.py)
+          fi
           while IFS= read -r scenario; do
             [[ -n "${scenario}" ]] || continue
             echo "Independent NativeAOT package scene: ${scenario}"
-            "${executable}" "${scenario}"
+            "${consumer_launcher[@]}" "${executable}" "${scenario}"
           done <<< "${scenarios}"
 
   avalonia-compositor-contract:
@@ -2018,7 +2026,7 @@ jobs:
           if ($IsWindows) {
             $testArgs += @(
               "--filter",
-              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests|FullyQualifiedName~PipelineCacheFinalizerTests|FullyQualifiedName~SkImageFinalizerRetirementTests|FullyQualifiedName~SkSurfaceFinalizerRetirementTests|FullyQualifiedName~CacheSamplerRetirementTests|FullyQualifiedName~NativeMouseButtonPacketTests|FullyQualifiedName~NativeWindowInputWindowsTests.OriginalButtonPacket|FullyQualifiedName~NativeWindowInputWindowsTests.CloseEnabledPolicy"
+              "FullyQualifiedName~DiagnosticsLoggingSourceTests|FullyQualifiedName~StrongNameSigningTests|FullyQualifiedName~WindowsDpiAwarenessTests|FullyQualifiedName~WindowsGdiBitmapTests|FullyQualifiedName~GpuBufferDeviceLossTests|FullyQualifiedName~GpuCoverageUploadTests|FullyQualifiedName~OwnedGpuFinalizerTests|FullyQualifiedName~GpuSeriesFinalizerTests|FullyQualifiedName~PipelineCacheFinalizerTests|FullyQualifiedName~SkImageFinalizerRetirementTests|FullyQualifiedName~SkSurfaceFinalizerRetirementTests|FullyQualifiedName~CacheSamplerRetirementTests|FullyQualifiedName~NativeMouseButtonPacketTests|FullyQualifiedName~NativeWindowOwnerRegistryTests|FullyQualifiedName~NativeWindowInputWindowsTests.OriginalButtonPacket|FullyQualifiedName~NativeWindowInputWindowsTests.CloseEnabledPolicy"
             )
           } elseif ($IsMacOS) {
             # macOS 26's hosted Metal compiler rejects the historical contextual

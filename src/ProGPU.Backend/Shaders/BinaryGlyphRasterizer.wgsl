@@ -27,6 +27,7 @@ struct Segment {
     p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>, p3: vec2<f32>,
     segmentType: u32, scanDescriptor: u32, contourStart: u32, contourCount: u32,
 };
+struct Crossing { x: f32, delta: i32, parameter: f32 };
 struct Crossings { x: vec2<f32>, delta: vec2<i32>, parameter: vec2<f32> };
 struct Event { x: f32, delta: i32, source: u32, order: u32 };
 
@@ -46,6 +47,23 @@ fn axis_point(p: vec2<f32>, vertical: bool) -> vec2<f32> {
 fn quadratic_at(a: f32, b: f32, c: f32, t: f32) -> f32 {
     let u = 1.0 - t;
     return (u * u) * a + (2.0 * u * t) * b + (t * t) * c;
+}
+
+fn quadratic_crossing(p0: vec2<f32>, p1: vec2<f32>, p2: vec2<f32>,
+    a: f32, b: f32, t: f32) -> Crossing {
+    var derivative = 2.0 * a * t + b;
+    // An endpoint can have zero first derivative while its one-sided curve
+    // still crosses the lower scan boundary. Interior extrema do not cross.
+    if derivative == 0.0 && a != 0.0 {
+        if t == 0.0 { derivative = a; }
+        else if t == 1.0 { derivative = -a; }
+    }
+    let admitted = select((t > 0.0 && t <= 1.0), (t >= 0.0 && t < 1.0), (derivative > 0.0));
+    if admitted && derivative != 0.0 {
+        return Crossing(quadratic_at(p0.x, p1.x, p2.x, t),
+            select(-1, 1, derivative > 0.0), t);
+    }
+    return Crossing(3.0e38, 0, -1.0);
 }
 
 // Exact degree and endpoint admission. No epsilon changes a retained curve or
@@ -84,23 +102,12 @@ fn crossings(segment: Segment, level: f32, vertical: bool) -> Crossings {
             roots.x = -b / (2.0 * a);
         }
     }
-    for (var lane = 0u; lane < 2u; lane++) {
-        let t = roots[lane];
-        var derivative = 2.0 * a * t + b;
-        // An endpoint can have zero first derivative while its one-sided curve
-        // still crosses the lower scan boundary. Interior extrema do not cross.
-        if derivative == 0.0 && a != 0.0 {
-            if t == 0.0 { derivative = a; }
-            else if t == 1.0 { derivative = -a; }
-        }
-        let admitted = select((t > 0.0 && t <= 1.0), (t >= 0.0 && t < 1.0), (derivative > 0.0));
-        if admitted && derivative != 0.0 {
-            result.x[lane] = quadratic_at(p0.x, p1.x, p2.x, t);
-            result.delta[lane] = select(-1, 1, derivative > 0.0);
-            result.parameter[lane] = t;
-        }
-    }
-    return result;
+    // FXC cannot dynamically address vector components as l-values. Resolve
+    // the same two roots in order without a lane loop or indexed destination.
+    let first = quadratic_crossing(p0, p1, p2, a, b, roots.x);
+    let second = quadratic_crossing(p0, p1, p2, a, b, roots.y);
+    return Crossings(vec2<f32>(first.x, second.x), vec2<i32>(first.delta, second.delta),
+        vec2<f32>(first.parameter, second.parameter));
 }
 
 fn event_less(a: Event, b: Event) -> bool {
