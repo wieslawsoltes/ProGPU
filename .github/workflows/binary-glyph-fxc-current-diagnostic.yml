@@ -12,6 +12,10 @@ jobs:
     if: github.head_ref == 'diag/binary-glyph-fxc-current-20261028'
     runs-on: windows-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [stub-curve, stub-continuation, distributed-zero]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,14 +24,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Changed candidate, independent entrypoint compiles without GPU
+      - name: Compiler-only component isolation; invalid for rendering
         shell: pwsh
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: python eng/diagnostics/binary-glyph-fxc-current/run.py
+        run: python eng/diagnostics/binary-glyph-fxc-current/run.py "${{ matrix.variant }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: current-fxc
+          name: current-fxc-${{ matrix.variant }}
           path: eng/diagnostics/binary-glyph-fxc-current/evidence
           if-no-files-found: error

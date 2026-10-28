@@ -1,19 +1,25 @@
 {
   "productHead": "45981bf7619d2e809f08ceda491fad2be535d3b0",
-  "diagnosticParent": "45981bf7619d2e809f08ceda491fad2be535d3b0",
+  "diagnosticParent": "bd1791d3d89eedfe2d93bbe61dca6e7e219753d7",
   "originalWgslSha256": "a2c10ae341defaabf7a3637d4a3e4e7d16c64a9e3d1d9e9632f52f487ac6c427",
-  "candidate": "4",
-  "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
-  "nagaVersion": "0.19.2",
+  "qualification": false,
   "sha256": {
+    "stub-curve.hlsl": "774ec1a01646a86eab87b29e8e7644b0c2dcf9a2a10227f10517311e2472c047",
+    "stub-continuation.hlsl": "31fbc3facb08ab273e358b8907202c04a6b8b13116319983fe5a419fd6d3d574",
+    "stub-curve.diff": "334f2895607621f4b7d6682ed51dbc8abe31529720888050ca9cd8eafb9d77b7",
+    "stub-continuation.diff": "9a0b7e377d388a70089814e533d118b5cc20143d6f585a46417c44811b8c8fa3",
     "candidate.wgsl": "b65bb5817c1f6a42d3e4d325ad595c6e0ff08474643d3d1b615b9a89cd7469d2",
-    "candidate.hlsl": "01e43559b01b491cd6d790f9c883451438d7ae6c18054b93efc6e440ef57c04c",
-    "Program.cs": "8ba9263a5e13b421abb9dc00ba5b74d2833a114167b6d4a0ee321f5205cb6fd4",
+    "Program.cs": "25da8d9f1d445c0ef8b823e4af46d0770cd697ca1faaf8e341b9987a29b9166c",
     "Probe.csproj": "12194a99cdfa230ecd8c7d65f45abb5670d5fde5497cb2541d8e4af10edb14f1",
-    "run.py": "5fc03cdaf5f1bb48043a24a3fa65110552ea02f7f278f376cde93dac9e419fa9",
+    "run.py": "e32e45dc4470c6b3b2adea24510d2fb7cf6a6cdde39f9b8671b71defcdd194b0",
+    "process-metrics.py": "a5120975c1be39d6d92b718461965888ee96692a74e2e122923545f7a9bdcad8",
     "generator.rs": "13710d963a8388340b2265316df270ebde228874a5108b5be5ed3810f8b03c16",
     "generator-Cargo.lock": "fb4657986b2cbdc816ecfedbf52eab45a2f4fa7197321d47e69ff0944b8d764c",
     "generation.json": "6b90181596bc64104096a69a97bdc720b8e4429919e5216fa5d313dceade5c59",
-    ".gitattributes": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9"
-  }
+    "variants.json": "a3c5e9768aae428b95453b34dfa2f7f11486ffe35941d94fd5f45089c2fcc4b9",
+    ".gitattributes": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9",
+    "distributed-zero.hlsl": "e10f51a82e7ea1306c97fce679db7e943d72727c42b2b94b4f91415312336f23",
+    "distributed-zero.diff": "a94305aed9463d62e8864aee87074cd2e11e42724aa1fa20b3186eb84646cbf6"
+  },
+  "containsInvalidRenderingStubs": true
 }

@@ -1,0 +1,48 @@
+{
+  "baselineCandidate": 4,
+  "baselineSha256": "01e43559b01b491cd6d790f9c883451438d7ae6c18054b93efc6e440ef57c04c",
+  "qualification": false,
+  "variants": {
+    "stub-curve": {
+      "function": "float smart_curve_crossing(",
+      "originalBodyStartLine": 709,
+      "originalBodyEndLine": 796,
+      "flags1": 2048,
+      "entrypoint": "cs_binary_horizontal",
+      "sha256": "774ec1a01646a86eab87b29e8e7644b0c2dcf9a2a10227f10517311e2472c047",
+      "invalidForRendering": true
+    },
+    "stub-continuation": {
+      "function": "uint continuation_crossings(",
+      "originalBodyStartLine": 477,
+      "originalBodyEndLine": 585,
+      "flags1": 2048,
+      "entrypoint": "cs_binary_horizontal",
+      "sha256": "31fbc3facb08ab273e358b8907202c04a6b8b13116319983fe5a419fd6d3d574",
+      "invalidForRendering": true
+    },
+    "distributed-zero": {
+      "replacement": "Both generated whole-array initializers become identical zero writes distributed by existing SV_GroupIndex",
+      "flags1": 2048,
+      "entrypoint": "cs_binary_horizontal",
+      "sha256": "e10f51a82e7ea1306c97fce679db7e943d72727c42b2b94b4f91415312336f23",
+      "intendedEquivalentInitialization": true,
+      "renderingQualification": false,
+      "zeroCoverage": {
+        "threads": 256,
+        "entries": 512,
+        "writesPerEntry": 1,
+        "entriesPerThread": 2,
+        "eventZeroFields": [
+          "x",
+          "delta",
+          "source",
+          "order"
+        ],
+        "windingZero": 0,
+        "sameBarrierBeforeAnyReturn": true
+      }
+    }
+  },
+  "containsInvalidRenderingStubs": true
+}

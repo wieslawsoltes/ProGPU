@@ -28,26 +28,27 @@ internal static unsafe class Program
         if (!OperatingSystem.IsWindows() || args.Length!=3) return 2;
         var input=Path.GetFullPath(args[0]); var output=Path.GetFullPath(args[1]);
         Directory.CreateDirectory(output);
-        if (args[2] is not ("cs_binary_horizontal" or "cs_binary_vertical")) return 2;
+        if (args[2] is not ("stub-curve" or "stub-continuation" or "distributed-zero")) return 2;
+        uint flags = 0x800u;
         var compiler=Path.Combine(Environment.SystemDirectory,"d3dcompiler_47.dll");
         nint module=NativeLibrary.Load(compiler);
         NativeLibrary.SetDllImportResolver(typeof(Program).Assembly,(name,_,_)=>name=="d3dcompiler_47.dll"?module:0);
         File.WriteAllText(Path.Combine(output,"compiler.json"),JsonSerializer.Serialize(new {
             path=compiler,sha256=Hash(File.ReadAllBytes(compiler)),version=FileVersionInfo.GetVersionInfo(compiler).FileVersion,
             processArchitecture=RuntimeInformation.ProcessArchitecture.ToString(),runtime=RuntimeInformation.FrameworkDescription,
-            sourceName="ProGPU binary glyph scan shader",target="cs_5_1",flags1=0x800,flags2=0,
+            sourceName="ProGPU binary glyph scan shader",target="cs_5_1",flags1=flags,flags2=0,
             gpuDeviceCreated=false,inputActions=0
         },new JsonSerializerOptions{WriteIndented=true}));
         bool accepted=true;
-        foreach (string variant in new[]{"candidate"})
-        foreach (string entry in new[]{args[2]})
+        foreach (string variant in new[]{args[2]})
+        foreach (string entry in new[]{"cs_binary_horizontal"})
         {
             var source=File.ReadAllBytes(Path.Combine(input,variant+".hlsl"));
             nint code=0,error=0; string stem=variant+"-"+entry;
             File.WriteAllText(Path.Combine(output,stem+"-started.json"),JsonSerializer.Serialize(new {variant,entry,sourceSha256=Hash(source),utc=DateTimeOffset.UtcNow}));
             var clock=Stopwatch.StartNew();
             try {
-                int hr=D3DCompile(source,(nuint)source.Length,"ProGPU binary glyph scan shader",0,0,entry,"cs_5_1",0x800,0,out code,out error);
+                int hr=D3DCompile(source,(nuint)source.Length,"ProGPU binary glyph scan shader",0,0,entry,"cs_5_1",flags,0,out code,out error);
                 var bytecode=CopyBlob(code); var errors=CopyBlob(error);
                 var message=Encoding.UTF8.GetString(errors);
                 File.WriteAllBytes(Path.Combine(output,stem+"-errors.bin"),errors);

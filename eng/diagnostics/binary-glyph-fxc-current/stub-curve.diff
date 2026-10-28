@@ -1,0 +1,97 @@
+--- candidate4.hlsl
++++ stub-curve.hlsl
+@@ -707,92 +707,8 @@
+ 
+ float smart_curve_crossing(GlyphRecord record_8, Event event, float level_7, bool vertical_8)
+ {
+-    float t_2 = (float)0;
+-    float2 a_3 = (float2)0;
+-    float2 b_3 = (float2)0;
+-    float2 c_1 = (float2)0;
+-    uint depth = 0u;
+-
+-    Segment segment_5 = ConstructSegment(asfloat(segments.Load2((record_8.startSegment + event.source)*48+0)), asfloat(segments.Load2((record_8.startSegment + event.source)*48+8)), asfloat(segments.Load2((record_8.startSegment + event.source)*48+16)), asfloat(segments.Load2((record_8.startSegment + event.source)*48+24)), asuint(segments.Load((record_8.startSegment + event.source)*48+32)), asuint(segments.Load((record_8.startSegment + event.source)*48+36)), asuint(segments.Load((record_8.startSegment + event.source)*48+40)), asuint(segments.Load((record_8.startSegment + event.source)*48+44)));
+-    if ((segment_5.segmentType == 0u)) {
+-        return event.x;
+-    }
+-    const Crossings _e14 = crossings(segment_5, level_7, vertical_8);
+-    t_2 = _e14.parameter[(event.order % 2u)];
+-    const float2 _e22 = axis_point(segment_5.p0_, vertical_8);
+-    a_3 = _e22;
+-    const float2 _e25 = axis_point(segment_5.p1_, vertical_8);
+-    b_3 = _e25;
+-    const float2 _e28 = axis_point(segment_5.p2_, vertical_8);
+-    c_1 = _e28;
+-    if ((event.delta < 0)) {
+-        float2 swap = a_3;
+-        float2 _expr34 = c_1;
+-        a_3 = _expr34;
+-        c_1 = swap;
+-        float _expr35 = t_2;
+-        t_2 = (1.0 - _expr35);
+-    }
+-    bool loop_init_6 = true;
+-    while(true) {
+-        if (!loop_init_6) {
+-            uint _expr108 = depth;
+-            depth = (_expr108 + 1u);
+-        }
+-        loop_init_6 = false;
+-        uint _expr40 = depth;
+-        if ((_expr40 < 32u)) {
+-        } else {
+-            break;
+-        }
+-        {
+-            float _expr43 = t_2;
+-            if ((_expr43 == 0.0)) {
+-                float _expr47 = a_3.x;
+-                return _expr47;
+-            }
+-            float _expr48 = t_2;
+-            if ((_expr48 == 1.0)) {
+-                float _expr52 = c_1.x;
+-                return _expr52;
+-            }
+-            float _expr54 = a_3.x;
+-            float _expr56 = b_3.x;
+-            float _expr58 = c_1.x;
+-            float _expr62 = a_3.x;
+-            float _expr64 = b_3.x;
+-            float _expr66 = c_1.x;
+-            if (((max(_expr54, max(_expr56, _expr58)) - min(_expr62, min(_expr64, _expr66))) <= 0.015625)) {
+-                float _expr73 = a_3.x;
+-                return (floor((_expr73 * 64.0)) / 64.0);
+-            }
+-            float2 _expr79 = a_3;
+-            float2 _expr80 = b_3;
+-            float2 ab = ((_expr79 + _expr80) * 0.5);
+-            float2 _expr84 = b_3;
+-            float2 _expr85 = c_1;
+-            float2 bc = ((_expr84 + _expr85) * 0.5);
+-            float2 middle_1 = ((ab + bc) * 0.5);
+-            float _expr92 = t_2;
+-            if ((_expr92 == 0.5)) {
+-                return middle_1.x;
+-            }
+-            float _expr96 = t_2;
+-            if ((_expr96 < 0.5)) {
+-                b_3 = ab;
+-                c_1 = middle_1;
+-                float _expr100 = t_2;
+-                t_2 = (_expr100 * 2.0);
+-            } else {
+-                a_3 = middle_1;
+-                b_3 = bc;
+-                float _expr102 = t_2;
+-                t_2 = ((_expr102 - 0.5) * 2.0);
+-            }
+-        }
+-    }
+-    float _expr111 = a_3.x;
+-    return (floor((_expr111 * 64.0)) / 64.0);
++    // DIAGNOSTIC ONLY: invalid for rendering; remove this component.
++    return event.x;
+ }
+ 
+ void dropout(GlyphRecord record_9, uint index_3, float level_8, bool vertical_9)

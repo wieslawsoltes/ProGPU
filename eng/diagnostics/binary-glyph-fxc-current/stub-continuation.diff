@@ -1,0 +1,118 @@
+--- candidate4.hlsl
++++ stub-continuation.hlsl
+@@ -475,113 +475,8 @@
+ 
+ uint continuation_crossings(GlyphRecord record_5, float left, float level_4, float direction, bool vertical_5)
+ {
+-    uint count = 0u;
+-    float2 first = (0.0).xx;
+-    uint i_1 = 0u;
+-
+-    float opposite = (level_4 + direction);
+-    float bottom = min(level_4, opposite);
+-    float top = max(level_4, opposite);
+-    bool loop_init_4 = true;
+-    while(true) {
+-        if (!loop_init_4) {
+-            uint _expr178 = i_1;
+-            i_1 = (_expr178 + 1u);
+-        }
+-        loop_init_4 = false;
+-        uint _expr15 = i_1;
+-        if ((_expr15 < record_5.segmentCount)) {
+-        } else {
+-            break;
+-        }
+-        {
+-            uint _expr20 = i_1;
+-            Segment segment_3 = ConstructSegment(asfloat(segments.Load2((record_5.startSegment + _expr20)*48+0)), asfloat(segments.Load2((record_5.startSegment + _expr20)*48+8)), asfloat(segments.Load2((record_5.startSegment + _expr20)*48+16)), asfloat(segments.Load2((record_5.startSegment + _expr20)*48+24)), asuint(segments.Load((record_5.startSegment + _expr20)*48+32)), asuint(segments.Load((record_5.startSegment + _expr20)*48+36)), asuint(segments.Load((record_5.startSegment + _expr20)*48+40)), asuint(segments.Load((record_5.startSegment + _expr20)*48+44)));
+-            const Crossings _e24 = crossings(segment_3, opposite, vertical_5);
+-            const Crossings _e26 = crossings(segment_3, left, !(vertical_5));
+-            const Crossings _e30 = crossings(segment_3, (left + 1.0), !(vertical_5));
+-            if ((((_e24.delta.x != 0) && (_e24.x.x >= left)) && (_e24.x.x <= (left + 1.0)))) {
+-                float2 position = float2(_e24.x.x, opposite);
+-                uint _expr48 = count;
+-                if ((_expr48 == 0u)) {
+-                    first = position;
+-                    count = 1u;
+-                } else {
+-                    float2 _expr52 = first;
+-                    if (any((_expr52 != position))) {
+-                        return 2u;
+-                    }
+-                }
+-            }
+-            if ((((_e26.delta.x != 0) && (_e26.x.x >= bottom)) && (_e26.x.x <= top))) {
+-                float2 position_1 = float2(left, _e26.x.x);
+-                uint _expr71 = count;
+-                if ((_expr71 == 0u)) {
+-                    first = position_1;
+-                    count = 1u;
+-                } else {
+-                    float2 _expr75 = first;
+-                    if (any((_expr75 != position_1))) {
+-                        return 2u;
+-                    }
+-                }
+-            }
+-            if ((((_e30.delta.x != 0) && (_e30.x.x >= bottom)) && (_e30.x.x <= top))) {
+-                float2 position_2 = float2((left + 1.0), _e30.x.x);
+-                uint _expr96 = count;
+-                if ((_expr96 == 0u)) {
+-                    first = position_2;
+-                    count = 1u;
+-                } else {
+-                    float2 _expr100 = first;
+-                    if (any((_expr100 != position_2))) {
+-                        return 2u;
+-                    }
+-                }
+-            }
+-            if ((((_e24.delta.y != 0) && (_e24.x.y >= left)) && (_e24.x.y <= (left + 1.0)))) {
+-                float2 position_3 = float2(_e24.x.y, opposite);
+-                uint _expr121 = count;
+-                if ((_expr121 == 0u)) {
+-                    first = position_3;
+-                    count = 1u;
+-                } else {
+-                    float2 _expr125 = first;
+-                    if (any((_expr125 != position_3))) {
+-                        return 2u;
+-                    }
+-                }
+-            }
+-            if ((((_e26.delta.y != 0) && (_e26.x.y >= bottom)) && (_e26.x.y <= top))) {
+-                float2 position_4 = float2(left, _e26.x.y);
+-                uint _expr144 = count;
+-                if ((_expr144 == 0u)) {
+-                    first = position_4;
+-                    count = 1u;
+-                } else {
+-                    float2 _expr148 = first;
+-                    if (any((_expr148 != position_4))) {
+-                        return 2u;
+-                    }
+-                }
+-            }
+-            if ((((_e30.delta.y != 0) && (_e30.x.y >= bottom)) && (_e30.x.y <= top))) {
+-                float2 position_5 = float2((left + 1.0), _e30.x.y);
+-                uint _expr169 = count;
+-                if ((_expr169 == 0u)) {
+-                    first = position_5;
+-                    count = 1u;
+-                } else {
+-                    float2 _expr173 = first;
+-                    if (any((_expr173 != position_5))) {
+-                        return 2u;
+-                    }
+-                }
+-            }
+-        }
+-    }
+-    uint _expr180 = count;
+-    return _expr180;
++    // DIAGNOSTIC ONLY: invalid for rendering; retain a runtime-dependent result.
++    return (asfloat(segments.Load(record_5.startSegment * 48u)) < left) ? 0u : 2u;
+ }
+ 
+ float2 segment_end(Segment segment_1)

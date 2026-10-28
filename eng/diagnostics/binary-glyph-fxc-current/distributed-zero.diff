@@ -1,0 +1,28 @@
+--- candidate4.hlsl
++++ distributed-zero.hlsl
+@@ -925,9 +925,9 @@
+ [numthreads(256, 1, 1)]
+ void cs_binary_horizontal(uint3 group : SV_GroupID, uint lane : SV_GroupIndex, uint3 __local_invocation_id : SV_GroupThreadID)
+ {
+-    if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
+-        events = (Event[512])0;
+-        winding = (int[512])0;
++    for (uint zero_index = lane; zero_index < 512u; zero_index += 256u) {
++        events[zero_index] = (Event)0;
++        winding[zero_index] = 0;
+     }
+     GroupMemoryBarrierWithGroupSync();
+     uint word = (uint)0;
+@@ -1021,9 +1021,9 @@
+ [numthreads(256, 1, 1)]
+ void cs_binary_vertical(uint3 group_1 : SV_GroupID, uint lane_1 : SV_GroupIndex, uint3 __local_invocation_id : SV_GroupThreadID)
+ {
+-    if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
+-        events = (Event[512])0;
+-        winding = (int[512])0;
++    for (uint zero_index = lane_1; zero_index < 512u; zero_index += 256u) {
++        events[zero_index] = (Event)0;
++        winding[zero_index] = 0;
+     }
+     GroupMemoryBarrierWithGroupSync();
+     uint index_1 = (uint)0;
