@@ -1,0 +1,14 @@
+{
+  "head": "b7c191f2b442277c7484f599fc9b48b6df2f31ae",
+  "runId": 40707705399,
+  "artifactId": 12826034029,
+  "archiveSha256": "4be7ccde9a5b96df9d30f06ba85b27e2089d0d0d927be2d66cbef16cafe87734",
+  "archiveBytes": 52777017,
+  "dllSha256": {
+    "progpu_native.dll": "cc010486489edb9cb563a5ceb6fa895b017d3eba6ddfa8b7001e15f96d032872",
+    "progpu_native_dawn.dll": "67236422b2f61cc3baac9d359a7a862963e8f81d1f3959e904b700708a493cac"
+  },
+  "producerJob": 122885610423,
+  "producerConclusion": "success",
+  "wholeBuildQualification": false
+}

@@ -1,36 +1,27 @@
-name: ARM64 binary changed-source runtime
+name: ARM64 candidate native exception capture
 on:
   pull_request:
     branches: [fix/source-binary-glyph-raster]
-    paths: ['eng/diagnostics/arm64-index-runtime/**', '.github/workflows/arm64-index-runtime.yml']
+    paths: ['eng/diagnostics/arm64-index-cdb/**', '.github/workflows/arm64-index-cdb.yml']
 permissions:
   contents: read
   actions: read
 jobs:
   run:
     runs-on: windows-11-arm
-    timeout-minutes: ${{ matrix.minutes }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - route: fxc
-            minutes: 15
-          - route: dxc
-            minutes: 20
-          - route: dawn
-            minutes: 15
+    timeout-minutes: 20
     env:
-      ROUTE: ${{ matrix.route }}
+      ROUTE: dxc
       CANDIDATE_ROOT: ${{ github.workspace }}/candidate
       ORIGINAL: ${{ github.workspace }}/original
       FEED: ${{ github.workspace }}/packages
       PAYLOAD: ${{ github.workspace }}/payload
       EVIDENCE: ${{ github.workspace }}/evidence
+      CAPTURE_OUTPUT: ${{ github.workspace }}/evidence
       EXECUTION: ${{ github.workspace }}/execution
       PROGPU_HIT_TEST_EXECUTION: ordered-stages
       PROGPU_BACKEND_DIAGNOSTICS: '1'
-      PROGPU_DX12_SHADER_COMPILER: ${{ matrix.route == 'dxc' && 'dxc' || '' }}
+      PROGPU_DX12_SHADER_COMPILER: dxc
     steps:
       - uses: actions/checkout@v7
         with:
@@ -66,7 +57,7 @@ jobs:
       - name: Prepare original consumer and private two-DLL overlay
         shell: pwsh
         run: |
-          python diagnostic/eng/diagnostics/arm64-index-runtime/stage.py prepare
+          python diagnostic/eng/diagnostics/arm64-index-cdb/stage.py prepare
           if ($LASTEXITCODE -ne 0) { throw 'Original source/package identity failed.' }
           Push-Location original
           try {
@@ -83,18 +74,26 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $vs) { throw 'Native tool host unavailable.' }
           Import-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=arm64 -host_arch=arm64' | Out-Null
-          python diagnostic/eng/diagnostics/arm64-index-runtime/stage.py artifact
+          python diagnostic/eng/diagnostics/arm64-index-cdb/stage.py artifact
           if ($LASTEXITCODE -ne 0) { throw 'Candidate artifact admission failed.' }
-          python diagnostic/eng/diagnostics/arm64-index-runtime/stage.py stage
+          python diagnostic/eng/diagnostics/arm64-index-cdb/stage.py stage
           if ($LASTEXITCODE -ne 0) { throw 'Private overlay admission failed.' }
-      - name: Run original six groups once with changed native source
+      - name: Verify signed native debugger and compile original CPU admission control
+        shell: pwsh
+        run: ./diagnostic/eng/diagnostics/arm64-index-cdb/prepare-tools.ps1 -Control FirstChanceControl
+      - name: Prove unchanged native handling and exact final control exit
         shell: pwsh
         run: |
-          python diagnostic/eng/diagnostics/arm64-index-runtime/run.py
-          if ($LASTEXITCODE -ne 0) { throw 'Changed-source runtime diagnostic failed; no retry.' }
+          python diagnostic/eng/diagnostics/arm64-index-cdb/cdb_first_chance.py control
+          if ($LASTEXITCODE -ne 0) { throw 'CPU debugger admission failed; candidate is not executed.' }
+      - name: Capture one changed-candidate DXC workload within original bounds
+        shell: pwsh
+        run: |
+          python diagnostic/eng/diagnostics/arm64-index-cdb/cdb_first_chance.py workload
+          if ($LASTEXITCODE -ne 0) { throw 'Capture incomplete; evidence retained with no retry.' }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: arm64-index-runtime-${{ matrix.route }}
+          name: arm64-index-candidate-native-events
           path: evidence
           if-no-files-found: error
