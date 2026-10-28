@@ -1,6 +1,9 @@
 Binary glyph dropout traversal keeps the original ordered lane and lane+256
 visits in one bounded per-invocation loop. Preserve helper arithmetic, shared
 memory, atomics, barriers and the subsequent vertex dropout in the common shader.
+Immutable two-root vectors select their original scalar components only for the
+proven loop indices 0/1 or original order modulo 2. Preserve both root slots,
+component values and edge visit order without arithmetic interpolation.
 Reduced compiler output does not prove WARP stack safety or original pixel/package
 qualification. Never replace drivers or alter compiler defaults to hide the
 original ARM64 failure; see docs/binary-font-scan-metadata.md.

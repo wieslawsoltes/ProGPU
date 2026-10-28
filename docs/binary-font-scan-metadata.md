@@ -157,6 +157,33 @@ each rebuilt native provider with zero differing pixels. Actual ARM64 WARP
 execution and whole package qualification remain required before calling this a
 runtime fix or advancing consumers.
 
+That loop revision, `b7c191f2`, passes 75 of 76 whole-head checks. Its default
+FXC and Dawn ARM64 package lanes pass; explicit DXC still fails. The independent
+bounded six-group runtime checks also pass on FXC in 44.12 seconds and Dawn in
+59.07 seconds. DXC fails at its first frame in 2.46 seconds. Its complete native
+exception capture records a smaller `0x2060` JIT frame but the same invalid
+address construction: `mov w28,#0x2054; add x28,xzr,x28; str w4,[x28]`.
+The actual write target is `0x2054`; the final fail-fast subtype is `0x49`.
+
+The remaining eight DXC local arrays hold two-component root vectors addressed
+by dynamic indices. The shader now selects the original scalar components
+directly: the continuation loop visits only indices 0 and 1, and smart-curve
+selection retains the original order modulo 2. Both roots are already fully
+initialized immutable values. This changes neither arithmetic nor component
+values, the three-edge visit order, early returns, sample positions, workgroup
+storage or dispatches. It does not interpolate between components or change
+compiler defaults.
+
+The scalar-selection revision passes the same 36 managed controls and all six
+880-case comparisons on each rebuilt local native provider, with zero differing
+pixels. All four native ARM64 compiler cases pass with the exact retained compiler
+identities and original flags: DXC's eight local arrays become zero in each entry
+point. FXC's loop counts remain 7/5 and its temporary-register counts increase
+from 26/24 to 27/25, so this is not a uniform register-pressure claim. Actual
+ARM64 runtime execution must still establish whether it removes the remaining
+generated-code failure; compilation and local pixel agreement do not qualify
+the source or package.
+
 The rejected global midpoint quantizer regressed earlier diagonal controls and
 was removed. Its failed captures remain retained. The bounded curved candidate
 passes all original and new cases through native wgpu and Dawn, including actual
