@@ -154,3 +154,39 @@ mismatches. The probe exits 1 after 7.68 seconds, preserving the expected produc
 failure. The diagnostic workflow succeeds only in recording that negative
 result; it does not qualify the original runtime. This is an authored GLES
 control on llvmpipe, not the final source application or candidate result.
+
+The repaired runtime at `1f81f86e6` passes the original surface/lifetime control
+on both Linux architectures, but the new pixel control fails with counts
+`0/13/0` on Mesa 25.2.8 llvmpipe. The shifted scissor has twelve half-covered
+outside pixels and one quarter-covered corner. A
+[paired direct-EGL diagnostic](https://github.com/wieslawsoltes/ProGPU/pull/414)
+reproduces the fringe without wgpu. Disabling scissor for resolve and enabling a
+full-target box produce byte-identical pixels; the latter alternative is rejected.
+
+A separate [source-sample diagnostic](https://github.com/wieslawsoltes/ProGPU/pull/416)
+captures all 2,304 samples of a four-sample texture before resolve. Its fringe is
+already present in the source samples; all 576 resolved pixels match their
+actual sample means. This is a texture attribution control, separate from the
+original renderbuffer observation. Exact Mesa and Ubuntu source inspection
+matches every captured sample to llvmpipe's lower scissor-plane arithmetic.
+The upstream [scissor-plane correction](https://gitlab.freedesktop.org/mesa/mesa/-/commit/92550b106c70408cd9f5c25a50c311e68af06d6b)
+addresses those edges and is present in Ubuntu's Mesa 26.0.8 source. These
+observations do not change the expected pixels or qualify the failing driver.
+
+The original LibreWPF modal captures record Ubuntu 26.04, installed Mesa 26.0.8
+and actual llvmpipe rendering, but not the loaded GL version. They retain their
+independent resolve defect and must still pass the original application checks.
+Ubuntu 24.04 remains an existing WPF OpenGL CI environment; the new driver
+finding does not silently remove that coverage or establish fixed application
+pixels. No system driver, package dependency or CI acceptance gate is changed
+by this diagnosis.
+
+The [corrected-driver comparison](https://github.com/wieslawsoltes/ProGPU/pull/417)
+reuses the exact x64 instrumented probe and runtime from the failed paired test.
+In a digest-pinned private Ubuntu 26.04 container with verified Mesa 26.0.8
+packages, all 576 original pixels pass in 0.16 seconds, including all three
+frames and fourteen unchanged GL state observations. Actual loaded EGL/Gallium
+images match their prehashed package files, and GL reports Mesa 26.0.8 llvmpipe.
+The container and newly pulled image are removed after retaining the evidence.
+This confirms the driver comparison on x64; production uninstrumented controls,
+ARM64, the older-driver acceptance decision and full source/package gates remain.
