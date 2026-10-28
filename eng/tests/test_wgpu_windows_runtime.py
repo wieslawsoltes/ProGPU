@@ -178,17 +178,18 @@ class SourceOwnershipTests(unittest.TestCase):
             return subprocess.check_output(["git", "-C", str(self.source), *args], text=True, stderr=subprocess.DEVNULL).strip()
         self.git = git
         git("init")
-        (self.source / "writer.rs").write_text("original\n")
+        git("config", "core.autocrlf", "false")
+        (self.source / "writer.rs").write_bytes(b"original\n")
         (self.source / "unrelated.rs").write_text("untouched\n")
         git("add", ".")
         git("-c", "user.name=Control", "-c", "user.email=control@example.invalid", "commit", "-m", "original")
         revision = git("rev-parse", "HEAD")
         original_sha = runtime.sha(self.source / "writer.rs")
-        (self.source / "writer.rs").write_text("reviewed\n")
+        (self.source / "writer.rs").write_bytes(b"reviewed\n")
         patched_sha = runtime.sha(self.source / "writer.rs")
         patch_dir = self.root / "eng/wgpu-hlsl"
         patch_dir.mkdir(parents=True)
-        (patch_dir / "naga-workgroup-zero-init.patch").write_text(git("diff") + "\n")
+        (patch_dir / "naga-workgroup-zero-init.patch").write_bytes((git("diff") + "\n").encode("utf-8"))
         git("checkout", "--", "writer.rs")
         inputs = {"shader": {"wgpuRevision": revision, "modifiedFiles": [{"path": "writer.rs", "originalSha256": original_sha, "patchedSha256": patched_sha}]}}
         self.addCleanup(patch.stopall)
