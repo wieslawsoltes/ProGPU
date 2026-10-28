@@ -14,3 +14,8 @@ eng/wgpu-dxc/Cargo.lock text eol=lf
 
 # Original Windows metric receipt retains its captured bytes, including CRLF.
 src/ProGPU.Tests/TestData/SourceDeviceLines/metrics.json -text
+
+# Captured binary-glyph fixtures have immutable SHA-256 identities on every host.
+# Do not rewrite their original LF bytes when core.autocrlf is enabled.
+tests/Shared/BinaryGlyphOriginals.json -text
+tests/Shared/BinaryGlyphCurveOriginals.json -text

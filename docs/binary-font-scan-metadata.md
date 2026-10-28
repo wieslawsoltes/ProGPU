@@ -100,6 +100,14 @@ its two original authored fonts are 23,812 bytes each. Both fixture sets run
 through the same managed and native checks, preserving the earlier inventory,
 full frames, padding, cold/warm reuse and original font-digest validation.
 
+Both captured JSON files are byte-preserving Git assets. The first Windows
+package runs at `dcaac6c7` rejected their unchanged SHA-256 checks before rendering:
+the default text checkout changed the final LF into CRLF. An isolated checkout
+with `core.autocrlf=true` reproduces both altered digests; explicit `-text`
+attributes retain each original blob byte and its original digest. No fixture,
+font, expected pixel, digest assertion or renderer changes in this repair. The
+failed runs remain retained; complete corrected-head CI is still required.
+
 The rejected global midpoint quantizer regressed earlier diagonal controls and
 was removed. Its failed captures remain retained. The bounded curved candidate
 passes all original and new cases through native wgpu and Dawn, including actual
