@@ -124,6 +124,25 @@ the original failures and the independent GridFit fixtures while attributing the
 difference; making all straight boundaries inclusive would contradict existing
 original GridFit observations.
 
+The additional source scan-mode observation keeps those 18 captures and the same
+ten-second deadline. It pairs fitted and unfitted output for the original five
+scan modes and eight outline families at phase zero and 32 pixels per em: 80
+additional full frames, with all 40 fitted frames checked against the immutable
+original fixture. Unfitted frames remain observations, without expected-pixel
+replacement. Both matrices use the same hash-verified owned font, private family,
+native drawing call and failure-preserving cleanup. The normal Windows x64 and
+ARM64 system-font jobs execute this probe; no new workflow or desktop input is
+needed. Hosted execution of this additional matrix remains pending.
+
+The preceding 18-frame probe at `b5865332` completed on both Windows architectures
+in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).
+All 18 paired full frames agree across architectures, all three original fitted
+frames per architecture match, and each fitted/unfitted pair is identical. This
+small right-edge observation does not select the source's unfitted dropout or
+precision policy. The broader mode inventory separates those questions from
+the already qualified fitted boundary rule; the seven system-font descriptor
+failures remain unresolved.
+
 Both captured JSON files are byte-preserving Git assets. The first Windows
 package runs at `dcaac6c7` rejected their unchanged SHA-256 checks before rendering:
 the default text checkout changed the final LF into CRLF. An isolated checkout

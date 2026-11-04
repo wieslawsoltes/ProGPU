@@ -29,12 +29,20 @@ internal static class FontRasterSourceControls
                 Math.Abs(row.GetProperty("phase").GetInt32()) <= 1).ToArray();
         Require(cases.Select(row => row.GetProperty("index").GetInt32()).SequenceEqual(new[] { 93, 94, 95 }),
             "Original boundary inventory changed.");
+        JsonElement[] scanCases = document.RootElement.GetProperty("cases").EnumerateArray()
+            .Where(row => row.GetProperty("gasp").GetInt32() == 1 && row.GetProperty("phase").GetInt32() == 0)
+            .ToArray();
+        Require(scanCases.Length == 40 && scanCases.Select(row => row.GetProperty("index").GetInt32())
+            .SequenceEqual(Enumerable.Range(0, 40).Select(index => 6 + 11 * index)),
+            "Original five-mode/eight-outline inventory changed.");
         Stopwatch clock = Stopwatch.StartNew();
         nuint token = 0;
         nint collection = 0, family = 0;
         Exception? primary = null;
         var captures = new List<object>();
+        var scanModeCaptures = new List<object>();
         int matchedOriginals = 0;
+        int matchedScanOriginals = 0;
         try
         {
             Startup startup = new() { Version = 1 };
@@ -79,6 +87,38 @@ internal static class FontRasterSourceControls
                 if (originalGridFit) matchedOriginals++;
             }
             Require(captures.Count == 18, "Incomplete fitted/unfitted size matrix.");
+            // Unhinted outline loading does not execute the source SCANTYPE
+            // instructions. Observe how the original unfitted renderer treats
+            // the same five authored modes before choosing any replay policy.
+            // These are additional observations, never replacement expectations.
+            foreach (JsonElement row in scanCases)
+            foreach (int hint in new[] { 1, 2 })
+            {
+                Require(clock.Elapsed < TimeSpan.FromSeconds(10), "Owned source capture exceeded ten seconds.");
+                ushort glyph = row.GetProperty("index").GetUInt16();
+                uint[] pixels = Draw(family, glyph, 32f, hint);
+                int[] black = Enumerable.Range(0, pixels.Length).Where(i => pixels[i] == 0xff000000U).ToArray();
+                bool binary = pixels.Length == 64 * 64 && pixels.All(p => p is 0xff000000U or 0xffffffffU);
+                bool? originalMatch = hint == 1
+                    ? binary && black.SequenceEqual(row.GetProperty("black").EnumerateArray().Select(p => p.GetInt32())) : null;
+                byte[] rgba = new byte[pixels.Length * 4];
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    rgba[i * 4] = (byte)(pixels[i] >> 16);
+                    rgba[i * 4 + 1] = (byte)(pixels[i] >> 8);
+                    rgba[i * 4 + 2] = (byte)pixels[i];
+                    rgba[i * 4 + 3] = (byte)(pixels[i] >> 24);
+                }
+                scanModeCaptures.Add(new { glyph, kind = row.GetProperty("kind").GetString(),
+                    mode = row.GetProperty("mode").GetInt32(), phase = 0, pixelsPerEm = 32f,
+                    pixelsPerEmBits = BitConverter.SingleToInt32Bits(32f), hint,
+                    originalGridFit = hint == 1, originalMatch, binary, black,
+                    rgbaSha256 = Convert.ToHexString(SHA256.HashData(rgba)), rgbaBase64 = Convert.ToBase64String(rgba) });
+                Require(binary, "The full original monochrome frame is required.");
+                Require(originalMatch != false, $"Original scan-mode GridFit pixels changed for glyph {glyph}.");
+                if (hint == 1) matchedScanOriginals++;
+            }
+            Require(scanModeCaptures.Count == 80 && matchedScanOriginals == 40, "Incomplete original scan-mode matrix.");
             Require(clock.Elapsed < TimeSpan.FromSeconds(10), "Owned source capture exceeded ten seconds.");
         }
         catch (Exception error) { primary = error; throw; }
@@ -93,9 +133,11 @@ internal static class FontRasterSourceControls
                     File.WriteAllText(output, JsonSerializer.Serialize(new { schema = 1, fontSha256 = FontHash,
                         originalFixtureSha256 = FixtureHash, width = 64, height = 64, origin = new[] { 8, 24 },
                         architecture = RuntimeInformation.ProcessArchitecture.ToString(), elapsedSeconds = clock.Elapsed.TotalSeconds,
-                        completed = retired && primary is null && failures.All(value => value == 0) && captures.Count == 18,
+                        completed = retired && primary is null && failures.All(value => value == 0) && captures.Count == 18 &&
+                            scanModeCaptures.Count == 80 && matchedScanOriginals == 40,
                         retirementCompleted = retired, error = primary?.ToString(), cleanupStatuses = failures,
-                        originalGridFitComparisons = matchedOriginals, unfittedOutputIsObservationOnly = true, captures },
+                        originalGridFitComparisons = matchedOriginals, unfittedOutputIsObservationOnly = true, captures,
+                        scanModeOriginalGridFitComparisons = matchedScanOriginals, scanModeCaptures },
                         new JsonSerializerOptions { WriteIndented = true }));
                 }
                 catch (Exception error) { receiptFailure ??= error; }
