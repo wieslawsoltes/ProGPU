@@ -104,6 +104,26 @@ its two original authored fonts are 23,812 bytes each. Both fixture sets run
 through the same managed and native checks, preserving the earlier inventory,
 full frames, padding, cold/warm reuse and original font-digest validation.
 
+The normal Windows system-font reference lane also retains a small fitted versus
+unfitted source control using the same owned straight-contour font. Glyphs 93–95
+straddle its exact right-edge boundary. Each runs with GDI+ GridFit and unfitted
+monochrome at pixel em sizes `32 - 1/256`, `32` and `32 + 1/256`, with the original
+integer origin and complete 64-by-64 binary frames. The three size-32 GridFit
+frames must still equal the original fixture exactly. The other 15 captures are
+observations, not new expected pixels or permission to alias the two policies.
+The source process admits the exact font/fixture hashes and checks a ten-second
+capture deadline. This adds no workflow, desktop window or input operation.
+
+This distinction matters for the separate system-font unhinted candidate in
+[diagnostic PR #428](https://github.com/wieslawsoltes/ProGPU/pull/428). Both providers
+produced identical output and exact ordered GGO unhinted geometry for all 64
+descriptors, but seven descriptors differed from the original pixels. Matching
+GGO's captured 26.6 outlines does not establish the internal precision or coverage
+policy of GDI+'s unfitted renderer. The candidate remains unqualified. Preserve
+the original failures and the independent GridFit fixtures while attributing the
+difference; making all straight boundaries inclusive would contradict existing
+original GridFit observations.
+
 Both captured JSON files are byte-preserving Git assets. The first Windows
 package runs at `dcaac6c7` rejected their unchanged SHA-256 checks before rendering:
 the default text checkout changed the final LF into CRLF. An isolated checkout

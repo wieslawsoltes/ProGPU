@@ -5,8 +5,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <DefineConstants>$(DefineConstants);MICROSOFT_REFERENCE</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Program.cs" Link="Program.cs" />
+    <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-1.ttf" Link="ProGPU-Authored-Scan-1.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../tests/Shared/BinaryGlyphOriginals.json" Link="BinaryGlyphOriginals.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
