@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "diagnosticOnly": true,
+  "qualified": false,
+  "files": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "OriginalModules.cs": "84eef32b391dd87526b3111c46434ef439e82644eddda5b9781acea01aee68f4",
+    "contract.py": "8cceec627aa6675e6be1090af720e672f48402ddf041c1c49084dfcffa6fb922",
+    "global.json": "37014080b001eedd3486cd6ffaa789626901f22c0434949318493d8462fc1ada",
+    "original-contract.json": "0b6c60fd8608d1c63ce6ba17d8684569392f8973ec9c12b0da79ddb46f9934c0",
+    "original-source-receipt.json": "c14ed8a1c5d9887586318761465b30cd79b2a85422ef7f2b0c52f2b84b6b1484",
+    "owned_process.py": "19289156b92b2438ed5702e9c6811072e27a29d28ae4f4c5513adcc4b8ade088",
+    "run.py": "bf6990529a17d1d695b3d1e3c23fd89fd2faf1c1284d7f8cd3d9a357716a2e17",
+    "test_contract.py": "04030e52734798edc6aac55f841f57c33cec2c57767988723e30f363f1473224",
+    "with-prefix/GdiBitmapCapture.cs": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "with-prefix/GdiOutlineCapture.cs": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "with-prefix/NativeDriver.cs": "75c17dcc912a23942abe4b056a50d4703649394c7127d124ccd5dba5b1711009",
+    "with-prefix/OriginalModules.cs": "84eef32b391dd87526b3111c46434ef439e82644eddda5b9781acea01aee68f4",
+    "with-prefix/Program.cs": "917b7465b806b3601cd5a512b66b7534a1ea0a64803d034898211e4d98f4ef32",
+    "with-prefix/TextRasterReference.csproj": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "without-prefix/GdiBitmapCapture.cs": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "without-prefix/GdiOutlineCapture.cs": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "without-prefix/NativeDriver.cs": "75c17dcc912a23942abe4b056a50d4703649394c7127d124ccd5dba5b1711009",
+    "without-prefix/OriginalModules.cs": "84eef32b391dd87526b3111c46434ef439e82644eddda5b9781acea01aee68f4",
+    "without-prefix/Program.cs": "04e50ad44e443acdbdefc1fc942b488b7bbd2de30d0c3416ab8697c2ec498f4c",
+    "without-prefix/TextRasterReference.csproj": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "workflow.yml": "f3d53f343d37b1ad6079ab46ed8e1138cac57d1cb6b8dcdafe38b605ae78b133"
+  },
+  "sequence": [
+    "without-prefix",
+    "with-prefix"
+  ],
+  "originalSourceSeconds": 45,
+  "processSeconds": 60,
+  "totalImageLimitBytesPerProcess": 16777216,
+  "referenceFramesPerProcess": 72,
+  "additionalHistoricalDriverFrames": 384,
+  "noInput": true,
+  "noProGpuProvider": true
+}

@@ -1,0 +1,32 @@
+name: Matched original Drawing reference prefix diagnostic
+on:
+  pull_request:
+    branches: [main]
+    paths: ['eng/TemporaryForms72Prefix/**', '.github/workflows/forms72-prefix-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  matched-original-prefix:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.403'
+      - name: Run the single fixed original reference pair
+        env:
+          PREFIX_EVIDENCE: ${{ runner.temp }}/forms72-prefix-evidence
+        shell: pwsh
+        run: python eng/TemporaryForms72Prefix/run.py
+      - name: Retain all original outcomes and images
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: original-forms72-prefix-pair
+          path: ${{ runner.temp }}/forms72-prefix-evidence/
+          if-no-files-found: error
+          retention-days: 14
