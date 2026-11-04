@@ -1,0 +1,52 @@
+name: Standalone original64 product evidence (not72 qualification)
+on:
+  pull_request:
+    branches: [main]
+    paths: ['eng/TemporaryOriginal64Standalone/**', '.github/workflows/original64-standalone.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-unhinted64-x64:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      UNHINTED64_RUNNER_LABEL: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.403'
+      - name: Require reviewed whole producer qualification before download
+        id: producer
+        shell: pwsh
+        run: python eng/TemporaryOriginal64Standalone/stage.py preflight
+      - name: Retrieve only the original native package artifact
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ steps.producer.outputs.artifact_id }}
+          run-id: 40740184789
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/original64-standalone-package-artifact
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Build font-only collector and independent diagnostic from isolated package feed
+        shell: pwsh
+        run: python eng/TemporaryOriginal64Standalone/stage.py build
+      - name: Capture standalone64 evidence once; original72 remains failed
+        shell: pwsh
+        run: python eng/TemporaryOriginal64Standalone/run.py --closure "$env:RUNNER_TEMP/original64-standalone-stage/closure.json"
+      - name: Retain original receipts and captures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: original64-standalone-product-evidence
+          path: |
+            ${{ runner.temp }}/original64-standalone-stage/evidence/
+            ${{ runner.temp }}/original64-standalone-stage/closure.json
+            ${{ runner.temp }}/original64-standalone-results/
+          if-no-files-found: error
+          retention-days: 14
