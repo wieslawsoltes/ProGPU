@@ -52,12 +52,17 @@ inventory does not qualify the complete producer. Artifact `12122929010` has
 SHA-256 `f1a1ab2b3d82e578b8135c70d682b0263502cdeb3d3ab340722fe308abc0e58f`.
 
 The current manifest selects the committed LibreWPF
-`4ab76a8a111a1b176d66bcd332f2d65e1c7dabca` and LibreWinForms
-`bcb2b4385a3d0f8eed51326963e8b3c3ac0ca717` sources. Interop adds the source
+`065e8cc0c027566f1316169063ba92f14fa715fb` and LibreWinForms
+`9e5e8055947688edf39dc86d6a3ad93f5db9649f` sources. Interop adds the source
 caption, Close-enabled and X11 taskbar callbacks; Drawing includes the committed
 raster-target, positioned native glyph, integer-origin, source contrast, system
-policy and atomic paint-preflight work. Uncommitted downstream adapter changes
-are not included or qualified by this pin.
+policy and atomic paint-preflight work. Drawing also selects explicit Monochrome
+coverage for already-admitted aliased grid-fit draws, with coverage retained as
+an independent cache key. Original placements, outlines, grayscale and GDI
+admission remain unchanged. Its 56 focused source controls pass against the
+whole-qualified 6208 producer; this manifest makes the committed adapter part of
+the next Drawing package. Complete producer CI, original Microsoft pixels and
+framework/application qualification remain required for the new package graph.
 
 The original Linux x64 corpus at producer `4545ed71` independently confirms the
 pinned Drawing repair from `fce7e797db`: the `Format32bppPArgb` case of
