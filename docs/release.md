@@ -37,6 +37,13 @@ LibreWinForms previews. The package manifests, project defaults and consumer
 examples advance together so newly built integration packages do not reuse an
 already published version or depend on an older ProGPU package set.
 
+The browser npm package has its own version sequence. This release prepares
+`progpu-renderer` `0.1.0-preview.2`; `0.1.0-preview.1` is already published and
+must not be reused for rebuilt renderer bytes. Publish the exact verified npm
+archive from the whole-successful, merged Build through `npm release`, using the
+`next` distribution tag. NuGet and npm publication retain their separate package
+inventories and verification gates.
+
 The integration retains the original pending PR commits and includes repairs to
 physical glyph/source-path coverage, retained rendering and shader ownership,
 text source generations, Direct2D state, and desktop window/input lifetimes.
