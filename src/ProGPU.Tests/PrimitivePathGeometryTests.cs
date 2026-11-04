@@ -21,6 +21,54 @@ public sealed class PrimitivePathGeometryTests
         Assert.Equal(new Vector2(12f, 9f), max);
     }
 
+    // A closed figure's closing edge is implicit, so a rectangle can arrive as three explicit lines
+    // (WPF's RectangleGeometry does). Missing that sent the intersection of two identical layout clips
+    // to the GPU solver, whose coincident edges collapsed into zero-area slivers and made a rotated
+    // AvalonDock auto-hide tab unhittable.
+    [Fact]
+    public void ClosedRectangleWithImplicitClosingEdgeIsRecognized()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure { StartPoint = new Vector2(0f, 0f), IsClosed = true };
+        figure.Segments.Add(new LineSegment(new Vector2(21.798828f, 0f)));
+        figure.Segments.Add(new LineSegment(new Vector2(21.798828f, 172f)));
+        figure.Segments.Add(new LineSegment(new Vector2(0f, 172f)));
+        path.Figures.Add(figure);
+
+        Assert.True(
+            PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(
+                path,
+                out Vector2 min,
+                out Vector2 max));
+        Assert.Equal(new Vector2(0f, 0f), min);
+        Assert.Equal(new Vector2(21.798828f, 172f), max);
+    }
+
+    [Fact]
+    public void IntersectionOfIdenticalRectanglesIsTheRectangle()
+    {
+        static PathGeometry Rectangle()
+        {
+            var path = new PathGeometry { FillRule = FillRule.EvenOdd };
+            var figure = new PathFigure { StartPoint = new Vector2(0f, 0f), IsClosed = true };
+            figure.Segments.Add(new LineSegment(new Vector2(21.798828f, 0f)));
+            figure.Segments.Add(new LineSegment(new Vector2(21.798828f, 172f)));
+            figure.Segments.Add(new LineSegment(new Vector2(0f, 172f)));
+            path.Figures.Add(figure);
+            return path;
+        }
+
+        PathGeometry result = PathOpGeometrySolver.Combine(Rectangle(), Rectangle(), 1);
+
+        Assert.True(
+            PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(
+                result,
+                out Vector2 min,
+                out Vector2 max));
+        Assert.Equal(new Vector2(0f, 0f), min);
+        Assert.Equal(new Vector2(21.798828f, 172f), max);
+    }
+
     [Fact]
     public void RoundedRectangleIsNotReducedToRectangularClip()
     {
