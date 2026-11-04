@@ -70,6 +70,19 @@ public sealed class PrimitivePathGeometryTests
     }
 
     [Fact]
+    public void ThreeOrthogonalEdgesWithDiagonalClosureAreNotARectangle()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new LineSegment(new(4, 0)));
+        figure.Segments.Add(new LineSegment(new(4, 2)));
+        figure.Segments.Add(new LineSegment(new(2, 2)));
+        path.Figures.Add(figure);
+
+        Assert.False(PrimitivePathGeometry.TryGetAxisAlignedRectangleBounds(path, out _, out _));
+    }
+
+    [Fact]
     public void RoundedRectangleIsNotReducedToRectangularClip()
     {
         PathGeometry path =

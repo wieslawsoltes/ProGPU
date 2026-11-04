@@ -964,13 +964,10 @@ namespace ProGPU.Vector
                         }
                     }
 
-                    // Coincident operand edges come back as zero-area slivers (a lone edge, or an edge
-                    // walked out and back). They enclose nothing, and two of them replaced the whole
-                    // intersection of identical rectangles, so they are not part of the result.
-                    if (!IsZeroAreaLineFigure(figure))
-                    {
-                        figures.Add(figure);
-                    }
+                    // A signed-area sum can cancel between filled lobes, and
+                    // small source areas can become visible after a transform.
+                    // Neither is evidence that this contour can be discarded.
+                    figures.Add(figure);
                 }
             }
             finally
@@ -980,26 +977,6 @@ namespace ProGPU.Vector
                     ArrayPool<byte>.Shared.Return(rentedUsage);
                 }
             }
-        }
-
-        private static bool IsZeroAreaLineFigure(PathFigure figure)
-        {
-            const double epsilon = 1e-4;
-            Vector2 current = figure.StartPoint;
-            double twiceArea = 0d;
-            for (int segmentIndex = 0; segmentIndex < figure.Segments.Count; segmentIndex++)
-            {
-                if (figure.Segments[segmentIndex] is not LineSegment line)
-                {
-                    return false;
-                }
-
-                twiceArea += (double)current.X * line.Point.Y - (double)line.Point.X * current.Y;
-                current = line.Point;
-            }
-
-            twiceArea += (double)current.X * figure.StartPoint.Y - (double)figure.StartPoint.X * current.Y;
-            return Math.Abs(twiceArea) * 0.5d < epsilon;
         }
 
         private static Vector2 GetSegmentEndPoint(GpuPathSegment segment)
