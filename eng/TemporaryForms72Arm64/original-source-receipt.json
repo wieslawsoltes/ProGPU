@@ -1,0 +1,72 @@
+[
+  {
+    "variant": "without-prefix",
+    "name": "GdiBitmapCapture.cs",
+    "originalSha256": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "preparedSha256": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/GdiBitmapCapture.cs"
+  },
+  {
+    "variant": "without-prefix",
+    "name": "GdiOutlineCapture.cs",
+    "originalSha256": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "preparedSha256": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/GdiOutlineCapture.cs"
+  },
+  {
+    "variant": "without-prefix",
+    "name": "NativeDriver.cs",
+    "originalSha256": "75c17dcc912a23942abe4b056a50d4703649394c7127d124ccd5dba5b1711009",
+    "preparedSha256": "75c17dcc912a23942abe4b056a50d4703649394c7127d124ccd5dba5b1711009",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/NativeDriver.cs"
+  },
+  {
+    "variant": "without-prefix",
+    "name": "TextRasterReference.csproj",
+    "originalSha256": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "preparedSha256": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/TextRasterReference.csproj"
+  },
+  {
+    "variant": "without-prefix",
+    "name": "Program.cs",
+    "originalSha256": "070f1dd971e304137c733c70d57deba8247438b25440d051dd4a721b24371b33",
+    "preparedSha256": "04e50ad44e443acdbdefc1fc942b488b7bbd2de30d0c3416ab8697c2ec498f4c",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/unhinted64-windows2025-x64/reference/Program.cs"
+  },
+  {
+    "variant": "with-prefix",
+    "name": "GdiBitmapCapture.cs",
+    "originalSha256": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "preparedSha256": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/GdiBitmapCapture.cs"
+  },
+  {
+    "variant": "with-prefix",
+    "name": "GdiOutlineCapture.cs",
+    "originalSha256": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "preparedSha256": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/GdiOutlineCapture.cs"
+  },
+  {
+    "variant": "with-prefix",
+    "name": "NativeDriver.cs",
+    "originalSha256": "75c17dcc912a23942abe4b056a50d4703649394c7127d124ccd5dba5b1711009",
+    "preparedSha256": "75c17dcc912a23942abe4b056a50d4703649394c7127d124ccd5dba5b1711009",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/NativeDriver.cs"
+  },
+  {
+    "variant": "with-prefix",
+    "name": "TextRasterReference.csproj",
+    "originalSha256": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "preparedSha256": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/TextRasterReference.csproj"
+  },
+  {
+    "variant": "with-prefix",
+    "name": "Program.cs",
+    "originalSha256": "5252accc4583d8fe0591f5e431c3b069e671b9214a37fdb7259e6e575d9ef222",
+    "preparedSha256": "917b7465b806b3601cd5a512b66b7534a1ea0a64803d034898211e4d98f4ef32",
+    "source": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/forms174-preparation/original-glyphs-39141668302.zip!LibreWinForms/LibreWinForms/eng/OriginalFontBitmaps/reference/Program.cs"
+  }
+]

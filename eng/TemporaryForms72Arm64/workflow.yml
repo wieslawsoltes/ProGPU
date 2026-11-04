@@ -1,0 +1,32 @@
+name: Original ARM64 Drawing full-prefix diagnostic
+on:
+  pull_request:
+    branches: [main]
+    paths: ['eng/TemporaryForms72Arm64/**', '.github/workflows/forms72-arm64-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  original-arm64-prefix:
+    runs-on: windows-11-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.403'
+      - name: Run the single original full-prefix ARM64 reference
+        env:
+          PREFIX_EVIDENCE: ${{ runner.temp }}/forms72-arm64-evidence
+        shell: pwsh
+        run: python eng/TemporaryForms72Arm64/run.py
+      - name: Retain all original outcomes and images
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: original-forms72-arm64-prefix
+          path: ${{ runner.temp }}/forms72-arm64-evidence/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "diagnosticOnly": true,
+  "qualified": false,
+  "files": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "OriginalModules.cs": "84eef32b391dd87526b3111c46434ef439e82644eddda5b9781acea01aee68f4",
+    "comparison-inputs.json": "8093be15356a26d42a3e6a4ad6d5ddd13dd9f67a1af0e4e8c2ee6608c3c5d39c",
+    "contract.py": "7c34a735bbd09e2d4bf9a7eb340465982424f5a7362863d4ed65f0cbc079b262",
+    "global.json": "37014080b001eedd3486cd6ffaa789626901f22c0434949318493d8462fc1ada",
+    "original-contract.json": "0b6c60fd8608d1c63ce6ba17d8684569392f8973ec9c12b0da79ddb46f9934c0",
+    "original-source-receipt.json": "c14ed8a1c5d9887586318761465b30cd79b2a85422ef7f2b0c52f2b84b6b1484",
+    "owned_process.py": "19289156b92b2438ed5702e9c6811072e27a29d28ae4f4c5513adcc4b8ade088",
+    "run.py": "af417b247fd8ef89ca27e5745f1fedb8b0ecd66bec232da9c0652d338b74ef25",
+    "test_controls.py": "59c91c93b58ff3987f6eebba471409e853f471a7146cd140dfa0d4b9f003d00d",
+    "with-prefix/GdiBitmapCapture.cs": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "with-prefix/GdiOutlineCapture.cs": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "with-prefix/NativeDriver.cs": "75c17dcc912a23942abe4b056a50d4703649394c7127d124ccd5dba5b1711009",
+    "with-prefix/OriginalModules.cs": "84eef32b391dd87526b3111c46434ef439e82644eddda5b9781acea01aee68f4",
+    "with-prefix/Program.cs": "917b7465b806b3601cd5a512b66b7534a1ea0a64803d034898211e4d98f4ef32",
+    "with-prefix/TextRasterReference.csproj": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "workflow.yml": "a00f29ba365293d4055d985c220ec9deab79509d0c889066adca24cb26a18f21"
+  },
+  "sourceSeconds": 45,
+  "processSeconds": 60,
+  "frames": 456,
+  "noInput": true,
+  "sequence": [
+    "with-prefix"
+  ],
+  "expectedArchitecture": "Arm64",
+  "expectedOS": "10.0.26200"
+}
