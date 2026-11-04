@@ -295,33 +295,47 @@ public sealed class SilkWindowController : IDisposable
     /// <summary>
     /// Establishes top-level ownership between live attached controllers on their
     /// creating thread. Does not change activation, popup style or enabled intent.
-    /// Null clears ownership. Rejected requests do not replace retained owner state.
+    /// Close intent alone does not retire an owner's native identity: its Closing
+    /// callback may open an owned confirmation window. Null clears ownership.
+    /// Rejected requests do not replace retained owner state.
     /// </summary>
     public bool TrySetOwner(SilkWindowController? owner)
     {
         ThrowIfDisposed();
-        if (_threadId != Environment.CurrentManagedThreadId || _platform == null ||
+        if (_threadId != Environment.CurrentManagedThreadId || _platform is not { } platform ||
             !_window.IsInitialized || _window.IsClosing || !Handle.IsValid)
             return false;
 
         NativeWindowHandle parent = NativeWindowHandle.Empty;
+        INativeWindowPlatform? ownerPlatform = owner?._platform;
         if (owner != null)
         {
             if (ReferenceEquals(this, owner) || owner._disposed || owner._threadId != _threadId ||
-                owner._platform == null || !owner._window.IsInitialized || owner._window.IsClosing)
+                ownerPlatform == null || !owner._window.IsInitialized)
                 return false;
             parent = owner.Handle;
-            if (!parent.IsValid || parent.Kind != Handle.Kind || parent.Display != Handle.Display)
+            if (!parent.IsValid || parent.Kind != Handle.Kind || parent.Display != Handle.Display ||
+                !owner.HasCurrentOwnerIdentity(ownerPlatform, parent))
                 return false;
             for (SilkWindowController? ancestor = owner; ancestor != null; ancestor = ancestor._ownerController)
                 if (ReferenceEquals(ancestor, this)) return false;
         }
 
-        if (!_platform.SetParent(parent)) return false;
+        if (!platform.SetParent(parent)) return false;
+        // Native setters may dispatch source callbacks. Never publish ownership
+        // after either captured controller or the actual owner identity retires.
+        if (_disposed || !ReferenceEquals(_platform, platform) || !_window.IsInitialized || _window.IsClosing ||
+            owner != null && !owner.HasCurrentOwnerIdentity(ownerPlatform!, parent))
+            return false;
         _ownerController = owner;
         _state = _state with { Parent = parent };
         return true;
     }
+
+    private bool HasCurrentOwnerIdentity(INativeWindowPlatform platform, NativeWindowHandle handle) =>
+        !_disposed && ReferenceEquals(_platform, platform) && _window.IsInitialized &&
+        platform.Handle == handle && GlfwNativeWindowPlatform.ResolveWindowHandle(_window) == handle &&
+        !_disposed && ReferenceEquals(_platform, platform);
 
     public bool SetSizeConstraints(NativeWindowSize minimum, NativeWindowSize maximum)
     {

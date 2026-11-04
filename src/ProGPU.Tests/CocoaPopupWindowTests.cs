@@ -365,7 +365,7 @@ public sealed class CocoaPopupWindowTests
 
     internal sealed class Operations : ICocoaOwnedPopupOperations
     {
-        public NativeWindowHandle Window { get; } = new(NativeWindowKind.Cocoa, 2, 0, "NSPanel");
+        public NativeWindowHandle Window { get; init; } = new(NativeWindowKind.Cocoa, 2, 0, "NSPanel");
         public nint ContentView => 3;
         public CocoaPopupInputQueue Input { get; } = new();
         public bool Current = true;
