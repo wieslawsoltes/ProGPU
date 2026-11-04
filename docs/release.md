@@ -5,6 +5,24 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
+## Maintained GitHub Actions workflows
+
+The normal workflow inventory is limited to build, regression testing,
+documentation and publication:
+
+| Purpose | Workflow files |
+| --- | --- |
+| Build, platform rendering and native contracts | `build.yml`, `android-rendering.yml`, `native-contract-generation.yml`, `dawn-system-warp.yml` (called by Build) |
+| API and image regression tests | `skiasharp-api-parity.yml`, `winui-api-parity.yml`, `svg-skia-parity.yml`, `svg-system-drawing-parity.yml` |
+| Documentation and browser sample deployment | `docs.yml`, `browser-pages.yml` |
+| Package publication | `release.yml`, `npm-release.yml` |
+
+One-off diagnostic, reference-capture and scheduled benchmark workflows are
+retired. Their command-line tools remain available for explicit investigations;
+retiring their automation does not remove normal Build or release gates, change
+pixel expectations, or qualify unresolved issues. Retain the original evidence
+needed by an open investigation before deleting its workflow run history.
+
 ## Preview.70 preparation
 
 Preview.70 prepares the merged source soft-wrap-space corrections and the
