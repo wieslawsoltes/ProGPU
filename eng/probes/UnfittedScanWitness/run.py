@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse,hashlib,json,math,os,platform,shutil
 from owned_process import run as owned_run
 from compare_geometry import compare
+from verify_scan_witness import compare as compare_scan_witness, SCAN_MASK
 ROOT=Path(__file__).resolve().parent
 
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -56,8 +57,9 @@ def main():
    observed=owned_run([closure['dotnet'],closure['nativeAssembly'],provider,str(ROOT/'inputs'),str(metadata),str(output/provider),str(output/'closure.json')],output/(provider+'.log'),output/(provider+'-process.json'),60)
    result['providers'][provider]=observed
    assert observed['exitUnsigned'] in (0,2) and not observed['timedOut'] and not observed['cleanupErrors']
-   actual=json.loads((output/provider/'result.json').read_text());assert actual['qualified'] is False and len(actual['rows'])==128 and actual['elapsedSeconds']<=45
+   actual=json.loads((output/provider/'result.json').read_text());assert actual['qualified'] is False and actual['scanWitness'] is True and actual['scanMask']==SCAN_MASK and len(actual['rows'])==128 and actual['elapsedSeconds']<=45
    save(output/provider/'geometry-comparison.json',compare(ROOT/'inputs',output/provider))
+   save(output/provider/'scan-witness-comparison.json',compare_scan_witness(output/provider))
    failed|=observed['exitUnsigned']!=0
   verified_closure(args.closure);result['completed']=True;result['pixelFailure']=failed
  except BaseException as error:failed=True;result['error']=repr(error)

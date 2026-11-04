@@ -137,17 +137,19 @@ internal static class Program
                 Save(Path.Combine(output,$"font-{fontIndex}-raw.json"),new { fontIndex, fontSha256=hash, em26_6=em,
                     policy="Unhinted",coverage="Monochrome",interpreter=35, copiedAfterSourceAndBatchRetirement=true, rawGlyphs,points,tags,ends,
                     glyphRecordBytes=Convert.ToBase64String(Raw(rawGlyphs)),pointRecordBytes=Convert.ToBase64String(Raw(points)),
-                    descriptors,segments,distinctRasterIdentities=rasterIdentities.Count,
+                    descriptors,segments,segmentRecordBytes=Convert.ToBase64String(Raw(segments)),distinctRasterIdentities=rasterIdentities.Count,
                     outlines=outlines.Select(o=>new { offset=(ulong)o.SegmentOffset,count=(ulong)o.SegmentCount,o.Minimum,o.Maximum,o.RasterScale,o.SubpixelX }) });
                 Save(Path.Combine(output,$"font-{fontIndex}-scan-witness.json"),new {
                     fontIndex,fontSha256=hash,em26_6=em,interpreter=35,phaseX=0,phaseY=0,
                     witnessPolicy="Monochrome",geometryPolicy="Unhinted",qualified=false,
-                    witnessGlyphs,witnessPoints,witnessTags,witnessEnds,witnessDescriptors,witnessSegments });
+                    witnessGlyphs,witnessPoints,witnessTags,witnessEnds,witnessDescriptors,witnessSegments,
+                    segmentRecordBytes=Convert.ToBase64String(Raw(witnessSegments)) });
                 Require(witnessOutlines.Length==outlines.Length,"Scan witness outline inventory changed.");
                 segments=ScanWitness.Apply(rawGlyphs,tags,ends,descriptors,segments,
                     witnessGlyphs,witnessTags,witnessEnds,witnessDescriptors,witnessSegments);
                 Save(Path.Combine(output,$"font-{fontIndex}-scan-applied.json"),new {
-                    qualified=false,changedMetadataOnly=true,scanMask=ScanWitness.Mask,segments });
+                    qualified=false,changedMetadataOnly=true,scanMask=ScanWitness.Mask,segments,
+                    segmentRecordBytes=Convert.ToBase64String(Raw(segments)) });
                 // Recompute the diagnostic cache inventory from the actual changed metadata.
                 rasterIdentities.Clear();
                 foreach(var outline in outlines)

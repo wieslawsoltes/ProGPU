@@ -16,6 +16,9 @@ curve, contour and segment topology. Only scan-mode/dropout bits are transferred
 original coordinates, precision flags, positions and target remain intact. Both
 raw captures are retained. The witness owners retire before the original source
 retirement assertion, so they cannot mask a lifetime failure.
+An independent reader checks the captured segment bytes before and after replay
+preparation: every coordinate, kind, precision flag and contour-range bit outside
+the declared scan mask must remain exact, including signed zero.
 
 The fixed Windows 2025 x64 host executes both existing providers once. The
 original 45-second/16-MiB per-provider limits, complete cold/warm frames, native
@@ -30,3 +33,5 @@ must preserve the original and changed evidence without selecting another mode.
 The existing Build workflow runs this within its Windows system-font lane. No
 new workflow is introduced. The exact historical package artifact remains
 hash-pinned so the experiment varies metadata alone.
+This historical-artifact dependency must be retired or replaced with durable
+current-package regression coverage after attribution, before merge and release.

@@ -1,6 +1,6 @@
 {
   ".gitattributes": "240e778b41a70f2e98b491a56f847be3720ea63f2fce50d6db5d0993a0a2d6fb",
-  "README.md": "73f5a443b86422125033781ac70cc1b47407dfe16beccd274341180fd0673bbb",
+  "README.md": "4a9c45b13ecd7589bba5f3236fbbd2677877bd8cee7b91d73f1b96ad0498ee5c",
   "compare_geometry.py": "2c463c0f879599a0b6143b9ec448e69c939d5d4f3576991f8c770050763f7224",
   "failed72-receipt.json": "ab2c6c6224f9e1087c5468103864407d5bb86ecaeb76475ad2de1447b172fe06",
   "fonts/FontCapture.csproj": "1b37d2358db92981288647127dea6a78eed7deaff88809c07f27a0d128e6e3a2",
@@ -84,7 +84,7 @@
   "inputs/1-30.rgba.gz": "0fb4a1cc80cc4339b250f13baa478426b47e5a655a8f5616ed82027e184281ad",
   "inputs/1-31.rgba.gz": "6d6aa87f3d993dab9b4f2e94f34d170d4778dd495d3ac129b25cd7f9e5bf4c56",
   "inputs/original64.json": "96c318b28680ab3b4d4e88ef0c2e96a715c18f41af6dfc7778c14c3354120096",
-  "native/Program.cs": "96cb66db32c745860d3dfc2ef308a70e392f6e09b042ee85d389be803b2e1712",
+  "native/Program.cs": "1463b1ca4fdbbcb5c668205a5feecd7cc741f6881cc36ec3fb0f0909716f9327",
   "native/ScanWitness.cs": "8113dafe7c062526bd5d19a53bf5034a130984e906c0f01512ea3a7f65006b9a",
   "native/Unhinted64.csproj": "b423233204254c6679ae4abcfb60ad5103ea3acef4e971f04ab682563d37b122",
   "native/WindowsBuildPin.json": "0de2baaffcaacde32513ecf59344a9144a34af29b86f137fb2d07c98e7d2c278",
@@ -98,10 +98,12 @@
   "producer-qualification.json": "afa609d46214f57f13d36411af8d3550e8b15ba80b5fbb677fc88c00002ab85a",
   "reference/Program.cs": "c90d11c1131a910edca141b3e6c3126f7628174c80f079abb60757f299ee508c",
   "reference/TextRasterReference.csproj": "940683a014489a5a5987bd53d45cc8487f88ca0febe93585f2e723dd888bf549",
-  "run.py": "d4cfadbaca45bc1ce41fb25a4c97d84bb9f84f98184f9d89beaa9953cc7b4d9b",
+  "run.py": "5c5680ef2f3b4ca475c036217602eb25a1d221b1d9b7cc821515529058fd6eb8",
   "source-normalization.json": "32f7dff9d0d288f896ae40afa5e3dff245c34d627d63ec7d95da8f8fb5c1b26c",
   "stage.py": "14be539044c8630d4e5669a3aeb90f0fec53bf74d2f31540f46aec421425a6d2",
   "test_admission.py": "7e3c9a219d70bad5ec7e16c6328f02c06656393c2a93b526e71bf1b2cd19162b",
-  "test_orchestration.py": "49f2cfc7a5af3c189ab8636adc914925abc298ef636b89e5734020281a97d329",
-  "test_stage.py": "9e7b98fa9c872f3d5f927c29f780d0545671e1bf2c29643efb6a316d12045e2d"
+  "test_orchestration.py": "89c491248d28c310f43c7eb9ed0285bb20f152f58b06d40ecb1c043192ec825f",
+  "test_scan_witness.py": "78739145320891cfd6adbe85a92f35f6ddf9c25047c6b96a4c59b2c67de5675f",
+  "test_stage.py": "9e7b98fa9c872f3d5f927c29f780d0545671e1bf2c29643efb6a316d12045e2d",
+  "verify_scan_witness.py": "d4f3da53126d752381366ac8afcf25d6d1c0f6ccad09b72e206b3dcf01fa9210"
 }

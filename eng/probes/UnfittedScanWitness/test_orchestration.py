@@ -9,11 +9,12 @@ class Orchestration(unittest.TestCase):
     calls.append((argv,seconds));code=exit_codes[len(calls)-1]
     target=pathlib.Path(argv[-1]) if len(calls)==1 else pathlib.Path(argv[-2])
     target.mkdir()
-    if len(calls)>1 and code in(0,2):(target/'result.json').write_text(json.dumps({'qualified':False,'rows':[{}]*128,'elapsedSeconds':1}))
+    if len(calls)>1 and code in(0,2):(target/'result.json').write_text(json.dumps({'qualified':False,'scanWitness':True,'scanMask':run.SCAN_MASK,'rows':[{}]*128,'elapsedSeconds':1}))
     return {'exitUnsigned':code,'timedOut':False,'cleanupErrors':[]}
    env={'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted','GITHUB_REPOSITORY':'wieslawsoltes/ProGPU','UNHINTED64_RUNNER_LABEL':'windows-2025','GITHUB_RUN_ATTEMPT':'1','RUNNER_TEMP':str(root)}
    with patch.dict(os.environ,env),patch.object(sys,'argv',['run.py','--closure',str(root/'closure.json')]),patch.object(run.platform,'system',return_value='Windows'),patch.object(run.platform,'machine',return_value='AMD64'),patch.object(run,'verified_closure',return_value=closure),patch.object(run,'validate_fonts'),patch.object(run,'owned_run',side_effect=launch),patch.object(run,'compare',return_value={'qualified':False,'exactOrderedCount':64}):
-    code=run.main()
+    with patch.object(run,'compare_scan_witness',return_value={'qualified':False,'fonts':[]}):
+     code=run.main()
    result=json.loads((root/'original64-standalone-results/execution.json').read_text())
    retained=json.loads((root/'original64-standalone-results/original72-failed-status.json').read_text())
    self.assertEqual(retained['status'],'failed');self.assertFalse(result['qualified']);self.assertFalse(result['baselineSubstitution']);self.assertTrue(result['privateFontsRetired'])
