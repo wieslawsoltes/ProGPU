@@ -45,8 +45,12 @@ internal static class FontRasterSourceControls
             Require(familyCount == 1, "One private owned family is required.");
             nint[] families = new nint[1];
             Check(GdipGetFontCollectionFamilyList(collection, 1, families, out int found));
-            family = families[0];
-            Require(found == 1 && family != 0, "Private family was not realized.");
+            Require(found == 1 && families[0] != 0, "Private family was not realized.");
+            // Collection enumeration lends this pointer without adding a
+            // reference. Clone acquires the reference that our Delete owns,
+            // even when GDI+ returns the same pointer value for the clone.
+            Check(GdipCloneFontFamily(families[0], out family));
+            Require(family != 0, "An owned private family reference is required.");
             foreach (JsonElement row in cases)
             foreach (float pixelsPerEm in new[] { 32f - 1f / 256f, 32f, 32f + 1f / 256f })
             foreach (int hint in new[] { 1, 2 }) // Original GDI+ fitted/unfitted monochrome.
@@ -81,22 +85,33 @@ internal static class FontRasterSourceControls
         finally
         {
             var failures = new List<int>();
+            Exception? receiptFailure = null;
+            void WriteReceipt(bool retired)
+            {
+                try
+                {
+                    File.WriteAllText(output, JsonSerializer.Serialize(new { schema = 1, fontSha256 = FontHash,
+                        originalFixtureSha256 = FixtureHash, width = 64, height = 64, origin = new[] { 8, 24 },
+                        architecture = RuntimeInformation.ProcessArchitecture.ToString(), elapsedSeconds = clock.Elapsed.TotalSeconds,
+                        completed = retired && primary is null && failures.All(value => value == 0) && captures.Count == 18,
+                        retirementCompleted = retired, error = primary?.ToString(), cleanupStatuses = failures,
+                        originalGridFitComparisons = matchedOriginals, unfittedOutputIsObservationOnly = true, captures },
+                        new JsonSerializerOptions { WriteIndented = true }));
+                }
+                catch (Exception error) { receiptFailure ??= error; }
+            }
+            // Flush the actual captures before entering native teardown. A
+            // process-fatal cleanup failure must leave an incomplete receipt.
+            WriteReceipt(false);
             if (family != 0) failures.Add(GdipDeleteFontFamily(family));
             if (collection != 0) failures.Add(GdipDeletePrivateFontCollection(ref collection));
             if (token != 0) GdiplusShutdown(token);
-            // Retain an actual rejected frame and every earlier observation;
-            // neither a pixel rejection nor cleanup failure erases the evidence.
-            try
-            {
-                File.WriteAllText(output, JsonSerializer.Serialize(new { schema = 1, fontSha256 = FontHash,
-                    originalFixtureSha256 = FixtureHash, width = 64, height = 64, origin = new[] { 8, 24 },
-                    architecture = RuntimeInformation.ProcessArchitecture.ToString(), elapsedSeconds = clock.Elapsed.TotalSeconds,
-                    completed = primary is null && failures.All(value => value == 0) && captures.Count == 18,
-                    error = primary?.ToString(), cleanupStatuses = failures, originalGridFitComparisons = matchedOriginals,
-                    unfittedOutputIsObservationOnly = true, captures }, new JsonSerializerOptions { WriteIndented = true }));
-            }
-            catch (Exception error) when (primary is not null) { primary.Data["OriginalFontSourceReceipt"] = error.ToString(); }
-            Cleanup(failures, primary);
+            WriteReceipt(true);
+            if (primary is not null && receiptFailure is not null)
+                primary.Data["OriginalFontSourceReceipt"] = receiptFailure.ToString();
+            Cleanup(failures, primary ?? receiptFailure);
+            if (primary is null && receiptFailure is not null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(receiptFailure).Throw();
         }
     }
 
@@ -153,6 +168,7 @@ internal static class FontRasterSourceControls
     [DllImport("gdiplus.dll", CharSet = CharSet.Unicode)] private static extern int GdipPrivateAddFontFile(nint collection, string path);
     [DllImport("gdiplus.dll")] private static extern int GdipGetFontCollectionFamilyCount(nint collection, out int count);
     [DllImport("gdiplus.dll")] private static extern int GdipGetFontCollectionFamilyList(nint collection, int count, [Out] nint[] families, out int found);
+    [DllImport("gdiplus.dll")] private static extern int GdipCloneFontFamily(nint family, out nint clone);
     [DllImport("gdiplus.dll")] private static extern int GdipDeletePrivateFontCollection(ref nint collection);
     [DllImport("gdiplus.dll")] private static extern int GdipCreateFont(nint family, float size, int style, int unit, out nint font);
     [DllImport("gdiplus.dll")] private static extern int GdipCreateSolidFill(uint color, out nint brush);
