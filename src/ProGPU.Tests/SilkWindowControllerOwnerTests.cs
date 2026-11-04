@@ -119,6 +119,35 @@ public sealed class SilkWindowControllerOwnerTests
         Assert.Equal(owner.Handle, child.Parent);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReentrantOwnerBindingCannotPublishACycle(bool indirect)
+    {
+        var childOperations = CreateOperations(20);
+        using var ownerWindow = Create(CreateOperations(10));
+        using var childWindow = Create(childOperations);
+        using var ancestorWindow = Create(CreateOperations(30));
+        using var owner = new SilkWindowController(ownerWindow);
+        using var child = new SilkWindowController(childWindow);
+        using var ancestor = new SilkWindowController(ancestorWindow);
+        Assert.True(owner.Attach());
+        Assert.True(child.Attach());
+        Assert.True(ancestor.Attach());
+        if (indirect) Assert.True(owner.TrySetOwner(ancestor));
+        childOperations.OnBindOwner = () =>
+        {
+            // The original cycle check has already run. A native setter can
+            // dispatch source callbacks that change another controller's owner.
+            childOperations.OnBindOwner = null;
+            Assert.True((indirect ? ancestor : owner).TrySetOwner(child));
+        };
+
+        Assert.False(child.TrySetOwner(owner));
+        Assert.Equal(NativeWindowHandle.Empty, child.Parent);
+        Assert.Equal(child.Handle, (indirect ? ancestor : owner).Parent);
+    }
+
     private static Operations CreateOperations(nint handle)
     {
         var window = new NativeWindowHandle(NativeWindowKind.Cocoa, handle, 0, "NSPanel");

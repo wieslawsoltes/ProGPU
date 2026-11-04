@@ -15,6 +15,15 @@ neither becomes a successful managed-only relationship. A rejected native setup
 is not a rollback or lifetime lease: the source host still owns failed-window
 teardown, and accepted source close must prevent later dialog creation.
 
+The retained owner chain is also checked again after native binding. A callback
+can attach the proposed owner, or one of its ancestors, to this child after the
+initial cycle check. Publishing the original request would then create a cycle
+and could leave later owner traversal nonterminating. Both direct and indirect
+reentrant controls fail before this second check and reject the outer request
+afterward, preserving the successful inner relationship and the child's previous
+retained owner. Both chain walks are O(D) for owner depth D, allocation-free,
+and invoke no provider or source callbacks.
+
 `SilkWindowControllerOwnerTests` exercises the real controller, owned Cocoa
 window and provider, with injected native operations. It covers closing callback
 ownership, native refusal/exception, controller/window disposal, retirement

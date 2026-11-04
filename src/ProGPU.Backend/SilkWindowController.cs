@@ -317,19 +317,25 @@ public sealed class SilkWindowController : IDisposable
             if (!parent.IsValid || parent.Kind != Handle.Kind || parent.Display != Handle.Display ||
                 !owner.HasCurrentOwnerIdentity(ownerPlatform, parent))
                 return false;
-            for (SilkWindowController? ancestor = owner; ancestor != null; ancestor = ancestor._ownerController)
-                if (ReferenceEquals(ancestor, this)) return false;
+            if (WouldCreateOwnerCycle(owner)) return false;
         }
 
         if (!platform.SetParent(parent)) return false;
         // Native setters may dispatch source callbacks. Never publish ownership
         // after either captured controller or the actual owner identity retires.
         if (_disposed || !ReferenceEquals(_platform, platform) || !_window.IsInitialized || _window.IsClosing ||
-            owner != null && !owner.HasCurrentOwnerIdentity(ownerPlatform!, parent))
+            owner != null && (!owner.HasCurrentOwnerIdentity(ownerPlatform!, parent) || WouldCreateOwnerCycle(owner)))
             return false;
         _ownerController = owner;
         _state = _state with { Parent = parent };
         return true;
+    }
+
+    private bool WouldCreateOwnerCycle(SilkWindowController owner)
+    {
+        for (SilkWindowController? ancestor = owner; ancestor != null; ancestor = ancestor._ownerController)
+            if (ReferenceEquals(ancestor, this)) return true;
+        return false;
     }
 
     private bool HasCurrentOwnerIdentity(INativeWindowPlatform platform, NativeWindowHandle handle) =>
