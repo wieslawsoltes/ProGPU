@@ -132,7 +132,36 @@ original fixture. Unfitted frames remain observations, without expected-pixel
 replacement. Both matrices use the same hash-verified owned font, private family,
 native drawing call and failure-preserving cleanup. The normal Windows x64 and
 ARM64 system-font jobs execute this probe; no new workflow or desktop input is
-needed. Hosted execution of this additional matrix remains pending.
+needed. Both jobs passed at `f65f3c646` in
+[Build 41932551078](https://github.com/wieslawsoltes/ProGPU/actions/runs/41932551078).
+Independent review verifies all 196 complete RGBA frames, all 86 immutable fitted
+comparisons and equality of all 98 x64/ARM64 pairs. The source receipts, including
+retirement, take 0.575 seconds on x64 and 0.462 seconds on ARM64.
+
+Every same-glyph fitted/unfitted pair agrees. In particular, diagonal dropout
+retains five distinct frames for the five authored SCANTYPE modes, even when
+unfitted. This is an observation about the original owned font, not permission
+to equate all [GDI+ text rendering modes](https://learn.microsoft.com/en-us/windows/desktop/api/gdiplusenums/ne-gdiplusenums-textrenderinghint)
+with a [FreeType outline-load flag](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html).
+
+A separate local probe compiles the actual current native capture sources against
+the pinned owned FreeType. Its 320 captures cover all 40 source glyphs, four load
+targets and both interpreters. Points, contour ends and curve topology agree in
+this owned font. Normal, Monochrome and HorizontalLcd retain every authored scan
+mode; Unhinted yields flags zero and no contour overrides, losing the selected
+mode in 32 of 40 glyphs for each interpreter. This establishes a metadata gap for
+these inputs. It does not attribute the seven original system-font failures or
+permit changing Unhinted's existing instruction-free contract.
+
+The [source scan witness replay](../eng/probes/UnfittedScanWitness/README.md)
+tests that explanation against the original 64 descriptors and full images. A
+separate same-source/device Monochrome capture supplies only scan/dropout metadata
+after complete topology checks. Original unhinted geometry, precision flags and
+expected images remain unchanged. Both original provider processes keep their
+45-second limits; source and witness arrays are retained independently. The
+existing Windows reference lane uses the exact previously qualified producer
+package from the failed experiment, isolating this change from new product code.
+Local compilation and guard controls do not qualify its pending hosted pixels.
 
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).

@@ -1,0 +1,38 @@
+{
+  "qualificationReviewed": true,
+  "producer": {
+    "head": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+    "wholeBuildRunId": 40740184789,
+    "wholeBuildConclusion": "success",
+    "reviewEvidenceSha256": "ee1a5be29a641495590c028fc835e63fe387a3978ff30f30db9f50893c6df6f7"
+  },
+  "artifact": {
+    "name": "progpu-native-package",
+    "id": 12842266302,
+    "bytes": 331965013,
+    "sha256": "46ed63a20612a02ef4b3384a44da3041b3c1bb9322e2d8c17a4df32c5669087b"
+  },
+  "packageVersion": "0.1.0-preview.3680.ci",
+  "packages": {
+    "ProGPU.Backend": {
+      "file": "ProGPU.Backend.0.1.0-preview.3680.ci.nupkg",
+      "bytes": 10934548,
+      "sha256": "410987cc8f73ff5525782da341c19a1c781c5b53792a95d2e854a0803891112c"
+    },
+    "ProGPU.Backend.Dawn": {
+      "file": "ProGPU.Backend.Dawn.0.1.0-preview.3680.ci.nupkg",
+      "bytes": 178716,
+      "sha256": "2cd26050976cc944d8c4a17e75e5232918cd03a03bde7ef30183848c4f044f95"
+    },
+    "ProGPU.Backend.Native": {
+      "file": "ProGPU.Backend.Native.0.1.0-preview.3680.ci.nupkg",
+      "bytes": 196064931,
+      "sha256": "269494d9d25941a20ae504ad04c11445402e8c25d9bfa8badd671f7d73b44d4d"
+    },
+    "ProGPU.Native.Sdk": {
+      "file": "ProGPU.Native.Sdk.0.1.0-preview.3680.ci.nupkg",
+      "bytes": 103383211,
+      "sha256": "b5d6a1887cea76445ce0dec7976577a13f0b1b727b020110fea13932efe3eaa6"
+    }
+  }
+}

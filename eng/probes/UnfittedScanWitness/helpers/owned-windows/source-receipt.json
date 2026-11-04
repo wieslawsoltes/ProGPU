@@ -1,0 +1,37 @@
+{
+  "head": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+  "wholeQualified": false,
+  "files": [
+    {
+      "source": "eng/progpu-wgpu-windows-runtime.py",
+      "copiedPath": "helpers/owned-windows/eng/progpu-wgpu-windows-runtime.py",
+      "sha256": "341a90531d3ae7694781a2e0cd782d3ba334bc6d77d9b95ed34bf857f10a1ac8"
+    },
+    {
+      "source": "eng/progpu-native-wgpu.version.json",
+      "copiedPath": "helpers/owned-windows/eng/progpu-native-wgpu.version.json",
+      "sha256": "b07586f8c8a1841062e39cd08bac6f9976e2ad01d6b8baed7d7213da5750c1c7"
+    },
+    {
+      "source": "eng/wgpu-dxc/build-inputs.json",
+      "copiedPath": "helpers/owned-windows/eng/wgpu-dxc/build-inputs.json",
+      "sha256": "0de2baaffcaacde32513ecf59344a9144a34af29b86f137fb2d07c98e7d2c278"
+    },
+    {
+      "source": "eng/wgpu-dxc/Cargo.lock",
+      "copiedPath": "helpers/owned-windows/eng/wgpu-dxc/Cargo.lock",
+      "sha256": "3740ec190969a9f4d7a244bed8790c1b947df4b943bb4d71045bf3a6f4e01163"
+    },
+    {
+      "source": "eng/wgpu-hlsl/build-inputs.json",
+      "copiedPath": "helpers/owned-windows/eng/wgpu-hlsl/build-inputs.json",
+      "sha256": "ae71fdc538621d4cd59cf59b1563e3f4ab87123749c5f1550c524b8e24d28fa6"
+    },
+    {
+      "source": "eng/wgpu-hlsl/naga-workgroup-zero-init.patch",
+      "copiedPath": "helpers/owned-windows/eng/wgpu-hlsl/naga-workgroup-zero-init.patch",
+      "sha256": "048251c667d3807f8bf28f6dc7d7d30f47cf08316c86c4b6f627f247d8575847"
+    }
+  ],
+  "previousSourceReceipt": "review-before-6208.zip:helpers/owned-windows/source-receipt.json"
+}
