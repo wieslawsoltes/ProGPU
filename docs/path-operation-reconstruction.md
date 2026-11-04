@@ -16,9 +16,16 @@ that filter preserves every original endpoint and ordered edge. The existing
 segment chaining policy and shader arithmetic are unchanged.
 
 The rectangle fix does not establish a general fix for coincident edges in the
-GPU Boolean solver. Linux System.Drawing corpus improvements contributed with
-#424 require verification against the final combined source; the corpus gate
-continues to compare the complete failure inventory and summary.
+GPU Boolean solver. The complete Linux System.Drawing corpus at corrected
+`b5865332` now verifies the improvements contributed with #424:
+3,356 passed, 1,063 known failures and 34 skips across all 4,453 cases in
+[Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).
+Independent review of artifact `13371035052` confirms the complete failure,
+skip and summary inventories and XML case counts. Compared with qualified
+`6208f44ca`, 38 cases now pass across six Region operation groups, with no new
+or increased failure group. The retained known failures are not passed tests,
+and this corpus result does not establish general coincident-edge support or
+original Forms application qualification.
 
 ## Managed/native applicability
 
