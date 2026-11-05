@@ -22,7 +22,8 @@ mapped rather than cast as native wire data.
 Original implementation provenance: `portable_path_geometry::CompareWithGeometry`
 in `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp` at parent
 `f3b30893` supplies the unchanged comparison body, extracted into
-`compare_normalized_fill_contours`. The COM method still uses it and retains its
+`compare_normalized_fill_contours` (now in the neutral Geometry module,
+`src/Geometry/progpu_native_path_core.cpp`). The COM method still uses it and retains its
 existing empty-operand rejection. The new utility uses the same original
 `create_native_fill_geometry`, `extract_outline_contours`, ordered boolean
 arrangement and boundary-contact helpers. It outlines each operand once. Its
@@ -202,14 +203,58 @@ stroke query (`src/Geometry/progpu_native_geometry_utility.cpp`). Test:
 square caps checked by fill containment of the outline and against the stroke
 query's bounds, rejected pens).
 
+## Neutral geometry module
+
+The device-independent path, Boolean and stroke code is owned by the neutral
+Geometry module (`progpu_native_geometry`, namespace `progpu::native::geometry`),
+not by the Direct2D compatibility layer:
+
+- `include/progpu_native_geometry_types.hpp`: the vocabulary (points, matrices,
+  rectangle edges, segments, arcs, triangles, stroke style properties, the path
+  enums) and a 32-bit `status` whose values equal the COM results the Direct2D
+  layer reports. It includes no Direct2D or COM header.
+- `src/Geometry/progpu_native_path_core.hpp`/`.cpp`: recorded path data
+  (`path_data`), plain C++ sinks and collectors (`simplified_sink`, `path_sink`,
+  `polygon_contours_collector`, `widened_bounds_collector`), and the operations
+  over a recorded path: bounds, widened bounds, stroke and fill containment,
+  simplification, tessellation, outline, area, length, point at length,
+  widening, the Boolean combination and comparison of outline contours, and the
+  widened outline export. The flattening, polygon Boolean/normalization,
+  triangulation, stroke containment, widening, dash run and SIMD kernels moved
+  unchanged.
+- `src/Geometry/progpu_native_path_builder.cpp`: the path recorder and the
+  canonical fill, stroke and query segment transports.
+- `src/Geometry/progpu_native_geometry_primitives.*`: transform and arc
+  validation, endpoint arcs to cubics, stroke style validation (moved from the
+  Direct2D behavior core, which forwards to them).
+- `src/Geometry/progpu_native_curve_dash.hpp`: the curve dash runs (moved from
+  `src/Mil/progpu_native_mil_curve_dash.hpp`, which now forwards and keeps the
+  `mil::curve_dash` namespace as an alias).
+
+Direct2D and MIL are clients. The Direct2D path geometry
+(`src/Direct2D/progpu_native_direct2d_path.cpp`) keeps only its COM objects and
+plumbing: reference counting, factory identity, the state and argument checks
+that precede an algorithm, conversion between the Direct2D C structs and the
+neutral types (identical layouts, asserted in `progpu_native_direct2d_core.hpp`;
+the point-free types and the path enums are shared directly), and streaming of
+results into the caller's COM sinks. Its `detail::` bridge functions keep their
+signatures for MIL and the tests. The C ABI
+(`src/Geometry/progpu_native_geometry_utility.cpp`) calls only the Geometry
+module: no Direct2D factory, COM object or stroke style object is created for a
+query, and every validation rule, status mapping and output contract is
+unchanged.
+
 ## Original implementation provenance and performance boundaries
 
 Only original ProGPU implementation is reused:
 
-- `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp`:
-  `create_native_fill_geometry`, `polygon_contours_sink`,
-  `portable_path_geometry::CombineWithGeometry`, outline/arrangement helpers,
-  intrinsic candidate bounds and fill classification.
+- `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp` (now
+  `src/ProGPU.Native/src/Geometry/progpu_native_path_core.cpp` and
+  `progpu_native_path_builder.cpp`): `create_native_fill_geometry` (now
+  `build_native_fill_path`), `polygon_contours_sink` (now
+  `polygon_contours_collector`), `portable_path_geometry::CombineWithGeometry`
+  (now `path_combine` and `combine_outline_contours`), outline/arrangement
+  helpers, intrinsic candidate bounds and fill classification.
 - `src/ProGPU.Native/src/Mil/progpu_native_mil.cpp`:
   `resolve_combined_stroke_outline` already consumes that same core, establishing
   why this utility must share actual boundaries rather than concatenate operand
@@ -324,7 +369,9 @@ algorithm. Existing source primitive identity fast paths remain in place.
 
 `progpu_native_geometry_fill_contains` and `NativeGeometryUtilities.FillContains`
 reuse `create_native_fill_geometry` and `portable_path_geometry::FillContainsPoint`
-in the original ProGPU-owned `progpu_native_direct2d_path.cpp`. The exported ABI
+in the original ProGPU-owned `progpu_native_direct2d_path.cpp`, now
+`build_native_fill_path` and `path_fill_contains_point` of the neutral Geometry
+module (`src/Geometry/progpu_native_path_core.cpp`). The exported ABI
 is additive and uses existing point/path records plus a caller-owned uint result;
 no new wire record or module interface is introduced. Both WGPU-native and Dawn
 wrappers use the same source. There is one pinned span crossing and no output
@@ -398,14 +445,18 @@ and `NativeGeometryQueryPen` through the existing contract generator; handwritte
 partials add typed-cap/join constructors but do not duplicate field declarations.
 Both managed backend wrappers pin caller spans for one synchronous call, use
 blittable Matrix3x2/point/output records, retain no inputs and allocate no output
-objects. Native construction owns one factory/path/style for the query and
-releases them on every return. This is independent of GPU/device creation and
+objects. Native construction owns one recorded path of the neutral Geometry
+module and a by-value pen style (the caller's dashes stay borrowed) for the
+query, and releases them on every return; no Direct2D factory or COM object is
+created. This is independent of GPU/device creation and
 does not activate operating-system COM. The ABI is additive; existing record
 layouts and ABI version remain unchanged. No named-module interface changes.
 
 Original ProGPU provenance: the canonical line/quadratic/cubic/arc emitter was
-factored from `create_native_geometry` in `progpu_native_direct2d_path.cpp` and
-is shared by existing MIL/fill construction and the new multi-figure adapter.
+factored from `create_native_geometry` in `progpu_native_direct2d_path.cpp` (now
+`write_native_path`/`write_native_query_path` in
+`src/Geometry/progpu_native_path_builder.cpp`) and is shared by existing MIL/fill
+construction and the new multi-figure adapter.
 Arc splitting retains unstroked flags on every internally emitted piece and
 forces only internal smooth joins. Bounds use `get_widened_outline_bounds`,
 the same emitted-coverage helper used by MIL; hits use the existing Direct2D
