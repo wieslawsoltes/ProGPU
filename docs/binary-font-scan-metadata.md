@@ -161,7 +161,28 @@ expected images remain unchanged. Both original provider processes keep their
 45-second limits; source and witness arrays are retained independently. The
 existing Windows reference lane uses the exact previously qualified producer
 package from the failed experiment, isolating this change from new product code.
-Local compilation and guard controls do not qualify its pending hosted pixels.
+The replay at `490367550` in
+[Build 41939650876](https://github.com/wieslawsoltes/ProGPU/actions/runs/41939650876)
+completed both providers and failed their original pixel checks. Each captured
+all 128 full frames in about 6.2 seconds, retained exact ordered geometry for all
+64 descriptors, preserved every non-scan segment bit and retired its private
+fonts and owned processes. All 128 provider pairs and cold/warm images agree.
+
+Compared with the unchanged original experiment, only six frames changed: one
+pixel in each cold/warm image for Microsoft Sans Serif source slots 1, 5 and 11.
+Those three descriptors now match their original images. No previously matching
+pixel changed. Segoe UI slots 2, 24, 27 and 30 still differ: eight frames and
+36 pixels per provider, versus the original fourteen frames and 42 pixels.
+Slots 2 and 30 share glyph 80; the other remaining glyphs are 90 and 41.
+
+This attributes those three Microsoft Sans Serif differences to scan metadata
+in this isolated replay. It is not a complete raster fix or source/application
+qualification. The remaining Segoe UI pixels require independent precision and
+scan-boundary evidence; exact GGO 26.6 geometry does not establish GDI+'s internal
+unfitted representation. Preserve both failures, all original expected images
+and the independent fitted fixtures. No generic boundary, font-load policy,
+shader or acceptance threshold changed. Artifact `13375063886` has SHA-256
+`02204e87d090266c2190b7e553128e7571731141344f92daa38d7e5cae32cd8e`.
 
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).

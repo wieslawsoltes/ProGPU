@@ -30,6 +30,16 @@ application gate or qualification of the current producer. A successful result
 would justify a separately reviewed explicit source contract; a failed result
 must preserve the original and changed evidence without selecting another mode.
 
+The first hosted replay at `490367550` completed and failed on both providers.
+All original geometry and non-scan segment bytes remain exact. Metadata alone
+resolves the three Microsoft Sans Serif descriptor failures, changing exactly
+six pixels across their cold/warm frames per provider. The four Segoe UI
+descriptors still fail on eight frames and 36 pixels per provider. All provider
+and cold/warm pairs agree; both processes finish within the original bounds and
+retire their private fonts. This partial attribution is not a product fix or
+permission to change the remaining pixels or select another scan mode.
+See [the retained result](../../../docs/binary-font-scan-metadata.md).
+
 The existing Build workflow runs this within its Windows system-font lane. No
 new workflow is introduced. The exact historical package artifact remains
 hash-pinned so the experiment varies metadata alone.
