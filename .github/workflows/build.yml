@@ -141,14 +141,11 @@ jobs:
   windows-system-fonts:
     name: Windows system font reference (${{ matrix.rid }})
     needs: [dx12-runtime]
-    permissions:
-      contents: read
-      actions: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-2025
+          - os: windows-latest
             rid: win-x64
           - os: windows-11-arm
             rid: win-arm64
@@ -181,46 +178,12 @@ jobs:
           if ([int]$counts.total -ne 23 -or [int]$counts.executed -ne 23 -or [int]$counts.passed -ne 23) {
             throw 'All 23 system font ownership/descriptor/screen-DPI cases must execute and pass.'
           }
-      - name: Setup original unfitted-reference SDK
-        if: matrix.rid == 'win-x64'
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.403'
-      - name: Admit the exact original qualified font replay package
-        if: matrix.rid == 'win-x64'
-        id: scan-witness-producer
-        shell: pwsh
-        run: python eng/probes/UnfittedScanWitness/stage.py preflight
-      - name: Retrieve original qualified font replay package
-        if: matrix.rid == 'win-x64'
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ steps.scan-witness-producer.outputs.artifact_id }}
-          run-id: 40740184789
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/original64-standalone-package-artifact
-          merge-multiple: true
-          digest-mismatch: error
-      - name: Compare original unfitted pixels with captured scan metadata
-        if: matrix.rid == 'win-x64'
-        shell: pwsh
-        env:
-          UNHINTED64_RUNNER_LABEL: windows-2025
-        run: |
-          python eng/probes/UnfittedScanWitness/stage.py build
-          if ($LASTEXITCODE -ne 0) { throw 'Original scan witness staging failed.' }
-          python eng/probes/UnfittedScanWitness/run.py --closure "$env:RUNNER_TEMP/original64-standalone-stage/closure.json"
-          if ($LASTEXITCODE -ne 0) { throw 'Original unfitted scan witness pixels or controls failed.' }
       - name: Preserve independent system font receipts
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: windows-system-fonts-${{ matrix.rid }}
-          path: |
-            artifacts/windows-system-fonts/${{ matrix.rid }}/
-            ${{ runner.temp }}/original64-standalone-stage/evidence/
-            ${{ runner.temp }}/original64-standalone-stage/closure.json
-            ${{ runner.temp }}/original64-standalone-results/
+          path: artifacts/windows-system-fonts/${{ matrix.rid }}/
           if-no-files-found: error
 
   system-drawing-contract:

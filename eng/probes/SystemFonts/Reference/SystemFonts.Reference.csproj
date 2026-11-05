@@ -10,6 +10,7 @@
   <ItemGroup>
     <Compile Include="../Program.cs" Link="Program.cs" />
     <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-1.ttf" Link="ProGPU-Authored-Scan-1.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-Reversed.ttf" Link="ProGPU-Authored-Scan-Reversed.ttf" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../../tests/Shared/BinaryGlyphOriginals.json" Link="BinaryGlyphOriginals.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

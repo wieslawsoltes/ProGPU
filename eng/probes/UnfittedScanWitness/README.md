@@ -40,8 +40,9 @@ retire their private fonts. This partial attribution is not a product fix or
 permission to change the remaining pixels or select another scan mode.
 See [the retained result](../../../docs/binary-font-scan-metadata.md).
 
-The existing Build workflow runs this within its Windows system-font lane. No
-new workflow is introduced. The exact historical package artifact remains
-hash-pinned so the experiment varies metadata alone.
-This historical-artifact dependency must be retired or replaced with durable
-current-package regression coverage after attribution, before merge and release.
+The existing Build workflow executed this within its Windows system-font lane;
+that completed experiment has now been retired from routine CI. No new workflow
+was introduced. This directory retains its source, original inputs and exact
+historical package identity for review. The artifact dependency is no longer a
+build or release prerequisite. The unresolved original pixels and separate
+72-case application acceptance still block source-policy qualification.

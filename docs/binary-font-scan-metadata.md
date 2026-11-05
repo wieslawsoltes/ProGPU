@@ -159,7 +159,7 @@ separate same-source/device Monochrome capture supplies only scan/dropout metada
 after complete topology checks. Original unhinted geometry, precision flags and
 expected images remain unchanged. Both original provider processes keep their
 45-second limits; source and witness arrays are retained independently. The
-existing Windows reference lane uses the exact previously qualified producer
+existing Windows reference lane used the exact previously qualified producer
 package from the failed experiment, isolating this change from new product code.
 The replay at `490367550` in
 [Build 41939650876](https://github.com/wieslawsoltes/ProGPU/actions/runs/41939650876)
@@ -183,6 +183,29 @@ unfitted representation. Preserve both failures, all original expected images
 and the independent fitted fixtures. No generic boundary, font-load policy,
 shader or acceptance threshold changed. Artifact `13375063886` has SHA-256
 `02204e87d090266c2190b7e553128e7571731141344f92daa38d7e5cae32cd8e`.
+The completed replay is retired from routine CI, removing its expiring historical
+artifact dependency. Its source, inputs and both failed results remain retained;
+this does not turn the remaining original pixel failures into passing acceptance.
+
+An additional owned-source direction observation pairs the original font with a
+separate derivative. Only seven four-point right-edge contours reverse point
+order; their original coordinates, metrics and scan instructions remain intact.
+The derivative has a distinct family name and SHA-256
+`872c5a82825c5e1aa3e51589d758680b36a7e005b8fa982efd21d19b239fb91d`.
+Its deterministic generator follows the public
+[OpenType glyph format](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf).
+Actual native capture independently verifies both complete 441-glyph inventories
+under four load targets and both interpreters: 7,056 captures preserve all
+metadata, all 3,472 unaffected captures per font and the exact reversed point
+order in 56 affected comparisons. This is font-structure validation, not pixels.
+
+The original 98-frame source control retains its unchanged expectations and
+ten-second bound. A separate ten-second, 28-frame observation pairs both contour
+directions with fitted/unfitted rendering over five scan modes and the three
+original mode-one phases. All seven original fitted frames must still match the
+immutable fixture. Reversed frames remain observations, with complete pixels,
+owned private-family retirement and no input or desktop windows. Its hosted
+result is pending; contour direction is a hypothesis, not a shader correction.
 
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).

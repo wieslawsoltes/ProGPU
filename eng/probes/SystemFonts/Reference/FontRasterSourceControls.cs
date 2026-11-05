@@ -8,7 +8,7 @@ using System.Text.Json;
 // Independent Windows source observations of our own font. No renderer policy
 // is inferred from a successful capture. Existing GridFit pixels stay exact;
 // unfitted/fractional-size output is retained separately for attribution.
-internal static class FontRasterSourceControls
+internal static partial class FontRasterSourceControls
 {
     private const string FontHash = "60D952F14B770AEC08221B8ADEE1A1B7D82A8ABDC259FB2484DE9666A2F45832";
     private const string FixtureHash = "6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092";

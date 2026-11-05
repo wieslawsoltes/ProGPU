@@ -22,7 +22,10 @@ try
         throw new InvalidOperationException("The requested DPI awareness context is not active.");
 #if MICROSOFT_REFERENCE
     if (args[0] == "unaware")
+    {
         FontRasterSourceControls.Run(Path.ChangeExtension(args[1], ".raster.json"));
+        FontRasterSourceControls.RunReversed(Path.ChangeExtension(args[1], ".direction.json"));
+    }
 #endif
     string[] roles = ["DefaultFont", "DialogFont", "MenuFont", "MessageBoxFont",
         "StatusFont", "CaptionFont", "IconTitleFont", "SmallCaptionFont"];
