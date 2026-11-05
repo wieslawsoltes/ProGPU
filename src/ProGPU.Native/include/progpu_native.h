@@ -1095,7 +1095,15 @@ typedef struct progpu_native_rect {
 typedef enum progpu_native_primitive_kind {
     PROGPU_NATIVE_PRIMITIVE_RECTANGLE = 0,
     PROGPU_NATIVE_PRIMITIVE_ELLIPSE = 1,
-    PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE = 2
+    PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE = 2,
+    /* The Gaussian-blurred coverage of a rounded rectangle (a drop shadow) in
+     * closed form, in the analytic batch: x/y/width/height and corner_radius
+     * describe the shadow's rounded rectangle (spread and offset applied), and
+     * stroke_thickness is the standard deviation of the blur in local units
+     * (finite and positive). Flags must be zero; the color is solid (a scene
+     * brush must be solid). The quad extends three deviations beyond the
+     * rectangle. Clipping the shadow out of its element is the caller's. */
+    PROGPU_NATIVE_PRIMITIVE_SHADOW = 3
 } progpu_native_primitive_kind;
 
 enum {

@@ -1622,6 +1622,7 @@ const _: () = {
 pub const PROGPU_NATIVE_PRIMITIVE_RECTANGLE: progpu_native_primitive_kind = 0;
 pub const PROGPU_NATIVE_PRIMITIVE_ELLIPSE: progpu_native_primitive_kind = 1;
 pub const PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE: progpu_native_primitive_kind = 2;
+pub const PROGPU_NATIVE_PRIMITIVE_SHADOW: progpu_native_primitive_kind = 3;
 pub type progpu_native_primitive_kind = ::core::ffi::c_uint;
 pub const PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED: _bindgen_ty_21 = 1;
 pub const PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE: _bindgen_ty_21 = 2;

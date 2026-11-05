@@ -7,8 +7,10 @@ namespace progpu::native {
 inline bool is_valid_analytic_primitive(
     const progpu_native_analytic_primitive& primitive,
     float antialias_padding) noexcept {
-    if (primitive.kind > PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE ||
+    if (primitive.kind > PROGPU_NATIVE_PRIMITIVE_SHADOW ||
         (primitive.flags & ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U ||
+        (primitive.kind == PROGPU_NATIVE_PRIMITIVE_SHADOW &&
+            (primitive.flags != 0U || !(primitive.stroke_thickness > 0.0F))) ||
         !std::isfinite(primitive.x) || !std::isfinite(primitive.y) ||
         !std::isfinite(primitive.width) || !std::isfinite(primitive.height) ||
         primitive.width < 0.0F || primitive.height < 0.0F ||
@@ -36,12 +38,18 @@ inline bool append_analytic_primitive(
     }
 
     float radius = 0.0F;
-    if (primitive.kind == PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE) {
+    if (primitive.kind == PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE ||
+        primitive.kind == PROGPU_NATIVE_PRIMITIVE_SHADOW) {
         radius = std::min(
             std::abs(primitive.corner_radius),
             std::min(primitive.width, primitive.height) * 0.5F);
     }
-    const float stroke_padding = primitive.stroke_thickness * 0.5F;
+    // A shadow's stroke_thickness is its deviation: its coverage reaches three
+    // deviations beyond the rectangle (below 1/740 of its peak there).
+    const bool shadow = primitive.kind == PROGPU_NATIVE_PRIMITIVE_SHADOW;
+    const float stroke_padding = shadow
+        ? primitive.stroke_thickness * 3.0F
+        : primitive.stroke_thickness * 0.5F;
     // Aliased rectangle fills need no coverage fringe. Their original four
     // transformed edges let the rasterizer own exact top/left pixel centers;
     // a padded quad plus interpolated SDF can leak its right/bottom boundary.
@@ -59,8 +67,9 @@ inline bool append_analytic_primitive(
     const float local_top = -half_height - padding;
     const float local_right = half_width + padding;
     const float local_bottom = half_height + padding;
+    // The vector shader's shape type of a shadow is 28.
     const float encoded_shape_type =
-        static_cast<float>(primitive.kind) +
+        (shadow ? 28.0F : static_cast<float>(primitive.kind)) +
         ((primitive.flags & PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U
             ? 1000.0F
             : 0.0F);
