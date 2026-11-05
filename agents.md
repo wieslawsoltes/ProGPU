@@ -1,3 +1,9 @@
+Binary analytic coverage pairs retain their original scalar coordinate expressions
+and ordered short-circuit visits through one bounded two-iteration helper. Keep
+the complete base-coverage arithmetic, events, shared memory, atomics and barriers
+unchanged. Local bitmap equivalence does not prove ARM64 WARP stack safety or
+package qualification; see docs/binary-font-scan-metadata.md.
+
 Explicit paired unfitted font replay captures both original Unhinted geometry and
 Monochrome scan metadata from the same context, selected font and frozen request.
 Reject complete topology differences before output publication; transfer only the

@@ -258,6 +258,17 @@ fn base_covered(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool
     return before > 0 || winding_below_boundary(record, x, level, vertical, before) > 0;
 }
 
+// Preserve the original ordered, short-circuit pair with one heavy analytic
+// helper call site. Select the caller's exact scalar coordinates; do not derive
+// the second position from the first or change either endpoint's arithmetic.
+fn base_pair_covered(record: GlyphRecord, first: f32, second: f32, level: f32) -> bool {
+    for (var side = 0u; side < 2u; side++) {
+        let x = select(first, second, side != 0u);
+        if base_covered(record, x, level, false) { return true; }
+    }
+    return false;
+}
+
 fn pixel_address(point: vec2<f32>) -> vec2<u32> {
     let x = u32(floor(point.x) - uniforms.xStart);
     let y = u32(-floor(point.y) - 1.0 - uniforms.yStart);
@@ -391,8 +402,7 @@ fn vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     if vertical {
         if horizontal_covered(a, record) || horizontal_covered(b, record) { return; }
     } else {
-        if base_covered(record, left + 0.5, level, false) ||
-           base_covered(record, left + 1.5, level, false) { return; }
+        if base_pair_covered(record, left + 0.5, left + 1.5, level) { return; }
     }
     let selected = select(left, left + 1.0, mode == 4u && point.x > left + 1.0);
     let bounds = raster_bounds(record);
@@ -438,8 +448,7 @@ fn flat_boundary_dropout(record: GlyphRecord, index: u32, level: f32, vertical: 
     if vertical {
         if horizontal_covered(a, record) || horizontal_covered(b, record) { return; }
     } else {
-        if base_covered(record, left + 0.5, level, false) ||
-           base_covered(record, right + 0.5, level, false) { return; }
+        if base_pair_covered(record, left + 0.5, right + 0.5, level) { return; }
     }
     if mode == 1u || mode == 5u {
         if !promoted_scan_extent(record, vertical) ||
@@ -509,7 +518,7 @@ fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     if vertical {
         if horizontal_covered(left_point, record) || horizontal_covered(right_point, record) { return; }
     } else {
-        if base_covered(record, left + 0.5, level, false) || base_covered(record, right + 0.5, level, false) { return; }
+        if base_pair_covered(record, left + 0.5, right + 0.5, level) { return; }
     }
     if mode == 1u || mode == 5u {
         for (var side = 0u; side < 2u; side++) {

@@ -619,6 +619,29 @@ differences. The full canonical shader plus NUL occurs exactly once in each
 actual tested library. These local checks preserve the original cold/warm,
 ownership and submission assertions; Windows execution remains pending.
 
+The array-selection candidate `ba52504f1` still fails the original Windows ARM64
+DXC binary consumer in [Build 41961661131, job 127043560538](https://github.com/wieslawsoltes/ProGPU/actions/runs/41961661131/job/127043560538):
+frame zero reaches submission wait and exits `0xC0000409`. Its complete original
+log is retained. Array removal alone is therefore insufficient; neither that
+candidate nor its local successful pixels establish ARM64 safety.
+
+A further candidate retains each horizontal analytic coverage pair in a bounded
+two-visit helper. It selects the original first and second scalar arguments,
+returns immediately when the first succeeds, and otherwise performs the second
+check. The three original callers retain their exact coordinate expressions,
+including the vertex path's distinct `left + 1.5` expression. The complete
+`base_covered` arithmetic, all 21 other unchanged functions, event/root storage,
+shared memory, barriers, atomics, lane/dropout order and explicit smart-curve
+endpoint evaluations remain intact. This reduces duplicated heavy helper call
+sites without replacing the rendering algorithm or changing compiler settings.
+
+All 42 local fixture/resource controls pass, including the complete eight bitmap
+fixtures (2,537 original cases). Both rebuilt native providers pass all 24 fixture
+executions with zero pixel differences; the exact canonical shader plus NUL is
+present once in each actually loaded library. These results establish local
+pixel equivalence only. The original ARM64 package checks and full producer
+qualification remain mandatory before claiming a repair.
+
 Local validation on 18 October 2026:
 
 - All 880 complete authored coverage cases match exactly in the managed atlas,
