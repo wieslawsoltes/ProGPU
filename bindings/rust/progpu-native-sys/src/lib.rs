@@ -16,6 +16,13 @@ pub mod progpu {
     include!("progpu_native.rs");
 }
 
+/// The C ABI over the retained scene builder (`native/progpu_native_scene_builder_c.h`), linked
+/// statically with the builder of the SDK.
+#[cfg(progpu_native_sdk)]
+pub mod scene_builder {
+    include!("scene_builder.rs");
+}
+
 /// The wgpu-native WebGPU C ABI.
 pub mod webgpu {
     include!("webgpu.rs");

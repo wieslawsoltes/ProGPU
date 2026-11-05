@@ -8,7 +8,7 @@ description = "Raw bindings of the ProGPU native C ABI (progpu_native.h) and of 
 repository = "https://github.com/wieslawsoltes/ProGPU"
 links = "progpu_native"
 build = "build.rs"
-include = ["Cargo.toml", "build.rs", "src/**", "headers/**", "README.md", "LICENSE"]
+include = ["Cargo.toml", "build.rs", "src/**", "headers/**", "native/**", "README.md", "LICENSE"]
 
 [lib]
 path = "src/lib.rs"
@@ -17,5 +17,6 @@ path = "src/lib.rs"
 libloading = "0.8"
 
 [build-dependencies]
+cc = "1"
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }

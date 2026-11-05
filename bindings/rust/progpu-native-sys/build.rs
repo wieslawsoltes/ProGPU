@@ -69,6 +69,24 @@ fn main() {
     println!("cargo:include={}", include.display());
     println!("cargo:sdk={}", sdk.display());
     println!("cargo:runtime={}", runtime.display());
+    compile_scene_builder(&include, &sdk);
+}
+
+/// Compiles the C ABI over the retained scene builder (`native/`) and links it with the static
+/// builder of the SDK.
+fn compile_scene_builder(include: &Path, sdk: &Path) {
+    println!("cargo:rerun-if-changed=native/progpu_native_scene_builder_c.cpp");
+    println!("cargo:rerun-if-changed=native/progpu_native_scene_builder_c.h");
+    let mut build = cc::Build::new();
+    build.cpp(true).std("c++20").include(include).include("native").file("native/progpu_native_scene_builder_c.cpp");
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc") {
+        build.flag("-fvisibility=hidden");
+    }
+    build.compile("progpu_native_scene_builder_c");
+    println!("cargo:rustc-link-search=native={}", sdk.display());
+    for library in ["progpu_native_scene_builder", "progpu_native_text", "progpu_native_image", "progpu_native_compression"] {
+        println!("cargo:rustc-link-lib=static={library}");
+    }
 }
 
 /// The NuGet runtime identifier of the target.

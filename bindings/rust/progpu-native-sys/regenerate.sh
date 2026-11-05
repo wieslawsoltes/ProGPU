@@ -10,3 +10,6 @@ bindgen "$INCLUDE/progpu_native.h" --allowlist-function 'progpu_native_.*' --all
 bindgen headers/wgpu.h --allowlist-function 'wgpu.*' --allowlist-type 'WGPU.*' --allowlist-var 'WGPU.*' \
   --dynamic-loading WgpuNativeLibrary --default-enum-style consts --no-prepend-enum-name --no-doc-comments --use-core \
   -o src/webgpu.rs -- -Iheaders
+bindgen native/progpu_native_scene_builder_c.h --allowlist-function 'progpu_native_scene_builder_.*' \
+  --allowlist-type 'progpu_native_scene_builder' --no-recursive-allowlist --raw-line 'use crate::progpu::*;' \
+  --no-doc-comments --use-core -o src/scene_builder.rs -- -I"$INCLUDE" -Inative
