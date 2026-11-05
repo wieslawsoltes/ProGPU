@@ -1,0 +1,21 @@
+[package]
+name = "progpu-native-sys"
+version = "0.1.0-preview.70"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+description = "Raw bindings of the ProGPU native C ABI (progpu_native.h) and of the wgpu-native WebGPU C ABI it runs on, loaded at run time from the ProGPU native SDK packages"
+repository = "https://github.com/wieslawsoltes/ProGPU"
+links = "progpu_native"
+build = "build.rs"
+include = ["Cargo.toml", "build.rs", "src/**", "headers/**", "README.md", "LICENSE"]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+libloading = "0.8"
+
+[build-dependencies]
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
