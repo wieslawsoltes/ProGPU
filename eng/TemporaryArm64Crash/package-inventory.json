@@ -1,0 +1,57 @@
+{
+  "qualified": false,
+  "purpose": "Exact failed package inspection and bounded native crash diagnosis only; not source replay or framework pin admission.",
+  "head": "d0d5e9e0c2cfd15e880b0e0259b2a1e2f1d45f43",
+  "run": 41954219105,
+  "artifact": 13383649446,
+  "packageVersion": "0.1.0-preview.3701.ci",
+  "gitShaderSha256": "bf881e2e5d75371dd40b71715aaf6749dfe3296d3323203d302cbb67dee55f67",
+  "originalWindowsCheckoutShaderSha256": "00d6e8ba0e4ecd04575d9d16afdba8b8620bcd99226b43c085720a6a47dde0bf",
+  "packages": {
+    "ProGPU.Backend.Dawn.0.1.0-preview.3701.ci.nupkg": {
+      "bytes": 178716,
+      "sha256": "2bf2731ae6f808d29e41feb7ccc8cc0f54a9c5b3a5d219771a16fd8d3e77ae23",
+      "nativeArm64Dlls": {
+        "buildTransitive/runtimes/win-arm64/native/progpu_dawn_system_warp.dll": "6ac0b132d4b53c26f896e217eefcb5e664f3d2a1e66608d175c51361ea0c33b2"
+      },
+      "originalCRLFShaderOccurrences": {}
+    },
+    "ProGPU.Backend.Dx12.0.1.0-preview.3701.ci.nupkg": {
+      "bytes": 24196095,
+      "sha256": "95b94267a808116758110d4a56c636355d08c6be6aba262893016a7ddf786f05",
+      "nativeArm64Dlls": {
+        "buildTransitive/runtimes/win-arm64/native/dxcompiler.dll": "add120337487e273af0d649446aa61ff0b90475dc1a31ffb2774e870d4ec6830",
+        "buildTransitive/runtimes/win-arm64/native/dxil.dll": "9b2ad850ea6ee3d621044f739231a22823c8bd759b34a2c34dc2f4c0d450a6a8",
+        "buildTransitive/runtimes/win-arm64/native/wgpu_native.dll": "780ae5fdacde961b204a43589b089fea47a3010e2f259b1f914fb18acac4c4bb"
+      },
+      "originalCRLFShaderOccurrences": {}
+    },
+    "ProGPU.Backend.Native.0.1.0-preview.3701.ci.nupkg": {
+      "bytes": 196077169,
+      "sha256": "c20533b159f2579ca54ef811eb1677de8118c9bbc535a9d79347a8af567856ef",
+      "nativeArm64Dlls": {
+        "runtimes/win-arm64/native/progpu_native.dll": "1841e6693380e4248ff5d4defc637317d241e856bdf6ee0475bb8fd588ca8e76",
+        "runtimes/win-arm64/native/progpu_native_dawn.dll": "73e719a7f5cbc7f776d211e75b23b6e4706a48d1765e9f5748f6215bf9d9f4a8",
+        "runtimes/win-arm64/native/progpu_native_direct2d.dll": "61365d80d52c6fee267e04ec13ac64f42392aebbfecad60a856f902676105ddd"
+      },
+      "originalCRLFShaderOccurrences": {
+        "runtimes/win-arm64/native/progpu_native.dll": 1,
+        "runtimes/win-arm64/native/progpu_native_dawn.dll": 1
+      }
+    },
+    "ProGPU.Backend.0.1.0-preview.3701.ci.nupkg": {
+      "bytes": 10938607,
+      "sha256": "59c981612f0850d25e00254d1040b585030820cda7d99f5afe63dede892b48f0",
+      "nativeArm64Dlls": {
+        "runtimes/win-arm64/native/wgpu_native.dll": "780ae5fdacde961b204a43589b089fea47a3010e2f259b1f914fb18acac4c4bb"
+      },
+      "originalCRLFShaderOccurrences": {}
+    },
+    "ProGPU.Native.Sdk.0.1.0-preview.3701.ci.nupkg": {
+      "bytes": 103383181,
+      "sha256": "4bf8de82b7f2610e45744d2876eaffa9e6bfd9a09bfede7a8ca24a10017aa721",
+      "nativeArm64Dlls": {},
+      "originalCRLFShaderOccurrences": {}
+    }
+  }
+}
