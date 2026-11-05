@@ -310,8 +310,38 @@ the reversed font SHA-256 is
 The source observer retains 660 full frames under a separate ten-second bound,
 including 110 mandatory unchanged original fitted comparisons. Earlier 98, 28
 and 1,760-frame observations retain their original expectations, schemas and
-limits. The new stroke-end source pixels are pending; this does not change the
-product's dropout rule or qualify the remaining `F` pixel.
+limits. Build [41949972992](https://github.com/wieslawsoltes/ProGPU/actions/runs/41949972992)
+completed both source observations in 0.232 and 0.377 seconds. All 660 x64/ARM64
+frame pairs and all fitted/unfitted pairs agree. All 1,886 earlier frames per
+architecture remain byte-identical. Artifact 13380622019 has SHA-256
+`73dcdb927cf7b8f9e19ef33720d6ea1d6dc1ef732cd0428edcef9682fc602c2a`;
+artifact 13380383561 has SHA-256
+`45585dbb4c6b0b50933a182adc683fd5a919d992622ad6a6ee66d321943a4bd2`.
+
+The two new immutable fixture files retain all 220 original forward/reversed
+frames. Before the correction, 16 reversed cases lose one exact endpoint pixel
+each; every previous fixture and all 110 forward cases pass. The missing pixels
+are closed, positive-winding flat boundaries at upper scan endpoints. Ordinary
+lower-inclusive crossings correctly have no interval there. The shared shader
+now evaluates those exact straight endpoints separately, using the existing
+signed endpoint transfer and original scan modes. An existing nonzero interval
+stays on its original path. Axis transposition reverses only the winding test;
+no perturbed level, root replacement, contour-area approximation or new bitmap
+expectation is involved. Stub-excluding modes still require two distinct inward
+continuation contacts. Original event slots, parameters, sorting, lane traversal,
+vertex-dropout calls, buffers and barriers remain unchanged. The additional
+work is bounded by O(C*S), with at most S upper flat caps across both directions.
+
+All 40 focused managed controls pass, including all 2,427 original cases and
+cold/warm cache checks. A separate trial shortened the existing finite-cap
+allowance; it broke original forward and reversed source images and was discarded.
+Its failure is retained. Both rebuilt native providers pass all 18 executions
+(original segments and actual font captures under interpreters 35/40), including
+full pixels, source retirement and cold/warm cache counters. All 128 retained
+system-font frames per provider remain byte-identical to the previous run, so
+the separate `F` mismatch is unchanged. These isolated strip observations do not explain the
+system-font `F` mismatch: their complete glyph bounds differ from a connected
+stem. Fresh Windows/provider/package qualification remains required.
 
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).

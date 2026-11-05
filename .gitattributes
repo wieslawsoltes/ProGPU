@@ -30,3 +30,5 @@ tests/Shared/BinaryGlyphAllDirectionsOriginals.json -text
 tests/Shared/ProGPU-Authored-Scan-Caps.ttf -text
 tests/Shared/ProGPU-Authored-Scan-Caps-Reversed.ttf -text
 tests/Shared/ProGPU-Authored-Scan-Caps.json -text
+tests/Shared/BinaryGlyphCapsOriginals.json -text
+tests/Shared/BinaryGlyphCapsReversedOriginals.json -text

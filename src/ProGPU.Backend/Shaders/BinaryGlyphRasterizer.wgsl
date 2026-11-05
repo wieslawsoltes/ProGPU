@@ -1,7 +1,8 @@
 // Algorithm: Original ProGPU binary contour scan conversion with sorted winding
 // crossings and two ordered horizontal/vertical dropout passes.
-// Time complexity: O((W+H)*512*log(512)^2 + P*(log(512)+S) + D*S), where
-// W/H are glyph dimensions, P scanned pixels, S <= 256 segments and D dropouts.
+// Time complexity: O((W+H)*512*log(512)^2 + P*(log(512)+S) + (D+C)*S), where
+// W/H are glyph dimensions, P scanned pixels, S <= 256 segments, D dropouts,
+// and C <= S exact upper flat caps across both scan directions.
 // Smart curved dropouts add at most two 32-step subdivisions per dropout.
 // Space complexity: 10 KiB workgroup storage and two packed R8 W*H output buffers;
 // no CPU bitmap or readback. No foreign rasterizer code.
@@ -10,7 +11,7 @@
 // scan. Horizontal and vertical entry points MUST be separate ordered dispatches.
 // The immutable horizontal result prevents dropout read/write scheduling races.
 // Preparation admits physical scale 1, phase 0 and validated contour metadata.
-// Work: O((W+H)*(512*log(512)^2 + P*log(512)) + D*S), with additional O(P*S)
+// Work: O((W+H)*(512*log(512)^2 + P*log(512)) + (D+C)*S), with additional O(P*S)
 // exact flat-boundary checks; shared storage 10 KiB, no CPU readback or bitmap.
 // This explicit candidate is not Microsoft/source pixel qualification.
 
@@ -377,6 +378,57 @@ fn vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     paint(clamp(candidate, bounds.xy + vec2<f32>(0.5), bounds.zw - vec2<f32>(0.5)), !vertical);
 }
 
+// A closed straight cap can lie exactly on an upper scan boundary, where
+// lower-inclusive crossings intentionally contain no interval. Retain that
+// boundary's dropout using its actual endpoints and signed adjacent winding;
+// never perturb the scan or insert fabricated roots into the sorted events.
+fn flat_boundary_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
+    if index >= record.segmentCount { return; }
+    let segment = segments[record.startSegment + index];
+    let mode = segment.scanDescriptor & 7u;
+    if segment.segmentType != 0u || (mode != 0u && mode != 1u && mode != 4u && mode != 5u) { return; }
+    let p = axis_point(segment.p0, vertical);
+    let q = axis_point(segment.p1, vertical);
+    if p.y != level || q.y != level || p.x == q.x { return; }
+    let beginning = min(p.x, q.x);
+    let finish = max(p.x, q.x);
+    let left = floor(beginning - 0.5);
+    let right = left + 1.0;
+    let gap = select(left + 0.5 < beginning && finish <= right + 0.5,
+        left + 0.5 <= beginning && finish < right + 0.5, vertical);
+    if !gap { return; }
+    let midpoint = (beginning + finish) * 0.5;
+    var low = 0u;
+    var high = 512u;
+    while low < high {
+        let middle = (low + high) / 2u;
+        if events[middle].x < midpoint { low = middle + 1u; }
+        else { high = middle; }
+    }
+    var above = 0;
+    if low > 0u { above = winding[low - 1u]; }
+    let below = winding_below_boundary(record, midpoint, level, vertical, above);
+    // Swapping scan axes reverses signed winding. Only the original positive
+    // boundary is closed; its ordinary negative interior remains independent.
+    if above != 0 || !select(below > 0, below < 0, vertical) { return; }
+    let a = axis_point(vec2<f32>(left + 0.5, level), vertical);
+    let b = axis_point(vec2<f32>(right + 0.5, level), vertical);
+    if vertical {
+        if horizontal_covered(a, record) || horizontal_covered(b, record) { return; }
+    } else {
+        if base_covered(record, left + 0.5, level, false) ||
+           base_covered(record, right + 0.5, level, false) { return; }
+    }
+    if mode == 1u || mode == 5u {
+        if continuation_crossings(record, left + 0.5, level, -1.0, vertical) < 2u { return; }
+    }
+    var selected = left;
+    if (mode == 4u || mode == 5u) && midpoint > right { selected = right; }
+    let bounds = raster_bounds(record);
+    let candidate = axis_point(vec2<f32>(selected + 0.5, level), vertical);
+    paint(clamp(candidate, bounds.xy + vec2<f32>(0.5), bounds.zw - vec2<f32>(0.5)), !vertical);
+}
+
 // Resolve only the selected original root through bounded de Casteljau
 // subdivision in increasing scan-axis direction. Stop once the control hull
 // spans at most one 26.6 unit, retaining the lower-parameter endpoint's unit.
@@ -487,6 +539,7 @@ fn cs_binary_horizontal(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_
         dropout(record, index, level, false);
     }
     vertex_dropout(record, lane, level, false);
+    flat_boundary_dropout(record, lane, level, false);
 }
 
 @compute @workgroup_size(256)
@@ -503,4 +556,5 @@ fn cs_binary_vertical(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_in
         dropout(record, index, level, true);
     }
     vertex_dropout(record, lane, level, true);
+    flat_boundary_dropout(record, lane, level, true);
 }

@@ -1,3 +1,11 @@
+Exact upper flat binary-glyph boundaries retain their actual endpoint pair and
+original positive signed winding, with axis transposition accounted for. Ordinary
+nonzero scan intervals keep their original route; stub-excluding modes retain
+inward continuation checks. Never perturb the scan, rewrite sorted roots or
+shorten the independent finite-cap allowance to hide a source difference. Preserve
+all original forward/reversed fixtures and the remaining system-font gate; see
+docs/binary-font-scan-metadata.md.
+
 Exact straight binary-glyph boundaries retain their actual signed winding.
 Negative interiors stay filled; flat-line boundary limits use only exact endpoint
 transfers from the original scan, without perturbed roots or a contour-area proxy.
