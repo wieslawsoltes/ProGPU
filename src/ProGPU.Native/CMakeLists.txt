@@ -731,7 +731,8 @@ add_custom_target(progpu_native_generated_shaders
 set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_rgb_glyph_execution.cpp
     src/Backend/progpu_native_target_clear.cpp
-    src/Backend/progpu_native_geometry_utility.cpp
+    src/Geometry/progpu_native_geometry_utility.cpp
+    src/Geometry/progpu_native_path_measure_abi.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
     src/Backend/progpu_native.cpp
@@ -861,6 +862,24 @@ set(PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Image"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
+
+# The device-independent geometry of the engine: path measures and the shared
+# path algorithms; the C ABI over it (src/Geometry/*_abi.cpp and
+# progpu_native_geometry_utility.cpp) is compiled into each renderer library.
+add_library(progpu_native_geometry STATIC
+    src/Geometry/progpu_native_arc.hpp
+    src/Geometry/progpu_native_path_measure.cpp
+    src/Geometry/progpu_native_path_measure.hpp)
+target_compile_features(progpu_native_geometry PUBLIC cxx_std_20)
+target_include_directories(progpu_native_geometry PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+set_target_properties(progpu_native_geometry PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+progpu_native_enable_warnings(progpu_native_geometry)
+progpu_native_enable_sanitizers(progpu_native_geometry)
 
 add_library(progpu_native_hit_testing STATIC
     src/HitTesting/progpu_native_hit_testing.cpp
@@ -1228,6 +1247,7 @@ target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(progpu_native_direct2d_core PUBLIC
     progpu_native_scene_builder
+    progpu_native_geometry
     PRIVATE progpu_native_text)
 if(WIN32)
     target_compile_definitions(progpu_native_direct2d_core PUBLIC
@@ -1769,7 +1789,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_geometry_utility_tests
         tests/progpu_native_geometry_utility_tests.cpp
-        src/Backend/progpu_native_geometry_utility.cpp)
+        src/Geometry/progpu_native_geometry_utility.cpp
+        src/Geometry/progpu_native_path_measure_abi.cpp)
     target_compile_features(progpu_native_geometry_utility_tests PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_geometry_utility_tests PRIVATE PROGPU_NATIVE_BUILD=1)
     target_include_directories(progpu_native_geometry_utility_tests PRIVATE

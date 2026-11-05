@@ -4083,6 +4083,11 @@ const _: () = {
     ["Offset of field: progpu_native_geometry_query_pen::line_join"]
         [::core::mem::offset_of!(progpu_native_geometry_query_pen, line_join) - 24usize];
 };
+#[repr(C)]
+#[derive(Debug)]
+pub struct progpu_native_path_measure {
+    _unused: [u8; 0],
+}
 pub const PROGPU_NATIVE_HIT_TEST_AXIS_ALIGNED_BOUNDS: progpu_native_hit_test_primitive_kind = 0;
 pub const PROGPU_NATIVE_HIT_TEST_RECTANGLE_FILL: progpu_native_hit_test_primitive_kind = 1;
 pub const PROGPU_NATIVE_HIT_TEST_RECTANGLE_STROKE: progpu_native_hit_test_primitive_kind = 2;
@@ -6348,6 +6353,55 @@ pub struct ProGPUNativeLibrary {
         ) -> progpu_native_status,
         ::libloading::Error,
     >,
+    pub progpu_native_path_measure_create: Result<
+        unsafe extern "C" fn(
+            figures: *const progpu_native_geometry_query_figure,
+            figure_count: u32,
+            segments: *const progpu_native_path_segment,
+            segment_count: u32,
+            force_closed: u32,
+            resolution_scale: f32,
+            measure: *mut *mut progpu_native_path_measure,
+        ) -> progpu_native_status,
+        ::libloading::Error,
+    >,
+    pub progpu_native_path_measure_destroy:
+        Result<unsafe extern "C" fn(measure: *mut progpu_native_path_measure), ::libloading::Error>,
+    pub progpu_native_path_measure_contour_count: Result<
+        unsafe extern "C" fn(measure: *const progpu_native_path_measure) -> u32,
+        ::libloading::Error,
+    >,
+    pub progpu_native_path_measure_contour: Result<
+        unsafe extern "C" fn(
+            measure: *const progpu_native_path_measure,
+            contour: u32,
+            length: *mut f32,
+            closed: *mut u32,
+        ) -> progpu_native_status,
+        ::libloading::Error,
+    >,
+    pub progpu_native_path_measure_position_tangent: Result<
+        unsafe extern "C" fn(
+            measure: *const progpu_native_path_measure,
+            contour: u32,
+            distance: f32,
+            position: *mut progpu_native_point,
+            tangent: *mut progpu_native_point,
+        ) -> progpu_native_status,
+        ::libloading::Error,
+    >,
+    pub progpu_native_path_measure_segment: Result<
+        unsafe extern "C" fn(
+            measure: *const progpu_native_path_measure,
+            contour: u32,
+            start_distance: f32,
+            stop_distance: f32,
+            segments: *mut progpu_native_path_segment,
+            capacity: u32,
+            count: *mut u32,
+        ) -> progpu_native_status,
+        ::libloading::Error,
+    >,
     pub progpu_native_get_abi_version: Result<unsafe extern "C" fn() -> u32, ::libloading::Error>,
     pub progpu_native_get_info: Result<
         unsafe extern "C" fn(info: *mut progpu_native_engine_info) -> u8,
@@ -6793,6 +6847,24 @@ impl ProGPUNativeLibrary {
         let progpu_native_geometry_stroke_query = __library
             .get(b"progpu_native_geometry_stroke_query\0")
             .map(|sym| *sym);
+        let progpu_native_path_measure_create = __library
+            .get(b"progpu_native_path_measure_create\0")
+            .map(|sym| *sym);
+        let progpu_native_path_measure_destroy = __library
+            .get(b"progpu_native_path_measure_destroy\0")
+            .map(|sym| *sym);
+        let progpu_native_path_measure_contour_count = __library
+            .get(b"progpu_native_path_measure_contour_count\0")
+            .map(|sym| *sym);
+        let progpu_native_path_measure_contour = __library
+            .get(b"progpu_native_path_measure_contour\0")
+            .map(|sym| *sym);
+        let progpu_native_path_measure_position_tangent = __library
+            .get(b"progpu_native_path_measure_position_tangent\0")
+            .map(|sym| *sym);
+        let progpu_native_path_measure_segment = __library
+            .get(b"progpu_native_path_measure_segment\0")
+            .map(|sym| *sym);
         let progpu_native_get_abi_version = __library
             .get(b"progpu_native_get_abi_version\0")
             .map(|sym| *sym);
@@ -6940,6 +7012,12 @@ impl ProGPUNativeLibrary {
             progpu_native_geometry_outline_destroy,
             progpu_native_geometry_fill_contains,
             progpu_native_geometry_stroke_query,
+            progpu_native_path_measure_create,
+            progpu_native_path_measure_destroy,
+            progpu_native_path_measure_contour_count,
+            progpu_native_path_measure_contour,
+            progpu_native_path_measure_position_tangent,
+            progpu_native_path_measure_segment,
             progpu_native_get_abi_version,
             progpu_native_get_info,
             progpu_native_scene_validate,
@@ -7115,6 +7193,97 @@ impl ProGPUNativeLibrary {
             bounds,
             has_bounds,
             contains,
+        )
+    }
+    pub unsafe fn progpu_native_path_measure_create(
+        &self,
+        figures: *const progpu_native_geometry_query_figure,
+        figure_count: u32,
+        segments: *const progpu_native_path_segment,
+        segment_count: u32,
+        force_closed: u32,
+        resolution_scale: f32,
+        measure: *mut *mut progpu_native_path_measure,
+    ) -> progpu_native_status {
+        (self
+            .progpu_native_path_measure_create
+            .as_ref()
+            .expect("Expected function, got error."))(
+            figures,
+            figure_count,
+            segments,
+            segment_count,
+            force_closed,
+            resolution_scale,
+            measure,
+        )
+    }
+    pub unsafe fn progpu_native_path_measure_destroy(
+        &self,
+        measure: *mut progpu_native_path_measure,
+    ) {
+        (self
+            .progpu_native_path_measure_destroy
+            .as_ref()
+            .expect("Expected function, got error."))(measure)
+    }
+    pub unsafe fn progpu_native_path_measure_contour_count(
+        &self,
+        measure: *const progpu_native_path_measure,
+    ) -> u32 {
+        (self
+            .progpu_native_path_measure_contour_count
+            .as_ref()
+            .expect("Expected function, got error."))(measure)
+    }
+    pub unsafe fn progpu_native_path_measure_contour(
+        &self,
+        measure: *const progpu_native_path_measure,
+        contour: u32,
+        length: *mut f32,
+        closed: *mut u32,
+    ) -> progpu_native_status {
+        (self
+            .progpu_native_path_measure_contour
+            .as_ref()
+            .expect("Expected function, got error."))(measure, contour, length, closed)
+    }
+    pub unsafe fn progpu_native_path_measure_position_tangent(
+        &self,
+        measure: *const progpu_native_path_measure,
+        contour: u32,
+        distance: f32,
+        position: *mut progpu_native_point,
+        tangent: *mut progpu_native_point,
+    ) -> progpu_native_status {
+        (self
+            .progpu_native_path_measure_position_tangent
+            .as_ref()
+            .expect("Expected function, got error."))(
+            measure, contour, distance, position, tangent
+        )
+    }
+    pub unsafe fn progpu_native_path_measure_segment(
+        &self,
+        measure: *const progpu_native_path_measure,
+        contour: u32,
+        start_distance: f32,
+        stop_distance: f32,
+        segments: *mut progpu_native_path_segment,
+        capacity: u32,
+        count: *mut u32,
+    ) -> progpu_native_status {
+        (self
+            .progpu_native_path_measure_segment
+            .as_ref()
+            .expect("Expected function, got error."))(
+            measure,
+            contour,
+            start_distance,
+            stop_distance,
+            segments,
+            capacity,
+            count,
         )
     }
     pub unsafe fn progpu_native_get_abi_version(&self) -> u32 {

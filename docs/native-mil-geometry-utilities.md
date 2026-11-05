@@ -116,6 +116,67 @@ spans. Missing exports/modules fail explicitly; no alternative renderer or
 approximate result is selected. `NativeMilGeometryCombineMode` already describes
 the four operations and is reused; the utility does not require a MIL channel.
 
+## Path measures — the native port of SKPathMeasure
+
+`progpu_native_path_measure_*` measures the contours of a path given as query
+figures over canonical segments: `create` (figures, segments, `force_closed`,
+`resolution_scale`), `contour_count`, `contour` (length, closed),
+`position_tangent` and `segment`, then `destroy`. It is the C++ port of ProGPU's
+managed `SKPathMeasure` (`src/SkiaSharp/SKPathMeasure.cs`), the more mature
+implementation, and lives in the device-independent `progpu_native_geometry`
+library (`src/Geometry/progpu_native_path_measure.*`); its C ABI
+(`src/Geometry/progpu_native_path_measure_abi.cpp`) is compiled into every
+renderer library, beside the other geometry utilities of
+`src/Geometry/progpu_native_geometry_utility.cpp`. Native UI hosts (the Rust
+bindings of `bindings/rust/progpu-native-sys` first) get the contour length, the
+point and tangent at a distance and the piece of a path between two distances
+without a managed runtime.
+
+From the managed measure it keeps the contour model (every figure with a
+positive length is a contour, in order; a closed figure, or every figure with
+`force_closed`, measures its closing line), the sample and location model (a
+distance is found by binary search over cumulative chord distances and mapped
+to a segment parameter by interpolation within its segment) and the tangent
+rules (the endpoint fallbacks for coincident control points). It improves on it
+in three ways:
+
+- **Subdivision by curvature, not a fixed step count.** Curves are split in
+  halves until a chord is within `0.5 / resolution_scale` of its curve, with the
+  curvature tests of Skia's contour measure (the control-point deviation of
+  quadratics and cubics, the midpoint deviation of conics), down to a span of
+  2^-20, so lengths agree with Skia-based hosts and stay accurate for large
+  curves. Arcs use the midpoint test; rational cubics also test the points at
+  one and two thirds, which sees inflections. Computation is in double.
+- **All canonical kinds.** Lines, quadratics, cubics, arcs (center, radii and
+  angles of the record), rational quadratics and rational cubics are measured
+  and sliced in their own kind. A piece is the exact sub-curve: de Casteljau for
+  polynomials, homogeneous de Casteljau for rational curves with the result
+  returned to standard form (end weights one; the rational cubic's interior
+  weights are `z_i / (z0^((3-i)/3) z3^(i/3))`), and the sub-range of angles for
+  arcs. Nothing is flattened into lines.
+- **No per-call allocation of the measure.** A measure is built once and is
+  immutable; its queries do not allocate, and `segment` allocates only its
+  result.
+
+Distances are pinned as in Skia: a position query pins to `[0, length]`; a
+piece pins start to zero and stop to the length, returns no segments when the
+pinned start is after the pinned stop, and returns one zero-length line for an
+empty piece (which a stroke caps). The piece's segments are contiguous and
+start at the point at the start distance; whether that point begins a new
+figure is the caller's choice. `segment` writes the count only with a null
+buffer, or returns `INVALID_ARGUMENT` with the required count for a short one.
+Invalid transport (non-finite values, unknown kinds, non-positive weights,
+negative radii, a partition gap, a non-positive resolution) is rejected before
+any work; no C++ exception crosses the ABI.
+
+Tests: `path_measures` in `tests/progpu_native_geometry_utility_tests.cpp` (a
+closed rectangle with its closing line, multi-segment, empty and inverted
+pieces, short buffers; cubic, arc and conic quarter and half circles against
+their closed-form lengths; every kind sliced into its own kind, the piece's ends
+at the measured positions and its length half of the whole) and
+`bindings/rust/progpu-native-sys/tests/path_measure.rs` through the Rust
+bindings.
+
 ## Original implementation provenance and performance boundaries
 
 Only original ProGPU implementation is reused:

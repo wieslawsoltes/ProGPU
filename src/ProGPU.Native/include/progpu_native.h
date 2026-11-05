@@ -2514,6 +2514,54 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_query(
     const progpu_native_affine_2d* world_transform, const progpu_native_point* point, float tolerance,
     progpu_native_image_rect* bounds, uint32_t* has_bounds, uint32_t* contains);
 
+/* Arc-length measure of the contours of a path: the native port of ProGPU's
+ * managed SKPathMeasure. Figures use the query-figure layout above and partition
+ * the canonical segments in order; flags bit 0 closes a figure, bit 1 is
+ * ignored and other bits must be zero. Every figure with a positive length is
+ * one contour, in order; force_closed closes every contour. Curves keep their
+ * kind and are measured by chords of a subdivision until a chord is within
+ * 0.5 / resolution_scale of its curve (finite and positive; 1 for user units),
+ * with the curvature tests of Skia's contour measure. Inputs are borrowed for
+ * the call, <= 2^20 figures and segments; *measure is zeroed before
+ * validation. A measure is immutable: calls on one measure may run
+ * concurrently, destroy must not race them. No engine, device or GPU. */
+typedef struct progpu_native_path_measure progpu_native_path_measure;
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_create(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, uint32_t segment_count,
+    uint32_t force_closed, float resolution_scale, progpu_native_path_measure** measure);
+
+PROGPU_NATIVE_API void progpu_native_path_measure_destroy(progpu_native_path_measure* measure);
+
+/* The number of contours; zero for a null measure. */
+PROGPU_NATIVE_API uint32_t progpu_native_path_measure_contour_count(
+    const progpu_native_path_measure* measure);
+
+/* Length and closed state (0 or 1) of a contour; either output may be null.
+ * INVALID_ARGUMENT for a null measure or a contour index out of range. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_contour(
+    const progpu_native_path_measure* measure, uint32_t contour, float* length, uint32_t* closed);
+
+/* Position and unit tangent at a distance along a contour, pinned to
+ * [0, length]; a degenerate tangent is zero. Either output may be null.
+ * INVALID_ARGUMENT for a null measure, a contour out of range or a NaN distance. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_position_tangent(
+    const progpu_native_path_measure* measure, uint32_t contour, float distance,
+    progpu_native_point* position, progpu_native_point* tangent);
+
+/* The piece of a contour between two distances (start pinned to zero, stop to
+ * the length) as canonical segments: the exact pieces of the original curves in
+ * their kinds, contiguous, the first starting at the point at start; an empty
+ * piece is one zero-length line, which a stroke caps. *count receives the number
+ * of segments: zero when the pinned start is after the pinned stop or a distance
+ * is NaN. With null segments and zero capacity only the count is written; a
+ * smaller nonzero capacity returns INVALID_ARGUMENT with the required count. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_segment(
+    const progpu_native_path_measure* measure, uint32_t contour,
+    float start_distance, float stop_distance,
+    progpu_native_path_segment* segments, uint32_t capacity, uint32_t* count);
+
 /* Values and storage intentionally match ProGPU.Vector.GpuHitTesting and the
  * canonical GpuHitTesting.wgsl storage-buffer contract. The C declarations
  * are the wire-layout authority for generated managed interop records. */
