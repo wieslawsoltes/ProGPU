@@ -343,6 +343,23 @@ the separate `F` mismatch is unchanged. These isolated strip observations do not
 system-font `F` mismatch: their complete glyph bounds differ from a connected
 stem. Fresh Windows/provider/package qualification remains required.
 
+A further independent observation adds a declared one-pixel connected stem below
+the same eleven fractional upper strips, in all five modes and both directions.
+The stem reaches design Y=64; it changes the actual whole-glyph extent without
+moving the upper strip. These are newly authored six-point outlines, not altered
+system-font images. The original font, isolated strips, advance widths and scan
+instructions remain byte-identical. All 880 selected native captures match their
+exact declared points across four load targets and both interpreters; all 6,176
+unselected captures remain unchanged. The forward font SHA-256 is
+`947028b7af7c585f3367fb9702b834965eba7b163fec8b3272e4fce96a5e339c`;
+the reversed font SHA-256 is
+`ef4f3997a72798d035f4d729f0757c1449746acd65a3a379aace2054eb93841e`.
+The existing windowless observer is compiled for 330 additional full frames,
+including 55 unchanged original fitted comparisons, under its separate ten-second
+bound. All earlier observations retain their own captures and deadlines. Source
+execution is pending; this preparation does not resolve the original `F` pixel.
+
+
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).
 All 18 paired full frames agree across architectures, all three original fitted

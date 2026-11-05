@@ -12,7 +12,7 @@ from create_all_direction_scan_font import points
 DELTAS = [-33, -32, -31, -16, -1, 0, 1, 16, 24, 31, 32]
 
 
-def build(reverse):
+def build(reverse, connected=False):
     source = (SHARED/'ProGPU-Authored-Scan-1.ttf').read_bytes()
     fixture = (SHARED/'BinaryGlyphOriginals.json').read_bytes()
     assert digest(source) == SOURCE_HASH and digest(fixture) == FIXTURE_HASH
@@ -36,8 +36,8 @@ def build(reverse):
     offsets = [v*2 for v in struct.unpack('>'+'H'*(count_glyphs+1),tables[b'loca'])]
     assert offsets[0] == 0 and offsets[-1] == len(tables[b'glyf'])
     selected = {c['index']:c for c in json.loads(fixture)['cases']
-                if c['gasp']==1 and c['kind'] in ('horizontal-dropout','top-edge')}
-    assert len(selected) == 110
+                if c['gasp']==1 and c['kind'] in (('top-edge',) if connected else ('horizontal-dropout','top-edge'))}
+    assert len(selected) == (55 if connected else 110)
     output = bytearray(); locations = []; records = []
     for glyph in range(count_glyphs):
         locations.append(len(output)//2)
@@ -55,22 +55,30 @@ def build(reverse):
             else:
                 left, right, bottom, top = 134, 320+delta, 481, 538
             assert left < right and bottom < top
+            authored = [(left,bottom),(right,bottom),(right,top),(left,top)]
+            if connected:
+                # Add an explicit one-pixel-wide stem to the unchanged upper
+                # strip, so the glyph bounds include actual ink below it.
+                # This separates finite-cap policy from isolated-strip bounds.
+                left -= 64
+                authored = [(left,64),(left+64,64),(left+64,bottom),
+                            (right,bottom),(right,top),(left,top)]
+                bottom = 64
+            if reverse: authored = [authored[0],*reversed(authored[1:])]
             # Keep the new authored outline's declared sidebearing coherent.
             # Advance widths stay original; stale LSBs would shift the contour
             # through phantom-point processing before any raster observation.
             metric_offset = glyph*4+2 if glyph < metrics_count else metrics_count*4+(glyph-metrics_count)*2
             assert struct.unpack_from('>h',metrics,metric_offset)[0] == min(p[0] for p in original)
             struct.pack_into('>h',metrics,metric_offset,left)
-            authored = [(left,bottom),(right,bottom),(right,top),(left,top)]
-            if reverse: authored = [authored[i] for i in (0,3,2,1)]
-            replacement = struct.pack('>hhhhhHH',1,left,bottom,right,top,3,len(instructions))
-            replacement += instructions+bytes([1]*4)
+            replacement = struct.pack('>hhhhhHH',1,left,bottom,right,top,len(authored)-1,len(instructions))
+            replacement += instructions+bytes([1]*len(authored))
             for axis in (0,1):
                 previous = 0
                 for point in authored:
                     replacement += struct.pack('>h',point[axis]-previous);previous=point[axis]
             replacement += bytes((-len(replacement))%4)
-            assert points(replacement) == (authored,[1]*4,instructions)
+            assert points(replacement) == (authored,[1]*len(authored),instructions)
             records.append({'glyph':glyph,'family':row['kind'],'mode':row['mode'],'phase':row['phase'],
                 'capShift26_6':delta,'points26_6':authored,'instructions':instructions.hex(),
                 'originalGlyphSha256':digest(raw),'authoredGlyphSha256':digest(replacement)})
@@ -83,7 +91,8 @@ def build(reverse):
     # The selected new coordinates remain inside the unchanged global bounds.
     xmin,ymin,xmax,ymax = struct.unpack_from('>hhhh',tables[b'head'],36)
     assert all(xmin <= x <= xmax and ymin <= y <= ymax for r in records for x,y in r['points26_6'])
-    tables[b'name'] = renamed(tables[b'name'], '-Caps-Reversed' if reverse else '-Caps')
+    suffix = '-Connected-Caps' if connected else '-Caps'
+    tables[b'name'] = renamed(tables[b'name'], suffix+('-Reversed' if reverse else ''))
     directory = bytearray(source[:12]); payload = bytearray(); base = 12+16*count; head = None
     for tag,data in sorted(tables.items()):
         offset = base+len(payload);directory.extend(struct.pack('>4sIII',tag,checksum(data),offset,len(data)))

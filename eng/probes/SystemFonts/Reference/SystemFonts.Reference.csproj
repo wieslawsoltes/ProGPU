@@ -14,6 +14,8 @@
     <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-AllDirections.ttf" Link="ProGPU-Authored-Scan-AllDirections.ttf" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-Caps.ttf" Link="ProGPU-Authored-Scan-Caps.ttf" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-Caps-Reversed.ttf" Link="ProGPU-Authored-Scan-Caps-Reversed.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-Connected-Caps.ttf" Link="ProGPU-Authored-Scan-Connected-Caps.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../tests/Shared/ProGPU-Authored-Scan-Connected-Caps-Reversed.ttf" Link="ProGPU-Authored-Scan-Connected-Caps-Reversed.ttf" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../../tests/Shared/BinaryGlyphOriginals.json" Link="BinaryGlyphOriginals.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -23,6 +23,13 @@ internal static partial class FontRasterSourceControls
             null, "owned-flat-cap-observation-v1", "ProGPU-Authored-Scan-Caps.ttf",
             "02EC6A8655ADC7766325F8178A3433DD9B640B5AC61FA01BCAAA8EE3D5027AB7");
 
+    internal static void RunConnectedCaps(string output)
+        => RunDirectionObservation(output, "ProGPU-Authored-Scan-Connected-Caps-Reversed.ttf",
+            "EF4F3997A72798D035F4D729F0757C1449746ACD65A3A379AACE2054EB93841E",
+            Enumerable.Range(1, 440).Where(i => (i - 1) % 88 / 11 == 1).ToArray(),
+            "top-edge", "owned-connected-flat-cap-observation-v1", "ProGPU-Authored-Scan-Connected-Caps.ttf",
+            "947028B7AF7C585F3367FB9702B834965EBA7B163FEC8B3272E4FCE96A5E339C");
+
     private static void RunDirectionObservation(string output, string reversedFile, string reversedHash,
         int[] selected, string? requiredKind, string schema, string? forwardFile = null, string? forwardHash = null)
     {
