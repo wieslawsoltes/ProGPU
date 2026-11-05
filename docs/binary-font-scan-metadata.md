@@ -672,6 +672,53 @@ shader; its exact bytes, local controls and original failed process receipts are
 retained for diagnosis. No compiler option, driver, pixel expectation or process
 limit was relaxed. Whole native/package/source qualification remains outstanding.
 
+The complete coverage-pair product Build at `3735757cb` is terminal: 60 of its
+63 jobs pass; all three original ARM64 binary routes (FXC, DXC and Dawn) fail.
+The complete 73-check inventory and original untruncated failure logs are retained
+before advancing that producer. A bounded
+[first-fault capture](https://github.com/wieslawsoltes/ProGPU/actions/runs/41971798360)
+then observes the unchanged managed shader's actual first write fault at `0x2764`
+and subsequent `0xC0000409`. The retained generated instructions load that address,
+add the zero register and write through it. Its frame is 10,096 bytes, 2,496 bytes
+smaller than the earlier failed frame; the smaller frame still produces an invalid
+write. This does not attribute the fault to an individual source construct or
+permit changing the driver, generated machine code or compiler settings.
+
+The next refactor shares the heavy coverage and continuation call sites across
+the original scan visits. Each lane still visits all its horizontal pixels, then
+events `lane` and `lane + 256`, then its vertex and flat cap. Vertical scans omit
+only the original absent horizontal-pixel phase. Integer quotient/remainder
+counts preserve those exact indices without floating reconstruction. Private
+admission descriptors retain the original sample expressions, including vertex
+`left + 1.5`, and the original midpoint arithmetic. The ordered short-circuit
+coverage pair and continuation directions remain unchanged. Smart curved endpoints
+still use two explicit original evaluations, their single addition and the
+original 32-step subdivision bound. No event layout, root parameter, shared array,
+barrier, atomic or dispatch order changes; all 20 arithmetic/storage helpers remain
+byte-identical to the previous product source.
+
+The actual GPU trace test executes the production visit loop against independent
+original loops for 21 widths, both axes and all 256 lanes: 10,752 traces on each
+provider, including zero width, workgroup boundaries and 16,384 pixels. All traces
+and untouched output tails match. All 42 original bitmap/resource controls pass;
+both rebuilt native providers pass all 24 original fixture executions with zero
+pixel differences. The full local renderer passes 6,478 tests with its unchanged
+13 platform skips; all 230 headless tests pass.
+
+In the same-host
+[original ARM64 comparison](https://github.com/wieslawsoltes/ProGPU/actions/runs/41973610995),
+the previous shader exits `0xC0000409` in 2.615 seconds before finishing a fixture.
+The shared-visit shader completes all eight original fixtures and 2,537 cases,
+exiting zero in 13.152 seconds. Both processes load identical verified WGPU and
+original system WARP binaries, retain the original 60-second deadline, and pass
+the independent success/deadline/log-cap controls. The candidate shader SHA-256 is
+`1545b475dfa1076d39e02830f3a18606535ea0c7da7f94a93b6af3d47243cd61`;
+the retained result archive SHA-256 is
+`e3f5e5dd71345916e5959f49c9dbf1b9ae1b78198a646eac6b2eba50c057468e`.
+This establishes the managed DXC repair on that original ARM64 workload, not full
+native FXC/DXC/Dawn, package, source-policy or application qualification. Those
+original gates remain mandatory on the rebuilt product before release.
+
 Local validation on 18 October 2026:
 
 - All 880 complete authored coverage cases match exactly in the managed atlas,

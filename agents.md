@@ -1,8 +1,11 @@
-Binary analytic coverage pairs retain their original scalar coordinate expressions
-and ordered short-circuit visits through one bounded two-iteration helper. Keep
-the complete base-coverage arithmetic, events, shared memory, atomics and barriers
-unchanged. Local bitmap equivalence does not prove ARM64 WARP stack safety or
-package qualification; see docs/binary-font-scan-metadata.md.
+Binary scan visits retain each lane's original horizontal pixels, event lane and
+lane+256, vertex and flat-cap order through one bounded visit loop. Private visit
+descriptors preserve the original scalar coordinates, short-circuit coverage and
+continuation order; vertex samples retain their distinct left+1.5 expression.
+Keep base-coverage arithmetic, exact events, shared memory, atomics, barriers and
+both explicit smart-curve endpoint evaluations unchanged. Managed ARM64 success
+does not qualify native packages or source applications; retain every original
+gate. See docs/binary-font-scan-metadata.md.
 
 Explicit paired unfitted font replay captures both original Unhinted geometry and
 Monochrome scan metadata from the same context, selected font and frozen request.
@@ -2503,7 +2506,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,489 renderer cases (6,476 applicable cases and 13 platform skips on macOS) and 230 headless tests. The Windows popup callback and borderless-state controls are exercised by their dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,491 renderer cases (6,478 applicable cases and 13 platform skips on macOS) and 230 headless tests. The Windows popup callback and borderless-state controls are exercised by their dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 

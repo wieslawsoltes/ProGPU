@@ -258,17 +258,6 @@ fn base_covered(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool
     return before > 0 || winding_below_boundary(record, x, level, vertical, before) > 0;
 }
 
-// Preserve the original ordered, short-circuit pair with one heavy analytic
-// helper call site. Select the caller's exact scalar coordinates; do not derive
-// the second position from the first or change either endpoint's arithmetic.
-fn base_pair_covered(record: GlyphRecord, first: f32, second: f32, level: f32) -> bool {
-    for (var side = 0u; side < 2u; side++) {
-        let x = select(first, second, side != 0u);
-        if base_covered(record, x, level, false) { return true; }
-    }
-    return false;
-}
-
 fn pixel_address(point: vec2<f32>) -> vec2<u32> {
     let x = u32(floor(point.x) - uniforms.xStart);
     let y = u32(-floor(point.y) - 1.0 - uniforms.yStart);
@@ -375,11 +364,22 @@ fn has_flat_cap(record: GlyphRecord, beginning: Event, finish: Event,
 // positive winding interval. For a quadratic endpoint, its first nonzero
 // one-sided polynomial coefficient determines which side the curve occupies.
 // Keep interior curve extrema, flat edges and stub-excluding modes separate.
-fn vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
-    if index >= record.segmentCount { return; }
+// Private per-visit admission retains the original scalar sample expressions.
+// It is not a wire/event record and does not change either shared array.
+struct ScanVisit {
+    admitted: bool, left: f32, right: f32, first: f32, second: f32,
+    mode: u32, endIndex: u32, midpoint: f32,
+};
+
+fn empty_scan_visit() -> ScanVisit {
+    return ScanVisit(false, 0.0, 0.0, 0.0, 0.0, 0u, 0u, 0.0);
+}
+
+fn prepare_vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) -> ScanVisit {
+    if index >= record.segmentCount { return empty_scan_visit(); }
     let segment = segments[record.startSegment + index];
     let mode = segment.scanDescriptor & 7u;
-    if mode != 0u && mode != 4u { return; }
+    if mode != 0u && mode != 4u { return empty_scan_visit(); }
     let previous_index = select(index - 1u, segment.contourStart + segment.contourCount - 1u,
         index == segment.contourStart);
     let previous = segments[record.startSegment + previous_index];
@@ -394,41 +394,31 @@ fn vertex_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
         after = axis_point(segment.p2, vertical);
     }
     if point.y != level || !((before.y < level && after.y < level) ||
-        (before.y > level && after.y > level)) { return; }
+        (before.y > level && after.y > level)) { return empty_scan_visit(); }
     let left = floor(point.x - 0.5);
-    if point.x == left + 0.5 { return; }
-    let a = axis_point(vec2<f32>(left + 0.5, level), vertical);
-    let b = axis_point(vec2<f32>(left + 1.5, level), vertical);
-    if vertical {
-        if horizontal_covered(a, record) || horizontal_covered(b, record) { return; }
-    } else {
-        if base_pair_covered(record, left + 0.5, left + 1.5, level) { return; }
-    }
-    let selected = select(left, left + 1.0, mode == 4u && point.x > left + 1.0);
-    let bounds = raster_bounds(record);
-    let candidate = axis_point(vec2<f32>(selected + 0.5, level), vertical);
-    paint(clamp(candidate, bounds.xy + vec2<f32>(0.5), bounds.zw - vec2<f32>(0.5)), !vertical);
+    if point.x == left + 0.5 { return empty_scan_visit(); }
+    return ScanVisit(true, left, left + 1.0, left + 0.5, left + 1.5, mode, 0u, point.x);
 }
 
 // A closed straight cap can lie exactly on an upper scan boundary, where
 // lower-inclusive crossings intentionally contain no interval. Retain that
 // boundary's dropout using its actual endpoints and signed adjacent winding;
 // never perturb the scan or insert fabricated roots into the sorted events.
-fn flat_boundary_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
-    if index >= record.segmentCount { return; }
+fn prepare_flat_boundary_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) -> ScanVisit {
+    if index >= record.segmentCount { return empty_scan_visit(); }
     let segment = segments[record.startSegment + index];
     let mode = segment.scanDescriptor & 7u;
-    if segment.segmentType != 0u || (mode != 0u && mode != 1u && mode != 4u && mode != 5u) { return; }
+    if segment.segmentType != 0u || (mode != 0u && mode != 1u && mode != 4u && mode != 5u) { return empty_scan_visit(); }
     let p = axis_point(segment.p0, vertical);
     let q = axis_point(segment.p1, vertical);
-    if p.y != level || q.y != level || p.x == q.x { return; }
+    if p.y != level || q.y != level || p.x == q.x { return empty_scan_visit(); }
     let beginning = min(p.x, q.x);
     let finish = max(p.x, q.x);
     let left = floor(beginning - 0.5);
     let right = left + 1.0;
     let gap = select(left + 0.5 < beginning && finish <= right + 0.5,
         left + 0.5 <= beginning && finish < right + 0.5, vertical);
-    if !gap { return; }
+    if !gap { return empty_scan_visit(); }
     let midpoint = (beginning + finish) * 0.5;
     var low = 0u;
     var high = 512u;
@@ -442,23 +432,8 @@ fn flat_boundary_dropout(record: GlyphRecord, index: u32, level: f32, vertical: 
     let below = winding_below_boundary(record, midpoint, level, vertical, above);
     // Swapping scan axes reverses signed winding. Only the original positive
     // boundary is closed; its ordinary negative interior remains independent.
-    if above != 0 || !select(below > 0, below < 0, vertical) { return; }
-    let a = axis_point(vec2<f32>(left + 0.5, level), vertical);
-    let b = axis_point(vec2<f32>(right + 0.5, level), vertical);
-    if vertical {
-        if horizontal_covered(a, record) || horizontal_covered(b, record) { return; }
-    } else {
-        if base_pair_covered(record, left + 0.5, right + 0.5, level) { return; }
-    }
-    if mode == 1u || mode == 5u {
-        if !promoted_scan_extent(record, vertical) ||
-           continuation_crossings(record, left + 0.5, level, -1.0, vertical) < 2u { return; }
-    }
-    var selected = left;
-    if (mode == 4u || mode == 5u) && midpoint > right { selected = right; }
-    let bounds = raster_bounds(record);
-    let candidate = axis_point(vec2<f32>(selected + 0.5, level), vertical);
-    paint(clamp(candidate, bounds.xy + vec2<f32>(0.5), bounds.zw - vec2<f32>(0.5)), !vertical);
+    if above != 0 || !select(below > 0, below < 0, vertical) { return empty_scan_visit(); }
+    return ScanVisit(true, left, right, left + 0.5, right + 0.5, mode, 0u, midpoint);
 }
 
 // Resolve only the selected original root through bounded de Casteljau
@@ -493,15 +468,15 @@ fn smart_curve_crossing(record: GlyphRecord, event: Event, level: f32, vertical:
     return floor(a.x * 64.0) / 64.0;
 }
 
-fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
+fn prepare_dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) -> ScanVisit {
     let beginning = events[index];
-    if beginning.delta == 0 || winding[index] == 0 { return; }
-    if index > 0u && winding[index - 1u] != 0 { return; }
+    if beginning.delta == 0 || winding[index] == 0 { return empty_scan_visit(); }
+    if index > 0u && winding[index - 1u] != 0 { return empty_scan_visit(); }
     let mode = segments[record.startSegment + event_source(beginning)].scanDescriptor & 7u;
-    if mode == 2u || mode == 3u || mode == 6u || mode == 7u { return; }
+    if mode == 2u || mode == 3u || mode == 6u || mode == 7u { return empty_scan_visit(); }
     var end = index + 1u;
     while end < 512u && winding[end] != 0 { end++; }
-    if end == 512u { return; }
+    if end == 512u { return empty_scan_visit(); }
     let finish = events[end].x;
     let left = floor(beginning.x - 0.5);
     let right = left + 1.0;
@@ -512,38 +487,101 @@ fn dropout(record: GlyphRecord, index: u32, level: f32, vertical: bool) {
     let gap = select(
         (left + 0.5 < beginning.x && finish <= right + 0.5),
         (left + 0.5 <= beginning.x && finish < right + 0.5), vertical);
-    if !(gap && beginning.x < finish) { return; }
-    let left_point = axis_point(vec2<f32>(left + 0.5, level), vertical);
-    let right_point = axis_point(vec2<f32>(right + 0.5, level), vertical);
-    if vertical {
-        if horizontal_covered(left_point, record) || horizontal_covered(right_point, record) { return; }
+    if !(gap && beginning.x < finish) { return empty_scan_visit(); }
+    var midpoint = 0.0;
+    if mode == 4u || mode == 5u { midpoint = (beginning.x + finish) * 0.5; }
+    return ScanVisit(true, left, right, left + 0.5, right + 0.5, mode, end, midpoint);
+}
+
+// Kind 0 is an ordinary horizontal pixel, 1 an event interval, 2 a vertex,
+// and 3 an exact flat cap. Heavy analytic coverage and continuation calculations
+// have one call site each, retaining the original short-circuit visit order.
+fn render_scan_visit(record: GlyphRecord, index: u32, level: f32, vertical: bool, kind: u32) {
+    var visit = empty_scan_visit();
+    if kind == 0u {
+        let x = uniforms.xStart + f32(index) + 0.5;
+        visit = ScanVisit(true, 0.0, 0.0, x, 0.0, 0u, 0u, 0.0);
+    } else if kind == 1u {
+        visit = prepare_dropout(record, index, level, vertical);
+    } else if kind == 2u {
+        visit = prepare_vertex_dropout(record, index, level, vertical);
     } else {
-        if base_pair_covered(record, left + 0.5, right + 0.5, level) { return; }
+        visit = prepare_flat_boundary_dropout(record, index, level, vertical);
     }
+    if !visit.admitted { return; }
+    if vertical {
+        let a = axis_point(vec2<f32>(visit.first, level), vertical);
+        let b = axis_point(vec2<f32>(visit.second, level), vertical);
+        if horizontal_covered(a, record) || horizontal_covered(b, record) { return; }
+    } else {
+        var covered = false;
+        let point_count = select(2u, 1u, kind == 0u);
+        for (var side = 0u; side < point_count; side++) {
+            let x = select(visit.first, visit.second, side != 0u);
+            if base_covered(record, x, level, false) { covered = true; break; }
+        }
+        if kind == 0u {
+            if covered { paint(vec2<f32>(visit.first, level), true); }
+            return;
+        }
+        if covered { return; }
+    }
+    let mode = visit.mode;
     if mode == 1u || mode == 5u {
-        for (var side = 0u; side < 2u; side++) {
+        if kind == 3u && !promoted_scan_extent(record, vertical) { return; }
+        let side_count = select(2u, 1u, kind == 3u);
+        for (var side = 0u; side < side_count; side++) {
             let direction = select(-1.0, 1.0, side != 0u);
-            if continuation_crossings(record, left + 0.5, level, direction, vertical) < 2u &&
-               !has_flat_cap(record, beginning, events[end], left + 0.5, level, direction, vertical) { return; }
+            if continuation_crossings(record, visit.first, level, direction, vertical) < 2u {
+                if kind == 3u { return; }
+                if !has_flat_cap(record, events[index], events[visit.endIndex],
+                    visit.first, level, direction, vertical) { return; }
+            }
         }
     }
-    var selected = left;
+    var selected = visit.left;
     if mode == 4u || mode == 5u {
-        let first_segment = segments[record.startSegment + event_source(beginning)];
-        let last_segment = segments[record.startSegment + event_source(events[end])];
-        var midpoint = (beginning.x + finish) * 0.5;
-        if first_segment.segmentType == 1u || last_segment.segmentType == 1u {
-            // Curved transitions use the nearest 26.6 midpoint, with exact
-            // half-unit ties toward the lower unit. Line-only intervals keep
-            // their original arithmetic; this is not a global glyph snap.
-            midpoint = ceil((smart_curve_crossing(record, beginning, level, vertical) +
-                smart_curve_crossing(record, events[end], level, vertical)) * 32.0 - 0.5) / 64.0;
+        var midpoint = visit.midpoint;
+        if kind == 1u {
+            let beginning = events[index];
+            let finish = events[visit.endIndex];
+            let first_segment = segments[record.startSegment + event_source(beginning)];
+            let last_segment = segments[record.startSegment + event_source(finish)];
+            if first_segment.segmentType == 1u || last_segment.segmentType == 1u {
+                // Keep both explicit original evaluations and their single addition.
+                midpoint = ceil((smart_curve_crossing(record, beginning, level, vertical) +
+                    smart_curve_crossing(record, finish, level, vertical)) * 32.0 - 0.5) / 64.0;
+            }
         }
-        if midpoint > right { selected = right; }
+        if midpoint > visit.right { selected = visit.right; }
     }
     let bounds = raster_bounds(record);
     let candidate = axis_point(vec2<f32>(selected + 0.5, level), vertical);
     paint(clamp(candidate, bounds.xy + vec2<f32>(0.5), bounds.zw - vec2<f32>(0.5)), !vertical);
+}
+
+fn render_scan_visits(record: GlyphRecord, level: f32, vertical: bool, lane: u32) {
+    // Quotient/remainder counts exactly lane, lane+256, ... below width without
+    // overflow or floating-point reconstruction. Vertical scans have no base pass.
+    var pixel_count = 0u;
+    if !vertical {
+        pixel_count = uniforms.width / 256u + select(0u, 1u, lane < uniforms.width % 256u);
+    }
+    // The original two event visits remain ordered and bounded, followed by the
+    // original vertex and flat-cap visits in this same invocation. No new barriers.
+    for (var step = 0u; step < pixel_count + 4u; step++) {
+        var kind = 0u;
+        var index = lane;
+        if step < pixel_count {
+            index = lane + step * 256u;
+        } else if step < pixel_count + 2u {
+            kind = 1u;
+            index = lane + (step - pixel_count) * 256u;
+        } else {
+            kind = step - pixel_count;
+        }
+        render_scan_visit(record, index, level, vertical, kind);
+    }
 }
 
 @compute @workgroup_size(256)
@@ -561,17 +599,7 @@ fn cs_binary_horizontal(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_
     let bounds = raster_bounds(record);
     prepare_scan(record, level, false, lane);
     if level < bounds.y || level >= bounds.w { return; }
-    for (var x = lane; x < uniforms.width; x += 256u) {
-        let point = vec2<f32>(uniforms.xStart + f32(x) + 0.5, level);
-        if base_covered(record, point.x, level, false) { paint(point, true); }
-    }
-    // Dropout eligibility reads the immutable analytic base, not these writes.
-    // Preserve the two original per-lane visits with one helper call site.
-    for (var index = lane; index < 512u; index += 256u) {
-        dropout(record, index, level, false);
-    }
-    vertex_dropout(record, lane, level, false);
-    flat_boundary_dropout(record, lane, level, false);
+    render_scan_visits(record, level, false, lane);
 }
 
 @compute @workgroup_size(256)
@@ -583,10 +611,5 @@ fn cs_binary_vertical(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_in
     let bounds = raster_bounds(record);
     prepare_scan(record, level, true, lane);
     if level < bounds.x || level >= bounds.z { return; }
-    // Preserve the two original per-lane visits with one helper call site.
-    for (var index = lane; index < 512u; index += 256u) {
-        dropout(record, index, level, true);
-    }
-    vertex_dropout(record, lane, level, true);
-    flat_boundary_dropout(record, lane, level, true);
+    render_scan_visits(record, level, true, lane);
 }
