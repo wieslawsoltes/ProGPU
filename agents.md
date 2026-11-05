@@ -1,3 +1,12 @@
+Explicit paired unfitted font replay captures both original Unhinted geometry and
+Monochrome scan metadata from the same context, selected font and frozen request.
+Reject complete topology differences before output publication; transfer only the
+scan/dropout mask, retaining original coordinate bits, bounds, precision flags,
+descriptor/no-ink slots and positions. Retire witness owners before publication
+and retain the original native generation through selected views. Ordinary font
+policies remain unchanged; this is not GDI/GDI+ source or package qualification.
+See docs/binary-font-scan-metadata.md.
+
 Binary glyph continuation visits select the original immutable positions and
 admission flags for the proven edge indices 0/1/2, without addressable temporary
 arrays. Preserve both root visits, opposite/left/right edge order, exact float
@@ -2488,7 +2497,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,430 renderer cases (6,417 applicable cases and 13 platform skips on macOS) and 230 headless tests. The Windows popup callback and borderless-state controls are exercised by their dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,489 renderer cases (6,476 applicable cases and 13 platform skips on macOS) and 230 headless tests. The Windows popup callback and borderless-state controls are exercised by their dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 

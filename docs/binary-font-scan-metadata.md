@@ -41,6 +41,43 @@ fallback, source reshaping, per-glyph interop calls and cross-API mode aliases.
 The algorithm comes from public scan contracts and independently observed original
 outputs; it does not copy another rasterizer's source or implementation structure.
 
+## Explicit paired outline capture
+
+`NativeHintedGlyphGeometryFactory.CaptureUnhintedFontBatchWithScanMetadata`
+prepares an explicit binary replay from one native context and selected font. It
+freezes caller glyph IDs, positions and variation coordinates, then captures
+Unhinted outlines and a separate Monochrome scan witness with identical device
+size, phase and interpreter. It never accepts independently supplied batch pairs.
+The implementation derives from the original owned
+`eng/probes/UnfittedScanWitness/native/ScanWitness.cs`; the cross-engine research
+and public scan contracts above remain the design basis.
+
+Complete glyph, curve-tag, contour-end, outline and segment inventories must agree
+before output allocation. Only raw scan mode, contour override and dropout flags
+are transferred. Every original coordinate bit (including signed zero), outline
+bound, precision flag, contour range, duplicate descriptor, no-ink slot and caller
+position remains unchanged. A topology mismatch rejects the whole request; it
+does not choose another font policy. Witness handles retire before publication.
+The result retains the independent original geometry owner and metadata-free font
+placements, including through selected views; it does not fabricate shaping data.
+
+This is O(G + P + C + S) preparation and storage for glyph descriptors, original
+points, contours and emitted segments, plus the two existing batched font captures.
+The contiguous topology checks depend on per-glyph offsets and contour boundaries;
+there is no rendering hot-path loop, per-glyph interop, GPU readback or bitmap
+rasterization. Geometry projection keeps the existing automatic, SIMD and scalar
+policies. Ordinary Unhinted capture, original hinted calls and source consumers
+remain unchanged.
+
+Twelve managed controls cover byte preservation and late topology rejection. The
+`tests/ProGPU.FontCapture.PackageConsumer` executable compares both owned straight
+and curved fonts under interpreters 35/40 and all three projection policies,
+including duplicate/no-ink slots, caller storage mutation and retained selected
+views after public source disposal. Its local source build is a preparation check;
+package execution must use a matching final package closure. These controls do
+not establish original Microsoft pixels, source-policy admission, native provider
+rendering or the separate 72-case Forms application acceptance.
+
 `BinaryGlyphRasterizer.wgsl` uses one 256-thread workgroup per scanline and two
 ordered dispatches. It sorts at most 512 crossings from 256 original line/quadratic
 segments, accumulates winding, and writes packed binary R8 coverage. The second
