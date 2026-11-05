@@ -13,8 +13,10 @@
     <None Remove="$(MSBuildThisFileDirectory)../../README.md" />
     <None Update="README.md" Pack="true" PackagePath="/" />
     <None Update="buildTransitive/ProGPU.Backend.Dx12.targets" Pack="true" PackagePath="buildTransitive/ProGPU.Backend.Dx12.targets" />
+    <!-- Let pack append each glob's relative path once. An extensionless full
+         PackagePath is treated as a directory and nests the notice on repack. -->
     <None Include="$(ProGpuDx12RuntimeRoot)/**/*" Pack="true"
-          PackagePath="buildTransitive/runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
+          PackagePath="buildTransitive/runtimes/" />
   </ItemGroup>
   <Target Name="ValidateProGpuDx12Payload" BeforeTargets="_GetPackageFiles;GenerateNuspec">
     <ItemGroup>
@@ -26,6 +28,9 @@
                                    @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/dxc-compiler-package.json');
                                    @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/LICENSE.MIT');
                                    @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/LICENSE.APACHE');
+                                   @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/wgpu-LICENSE.MIT');
+                                   @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/wgpu-LICENSE.APACHE');
+                                   @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/webgpu-headers-LICENSE');
                                    @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/LICENSE-MS.txt');
                                    @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/LICENSE-LLVM.txt');
                                    @(_ProGpuDx12Rid->'$(ProGpuDx12RuntimeRoot)/%(Identity)/native/LICENCE-MIT.txt');

@@ -356,3 +356,23 @@ triples without changing the lock. That local graph check used available Cargo
 1.90; production still requires pinned Rust/Cargo 1.98.1. No Windows native build,
 application execution or package/pixel qualification is inferred from these
 cross-platform controls.
+## DXC notice paths during downstream repack
+
+The DX12 package maps its runtime glob to a directory ending in `/`. NuGet then
+appends each original relative path once. Supplying an extensionless full
+`PackagePath` for `webgpu-headers-LICENSE` instead made NuGet treat that file name
+as another directory; downstream extraction and repacking repeated the nesting.
+The input and package verifiers now require all three original wgpu/header notices
+at each RID's actual native directory, alongside the existing compiler notices.
+
+The original qualified package fails the new flat-path check. A real pack, the
+existing LibreWPF extraction helper, and a second pack preserve all 30 runtime,
+receipt and notice entries with identical original bytes and paths. No runtime
+DLL, compiler pin, provider flag, shader or fixture changes. This packaging change
+applies to managed and native consumers of the same optional DX12 package;
+whole-provider/package qualification remains required for the new producer.
+
+NuGet's [MSBuild pack documentation](https://learn.microsoft.com/en-us/nuget/reference/msbuild-targets)
+describes directory separators for glob package paths and the extensionless-path
+directory convention. The change uses that packaging contract, not a downstream
+rename or a modified package-cache copy.

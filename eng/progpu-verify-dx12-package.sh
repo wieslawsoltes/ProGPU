@@ -13,6 +13,7 @@ for rid in win-x64 win-arm64; do
   for file in wgpu_native.dll dxcompiler.dll dxil.dll \
     wgpu-native-build.json dxc-compiler-package.json progpu-dx12-runtime.json \
     LICENSE.MIT LICENSE.APACHE LICENSE-LLVM.txt LICENSE-MS.txt LICENCE-MIT.txt \
+    wgpu-LICENSE.MIT wgpu-LICENSE.APACHE webgpu-headers-LICENSE \
     Microsoft.Direct3D.DXC.package.xml; do
     require_entry "buildTransitive/runtimes/${rid}/native/${file}"
   done
