@@ -237,6 +237,29 @@ unfitted source adapter. Their original full frames and metadata replay failure
 remain separate gates; do not infer a sloped-edge or unfitted precision policy
 from these rectangles.
 
+A local replay of the exact retained 64-case scan-applied geometry then tests
+the correction against every original full image. It retains the original render
+loop, 45-second/16-MiB bound, descriptor order, cache counters and cold/warm frames;
+it does not repeat source capture or replace Windows acceptance. Both rebuilt
+providers produce identical 128-frame inventories. Only the two glyph-80
+descriptors change: all 32 differing pixels across their four cold/warm frames
+now match. No other pixel changes. Source slots 24 (`w`) and 27 (`F`) still fail,
+each by one pixel per frame, leaving four differing pixels per provider.
+
+The remaining observations need broader independent direction and stroke-end
+coverage. A separate owned derivative reverses all 440 original contours across
+the eight original families, five modes and eleven phases. It preserves every
+coordinate, on/off-curve tag, instruction and metric; the original font and the
+seven-contour derivative stay immutable. Its SHA-256 is
+`6aec3fab6c6e9265541cb5bb9874b754bb2537e380187e4d35edafbb56db5bd4`.
+Actual native captures verify all 3,520 reversed point/tag inventories across
+four load targets and both interpreters, with unchanged metadata and eight
+unchanged notdef captures. The Windows observer is compiled and retains a
+separate ten-second bound for 1,760 full frames, including all 440 original
+fitted comparisons. Both smaller source observations keep their original inputs,
+counts and deadlines. The complete direction observation is pending; it adds no
+workflow, desktop window, input action or substitute expected pixels.
+
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).
 All 18 paired full frames agree across architectures, all three original fitted

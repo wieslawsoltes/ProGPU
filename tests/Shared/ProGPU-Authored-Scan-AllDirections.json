@@ -1,0 +1,3972 @@
+{
+  "sourceSha256": "60d952f14b770aec08221b8adee1a1b7d82a8abdc259fb2484de9666a2f45832",
+  "fixtureSha256": "6d13e632b5f260217bc17d9c86b61e77506f463644eeee923280400a52f3b092",
+  "sha256": "6aec3fab6c6e9265541cb5bb9874b754bb2537e380187e4d35edafbb56db5bd4",
+  "bytes": 25808,
+  "glyphs": 441,
+  "changedGlyphs": [
+    {
+      "glyph": 1,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "b4934520d68d54e2b8082e1a8a3252ce767900c847beb7ec9088ba4a01bcd1bb",
+      "reversedGlyphSha256": "65595f4722e62b02f8a81766218005653204f1c2fad5cab4694de5cfb9099f7a"
+    },
+    {
+      "glyph": 2,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "f8fea563c860624133e8784bd03cc47f921d7ae6afd7ab75a1a9069c34643c47",
+      "reversedGlyphSha256": "69660ff3b8f79d213a0e022d10e0b3f60989884ceac4c90a74b876f3f96573b0"
+    },
+    {
+      "glyph": 3,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "3ef119853cf1f6a7035259683b4c27f928134bc0c2622ec5d7bc862811f2421e",
+      "reversedGlyphSha256": "c68a10a1d3388fede25f05bcad1ff5bb12ca7ee74dda9f130579e75a80cdf380"
+    },
+    {
+      "glyph": 4,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "9baaa0e46d3a67715c94084e76a677dd2e7d8a47bd65908d7fbf23e2a6220010",
+      "reversedGlyphSha256": "c114c0c9ce691d055a5bd5f9558fdae5e72154e73c4502be29b45a68c7ed5e8a"
+    },
+    {
+      "glyph": 5,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "9391daeba441fe99efa7d8d850558d5f5b21f3e4d312a6cb59b7a1cd28519a1e",
+      "reversedGlyphSha256": "966cee56b9b037ea557e68bcfeb5e22fbc129557a2e055badf70a60272d8715c"
+    },
+    {
+      "glyph": 6,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "4b05cbe1b4519a901c3cbb4a46adf90573d35f912dd5301d7d32e6c14c7ad332",
+      "reversedGlyphSha256": "53ada95578b68103dd18ee9f7d9ec9407bfcf99688753e823c5f2752d0cbe443"
+    },
+    {
+      "glyph": 7,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "60808831a1e9d2ecfefd4bf17211383600a9bdae5243437257845acb0732dabf",
+      "reversedGlyphSha256": "553450881b8015ece49070b54acc1c5d8e6568299f799f38de56c4d1bb09d2fe"
+    },
+    {
+      "glyph": 8,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "88ca3ba5576ee7c7ee5f0cb0f1167f56e20a535d336e0c27fc5cdc00b848ad67",
+      "reversedGlyphSha256": "01c65fcd9bbc2f7dd774dd91558c92255c26398da0399acbdf6bc7c241be7e5a"
+    },
+    {
+      "glyph": 9,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "7b13a533445bf28a0c43c7067db0aebbe274c160641a217f87e6112776f85b19",
+      "reversedGlyphSha256": "fcd0ad0d3a922e8c43a834e71c0f214c212ef84f01a56afd07006aeae3d9e1f0"
+    },
+    {
+      "glyph": 10,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "92eefaf9c271acef3b0d96f7b98331112a290969e976b3dae25ff58a3a6b4e9a",
+      "reversedGlyphSha256": "32b52a882ad0a4cabdbd894b137030175812b83cb2143d9f65c7c7966cbee516"
+    },
+    {
+      "glyph": 11,
+      "kind": "right-edge",
+      "mode": 0,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "dfef7fc830327e2ff28872c36ca022040630af29a81d8db11c65193aa1e86fc2",
+      "reversedGlyphSha256": "86258276be7cd72ac4ec2c4d02fc220cc3ae53c60127175e7f41b1efe5142f6a"
+    },
+    {
+      "glyph": 12,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "eb79839738b0fab07529ad0170767aa16e71826bdc8d63db126838a558b2f504",
+      "reversedGlyphSha256": "abd62dea2a9872e977d03728b6357e0e2305f7c31a12f94dc4907eec8b990505"
+    },
+    {
+      "glyph": 13,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "bf610a4d7a18a5cf43171b78ab88dee31418432c2a7168e972a97f85781a6ea0",
+      "reversedGlyphSha256": "be4dc43c8b5a08000cc4605ec1e4b40774fbff7194900925c47ccf46d62b4ba5"
+    },
+    {
+      "glyph": 14,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "9b289130d3d7cd4a275c1c48f1c09557acb12cc45e18f5375a6e02c2a4ed3bf7",
+      "reversedGlyphSha256": "3da24fa190fe92aaf8836bf5c8a0a1b931f8db648ecd5bd07abd7374808fb139"
+    },
+    {
+      "glyph": 15,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "fb6d998004cf842e2398e4f2474ac63052e6539f6fef928e1cd201b4e44d7cb2",
+      "reversedGlyphSha256": "d67e2dda4d2878b63cc6ab958d4070f089bf4be0f244b0a5fd6406f31ce7f728"
+    },
+    {
+      "glyph": 16,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "7efc314a61a0d572e8f656aaccda88f2af26edf64918e1537cd0bb68f9897783",
+      "reversedGlyphSha256": "35d5d93e7daff6df0a49ad5a98252524e5da323d944513b6e893d316c03f265d"
+    },
+    {
+      "glyph": 17,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "051c09793b9660494a027eb0f1777ea708f1284dd8d1b6bfb9e293cf045d2ec7",
+      "reversedGlyphSha256": "2be5e72655b58f1c2fb7d2e56091d722a85150191f32e5ffb37407925cd03247"
+    },
+    {
+      "glyph": 18,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "e757cae8c17e83aa53788a20631572161328532f393251de23f295b1b4f4dc22",
+      "reversedGlyphSha256": "84725d35f3689986d0796f5780cc6cef5a3e841e072cd156413731d2022ec257"
+    },
+    {
+      "glyph": 19,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "eb9b3a9689043cdd7ba2fc16eea63ade77e0ebf0e91e80f9fa890bd78bbfd815",
+      "reversedGlyphSha256": "6a973b43300aa8dc816fc6cb4e663cce63f855a1064bfeb4cd689c7160dae5d6"
+    },
+    {
+      "glyph": 20,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "c8172211439f2766d73190d80268969904cbc65386a804bea7e79754387e6766",
+      "reversedGlyphSha256": "ee8fdb097ca3ffecb2781e04ccc92fe1651b0e2b1303eb218d7834843ec0580c"
+    },
+    {
+      "glyph": 21,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "a2e54b21f59bb8d29283789df1c9589e27264d1f2613f8c396986adc19aeb8e7",
+      "reversedGlyphSha256": "63961a38667bd72dd8db60f2159dc1ee50852d7c211d9729662ca7a437a8f815"
+    },
+    {
+      "glyph": 22,
+      "kind": "top-edge",
+      "mode": 0,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "5636bda0d1f1181febbf8b7141138095bc7ed03bc00f01742f49b4ae35c81874",
+      "reversedGlyphSha256": "a280d6cb5d7d3a764ea2427e448d26694270dd9db2acb0bcb5117ae7d8d836d9"
+    },
+    {
+      "glyph": 23,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "75f01a029f67ff83cdcbadf0b346ebf5f8b22d4944174079a07caec68158af27",
+      "reversedGlyphSha256": "77f0eb8b8188be16924c3f1ffe529147d020ff2a99ac7c1c5af1c03e7aa90ebc"
+    },
+    {
+      "glyph": 24,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "81d263cb36aff0106100e5e7c5f471b8e90f4f223ea21cebd685af5da8130a10",
+      "reversedGlyphSha256": "c697e70ca1f49baacfc1309db05a070d866aaa5995d6e75186bcf3f20bba0e9d"
+    },
+    {
+      "glyph": 25,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "96f78a779935ce9b4ad5a91ce2b6326815451fc685dbce2d6d0488e9078f36d8",
+      "reversedGlyphSha256": "4acdfd7101d92a7dcd75a43f747e7bb25887dd8c77612f182409364705abcb9f"
+    },
+    {
+      "glyph": 26,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "2e0a12eeb2c8800cd00cbcf3d061835350165eac1318c080ddb3ead6acfc7e74",
+      "reversedGlyphSha256": "1e3f0a50b7b08d81d53ab9779ffab1389fc39c09cebb8a8e94450de9e89a6ef4"
+    },
+    {
+      "glyph": 27,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "03e5e9b5c0930b0496bc89af3efe7bbbfa6bee68d9b56fcda015e744c13a2112",
+      "reversedGlyphSha256": "3e2a6d9abb341a807bb70f64b44d8dec61d48e0edd7f81927cad2dea3e4c003c"
+    },
+    {
+      "glyph": 28,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "24ac371861ffdb2c396aeb2770e62da98e4e464ffb43912fe0884186ca812596",
+      "reversedGlyphSha256": "0fa867d139bb14ba1654e3ece0dc3d305c4988ccd450e3aedfe97cabb170250a"
+    },
+    {
+      "glyph": 29,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "91446b946a4215c39f49fa23cfc3956bda92b539dd666914c0d0f558bcae48f6",
+      "reversedGlyphSha256": "64f2259a1494a42e21fad9dd037f122853f465a9d53af52b07068e1078acb5d2"
+    },
+    {
+      "glyph": 30,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "36dbcdfcfa9d4216572bdfae9683343413665f1abd620f7dcbc713cf579ba8d7",
+      "reversedGlyphSha256": "163e6874703155238e67a18c84044d5bf259a605b80143bbea5ee030fbbb9a72"
+    },
+    {
+      "glyph": 31,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "d4a0cecaa838bef5433bfaa8d0e8cdaa7b135c5d877c00961945f15919497e61",
+      "reversedGlyphSha256": "231496fb16af706bfaddd85eb08e2991a4d8090ac378f61c485eb5326742c403"
+    },
+    {
+      "glyph": 32,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "7e9d6ed67bceb03534b75938d4fac029b48b7f9d7e294ef6d64cd49b9a0cc2f4",
+      "reversedGlyphSha256": "6d2e4503a2e6fa9a8b2c2e3dbf2764ee7320432bd18b527686261016de445aa1"
+    },
+    {
+      "glyph": 33,
+      "kind": "vertical-dropout",
+      "mode": 0,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "cc1913f71413888be0468291b79300a3a6c9718a80615c3b38fc5e7df5bad74a",
+      "reversedGlyphSha256": "b8a836a3dc845a230c3408865729b1fb71a24562b33c1185a6976c8430cd30f7"
+    },
+    {
+      "glyph": 34,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "e6308c0d8c9576e738968bf04f3b84aff62fbd28df2a42fd3eed245963bc8e69",
+      "reversedGlyphSha256": "3aa3fdd4e5cfdeadbbb5c4553a634c9edc7c0fec4d6ed9c771897c1e978bcd90"
+    },
+    {
+      "glyph": 35,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "af0282943beeee4b09e7d37d6cced06695bd3748cb3b16d0c32ece0d8d57cd04",
+      "reversedGlyphSha256": "183a35d387a06897b79086272914cae2bf2d2c1b64c5f7c68cd81906a4bb1a0e"
+    },
+    {
+      "glyph": 36,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "1951dddd1eca28afeb33743f553ec79ea66d8084e75702eacd307df75a828838",
+      "reversedGlyphSha256": "c63fc4395036791062b38530b25221418c19132ba426aa20307482e0fa5aae07"
+    },
+    {
+      "glyph": 37,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "bf8149b4a06d40cdc3cd958a051c47621b89e994c43b1ee9cd4cc4be874d0372",
+      "reversedGlyphSha256": "8004664a2b2b069c495993fe022fea6e816c5c0d7961d3746e3cefa3927abfc2"
+    },
+    {
+      "glyph": 38,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "0ca7b3e60dbef59171835bbf8948f0bb9219e96bb846cd63706210542c779145",
+      "reversedGlyphSha256": "404ad4c83898f5368cd204804c0304b5f9d7c149cdf68ee4f942721460eba71a"
+    },
+    {
+      "glyph": 39,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "7773f8149fc6835fffb1b3ed98861b121cfc1851bfe479648ce4b7ff4e335a42",
+      "reversedGlyphSha256": "0388becdb54d3f595d78a5b7dda9aaf216eb617182b319bb5be78d5e3b93293b"
+    },
+    {
+      "glyph": 40,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "8da36180dafaa05f48e1d37fe15926e21507d065ba828b5eab2a44b6988636ca",
+      "reversedGlyphSha256": "3b3d49cd7985c2c4ba235fcb344a4bc371a65d45a8e6360f121ae4165bfcbea1"
+    },
+    {
+      "glyph": 41,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "889a99f320fa68289639417d4632c238c0c527a401049e0c580ef7dc3cc774cd",
+      "reversedGlyphSha256": "e7f35ae7926691b2ec28f0d32fddf34e24a1cabe78cacdaf216cedc74498374d"
+    },
+    {
+      "glyph": 42,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "c4f48488d573c594cab5b635b4228e85eac121abcce9df4741fa8f1939d5878a",
+      "reversedGlyphSha256": "642d48ca826cfea6ff345b46f398647890b24918f87b5f4744b136d55310b4cf"
+    },
+    {
+      "glyph": 43,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "b0d28201877e70035d7e2c9b812faf76b3231eb63d10b5c7513d84339ab29e6e",
+      "reversedGlyphSha256": "21d7b2936ec8037c2968961b1a82bc025ddda7be37de7240e159902ea92bd4f9"
+    },
+    {
+      "glyph": 44,
+      "kind": "horizontal-dropout",
+      "mode": 0,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "afaa1c2fcfb7cecbed0cebd893d44990a77a5dbb33edcb4875a06a52091f92e5",
+      "reversedGlyphSha256": "c1406846dc19084b10f808ef5d596ffce0857ee7982d43e892aa9eecc896965e"
+    },
+    {
+      "glyph": 45,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "495598e73612d816c4af24aeb5472ba85a08b67173a25fe05329278ce7fb56c7",
+      "reversedGlyphSha256": "62a7d2dbf3290344f013ce656d86ace4fd7b241fa567e383e2be6db6c38298d5"
+    },
+    {
+      "glyph": 46,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "79c883af2823350f0fabfac590e95250d1f6066b24a333d6180a0849086f5c62",
+      "reversedGlyphSha256": "1c3dbd6681b74158450ddba29d428e7def94709dcb21af74008118d757b31b85"
+    },
+    {
+      "glyph": 47,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "e037625264396eda497be05e5eeeb6845ea68851f800a4433cf6b9038140b0f1",
+      "reversedGlyphSha256": "a5370bebc6de02abe10f3705b35cc8aa8b0f558bfd4a470d30a0e5dce2b010d4"
+    },
+    {
+      "glyph": 48,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "e5852041556d63529a3fe16b26e3b4f028d4ec035ffb62505358da8a70e89954",
+      "reversedGlyphSha256": "1fd1864dd9ce4ac1dbf30d1e37ae83cb464f94d1c34daab341e7fef211c83ae6"
+    },
+    {
+      "glyph": 49,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "42c2a69f30503ad651957d9d20a5b05fc852424f3ca237cfebfaec555f94cae7",
+      "reversedGlyphSha256": "95054e5b5137244f26ab027aff929c86ee6f60237605ad43b8027228972e43a7"
+    },
+    {
+      "glyph": 50,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "165ac8a51bb8f7f81c2952fc2a95a24529895c8540c46489cc45f9e1e357ea5b",
+      "reversedGlyphSha256": "a8a5e394f0ded9e674da8711ec4afcb17b05937af7aea9746e8e8ed26a9e10a1"
+    },
+    {
+      "glyph": 51,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "54296c34560f0a789cbcceaba7c7457e108444903afa928f8d5c94094fc0b955",
+      "reversedGlyphSha256": "61e03a2c2b930dec2b3ff275fc733877f81ce0115b13f934306d52af25a22fd2"
+    },
+    {
+      "glyph": 52,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "308e021bc4f44b48b3885e37acd6b008654c7c25bd7e65b172db48997fced346",
+      "reversedGlyphSha256": "e0cead39f9c3f3387e5090ec0f570916793a0dfa7acc282d90bcd1dbbb041c8d"
+    },
+    {
+      "glyph": 53,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "a55b75bcf0f94274c451c98f15449994df3b5aa345c8b3661fa2ebd4f2d8dfc4",
+      "reversedGlyphSha256": "cbf6455c086c199da06ae1732192e938d1233fb1010b87fc19119e2c3e9a2cd4"
+    },
+    {
+      "glyph": 54,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "84c74f418e183e7b26b26416b2a0b3715d30519ec338f65920000cc42bfb50fd",
+      "reversedGlyphSha256": "fab4d829a77b42d6ac56ffabe1f2ac35de7afe243a401ede960ad1fd4828791b"
+    },
+    {
+      "glyph": 55,
+      "kind": "diagonal-dropout",
+      "mode": 0,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "e82ed9fab32012a386faa9fc26331ea87b1a88a69ae00ed7a24faddeef7e9a9d",
+      "reversedGlyphSha256": "e4ec270c4daa82a290b4935ab511b29deeb57187cd20bb1d4c2280b055ce5082"
+    },
+    {
+      "glyph": 56,
+      "kind": "stub",
+      "mode": 0,
+      "phase": -5,
+      "points": 3,
+      "originalGlyphSha256": "5998c22f6b1d4a95c87339c0c30294c0d3b6fcc7cc6a87bf6d872e8d330127a1",
+      "reversedGlyphSha256": "5fd0369d5ca7523e56450ba86d3a0d4ea6a4ce9abc09e1875292918c524cb3b7"
+    },
+    {
+      "glyph": 57,
+      "kind": "stub",
+      "mode": 0,
+      "phase": -4,
+      "points": 3,
+      "originalGlyphSha256": "3d401e0e315471c515d27974af0a2d3d26cf86d51af4f7bf09e312aa1ccc3e03",
+      "reversedGlyphSha256": "6bf3a424573ab105334a79baf0e0ed4da63ef6a0da4bdbb2939c848b2d761af4"
+    },
+    {
+      "glyph": 58,
+      "kind": "stub",
+      "mode": 0,
+      "phase": -3,
+      "points": 3,
+      "originalGlyphSha256": "4266cb0a89c32b38d49da597ad389efb32ed1ca432f2febb002d1782260010c1",
+      "reversedGlyphSha256": "a1e50a3e55b5f9142f1bc7209e40eb3edfbbc938b1ae4d7262d3dae812f50adf"
+    },
+    {
+      "glyph": 59,
+      "kind": "stub",
+      "mode": 0,
+      "phase": -2,
+      "points": 3,
+      "originalGlyphSha256": "46f6abd4c77302542152b23769be3e05befcc0fdd54cf02f49418f4543c10f90",
+      "reversedGlyphSha256": "1101684d9491b8d79e0c9277087b07ccdcdfc5a706845bed586f0397e2ca5f52"
+    },
+    {
+      "glyph": 60,
+      "kind": "stub",
+      "mode": 0,
+      "phase": -1,
+      "points": 3,
+      "originalGlyphSha256": "353d93c3cb2fb070c577476ed0c050b1b3fa19a7a5a41a3d995130dceb3eff66",
+      "reversedGlyphSha256": "4d1610a273ba97b20396510c54ef53c66e72119530b505a6a5314e8dece377ab"
+    },
+    {
+      "glyph": 61,
+      "kind": "stub",
+      "mode": 0,
+      "phase": 0,
+      "points": 3,
+      "originalGlyphSha256": "52c9224d27bb31dc457effe5a41d2f11a05080e403a220afd4562dbdd294c21b",
+      "reversedGlyphSha256": "3c953e660ab79d5af2f9bca884b3ce9b8091ab73ca5f97514e11529d325bf879"
+    },
+    {
+      "glyph": 62,
+      "kind": "stub",
+      "mode": 0,
+      "phase": 1,
+      "points": 3,
+      "originalGlyphSha256": "28af8409ed199cf9742a211fbd08fd4b84a72510ee0e066577342677530945d4",
+      "reversedGlyphSha256": "73f1a4946302ea78c2ff77bedeccdd0a65ef680ba62201cdeb849746360516ff"
+    },
+    {
+      "glyph": 63,
+      "kind": "stub",
+      "mode": 0,
+      "phase": 2,
+      "points": 3,
+      "originalGlyphSha256": "b39d72099875780bf2efff8a7df3996756c805ce1c0ef27b34e6e9f3f54e7120",
+      "reversedGlyphSha256": "ee050de4b4a41a7a40af40a4cc64cdfcdb1369f923df99eedb46f1e2df0db9d6"
+    },
+    {
+      "glyph": 64,
+      "kind": "stub",
+      "mode": 0,
+      "phase": 3,
+      "points": 3,
+      "originalGlyphSha256": "830e1ad16b11e5c2489138c2e382b7aefbd42f058822726ce6b768fa68950eb7",
+      "reversedGlyphSha256": "81f3383e7fb29a5582e24233c9a4b4d4a974798f01c4bec58796b09ee23172c0"
+    },
+    {
+      "glyph": 65,
+      "kind": "stub",
+      "mode": 0,
+      "phase": 4,
+      "points": 3,
+      "originalGlyphSha256": "029fc313811d91f185a33aff4e6fd2392fa17a2db6ae8203a4f4d7112e471820",
+      "reversedGlyphSha256": "e9d5d4403684c7cf62bfb31fdcf1eebacaf9f6cac4a43ae94ea27d3e1851db0c"
+    },
+    {
+      "glyph": 66,
+      "kind": "stub",
+      "mode": 0,
+      "phase": 5,
+      "points": 3,
+      "originalGlyphSha256": "d6edf52d605f796b65794d29c739275c1f07ea07df84b54f46a6901f9c279ede",
+      "reversedGlyphSha256": "122d6418c5c66b5891cc56713129a8fff831834475c7790cb497c02fef04b6f6"
+    },
+    {
+      "glyph": 67,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "4550247aa10f04b2cc11af514d22759720804fc12bae073f03cb3d1e410a39b6",
+      "reversedGlyphSha256": "eb723c84868c9dd78a24cdfa99c579419aff353054a5dfea7f0c1e5c89b3f51b"
+    },
+    {
+      "glyph": 68,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "823fba0698335ccd6a390782ba81517d82156bf8a75b65c49352065eb1198111",
+      "reversedGlyphSha256": "08234e2a3f43ef1e6289e0e71d12a71ab04801e7538e2e7acd1b17c0f1fe5fad"
+    },
+    {
+      "glyph": 69,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "c06c5d7a2ecb7ec835df58a14b632744c72fe701cb7bda439ee915dbdca9cf40",
+      "reversedGlyphSha256": "e7115a481b4650e97eb98985b8e7d159cb2e1719df7e0c4f63dc9aff91e45146"
+    },
+    {
+      "glyph": 70,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "211be4b282d770e3036250eaf8986920fb6f3988803458db70b10fef7a0a199b",
+      "reversedGlyphSha256": "a3f80287db45f915bad6563dd57e97d011a1543f02dd023bb7a52f60e8057f42"
+    },
+    {
+      "glyph": 71,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "a8bdd2ddc3577e2eadfb5eaf735b8a49773487dc50444f548c13fdcd121146c7",
+      "reversedGlyphSha256": "f8e6139134392abf9d07c4970c075b1c6a295f40d0253094b3fef79f6acd9066"
+    },
+    {
+      "glyph": 72,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "0b34b9c3e02180694ad49ee5a552f261610bd57bb2ad8e49f4ce8b0ca8e55a93",
+      "reversedGlyphSha256": "5bd93dc88e1410cdac1946614482b7830902a8f683b46c07613b752f7b5df9ce"
+    },
+    {
+      "glyph": 73,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "d1e522e2cfbbef6070919a680af0ab7a2d54e809df1be2b7fdbba987431c692a",
+      "reversedGlyphSha256": "40c5f82717e8e0ec7907120310b7b8e36d4b3ea9dbb7a726344ee153ed0c06d4"
+    },
+    {
+      "glyph": 74,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "c68fa4086bef601a27394b275bc7a91af2f4558d89ef71a96c761c83d7ad9f0a",
+      "reversedGlyphSha256": "76102e08217977dbb1d13800b7bc95304e0eef35e67491ba85dd70a833ca2a2f"
+    },
+    {
+      "glyph": 75,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "7409f2559c0b6e5b37e2949364ee9ea2a1709b04ef7ec217a4c0cfe92ba3c01f",
+      "reversedGlyphSha256": "b71cbcf1bb6118ef124fe16d1d125b1331ae5119a9c03d629dcf5faae2339542"
+    },
+    {
+      "glyph": 76,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "1b239a4ff2c81bc4c8b197878b3085202aba94b89b8f41563cba968ae6aab1c5",
+      "reversedGlyphSha256": "c8626c15774f68ce8bdf840b3e7dc1a9e03e9a2d1aba4ab69ca6b825a3ae8a80"
+    },
+    {
+      "glyph": 77,
+      "kind": "quadratic-edge",
+      "mode": 0,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "d4203f891199100a4c80e1cba219d40f0d70146b941921c1b52bd20af2c70095",
+      "reversedGlyphSha256": "916d0b1c7123d886d384e2c99bbaec9c916e9c750ab3455f0f8ac8a844f3a39a"
+    },
+    {
+      "glyph": 78,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": -5,
+      "points": 6,
+      "originalGlyphSha256": "0b6ca6b8d3083104fb1af9587e31848c51aa268e1157f7171a39fe9985ba98e0",
+      "reversedGlyphSha256": "00fffde0ff6b3a425e2b39613027122574175bd293a3bf8e8891ff35bbefcdc5"
+    },
+    {
+      "glyph": 79,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": -4,
+      "points": 6,
+      "originalGlyphSha256": "fff73746dd748f18170140f8d297c55954a68e2a6d714eaab371d6e5f52573d9",
+      "reversedGlyphSha256": "42d9a80ec8881d11c70111c2715b46c1a2c68f9e6b82cb0d59e9c22d1b4cfb62"
+    },
+    {
+      "glyph": 80,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": -3,
+      "points": 6,
+      "originalGlyphSha256": "356172eb8d3de195df5055cd3eb2e4d87b233cde01e219c08a07ed4cd39b340f",
+      "reversedGlyphSha256": "e41f0773b3fd4351ce17a17157abab352d34139876112b145a912f1038fb40ae"
+    },
+    {
+      "glyph": 81,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": -2,
+      "points": 6,
+      "originalGlyphSha256": "3b3299da90435b539d41c83e6bab5465250513c2f1d67eded179c0567bf4ffeb",
+      "reversedGlyphSha256": "ebd24e8ec03f99186724939a8bf49ea1aee3c6847c6dd0e2595ecc7e52efcf39"
+    },
+    {
+      "glyph": 82,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": -1,
+      "points": 6,
+      "originalGlyphSha256": "f1078de3412facbfd3a51571392d777765904fe110f1c8c7eaea1ac87d759877",
+      "reversedGlyphSha256": "4d9b0c63654a017580ae8ec3167d2a75a47d2da6b2c22f9db76f630b1b462798"
+    },
+    {
+      "glyph": 83,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": 0,
+      "points": 6,
+      "originalGlyphSha256": "8328a23f3bdb961232a484038835b40bf83835713ff7712cae738f096d4a7e1f",
+      "reversedGlyphSha256": "41c7e9e2b8d679dc6dbb225c806c4aa61d5a5fd747b8e2a5926c24155d1cc053"
+    },
+    {
+      "glyph": 84,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": 1,
+      "points": 6,
+      "originalGlyphSha256": "bef330c4c41031a8007e5b84b1f1dc12a237a4e926bab369bd5730a58a306b4f",
+      "reversedGlyphSha256": "dc6f13ad67b71ea12a9902399b431cdfb7dd0b806bc7a769a471dcd7fec5d624"
+    },
+    {
+      "glyph": 85,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": 2,
+      "points": 6,
+      "originalGlyphSha256": "134143bcd0e484a569c2aaf1c2bd02da8b6cc165d76b2c99bcfbe99cdc0780ae",
+      "reversedGlyphSha256": "798636ae2ea09626e6e5efdb75be863a21e43fe072187a180dd1210bd658f8a3"
+    },
+    {
+      "glyph": 86,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": 3,
+      "points": 6,
+      "originalGlyphSha256": "37877c8fe1ff68d9021e45188af57a2c7bf39b105694af4ddc2cc90d843f8ca7",
+      "reversedGlyphSha256": "4a37311c6e229e414763dc9372253a0420ab12de9a883716d9ce186ca4503521"
+    },
+    {
+      "glyph": 87,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": 4,
+      "points": 6,
+      "originalGlyphSha256": "d85aab23d22d518452a59a6bba33b017ee0401e2a1c553d3c66c9afffb48a594",
+      "reversedGlyphSha256": "d1cdb89e6c66a69181fbaa07cdc3dcd35cb05316ffea4e035107dbaec11daace"
+    },
+    {
+      "glyph": 88,
+      "kind": "quadratic-dropout",
+      "mode": 0,
+      "phase": 5,
+      "points": 6,
+      "originalGlyphSha256": "675e04c5706febb9eacf1be9fb032cfcff71f354b4a458725ffb8a44aa7a133f",
+      "reversedGlyphSha256": "680308ffd1474aa5c5bac6369968b7d3bf92db8895f746af1adfc18a763c494b"
+    },
+    {
+      "glyph": 89,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "28c932f5f3ad7277ccdb6551e3da7cd8bff627bf65d9d7fb3d5b4edb9324c112",
+      "reversedGlyphSha256": "aaffebac88daad509b4a7b29c1f9af2b6bca12cbfb347c939f68925f4fc021f7"
+    },
+    {
+      "glyph": 90,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "88c3a09978fd5c41eb690e10860f1f2c55d86a20864d99e5516d58cc1c865bf1",
+      "reversedGlyphSha256": "6a63ac847a1a4df53bfcde32ed086ff0d97ad6968365929304b4e7a23a4fc56c"
+    },
+    {
+      "glyph": 91,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "8c4b35f034ae9bb99521c7ee0ce15bb18ffd8cb00b0f799d650a76590733f475",
+      "reversedGlyphSha256": "7e0165f428040a913e4d6dcac561033b0f714fe0e7f173cdad2c1d1d9e0931c3"
+    },
+    {
+      "glyph": 92,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "83e248a158c2770b1e1dfe511155c6858a1b9c6dda3f7dcf1307324c5094106b",
+      "reversedGlyphSha256": "1cd16a15d4ed6396a51398568a72c083f4f24e1955a379325f8edaa3c421aafc"
+    },
+    {
+      "glyph": 93,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "9787826dd993706df110d7e93cfbc7888fa98af4685e98895c76836229f2e1a1",
+      "reversedGlyphSha256": "b0b8c9d1a3e1c4d2f971ba82d18ad9b9b91b82da3705ef28cc7c161794107aa1"
+    },
+    {
+      "glyph": 94,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "b0a044b4a9034162025b223eaee328436778eb6780b594c5255e4de37601f84f",
+      "reversedGlyphSha256": "19124a0de5bac8adfe197486a143795b1bc7abb65c55860d94002dfe7a5c074e"
+    },
+    {
+      "glyph": 95,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "84b6004541f73127892c6fe394618ea05deb1d7db57ab01e2cde177189be092d",
+      "reversedGlyphSha256": "f06a51935db9f7772955713fadc287a055665c2f20384c1a1894f9dc16d4da8c"
+    },
+    {
+      "glyph": 96,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "f6564e60ef9590ddcda6b1341e29356ae9f784a0cc31c1e475bedac05b6a04fa",
+      "reversedGlyphSha256": "318d0842485f1923b541d1b5328458c7f7d35b969854dc6f80e32900376b35e7"
+    },
+    {
+      "glyph": 97,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "9e72ee710aef0d6bf4e54d007fb36653512d9400ca8360cf669d131e927ac9eb",
+      "reversedGlyphSha256": "c13b39b289cbaf11cc9ba79d6355ff60723e5dba5795c47544182108a6b95e11"
+    },
+    {
+      "glyph": 98,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "99886382b0c9b44bc739d71686e61c448f299514d29271d4322720cf676259ed",
+      "reversedGlyphSha256": "d0c604f5993fd18c5bbd263ea9b05b3a512310d43241d69c18fddf133a58c7e0"
+    },
+    {
+      "glyph": 99,
+      "kind": "right-edge",
+      "mode": 1,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "9ef4a7a79ebbd15c48f972c4fc29ca780749f703cb4448c44d8ca3883a1c47a6",
+      "reversedGlyphSha256": "6739b29f993ec823ec0106f7863654d8996e2f0dea0c9c7ae411efd69e65dfa4"
+    },
+    {
+      "glyph": 100,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "8419470199bfa5b5da228bf30a9a1d02a14696dfb9f82e2af29fb2a3f6157713",
+      "reversedGlyphSha256": "de8a832688a8b61bfee318177fdbd3ff9d81222942dcee01cfad7e7b369be6e8"
+    },
+    {
+      "glyph": 101,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "d379605a4b355a818fd3ab852aec1d38724afe089a1779d01ab440b9db58bacc",
+      "reversedGlyphSha256": "f7c92ce3e8073758b0e7cad067c6bd59949198fb8ca95de038867c47647fe72d"
+    },
+    {
+      "glyph": 102,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "b6d4c87b06150dc060cc68e7202968f78275e81540ec59bd96c1c702c3db9132",
+      "reversedGlyphSha256": "e392e40b32dd38f684f46d8c065699617da62160059bfcb7c7c30b94f8a545b9"
+    },
+    {
+      "glyph": 103,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "f18b9de286975c8c4e9c5d2f8a3115596a838e3f2d3eb1bf3411fc6d937d759a",
+      "reversedGlyphSha256": "99f416cebbe94400f3ce4efc6fc9be151be55520c482401f68d243c12726f2e8"
+    },
+    {
+      "glyph": 104,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "3f937c2099f9e7053372ffa9289b894d64d001605db6a651d58c2d9bb0a2b876",
+      "reversedGlyphSha256": "a2113c33d984abe63005d02a82ee80205ab257eebb7adb4b4533a0e4a81e9eb8"
+    },
+    {
+      "glyph": 105,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "6851b1913498581c9b2d69a0dba217ad201911f43bdce593cc5efc2d32b8faf0",
+      "reversedGlyphSha256": "45440f1a57554a64aafa65c9eacbe36aea56348cfb0fb52551bef733928a251c"
+    },
+    {
+      "glyph": 106,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "dbf5241691f8855de48c82d61fb1de905c45b9a9b82084dc69a89a941b87aad8",
+      "reversedGlyphSha256": "9040c5bb57285170d087e24944de536f000b093be3e23f00dd119e8782a9fa1d"
+    },
+    {
+      "glyph": 107,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "05148774c0c5553ffce7c6c7f722d185b4d7ef855ec0d76176bb59533fed6a0b",
+      "reversedGlyphSha256": "bd0cf1a9a4e65a2e9ca774c414e93db4e7bd5e0398e2635932f3784b4393b717"
+    },
+    {
+      "glyph": 108,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "7751d281ed849e57fa58a7fa916bf95163678a30298a0a8ab420bc9c86a1086e",
+      "reversedGlyphSha256": "d84e531ba1695707919b20674d607f7abc0976d5d2839877fd480343e603ace4"
+    },
+    {
+      "glyph": 109,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "5993c36e3b6bf3a98c4e72bfd90e7fd9a6d950a0988559609fa2ee9cb9e9d562",
+      "reversedGlyphSha256": "124bcc3450cd6cabbcdcd4d57ccc12a668170534277054683a02fc9233053d3a"
+    },
+    {
+      "glyph": 110,
+      "kind": "top-edge",
+      "mode": 1,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "aa7113f7ddbe733b6cc73b7dc70efd41e32417616d8ccf071bb76ca197dc2f45",
+      "reversedGlyphSha256": "51767dab8dca735496e74f2736d1861607f19d5d6bcbf3df2875ebb6f2b1be70"
+    },
+    {
+      "glyph": 111,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "164f6461bcdeeb50c6dbf0513e5ddda03ef95cf2c314f83c075d01938b5c8dca",
+      "reversedGlyphSha256": "611c7ffd0e96abb9baa23abd435e15b20581838060b1ab7bccb7e1aa055c5bf6"
+    },
+    {
+      "glyph": 112,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "f1bd2b6f4209762e8d5fc8b32a713a2dddde197ba74326b9fd63ade35a5e5d90",
+      "reversedGlyphSha256": "1a3687d3e4a67f0a1c13ca66ed917393fb12507ff55930cd4be72e7882f2cbec"
+    },
+    {
+      "glyph": 113,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "65e16b87f77b70892e462a6916ef0d154772a1f53cf6e6db4bea83f51d141da9",
+      "reversedGlyphSha256": "428d4d203423d4057e3643007ea0f94c2e43289a214d413cd948fcd63870e314"
+    },
+    {
+      "glyph": 114,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "91f3cc5dbf9eb785d9198a815852fccd930e242d5a68dea37d8bfdaea9a8cefc",
+      "reversedGlyphSha256": "ab4dcce5642bfe895976cde6e1cf377512ba69dfe0bd8f1af2d4497d4d01969a"
+    },
+    {
+      "glyph": 115,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "3a2f9f0b8b7526345ecfb27574c26dabfb10b3a63d0e2dcd2265a82482521a70",
+      "reversedGlyphSha256": "ddb55fa8d285880e04ef59cbd22306e5f6d4c614ca468df619818bc4bcf2cc25"
+    },
+    {
+      "glyph": 116,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "e337b935f779d83100ee059f2577f9e39893bf2528fd693126a6d99bf96f9ece",
+      "reversedGlyphSha256": "558e9928b48d2cbc295aa80bc0225302af7653c25948ad5bd00435e03741b92c"
+    },
+    {
+      "glyph": 117,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "eb1d30eb7959d283a866a586570ac3bf9e5c05dbfec805fcf1b5882f2551eda9",
+      "reversedGlyphSha256": "ebd2bc027f9309cb89668db6f7d7b7e0d3842b538589398d5465c0b2e2fdf0b8"
+    },
+    {
+      "glyph": 118,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "7dba4200d3a51e262738b57c07c843a0ed80f513a496d16b4602b43781a9d2ac",
+      "reversedGlyphSha256": "3050599d301a7cced2bf9ce59a2f7531ca83b600b3e7fc38daa5c4aa4c62119d"
+    },
+    {
+      "glyph": 119,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "df9f53321f56535d9f6a232d3205713106b8b7c57644a2fcf4b0c13d91b336cf",
+      "reversedGlyphSha256": "e8109db149a6d38f0b0dee616c27931e060a0f72b9f362e81b24ee741d87a775"
+    },
+    {
+      "glyph": 120,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "dfe8608cc6829fc3903f613f7a8168c1942c543c990d2cfbfbacf7f4358f8239",
+      "reversedGlyphSha256": "3217d1da5433d2a10765df1b2b5d53b9270ac3bd7506d24506dcf1fc9f15d6e2"
+    },
+    {
+      "glyph": 121,
+      "kind": "vertical-dropout",
+      "mode": 1,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "a3e7e68d90c41acf53bccb59feaaca319a74333ff09453dadd63ff8cc65b1617",
+      "reversedGlyphSha256": "1cf1d67b36ee22583d62235318c5b877ae1f93200fb33ed544f27c0cb683024d"
+    },
+    {
+      "glyph": 122,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "c7130898d70cc66e8e302df7a3025ef9a9f70a3af8dbe388cd6f743a61e16aa8",
+      "reversedGlyphSha256": "0de910c70810f9e249bea174c9ed7e0c3bace62c1969b56ec31b6f1ce3953a3b"
+    },
+    {
+      "glyph": 123,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "344044896bc3c296a40e10a3119a58a7aac84b4f7000c227c17a3fce4722dd58",
+      "reversedGlyphSha256": "9b3ab891856bd5d38a656af9c997b7b2847681aaf403c4996f6142f3b0d37810"
+    },
+    {
+      "glyph": 124,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "0c17d5d76e9b5bdd856a12a36559601c343e94b0faa65ee59195760ed41eba7b",
+      "reversedGlyphSha256": "858dd7e8b7a65ed903b96fa07e0318fa0af1d1a5da21303824510ee3523df439"
+    },
+    {
+      "glyph": 125,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "0d23d657f73eb2c3fa69c8e0751295a85d260aaf966995f33181635e672a833f",
+      "reversedGlyphSha256": "44ec6fbe74480def141e6bfd608db962f25df2c57f1b70e6ae1bda39bde40cfa"
+    },
+    {
+      "glyph": 126,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "c7ee8a6feb006f2095439b32665885fc0d40051e9ca8d8726565c81fbfaaf75b",
+      "reversedGlyphSha256": "f2154a70afe26ed64d346a935fd8872835fe3af2f849ff19db7ee413779777da"
+    },
+    {
+      "glyph": 127,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "c62889b9f32ca3281151b4318f5bb7b23f9445117484f11c437ae7bf5b8359f9",
+      "reversedGlyphSha256": "106d8c62b05ce0009d0ea86cd0b89cb6c681269b0b878e3a66fe136b9db86156"
+    },
+    {
+      "glyph": 128,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "7e8ce33752c34bc6e1b4d372b1740eba39bc9d4049f0ba787c8acecab6ffc276",
+      "reversedGlyphSha256": "2561f08ded8ad518ce6527ebf9819165c6731f4dc7da70a5e18242ba0101ece3"
+    },
+    {
+      "glyph": 129,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "db855d593cd49a11c28d7141cb7228b5a9089a16d3f7ffa3f793ff9c7975ff6d",
+      "reversedGlyphSha256": "d48f10fa40778ef86211a27d6262631da62797d4e1dcac16f5074f0483035363"
+    },
+    {
+      "glyph": 130,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "f140a068152ec52533726136d1a612b6f327e003147cf9de0bcf7bae9ff1de67",
+      "reversedGlyphSha256": "c793f0e5b5256067dd5097d5af4e1f29b8c36cf5275135d3eb42dfe12dcc0100"
+    },
+    {
+      "glyph": 131,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "0af60ceb4c38c3b58d58430ef4b01b0c336956aa95c2c5fab4c65da506fde98f",
+      "reversedGlyphSha256": "9d931cb7730d6b2f74fb104ad60b977c8c0b959491bed112165adc08e5bda56b"
+    },
+    {
+      "glyph": 132,
+      "kind": "horizontal-dropout",
+      "mode": 1,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "f6e67f583c6f1aedc008c114b1f658c3a205a415f1f0dc4c0ae387dc10a69dc4",
+      "reversedGlyphSha256": "8a38518261857a4b728cf00629b8de519a84a356196e32de231a508e1f49fa66"
+    },
+    {
+      "glyph": 133,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "4998b30293d0fb3861052b950e1d5a6dd6bc2290fa8a5f9b3e8dd842d9cd23f7",
+      "reversedGlyphSha256": "a4770f636a5aa5ca1f7fda47a653048939dba35ea75e608e9aa23cebb99ba34b"
+    },
+    {
+      "glyph": 134,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "e718aca5e4f9994edcb18d08b61d52d80f4e9b4d62eb20d5a50b854419db3e29",
+      "reversedGlyphSha256": "7e4ccc8280484307327fc6428344854c279ec4f4d1fef3af8b0db80e706032a9"
+    },
+    {
+      "glyph": 135,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "6c11619aca7603a5c1a5d6965a410802263d22974c39f0fc345f59a177cc21cb",
+      "reversedGlyphSha256": "55583cb00620f3ef4b69e2aae4a3a1e9aa85c91179455810b1e9de3a27b6e6b4"
+    },
+    {
+      "glyph": 136,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "171122fddd3d027fde7bcdafa04f51e67ea2ad19e156203a76bb61b821fa9e39",
+      "reversedGlyphSha256": "bd85294ba21aa5d252dff20e8a2c0cd018ee617ee01af669526480abc232c3e4"
+    },
+    {
+      "glyph": 137,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "4c58569a1a05b43948ebf2247a39dabfb0b058a2c9f69d7bbb5567757f98578e",
+      "reversedGlyphSha256": "27e64f1e3fff8e3892c3ada85f93eb94b5556e3bd7b90f0f8cca58484e392e9a"
+    },
+    {
+      "glyph": 138,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "8df9667b242af315e1867d1dd4c110f8c31b84c8da8691a3edfe738ddf160060",
+      "reversedGlyphSha256": "6a503aace140df614ef8f68452d85cc8a437e5b5b5484d2d6ab48f2ba7ac24a3"
+    },
+    {
+      "glyph": 139,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "4334591614159a9c87c0feb697f6f5797db2e639847fc9673de3a80cbd013abd",
+      "reversedGlyphSha256": "1816ae7032a5bb36b03f07e593088fcfbba2029f011e3cad557cb1de232d062b"
+    },
+    {
+      "glyph": 140,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "38f841a9484bc205650156af1752ca2f178082f0ce54b2399682f1783226be6f",
+      "reversedGlyphSha256": "8045e9d27d919975f795e8fca0238e3387ce1235431f7f0d1a75933492b7a96a"
+    },
+    {
+      "glyph": 141,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "89b5931c837e8810e3320bae5c5feae53fe5fc47ace11fa7c95b3facf58683ca",
+      "reversedGlyphSha256": "376c2928807a26d6ccf24b619fabf0a2b8638c0be735b7f27e991f3f7e5b0fcc"
+    },
+    {
+      "glyph": 142,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "c6b11f2915c2ff5819371b34913e5778116a2621b40fa3558a9e23fbcef1b75c",
+      "reversedGlyphSha256": "9b3ef2d3af19d49400d48a4fcc9f5369473785efd3df18b34e89f62f87d53d79"
+    },
+    {
+      "glyph": 143,
+      "kind": "diagonal-dropout",
+      "mode": 1,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "c434853b0ab036a19837f0a7cad106197717195b1aec6f638eb6a5b10608378f",
+      "reversedGlyphSha256": "8fe516670f7e8c08cff40e655966b26d178d03888b8a06a1eb8b0678fd82273b"
+    },
+    {
+      "glyph": 144,
+      "kind": "stub",
+      "mode": 1,
+      "phase": -5,
+      "points": 3,
+      "originalGlyphSha256": "fd3256d9fd2fb9477ba4dad2a747dbef4adaf427ee69434f069d0aecfc7178d3",
+      "reversedGlyphSha256": "53a6930e35820297f5fd612d5c0e2d9ea888fae2ac358c6fcc64dce96f24cf59"
+    },
+    {
+      "glyph": 145,
+      "kind": "stub",
+      "mode": 1,
+      "phase": -4,
+      "points": 3,
+      "originalGlyphSha256": "7ef03b89e401b20de762197eba528e4f5348e51f333347432841dbd88f48d2e0",
+      "reversedGlyphSha256": "9061321ef90918b67d3cf423632270a296f0be95851a262f1dd8ad9f99a4c683"
+    },
+    {
+      "glyph": 146,
+      "kind": "stub",
+      "mode": 1,
+      "phase": -3,
+      "points": 3,
+      "originalGlyphSha256": "7397c8042b98e4c4e8b905a11127ec71748851bd52f0a62b604f3c536e3559a1",
+      "reversedGlyphSha256": "29371dfff816bd578b40e2fb8a353271aed16b3c1c9a0ca1d4ed9e73c35523ae"
+    },
+    {
+      "glyph": 147,
+      "kind": "stub",
+      "mode": 1,
+      "phase": -2,
+      "points": 3,
+      "originalGlyphSha256": "0458a4103598896e67205915dfa09a44aedb5b20a42cbfcbc5a401476604f038",
+      "reversedGlyphSha256": "4e030980cfdaec47d8bc17310eff0340ffd03730b969ec2af7a5fd1f973184d7"
+    },
+    {
+      "glyph": 148,
+      "kind": "stub",
+      "mode": 1,
+      "phase": -1,
+      "points": 3,
+      "originalGlyphSha256": "f07cfff39cba3142214ba7f01c02550888042f1e03468dfc0d4185ab56a0a3fe",
+      "reversedGlyphSha256": "286bf5e6ec9c1bad81ca25f0f970f3b5f792146c705c0c2ea343dc53aa735c61"
+    },
+    {
+      "glyph": 149,
+      "kind": "stub",
+      "mode": 1,
+      "phase": 0,
+      "points": 3,
+      "originalGlyphSha256": "42f908ec77501f3ab35ab8784968c0ba901a7fbfa9abfef1a86dd5698f9eeed9",
+      "reversedGlyphSha256": "84b4af84cb61ba182383f73520aaa13973c3c68955532c7eff441f07c1554565"
+    },
+    {
+      "glyph": 150,
+      "kind": "stub",
+      "mode": 1,
+      "phase": 1,
+      "points": 3,
+      "originalGlyphSha256": "a2792271e4efc0842414198bb9574ea55329554618992b0b3a862f4ed9752e56",
+      "reversedGlyphSha256": "a5198b840753149456c9ff5f575155be4cfcfe3e24fad2f4ff7c2b96ca208e54"
+    },
+    {
+      "glyph": 151,
+      "kind": "stub",
+      "mode": 1,
+      "phase": 2,
+      "points": 3,
+      "originalGlyphSha256": "9a3fd331adf3e184b8ae21a5d42315a05f8b666a870947f57f20950ac3081847",
+      "reversedGlyphSha256": "d7420067d6ba0cd56b3c2098b4b4c072ca125da81fd444b3cafe6cc396c8eb0f"
+    },
+    {
+      "glyph": 152,
+      "kind": "stub",
+      "mode": 1,
+      "phase": 3,
+      "points": 3,
+      "originalGlyphSha256": "b302f11374e2c33bcd111b30f6bdb98b2b46cd61e7ca0cab11123c127386912c",
+      "reversedGlyphSha256": "ef77f582f487a8cf42dc666c8f42ca6b900408bd71f082f96d8f8aaf1040d9e0"
+    },
+    {
+      "glyph": 153,
+      "kind": "stub",
+      "mode": 1,
+      "phase": 4,
+      "points": 3,
+      "originalGlyphSha256": "5d3f48d213a7d5aa21de5a61a6db9e8a7ef2a9e13fa6524cd199865728f8d4ae",
+      "reversedGlyphSha256": "f4358784e75c5f09f2afd5da920a3b87a77ba19748e028e2213aac028c9bd9e9"
+    },
+    {
+      "glyph": 154,
+      "kind": "stub",
+      "mode": 1,
+      "phase": 5,
+      "points": 3,
+      "originalGlyphSha256": "424a166e800d3d09077ef6416fabb716d469a862ef35399adeb30651980dc519",
+      "reversedGlyphSha256": "b55e55488fe0fafa5d2a9251b6d480a87e32ab316cfbb5ac2d060f0d2a1273e0"
+    },
+    {
+      "glyph": 155,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "ad793e4595f22b07131df3bf432d8acea9f9ef80689998cf198872f16f21e3a1",
+      "reversedGlyphSha256": "10f66c253abf46d2321631c5cfe032a0946e755e1e6f2f9d7e0c4aff5998de83"
+    },
+    {
+      "glyph": 156,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "97a5c73f5edb0a995f0dadbb942704f056734ededb9acd702395d8867452dbe1",
+      "reversedGlyphSha256": "0e8ac63e93d98eb15061258fbaf0773f833ac4c8392a00495a96c0a4db1a2f4b"
+    },
+    {
+      "glyph": 157,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "d7ef8e7a48a2a367ea338270d842e5eb8cf064db640be57256ac9d02a187e533",
+      "reversedGlyphSha256": "5fde4ff1f6edefa87060bb3ce1914b9500933f7151408e976d099c7c39edd9f8"
+    },
+    {
+      "glyph": 158,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "ef16277465f4c21fc817381b406b2caac87a19ded8f95c987debf694700f72b4",
+      "reversedGlyphSha256": "a45fb669a8a137de433b62c623aa7ed1c22f48954fb605355c764138f1cc9a58"
+    },
+    {
+      "glyph": 159,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "d6946fb8b3624851450bbbcefedeca429d19f7aa650f98aa35223c7aaa006402",
+      "reversedGlyphSha256": "23f0489dcc8ca5fa9f557bca5d18638de618ad9bddc50987d7e31ff96918115b"
+    },
+    {
+      "glyph": 160,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "d9c5b5de746f01eb5d0cf94a4bd5bd4d1d4a55e95cc0323bb57a8dee931ce4eb",
+      "reversedGlyphSha256": "c5489adc137e47b8144e5473900f967c74016c610d333ed374d18f150a427015"
+    },
+    {
+      "glyph": 161,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "443093344f3bcf93fbc05bfa5dadc9837117e1adb0b62689eed69be83a54562f",
+      "reversedGlyphSha256": "73480f408b336b4a7ade4a6c110431151a36ef62e1c299cd0a6c7b612f527d0a"
+    },
+    {
+      "glyph": 162,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "a31224f403d817a2831583447c3cc15ba92cab4ecc81933740c39e1821210ad8",
+      "reversedGlyphSha256": "1b247042f1a2db9450d43da34fb8bcf3bbdf79af107ce1e26fb34f16a52b22da"
+    },
+    {
+      "glyph": 163,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "8832b795b63a5869bc4b93d954a2a060bab5d57727d70ae207df81dd08ad8e35",
+      "reversedGlyphSha256": "ebfdb6f059b276b99e5c20e05ad9e0b23987ba021ee477dff7b5d4058423e507"
+    },
+    {
+      "glyph": 164,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "43b2ab0459893cb1982007710b43b49ffa414d2b470b8457fe8395739b7bbeb2",
+      "reversedGlyphSha256": "34c44c2e70ecef7e5d6b23ac396fda11cd8e221c55846562ed561e471ddd66cb"
+    },
+    {
+      "glyph": 165,
+      "kind": "quadratic-edge",
+      "mode": 1,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "7d56147269ca4a0cddd0c254522a233aae0614c8897b14cc24467809a26d8918",
+      "reversedGlyphSha256": "477fca911e42b50040635a33b31cf3a54ca987248302db4a84bc303e75ff66c2"
+    },
+    {
+      "glyph": 166,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": -5,
+      "points": 6,
+      "originalGlyphSha256": "644857b323c33cc150468286762a40539ecda9bc65566c514c99bd0069527b32",
+      "reversedGlyphSha256": "ec2be3ab54e4624c20e99d14a480f733287535f760cb4332fdcf7a476e42b28c"
+    },
+    {
+      "glyph": 167,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": -4,
+      "points": 6,
+      "originalGlyphSha256": "56cea64b7ea02c7cdbd8aaf5418dd1dbbc249ee602be075c04822669c5fbebde",
+      "reversedGlyphSha256": "316fb37a9dcb82a18084b9eea2f7b5219aaaad34a841a870da19cfbbbce94575"
+    },
+    {
+      "glyph": 168,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": -3,
+      "points": 6,
+      "originalGlyphSha256": "ac756bd447faadee7ad3cd68b5bb6ef870e1cad001e9e62e6a60f5356a2af209",
+      "reversedGlyphSha256": "03de0b459bd2f8ffd80fa0876ea6e325b9a5982b2126a46325e364a80fd7b45e"
+    },
+    {
+      "glyph": 169,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": -2,
+      "points": 6,
+      "originalGlyphSha256": "a4fe07ba0061c0c293747a8bd770678e04ee042e5673386ddac6954c077f0ef7",
+      "reversedGlyphSha256": "1d7ba63eb305ea4f0c3156afa2cded0e47c675d832b4aca35c6c004a68b9c01b"
+    },
+    {
+      "glyph": 170,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": -1,
+      "points": 6,
+      "originalGlyphSha256": "734e8c84bb749f0979d53c8a6f98e6ca6d39cd99bf5ca09dfb20047331d9c6bb",
+      "reversedGlyphSha256": "613eb44d399c686c2ed50ee321d5e6a0fa6088c8c85625d2bd13b7134ad6acba"
+    },
+    {
+      "glyph": 171,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": 0,
+      "points": 6,
+      "originalGlyphSha256": "7cdb08f56b6f1872be2a4c1198b0a417b29a4cdbf6efa8e6fa7433632a74805e",
+      "reversedGlyphSha256": "3265efc1f80e75579ca8bdd1f55775d8b8a1487fb0d103453f377bb59824d73a"
+    },
+    {
+      "glyph": 172,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": 1,
+      "points": 6,
+      "originalGlyphSha256": "6d805c3c61d0ebb590e59c02daea7b5fe44a2972839cc4b66d6aa29512823e3f",
+      "reversedGlyphSha256": "f47c155c79cd1cadfc57fd086819cb2e5796c28218cf0c067bf344e4fae2f39a"
+    },
+    {
+      "glyph": 173,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": 2,
+      "points": 6,
+      "originalGlyphSha256": "c2447a7986958ab43f34d6ae35c47c4729951bf44efca98b7424f04a828241ff",
+      "reversedGlyphSha256": "623a54e681d96aac6e88377605ba7208816b49b5f305a5acea783c1f323c6275"
+    },
+    {
+      "glyph": 174,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": 3,
+      "points": 6,
+      "originalGlyphSha256": "319fd247df16434a9f98b68b2e501ccf8358ba749d436215b6df8e72f91935e6",
+      "reversedGlyphSha256": "1331f98480730728652e11a6394e08009c074757ec4e9d6819c9a067ec6e5fde"
+    },
+    {
+      "glyph": 175,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": 4,
+      "points": 6,
+      "originalGlyphSha256": "9876af53835d3afd39d00feeeeda8e564f211e189fbb9ec05503791ae28257ee",
+      "reversedGlyphSha256": "c9530b4b009a3b6edcd6a675e3a69d30ed8fdf9d8e19a8af8fd8f1ac2faa4a9b"
+    },
+    {
+      "glyph": 176,
+      "kind": "quadratic-dropout",
+      "mode": 1,
+      "phase": 5,
+      "points": 6,
+      "originalGlyphSha256": "23b0ca6b8b7b7325136c09bc1be7755cb71a3c2fa69d2e90e0530d32f0cf40f9",
+      "reversedGlyphSha256": "f15c82761d7af28c6d7c4648d02601336e4a6d1a51c4f8618d030c93e8b2b04c"
+    },
+    {
+      "glyph": 177,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "3b2749ddcd7c8bbb98bbc421cfe1d7337557dbee2eae7770d79fa62619435bb8",
+      "reversedGlyphSha256": "9243d2dcbfcee773223a79c792ccc5e45bf70ae99ca35e6c5d840a02ba2bd715"
+    },
+    {
+      "glyph": 178,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "ec3cd8e3903792b7f1e6da412758cc07d74f653b220cb591a14ede46071b876e",
+      "reversedGlyphSha256": "7b627d42650a65e9cf35a64fc99d7bd9fc3d70582c4094dead5dee7ef8179cb5"
+    },
+    {
+      "glyph": 179,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "e2a0a3ee39eec0e90b05e5b7faf135dfcd50a4c019616354253bc50e42b1fb12",
+      "reversedGlyphSha256": "880ebda71b9b88f485df1ef48a4782ff7a307ef955d36540e5c2dc2982c9db1e"
+    },
+    {
+      "glyph": 180,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "d74df6b24f4a679b35363a931297b4688049014638ef442f818775ab1879c6be",
+      "reversedGlyphSha256": "b338f0809206d02b74517e882959bf1c7fe18f027c2a548c2e9447378c9c3a86"
+    },
+    {
+      "glyph": 181,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "5e22de5f9ce10fb3903f9773ee5c1baf7a84e75cc73b3f893cdcf1b4bbae2108",
+      "reversedGlyphSha256": "0476d86149ba02471c88607721d5a383bca5b939ddaba5a175b527fb17d9c780"
+    },
+    {
+      "glyph": 182,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "ded5ff8dfe120db82edaf6f405686cf372c05c19b89372429ae9e4a316f64b94",
+      "reversedGlyphSha256": "bb2002c82eb9a4cac8c5859d2306f6e06c20c82199026197d337dc476c29bd4b"
+    },
+    {
+      "glyph": 183,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "0e0f928879bf02ebf7fdf33ebc6bac88f8f5978f3f742f3ecfaf9ac0122803fa",
+      "reversedGlyphSha256": "c472aa9508b34da595df3df842e5bf65cb4dc9bf9058ba86a16237026a2bf048"
+    },
+    {
+      "glyph": 184,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "a071c3ea1ec2223c848608944bbfb49a16d9bd2486dd5de10d75ed1865ce7651",
+      "reversedGlyphSha256": "8aa0dd737993f2668afc6b4bae0748b4cfb047661c4842731a50447cece5129e"
+    },
+    {
+      "glyph": 185,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "f026aa4ed0df6f3f91d06bb26e45533b7f51dc394d258efbd45a84a72fdc0959",
+      "reversedGlyphSha256": "46895652ff9311575a323e6e858430a48cefe812a8ad395645c7a7806eb3c74b"
+    },
+    {
+      "glyph": 186,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "470fc3398cb0a01dec5e0508b655ee92990b3b44d2699151c7ad8b27cfbe5918",
+      "reversedGlyphSha256": "7943c4339141aeac53545a3d4d114f8bc24c4ec015b6b9da2e034147b72c8f9a"
+    },
+    {
+      "glyph": 187,
+      "kind": "right-edge",
+      "mode": 2,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "80e8a03521d375c29e0c3096396088ac7dee5614741e430501fd30a54ae324fc",
+      "reversedGlyphSha256": "788ddf9e0d91ce60ad7fb431edd22900f097ce17828eeb19ad724d935e151b61"
+    },
+    {
+      "glyph": 188,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "b769ba6f7097c6fcc8415695ea74cbe76029920a908e4428993d8409779fe4b5",
+      "reversedGlyphSha256": "cf8aea70c66cbd8c7b079307b9076c53905ac87e1dfc99b4e0446f71ab6d9ba3"
+    },
+    {
+      "glyph": 189,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "93da28bd910c5f9957d7aeb5828be66d3aa14435e422ab806093adace7ddc46a",
+      "reversedGlyphSha256": "77b4ffd2426985c75f57c8c14589b651e692b37482a37835e5a802f2c05d171b"
+    },
+    {
+      "glyph": 190,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "61b8b179d80b7473585cfd7d9f1a581f9ffcb54a3236fe8ea83fbfffae815fe8",
+      "reversedGlyphSha256": "57cbe987596fe38bc38fbe3e734e93e4ce461e1322a583b239bd9dc771988d37"
+    },
+    {
+      "glyph": 191,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "7f7985a26b1176dd876565d7bdd36e8603d4c4b7f326d5bac1e353458e9de73f",
+      "reversedGlyphSha256": "534ea371ddff7641100242cc6b2055850fba8fa53819406a3097192a9a43f1f2"
+    },
+    {
+      "glyph": 192,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "e021737f1393d7d3a168705a0ce01394793fa2b0c28e16cc2f460d0dec3a99f1",
+      "reversedGlyphSha256": "24be20afcc03667f5d63d0bcda898f3a6bdbb6e3a6392152fe5c36429665d06c"
+    },
+    {
+      "glyph": 193,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "49dd5b78c19a003ea2eef2ad36156207c844234e3510c6a0c8facd8c9f279dea",
+      "reversedGlyphSha256": "6135325438b61d8c001ea02e27b6a244c858c5c9455e72117f8420d953768eaf"
+    },
+    {
+      "glyph": 194,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "76caf626a91f8bf074fac73b60f8b744f147be86b66a4cbdf862b564744aac50",
+      "reversedGlyphSha256": "e8d794319ca675c33140f957bd31877c1b4b744845af946e7c297a6ef40b1b9a"
+    },
+    {
+      "glyph": 195,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "6169b144ad3956d53ac826dc1ce827144ebc8bf24ea2a031dc9b29873ded5c59",
+      "reversedGlyphSha256": "18dde27b658a1894d1ab5b2c1b51a93586b99824391dbc213757cdc3ec5f21ea"
+    },
+    {
+      "glyph": 196,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "617e8a43b4aace3185d01ff01aa6f54bf4ad8539377c3502f6adb6fc8f2fb784",
+      "reversedGlyphSha256": "3581e9886f641e879ac5f89f4937249ead8a4de6e2e5229dd9acc886de0d191c"
+    },
+    {
+      "glyph": 197,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "ed3f4990c54d6326a3019ffeffc686b868aa9931fdb54a3c3fedefbbc8a906d1",
+      "reversedGlyphSha256": "b6e1fed2ef924ea6ec7b972e5efac329fafe428fafaf4ae0caadb38f21b94631"
+    },
+    {
+      "glyph": 198,
+      "kind": "top-edge",
+      "mode": 2,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "29b37a1d561c463ed1aab7a6d0757933543eff81b84714b9ec1446ecffcef5aa",
+      "reversedGlyphSha256": "2b78dfd30fe3790e2226ea1532586168894521371c597cd236b95970de43f5fb"
+    },
+    {
+      "glyph": 199,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "042258334099860bf137c884a71310f744d06ddbc2659b640568ad8e5952f164",
+      "reversedGlyphSha256": "fe2a752a47205596a17b3ba800985d3b86ba32eefdd434904588752da7b27358"
+    },
+    {
+      "glyph": 200,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "e38f726f65c21e3a31d9718c13147e259748d54a0cccc6cd0df23e3999afc169",
+      "reversedGlyphSha256": "b0c895cdb7bcb88072485b27ffa1f6523c03efbec5a0afa933111ba8e9b7b564"
+    },
+    {
+      "glyph": 201,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "0fc5e9abfd5e128205f88e8cefa4e4f8cc68aa317cbb10b003a156854d1211e6",
+      "reversedGlyphSha256": "b584a3d8dec338d0705fb758e713b124fd3fd38a79f2147d7f6261cea862d04b"
+    },
+    {
+      "glyph": 202,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "6be2631a20210d95393d334fa3469d8643cc1cdf4d1a1b4c43464e2873f745cb",
+      "reversedGlyphSha256": "f9beba918d3f4f52e7d74572ce4edf368c22bd65762d89f53a3677e2b60c60f2"
+    },
+    {
+      "glyph": 203,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "933d851efe7b7ad7644f477230855c3c6b2672a16e940cac64e688c758dbce6d",
+      "reversedGlyphSha256": "f3f6c74b609c7202b13fb4ead93fc50a109a8f188a6adf93776cbcf8a127a415"
+    },
+    {
+      "glyph": 204,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "a9e52b040e36bb45653a87c40a5532973c8b045cef5689f811e95aa7559940ab",
+      "reversedGlyphSha256": "f28de545fde509f4856bb9cf0160a75e2568a8f0700c65b12149f6742365f353"
+    },
+    {
+      "glyph": 205,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "492bee959ce40dabf64f00e314f08e847de3c711cf6eece047a80d982cabdc16",
+      "reversedGlyphSha256": "f2bb90d3fe641c8581a97caa7f239e119fa904962aa92c70d9d3189bde2feab4"
+    },
+    {
+      "glyph": 206,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "7664b09af0620bbdb06c03d86c2e7bc4aac9e3e40fce008c475501ce6ffbf6cc",
+      "reversedGlyphSha256": "5b4d78e694c2171f208be45b80cd0d2af9e99c2ab9925b8237f37f3fc360118c"
+    },
+    {
+      "glyph": 207,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "88ae35c50f5b292637f965b62de6bb28d2337cc6b47b52f0229e27c5f2bb5ca6",
+      "reversedGlyphSha256": "6d75d7ec6f68a11ff4efd4cd40cd86f8fa60878c3baace3343a4cdeefe221af3"
+    },
+    {
+      "glyph": 208,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "18a07668e6f0750878f3b1efe1e874865b7e2b06a7b9c56965431842264ee311",
+      "reversedGlyphSha256": "b8211c998b83c1d2fd4ab01c5988b97172e3e7ea864f8c4c52246a64ea6531cd"
+    },
+    {
+      "glyph": 209,
+      "kind": "vertical-dropout",
+      "mode": 2,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "4268ccfe9d4d8fe5d94c41ae6d752ff7f85dd5b55e0c5437f7b6174c726f9ace",
+      "reversedGlyphSha256": "889a8aad5040d3509e89ed6044c5f4239cbc137e10319965688ab314a3fa7245"
+    },
+    {
+      "glyph": 210,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "9e6165f97a02cef7e5f8ddeed4e18b1583be041ef406731ea73028a799b13867",
+      "reversedGlyphSha256": "d3f06ca35c82e2ac0e307c0d6a8daa5f398ae6c4b4632674befd394ee097ef19"
+    },
+    {
+      "glyph": 211,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "a4168697b2c587a8a4e9a486131397193fcb458b196054c0b649ec8ab918cc0f",
+      "reversedGlyphSha256": "c234810ceba3ac8d891635d1c4d149dedc3421d317e935792bc739f3db0388be"
+    },
+    {
+      "glyph": 212,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "af11bd9c5b76b2efa6b3a4bf1803d4037d0b3acede56fed88e08765f47450bdb",
+      "reversedGlyphSha256": "ff2511f21b82c0ea9ece83cea68f520416c0934324b3b2a2cf0625545bbf68cb"
+    },
+    {
+      "glyph": 213,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "6ea22b2eb29eeda0a5ca96aa36f71eb63a4846ae78e4a41300a3e95332fd9b62",
+      "reversedGlyphSha256": "42467491f162eb1e021e5a24ced31f77aac75052e980ea72d1fc4bd524c119ac"
+    },
+    {
+      "glyph": 214,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "95a0ee8a972ee17ba8410d19c8a130f22f43de41a8c4dce4ea586557bbc6479c",
+      "reversedGlyphSha256": "574f0bc634c2b37940f1b687d16d4ece66ab8e64ab5f71809ff8baed0b4481eb"
+    },
+    {
+      "glyph": 215,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "14831b90de9e80eccbe7391f01260ce64004c821b0bfaa2704c234606ad5cff7",
+      "reversedGlyphSha256": "fc72144fe0f750a59141ccaa840f11dd22e1d0577a507573059ef5fc2e21a3fd"
+    },
+    {
+      "glyph": 216,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "5f334e34cc08aebcb3ce7b0ce2f9480f8e7b32a5ac0a4cd159f29cc8385ff17e",
+      "reversedGlyphSha256": "6ee96c403c9e1f0e5cbb781a3930a6d0edf1e3a663d797698048a2230149cb6f"
+    },
+    {
+      "glyph": 217,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "9b140039f4b9e1f4410b4c4031d0283dbc8dbfc86dc0f58c77248cf28036b34a",
+      "reversedGlyphSha256": "3e299d85d4798c6eba0e31827774cee6eaf6dd84f81ebe34e6c4b29179b3b57d"
+    },
+    {
+      "glyph": 218,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "f0a4a20dc51714af773444403f0b88a554bd362465b85c31ead55e3f89bfe690",
+      "reversedGlyphSha256": "6cebad18dc2f78f33f4aa7a17aa6a991a47a92c389e03fb205901194e1380e62"
+    },
+    {
+      "glyph": 219,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "16613c66badb20535f91aac96e14928af6c39465478e64878fa1dcd0003dab54",
+      "reversedGlyphSha256": "208f38ecbb2ebf080dc9c7359c5c9f778de2d1ee3a63d4d8276c4e8d13c2ee24"
+    },
+    {
+      "glyph": 220,
+      "kind": "horizontal-dropout",
+      "mode": 2,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "fb24d9910e9c186ac709b2d84ed008e3fd41287bb56f15004481e9a2db224dbd",
+      "reversedGlyphSha256": "78412c9c6ccc1db6961f54c8a70b00a3e98e03f18475469a3a7adaa16c75d2ea"
+    },
+    {
+      "glyph": 221,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "3a2f85445bc61917e6d40d37987062d7f965595e6844207a10febd19303b8d58",
+      "reversedGlyphSha256": "bce2de8fa23311d9eef295ce4842991c03423ade63a4470fd2e431a4ef0951c4"
+    },
+    {
+      "glyph": 222,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "51a872b53a8d1eed521ea31752c5d589f4a4d9aeeb7ed7f8f18260979d576ed4",
+      "reversedGlyphSha256": "863ac98812460be86cbf4aefde7dd1decd4602957c62b17d57f6ff2fcd516d06"
+    },
+    {
+      "glyph": 223,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "7c3c0c16ced9eac80e31c74e8a64ddc556a7653ba0f5e8a09db6e9d53680faf3",
+      "reversedGlyphSha256": "61860f7b3b0b920dc0cb8b4bf17d1674190d4b0ca2c791ecc759827c09c0a37c"
+    },
+    {
+      "glyph": 224,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "0c3ff12823d223461f1f57e93c56c159ac075dcc8160eee6e6e0e20eec47178a",
+      "reversedGlyphSha256": "732fd2f9df3fccbb6023f2650260e71870b7c739053f4a99b1f4148758a94fe1"
+    },
+    {
+      "glyph": 225,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "ccbe4ca27abf6b7cb9140f3b4b120cf3b8da1461a7fda85ae4853872ce97acd6",
+      "reversedGlyphSha256": "31333391b58477e377dfbfbdfa3af51ab1351cb87e65f8491a3617dd599fd307"
+    },
+    {
+      "glyph": 226,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "4895617cb9f9eb36b0953ea520817d323f84b8f4b1552d285fe32e396bb9bf03",
+      "reversedGlyphSha256": "b0a587e7cb01f6cb2c8406b67d122a1aa9e8f9fec4598bd824ec8b1d3d31cc0c"
+    },
+    {
+      "glyph": 227,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "f16cc3aba59697bf8a6f783561bb2683410937091f450dc60e7c7780cec14fe4",
+      "reversedGlyphSha256": "28ef35dd15645a24e2c9adbf8c1d3e6e91f58c8a5abf843c99375f0b9eabba1a"
+    },
+    {
+      "glyph": 228,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "70f884cb28eff812598be40f32210c4e24e72fe9ec2047c41d4b881eea28f79d",
+      "reversedGlyphSha256": "06fa64ddb7ef2e08739b0cde47ee7e6ec7cd5b3ba421ac0ea1a5841c4781aad3"
+    },
+    {
+      "glyph": 229,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "3030ea5e7d80e2f2e1cd51f3f826b05665cdb8d5154a253707937aadeb020611",
+      "reversedGlyphSha256": "aa5fedd335cb9d769a432510ae6f42643937c96cc72801af6b00b6b39e6b5e27"
+    },
+    {
+      "glyph": 230,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "071854a996f3082856dccb4dc7e630c9e4c38754bb0877eff0351480842ec9c1",
+      "reversedGlyphSha256": "667650a917f60d1c9ac2ce9e97a252c3db190630e6a43ebab7a24bef19b536c4"
+    },
+    {
+      "glyph": 231,
+      "kind": "diagonal-dropout",
+      "mode": 2,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "6db84f0517b18e1932762031ba9280be7027b81d27a04bf9a8d41afa587c8124",
+      "reversedGlyphSha256": "537aba5906bfb888b04bf15c3eb90d10a4f37a72d0b00b4073ed59b783fa89f5"
+    },
+    {
+      "glyph": 232,
+      "kind": "stub",
+      "mode": 2,
+      "phase": -5,
+      "points": 3,
+      "originalGlyphSha256": "c7e8f7f4819d3bf5fa7b2d9448bcb4dab8ad4fd1cca58512ba8de299b0db785d",
+      "reversedGlyphSha256": "9aa3bb211b1bc41a7e872ce18eea6fb27ebefe206d7d4e8fd0e1671120687185"
+    },
+    {
+      "glyph": 233,
+      "kind": "stub",
+      "mode": 2,
+      "phase": -4,
+      "points": 3,
+      "originalGlyphSha256": "daa596ba5e3c0fa6fe2655940ec29c5d4d03151ae6e9c2d105f368c2e82d63f3",
+      "reversedGlyphSha256": "d67c9f9e30f7d5087176ceed38e0b0ecaafea447c6d72e768ba3bcf18c46778f"
+    },
+    {
+      "glyph": 234,
+      "kind": "stub",
+      "mode": 2,
+      "phase": -3,
+      "points": 3,
+      "originalGlyphSha256": "8bbedd404b7a38cea080d90fb33ef214f0b7bce6a0c1ceca276bf704c2752128",
+      "reversedGlyphSha256": "81307e2d134e3b569e5dd0df55be47dc1e08e1bca0b247f6a8def0142c91f896"
+    },
+    {
+      "glyph": 235,
+      "kind": "stub",
+      "mode": 2,
+      "phase": -2,
+      "points": 3,
+      "originalGlyphSha256": "e44330cfbd6960d4c69d0e17b3a83f0dfe804122251c4d3de554f8908a98c02d",
+      "reversedGlyphSha256": "e70f9ec7a0bd84c2227445cf848caeea985a7d971a8f46a8d43d52c3f0a77ba9"
+    },
+    {
+      "glyph": 236,
+      "kind": "stub",
+      "mode": 2,
+      "phase": -1,
+      "points": 3,
+      "originalGlyphSha256": "f935b843e595915a84d05c3cdda5461ce71f974cdb9998c5306dbf75f1095072",
+      "reversedGlyphSha256": "0b385844d675d149fdcd95128395811f55bfce33ae1cb7de6fa6f8c4e293db16"
+    },
+    {
+      "glyph": 237,
+      "kind": "stub",
+      "mode": 2,
+      "phase": 0,
+      "points": 3,
+      "originalGlyphSha256": "c748f3f683b1f7642415f276f06d75f693a383d9536bfdf3bf5e044f5232771d",
+      "reversedGlyphSha256": "a09cc36fc75f22f0987fac3ffec98b0116ae02cfa74c5ea87818453f9d0919ff"
+    },
+    {
+      "glyph": 238,
+      "kind": "stub",
+      "mode": 2,
+      "phase": 1,
+      "points": 3,
+      "originalGlyphSha256": "06f5d506295407d63e73ad2afeabc5c60caad9111c1f47542bfdf4fd51d1d231",
+      "reversedGlyphSha256": "2c4cb1f4853811130cd99a2e9cfc01a132909a7a5e30bb9976ea874743741461"
+    },
+    {
+      "glyph": 239,
+      "kind": "stub",
+      "mode": 2,
+      "phase": 2,
+      "points": 3,
+      "originalGlyphSha256": "60bd1a5e4e43e9c0fb416e9d9e1abe36c67913dbbadafc2f1fbd34e4eb90d407",
+      "reversedGlyphSha256": "f491a91b77b583f8b93d7be770e9c2769e464e928d0af1ed34169197215a2cdf"
+    },
+    {
+      "glyph": 240,
+      "kind": "stub",
+      "mode": 2,
+      "phase": 3,
+      "points": 3,
+      "originalGlyphSha256": "d18e6640990aad7a100d64f1c3271e8b50aa9145fd8d7143c56bd682730c25a3",
+      "reversedGlyphSha256": "6d2a9e74a83ded219ac91a6e6bc6f784c91bdf87dc9e334e72314f4c721226e8"
+    },
+    {
+      "glyph": 241,
+      "kind": "stub",
+      "mode": 2,
+      "phase": 4,
+      "points": 3,
+      "originalGlyphSha256": "88140bef39434f18d1db344fee289db05e1a67f8d70ecd53251a08b5635f6e40",
+      "reversedGlyphSha256": "51664178bc16125ecbaaddb5fb7e852be144ea97947a51c36917504b2d7ecbcc"
+    },
+    {
+      "glyph": 242,
+      "kind": "stub",
+      "mode": 2,
+      "phase": 5,
+      "points": 3,
+      "originalGlyphSha256": "36601b568e0bef4747d595410c1aa6468a133d6275b4bfbb5544ec0749b0fd60",
+      "reversedGlyphSha256": "abf08c01a697667de8c8e7b22530121aa6b6587fde38cf1477aab5ea638895d4"
+    },
+    {
+      "glyph": 243,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "d555352c072f129a260121cd0b888604552a95fd7a7923ec67cbac821cee4626",
+      "reversedGlyphSha256": "8586056cbd41619e1416b64a238e5c5d2ad16e43c7a6bcbe510b54477132fd37"
+    },
+    {
+      "glyph": 244,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "0ee05779d93defd3f02cb38693d78564249c64cbfbf9b09ec8d101d669554047",
+      "reversedGlyphSha256": "ed8be984a033db23b0aeffec6e29bdf6f1b1d329dea45da132acc409b6b3a767"
+    },
+    {
+      "glyph": 245,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "37490f705af68e1996e54d7eb519c0eb6bc36ad17c94cba1eb5d55ad1b6ddcd1",
+      "reversedGlyphSha256": "ea97b4b5945561b5863470fa84328f24cbb6d9a7f46a4a4b6de46a5f3a6f7c4e"
+    },
+    {
+      "glyph": 246,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "0118693d3ccaf896ed6d6d3e5b9b5a6a577466cbd97f18db6b235122ba5ea70f",
+      "reversedGlyphSha256": "919275b75030c4f5c03a1815779d2ac20c5d6cbcd7ab9c81483c563c8f6dea82"
+    },
+    {
+      "glyph": 247,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "2dd0077879c76b4a1691d967b7f798f2b9cd773c5fac9858d3f732a06a9f816e",
+      "reversedGlyphSha256": "4c31fac1ddcde4a688153ccd6fe480d898da9d71610366b9484f30708cae46a1"
+    },
+    {
+      "glyph": 248,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "630afcaaefd5b530b6b6a53819546e6ba98742e1170cba3f4106917bb0498578",
+      "reversedGlyphSha256": "c03f852097627754914356fcb92329ab8b809c5322b4d430c01b18e760efa99a"
+    },
+    {
+      "glyph": 249,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "7b63e20455abb36e709ae8978adc587ef07f54696f75f0c7e583cd327ab88239",
+      "reversedGlyphSha256": "240c2365c4bbb1deeccd1b31b93cb69f54a64b8077809f340bfb0919a8433e70"
+    },
+    {
+      "glyph": 250,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "92b46e1bea4c5c9fa5e2f286996241cc65c6add4b407c2c9530cbd4b78c65e2d",
+      "reversedGlyphSha256": "4cc314118982be887258bf34513fcbadb45ddae7efee4985cc48b86afa181b9a"
+    },
+    {
+      "glyph": 251,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "ae0cc0b1b7794fd30ad124821277444e4e758ab4c439848120595c15ded95671",
+      "reversedGlyphSha256": "9b5f19fcd31fdb4ef1ade05ecf6c6e29157ce282fc3bb6e49dffb8d23108f5b6"
+    },
+    {
+      "glyph": 252,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "56093008c06a7c8d2ec713e9197b4151e488948b907a6110cf57d76fb8e5b153",
+      "reversedGlyphSha256": "e4016c940dc2416640ddf5345715fa4cb04dbc298a091956a1e2c45495ce0778"
+    },
+    {
+      "glyph": 253,
+      "kind": "quadratic-edge",
+      "mode": 2,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "eb2eacc25477d9063dfb26d8d19abe25ae23b4c8b06569e601acb8ba4d7b96b8",
+      "reversedGlyphSha256": "f7f950a76c371ad7e40bcf08188a30853953265197fd141f3a3022fc509296a3"
+    },
+    {
+      "glyph": 254,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": -5,
+      "points": 6,
+      "originalGlyphSha256": "aee4887c1b03d9f137ad8dc1bf7ca6817f2e0a0962c2b002e710e5e9379471f5",
+      "reversedGlyphSha256": "180403f35b8fa731c146b2e509a2edb7722cacc6dff5bef3866b609a693bc8dc"
+    },
+    {
+      "glyph": 255,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": -4,
+      "points": 6,
+      "originalGlyphSha256": "0d466a43ceeda0f377288325dbddc2f8f1686bc32629683e2b75cd6ae617a863",
+      "reversedGlyphSha256": "dc00fdb57f35b2d29a15a98aa6efd8f4797222a5c0a5cdc14f4934a2dfc95868"
+    },
+    {
+      "glyph": 256,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": -3,
+      "points": 6,
+      "originalGlyphSha256": "072885243fd98dcddf8c117ebf12c28a5936d32f810cd916f050e606eaadb2a9",
+      "reversedGlyphSha256": "881652753ef1052819ea150479dc0a049823be1249f5051cb0095184f986ffc0"
+    },
+    {
+      "glyph": 257,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": -2,
+      "points": 6,
+      "originalGlyphSha256": "4f8c68e3aaf6e6b6d6f0e3e8256f3d917c2ed26fbcb088633135df83760a18a5",
+      "reversedGlyphSha256": "42cd79704855ab419b24194ad0d1b9b9d3c4cef03a96cfb19b00090fdd219ee6"
+    },
+    {
+      "glyph": 258,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": -1,
+      "points": 6,
+      "originalGlyphSha256": "7131abb614d5455b8cc78327362c562e228f3df6d33bc68f0a1b2c423069154b",
+      "reversedGlyphSha256": "574d453b935f6245ac8676b878dbd873eccdf851f5ffbb93462a21fa599c9dc2"
+    },
+    {
+      "glyph": 259,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": 0,
+      "points": 6,
+      "originalGlyphSha256": "1cd1a9ed464ee750972fa597ab89d8c27b47bb4b0b30a38ecd83978ddd0b174b",
+      "reversedGlyphSha256": "dda4b05b4100cce2f26b4b63da2501a787e2a672370b3c463c6f08a2e4b233b5"
+    },
+    {
+      "glyph": 260,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": 1,
+      "points": 6,
+      "originalGlyphSha256": "1b53c16af0897c08c2738297933de0545d46848c71238e6e1057a3ec6023bd04",
+      "reversedGlyphSha256": "0f9e93004e63c3c421132d0ada13acfe3df22d47096fd2626377876bd7250d0c"
+    },
+    {
+      "glyph": 261,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": 2,
+      "points": 6,
+      "originalGlyphSha256": "58812be21b9b294fb14a0daafe1db499e100bd4950b68029fee599a4652ede5c",
+      "reversedGlyphSha256": "121efdd47c0a717402a51b9968c3f4cebabbb2d327aa8ec14cd121b070657dca"
+    },
+    {
+      "glyph": 262,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": 3,
+      "points": 6,
+      "originalGlyphSha256": "49757a2fdafbdc0910c5814dd47f4955878e5f5a1f2c72aa9ee49307ee933506",
+      "reversedGlyphSha256": "a40176ba5b8ecd82381acb87eb5b912e7a95630092a6f73395bb4b7d9e02f0a1"
+    },
+    {
+      "glyph": 263,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": 4,
+      "points": 6,
+      "originalGlyphSha256": "6e9af454ce447ea75e9e534c7f6c573851775bd65dcd831586b96d526f47fd5b",
+      "reversedGlyphSha256": "7359add7708517e71e60baad5db120dbe550e76515304e1efd882c7061c7e9a4"
+    },
+    {
+      "glyph": 264,
+      "kind": "quadratic-dropout",
+      "mode": 2,
+      "phase": 5,
+      "points": 6,
+      "originalGlyphSha256": "6cc5d56467a64dfbf450f4dde8ffc53007bd46a4e4c31f56d27b2744cd3fa2bb",
+      "reversedGlyphSha256": "a58b04db38664ee50f65d7c3b9db05bcd7429ad2a878229b659bdae3a67c4915"
+    },
+    {
+      "glyph": 265,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "708c00e8531bc5863b5b28a889d4a82c5068c5c6caede37d30094663cd140874",
+      "reversedGlyphSha256": "3d1ba31037ba24197fcdebf74318e27f5b1b1df779e068e6e6aa7507207350c3"
+    },
+    {
+      "glyph": 266,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "55aa6df6e389ce4f64ddd9e0e0bf715e206c0289b4633eecd9abd9b04850ff49",
+      "reversedGlyphSha256": "948dbce1376531179dd79c4e861c1a551031c6448826c0275d4cc42c5aff06d0"
+    },
+    {
+      "glyph": 267,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "dc0caf10f608fb1840ea91387d591c965b21419e038f1cc4faa603deab4c98ef",
+      "reversedGlyphSha256": "58e88135a75b23cb843348d49198206c3052a0879c371ab08f20f73e1befb410"
+    },
+    {
+      "glyph": 268,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "9a927d82a891cf67417718a9610430519fff13758fa208622310eca329df5644",
+      "reversedGlyphSha256": "1f7695a0db5a68e1f2118555d508a3dd014a8964f6c9d028d4dd273e07cc2f97"
+    },
+    {
+      "glyph": 269,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "4b8a74ab36711cb8482cb34501282e470674304ca9f242e64fc631b8f30f570a",
+      "reversedGlyphSha256": "5f5ff7769579f56482ee2c4bbbf463582fc1ccc02641640beb53293f886b5522"
+    },
+    {
+      "glyph": 270,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "66d59df399d10551e6367d1da472dc1ffb08f95a67ae30b83e540e7085ee8cd6",
+      "reversedGlyphSha256": "39cd4b416e1b15acb569ccd61cc9deb9cfedaf7ab8a33486b86b0fa542a8679a"
+    },
+    {
+      "glyph": 271,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "7630c8da7b0de51ba320edf43afdf2826c160e021e4dfdafa2a3f57fa9c7bff0",
+      "reversedGlyphSha256": "8e6147624a62e490e649fdcb5f0228bb8ae10a916e032e89c91e10880bcc7c8b"
+    },
+    {
+      "glyph": 272,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "d7dbd57bbd8c853582ac2374a7af361c50d01e08f2ac6d302f14e1c96520616a",
+      "reversedGlyphSha256": "46b92022fc3b46377b30e3cd19b85bbc9a4a27c8c59b0bcaa3b650016f272197"
+    },
+    {
+      "glyph": 273,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "9013e180048eba1df77c1c3bec0cd83d5eae1d919af02886e103ea8858766a64",
+      "reversedGlyphSha256": "b467681ebf63bbeef83fe3ae05fd4019db96ac9f815f96d1f97371e338c5e163"
+    },
+    {
+      "glyph": 274,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "bc2ab83e5e70dc9bb934d73a17d282956b8722f04d6829e65d4650673e169a05",
+      "reversedGlyphSha256": "7690ae89ce6117b5f7becebc3037419c1edce4ee2dbb9f323773d98fe4850857"
+    },
+    {
+      "glyph": 275,
+      "kind": "right-edge",
+      "mode": 4,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "9246491ec5eb16a996b284f963b816bbbc083f4780f2e49b6bab60dca420d835",
+      "reversedGlyphSha256": "9f89f080b081bd90e7fe69425a0d7bcda4ec6536a76172eacefc27d6faf7754b"
+    },
+    {
+      "glyph": 276,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "d3e17cfae130b3333c5ff3fbfece9d0401e44207976e0b361a928050ad486a80",
+      "reversedGlyphSha256": "cf40574853d10363c5a64b3a8a07eece76334d4d8212f02867ef08ef63557daf"
+    },
+    {
+      "glyph": 277,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "982f414986be47411e79fc81982844e49a796cb3a43c7fde3e59975b7e57fff2",
+      "reversedGlyphSha256": "b209b7036d0f6ef0cfa685970bf25dcf1867d9327d078e72e5d14cc75cc4979a"
+    },
+    {
+      "glyph": 278,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "60b2b04e90e27e080733fca340fbaf582e153fede048b39b53cfee65a766b9b0",
+      "reversedGlyphSha256": "fff617cc6a3212b9a4afab9d4b11c9adfd3e4ac59dfc3eb0eb20cdaeda2a1a01"
+    },
+    {
+      "glyph": 279,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "e36d3dc0936a2180d169dcc88ef888794f0301664b0730eeaad90ebc68b17671",
+      "reversedGlyphSha256": "50d5813a36cc9bc0a8c25999ef9cdab08f5a49afe07e9c60732fd7ef2156e366"
+    },
+    {
+      "glyph": 280,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "8020a61f90175f3a38e93d8de24bc8de0c0bf653170d8ccc033fbc311b696230",
+      "reversedGlyphSha256": "004d7080b74830285a3c65385063b90edde713cd0fe30595f5162d9650705c77"
+    },
+    {
+      "glyph": 281,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "6063fea3a6ea376fb7ad991b4669ce52785fa80e793daae1fd9588daaef49cfc",
+      "reversedGlyphSha256": "9efbf28d4503ff89af9f20555778a206a6f3833410080f16a1fa3f666f0e795b"
+    },
+    {
+      "glyph": 282,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "0a8f91dbd3a8d561469680bef8347316edeecabbece0e4fdec6562362ba622bf",
+      "reversedGlyphSha256": "5613bdeeb4c11282532962f1ddee92970faca7248c1acbad61e4b8a18fe52d64"
+    },
+    {
+      "glyph": 283,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "d546082b14ac774400014b859c043b7959afe557a8dfbdf69a3e1c4a566ed716",
+      "reversedGlyphSha256": "709a4f1beb70356e163cb9e9f95a802bfabf6f2b5e1cce58e0c0df7ae71281db"
+    },
+    {
+      "glyph": 284,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "2c2f953f79e092100821f1cbe47dd9bf3096ea1811f05722ea2e04d6aea8d8bc",
+      "reversedGlyphSha256": "6cd15a2e465180f40d3943ad15cd911e9b9d660a00720151f6bf4fd149c9d0bf"
+    },
+    {
+      "glyph": 285,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "9c210c16b01cf50a86047915d59a091b7ce27a9abac200b161f0270ad6ad7c4a",
+      "reversedGlyphSha256": "1a84438ef098c920780d6c954f4b98ef0f0f5711f6f004edc281bea64ec9bb89"
+    },
+    {
+      "glyph": 286,
+      "kind": "top-edge",
+      "mode": 4,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "36029e2142468678644bb4970bec8362427c490a7529c96489d185226c9d7588",
+      "reversedGlyphSha256": "810e3027c1ff093f3d2140f011396424a6d31e05b6eb6595112c3a4815215f5b"
+    },
+    {
+      "glyph": 287,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "d6b16b939874b6a04a5b9a7adc290ce220e63f269df5561f51695da5df4662a9",
+      "reversedGlyphSha256": "a8f2fe25d4f3322b7f4935fe653e51cc5c903207a829866c667cdb40b1f9c390"
+    },
+    {
+      "glyph": 288,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "c837ecbbd9c87b77a06d91ad64d1011ecb493dbb06a4ae0c31c7c05b7f8ce180",
+      "reversedGlyphSha256": "3fbb2e22796469e9e04c6e605b9c76c3d4ec09617a3646f027afae3b475676dc"
+    },
+    {
+      "glyph": 289,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "e21cad2cdd7ed6bb39c8b6edd4a9826c04bd16255da481203fd5697aa025a297",
+      "reversedGlyphSha256": "bceb68673b5aa1b06cb0439fe147e291e50d515d5b1e555c52584b42c4f7c252"
+    },
+    {
+      "glyph": 290,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "250830b30c8b787dddf1c6a6e3f4bab30eb1802f23c1fd3b3bfd7f6b1551c402",
+      "reversedGlyphSha256": "6d6fae1441490c795072fd86d6c7ea2ef2b947b915b8905907bca41cfb0b9352"
+    },
+    {
+      "glyph": 291,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "ca2512ff4f9317f5689e41d8dd5465a5586c5c263d73580ce612a333babb43cf",
+      "reversedGlyphSha256": "5245b6bd3a60fc629764c304786f65811ab8e4cfef51465aa5440577e8cc3a98"
+    },
+    {
+      "glyph": 292,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "243b3dfdf2d295e0bf79cadb8cd6226598672dd78fc3183d7e2a51faf4a11ba6",
+      "reversedGlyphSha256": "73b69ff0eec39da44c5d4de8edf79ebc3536f8092015c8525887addb4ad92f0e"
+    },
+    {
+      "glyph": 293,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "d972df5bad9d63af5712e7d159d2160b3eaa52197a606d03bc9cc912c75097d7",
+      "reversedGlyphSha256": "376d581a348c81d17bd79673fc80a3635b38907e0b7d93c7a155be9447e4ecb0"
+    },
+    {
+      "glyph": 294,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "0ac288b112fef94e39377eaaf4bc708f18aca837bc17b8485fabbce8a82cb5ad",
+      "reversedGlyphSha256": "c736b8e9cbd6488a62a04add60486de6a085568512e7448d60d40fc05b8db781"
+    },
+    {
+      "glyph": 295,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "58d4678bdf9e31c4edce959f8eb68d5bc85ef842f6503d8b4f96fbaa6c26bdec",
+      "reversedGlyphSha256": "abd5a8e7e89c29cabad344c52db9a922f4a9e219a2eef88b459630a21c193886"
+    },
+    {
+      "glyph": 296,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "2f7d462ded8c4691018c2ef8980709966ef3a0975143f7b4c14841a77001023d",
+      "reversedGlyphSha256": "7d2037da6309f85a7f7b793fdc05c5c113310c52ba51ef92f9a6a86fb53c6be3"
+    },
+    {
+      "glyph": 297,
+      "kind": "vertical-dropout",
+      "mode": 4,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "1c3803f78b73ae452081c70d469fa3c71c8a4c8603a8626dfaf09d57660fdd7e",
+      "reversedGlyphSha256": "b56dc369bf04c8ed91a6a76bda249a0c0c4bcf74c46f5aa05b4563b925f3cc6e"
+    },
+    {
+      "glyph": 298,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "ddbcc88ff296f69f8516a6031b115b84929907f5537d4023398ba931c7a5837d",
+      "reversedGlyphSha256": "4d6e2c85629527d48058a394957d60a77f49e26f38fd587bb3464ed494c3fc61"
+    },
+    {
+      "glyph": 299,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "3a51ff8720097db5c892e54c85a50fb73adc0a257d9616051c4acd135f4bf9ab",
+      "reversedGlyphSha256": "bac21d0c3f822fbfb938d3a3794c71ef0ee2435cf10108899df49a8352685cf2"
+    },
+    {
+      "glyph": 300,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "b92db9e2484ee51f7dc89168e71a1ea5db388a98b747480db4eab729ae5f3062",
+      "reversedGlyphSha256": "05fafcd85b746cb04befa7f90ac84525926062056e5ed224faf685caa6e84226"
+    },
+    {
+      "glyph": 301,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "c19118e25168e5cdf94b14b9c996f5e4f6229b9d4ff9963f1a763106037cfc70",
+      "reversedGlyphSha256": "0e98c332084d496f04c2fb9eb535d931ca27d933d3830ecd9c33b896f3fa8260"
+    },
+    {
+      "glyph": 302,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "be0e14051f1ec5f5385b99e886fe6cfbe8599efff734764484880d83e9456caf",
+      "reversedGlyphSha256": "e6c75f5f7cb7627b1a725452c3fed6ff9539bf70d2d8c7e1c7b3bd64d1bb8a12"
+    },
+    {
+      "glyph": 303,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "ef3c5a55847f35f6d8d513d8a8087ac726fdcbf250e83bdef03cbe31a0ea2a5d",
+      "reversedGlyphSha256": "c22006766283a24aa73c1b4b285c726902666860fa3e13e30ac2e1a684effed4"
+    },
+    {
+      "glyph": 304,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "491c623229fe340f85dacb3d85baec27616ee84163fc0265dfed73c06642354a",
+      "reversedGlyphSha256": "126411ede038d5151f0005fa7cea0b531e81f499ca8cbf662917ea64cf5d5797"
+    },
+    {
+      "glyph": 305,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "0f7454b1db42c13d0efaa38b4d4dac08d634453972bfab017cf572d455782d5e",
+      "reversedGlyphSha256": "efcd041b752f2031abbf9c39e2ce283def9c0daef76c070941942bcf5602a773"
+    },
+    {
+      "glyph": 306,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "8e1e03e0cfaebf593e7977a1088b7ab942296a4aef7dc32dae9d75b478beff56",
+      "reversedGlyphSha256": "b41c0d4b125281528e905089e7e9cc9a48f41e743a47e4861d3300348d60328d"
+    },
+    {
+      "glyph": 307,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "92c609de46625752ec0b346a7474b15745d441326fd396d7a3d1239bd7fccdb3",
+      "reversedGlyphSha256": "64095c832528800f1b743846a714d3581f55c99c9e8e6226dde4c3a18206435b"
+    },
+    {
+      "glyph": 308,
+      "kind": "horizontal-dropout",
+      "mode": 4,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "f54765e361fb432d3978362908a850d274fa26293acc76315c9e36f53d6271ea",
+      "reversedGlyphSha256": "ad73d50e1a94f58bc5193e1d18ce35ab3ba8d1f26a38a7d137da383083e3424b"
+    },
+    {
+      "glyph": 309,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "31c78369443f19f3d1feb2a56f4926cd1cd1ba0fd846608e531ffe6e6d330856",
+      "reversedGlyphSha256": "08fdcb2145fea32ac2ca4ff2f640bd31b6a7f49160aacce991e4f0bd6900b4b7"
+    },
+    {
+      "glyph": 310,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "4271fccc4a855c0e72e381b8d8ac3cbd0da7d31471238547bef12e35efff1d49",
+      "reversedGlyphSha256": "8036584de66359d3aad45c2e2d56bcdc85e269bb519475b21967a87102fa4ff1"
+    },
+    {
+      "glyph": 311,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "26efe6d3531a1ff1c1fc6607992e4ea4b99578e9080e1c09207b9b144e544f19",
+      "reversedGlyphSha256": "f545a16b8415aa787ab9eab004fd6300d3b2d3f03dac31dc212fa78d1acc85cf"
+    },
+    {
+      "glyph": 312,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "9ea1da70f0edffc67913b6803828e805f3c233dc32b9d749f38ffe5c00bc50e7",
+      "reversedGlyphSha256": "b6017d782e981e057b1264940e4fb452b89159e97f37789b213800b4cc17ac23"
+    },
+    {
+      "glyph": 313,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "d385166c6dac8db9d1ddb340c85e1a877f3610d5424deb68fabe7253d705d05f",
+      "reversedGlyphSha256": "7dfe62bbddfbdf7fccd8f89badd2f21137306a2cb0eed6a73b3ece762a7334f3"
+    },
+    {
+      "glyph": 314,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "a9b49bdcf3715ea736edab0227fc3e014748ff808538775d8787bee4e0f103f6",
+      "reversedGlyphSha256": "bd8ea9667c1938e873ed166ad5799861229db0f07f156b9f5efb99861dff33b5"
+    },
+    {
+      "glyph": 315,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "4c83285d97adc6ae03feaf5a16390ab8e1de12c45d8007ed3ef3efb65be15ac3",
+      "reversedGlyphSha256": "a861edafe708eb676dd79accc8a2d5e0b8b87d44041a6cb5bc3e88146d4c38a3"
+    },
+    {
+      "glyph": 316,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "b2d0b00b683268db64910eb36c895cfdd700d535935b3735b6a5697eb8740fd9",
+      "reversedGlyphSha256": "7a0a6d20978688e3fd7a904e09fb54f4c656f137b97860f33fa0e497bf927501"
+    },
+    {
+      "glyph": 317,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "72f87e186383a933c41e1fca70aca00f3056cd9cb606c16fab8f6ce96f99e207",
+      "reversedGlyphSha256": "ea7a4e8cbc23f2abb14ba79c3d0f27eb754156405615dca0aff16fa8e982b2ef"
+    },
+    {
+      "glyph": 318,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "a8219815483255aab76a4a5d135fc7fd1e8515dacdcf98b67aa07224a7c3afea",
+      "reversedGlyphSha256": "9c5379abe5c91715a3fa64a8d9877db2afca4ebdd8d33a8bfb833343801df4fa"
+    },
+    {
+      "glyph": 319,
+      "kind": "diagonal-dropout",
+      "mode": 4,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "b1f8c3e112db42ac65cb7112b1f6803aaf2855f083967ede7f1041a73d4dabb5",
+      "reversedGlyphSha256": "098ddc997ebaf622be83dce1895f5e38fc972dd0f3bb692b613aa9cccd5408a2"
+    },
+    {
+      "glyph": 320,
+      "kind": "stub",
+      "mode": 4,
+      "phase": -5,
+      "points": 3,
+      "originalGlyphSha256": "9f08958ef42e99a3bf56940204f90bfb1d9d4c66d959ef9af7c160bf5b5d265f",
+      "reversedGlyphSha256": "40473825c0c04186dbcd1c98c53468d3b3492d3f9121ae298f37068b4d06fac0"
+    },
+    {
+      "glyph": 321,
+      "kind": "stub",
+      "mode": 4,
+      "phase": -4,
+      "points": 3,
+      "originalGlyphSha256": "104f68b4fbf52047afa513a4bbccefe181308a3824db2cdd409938ddf6bb4421",
+      "reversedGlyphSha256": "9a796e15ae373aa0776df275a967816b8985cd1700a772c6b1823a5b88b99523"
+    },
+    {
+      "glyph": 322,
+      "kind": "stub",
+      "mode": 4,
+      "phase": -3,
+      "points": 3,
+      "originalGlyphSha256": "d884b1ff6b53ae443c42c9b2b1d79daa2ae9b541943b821768d7ef596be28d5c",
+      "reversedGlyphSha256": "92180623759e70bc801b0c7adf4008d9637073de9b2792f50abc1a28950398a3"
+    },
+    {
+      "glyph": 323,
+      "kind": "stub",
+      "mode": 4,
+      "phase": -2,
+      "points": 3,
+      "originalGlyphSha256": "99c28451a02d9b28c2e5a70bf83bdd087975c1efcd4faacdf453b614fd60a2e5",
+      "reversedGlyphSha256": "7ce582c1c2ff20d5ea236749d035d27427b29f2854f1357af503cad9b3226016"
+    },
+    {
+      "glyph": 324,
+      "kind": "stub",
+      "mode": 4,
+      "phase": -1,
+      "points": 3,
+      "originalGlyphSha256": "5056f10af522922a413b3edf166133e936721b83caf3ced91a8aec03eae98b9e",
+      "reversedGlyphSha256": "cfb8694c45fd93643a5064db97246337ddb5635bdc58c6fa5161601f1f80f51e"
+    },
+    {
+      "glyph": 325,
+      "kind": "stub",
+      "mode": 4,
+      "phase": 0,
+      "points": 3,
+      "originalGlyphSha256": "5a1437f83a93459d448866183839b1a48859a6fb4f05ed5d06e6d5630cd961da",
+      "reversedGlyphSha256": "4171c3e1bc65c19b275e15de2047449d629d1dc5678ed65f565881ef3db5fabc"
+    },
+    {
+      "glyph": 326,
+      "kind": "stub",
+      "mode": 4,
+      "phase": 1,
+      "points": 3,
+      "originalGlyphSha256": "6fa279d29eb21ba97b83a42f5b51bf26d2a4dc893e858abec3cc30fbcefb96d9",
+      "reversedGlyphSha256": "86c886b970593ec3eb90a9fba60f6ea2507921fdcad3cade8565670fc2e98220"
+    },
+    {
+      "glyph": 327,
+      "kind": "stub",
+      "mode": 4,
+      "phase": 2,
+      "points": 3,
+      "originalGlyphSha256": "11829c3706ff29d36be111af0fdaca5e5a6543c76299c469a13b803e74d2d55f",
+      "reversedGlyphSha256": "bd54e1acf5750027361b89fff2a85f1dc0722f149e70783c12bfd7f465e3c74b"
+    },
+    {
+      "glyph": 328,
+      "kind": "stub",
+      "mode": 4,
+      "phase": 3,
+      "points": 3,
+      "originalGlyphSha256": "ef826b360e7fe198943b73636d8da36f9aa2e3f3083350e4455d113f7e0b8aa5",
+      "reversedGlyphSha256": "5d10250f474afb75035f3f7f1fb5ee12ef510db455866196ce845d0f70d6342c"
+    },
+    {
+      "glyph": 329,
+      "kind": "stub",
+      "mode": 4,
+      "phase": 4,
+      "points": 3,
+      "originalGlyphSha256": "cd70721c575ee357e42fdf9d218ee56d1a7d3b058ce201426e5cda438684903e",
+      "reversedGlyphSha256": "8cc1f88867fadb217eecbbee07506b72a906022c3cb2b6912cf8ebd4513da5a9"
+    },
+    {
+      "glyph": 330,
+      "kind": "stub",
+      "mode": 4,
+      "phase": 5,
+      "points": 3,
+      "originalGlyphSha256": "92270bbaff17ac20113c909e81a6aa798f3e21580003754c08fa96220ed4088c",
+      "reversedGlyphSha256": "16e8ea830a31e4421ba0023a9e6161393c441ea5cf97b55f37e3fe5ee25d06cb"
+    },
+    {
+      "glyph": 331,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "aff458198b39b05246eef2b635d1b90623f31a95808318cdd832bdced809719a",
+      "reversedGlyphSha256": "1bf37c429498e74dafb8443fccb95566601d5b691f81e349f2a7438e5b2a28f1"
+    },
+    {
+      "glyph": 332,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "65814d082920e077e231fbd54b1adf30ae609a52207a3d9725529fca9ee0e97e",
+      "reversedGlyphSha256": "f0aa1bf2083f2534b66fd926c7a7cb977d30541ddaa96d03e9956f983a17f97f"
+    },
+    {
+      "glyph": 333,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "b5c9fba91417338e492346b4661f05133670cb2f00b9c1fdd4835c3fd80b89c2",
+      "reversedGlyphSha256": "a57630c52d38ebdf3521eb3f7d2e34e101dbd10d44868ee32d51be94e76e7237"
+    },
+    {
+      "glyph": 334,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "15101c5523ff2cb054a070a703d6a36944716a2b48cc3e4d16f74573b7e3b4ff",
+      "reversedGlyphSha256": "6b99101354540c205ab04eb677a5ab724e487b02ffb03daffa5b34e11ef483d8"
+    },
+    {
+      "glyph": 335,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "a2d96057e16da2f1cabcaa439bd0fb799df6bb5da89572e0a03d21d02b9bfef7",
+      "reversedGlyphSha256": "b9734511c7da846fbc09750b7fc820cc4bb2080c2dca18645b6e4f90888d48f5"
+    },
+    {
+      "glyph": 336,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "3d60fac0719e9fce695e5b1b5c5fe799d46d4b48a20ed9c074c5680623f760a3",
+      "reversedGlyphSha256": "0f3f680dc3c5141edd638a200148b99a9c077bbfceb40812df98db64f9f3791a"
+    },
+    {
+      "glyph": 337,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "ac164f22354287be70bd27b06d3f53947f087e9fc0b4f283b4e26cd765a94c3e",
+      "reversedGlyphSha256": "797a2077b287f0f92766738dd0366169ac46f4f268c33a7f85707242b1c4ce74"
+    },
+    {
+      "glyph": 338,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "17aa84ccdda0c7b26564d67012272f703aa0e7eb609ff602eac6059f67286ed4",
+      "reversedGlyphSha256": "49601ed11a9cd3680bc1d98b7263acbf264c598b04755ed3ed33e27078c506fe"
+    },
+    {
+      "glyph": 339,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "13b677e268ce9a88e430242df30a81b436b5c816f5ab66d0ada30fb1aa3e6100",
+      "reversedGlyphSha256": "ee2dc29d239f45ebef4dce1a1e461e86e4deb859c168c3f9036af2f6c35ead23"
+    },
+    {
+      "glyph": 340,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "126755e6466502b8147954b6c82fc087738b99523b2c28f5bf40076603a78b78",
+      "reversedGlyphSha256": "282f0ea078f55d19b35b157145a307d5b203d0260474e872f95d8865d880eda4"
+    },
+    {
+      "glyph": 341,
+      "kind": "quadratic-edge",
+      "mode": 4,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "ecc7eaad5a555dda4d039fa5907b185fb2389a89e606dde329714632e891652a",
+      "reversedGlyphSha256": "d8d4eb46bd19e80edb88a383287f152c8071f4b0e5b29535e8cb566ef1078af6"
+    },
+    {
+      "glyph": 342,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": -5,
+      "points": 6,
+      "originalGlyphSha256": "1459791d5ce2ce6cae43cb41ed84fc1b977a0ab7ddfea6be0ddac60914deffde",
+      "reversedGlyphSha256": "9de3defaec1b204018156e8e9b90e3741a618b2bdd4356feb6ef84acbefba4a9"
+    },
+    {
+      "glyph": 343,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": -4,
+      "points": 6,
+      "originalGlyphSha256": "728749a31736eaf95e497647b4568d45cb79b6ee2785dab018133f7f9434394e",
+      "reversedGlyphSha256": "982a75ac2fdef01c60f9d43a5f0e3ef6338123005119433b13e68b298238b063"
+    },
+    {
+      "glyph": 344,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": -3,
+      "points": 6,
+      "originalGlyphSha256": "a101007ca1860f04b8c29e7687bc6b2e46ebd5ccc4fbb090dabb3b3cdbec3e76",
+      "reversedGlyphSha256": "1fbe7840e1240b583f9dc8c265ada47cbf94deb3c32ceaf4a9789f49c6c09c5e"
+    },
+    {
+      "glyph": 345,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": -2,
+      "points": 6,
+      "originalGlyphSha256": "03b2751eece00078f05806eb035417859a1066aae3cbe54679b7235749285be6",
+      "reversedGlyphSha256": "fce8fc0fb4f8258a16c81d2c3617fd4d74bc3f3f73e190dd189b5d33629383ad"
+    },
+    {
+      "glyph": 346,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": -1,
+      "points": 6,
+      "originalGlyphSha256": "128ae7b33e927c2290cbd95d5b7610291d0da2c4df03103972bf9b04530fa420",
+      "reversedGlyphSha256": "3d11a2d2d2b38cb811938a0400c34736e50d24d19a1b5d6506bc888cf9aee8ae"
+    },
+    {
+      "glyph": 347,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": 0,
+      "points": 6,
+      "originalGlyphSha256": "1698eb940331055af4e058b60851ac0ac4f34ec79ce9837088e96590d0f2590c",
+      "reversedGlyphSha256": "f4370cf9fc49173338972a22662832d29e1deeed1c43bb14fe700551a13dc0fd"
+    },
+    {
+      "glyph": 348,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": 1,
+      "points": 6,
+      "originalGlyphSha256": "5d21237fed45f388b59cf18d2411cc492ac7f061a1f1a389bcfcc0a25cee51cc",
+      "reversedGlyphSha256": "6091d010552d655a9611055d0b0a0d2a05237776eeabb14b9f526d5ae6dc97a1"
+    },
+    {
+      "glyph": 349,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": 2,
+      "points": 6,
+      "originalGlyphSha256": "34f38e62473a7b3ffec904b078e13bced78bf2faa9d940f86491f48a8d2fb06d",
+      "reversedGlyphSha256": "e55bd1d21f2a8f1ce52246e1c4c18c13091613c87733d46951d850432999c173"
+    },
+    {
+      "glyph": 350,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": 3,
+      "points": 6,
+      "originalGlyphSha256": "a0de86b9491aa909a0f8c89f4b27d6288162c412ffc8def3bb5a5b30f5a3e60f",
+      "reversedGlyphSha256": "bc63fd1c821d46bec686cf90d635f42ca02a83cb2cde28b02fbdb353bd0a35a1"
+    },
+    {
+      "glyph": 351,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": 4,
+      "points": 6,
+      "originalGlyphSha256": "917eaab6af54ad3302f2b7758e9a1e985cfd8481924106511d885c019d5fa1b4",
+      "reversedGlyphSha256": "c651822f294a72c24674d858333527ce175f315f18b64ac7d11acad767d275ff"
+    },
+    {
+      "glyph": 352,
+      "kind": "quadratic-dropout",
+      "mode": 4,
+      "phase": 5,
+      "points": 6,
+      "originalGlyphSha256": "02921a222a9d5d4ccbd435fa3a514050c80c66055a3800e68bbafc52c0f52688",
+      "reversedGlyphSha256": "7b2ed9c9fd616f77c4feef731759658a8eda8939f89f9d105c9fb1868535bdd8"
+    },
+    {
+      "glyph": 353,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "a4f48bc70ca6088ca914482773a4713608f5d997e368b77690942419b247189c",
+      "reversedGlyphSha256": "f94ad25406d26d34f8c397bed9c486911dc9a0e65213e994dadb3b98b160fafb"
+    },
+    {
+      "glyph": 354,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "51f2c4cd955697614af5366282407abcacee842c732dd34c77a2fc25491902ee",
+      "reversedGlyphSha256": "2095593d620e383099a46d24d83e2f5ed93a38da501fc688177d2afc902c928e"
+    },
+    {
+      "glyph": 355,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "435a24b7e80b37ad63b1be4e28da0fe2ddd0aeff130f9d290f8a3b83247d7859",
+      "reversedGlyphSha256": "cf373a9d79c8569cdce2e31aa7f7c8306d5cbf4a3f448c9062e908c47bb9a565"
+    },
+    {
+      "glyph": 356,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "809a258ef6119fbe39e685e7486d6e66c16073638ea3ea302d58fcb07c52fadb",
+      "reversedGlyphSha256": "6d234600302336965e4bcab9613e0e9424e9ad6e188c3700a31ff29a8e5e4225"
+    },
+    {
+      "glyph": 357,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "9b8ff5c065e6026ca7c9176fa353880dc572103996be8e1039e6ed75a071c838",
+      "reversedGlyphSha256": "46d451a0400a3beaeb5c29e02a02e3cc0a31f922ba2c936723d45ad081ae9e77"
+    },
+    {
+      "glyph": 358,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "e6297b229fc5a5039fa617410ad1b7c703b1adf09f573daa517597bdfe566f2d",
+      "reversedGlyphSha256": "a19f43c748d475549177ff36e7bf1d1da5ac3de79d38810b922cafcdcf79fb3c"
+    },
+    {
+      "glyph": 359,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "701decff200f902ce45188bc81388a87d8e1ea981cc6176b03581e7ad9f24765",
+      "reversedGlyphSha256": "b721d6dee2c640b4f55c69cfadb293f05408c665f7c2ae91c703116b4a59e5f0"
+    },
+    {
+      "glyph": 360,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "7b65f0f68b876de1d679f13a8ac475d13dde35930cd888ced99f8fd380b1bcd8",
+      "reversedGlyphSha256": "acb1061b33bfdeaa8255574e3f32cddde40a7da0944e83949278c9f47af55327"
+    },
+    {
+      "glyph": 361,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "ea3983790d190669b0139db79c98822f174d6a29935cc4d100b8d477f48fa848",
+      "reversedGlyphSha256": "7710159b781007d0a2be129e8e283bbeb950c409b04ee113a2365f97aa195927"
+    },
+    {
+      "glyph": 362,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "8bb3b4a98164fdbfeac0fa3d7dfb6b0130c90f8d6dc37ccc5f98c4662ee80a88",
+      "reversedGlyphSha256": "8b5b2be234732e650841d5faae222c6c63297739cc4507d5b9be3f47a14f6f34"
+    },
+    {
+      "glyph": 363,
+      "kind": "right-edge",
+      "mode": 5,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "fb64313e5d8e16bd8649638effd957461d9dfba392690ceab66942e48416bcf5",
+      "reversedGlyphSha256": "b236d7b5187255830861482b7e16c543c630512ba194af0303cb6835d44d48d1"
+    },
+    {
+      "glyph": 364,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "8bfcaaad40293932f46236df2fae530ddbce15c8e71b04520aa37258ee7fa1d7",
+      "reversedGlyphSha256": "7c80b9ddb19015404f01800a4860e47de864fa6712b3912cfff9c7d56dd08b52"
+    },
+    {
+      "glyph": 365,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "601d11c04285d5130d9998fe6c263584d4a71407b7ce3eda727dff4cb9b6e395",
+      "reversedGlyphSha256": "7caf559bea936a9a5941b0fc62e723bcf5d9f87ada446612c6dcbf63993b67d1"
+    },
+    {
+      "glyph": 366,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "8405d85a9b2bf9b428110d720a7466f8dd91540b4496952860d5d9cfd7d93961",
+      "reversedGlyphSha256": "6eca48c936f1f8053aba53757aff173f30be036164c354cdf28f84e942e260bf"
+    },
+    {
+      "glyph": 367,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "4b6fb5c35b1c95740fb4c802b26d202b383fdae532a368c894a834931dca54e3",
+      "reversedGlyphSha256": "73575ba36eea3f5aee1c3169c4f3262f0540c545d0b7c4bec3355dde15c301da"
+    },
+    {
+      "glyph": 368,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "521a8bb05e7fd6043e560a8e9110e2bc11ace7b5c876f72ae9216603b1daddd6",
+      "reversedGlyphSha256": "761a99d2bfdce622c881e0281dcad38daa9c8ea93fbcd99bac0c4aa8c3fdd7e0"
+    },
+    {
+      "glyph": 369,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "b86a89f8ff2460eadbee4b379dc88968a2a40c04de1808bb69fd1f584d9421ab",
+      "reversedGlyphSha256": "ca6dc8b184cfd37be5b0fb68fdecaa875ce838c3243b0cc351d9e936607f088f"
+    },
+    {
+      "glyph": 370,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "56fb2a4bcda6db4896efbfa2a88aff1587d2affda48711a54f501398e4afa357",
+      "reversedGlyphSha256": "53bca20d2daecccb00122f77775d451911b11b367c9ceaf43691992588e9e4c6"
+    },
+    {
+      "glyph": 371,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "3d91e439d1107a1dffc576ccac224bd98acdf382b869cfc323a9a1479d933ad7",
+      "reversedGlyphSha256": "1a37162e3f9577244e2aea0a5d4aabb2d2fbb0c8574e79f2241aca406422b7bf"
+    },
+    {
+      "glyph": 372,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "f0dfaeb6036e174b7169d660ef7fb60d706d117dbda453f5495238dc56301448",
+      "reversedGlyphSha256": "5cce8603ea04c4dbc29dc0483118b26b3709f804e5413a1b89d44eeb2b402b9e"
+    },
+    {
+      "glyph": 373,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "ae397909a998afc0bf8c0c8284e5368ca978ec94f6a865bfd678d05305bd8395",
+      "reversedGlyphSha256": "e6dcbc26a1cc73437bc525409700a48f11d8999a914cbc9001fec0d113a6c40d"
+    },
+    {
+      "glyph": 374,
+      "kind": "top-edge",
+      "mode": 5,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "17b671473d52ac4b08bea51f888187af2637e4d8b47f54cf212a670ee9ce6ee1",
+      "reversedGlyphSha256": "2f1982b2b1955fa5f99dd2e52082918520a79ecb6e9928d7384404617a5e4b63"
+    },
+    {
+      "glyph": 375,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "291be8fe0c4f2ff7cea3ca2930431ee8d334f96b83aac07365b7358e020631b6",
+      "reversedGlyphSha256": "e43a3df095c223798234a7417a9a01d1a8946e3e5c1b99ec30b1dae1dcd8b9e2"
+    },
+    {
+      "glyph": 376,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "a3269dc1abbc186b9b677b69143dfdaacd231f33fe6d4e156d3a06caf543b67b",
+      "reversedGlyphSha256": "7f5a73642fb1b62a2f859726d4fea9b212c34653794caf64342c6d4857ece9d7"
+    },
+    {
+      "glyph": 377,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "a5e47f9a0f6334f1faf430c24d88b89f75cb07c80f3f266903c4ff057fef6681",
+      "reversedGlyphSha256": "76f4eed83b244e70f7019f2453b7f76d0d23bc08627b3aa81044b2344526efda"
+    },
+    {
+      "glyph": 378,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "34710d262b88199d7f552ad2173597f30f9dfcf32534646d340ccb02ee8ed90f",
+      "reversedGlyphSha256": "6b151d64edd523d571b2a439e86c3fddde051894b1d03f1154e5200cd4227047"
+    },
+    {
+      "glyph": 379,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "6901d94eff7b946b5d47216381573da6bfc31ca80e862560bff1ee1aebeded8f",
+      "reversedGlyphSha256": "3311b034fd4016fcff61aa6fcfb9e1d5c42a2bbba24e0d651fc2bb0e8a537ed5"
+    },
+    {
+      "glyph": 380,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "07f7940570bd495bd69df85141c9d6bee157265053a92f7eca6af65f28235e0e",
+      "reversedGlyphSha256": "bdd2381e7bd2fdc34a20ef9c17ef501345ceedf8eb84ae68ad18cff29ef1fa7d"
+    },
+    {
+      "glyph": 381,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "d3d73937d63ee799b0ea6b0926518626921b471bfa5e67dc7376149a9a51182a",
+      "reversedGlyphSha256": "8d64d7188f433ae777dbed247543be8ca7c6a55af91d983846e118ff03999e08"
+    },
+    {
+      "glyph": 382,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "752e3128cf4d8c6024584a6db000ad409a72cd79c89182a2a102c88d095fe6d6",
+      "reversedGlyphSha256": "b5d4ae6097a41a070125e3bd65002934b77e58f4cd6bd880d38a1e3c5392099b"
+    },
+    {
+      "glyph": 383,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "082fc06d3d3f6be34927b70e93e539172463b14971c8d9e5b28da3d40400e7bb",
+      "reversedGlyphSha256": "8967e7738f8fa0a2559d7fe9e512d233b3982590740f0ac0438eb9f83db26139"
+    },
+    {
+      "glyph": 384,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "cf3685b3fcd377246c712560921076c603dd3c461cac90e4db873e72ba1b02d5",
+      "reversedGlyphSha256": "a2d55a06963ba60616648a2bb6a6c98b9211a28d36389db72814fbf97518dbcb"
+    },
+    {
+      "glyph": 385,
+      "kind": "vertical-dropout",
+      "mode": 5,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "d341c77b9c37e338f2a2290c4a325f0df0fd516a8a3e17c0092cee4b96212885",
+      "reversedGlyphSha256": "e23ac78185826ba451c124d5c697dde1b516bffcb3d77131672bec6dce0c887d"
+    },
+    {
+      "glyph": 386,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "db66fa2ef4f0a37b4dc19318d3ea30408323278cd7d575ac6c1d05bb28b87327",
+      "reversedGlyphSha256": "797773a5dae716336bde8eef4f37f64c27680a553d496d733b5c34a8b3dcdb85"
+    },
+    {
+      "glyph": 387,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "26f91909966f4f3b1347a263a5de7c94b875b72f630e33104cab8c3e3a35d971",
+      "reversedGlyphSha256": "51bc24a6a38227289caf7702c11c3c86688a3112dd208ed36fdd59bf57391181"
+    },
+    {
+      "glyph": 388,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "3596aedca90a594f1a951b7cc3a456af52a4b7eb603129b148d054bf9ed4c4a6",
+      "reversedGlyphSha256": "8f58ada3ea582274adb0d998323017968c44b3a334f1b5f56dd52157688037c3"
+    },
+    {
+      "glyph": 389,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "929b0261839bdaf68d301fc6efaf4744916849b403d268af501057513eec838b",
+      "reversedGlyphSha256": "d7785a1dba3907abb9757edb5c8411aaff16b7f4dcad745579aa40757ad77636"
+    },
+    {
+      "glyph": 390,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "68d05b767ca3d8b248b4ed91b509f1059e9421951826231ef9d6d75bf5caeb2f",
+      "reversedGlyphSha256": "38bb0bc9649eb662b1311a8e4e00551fe12ae461cf0c6776a64ae23ad2de1b20"
+    },
+    {
+      "glyph": 391,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "a98e6a233dc6a742b0a72cb810a33901c739b69b74dc410e9ccb02f1e8912b8b",
+      "reversedGlyphSha256": "b470fc7fb168e4453d21e68d6d631674539820bb2ec1ec669273a806c5a8cc3c"
+    },
+    {
+      "glyph": 392,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "d6d3f6ee67cb9bbe1b0ae1318f6a984f220181e6a85eda77ba280adc4021f938",
+      "reversedGlyphSha256": "1151abf8942a74ee0fac714e36577e14f6ef1d7f4ba5b066f97316193004b8ea"
+    },
+    {
+      "glyph": 393,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "15c4a4b8caf7d1e6ab30871c7ca1184a648e82f9cb5e17ea728105c432e678a8",
+      "reversedGlyphSha256": "2d7a0767dc65c82ee985bb9b0e32a8aed5e1483b7bb148790d1f0c3f34b1ab16"
+    },
+    {
+      "glyph": 394,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "20ff8832f3f024e9ceaf72ba4fc67a299c7065ddb1efecb46fb1549232052e5f",
+      "reversedGlyphSha256": "c50b26ad26f60e3fade75f7f36ea63765243fd8098ce6738e6611f7f508fb8ef"
+    },
+    {
+      "glyph": 395,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "a31fa7fd1eb3adb3de78534a84fe0ce37efd7d59a1a3244b15dd20b898cb5d62",
+      "reversedGlyphSha256": "a1a283f563d91ac2c9288ce2b0f57cd8719a39d79e2ee39cd5dfd30071a53b29"
+    },
+    {
+      "glyph": 396,
+      "kind": "horizontal-dropout",
+      "mode": 5,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "10bb33948d02d825701dd718e380db9aa7fce6a49ed18bf51e916c2e611bbc98",
+      "reversedGlyphSha256": "9aeb47ca11a6ffce84da695df8ed1c9f7ae8372206445bcd8f5f11fff4f96cc7"
+    },
+    {
+      "glyph": 397,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "933aed51cbcb54e62bc146514dd832a04a2bd98250c5fb6416046fafb3656d3e",
+      "reversedGlyphSha256": "9194d889b20c8b8d6126de3ff9785553c32a1d4d4553ba9a613b4edb7203a936"
+    },
+    {
+      "glyph": 398,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "ab49cdfca35f65a38cd9f75d0793085634bc4623c8d6087f2ed43f17c4b1a141",
+      "reversedGlyphSha256": "48c17b90e70b78e4d3c1da46e881fd386aa705c3ae80c0c04b37443707511be3"
+    },
+    {
+      "glyph": 399,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "8c33855f7329d835449d8a032e18e0d5dcf6eda6876bd44429fff427ac87f43b",
+      "reversedGlyphSha256": "4138af6bfc8cc81b2aaf67531e51f8bd1275a097920681cd1f96020d498ccfb9"
+    },
+    {
+      "glyph": 400,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "107d146ff47aa4f9f010fcb7fd553c0b18b2b73637730bc0dae7b16aa5f516da",
+      "reversedGlyphSha256": "d56f570530dfd41e8fe3628c6ed830ee6f6d6876522b016315d8ebc8345547c8"
+    },
+    {
+      "glyph": 401,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "3551d8876729495eb0ed1187d96a246b4cf4505b74e104f4fdac193bad938d95",
+      "reversedGlyphSha256": "95427bfad33f1fa214233b6cf28aba4fb7270e4e2b40a4555ec5a42af4070e19"
+    },
+    {
+      "glyph": 402,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "71b4084afb72c1aa0e041b94573fe1c933761cd9bec751b1b821f54f1e4f2199",
+      "reversedGlyphSha256": "06fb7e4dcc8f8bebae8f35f17991cf3ebf95e196e6368b5832f4b532ddcfa5a4"
+    },
+    {
+      "glyph": 403,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "bb948b55a461b84d7588b1773da32fba8c3e8f2fdbccd8645eaac9522d2250d8",
+      "reversedGlyphSha256": "c840fce6bb69734089b9578e8791c04ef793223c1447ddad481e67bae9f70a39"
+    },
+    {
+      "glyph": 404,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "5c340b3672f6441fc0d55fb6fed1dadd7d4cb8ec1bc12c2b1cc98ce96b7fd0ab",
+      "reversedGlyphSha256": "000a88b425ac9002b0c6da6252a3684c499e27f2f83985f9c6bc7ddd3d44f2bf"
+    },
+    {
+      "glyph": 405,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "4b7bc138f9df92cc4b7d073df27676c18c2b59cac7e0b99136734c42f74ede8e",
+      "reversedGlyphSha256": "d9dee4cc961a03f771d7b0a33c0010345296c61577de296e18515f0e94fb72ec"
+    },
+    {
+      "glyph": 406,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "c37f002a9a2eee7b4c24693ca7abc6b320618f63f22aa948c54ddf8abb4ef9e8",
+      "reversedGlyphSha256": "85d08ff55f26102a2ba502bc7c5bc3e86098d54e4bc5ddc1edb196a0d92b7b33"
+    },
+    {
+      "glyph": 407,
+      "kind": "diagonal-dropout",
+      "mode": 5,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "f580390632f0d4a961c8246290bb636ce4076cb41a947ee89986e253356f0d26",
+      "reversedGlyphSha256": "ce5ed469b2b2b508fde51268bb00886c7fcc6ed110d7d37b704d5e9b2483ce75"
+    },
+    {
+      "glyph": 408,
+      "kind": "stub",
+      "mode": 5,
+      "phase": -5,
+      "points": 3,
+      "originalGlyphSha256": "c7a55d6d9dbb64997e5820e1e9558593be1167bc2ec491741f57954c7c4f562c",
+      "reversedGlyphSha256": "b6ec8a71853e611e41db5afa2f429a58c151762a6dac56fc15bc9bafc1e2f654"
+    },
+    {
+      "glyph": 409,
+      "kind": "stub",
+      "mode": 5,
+      "phase": -4,
+      "points": 3,
+      "originalGlyphSha256": "6f51395a62868d7f4f1de7f1837a9fd528269215ac360bc192266e92608e7819",
+      "reversedGlyphSha256": "01991baeecd530e4739b6ae7aabe4032f65b59b1a54394a86d840d5f80b68030"
+    },
+    {
+      "glyph": 410,
+      "kind": "stub",
+      "mode": 5,
+      "phase": -3,
+      "points": 3,
+      "originalGlyphSha256": "5967cbb8f3770bc4a0c725dc895bc8f96cba155ae36ad29596e5ed3138a74dcb",
+      "reversedGlyphSha256": "96cf442cd1d45e8ce1136a7563535f154aff3ab4c5b282c77856507d57eacbc0"
+    },
+    {
+      "glyph": 411,
+      "kind": "stub",
+      "mode": 5,
+      "phase": -2,
+      "points": 3,
+      "originalGlyphSha256": "aacb11a89c0f1344f636a098706d5af73dac5e9855011c1a9151e0a65ff5ef41",
+      "reversedGlyphSha256": "af289b832684901ab5da00e449e3ecb2554e8e803cf895b14297bffc07ee293b"
+    },
+    {
+      "glyph": 412,
+      "kind": "stub",
+      "mode": 5,
+      "phase": -1,
+      "points": 3,
+      "originalGlyphSha256": "c557170f524cc92b26d1590678b0826d4e83b62da458665c185c5651e1060d42",
+      "reversedGlyphSha256": "fedb9859eed664f03dc7728c2cc0b7ce3845f603b30cfa1edafa8fc742593453"
+    },
+    {
+      "glyph": 413,
+      "kind": "stub",
+      "mode": 5,
+      "phase": 0,
+      "points": 3,
+      "originalGlyphSha256": "4765145b146cd386c47d90d46ba81df317b18784032d6f95fd445e6c06a0d7b3",
+      "reversedGlyphSha256": "4b22a826d1db86ba06fa9c9a960b373391e9716654a9280a0de7ea200c57c8a9"
+    },
+    {
+      "glyph": 414,
+      "kind": "stub",
+      "mode": 5,
+      "phase": 1,
+      "points": 3,
+      "originalGlyphSha256": "32005624d1b754250a1fa96ed83e8a8766cc912617ed7b853fa01a1d5f547cb3",
+      "reversedGlyphSha256": "034399f80ce8a20767cb6c1b1aaf54c5917f6133181b0762dfb496eba3d26834"
+    },
+    {
+      "glyph": 415,
+      "kind": "stub",
+      "mode": 5,
+      "phase": 2,
+      "points": 3,
+      "originalGlyphSha256": "5475334fc305fefc17e5ba0a7d9ffef0db1ded4017abf98965561d504579a6a8",
+      "reversedGlyphSha256": "b7207329df96931e0fff3b1fa720c61eefcab0d637838a19557a2e28911fd216"
+    },
+    {
+      "glyph": 416,
+      "kind": "stub",
+      "mode": 5,
+      "phase": 3,
+      "points": 3,
+      "originalGlyphSha256": "624ceb90d05a41286d7cff8d013a7cf8cd0a20bb7198088779dfd6d6a0399337",
+      "reversedGlyphSha256": "04d8045bcf68d0107b70fa0faffd6d5f7f84f3f8e8225dc9b67737a62b4c0de5"
+    },
+    {
+      "glyph": 417,
+      "kind": "stub",
+      "mode": 5,
+      "phase": 4,
+      "points": 3,
+      "originalGlyphSha256": "8c745d732c0a6c2090b865b862926004ff0077dd9ca7340343bc14d49c7d8488",
+      "reversedGlyphSha256": "e8c37dae00499566ddd03262c1db0a3ea2961714a63cd1b8895375aa2a07e3bd"
+    },
+    {
+      "glyph": 418,
+      "kind": "stub",
+      "mode": 5,
+      "phase": 5,
+      "points": 3,
+      "originalGlyphSha256": "cc96ee7b2e9fcd43f52a7cb954759da21f292ea6e5bc7743a0286ee0f0936b2b",
+      "reversedGlyphSha256": "e7cf418686ceafab7671dc16a4bd1469d7ee537094cf0c9716f84e6225ebbad9"
+    },
+    {
+      "glyph": 419,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": -5,
+      "points": 4,
+      "originalGlyphSha256": "e7582c0b4fd06bc879a5363955bc04c7f7b233af470de74ecaf1e0034c782085",
+      "reversedGlyphSha256": "3aee8743d5fd85b99ff40e7a3d2e19570c8e80d14d4c8a2fba6de0c9719e374d"
+    },
+    {
+      "glyph": 420,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": -4,
+      "points": 4,
+      "originalGlyphSha256": "64e65b6be8f9b3221beb14744a690dbc25fea41a00c2dff5d2a6cf2c89320156",
+      "reversedGlyphSha256": "a52964d2b6d16deb30e1c5026c13c7174f022a8984fecef3b7677836a7baec58"
+    },
+    {
+      "glyph": 421,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": -3,
+      "points": 4,
+      "originalGlyphSha256": "18ce78459b0bcfe4b377eb6e1b4abcfe202cd033720ab089f6165e6ae108337d",
+      "reversedGlyphSha256": "66bab2d3fce3db6e783ce9de3339dd59fd64fa1dc9cf251e447aad6753922927"
+    },
+    {
+      "glyph": 422,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": -2,
+      "points": 4,
+      "originalGlyphSha256": "f2916193916109bf2811ecb91a9813f79e5723147219178b9f098f31cea8b0c9",
+      "reversedGlyphSha256": "97eefaf4e6cd380b53c728441bee43617530dfd28192d6ccf6646b88f7db2cd6"
+    },
+    {
+      "glyph": 423,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": -1,
+      "points": 4,
+      "originalGlyphSha256": "28ca83a3d89e1841a815b7fd504aeac98b84d532d8dea943bda29f2ed5c5a377",
+      "reversedGlyphSha256": "19f90d2ff11eb11b3917884cb7cbab31ba69d8d5cb5304df9b069ca8d16014bc"
+    },
+    {
+      "glyph": 424,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": 0,
+      "points": 4,
+      "originalGlyphSha256": "2ab509da724a40bf5cb1cfc6b6b00d3dbf507c7147c06da6f58cf61981aaa507",
+      "reversedGlyphSha256": "2bedb85f94fcd439ae2d2b6043ddb303f8d5c4043b616e619d71d35bd541b8ae"
+    },
+    {
+      "glyph": 425,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": 1,
+      "points": 4,
+      "originalGlyphSha256": "969db2b7196d9ecd13c63c05c2f99b2c5e91d95eb38f730beeccecb9194294dc",
+      "reversedGlyphSha256": "bb97b5cf5f1a5c2a971e605338cd9d39113e0cf31022cb0dad85234f1c01a912"
+    },
+    {
+      "glyph": 426,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": 2,
+      "points": 4,
+      "originalGlyphSha256": "4748260b490d36f607763badb6a5c9bc8f9a1c6a2961a84d1d397ee12e783b45",
+      "reversedGlyphSha256": "1fb259039104fb35843b44980b88d8b7dd80a3fe28019fede3bfe7351cd7d517"
+    },
+    {
+      "glyph": 427,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": 3,
+      "points": 4,
+      "originalGlyphSha256": "683398a6d4dad93fb15d5176bd1159f84a5ded00ed55c99be01e7fe754fc8ffb",
+      "reversedGlyphSha256": "0801ad3667bb05b69d22f0a3e1acce97207d6c183e332d8e0e5903142e6c5cfa"
+    },
+    {
+      "glyph": 428,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": 4,
+      "points": 4,
+      "originalGlyphSha256": "bcbc2e72c8eadc639ae6304d15cd02c4762b4544fff8854e4c9b4463154e50ce",
+      "reversedGlyphSha256": "7571b1524c1652542c4b5d7e6de36e83a26b6abb6c82576d9730f0557a6ba263"
+    },
+    {
+      "glyph": 429,
+      "kind": "quadratic-edge",
+      "mode": 5,
+      "phase": 5,
+      "points": 4,
+      "originalGlyphSha256": "7fe5f6dfdc0aca9339070ac82c7cccc671e61a06d9e89a8f9861f086aded7bae",
+      "reversedGlyphSha256": "9d11c88871077229fd4f4ea57233fb33d72bddbb032cf959cb2f2be69cdd28bb"
+    },
+    {
+      "glyph": 430,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": -5,
+      "points": 6,
+      "originalGlyphSha256": "c6e524280f0d2870050b1946d92a6a67907a8e6333d9521c1e771504de61225b",
+      "reversedGlyphSha256": "bd944631dfac9564e809f0a0675285b264b317ac086ea994576e946f1d323b53"
+    },
+    {
+      "glyph": 431,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": -4,
+      "points": 6,
+      "originalGlyphSha256": "fa98a60617361842992087519f2773e8c19ee1e0b4f35c19dfad7601d094600b",
+      "reversedGlyphSha256": "ab4557e889574ed87dccfab0d22a11234a9df5f5d096e78179c5918913966e5e"
+    },
+    {
+      "glyph": 432,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": -3,
+      "points": 6,
+      "originalGlyphSha256": "eb42740c73eeafd85c8de53b262780ace96e481dd27a9b7081260597312423a2",
+      "reversedGlyphSha256": "bd2fdce914e847f95b5d415b5ca70d7ec95da99062ec9fe7840bf1e5338c162c"
+    },
+    {
+      "glyph": 433,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": -2,
+      "points": 6,
+      "originalGlyphSha256": "5bb219310f2ade37da16c81e3c024256763ee63eee82d26cca0f3330f47eff92",
+      "reversedGlyphSha256": "f9bfb5f58f4010a30b548421c658a49e6b9d3c0e0ede5e930273d4777b4f40f3"
+    },
+    {
+      "glyph": 434,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": -1,
+      "points": 6,
+      "originalGlyphSha256": "0b6e0f65d50ad674bec5b0a7702a1573da1ff779420340fe3617933b5d426128",
+      "reversedGlyphSha256": "cb49d88a51115ca71ae8a345f353076906af7e08fd251f01345ee91a1bf40bab"
+    },
+    {
+      "glyph": 435,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": 0,
+      "points": 6,
+      "originalGlyphSha256": "9aeae43ba909a5213a822687fb461bd89d9caecc1c74a5f796ee21f19548b888",
+      "reversedGlyphSha256": "c314c1a7e532dffc577521966a6786061f05bfce4d011b092b88485787be0ace"
+    },
+    {
+      "glyph": 436,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": 1,
+      "points": 6,
+      "originalGlyphSha256": "f54ec27c55a84250eaaf8f0d427a872e6da40205dbe1e4f8bde43bcdf043090e",
+      "reversedGlyphSha256": "404b47a3a8cb994344d156cbd998de1b4a07eff0ea92a6a60769a0ce99b819da"
+    },
+    {
+      "glyph": 437,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": 2,
+      "points": 6,
+      "originalGlyphSha256": "63932207931722472cd13a3690915e3b29191c973f35ff2fa45df481e70ce352",
+      "reversedGlyphSha256": "92835448c0399040ab4ca2dbadcba720eb4f7da2aeb2f2d8bdfd1622a1ab38fa"
+    },
+    {
+      "glyph": 438,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": 3,
+      "points": 6,
+      "originalGlyphSha256": "224b6738cc74dfc811ea1ff56e6d7256bf25c840a09f81221c57dbfe11729605",
+      "reversedGlyphSha256": "76a4a00b1dabcde62e2e9d69976b1c76ec7ad6ee926706ee83942633bd9ea8ac"
+    },
+    {
+      "glyph": 439,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": 4,
+      "points": 6,
+      "originalGlyphSha256": "e797bb8c7fb1091dda0ba733ef71ac8f6bb08f238f8992fa00fbdcd43235b568",
+      "reversedGlyphSha256": "d6fc1cf3ff6ed6a771334aae288779a6aadf50b3b6690ef292ae1896fcbf23e5"
+    },
+    {
+      "glyph": 440,
+      "kind": "quadratic-dropout",
+      "mode": 5,
+      "phase": 5,
+      "points": 6,
+      "originalGlyphSha256": "96ae3e7d88cb2e3f4da5f760fe9bedb13b062cd3bf1d836b88f9dda700dfc3bb",
+      "reversedGlyphSha256": "b9fea25d9a12343956d5f4d4cd813062dfd645ed2c427f7225cc98c71dedf725"
+    }
+  ],
+  "rendered": false,
+  "qualified": false,
+  "scope": "All 440 original owned contours reversed with exact coordinates, tags, instructions and metrics. Original font, seven-contour derivative and pixel fixtures unchanged."
+}

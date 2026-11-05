@@ -7,11 +7,21 @@ internal static partial class FontRasterSourceControls
     // Additional source observations only. The original 98-frame acceptance
     // remains in Run, with its original font, expectations and deadline.
     internal static void RunReversed(string output)
+        => RunDirectionObservation(output, "ProGPU-Authored-Scan-Reversed.ttf",
+            "872C5A82825C5E1AA3E51589D758680B36A7E005B8FA982EFD21D19B239FB91D",
+            [6, 93, 94, 95, 182, 270, 358], "right-edge", "owned-contour-direction-observation-v1");
+
+    internal static void RunAllDirections(string output)
+        => RunDirectionObservation(output, "ProGPU-Authored-Scan-AllDirections.ttf",
+            "6AEC3FAB6C6E9265541CB5BB9874B754BB2537E380187E4D35EDAFBB56DB5BD4",
+            Enumerable.Range(1, 440).ToArray(), null, "owned-complete-contour-direction-observation-v1");
+
+    private static void RunDirectionObservation(string output, string reversedFile, string reversedHash,
+        int[] selected, string? requiredKind, string schema)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
-        const string reversedHash = "872C5A82825C5E1AA3E51589D758680B36A7E005B8FA982EFD21D19B239FB91D";
         string[] paths = [Path.Combine(AppContext.BaseDirectory, "ProGPU-Authored-Scan-1.ttf"),
-            Path.Combine(AppContext.BaseDirectory, "ProGPU-Authored-Scan-Reversed.ttf")];
+            Path.Combine(AppContext.BaseDirectory, reversedFile)];
         string[] expectedHashes = [FontHash, reversedHash];
         for (int i = 0; i < paths.Length; i++)
             Require(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(paths[i]))) == expectedHashes[i],
@@ -19,13 +29,12 @@ internal static partial class FontRasterSourceControls
         byte[] fixture = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "BinaryGlyphOriginals.json"));
         Require(Convert.ToHexString(SHA256.HashData(fixture)) == FixtureHash, "Original fixture changed.");
         using JsonDocument document = JsonDocument.Parse(fixture);
-        int[] selected = [6, 93, 94, 95, 182, 270, 358];
         JsonElement[] cases = document.RootElement.GetProperty("cases").EnumerateArray()
             .Where(row => row.GetProperty("gasp").GetInt32() == 1 &&
                 selected.Contains(row.GetProperty("index").GetInt32())).ToArray();
         Require(cases.Select(row => row.GetProperty("index").GetInt32()).SequenceEqual(selected) &&
-            cases.All(row => row.GetProperty("kind").GetString() == "right-edge"),
-            "Complete seven-contour direction inventory required.");
+            (requiredKind == null || cases.All(row => row.GetProperty("kind").GetString() == requiredKind)),
+            "Complete original contour direction inventory required.");
         Require(!File.Exists(output), "Fresh source direction receipt required.");
         Stopwatch clock = Stopwatch.StartNew();
         nuint token = 0;
@@ -80,7 +89,7 @@ internal static partial class FontRasterSourceControls
                     binary, black, rgbaSha256 = Convert.ToHexString(SHA256.HashData(rgba)),
                     rgbaBase64 = Convert.ToBase64String(rgba) });
             }
-            Require(captures.Count == 28 && matchedOriginals == 7 &&
+            Require(captures.Count == selected.Length * 4 && matchedOriginals == selected.Length &&
                 clock.Elapsed < TimeSpan.FromSeconds(10), "Incomplete bounded direction observations.");
             completed = true;
         }
@@ -104,7 +113,7 @@ internal static partial class FontRasterSourceControls
             try
             {
                 File.WriteAllText(output, JsonSerializer.Serialize(new {
-                    schema = "owned-contour-direction-observation-v1", qualified = false,
+                    schema, qualified = false,
                     completed = completed && cleanupFailures.Count == 0,
                     retired = cleanupFailures.Count == 0, elapsedSeconds = clock.Elapsed.TotalSeconds,
                     matchedOriginals, inputEvents = 0, desktopWindows = 0,

@@ -57,7 +57,7 @@ def simple_points(raw):
     return list(zip(*axes)), instructions
 
 
-def renamed(table):
+def renamed(table, suffix='-Reversed'):
     version, count, start = struct.unpack_from('>HHH', table)
     assert version == 0
     records = []; strings = bytearray()
@@ -67,7 +67,7 @@ def renamed(table):
         assert len(value) == length and platform in (1,3)
         if name in (1,3,4,6,16):
             codec = 'utf-16-be' if platform == 3 else 'mac_roman'
-            value = (value.decode(codec) + '-Reversed').encode(codec)
+            value = (value.decode(codec) + suffix).encode(codec)
         records.append(struct.pack('>HHHHHH',platform,encoding,language,name,len(value),len(strings)))
         strings.extend(value)
     return struct.pack('>HHH',0,count,6+12*count)+b''.join(records)+strings
