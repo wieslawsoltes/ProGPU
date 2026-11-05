@@ -1,0 +1,1142 @@
+{
+  "producerHead": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+  "buildRunId": 40740184789,
+  "allChecks": 78,
+  "buildJobs": 63,
+  "records": [
+    {
+      "originalPath": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/progpu-integration/root-merge-checks-6208.json",
+      "sha256": "896767cc85ee9893629f39ac66f40420b5c0ac891920d02af78f5722ff79d7b8",
+      "originalResponse": {
+        "headRevision": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+        "checks": [
+          {
+            "id": 123024709328,
+            "name": "Native package Dawn text (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709328",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709321,
+            "name": "Native package Dawn text (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709321",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709304,
+            "name": "Native package guidelines (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709304",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709295,
+            "name": "Native package drawings (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709295",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709289,
+            "name": "Native package visuals (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709289",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709272,
+            "name": "Native package text (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709272",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709264,
+            "name": "Native package text (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709264",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709259,
+            "name": "Native package EDIT word boundaries (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709259",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709246,
+            "name": "Native package EDIT word boundaries (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709246",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709241,
+            "name": "Native package consumer (osx-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709241",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123024709238,
+            "name": "Native package consumer (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709238",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709223,
+            "name": "Native package drawings (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709223",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709214,
+            "name": "Native package consumer (linux-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709214",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709178,
+            "name": "Native package consumer (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709178",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709170,
+            "name": "Native package consumer (linux-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709170",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123024709121,
+            "name": "Native package guidelines (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709121",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709115,
+            "name": "Native package visuals (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709115",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024709112,
+            "name": "Native package consumer (osx-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709112",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024708915,
+            "name": "Dawn WARP NuGet consumer (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708915",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024708866,
+            "name": "Native DX12 package consumer (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708866",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024708817,
+            "name": "Dawn WARP NuGet consumer (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708817",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123024708673,
+            "name": "Native DX12 package consumer (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708673",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123023319008,
+            "name": "Win2D Canvas parity (D3D12/Metal/Vulkan)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023319008",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123023318996,
+            "name": "DirectX sample oracle (D3D12/Metal/Vulkan)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318996",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123023318974,
+            "name": "Ordered GPU query parity (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318974",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123023318943,
+            "name": "Native C++ NuGet package",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318943",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123023318908,
+            "name": "System.Drawing API, quality, and performance",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318908",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 7
+            }
+          },
+          {
+            "id": 123023318905,
+            "name": "Portable Direct2D COM parity (D3D12/Metal/Vulkan)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318905",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123023318883,
+            "name": "Pack portable packages",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318883",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 3
+            }
+          },
+          {
+            "id": 123023318875,
+            "name": "Ordered GPU query parity (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318875",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123023318847,
+            "name": "Native MIL ImageBrush versus Windows WPF (D3D12/Metal/Vulkan)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318847",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123001427082,
+            "name": "Native C++ renderer (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001427082",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123001426958,
+            "name": "Native C++ renderer (osx-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426958",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123001426750,
+            "name": "Build and test (ubuntu-latest)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426750",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 9
+            }
+          },
+          {
+            "id": 123001426708,
+            "name": "Native C++ renderer (linux-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426708",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123001426683,
+            "name": "Native C++ renderer (osx-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426683",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123001426674,
+            "name": "Build and test (macos-26)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426674",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 9
+            }
+          },
+          {
+            "id": 123001426657,
+            "name": "Native C++ renderer (linux-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426657",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123001426623,
+            "name": "Native C++ renderer (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426623",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123001426562,
+            "name": "Build and test (windows-latest)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426562",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 8
+            }
+          },
+          {
+            "id": 123001426553,
+            "name": "Avalonia native Dawn contract (windows-latest)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426553",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 9
+            }
+          },
+          {
+            "id": 123001426478,
+            "name": "Avalonia native Dawn contract (ubuntu-latest)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426478",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 10
+            }
+          },
+          {
+            "id": 123001426435,
+            "name": "Avalonia native Dawn contract (macos-latest)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426435",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 12
+            }
+          },
+          {
+            "id": 123001253028,
+            "name": "SVG.NET recursive scale rejection versus Microsoft",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/123001253028",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123000854846,
+            "name": "Verify Linux Xlib WebGPU runtime (linux-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000854846",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123000854546,
+            "name": "Verify Linux Xlib WebGPU runtime (linux-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000854546",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123000845812,
+            "name": "Windows drawing clip reference (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845812",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123000845774,
+            "name": "Windows single-path raster coverage (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845774",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123000845752,
+            "name": "Windows single-path raster coverage (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845752",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123000845676,
+            "name": "Windows system font reference (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845676",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 3
+            }
+          },
+          {
+            "id": 123000845564,
+            "name": "Windows system font reference (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845564",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 3
+            }
+          },
+          {
+            "id": 123000845488,
+            "name": "Native C++20 compiler compatibility (GCC)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845488",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 123000845469,
+            "name": "Native C++20 compiler compatibility (MSVC)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845469",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 123000845352,
+            "name": "Windows drawing clip reference (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845352",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999355632,
+            "name": "Windows WebGPU and compiler runtimes (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355632",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999355352,
+            "name": "dawn-system-warp / Original Dawn WARP (win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355352",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999355227,
+            "name": "Avalonia retained compositor contract",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355227",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999355197,
+            "name": "Build Linux Xlib WebGPU runtime (linux-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355197",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999355099,
+            "name": "dawn-system-warp / Original Dawn WARP (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355099",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999355098,
+            "name": "Pack mobile packages",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355098",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 8
+            }
+          },
+          {
+            "id": 122999355061,
+            "name": "Build Linux Xlib WebGPU runtime (linux-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355061",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999355023,
+            "name": "Native C++ browser WebGPU",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355023",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999355003,
+            "name": "Windows WebGPU and compiler runtimes (win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355003",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999354503,
+            "name": "Android x64 sample on Vulkan",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184616/job/122999354503",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999354501,
+            "name": "Avalonia upstream text contract",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999354501",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999354273,
+            "name": "SVG.NET resvg quality",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354273",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 11
+            }
+          },
+          {
+            "id": 122999354181,
+            "name": "SVG.NET recursion evidence (Reference, win-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354181",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 10
+            }
+          },
+          {
+            "id": 122999354153,
+            "name": "SVG.NET recursion evidence (Reference, win-arm64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354153",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 10
+            }
+          },
+          {
+            "id": 122999354152,
+            "name": "SVG.NET recursion evidence (Portable, linux-x64)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354152",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 11
+            }
+          },
+          {
+            "id": 122999354109,
+            "name": "SVG.NET representative performance",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354109",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 11
+            }
+          },
+          {
+            "id": 122999353820,
+            "name": "Matched native and ProGPU CPU benchmarks (ubuntu-latest)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184607/job/122999353820",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999353590,
+            "name": "Matched native and ProGPU CPU benchmarks (macos-26)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184607/job/122999353590",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999353588,
+            "name": "SVG.NET w3c quality",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999353588",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 11
+            }
+          },
+          {
+            "id": 122999353453,
+            "name": "Matched native and ProGPU CPU benchmarks (windows-latest)",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184607/job/122999353453",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 0
+            }
+          },
+          {
+            "id": 122999353150,
+            "name": "generate",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184552/job/122999353150",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999352480,
+            "name": "Compare official SkiaSharp metadata",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184560/job/122999352480",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          },
+          {
+            "id": 122999352434,
+            "name": "Native and ProGPU image parity",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184527/job/122999352434",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 22
+            }
+          },
+          {
+            "id": 122999352363,
+            "name": "Verify release documentation",
+            "head_sha": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+            "status": "completed",
+            "conclusion": "success",
+            "details_url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184514/job/122999352363",
+            "output": {
+              "title": null,
+              "summary": null,
+              "text": null,
+              "annotations_count": 1
+            }
+          }
+        ],
+        "statuses": [],
+        "annotations": [],
+        "hasMore": false,
+        "job": null,
+        "jobs": [],
+        "log": null,
+        "logTruncated": false
+      }
+    },
+    {
+      "originalPath": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/progpu-ci-ownership-coverage/6208f44c/terminal-all-checks-success.json",
+      "sha256": "e0cf17db422dcf274b3b1a315558b65131a81d1992769d8e4270169c59740be4",
+      "originalResponse": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"headRevision\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"checks\":[{\"id\":123024709328,\"name\":\"Native package Dawn text (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709328\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709321,\"name\":\"Native package Dawn text (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709321\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709304,\"name\":\"Native package guidelines (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709304\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709295,\"name\":\"Native package drawings (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709295\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709289,\"name\":\"Native package visuals (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709289\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709272,\"name\":\"Native package text (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709272\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709264,\"name\":\"Native package text (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709264\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709259,\"name\":\"Native package EDIT word boundaries (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709259\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709246,\"name\":\"Native package EDIT word boundaries (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709246\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709241,\"name\":\"Native package consumer (osx-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709241\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123024709238,\"name\":\"Native package consumer (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709238\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709223,\"name\":\"Native package drawings (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709223\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709214,\"name\":\"Native package consumer (linux-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709214\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709178,\"name\":\"Native package consumer (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709178\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709170,\"name\":\"Native package consumer (linux-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709170\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123024709121,\"name\":\"Native package guidelines (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709121\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709115,\"name\":\"Native package visuals (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709115\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024709112,\"name\":\"Native package consumer (osx-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024709112\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024708915,\"name\":\"Dawn WARP NuGet consumer (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708915\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024708866,\"name\":\"Native DX12 package consumer (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708866\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024708817,\"name\":\"Dawn WARP NuGet consumer (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708817\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123024708673,\"name\":\"Native DX12 package consumer (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123024708673\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123023319008,\"name\":\"Win2D Canvas parity (D3D12/Metal/Vulkan)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023319008\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123023318996,\"name\":\"DirectX sample oracle (D3D12/Metal/Vulkan)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318996\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123023318974,\"name\":\"Ordered GPU query parity (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318974\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123023318943,\"name\":\"Native C++ NuGet package\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318943\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123023318908,\"name\":\"System.Drawing API, quality, and performance\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318908\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":7}},{\"id\":123023318905,\"name\":\"Portable Direct2D COM parity (D3D12/Metal/Vulkan)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318905\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123023318883,\"name\":\"Pack portable packages\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318883\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":3}},{\"id\":123023318875,\"name\":\"Ordered GPU query parity (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318875\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123023318847,\"name\":\"Native MIL ImageBrush versus Windows WPF (D3D12/Metal/Vulkan)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123023318847\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123001427082,\"name\":\"Native C++ renderer (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001427082\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123001426958,\"name\":\"Native C++ renderer (osx-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426958\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123001426750,\"name\":\"Build and test (ubuntu-latest)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426750\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":9}},{\"id\":123001426708,\"name\":\"Native C++ renderer (linux-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426708\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123001426683,\"name\":\"Native C++ renderer (osx-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426683\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123001426674,\"name\":\"Build and test (macos-26)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426674\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":9}},{\"id\":123001426657,\"name\":\"Native C++ renderer (linux-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426657\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123001426623,\"name\":\"Native C++ renderer (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426623\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123001426562,\"name\":\"Build and test (windows-latest)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426562\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":8}},{\"id\":123001426553,\"name\":\"Avalonia native Dawn contract (windows-latest)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426553\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":9}},{\"id\":123001426478,\"name\":\"Avalonia native Dawn contract (ubuntu-latest)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426478\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":10}},{\"id\":123001426435,\"name\":\"Avalonia native Dawn contract (macos-latest)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123001426435\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":12}},{\"id\":123001253028,\"name\":\"SVG.NET recursive scale rejection versus Microsoft\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/123001253028\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123000854846,\"name\":\"Verify Linux Xlib WebGPU runtime (linux-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000854846\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123000854546,\"name\":\"Verify Linux Xlib WebGPU runtime (linux-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000854546\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123000845812,\"name\":\"Windows drawing clip reference (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845812\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123000845774,\"name\":\"Windows single-path raster coverage (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845774\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123000845752,\"name\":\"Windows single-path raster coverage (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845752\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123000845676,\"name\":\"Windows system font reference (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845676\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":3}},{\"id\":123000845564,\"name\":\"Windows system font reference (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845564\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":3}},{\"id\":123000845488,\"name\":\"Native C++20 compiler compatibility (GCC)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845488\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":123000845469,\"name\":\"Native C++20 compiler compatibility (MSVC)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845469\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":123000845352,\"name\":\"Windows drawing clip reference (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/123000845352\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999355632,\"name\":\"Windows WebGPU and compiler runtimes (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355632\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999355352,\"name\":\"dawn-system-warp / Original Dawn WARP (win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355352\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999355227,\"name\":\"Avalonia retained compositor contract\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355227\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999355197,\"name\":\"Build Linux Xlib WebGPU runtime (linux-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355197\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999355099,\"name\":\"dawn-system-warp / Original Dawn WARP (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355099\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999355098,\"name\":\"Pack mobile packages\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355098\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":8}},{\"id\":122999355061,\"name\":\"Build Linux Xlib WebGPU runtime (linux-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355061\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999355023,\"name\":\"Native C++ browser WebGPU\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355023\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999355003,\"name\":\"Windows WebGPU and compiler runtimes (win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999355003\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999354503,\"name\":\"Android x64 sample on Vulkan\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184616/job/122999354503\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999354501,\"name\":\"Avalonia upstream text contract\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184789/job/122999354501\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999354273,\"name\":\"SVG.NET resvg quality\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354273\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":11}},{\"id\":122999354181,\"name\":\"SVG.NET recursion evidence (Reference, win-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354181\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":10}},{\"id\":122999354153,\"name\":\"SVG.NET recursion evidence (Reference, win-arm64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354153\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":10}},{\"id\":122999354152,\"name\":\"SVG.NET recursion evidence (Portable, linux-x64)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354152\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":11}},{\"id\":122999354109,\"name\":\"SVG.NET representative performance\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999354109\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":11}},{\"id\":122999353820,\"name\":\"Matched native and ProGPU CPU benchmarks (ubuntu-latest)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184607/job/122999353820\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999353590,\"name\":\"Matched native and ProGPU CPU benchmarks (macos-26)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184607/job/122999353590\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999353588,\"name\":\"SVG.NET w3c quality\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184547/job/122999353588\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":11}},{\"id\":122999353453,\"name\":\"Matched native and ProGPU CPU benchmarks (windows-latest)\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184607/job/122999353453\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":0}},{\"id\":122999353150,\"name\":\"generate\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184552/job/122999353150\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999352480,\"name\":\"Compare official SkiaSharp metadata\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184560/job/122999352480\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}},{\"id\":122999352434,\"name\":\"Native and ProGPU image parity\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184527/job/122999352434\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":22}},{\"id\":122999352363,\"name\":\"Verify release documentation\",\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"status\":\"completed\",\"conclusion\":\"success\",\"details_url\":\"https://github.com/wieslawsoltes/ProGPU/actions/runs/40740184514/job/122999352363\",\"output\":{\"title\":null,\"summary\":null,\"text\":null,\"annotations_count\":1}}],\"statuses\":[],\"annotations\":[],\"hasMore\":false,\"job\":null,\"jobs\":[],\"log\":null,\"logTruncated\":false}"
+          }
+        ],
+        "isError": false
+      }
+    },
+    {
+      "originalPath": "/Users/wieslawsoltes/.codex/visualizations/2026/10/28/progpu-ci-ownership-coverage/6208f44c/terminal-build-success.json",
+      "sha256": "d2a33acf9823d8eaf2a48d4589db53e0bb36a7d12612931b7aa6b78ab16be3b4",
+      "originalResponse": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"headRevision\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"checks\":[],\"statuses\":[],\"annotations\":[],\"hasMore\":false,\"job\":null,\"jobs\":[{\"id\":122999354501,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Avalonia upstream text contract\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355003,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows WebGPU and compiler runtimes (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355023,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ browser WebGPU\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355061,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Build Linux Xlib WebGPU runtime (linux-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355098,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Pack mobile packages\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355099,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"dawn-system-warp / Original Dawn WARP (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355197,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Build Linux Xlib WebGPU runtime (linux-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355227,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Avalonia retained compositor contract\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355352,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"dawn-system-warp / Original Dawn WARP (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":122999355632,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows WebGPU and compiler runtimes (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845352,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows drawing clip reference (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845469,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++20 compiler compatibility (MSVC)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845488,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++20 compiler compatibility (GCC)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845564,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows system font reference (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845676,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows system font reference (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845752,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows single-path raster coverage (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845774,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows single-path raster coverage (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000845812,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Windows drawing clip reference (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000854546,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Verify Linux Xlib WebGPU runtime (linux-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123000854846,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Verify Linux Xlib WebGPU runtime (linux-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426435,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Avalonia native Dawn contract (macos-latest)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426478,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Avalonia native Dawn contract (ubuntu-latest)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426553,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Avalonia native Dawn contract (windows-latest)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426562,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Build and test (windows-latest)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426623,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ renderer (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426657,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ renderer (linux-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426674,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Build and test (macos-26)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426683,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ renderer (osx-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426708,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ renderer (linux-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426750,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Build and test (ubuntu-latest)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001426958,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ renderer (osx-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123001427082,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ renderer (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318847,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native MIL ImageBrush versus Windows WPF (D3D12/Metal/Vulkan)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318875,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Ordered GPU query parity (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318883,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Pack portable packages\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318905,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Portable Direct2D COM parity (D3D12/Metal/Vulkan)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318908,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"System.Drawing API, quality, and performance\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318943,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native C++ NuGet package\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318974,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Ordered GPU query parity (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023318996,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"DirectX sample oracle (D3D12/Metal/Vulkan)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123023319008,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Win2D Canvas parity (D3D12/Metal/Vulkan)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024708673,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native DX12 package consumer (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024708817,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Dawn WARP NuGet consumer (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024708866,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native DX12 package consumer (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024708915,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Dawn WARP NuGet consumer (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709112,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package consumer (osx-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709115,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package visuals (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709121,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package guidelines (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709170,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package consumer (linux-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709178,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package consumer (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709214,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package consumer (linux-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709223,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package drawings (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709238,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package consumer (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709241,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package consumer (osx-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709246,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package EDIT word boundaries (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709259,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package EDIT word boundaries (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709264,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package text (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709272,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package text (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709289,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package visuals (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709295,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package drawings (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709304,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package guidelines (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709321,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package Dawn text (win-arm64)\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"id\":123024709328,\"head_sha\":\"6208f44ca74f2b5cf5d03ed1117d938421f27f7d\",\"name\":\"Native package Dawn text (win-x64)\",\"status\":\"completed\",\"conclusion\":\"success\"}],\"log\":null,\"logTruncated\":false}"
+          }
+        ],
+        "isError": false
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "name": "progpu-renderer",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "description": "Retained GPU vector rendering for JavaScript using ProGPU C++/WebAssembly and WebGPU",
   "type": "module",
   "main": "./index.js",

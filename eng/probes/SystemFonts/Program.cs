@@ -20,6 +20,16 @@ try
 {
     if (!AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), requested))
         throw new InvalidOperationException("The requested DPI awareness context is not active.");
+#if MICROSOFT_REFERENCE
+    if (args[0] == "unaware")
+    {
+        FontRasterSourceControls.Run(Path.ChangeExtension(args[1], ".raster.json"));
+        FontRasterSourceControls.RunReversed(Path.ChangeExtension(args[1], ".direction.json"));
+        FontRasterSourceControls.RunAllDirections(Path.ChangeExtension(args[1], ".all-directions.json"));
+        FontRasterSourceControls.RunCaps(Path.ChangeExtension(args[1], ".caps.json"));
+        FontRasterSourceControls.RunConnectedCaps(Path.ChangeExtension(args[1], ".connected-caps.json"));
+    }
+#endif
     string[] roles = ["DefaultFont", "DialogFont", "MenuFont", "MessageBoxFont",
         "StatusFont", "CaptionFont", "IconTitleFont", "SmallCaptionFont"];
     var fonts = new List<object>();

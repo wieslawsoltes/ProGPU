@@ -9,9 +9,7 @@
 11|System.Drawing.Tests.BitmapTests.LockBits_InvalidRect_ThrowsArgumentException|Xunit.Sdk.EqualException
 11|System.Drawing.Tests.RegionTests.IsVisible_Point_ReturnsExpected|System.ArgumentNullException
 12|System.Drawing.Tests.RegionTests.IsVisible_Rectangle_ReturnsExpected|System.ArgumentNullException
-13|System.Drawing.Tests.RegionTests.Union_GraphicsPath_Success|System.NotSupportedException
 14|System.Drawing.Tests.BitmapTests.Ctor_Width_Height_PixelFormat|Xunit.Sdk.EqualException
-14|System.Drawing.Tests.RegionTests.Exclude_GraphicsPath_Success|System.NotSupportedException
 1|MonoTests.System.Drawing.BitmapTests.BitmapIntIntIntPixelFormatIntPtrCtor|System.ArgumentException
 1|MonoTests.System.Drawing.BitmapTests.CreateMultipleBitmapFromSameHBITMAP|Xunit.Sdk.EqualException
 1|MonoTests.System.Drawing.BitmapTests.DefaultFormat1|Xunit.Sdk.EqualException
@@ -417,7 +415,6 @@
 1|System.Drawing.Tests.RegionTests.Ctor_GraphicsPath|System.NotSupportedException
 1|System.Drawing.Tests.RegionTests.Ctor_NullDataInRegionData_ThrowsNullReferenceException|System.ArgumentNullException
 1|System.Drawing.Tests.RegionTests.Ctor_Rectangle|Xunit.Sdk.EqualException
-1|System.Drawing.Tests.RegionTests.Ctor_RegionDataOfRegionWithPath_Success|System.NotSupportedException
 1|System.Drawing.Tests.RegionTests.Equals_DisposedGraphics_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Equals_Disposed_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Exclude_DisposedRegion_ThrowsArgumentException|Xunit.Sdk.ThrowsException
@@ -449,6 +446,7 @@
 1|System.Drawing.Tests.RegionTests.Translate_Disposed_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Union_DisposedRegion_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Union_Disposed_ThrowsArgumentException|Xunit.Sdk.ThrowsException
+1|System.Drawing.Tests.RegionTests.Union_GraphicsPath_Success|System.NotSupportedException
 1|System.Drawing.Tests.RegionTests.Union_SameRegion_ThrowsInvalidOperationException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Xor_DisposedRegion_ThrowsArgumentException|Xunit.Sdk.ThrowsException
 1|System.Drawing.Tests.RegionTests.Xor_Disposed_ThrowsArgumentException|Xunit.Sdk.ThrowsException
@@ -509,7 +507,10 @@
 2|System.Drawing.Tests.PenTests.RotateTransform_InvalidOrder_ThrowsArgumentException|Xunit.Sdk.EqualException
 2|System.Drawing.Tests.PenTests.ScaleTransform_InvalidOrder_ThrowsArgumentException|Xunit.Sdk.EqualException
 2|System.Drawing.Tests.PenTests.TranslateTransform_InvalidOrder_ThrowsArgumentException|Xunit.Sdk.EqualException
+2|System.Drawing.Tests.RegionTests.Exclude_GraphicsPath_Success|System.NotSupportedException
+2|System.Drawing.Tests.RegionTests.Intersect_GraphicsPath_Success|System.NotSupportedException
 2|System.Drawing.Tests.RegionTests.Translate_InvalidFloatValue_EmptiesRegion|System.NotSupportedException
+2|System.Drawing.Tests.RegionTests.Xor_GraphicsPath_Success|System.NotSupportedException
 2|System.Drawing.Tests.TextureBrushTests.Ctor_Bitmap|Xunit.Sdk.EqualException
 31|System.Drawing.Tests.BitmapTests.LockBits_Invoke_Success|Xunit.Sdk.EqualException
 3|System.ComponentModel.TypeConverterTests.FontConverterTest.InvalidInputThrowsArgumentException|Xunit.Sdk.ThrowsException
@@ -580,15 +581,12 @@
 5|System.Drawing.Tests.BitmapTests.CustomPixelFormat_GetPixels_ReturnsExpected|Xunit.Sdk.EqualException
 5|System.Drawing.Tests.BitmapTests.GetPixel_ValidPixelFormat_Success|Xunit.Sdk.EqualException
 5|System.Drawing.Tests.PenTests.Ctor_Brush|Xunit.Sdk.ThrowsException
-5|System.Drawing.Tests.RegionTests.Complement_GraphicsPath_Success|System.NotSupportedException
 6|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Blend_Set_Success|System.ArgumentException
 6|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Ctor_RectangleF_Color_Color_Angle_IsAngleScalable|System.NullReferenceException
 6|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Ctor_Rectangle_Color_Color_Angle_IsAngleScalable|System.NullReferenceException
 6|System.Drawing.Tests.BitmapTests.Clone_InvalidRect_ThrowsExternalException|Xunit.Sdk.ThrowsException
 6|System.Drawing.Tests.FontTests.ToLogFont_InvokeGraphics_ReturnsExpected|System.ArgumentException
 6|System.Drawing.Tests.ImageAnimatorTests.CanAnimate_ReturnsTrue_ForAnimatedImages|Xunit.Sdk.TrueException
-6|System.Drawing.Tests.RegionTests.Intersect_GraphicsPath_Success|System.NotSupportedException
-6|System.Drawing.Tests.RegionTests.Xor_GraphicsPath_Success|System.NotSupportedException
 7|System.ComponentModel.TypeConverterTests.FontConverterTest.InvalidInputThrowsArgumentException|Xunit.Sdk.EqualException
 7|System.Drawing.Drawing2D.Tests.CustomLineCapTests.BaseCap_Set_InvalidLineCap_ThrowsArgumentException|Xunit.Sdk.EqualException
 8|System.Drawing.Drawing2D.Tests.LinearGradientBrushTests.Ctor_PointF_PointF_Color_Color|System.NullReferenceException

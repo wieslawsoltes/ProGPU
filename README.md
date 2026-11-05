@@ -172,7 +172,7 @@ The gallery is split into a shared `ProGPU.Samples` library and thin `ProGPU.Sam
 
 ### Prerequisites
 
-- .NET 10 SDK.
+- .NET SDK 10.0.403 or a later compatible .NET 10 SDK, as selected by `global.json`.
 - The `wasm-tools` workload for native relinking and AOT publishing.
 - A browser with WebGPU enabled. Current Chromium-based browsers are the primary development target.
 - An HTTP or HTTPS origin. `http://localhost` and `http://127.0.0.1` are suitable for local development; do not open the published `index.html` through a `file://` URL.

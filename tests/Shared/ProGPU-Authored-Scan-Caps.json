@@ -1,0 +1,6200 @@
+{
+  "sourceSha256": "60d952f14b770aec08221b8adee1a1b7d82a8abdc259fb2484de9666a2f45832",
+  "originalFixtureSha256": "6d13e632b5f260217bc17d9c86b61e77506f463644eeee923280400a52f3b092",
+  "qualified": false,
+  "rendered": false,
+  "scope": "Two authored strip frames, eleven finite cap coordinates, five scan modes, both directions. Existing source and fixtures unchanged.",
+  "capDeltas26_6": [
+    -33,
+    -32,
+    -31,
+    -16,
+    -1,
+    0,
+    1,
+    16,
+    24,
+    31,
+    32
+  ],
+  "fonts": [
+    {
+      "file": "ProGPU-Authored-Scan-Caps.ttf",
+      "sha256": "02ec6a8655adc7766325f8178a3433dd9b640b5ac61fa01bcaaa8ee3d5027ab7",
+      "bytes": 22400,
+      "reversed": false,
+      "glyphs": 441,
+      "selected": [
+        {
+          "glyph": 12,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              287,
+              481
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "eb79839738b0fab07529ad0170767aa16e71826bdc8d63db126838a558b2f504",
+          "authoredGlyphSha256": "5ed09dc7ac3b8c53ac77f3ea780a3048aa02d60b921be9c62678bfcd83b83223"
+        },
+        {
+          "glyph": 13,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              288,
+              481
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "bf610a4d7a18a5cf43171b78ab88dee31418432c2a7168e972a97f85781a6ea0",
+          "authoredGlyphSha256": "6f1df355852f05a05a8b8df45bff61ce1e5db182cb13264afc6ce7b1762e9e7f"
+        },
+        {
+          "glyph": 14,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              289,
+              481
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "9b289130d3d7cd4a275c1c48f1c09557acb12cc45e18f5375a6e02c2a4ed3bf7",
+          "authoredGlyphSha256": "e2a11e9ee381af13527c3de19167d9e8b96c7a89a8a86e63521763135c422a5e"
+        },
+        {
+          "glyph": 15,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              304,
+              481
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "fb6d998004cf842e2398e4f2474ac63052e6539f6fef928e1cd201b4e44d7cb2",
+          "authoredGlyphSha256": "b60ba4f091a666a5b21d8047863aa5730fbfd7c0243238e58cb97f8af59eff8b"
+        },
+        {
+          "glyph": 16,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              319,
+              481
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "7efc314a61a0d572e8f656aaccda88f2af26edf64918e1537cd0bb68f9897783",
+          "authoredGlyphSha256": "eb7a04a8df3746f5012fb119d92d081bf06ef9b909440ed88cbb9519ad91f410"
+        },
+        {
+          "glyph": 17,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              320,
+              481
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "051c09793b9660494a027eb0f1777ea708f1284dd8d1b6bfb9e293cf045d2ec7",
+          "authoredGlyphSha256": "d5b4cd74c2a7dc08fd22e446b1fa6dc867f2c31c98ed5e9308e2f1e28c91dd84"
+        },
+        {
+          "glyph": 18,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              321,
+              481
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "e757cae8c17e83aa53788a20631572161328532f393251de23f295b1b4f4dc22",
+          "authoredGlyphSha256": "5c65dcb215c9a785b27dba6e9267617ee496f0c06c69d77a30d64be260b0a571"
+        },
+        {
+          "glyph": 19,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              336,
+              481
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "eb9b3a9689043cdd7ba2fc16eea63ade77e0ebf0e91e80f9fa890bd78bbfd815",
+          "authoredGlyphSha256": "5c9b12f84e7252c37afd83d3bb19be5edb87b10090d35c5ad2a8b901c9817128"
+        },
+        {
+          "glyph": 20,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              344,
+              481
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "c8172211439f2766d73190d80268969904cbc65386a804bea7e79754387e6766",
+          "authoredGlyphSha256": "710e8922c2c46417772b5f2f882b73e1986a576ae53c3657f6013a441c317ae9"
+        },
+        {
+          "glyph": 21,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              351,
+              481
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "a2e54b21f59bb8d29283789df1c9589e27264d1f2613f8c396986adc19aeb8e7",
+          "authoredGlyphSha256": "f0bf20bc23903dee6bf5ffaabd8651100504e06bf3f97e87ce02684b276838b0"
+        },
+        {
+          "glyph": 22,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              352,
+              481
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "5636bda0d1f1181febbf8b7141138095bc7ed03bc00f01742f49b4ae35c81874",
+          "authoredGlyphSha256": "21e37d24e66db71ee1aad1317f0593a8d7ca09e9d3fe458ced4fdb1e506a0335"
+        },
+        {
+          "glyph": 34,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              607,
+              240
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "e6308c0d8c9576e738968bf04f3b84aff62fbd28df2a42fd3eed245963bc8e69",
+          "authoredGlyphSha256": "fb53eeefc6eaa8544df54ce93ad437a4f41fe9983b2dfb43ad88089199316093"
+        },
+        {
+          "glyph": 35,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              608,
+              240
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "af0282943beeee4b09e7d37d6cced06695bd3748cb3b16d0c32ece0d8d57cd04",
+          "authoredGlyphSha256": "c903de0b50f844bb6af768834b9d27c867d9e1fa8b2ee02a407812c6b879607c"
+        },
+        {
+          "glyph": 36,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              609,
+              240
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "1951dddd1eca28afeb33743f553ec79ea66d8084e75702eacd307df75a828838",
+          "authoredGlyphSha256": "7d07f208f65e5d3eb14b7f245b6ef00382b2713c2a81d3eea265b8423ff48f06"
+        },
+        {
+          "glyph": 37,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              624,
+              240
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "bf8149b4a06d40cdc3cd958a051c47621b89e994c43b1ee9cd4cc4be874d0372",
+          "authoredGlyphSha256": "7959202b7d390719e27a48ce54cdb5ba6e55f40c766bc8084b3f74a97201b397"
+        },
+        {
+          "glyph": 38,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              639,
+              240
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "0ca7b3e60dbef59171835bbf8948f0bb9219e96bb846cd63706210542c779145",
+          "authoredGlyphSha256": "8fc3d9c6819f08c33c8a32ab74613fc7ec7db2bddf8f2afa76bb6d827077cc76"
+        },
+        {
+          "glyph": 39,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              640,
+              240
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "7773f8149fc6835fffb1b3ed98861b121cfc1851bfe479648ce4b7ff4e335a42",
+          "authoredGlyphSha256": "9cd29e59fa93a589ba325ef04e025574e286fdd0ff466c2d58d707f3dd80d21d"
+        },
+        {
+          "glyph": 40,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              641,
+              240
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "8da36180dafaa05f48e1d37fe15926e21507d065ba828b5eab2a44b6988636ca",
+          "authoredGlyphSha256": "39957b0cba673afaec89a5c60f6f37ec12adfd82f83deff05a177fcf024dd5de"
+        },
+        {
+          "glyph": 41,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              656,
+              240
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "889a99f320fa68289639417d4632c238c0c527a401049e0c580ef7dc3cc774cd",
+          "authoredGlyphSha256": "eadcc8d121d8ca62c8c6a0a632507fa9cc01bdede32582dcd1acb8ca892dcf09"
+        },
+        {
+          "glyph": 42,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              664,
+              240
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "c4f48488d573c594cab5b635b4228e85eac121abcce9df4741fa8f1939d5878a",
+          "authoredGlyphSha256": "99136e377420fd425af26850136590b22377f0a12121a25f056b34bf53505b99"
+        },
+        {
+          "glyph": 43,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              671,
+              240
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "b0d28201877e70035d7e2c9b812faf76b3231eb63d10b5c7513d84339ab29e6e",
+          "authoredGlyphSha256": "d9a0712bd9e9c66f40a47778374b70174cdc68181320b2318c7c6577f3dfed4a"
+        },
+        {
+          "glyph": 44,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              672,
+              240
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "afaa1c2fcfb7cecbed0cebd893d44990a77a5dbb33edcb4875a06a52091f92e5",
+          "authoredGlyphSha256": "ad213c29c5a9f6886731b743a9c8922e64022c7207ea34bed96088fbc779e630"
+        },
+        {
+          "glyph": 100,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              287,
+              481
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "8419470199bfa5b5da228bf30a9a1d02a14696dfb9f82e2af29fb2a3f6157713",
+          "authoredGlyphSha256": "a60faa950182db1df35524e593285ad944690f59da7a4009aa571da40814c17c"
+        },
+        {
+          "glyph": 101,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              288,
+              481
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "d379605a4b355a818fd3ab852aec1d38724afe089a1779d01ab440b9db58bacc",
+          "authoredGlyphSha256": "dc726ce9de6bd17ba9a62b900f18890d6b85a259184f4e12abeacf996c1e922e"
+        },
+        {
+          "glyph": 102,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              289,
+              481
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "b6d4c87b06150dc060cc68e7202968f78275e81540ec59bd96c1c702c3db9132",
+          "authoredGlyphSha256": "7fdf4e6a6b2c459a290450f6d7c447a894125e4f2c7c6ceb6c8cca234de6deda"
+        },
+        {
+          "glyph": 103,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              304,
+              481
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "f18b9de286975c8c4e9c5d2f8a3115596a838e3f2d3eb1bf3411fc6d937d759a",
+          "authoredGlyphSha256": "6eb7f857a338731b2587941d69e2f8e68422426dd0f5fbe3162af2cf63ab696c"
+        },
+        {
+          "glyph": 104,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              319,
+              481
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "3f937c2099f9e7053372ffa9289b894d64d001605db6a651d58c2d9bb0a2b876",
+          "authoredGlyphSha256": "60b8013e09a3ec0534786a205f68053c1234d67eecefe50c18f52fc5f9aa5c8c"
+        },
+        {
+          "glyph": 105,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              320,
+              481
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "6851b1913498581c9b2d69a0dba217ad201911f43bdce593cc5efc2d32b8faf0",
+          "authoredGlyphSha256": "f9c2932c629c0ab5c04a5d0755330a439a4a9e9f0d7e911d438426519d6a08e1"
+        },
+        {
+          "glyph": 106,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              321,
+              481
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "dbf5241691f8855de48c82d61fb1de905c45b9a9b82084dc69a89a941b87aad8",
+          "authoredGlyphSha256": "b1b0a761e9247667fca53c83b6949314e82432455ff6fe53ad914ea6477e7b27"
+        },
+        {
+          "glyph": 107,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              336,
+              481
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "05148774c0c5553ffce7c6c7f722d185b4d7ef855ec0d76176bb59533fed6a0b",
+          "authoredGlyphSha256": "b6f334bf2723691c2d1f09fd9433702ea0b047f8eb91b9467bc5a21073a40381"
+        },
+        {
+          "glyph": 108,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              344,
+              481
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "7751d281ed849e57fa58a7fa916bf95163678a30298a0a8ab420bc9c86a1086e",
+          "authoredGlyphSha256": "55c4d1b3d5cbd64d91f15c7f1e8ffee0bc51cac33fb2ce72201ea638fb251e40"
+        },
+        {
+          "glyph": 109,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              351,
+              481
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "5993c36e3b6bf3a98c4e72bfd90e7fd9a6d950a0988559609fa2ee9cb9e9d562",
+          "authoredGlyphSha256": "425d4ca9ef3699bb59da657a26a734466b2304d2ef91d3a73cebfa4536c2e762"
+        },
+        {
+          "glyph": 110,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              352,
+              481
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "aa7113f7ddbe733b6cc73b7dc70efd41e32417616d8ccf071bb76ca197dc2f45",
+          "authoredGlyphSha256": "31922ba81eb04d1a767402439a46dca06612fed10cb61725ade1867b7cdbc674"
+        },
+        {
+          "glyph": 122,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              607,
+              240
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "c7130898d70cc66e8e302df7a3025ef9a9f70a3af8dbe388cd6f743a61e16aa8",
+          "authoredGlyphSha256": "2ea34d583ddd52bbf2fbc27c5163b6475a40fb8045429091156bab5e7be2623e"
+        },
+        {
+          "glyph": 123,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              608,
+              240
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "344044896bc3c296a40e10a3119a58a7aac84b4f7000c227c17a3fce4722dd58",
+          "authoredGlyphSha256": "f3b2a65f76913d0978549c437bd80ae7d63466d67c9fa99822cfd7c2abe76f66"
+        },
+        {
+          "glyph": 124,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              609,
+              240
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "0c17d5d76e9b5bdd856a12a36559601c343e94b0faa65ee59195760ed41eba7b",
+          "authoredGlyphSha256": "eeab1131321c5658ee421ed2b1ca9ebd93dc843a1cbd9366f099813b75a880bc"
+        },
+        {
+          "glyph": 125,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              624,
+              240
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "0d23d657f73eb2c3fa69c8e0751295a85d260aaf966995f33181635e672a833f",
+          "authoredGlyphSha256": "81b174f763af25c314dc48cfc82922cc9d6782f403e6bc0560dacee97e81eb95"
+        },
+        {
+          "glyph": 126,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              639,
+              240
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "c7ee8a6feb006f2095439b32665885fc0d40051e9ca8d8726565c81fbfaaf75b",
+          "authoredGlyphSha256": "cde37664ad7e3b4d311964bc1c900b8bbaa7a8b6a3594a885135954ea9e88edd"
+        },
+        {
+          "glyph": 127,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              640,
+              240
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "c62889b9f32ca3281151b4318f5bb7b23f9445117484f11c437ae7bf5b8359f9",
+          "authoredGlyphSha256": "6856f75252a194fd34512f3d4ae6ae840aac3f2b685e8a8abfcd1129d2d59cd4"
+        },
+        {
+          "glyph": 128,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              641,
+              240
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "7e8ce33752c34bc6e1b4d372b1740eba39bc9d4049f0ba787c8acecab6ffc276",
+          "authoredGlyphSha256": "cee15a0e3fd06292aa45fa34742711ea831af9f7d8431b0e10607831ee1b9e55"
+        },
+        {
+          "glyph": 129,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              656,
+              240
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "db855d593cd49a11c28d7141cb7228b5a9089a16d3f7ffa3f793ff9c7975ff6d",
+          "authoredGlyphSha256": "4249df828c3ccbecc7028ce922bfb9b5f481bd67c46eefc3cabe5ab2c67e6f7b"
+        },
+        {
+          "glyph": 130,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              664,
+              240
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "f140a068152ec52533726136d1a612b6f327e003147cf9de0bcf7bae9ff1de67",
+          "authoredGlyphSha256": "c4ce49103be91551ea441aaede743541feb1e5e83cd9fb0c5a574e526314293e"
+        },
+        {
+          "glyph": 131,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              671,
+              240
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "0af60ceb4c38c3b58d58430ef4b01b0c336956aa95c2c5fab4c65da506fde98f",
+          "authoredGlyphSha256": "864a4173e5c7b864d79ac6c31ff51a521192df5fb0981e634cbc66e0a9c19961"
+        },
+        {
+          "glyph": 132,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              672,
+              240
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "f6e67f583c6f1aedc008c114b1f658c3a205a415f1f0dc4c0ae387dc10a69dc4",
+          "authoredGlyphSha256": "51dbf8b97092484fb2865f4b39eff12884cd5a03b52e6d1cdee0e4917771edb6"
+        },
+        {
+          "glyph": 188,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              287,
+              481
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "b769ba6f7097c6fcc8415695ea74cbe76029920a908e4428993d8409779fe4b5",
+          "authoredGlyphSha256": "86fd1c30d7b0ab03d8c5749bbd12c5cf6f21965e3d0632f98805b6f75f8242e6"
+        },
+        {
+          "glyph": 189,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              288,
+              481
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "93da28bd910c5f9957d7aeb5828be66d3aa14435e422ab806093adace7ddc46a",
+          "authoredGlyphSha256": "22c498e49718da397898dcaac96d9b0a88e06c1333e3a3879df10b4eae5515d9"
+        },
+        {
+          "glyph": 190,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              289,
+              481
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "61b8b179d80b7473585cfd7d9f1a581f9ffcb54a3236fe8ea83fbfffae815fe8",
+          "authoredGlyphSha256": "fe2196536c4baca679fb02049e4c8785934177c35cb65ef62780c50825dc058f"
+        },
+        {
+          "glyph": 191,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              304,
+              481
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "7f7985a26b1176dd876565d7bdd36e8603d4c4b7f326d5bac1e353458e9de73f",
+          "authoredGlyphSha256": "f79fec2c3cb20da394b8e39117eaba2a853636ee6f40d32d6bea8bd48ccd9abe"
+        },
+        {
+          "glyph": 192,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              319,
+              481
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "e021737f1393d7d3a168705a0ce01394793fa2b0c28e16cc2f460d0dec3a99f1",
+          "authoredGlyphSha256": "0e53707774b4db5f428cb7d44b56637ae554b42a00ef59094386eb65066a59b9"
+        },
+        {
+          "glyph": 193,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              320,
+              481
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "49dd5b78c19a003ea2eef2ad36156207c844234e3510c6a0c8facd8c9f279dea",
+          "authoredGlyphSha256": "a13babe4c08e5463ae4398aca24eb11a37464f66cf56d78c656e75322c204e77"
+        },
+        {
+          "glyph": 194,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              321,
+              481
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "76caf626a91f8bf074fac73b60f8b744f147be86b66a4cbdf862b564744aac50",
+          "authoredGlyphSha256": "2759d0a21f2abce796a8f352af5570d14d5092796c8006a5e44022d52d7df76a"
+        },
+        {
+          "glyph": 195,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              336,
+              481
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "6169b144ad3956d53ac826dc1ce827144ebc8bf24ea2a031dc9b29873ded5c59",
+          "authoredGlyphSha256": "c09518428a72b086ee8d6ccc0d0d78304752a68ca3aaa2e8b66b1a77ac21b6ff"
+        },
+        {
+          "glyph": 196,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              344,
+              481
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "617e8a43b4aace3185d01ff01aa6f54bf4ad8539377c3502f6adb6fc8f2fb784",
+          "authoredGlyphSha256": "b7a762e4e92732f04f68067402d7c04255b57d6fe53d8c21b2df115e04b9a0ba"
+        },
+        {
+          "glyph": 197,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              351,
+              481
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "ed3f4990c54d6326a3019ffeffc686b868aa9931fdb54a3c3fedefbbc8a906d1",
+          "authoredGlyphSha256": "e0e2190d7c220b4d7954057981cc34b1bdf48104d24c274d84c4a58fccd6c43f"
+        },
+        {
+          "glyph": 198,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              352,
+              481
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "29b37a1d561c463ed1aab7a6d0757933543eff81b84714b9ec1446ecffcef5aa",
+          "authoredGlyphSha256": "96f679448e2d604d02e3b9f92297a3b0201d261de85550b608219ab5c112eca3"
+        },
+        {
+          "glyph": 210,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              607,
+              240
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "9e6165f97a02cef7e5f8ddeed4e18b1583be041ef406731ea73028a799b13867",
+          "authoredGlyphSha256": "0ec2cda3b8c724f2100381127f0417289e171dc2197ca4fb2c245bc1a9cb974f"
+        },
+        {
+          "glyph": 211,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              608,
+              240
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "a4168697b2c587a8a4e9a486131397193fcb458b196054c0b649ec8ab918cc0f",
+          "authoredGlyphSha256": "b97c23beac44e3e9fe6fbee64089e3a87957b1af2c79b706997b626b8c7ef52d"
+        },
+        {
+          "glyph": 212,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              609,
+              240
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "af11bd9c5b76b2efa6b3a4bf1803d4037d0b3acede56fed88e08765f47450bdb",
+          "authoredGlyphSha256": "b85e402fa83e0afc91ff14ded6f4bd20db3110eafde36a4b05c9f4f941b1f3f0"
+        },
+        {
+          "glyph": 213,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              624,
+              240
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "6ea22b2eb29eeda0a5ca96aa36f71eb63a4846ae78e4a41300a3e95332fd9b62",
+          "authoredGlyphSha256": "e125a92577ed614ff9d62d2e735c49516b151c4ee8c46bce481dad3b72a4e559"
+        },
+        {
+          "glyph": 214,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              639,
+              240
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "95a0ee8a972ee17ba8410d19c8a130f22f43de41a8c4dce4ea586557bbc6479c",
+          "authoredGlyphSha256": "2e08602f232a2c25e3f46560702cf7d40cf93c0bd6148ea550774db8bd3d63b5"
+        },
+        {
+          "glyph": 215,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              640,
+              240
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "14831b90de9e80eccbe7391f01260ce64004c821b0bfaa2704c234606ad5cff7",
+          "authoredGlyphSha256": "796d21d6bbd551eaa90d76c2bd681ac463c456a4a60c21d39e4759d4e05d9ca7"
+        },
+        {
+          "glyph": 216,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              641,
+              240
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "5f334e34cc08aebcb3ce7b0ce2f9480f8e7b32a5ac0a4cd159f29cc8385ff17e",
+          "authoredGlyphSha256": "c044b659a35e120ee3d3506fa18aafd654b975616a62a1fa1e824bfa8c461e35"
+        },
+        {
+          "glyph": 217,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              656,
+              240
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "9b140039f4b9e1f4410b4c4031d0283dbc8dbfc86dc0f58c77248cf28036b34a",
+          "authoredGlyphSha256": "02e5e2c5ac011fe35550ac9305926a5e41ed3e805efa749cd4b835e8a33136cc"
+        },
+        {
+          "glyph": 218,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              664,
+              240
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "f0a4a20dc51714af773444403f0b88a554bd362465b85c31ead55e3f89bfe690",
+          "authoredGlyphSha256": "3b429abb531bba27ab6212b35c74d78a55d82979b5e60e2315095cf6b7b70279"
+        },
+        {
+          "glyph": 219,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              671,
+              240
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "16613c66badb20535f91aac96e14928af6c39465478e64878fa1dcd0003dab54",
+          "authoredGlyphSha256": "44b7571f70c8650e7a864f40598f1dd25c46a7c5bb22636cb5fcbaf322f56cbf"
+        },
+        {
+          "glyph": 220,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              672,
+              240
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "fb24d9910e9c186ac709b2d84ed008e3fd41287bb56f15004481e9a2db224dbd",
+          "authoredGlyphSha256": "7b0be4be272aae21e98e13ff2ea121162362b47a0c0b811caddf2c712d1e72f9"
+        },
+        {
+          "glyph": 276,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              287,
+              481
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "d3e17cfae130b3333c5ff3fbfece9d0401e44207976e0b361a928050ad486a80",
+          "authoredGlyphSha256": "70ee1352ced00d1758b410be6066ed3a1a859546cb73b481fee6bb72c13b8a85"
+        },
+        {
+          "glyph": 277,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              288,
+              481
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "982f414986be47411e79fc81982844e49a796cb3a43c7fde3e59975b7e57fff2",
+          "authoredGlyphSha256": "f3a8a0fc0ea6813eaee5c15a2fb4829fbc9a3d15650e63eacc526da314ecd0db"
+        },
+        {
+          "glyph": 278,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              289,
+              481
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "60b2b04e90e27e080733fca340fbaf582e153fede048b39b53cfee65a766b9b0",
+          "authoredGlyphSha256": "dcc77b3c7e2a525606248be43427d4386bcb82c31936c448d4e5403398fbb9ab"
+        },
+        {
+          "glyph": 279,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              304,
+              481
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "e36d3dc0936a2180d169dcc88ef888794f0301664b0730eeaad90ebc68b17671",
+          "authoredGlyphSha256": "9b2dc0fc843d2d07c5916ea0c0e4584baa61626dec2da32d71c763ace986caa6"
+        },
+        {
+          "glyph": 280,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              319,
+              481
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "8020a61f90175f3a38e93d8de24bc8de0c0bf653170d8ccc033fbc311b696230",
+          "authoredGlyphSha256": "fad64fe90a861a4c4c96563f42b6231ad46f702f794c5e128b4b78fd0a262109"
+        },
+        {
+          "glyph": 281,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              320,
+              481
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "6063fea3a6ea376fb7ad991b4669ce52785fa80e793daae1fd9588daaef49cfc",
+          "authoredGlyphSha256": "23b899a2ce15c2831975996176d661a91d51f88c8afe614d8ed13d3e901780fe"
+        },
+        {
+          "glyph": 282,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              321,
+              481
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "0a8f91dbd3a8d561469680bef8347316edeecabbece0e4fdec6562362ba622bf",
+          "authoredGlyphSha256": "a9d9b08f3d1862ea13bcb081b2e06d22ee20c07be3982553c12a62326cbdec54"
+        },
+        {
+          "glyph": 283,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              336,
+              481
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "d546082b14ac774400014b859c043b7959afe557a8dfbdf69a3e1c4a566ed716",
+          "authoredGlyphSha256": "29d143da063f97c534792350c7b0c55d5dd6009dea54e777f801508b8718f71e"
+        },
+        {
+          "glyph": 284,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              344,
+              481
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "2c2f953f79e092100821f1cbe47dd9bf3096ea1811f05722ea2e04d6aea8d8bc",
+          "authoredGlyphSha256": "e7ecf2fce4d4c0ab5e8c8e66c86d0abe9b1a51df0c5682a57f6e73bc37a73eee"
+        },
+        {
+          "glyph": 285,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              351,
+              481
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "9c210c16b01cf50a86047915d59a091b7ce27a9abac200b161f0270ad6ad7c4a",
+          "authoredGlyphSha256": "66b1458f235bfaeb681646d896ef781aead0e9f5da144791320e7c2af9ad053b"
+        },
+        {
+          "glyph": 286,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              352,
+              481
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "36029e2142468678644bb4970bec8362427c490a7529c96489d185226c9d7588",
+          "authoredGlyphSha256": "9b55f53b634b1065b04fa07361dc9ed37a1d767f31c3c176074a15a768e5f7c6"
+        },
+        {
+          "glyph": 298,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              607,
+              240
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "ddbcc88ff296f69f8516a6031b115b84929907f5537d4023398ba931c7a5837d",
+          "authoredGlyphSha256": "c9cd69bd6803238aad1b2b12f132a673e9b4d7bcf93cd0fc51892006a5208d9c"
+        },
+        {
+          "glyph": 299,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              608,
+              240
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "3a51ff8720097db5c892e54c85a50fb73adc0a257d9616051c4acd135f4bf9ab",
+          "authoredGlyphSha256": "2ffc135e29e691470faf0d17175d51e2cfe4c168304bdf070824015ca5ce8ca1"
+        },
+        {
+          "glyph": 300,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              609,
+              240
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "b92db9e2484ee51f7dc89168e71a1ea5db388a98b747480db4eab729ae5f3062",
+          "authoredGlyphSha256": "87ff3e11b2c2a839d6fb5e21a6932de46a6d601cdba89f182ce573df89d61902"
+        },
+        {
+          "glyph": 301,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              624,
+              240
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "c19118e25168e5cdf94b14b9c996f5e4f6229b9d4ff9963f1a763106037cfc70",
+          "authoredGlyphSha256": "ee4269bfb01faed80b511f1f322078f3c5ed5fda2ecedb95477a900c243df2e1"
+        },
+        {
+          "glyph": 302,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              639,
+              240
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "be0e14051f1ec5f5385b99e886fe6cfbe8599efff734764484880d83e9456caf",
+          "authoredGlyphSha256": "0b93129b79f430fb25b79dbd3c75fe0716bde4788daca1af5f4f091abfdd079a"
+        },
+        {
+          "glyph": 303,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              640,
+              240
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "ef3c5a55847f35f6d8d513d8a8087ac726fdcbf250e83bdef03cbe31a0ea2a5d",
+          "authoredGlyphSha256": "3f0780bea19bdbfbbe12c4d01fd340a83dab8e2b525099b5ca25bf1f06b41d06"
+        },
+        {
+          "glyph": 304,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              641,
+              240
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "491c623229fe340f85dacb3d85baec27616ee84163fc0265dfed73c06642354a",
+          "authoredGlyphSha256": "bc155820e94e60e2fdbde3486660360f2b8dce8df731be0de6b4be81096c849c"
+        },
+        {
+          "glyph": 305,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              656,
+              240
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "0f7454b1db42c13d0efaa38b4d4dac08d634453972bfab017cf572d455782d5e",
+          "authoredGlyphSha256": "7ea8ea668ce1e7bd9f4e01d82b9b48b3bf1816de5d7c3205821182ec64d54c08"
+        },
+        {
+          "glyph": 306,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              664,
+              240
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "8e1e03e0cfaebf593e7977a1088b7ab942296a4aef7dc32dae9d75b478beff56",
+          "authoredGlyphSha256": "b4241cf5c5aa6fe98f48f918625acb99ee7233e6ec7234d12c5ca75e9ce17a26"
+        },
+        {
+          "glyph": 307,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              671,
+              240
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "92c609de46625752ec0b346a7474b15745d441326fd396d7a3d1239bd7fccdb3",
+          "authoredGlyphSha256": "d1d299571bbb81a2558fe004549d75b8ed05e6b2deef26ad9fed6abca458c3b6"
+        },
+        {
+          "glyph": 308,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              672,
+              240
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "f54765e361fb432d3978362908a850d274fa26293acc76315c9e36f53d6271ea",
+          "authoredGlyphSha256": "d2f66c8019048e5822a88e92e73ac96ad4ea2d0af1e6e7f6896a720c2a9bb522"
+        },
+        {
+          "glyph": 364,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              287,
+              481
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "8bfcaaad40293932f46236df2fae530ddbce15c8e71b04520aa37258ee7fa1d7",
+          "authoredGlyphSha256": "a666e02e93e06c253ccfa3fd94b6ddda68e5391c99c85c1fec8fc8a50d1ed521"
+        },
+        {
+          "glyph": 365,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              288,
+              481
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "601d11c04285d5130d9998fe6c263584d4a71407b7ce3eda727dff4cb9b6e395",
+          "authoredGlyphSha256": "33d5f459b77dc807661a9fdde0593fd38abbe53daa739e768e5dcd03cab3ee51"
+        },
+        {
+          "glyph": 366,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              289,
+              481
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "8405d85a9b2bf9b428110d720a7466f8dd91540b4496952860d5d9cfd7d93961",
+          "authoredGlyphSha256": "4edab345f5395b5e161cc4caefc14450eb2c9c53ed88c4b28fc24a96fd8ca9f4"
+        },
+        {
+          "glyph": 367,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              304,
+              481
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "4b6fb5c35b1c95740fb4c802b26d202b383fdae532a368c894a834931dca54e3",
+          "authoredGlyphSha256": "fad84d665fec1e0ec2e60b1d004c64b23ec1cfe032a78696489f29afaa92180d"
+        },
+        {
+          "glyph": 368,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              319,
+              481
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "521a8bb05e7fd6043e560a8e9110e2bc11ace7b5c876f72ae9216603b1daddd6",
+          "authoredGlyphSha256": "bf1aa688a3918dd539ea9869a00caaf0ddb1bfc88f51d8aca3bc182d8ab6d5eb"
+        },
+        {
+          "glyph": 369,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              320,
+              481
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "b86a89f8ff2460eadbee4b379dc88968a2a40c04de1808bb69fd1f584d9421ab",
+          "authoredGlyphSha256": "9e4b6e678c5f6516b825e142be6d25ae3c4b68b71912ed3c3993d5da0c029028"
+        },
+        {
+          "glyph": 370,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              321,
+              481
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "56fb2a4bcda6db4896efbfa2a88aff1587d2affda48711a54f501398e4afa357",
+          "authoredGlyphSha256": "2fbf4c7382f85a4881c333343a192d73d0d5c49c4585baeba2edf11f22101970"
+        },
+        {
+          "glyph": 371,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              336,
+              481
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "3d91e439d1107a1dffc576ccac224bd98acdf382b869cfc323a9a1479d933ad7",
+          "authoredGlyphSha256": "a765b3aa9123f88f3769743840a3348dadd5e9f9d10d607154c4fafb69d0e82a"
+        },
+        {
+          "glyph": 372,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              344,
+              481
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "f0dfaeb6036e174b7169d660ef7fb60d706d117dbda453f5495238dc56301448",
+          "authoredGlyphSha256": "5f2282a0165f43c8c1effe989ba366b567792ec887baa3336417c6899d2d83c6"
+        },
+        {
+          "glyph": 373,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              351,
+              481
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "ae397909a998afc0bf8c0c8284e5368ca978ec94f6a865bfd678d05305bd8395",
+          "authoredGlyphSha256": "512b02451f0457dd716d7f1abde7416f1df3725fdd2c37450a05aefa0d4afac2"
+        },
+        {
+          "glyph": 374,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              352,
+              481
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              134,
+              538
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "17b671473d52ac4b08bea51f888187af2637e4d8b47f54cf212a670ee9ce6ee1",
+          "authoredGlyphSha256": "24b0bbb94c9759c2971ec4e26b81827be63de0ed8f10f8a66d02efcec6a132bc"
+        },
+        {
+          "glyph": 386,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              607,
+              240
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "db66fa2ef4f0a37b4dc19318d3ea30408323278cd7d575ac6c1d05bb28b87327",
+          "authoredGlyphSha256": "04bf351c30f9eca668a44799b96f33e40220e4cdca2b3d695a10dc86729cfeb0"
+        },
+        {
+          "glyph": 387,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              608,
+              240
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "26f91909966f4f3b1347a263a5de7c94b875b72f630e33104cab8c3e3a35d971",
+          "authoredGlyphSha256": "107e28b768ca126d93820480f34da958b654fcfd734caa2118a3c349d16435b5"
+        },
+        {
+          "glyph": 388,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              609,
+              240
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "3596aedca90a594f1a951b7cc3a456af52a4b7eb603129b148d054bf9ed4c4a6",
+          "authoredGlyphSha256": "d4a93ca4a399a1798290720411f0e8209945949128ad814d9bf9d5e0df1ad791"
+        },
+        {
+          "glyph": 389,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              624,
+              240
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "929b0261839bdaf68d301fc6efaf4744916849b403d268af501057513eec838b",
+          "authoredGlyphSha256": "ce2eb58eef86cc94d5a1829fceb94acc9c330fc23a81dc0e949b86f362037f59"
+        },
+        {
+          "glyph": 390,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              639,
+              240
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "68d05b767ca3d8b248b4ed91b509f1059e9421951826231ef9d6d75bf5caeb2f",
+          "authoredGlyphSha256": "468c9dd26b4953f5464d9a02b6f7d7ee374ea8069fbff7669ef573f065ca782f"
+        },
+        {
+          "glyph": 391,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              640,
+              240
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "a98e6a233dc6a742b0a72cb810a33901c739b69b74dc410e9ccb02f1e8912b8b",
+          "authoredGlyphSha256": "f53d3f000518e6b79b0f5ab06eb77c086cc4b0e5645ad998404869f9810c0391"
+        },
+        {
+          "glyph": 392,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              641,
+              240
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "d6d3f6ee67cb9bbe1b0ae1318f6a984f220181e6a85eda77ba280adc4021f938",
+          "authoredGlyphSha256": "a621010665610c27cfef04d8d709843c15b95e84aa9d1c4f59feb955ffb6b9b0"
+        },
+        {
+          "glyph": 393,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              656,
+              240
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "15c4a4b8caf7d1e6ab30871c7ca1184a648e82f9cb5e17ea728105c432e678a8",
+          "authoredGlyphSha256": "f940f48724ae67ded674f4120017c68a59b26bfb82893ff6b4e2e6798d964d89"
+        },
+        {
+          "glyph": 394,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              664,
+              240
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "20ff8832f3f024e9ceaf72ba4fc67a299c7065ddb1efecb46fb1549232052e5f",
+          "authoredGlyphSha256": "c926101454b3d5052a15197b08a16b07381f041076cfcb39fbd39dc89d09e35b"
+        },
+        {
+          "glyph": 395,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              671,
+              240
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "a31fa7fd1eb3adb3de78534a84fe0ce37efd7d59a1a3244b15dd20b898cb5d62",
+          "authoredGlyphSha256": "18320de5da426aa67265d730578eb51626cefb70107807cac66aae48d6226ec6"
+        },
+        {
+          "glyph": 396,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              672,
+              240
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              64,
+              272
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "10bb33948d02d825701dd718e380db9aa7fce6a49ed18bf51e916c2e611bbc98",
+          "authoredGlyphSha256": "3002198aed75e03c2c82606a66ffcfe75cb2d220d1f8f6fdca2c305253fa823a"
+        }
+      ]
+    },
+    {
+      "file": "ProGPU-Authored-Scan-Caps-Reversed.ttf",
+      "sha256": "d21da6a20855aecc2e329aebcf41554f71f14bd6311d4968143ea410cc006be6",
+      "bytes": 22508,
+      "reversed": true,
+      "glyphs": 441,
+      "selected": [
+        {
+          "glyph": 12,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              287,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "eb79839738b0fab07529ad0170767aa16e71826bdc8d63db126838a558b2f504",
+          "authoredGlyphSha256": "9e50a3d203f673ace605312be6aa5638740393e86cff94e5c781f670258d3c54"
+        },
+        {
+          "glyph": 13,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              288,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "bf610a4d7a18a5cf43171b78ab88dee31418432c2a7168e972a97f85781a6ea0",
+          "authoredGlyphSha256": "81021c0642d4951260d56e225387acd088a23aa8078ceb73ffb118f3bc0ab964"
+        },
+        {
+          "glyph": 14,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              289,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "9b289130d3d7cd4a275c1c48f1c09557acb12cc45e18f5375a6e02c2a4ed3bf7",
+          "authoredGlyphSha256": "d1e79a949ace123fba7d8976a74519223938a441457edb4203b13d9001d29b3f"
+        },
+        {
+          "glyph": 15,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              304,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "fb6d998004cf842e2398e4f2474ac63052e6539f6fef928e1cd201b4e44d7cb2",
+          "authoredGlyphSha256": "f5734264163fdbced9572cbde81797ff9434adf31dc24a79d7063ddd117b70c6"
+        },
+        {
+          "glyph": 16,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              319,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "7efc314a61a0d572e8f656aaccda88f2af26edf64918e1537cd0bb68f9897783",
+          "authoredGlyphSha256": "7630e8c71f1d2d6e38da15089b577eff344544720b74eaa4a563881c2b7ca14c"
+        },
+        {
+          "glyph": 17,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              320,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "051c09793b9660494a027eb0f1777ea708f1284dd8d1b6bfb9e293cf045d2ec7",
+          "authoredGlyphSha256": "d65d90b65f4a0f660f012e4f845ac7996162358df9335a6aa0bc8e735ef78587"
+        },
+        {
+          "glyph": 18,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              321,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "e757cae8c17e83aa53788a20631572161328532f393251de23f295b1b4f4dc22",
+          "authoredGlyphSha256": "96e91364fffc6b393888b9200d82ba2da9fb0b50526605914502d95c8b191b72"
+        },
+        {
+          "glyph": 19,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              336,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "eb9b3a9689043cdd7ba2fc16eea63ade77e0ebf0e91e80f9fa890bd78bbfd815",
+          "authoredGlyphSha256": "dbcea759eea99f8e54dce70396e48eb2b5eff950acdcdb980f5cab1ae04d13ce"
+        },
+        {
+          "glyph": 20,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              344,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "c8172211439f2766d73190d80268969904cbc65386a804bea7e79754387e6766",
+          "authoredGlyphSha256": "57430180cef7f76c5bb166e1b7133ec0632299dcee661441e7124eb0418f849b"
+        },
+        {
+          "glyph": 21,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              351,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "a2e54b21f59bb8d29283789df1c9589e27264d1f2613f8c396986adc19aeb8e7",
+          "authoredGlyphSha256": "cb0a52237bc18a7a71a41d24780ba99fea4dfdbb1630e03e50222c63ee3442f1"
+        },
+        {
+          "glyph": 22,
+          "family": "top-edge",
+          "mode": 0,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              352,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "5636bda0d1f1181febbf8b7141138095bc7ed03bc00f01742f49b4ae35c81874",
+          "authoredGlyphSha256": "9d80e7505b8e6f6a91a25cd4ed0be8b2cdbc9c3d25aaa1968fefec43a56ed7c2"
+        },
+        {
+          "glyph": 34,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              607,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "e6308c0d8c9576e738968bf04f3b84aff62fbd28df2a42fd3eed245963bc8e69",
+          "authoredGlyphSha256": "974e169036b029ec296ad3fac931fcf4db07af38d2238d588e78a0d8bba1438b"
+        },
+        {
+          "glyph": 35,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              608,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "af0282943beeee4b09e7d37d6cced06695bd3748cb3b16d0c32ece0d8d57cd04",
+          "authoredGlyphSha256": "ceaff41f8dd5ca7f7b5ff7c4e966e1be1d217c95c9a13d592ba6b48f02778b5d"
+        },
+        {
+          "glyph": 36,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              609,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "1951dddd1eca28afeb33743f553ec79ea66d8084e75702eacd307df75a828838",
+          "authoredGlyphSha256": "c3884b099e7a9e96a9cf4c52b7ffc267a6b9cb4e118cdba3b88d198229b61344"
+        },
+        {
+          "glyph": 37,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              624,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "bf8149b4a06d40cdc3cd958a051c47621b89e994c43b1ee9cd4cc4be874d0372",
+          "authoredGlyphSha256": "640938a06228381a605b6f709a45eb72e1de03a5dc0b0fe383363386fcaa0391"
+        },
+        {
+          "glyph": 38,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              639,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "0ca7b3e60dbef59171835bbf8948f0bb9219e96bb846cd63706210542c779145",
+          "authoredGlyphSha256": "0d0eb9c17a8333083f4ed7f99fc3584acbca70bf6efd31d98bd8e9072a2d7549"
+        },
+        {
+          "glyph": 39,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              640,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "7773f8149fc6835fffb1b3ed98861b121cfc1851bfe479648ce4b7ff4e335a42",
+          "authoredGlyphSha256": "0388becdb54d3f595d78a5b7dda9aaf216eb617182b319bb5be78d5e3b93293b"
+        },
+        {
+          "glyph": 40,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              641,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "8da36180dafaa05f48e1d37fe15926e21507d065ba828b5eab2a44b6988636ca",
+          "authoredGlyphSha256": "34ead6dba67d285a9fcca82563a134384ac7a45bda41ceb122e271f01bf9605e"
+        },
+        {
+          "glyph": 41,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              656,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "889a99f320fa68289639417d4632c238c0c527a401049e0c580ef7dc3cc774cd",
+          "authoredGlyphSha256": "ff77bf140f4c4b5775332a0ed2a7c9dfe5c81aea1e43f1acd10d5f054d28ed96"
+        },
+        {
+          "glyph": 42,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              664,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "c4f48488d573c594cab5b635b4228e85eac121abcce9df4741fa8f1939d5878a",
+          "authoredGlyphSha256": "ffec5420f2ded771d941bd8582bea8c4090c7477c2d473347931bb08135c90eb"
+        },
+        {
+          "glyph": 43,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              671,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "b0d28201877e70035d7e2c9b812faf76b3231eb63d10b5c7513d84339ab29e6e",
+          "authoredGlyphSha256": "04cab35cbfe37c3708469d4ab79750b91c06d1963680522a76130bad113a0065"
+        },
+        {
+          "glyph": 44,
+          "family": "horizontal-dropout",
+          "mode": 0,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              672,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0008d",
+          "originalGlyphSha256": "afaa1c2fcfb7cecbed0cebd893d44990a77a5dbb33edcb4875a06a52091f92e5",
+          "authoredGlyphSha256": "53c61f79ba24d6b657ed5ddcffc92ec5003e2e6fe64db0954261428c8d6fda3f"
+        },
+        {
+          "glyph": 100,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              287,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "8419470199bfa5b5da228bf30a9a1d02a14696dfb9f82e2af29fb2a3f6157713",
+          "authoredGlyphSha256": "d04b550293c533353c96711c150953042052202d2be769568a57c0aa7b3347fa"
+        },
+        {
+          "glyph": 101,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              288,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "d379605a4b355a818fd3ab852aec1d38724afe089a1779d01ab440b9db58bacc",
+          "authoredGlyphSha256": "29782c9059a3203689e59bae46353a97be8c2f6be1fdfde03deb561daf070ec4"
+        },
+        {
+          "glyph": 102,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              289,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "b6d4c87b06150dc060cc68e7202968f78275e81540ec59bd96c1c702c3db9132",
+          "authoredGlyphSha256": "139a58883accb623080e0c4ad0e9004e643286fa10b67c7b673117aa85f7d2e0"
+        },
+        {
+          "glyph": 103,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              304,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "f18b9de286975c8c4e9c5d2f8a3115596a838e3f2d3eb1bf3411fc6d937d759a",
+          "authoredGlyphSha256": "b939a4c8d36dfa17b112794d04f2a00426a21479a092251659b0088cb495b7da"
+        },
+        {
+          "glyph": 104,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              319,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "3f937c2099f9e7053372ffa9289b894d64d001605db6a651d58c2d9bb0a2b876",
+          "authoredGlyphSha256": "63ad474b0827545f747afdf6f26d385c247d0b1e95924c7001a7dcf07103eca0"
+        },
+        {
+          "glyph": 105,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              320,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "6851b1913498581c9b2d69a0dba217ad201911f43bdce593cc5efc2d32b8faf0",
+          "authoredGlyphSha256": "acaec6d200cee7055568395f9cf4e54c94732ec19e6d2d456316130ac303b255"
+        },
+        {
+          "glyph": 106,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              321,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "dbf5241691f8855de48c82d61fb1de905c45b9a9b82084dc69a89a941b87aad8",
+          "authoredGlyphSha256": "2e344e2eb02dc9a2d1db5fc171ad80409ec1eae4512fcb570471667f70358cae"
+        },
+        {
+          "glyph": 107,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              336,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "05148774c0c5553ffce7c6c7f722d185b4d7ef855ec0d76176bb59533fed6a0b",
+          "authoredGlyphSha256": "3a29fffe1d6338dbb7645aa928be60a0457b975c3ff78c06bce377e630df74b5"
+        },
+        {
+          "glyph": 108,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              344,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "7751d281ed849e57fa58a7fa916bf95163678a30298a0a8ab420bc9c86a1086e",
+          "authoredGlyphSha256": "8b7d9f3ccc8fbe44858cc67030f152445de71f9ee7f78a961197de296d9593dc"
+        },
+        {
+          "glyph": 109,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              351,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "5993c36e3b6bf3a98c4e72bfd90e7fd9a6d950a0988559609fa2ee9cb9e9d562",
+          "authoredGlyphSha256": "e25624eeb0b45186603dcfb2edd45ac1e038dbce41476b1e774ed938985bd34a"
+        },
+        {
+          "glyph": 110,
+          "family": "top-edge",
+          "mode": 1,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              352,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "aa7113f7ddbe733b6cc73b7dc70efd41e32417616d8ccf071bb76ca197dc2f45",
+          "authoredGlyphSha256": "9d5b67ed23675725b2d753317bf3f97cfe2f653c39eef34d3a030be210704277"
+        },
+        {
+          "glyph": 122,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              607,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "c7130898d70cc66e8e302df7a3025ef9a9f70a3af8dbe388cd6f743a61e16aa8",
+          "authoredGlyphSha256": "273046702d7780f2eb4837bde0d4f8303dd618388518ac39815e9c55bf2c2a61"
+        },
+        {
+          "glyph": 123,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              608,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "344044896bc3c296a40e10a3119a58a7aac84b4f7000c227c17a3fce4722dd58",
+          "authoredGlyphSha256": "ec1134d2601fafcf595feb8d330b102e029a89528988f1ed6fc737ab2ec2806c"
+        },
+        {
+          "glyph": 124,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              609,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "0c17d5d76e9b5bdd856a12a36559601c343e94b0faa65ee59195760ed41eba7b",
+          "authoredGlyphSha256": "d30529ef91d77010d61409248f5cd7cd0ea304a1ce697ddd189484d3e017d8fd"
+        },
+        {
+          "glyph": 125,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              624,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "0d23d657f73eb2c3fa69c8e0751295a85d260aaf966995f33181635e672a833f",
+          "authoredGlyphSha256": "9c6d91aae7ba9ceb92f8303d4f3c53dc774b51fb4db3e6ef21439a758823732f"
+        },
+        {
+          "glyph": 126,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              639,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "c7ee8a6feb006f2095439b32665885fc0d40051e9ca8d8726565c81fbfaaf75b",
+          "authoredGlyphSha256": "6dcad31f5afa830e1a27de66b09c6241d1022dbcbbf2a639762b5a6fb2fe153c"
+        },
+        {
+          "glyph": 127,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              640,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "c62889b9f32ca3281151b4318f5bb7b23f9445117484f11c437ae7bf5b8359f9",
+          "authoredGlyphSha256": "106d8c62b05ce0009d0ea86cd0b89cb6c681269b0b878e3a66fe136b9db86156"
+        },
+        {
+          "glyph": 128,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              641,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "7e8ce33752c34bc6e1b4d372b1740eba39bc9d4049f0ba787c8acecab6ffc276",
+          "authoredGlyphSha256": "1d80f7d5a19106323609476d6cacc7ae1747594460919d3f985f5fe84bd68ca7"
+        },
+        {
+          "glyph": 129,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              656,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "db855d593cd49a11c28d7141cb7228b5a9089a16d3f7ffa3f793ff9c7975ff6d",
+          "authoredGlyphSha256": "8cf38231d5e35d3138e8e56c4c9f40e2b0d769e727e24d64dc39c55a54b4a862"
+        },
+        {
+          "glyph": 130,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              664,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "f140a068152ec52533726136d1a612b6f327e003147cf9de0bcf7bae9ff1de67",
+          "authoredGlyphSha256": "db0582bf737967bba7c36be6bd5c9288b86cb4b9ff40ba4024e7a920913cd44a"
+        },
+        {
+          "glyph": 131,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              671,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "0af60ceb4c38c3b58d58430ef4b01b0c336956aa95c2c5fab4c65da506fde98f",
+          "authoredGlyphSha256": "34c2454f4744b8588e6419b94f49a96293e2732f8775b290eee9d2bf7182cb99"
+        },
+        {
+          "glyph": 132,
+          "family": "horizontal-dropout",
+          "mode": 1,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              672,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0018d",
+          "originalGlyphSha256": "f6e67f583c6f1aedc008c114b1f658c3a205a415f1f0dc4c0ae387dc10a69dc4",
+          "authoredGlyphSha256": "8060dd4b79f9a0f04b7699d421b1153aaaf37be23f507d0b54b3d6e7384630a9"
+        },
+        {
+          "glyph": 188,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              287,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "b769ba6f7097c6fcc8415695ea74cbe76029920a908e4428993d8409779fe4b5",
+          "authoredGlyphSha256": "0a80797ccc2383d1337c62b8d6202253260c2b08a06421cc8d496cffdb1a813e"
+        },
+        {
+          "glyph": 189,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              288,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "93da28bd910c5f9957d7aeb5828be66d3aa14435e422ab806093adace7ddc46a",
+          "authoredGlyphSha256": "c61e2549ead547ba5ea0303ff9d0556cec7f2d94784229f54c4ce077f7c385bb"
+        },
+        {
+          "glyph": 190,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              289,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "61b8b179d80b7473585cfd7d9f1a581f9ffcb54a3236fe8ea83fbfffae815fe8",
+          "authoredGlyphSha256": "3d6e1390acd3745f68d5b153473ae2af61f1592ad34e4fea73afd7fbeb59ad26"
+        },
+        {
+          "glyph": 191,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              304,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "7f7985a26b1176dd876565d7bdd36e8603d4c4b7f326d5bac1e353458e9de73f",
+          "authoredGlyphSha256": "56feb2b1e98bdb3b99b1e0500fcf1cea8a84aeef310296784b65efcda882fb77"
+        },
+        {
+          "glyph": 192,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              319,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "e021737f1393d7d3a168705a0ce01394793fa2b0c28e16cc2f460d0dec3a99f1",
+          "authoredGlyphSha256": "b248e2630258b1c0e4ce5df4bae54a51b364a8b8c28b04b64dda069ef3239b79"
+        },
+        {
+          "glyph": 193,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              320,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "49dd5b78c19a003ea2eef2ad36156207c844234e3510c6a0c8facd8c9f279dea",
+          "authoredGlyphSha256": "70c37c60f2582c30b84bd4b0dbc2d422aa692f36c74f8e45e27036756db23cff"
+        },
+        {
+          "glyph": 194,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              321,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "76caf626a91f8bf074fac73b60f8b744f147be86b66a4cbdf862b564744aac50",
+          "authoredGlyphSha256": "42ab23d133a6fa1d35da5018a4d248f858526c6b89281935489f8694da7609b5"
+        },
+        {
+          "glyph": 195,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              336,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "6169b144ad3956d53ac826dc1ce827144ebc8bf24ea2a031dc9b29873ded5c59",
+          "authoredGlyphSha256": "8fe92614d447b7205bb84dff8fd3bbdad4942ce015a95b99d13e40c4aea56a38"
+        },
+        {
+          "glyph": 196,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              344,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "617e8a43b4aace3185d01ff01aa6f54bf4ad8539377c3502f6adb6fc8f2fb784",
+          "authoredGlyphSha256": "d62047714b9acec855530a72dcaf472192f78c3f95bb492563e2513bdc164bd0"
+        },
+        {
+          "glyph": 197,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              351,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "ed3f4990c54d6326a3019ffeffc686b868aa9931fdb54a3c3fedefbbc8a906d1",
+          "authoredGlyphSha256": "8286dcb0e6099d465be32d9f332f7e2e6b26c1421aa41fb1082179da2cb27613"
+        },
+        {
+          "glyph": 198,
+          "family": "top-edge",
+          "mode": 2,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              352,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "29b37a1d561c463ed1aab7a6d0757933543eff81b84714b9ec1446ecffcef5aa",
+          "authoredGlyphSha256": "78ef1a8e3161dcb311fad79414c875eeef04f3bd84e55a809e73873c5b1c603b"
+        },
+        {
+          "glyph": 210,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              607,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "9e6165f97a02cef7e5f8ddeed4e18b1583be041ef406731ea73028a799b13867",
+          "authoredGlyphSha256": "47674ba50d142cee425c453c7ca314f820628fc75639a205c823a9fad4895a47"
+        },
+        {
+          "glyph": 211,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              608,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "a4168697b2c587a8a4e9a486131397193fcb458b196054c0b649ec8ab918cc0f",
+          "authoredGlyphSha256": "299e4859b462ca7bff751fda35bd316819d08f749085b742421b0ea3f5fbae2e"
+        },
+        {
+          "glyph": 212,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              609,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "af11bd9c5b76b2efa6b3a4bf1803d4037d0b3acede56fed88e08765f47450bdb",
+          "authoredGlyphSha256": "f7b03b870867ac000745ef71a1d99ee7223af23e08f541b17de4a41817508694"
+        },
+        {
+          "glyph": 213,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              624,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "6ea22b2eb29eeda0a5ca96aa36f71eb63a4846ae78e4a41300a3e95332fd9b62",
+          "authoredGlyphSha256": "e14e5f03f02232a9de617bfa3f7e9bc464d03f27a5d4f8fd9193151b45a8c53c"
+        },
+        {
+          "glyph": 214,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              639,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "95a0ee8a972ee17ba8410d19c8a130f22f43de41a8c4dce4ea586557bbc6479c",
+          "authoredGlyphSha256": "1dd235deb94b9e85c1f9e5f86e49abcc525fb1fde6ec7be8ae8b84708aa3b250"
+        },
+        {
+          "glyph": 215,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              640,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "14831b90de9e80eccbe7391f01260ce64004c821b0bfaa2704c234606ad5cff7",
+          "authoredGlyphSha256": "fc72144fe0f750a59141ccaa840f11dd22e1d0577a507573059ef5fc2e21a3fd"
+        },
+        {
+          "glyph": 216,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              641,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "5f334e34cc08aebcb3ce7b0ce2f9480f8e7b32a5ac0a4cd159f29cc8385ff17e",
+          "authoredGlyphSha256": "1ec96b443f9de8f6edf84fcfb4e32c8431d540b8ec646c3814b8045d8819725d"
+        },
+        {
+          "glyph": 217,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              656,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "9b140039f4b9e1f4410b4c4031d0283dbc8dbfc86dc0f58c77248cf28036b34a",
+          "authoredGlyphSha256": "fa1bf409c65b638ca67556c61b3fb9065ce4198290a739dd8b26b8e53a16264d"
+        },
+        {
+          "glyph": 218,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              664,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "f0a4a20dc51714af773444403f0b88a554bd362465b85c31ead55e3f89bfe690",
+          "authoredGlyphSha256": "ac8c8f330a5cb3e5d1e4e735ff38815c4d643d40a8a68418b72e2de530cf9ee9"
+        },
+        {
+          "glyph": 219,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              671,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "16613c66badb20535f91aac96e14928af6c39465478e64878fa1dcd0003dab54",
+          "authoredGlyphSha256": "f551904f97cdc30abb220b0714f6abb39b177aceb02667d1018b467d0ac7b023"
+        },
+        {
+          "glyph": 220,
+          "family": "horizontal-dropout",
+          "mode": 2,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              672,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0028d",
+          "originalGlyphSha256": "fb24d9910e9c186ac709b2d84ed008e3fd41287bb56f15004481e9a2db224dbd",
+          "authoredGlyphSha256": "829a1a78a349e85c6bea662e345b97cea956877b34d95b23693cc358792c8737"
+        },
+        {
+          "glyph": 276,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              287,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "d3e17cfae130b3333c5ff3fbfece9d0401e44207976e0b361a928050ad486a80",
+          "authoredGlyphSha256": "37cb44f7ec983e3c793f7ac81f055b4f0302a370aef1f3933502238b158fd942"
+        },
+        {
+          "glyph": 277,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              288,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "982f414986be47411e79fc81982844e49a796cb3a43c7fde3e59975b7e57fff2",
+          "authoredGlyphSha256": "413037c5b623c559d9c101842c0d7e3987850c9210fc55cff0e4c823a7742f39"
+        },
+        {
+          "glyph": 278,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              289,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "60b2b04e90e27e080733fca340fbaf582e153fede048b39b53cfee65a766b9b0",
+          "authoredGlyphSha256": "cd2471bfb6ded8bfca5112a54435cd123b4e7ae498b07f1c9e381e40dd824f4d"
+        },
+        {
+          "glyph": 279,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              304,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "e36d3dc0936a2180d169dcc88ef888794f0301664b0730eeaad90ebc68b17671",
+          "authoredGlyphSha256": "584f43d372dd4c54e25b652d70a058de3850016bf9b855bd1235781177550c72"
+        },
+        {
+          "glyph": 280,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              319,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "8020a61f90175f3a38e93d8de24bc8de0c0bf653170d8ccc033fbc311b696230",
+          "authoredGlyphSha256": "e95931008d858bd562409dc7b89a912483a33005bdaca50d58e8c421cdaf4cff"
+        },
+        {
+          "glyph": 281,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              320,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "6063fea3a6ea376fb7ad991b4669ce52785fa80e793daae1fd9588daaef49cfc",
+          "authoredGlyphSha256": "4bdf9dc0ef43527cf99dd5c2f495a8088553b76939665450ada50f1103237724"
+        },
+        {
+          "glyph": 282,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              321,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "0a8f91dbd3a8d561469680bef8347316edeecabbece0e4fdec6562362ba622bf",
+          "authoredGlyphSha256": "676caf398c65ed7435507fe756108ca745884f50fed95520b64baa37ad2e901b"
+        },
+        {
+          "glyph": 283,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              336,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "d546082b14ac774400014b859c043b7959afe557a8dfbdf69a3e1c4a566ed716",
+          "authoredGlyphSha256": "3f7a27d61d6e0761cf66f6f5563743efba91a69af33b32251a1f1e5f8b7bc27c"
+        },
+        {
+          "glyph": 284,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              344,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "2c2f953f79e092100821f1cbe47dd9bf3096ea1811f05722ea2e04d6aea8d8bc",
+          "authoredGlyphSha256": "df0216dacd9ab0e81ebcf47c773614d7e8e326ad1c76104ac731c421836eb66b"
+        },
+        {
+          "glyph": 285,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              351,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "9c210c16b01cf50a86047915d59a091b7ce27a9abac200b161f0270ad6ad7c4a",
+          "authoredGlyphSha256": "94208126add17508c3f1af437f797a15a01a211ebf0956cd295a8222a28942c9"
+        },
+        {
+          "glyph": 286,
+          "family": "top-edge",
+          "mode": 4,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              352,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "36029e2142468678644bb4970bec8362427c490a7529c96489d185226c9d7588",
+          "authoredGlyphSha256": "bbffef09d8554ae653b91dd734efb79b5dcdee78158a527dfa80db045631b94d"
+        },
+        {
+          "glyph": 298,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              607,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "ddbcc88ff296f69f8516a6031b115b84929907f5537d4023398ba931c7a5837d",
+          "authoredGlyphSha256": "35b5d51b342af8f7e77c5b27c67cdcfbcb56beb974de0396f5addb8a2ccb633d"
+        },
+        {
+          "glyph": 299,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              608,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "3a51ff8720097db5c892e54c85a50fb73adc0a257d9616051c4acd135f4bf9ab",
+          "authoredGlyphSha256": "dc6ff5436026ddf818629a13c692d581308b431ba6e1e4630e09cc407184fe1d"
+        },
+        {
+          "glyph": 300,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              609,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "b92db9e2484ee51f7dc89168e71a1ea5db388a98b747480db4eab729ae5f3062",
+          "authoredGlyphSha256": "a701963a88fd179e79d71785fa62477e6c4610b405ea90eeb3f90ba6e33738d3"
+        },
+        {
+          "glyph": 301,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              624,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "c19118e25168e5cdf94b14b9c996f5e4f6229b9d4ff9963f1a763106037cfc70",
+          "authoredGlyphSha256": "8adae4d59439f6593acfa28621dd043c217f19dff01a7986bdcef7354295a636"
+        },
+        {
+          "glyph": 302,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              639,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "be0e14051f1ec5f5385b99e886fe6cfbe8599efff734764484880d83e9456caf",
+          "authoredGlyphSha256": "212b21f25d4cea3a1147435a7d0b9298de9df2928be42b8cb1c5a542364fef2d"
+        },
+        {
+          "glyph": 303,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              640,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "ef3c5a55847f35f6d8d513d8a8087ac726fdcbf250e83bdef03cbe31a0ea2a5d",
+          "authoredGlyphSha256": "c22006766283a24aa73c1b4b285c726902666860fa3e13e30ac2e1a684effed4"
+        },
+        {
+          "glyph": 304,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              641,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "491c623229fe340f85dacb3d85baec27616ee84163fc0265dfed73c06642354a",
+          "authoredGlyphSha256": "55c07699559d4089abddcd3dfee21f488e51c5208666225c997c69dbc653faf6"
+        },
+        {
+          "glyph": 305,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              656,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "0f7454b1db42c13d0efaa38b4d4dac08d634453972bfab017cf572d455782d5e",
+          "authoredGlyphSha256": "bbffd7645cd59c0be9274396015b55ce8f082dd8593191856eec6e323394747a"
+        },
+        {
+          "glyph": 306,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              664,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "8e1e03e0cfaebf593e7977a1088b7ab942296a4aef7dc32dae9d75b478beff56",
+          "authoredGlyphSha256": "05fd46e26be4fa11fa5805b466c594137ea32f1ebc841525d22cb38216cdc89d"
+        },
+        {
+          "glyph": 307,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              671,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "92c609de46625752ec0b346a7474b15745d441326fd396d7a3d1239bd7fccdb3",
+          "authoredGlyphSha256": "f9bf1cd9a25d144efd2d6ef244edb2438e576e35c584a2cf1b7685baf27f5e5d"
+        },
+        {
+          "glyph": 308,
+          "family": "horizontal-dropout",
+          "mode": 4,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              672,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0048d",
+          "originalGlyphSha256": "f54765e361fb432d3978362908a850d274fa26293acc76315c9e36f53d6271ea",
+          "authoredGlyphSha256": "b797e547ffdc48a44f5d3f288fd8364a24d61e55e373bb7a6b1784a16d23e98d"
+        },
+        {
+          "glyph": 364,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              287,
+              538
+            ],
+            [
+              287,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "8bfcaaad40293932f46236df2fae530ddbce15c8e71b04520aa37258ee7fa1d7",
+          "authoredGlyphSha256": "883d0f51b72befc27eb546211a27835729662b56a568cac1a0b98a09860e305f"
+        },
+        {
+          "glyph": 365,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              288,
+              538
+            ],
+            [
+              288,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "601d11c04285d5130d9998fe6c263584d4a71407b7ce3eda727dff4cb9b6e395",
+          "authoredGlyphSha256": "dfdc0e58a9888f30dc96c879b4dc032e47965f4236e3eb2936bb68077013a6c8"
+        },
+        {
+          "glyph": 366,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              289,
+              538
+            ],
+            [
+              289,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "8405d85a9b2bf9b428110d720a7466f8dd91540b4496952860d5d9cfd7d93961",
+          "authoredGlyphSha256": "d7f1125f74e5db0b7c5689fe6d0b57eaa0cb5a47e6abecaa9042ca226810ed07"
+        },
+        {
+          "glyph": 367,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              304,
+              538
+            ],
+            [
+              304,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "4b6fb5c35b1c95740fb4c802b26d202b383fdae532a368c894a834931dca54e3",
+          "authoredGlyphSha256": "d3fb86063a121d305fe62c01a5a11f1711ae8de38832c816670ec65d36dde722"
+        },
+        {
+          "glyph": 368,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              319,
+              538
+            ],
+            [
+              319,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "521a8bb05e7fd6043e560a8e9110e2bc11ace7b5c876f72ae9216603b1daddd6",
+          "authoredGlyphSha256": "3463694b7b37b52e4fd00b29066e42035c670f15ed165ccc51248f98cfc7a2f0"
+        },
+        {
+          "glyph": 369,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              320,
+              538
+            ],
+            [
+              320,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "b86a89f8ff2460eadbee4b379dc88968a2a40c04de1808bb69fd1f584d9421ab",
+          "authoredGlyphSha256": "008428e4f72f251b4c12e3a2c1c4466b74cd63b8b724d8b4c7f35d086e46b29d"
+        },
+        {
+          "glyph": 370,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              321,
+              538
+            ],
+            [
+              321,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "56fb2a4bcda6db4896efbfa2a88aff1587d2affda48711a54f501398e4afa357",
+          "authoredGlyphSha256": "d7df097b62bb4a1258e2c4db2ced1922fe63efeea8bfca7825672d47ed6043ad"
+        },
+        {
+          "glyph": 371,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              336,
+              538
+            ],
+            [
+              336,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "3d91e439d1107a1dffc576ccac224bd98acdf382b869cfc323a9a1479d933ad7",
+          "authoredGlyphSha256": "de894764c61829c9dfef2871e7103c5101953dd823ab9c1cbaf75f308da47232"
+        },
+        {
+          "glyph": 372,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              344,
+              538
+            ],
+            [
+              344,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "f0dfaeb6036e174b7169d660ef7fb60d706d117dbda453f5495238dc56301448",
+          "authoredGlyphSha256": "5ca39cc2b950e6f43251a2cbf5b8e7b64136ff29603d26ecbd4b8c1970f22b61"
+        },
+        {
+          "glyph": 373,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              351,
+              538
+            ],
+            [
+              351,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "ae397909a998afc0bf8c0c8284e5368ca978ec94f6a865bfd678d05305bd8395",
+          "authoredGlyphSha256": "a3544f157e48c97d52225627c42b8938cd41a3467db493bef6c9f3e30df3efa2"
+        },
+        {
+          "glyph": 374,
+          "family": "top-edge",
+          "mode": 5,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              134,
+              481
+            ],
+            [
+              134,
+              538
+            ],
+            [
+              352,
+              538
+            ],
+            [
+              352,
+              481
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "17b671473d52ac4b08bea51f888187af2637e4d8b47f54cf212a670ee9ce6ee1",
+          "authoredGlyphSha256": "51fdeb26ab2bd00af4741cc0f7acfb816b10a040cde7ccef03597bcc9a13a200"
+        },
+        {
+          "glyph": 386,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -5,
+          "capShift26_6": -33,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              607,
+              272
+            ],
+            [
+              607,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "db66fa2ef4f0a37b4dc19318d3ea30408323278cd7d575ac6c1d05bb28b87327",
+          "authoredGlyphSha256": "e9af566af851f3d017d0f2633a928491436f10a71319949e62836408106cad91"
+        },
+        {
+          "glyph": 387,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -4,
+          "capShift26_6": -32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              608,
+              272
+            ],
+            [
+              608,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "26f91909966f4f3b1347a263a5de7c94b875b72f630e33104cab8c3e3a35d971",
+          "authoredGlyphSha256": "7ad0d903c4751ac93c1121f373193e8feaff2f4990f4e581898c4780950676f2"
+        },
+        {
+          "glyph": 388,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -3,
+          "capShift26_6": -31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              609,
+              272
+            ],
+            [
+              609,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "3596aedca90a594f1a951b7cc3a456af52a4b7eb603129b148d054bf9ed4c4a6",
+          "authoredGlyphSha256": "d27e8a6710d3703bd4b0c7139425c9cc02f195de890472b579130061350b6efa"
+        },
+        {
+          "glyph": 389,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -2,
+          "capShift26_6": -16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              624,
+              272
+            ],
+            [
+              624,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "929b0261839bdaf68d301fc6efaf4744916849b403d268af501057513eec838b",
+          "authoredGlyphSha256": "9d9eb599b34bb9a0f42880015f04fdc97c7aa0549843d4581e845669c4fa67e0"
+        },
+        {
+          "glyph": 390,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": -1,
+          "capShift26_6": -1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              639,
+              272
+            ],
+            [
+              639,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "68d05b767ca3d8b248b4ed91b509f1059e9421951826231ef9d6d75bf5caeb2f",
+          "authoredGlyphSha256": "68b7e6736e60cd9e6aecf66f53d21e4b5856b56ce445a969eed70c2b21f4973e"
+        },
+        {
+          "glyph": 391,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 0,
+          "capShift26_6": 0,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              640,
+              272
+            ],
+            [
+              640,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "a98e6a233dc6a742b0a72cb810a33901c739b69b74dc410e9ccb02f1e8912b8b",
+          "authoredGlyphSha256": "b470fc7fb168e4453d21e68d6d631674539820bb2ec1ec669273a806c5a8cc3c"
+        },
+        {
+          "glyph": 392,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 1,
+          "capShift26_6": 1,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              641,
+              272
+            ],
+            [
+              641,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "d6d3f6ee67cb9bbe1b0ae1318f6a984f220181e6a85eda77ba280adc4021f938",
+          "authoredGlyphSha256": "676ee0f1139975c5ee5eccecd39232eacdfbda53dba116ff1172edb623b125eb"
+        },
+        {
+          "glyph": 393,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 2,
+          "capShift26_6": 16,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              656,
+              272
+            ],
+            [
+              656,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "15c4a4b8caf7d1e6ab30871c7ca1184a648e82f9cb5e17ea728105c432e678a8",
+          "authoredGlyphSha256": "66e2aed8460fbf9f3ca8207765773315a6b2c43e10ba6430c9d7487975d9f4a5"
+        },
+        {
+          "glyph": 394,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 3,
+          "capShift26_6": 24,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              664,
+              272
+            ],
+            [
+              664,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "20ff8832f3f024e9ceaf72ba4fc67a299c7065ddb1efecb46fb1549232052e5f",
+          "authoredGlyphSha256": "48efb1dca6d26741ba78b1b78f7bb4bb086043b886ced2fd4742283a33ca1ae4"
+        },
+        {
+          "glyph": 395,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 4,
+          "capShift26_6": 31,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              671,
+              272
+            ],
+            [
+              671,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "a31fa7fd1eb3adb3de78534a84fe0ce37efd7d59a1a3244b15dd20b898cb5d62",
+          "authoredGlyphSha256": "819e8bc1ea772904827d8d83ac5bdf9a13fb3990d53d76c7b12719018ead7198"
+        },
+        {
+          "glyph": 396,
+          "family": "horizontal-dropout",
+          "mode": 5,
+          "phase": 5,
+          "capShift26_6": 32,
+          "points26_6": [
+            [
+              64,
+              240
+            ],
+            [
+              64,
+              272
+            ],
+            [
+              672,
+              272
+            ],
+            [
+              672,
+              240
+            ]
+          ],
+          "instructions": "b801ff85b0058d",
+          "originalGlyphSha256": "10bb33948d02d825701dd718e380db9aa7fce6a49ed18bf51e916c2e611bbc98",
+          "authoredGlyphSha256": "a3c1ec119359f42ad84ff5e669cec7d0b3a18964e86853d08f00e750d48e0da2"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+* -text
+# Match the canonical patch's attribute: empty context lines are meaningful bytes.
+helpers/owned-windows/eng/wgpu-hlsl/*.patch whitespace=-blank-at-eol,-blank-at-eof

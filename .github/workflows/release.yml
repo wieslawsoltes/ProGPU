@@ -661,6 +661,14 @@ jobs:
           name: progpu-portable-${{ env.PROGPU_PACKAGE_VERSION }}
           path: artifacts/packages/Release
 
+      - name: Run paired font capture package consumer
+        shell: bash
+        run: |
+          dotnet run --project tests/ProGPU.FontCapture.PackageConsumer/ProGPU.FontCapture.PackageConsumer.csproj \
+            --configuration Release \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages/Release" \
+            -p:ProGpuNativePackageVersion="${PROGPU_PACKAGE_VERSION}"
+
       - name: Restore and run source-independent package consumer
         shell: bash
         run: |

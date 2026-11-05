@@ -1,3 +1,52 @@
+Binary scan visits retain each lane's original horizontal pixels, event lane and
+lane+256, vertex and flat-cap order through one bounded visit loop. Private visit
+descriptors preserve the original scalar coordinates, short-circuit coverage and
+continuation order; vertex samples retain their distinct left+1.5 expression.
+Keep base-coverage arithmetic, exact events, shared memory, atomics, barriers and
+both explicit smart-curve endpoint evaluations unchanged. Managed ARM64 success
+does not qualify native packages or source applications; retain every original
+gate. See docs/binary-font-scan-metadata.md.
+
+Explicit paired unfitted font replay captures both original Unhinted geometry and
+Monochrome scan metadata from the same context, selected font and frozen request.
+Reject complete topology differences before output publication; transfer only the
+scan/dropout mask, retaining original coordinate bits, bounds, precision flags,
+descriptor/no-ink slots and positions. Retire witness owners before publication
+and retain the original native generation through selected views. Ordinary font
+policies remain unchanged; this is not GDI/GDI+ source or package qualification.
+See docs/binary-font-scan-metadata.md.
+
+Binary glyph continuation visits select the original immutable positions and
+admission flags for the proven edge indices 0/1/2, without addressable temporary
+arrays. Preserve both root visits, opposite/left/right edge order, exact float
+components and first-distinct-position counting. This does not prove ARM64 WARP
+stack safety; retain every original provider/package/pixel gate. See
+docs/binary-font-scan-metadata.md.
+
+Binary glyph orthogonal-cap retention uses the actual whole-glyph collapsed
+rounded scan extent, never a thin local stroke or a shortened cap tolerance.
+Exact far-side contacts keep the original positive-winding closed rule, reversing
+only the winding test when axes transpose. Preserve original scan modes, roots,
+coordinates, sorted events and the independent pixel-center side-contact rule.
+All original isolated/connected and forward/reversed frames remain mandatory;
+retained system-font replay is not fresh source or package qualification. See
+docs/binary-font-scan-metadata.md.
+
+Exact upper flat binary-glyph boundaries retain their actual endpoint pair and
+original positive signed winding, with axis transposition accounted for. Ordinary
+nonzero scan intervals keep their original route; stub-excluding modes retain
+inward continuation checks. Never perturb the scan, rewrite sorted roots or
+shorten the independent finite-cap allowance to hide a source difference. Preserve
+all original forward/reversed fixtures and the remaining system-font gate; see
+docs/binary-font-scan-metadata.md.
+
+Exact straight binary-glyph boundaries retain their actual signed winding.
+Negative interiors stay filled; flat-line boundary limits use only exact endpoint
+transfers from the original scan, without perturbed roots or a contour-area proxy.
+Keep flat quadratics and original dropout arithmetic independent. Preserve all
+original and reversed source inventories; local replay is not Windows, source
+policy or package qualification. See docs/binary-font-scan-metadata.md.
+
 Binary glyph dropout traversal keeps the original ordered lane and lane+256
 visits in one bounded per-invocation loop. Preserve helper arithmetic, shared
 memory, atomics, barriers and the subsequent vertex dropout in the common shader.
@@ -2457,7 +2506,7 @@ dotnet test src/ProGPU.Tests/ProGPU.Tests.csproj -c Release
 dotnet test src/ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj -c Release
 ```
 
-The current baseline is 6,430 renderer cases (6,417 applicable cases and 13 platform skips on macOS) and 230 headless tests. The Windows popup callback and borderless-state controls are exercised by their dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
+The current baseline is 6,491 renderer cases (6,478 applicable cases and 13 platform skips on macOS) and 230 headless tests. The Windows popup callback and borderless-state controls are exercised by their dedicated Windows CI lane. Update these counts only when tests are intentionally added or removed.
 
 The optional wavefront vector engine must remain lazy. Selecting the default atlas engine must not allocate wavefront pipelines, buffers, or a full-window intermediate texture. Wavefront rendering requires `Bgra8UnormStorage`, compiles text through shaped glyph positions, renders the ordinary scene into one reusable intermediate, applies compute work there, and resolves through a single-sample final pass. Preserve RGBA as the default headless-test contract and opt individual wavefront tests into BGRA targets.
 

@@ -1,0 +1,27 @@
+{
+  "head": "6208f44ca74f2b5cf5d03ed1117d938421f27f7d",
+  "scope": "Exact unchanged producer acceptance observer; no original glyph workload changes",
+  "files": [
+    {
+      "source": "tests/ProGPU.Native.PackageConsumer/WindowsOwnedRuntimeValidation.cs",
+      "target": "native/WindowsOwnedRuntimeValidation.cs",
+      "sha256": "93721c6c523883e3ef8a1ed7884e5f02771ea78c80cc97a7f7d44dfee1ac15a0"
+    },
+    {
+      "source": "eng/progpu-native-wgpu.version.json",
+      "target": "native/WindowsNativePin.json",
+      "sha256": "b07586f8c8a1841062e39cd08bac6f9976e2ad01d6b8baed7d7213da5750c1c7"
+    },
+    {
+      "source": "eng/wgpu-dxc/build-inputs.json",
+      "target": "native/WindowsBuildPin.json",
+      "sha256": "0de2baaffcaacde32513ecf59344a9144a34af29b86f137fb2d07c98e7d2c278"
+    },
+    {
+      "source": "eng/wgpu-hlsl/build-inputs.json",
+      "target": "native/WindowsShaderPin.json",
+      "sha256": "ae71fdc538621d4cd59cf59b1563e3f4ab87123749c5f1550c524b8e24d28fa6"
+    }
+  ],
+  "previousSourceReceipt": "review-before-6208.zip:native/producer-verifier-source.json"
+}

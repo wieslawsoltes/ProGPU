@@ -964,6 +964,9 @@ namespace ProGPU.Vector
                         }
                     }
 
+                    // A signed-area sum can cancel between filled lobes, and
+                    // small source areas can become visible after a transform.
+                    // Neither is evidence that this contour can be discarded.
                     figures.Add(figure);
                 }
             }

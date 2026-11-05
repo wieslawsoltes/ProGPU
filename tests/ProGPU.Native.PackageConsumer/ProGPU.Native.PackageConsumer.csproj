@@ -26,6 +26,12 @@
     <EmbeddedResource Include="../../eng/wgpu-hlsl/build-inputs.json" LogicalName="WindowsShaderPin.json" />
     <EmbeddedResource Include="../Shared/BinaryGlyphOriginals.json" LogicalName="BinaryGlyphOriginals.json" />
     <EmbeddedResource Include="../Shared/BinaryGlyphCurveOriginals.json" LogicalName="BinaryGlyphCurveOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphDirectionOriginals.json" LogicalName="BinaryGlyphDirectionOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphAllDirectionsOriginals.json" LogicalName="BinaryGlyphAllDirectionsOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphCapsOriginals.json" LogicalName="BinaryGlyphCapsOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphCapsReversedOriginals.json" LogicalName="BinaryGlyphCapsReversedOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphConnectedCapsOriginals.json" LogicalName="BinaryGlyphConnectedCapsOriginals.json" />
+    <EmbeddedResource Include="../Shared/BinaryGlyphConnectedCapsReversedOriginals.json" LogicalName="BinaryGlyphConnectedCapsReversedOriginals.json" />
     <EmbeddedResource Include="../Shared/ProGPU-Authored-Scan-*.ttf" LogicalName="%(Filename)%(Extension)" />
     <EmbeddedResource Include="../Shared/ProGPU-Authored-Curve-Scan-*.ttf" LogicalName="%(Filename)%(Extension)" />
     <None Include="..\..\src\ProGPU.Fonts.Inter\Fonts\Inter-Regular.ttf"

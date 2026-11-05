@@ -45,9 +45,11 @@ public static class PrimitivePathGeometry
             return false;
 
         PathFigure figure = path.Figures[0];
+        // A closed figure's last edge back to the start is implicit, so a rectangle can arrive as
+        // three explicit lines (WPF's RectangleGeometry does); the closing edge is validated below.
         if (!figure.IsFilled ||
             !figure.IsClosed ||
-            figure.Segments.Count < 4)
+            figure.Segments.Count < 3)
         {
             return false;
         }

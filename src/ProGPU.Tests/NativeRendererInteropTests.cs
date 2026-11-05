@@ -4887,8 +4887,9 @@ public class NativeRendererInteropTests
         {
             success &= Build(destination, brushes, table);
         }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(success);
-        Assert.Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
+        Assert.Equal(0L, allocated);
         Assert.False(Build(destination, brushes, table[..^1]));
 
         brushes[0] = NativeSceneBrush.PerlinNoise(

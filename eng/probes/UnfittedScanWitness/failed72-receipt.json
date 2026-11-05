@@ -1,0 +1,12 @@
+{
+  "status": "failed",
+  "qualified": false,
+  "gateUnchanged": true,
+  "originalRun": 40749359911,
+  "originalArtifact": 12842348670,
+  "originalArtifactSha256": "ad92743ff4c60cf5b5dd72986464f07f76418a67c8d003b05185c020be2db89d",
+  "changedOriginalFrames": 27,
+  "matchedPrefixRun": 41897994316,
+  "matchedPrefixRemainingOriginalDifferences": 12,
+  "qualificationRemainsFailedRegardlessOfDiagnosticResult": true
+}

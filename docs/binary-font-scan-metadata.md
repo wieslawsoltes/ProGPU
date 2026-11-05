@@ -41,6 +41,43 @@ fallback, source reshaping, per-glyph interop calls and cross-API mode aliases.
 The algorithm comes from public scan contracts and independently observed original
 outputs; it does not copy another rasterizer's source or implementation structure.
 
+## Explicit paired outline capture
+
+`NativeHintedGlyphGeometryFactory.CaptureUnhintedFontBatchWithScanMetadata`
+prepares an explicit binary replay from one native context and selected font. It
+freezes caller glyph IDs, positions and variation coordinates, then captures
+Unhinted outlines and a separate Monochrome scan witness with identical device
+size, phase and interpreter. It never accepts independently supplied batch pairs.
+The implementation derives from the original owned
+`eng/probes/UnfittedScanWitness/native/ScanWitness.cs`; the cross-engine research
+and public scan contracts above remain the design basis.
+
+Complete glyph, curve-tag, contour-end, outline and segment inventories must agree
+before output allocation. Only raw scan mode, contour override and dropout flags
+are transferred. Every original coordinate bit (including signed zero), outline
+bound, precision flag, contour range, duplicate descriptor, no-ink slot and caller
+position remains unchanged. A topology mismatch rejects the whole request; it
+does not choose another font policy. Witness handles retire before publication.
+The result retains the independent original geometry owner and metadata-free font
+placements, including through selected views; it does not fabricate shaping data.
+
+This is O(G + P + C + S) preparation and storage for glyph descriptors, original
+points, contours and emitted segments, plus the two existing batched font captures.
+The contiguous topology checks depend on per-glyph offsets and contour boundaries;
+there is no rendering hot-path loop, per-glyph interop, GPU readback or bitmap
+rasterization. Geometry projection keeps the existing automatic, SIMD and scalar
+policies. Ordinary Unhinted capture, original hinted calls and source consumers
+remain unchanged.
+
+Twelve managed controls cover byte preservation and late topology rejection. The
+`tests/ProGPU.FontCapture.PackageConsumer` executable compares both owned straight
+and curved fonts under interpreters 35/40 and all three projection policies,
+including duplicate/no-ink slots, caller storage mutation and retained selected
+views after public source disposal. Its local source build is a preparation check;
+package execution must use a matching final package closure. These controls do
+not establish original Microsoft pixels, source-policy admission, native provider
+rendering or the separate 72-case Forms application acceptance.
+
 `BinaryGlyphRasterizer.wgsl` uses one 256-thread workgroup per scanline and two
 ordered dispatches. It sorts at most 512 crossings from 256 original line/quadratic
 segments, accumulates winding, and writes packed binary R8 coverage. The second
@@ -52,8 +89,12 @@ boundary contacts, retains actual orthogonal caps and exact cap contacts, and
 keeps with-stubs contour-vertex contacts separate from positive winding intervals.
 Quadratic endpoints use their first nonzero one-sided coefficient; an interior
 curve extremum does not become an endpoint. Exact nondegenerate quadratic
-boundaries retain closed coverage, while straight and flat boundaries retain
-their separate rule.
+boundaries retain closed coverage. Exact straight boundaries adjoining positive
+winding retain their original closed coverage; negative-winding interiors remain
+filled while their exact straight boundaries stay open. Flat quadratics keep
+their independent rule. At a flat straight edge, exact endpoint transfers recover
+the winding below the scan from the existing lower-inclusive winding; no shifted
+scan, source-coordinate change or contour-area proxy participates.
 No epsilon, source-coordinate adjustment or AA threshold substitutes for a binary
 decision. The independent original system-font comparisons remain required.
 
@@ -103,6 +144,302 @@ The fixture digest is
 its two original authored fonts are 23,812 bytes each. Both fixture sets run
 through the same managed and native checks, preserving the earlier inventory,
 full frames, padding, cold/warm reuse and original font-digest validation.
+
+The normal Windows system-font reference lane also retains a small fitted versus
+unfitted source control using the same owned straight-contour font. Glyphs 93–95
+straddle its exact right-edge boundary. Each runs with GDI+ GridFit and unfitted
+monochrome at pixel em sizes `32 - 1/256`, `32` and `32 + 1/256`, with the original
+integer origin and complete 64-by-64 binary frames. The three size-32 GridFit
+frames must still equal the original fixture exactly. The other 15 captures are
+observations, not new expected pixels or permission to alias the two policies.
+The source process admits the exact font/fixture hashes and checks a ten-second
+capture deadline. This adds no workflow, desktop window or input operation.
+
+This distinction matters for the separate system-font unhinted candidate in
+[diagnostic PR #428](https://github.com/wieslawsoltes/ProGPU/pull/428). Both providers
+produced identical output and exact ordered GGO unhinted geometry for all 64
+descriptors, but seven descriptors differed from the original pixels. Matching
+GGO's captured 26.6 outlines does not establish the internal precision or coverage
+policy of GDI+'s unfitted renderer. The candidate remains unqualified. Preserve
+the original failures and the independent GridFit fixtures while attributing the
+difference; making all straight boundaries inclusive would contradict existing
+original GridFit observations.
+
+The additional source scan-mode observation keeps those 18 captures and the same
+ten-second deadline. It pairs fitted and unfitted output for the original five
+scan modes and eight outline families at phase zero and 32 pixels per em: 80
+additional full frames, with all 40 fitted frames checked against the immutable
+original fixture. Unfitted frames remain observations, without expected-pixel
+replacement. Both matrices use the same hash-verified owned font, private family,
+native drawing call and failure-preserving cleanup. The normal Windows x64 and
+ARM64 system-font jobs execute this probe; no new workflow or desktop input is
+needed. Both jobs passed at `f65f3c646` in
+[Build 41932551078](https://github.com/wieslawsoltes/ProGPU/actions/runs/41932551078).
+Independent review verifies all 196 complete RGBA frames, all 86 immutable fitted
+comparisons and equality of all 98 x64/ARM64 pairs. The source receipts, including
+retirement, take 0.575 seconds on x64 and 0.462 seconds on ARM64.
+
+Every same-glyph fitted/unfitted pair agrees. In particular, diagonal dropout
+retains five distinct frames for the five authored SCANTYPE modes, even when
+unfitted. This is an observation about the original owned font, not permission
+to equate all [GDI+ text rendering modes](https://learn.microsoft.com/en-us/windows/desktop/api/gdiplusenums/ne-gdiplusenums-textrenderinghint)
+with a [FreeType outline-load flag](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html).
+
+A separate local probe compiles the actual current native capture sources against
+the pinned owned FreeType. Its 320 captures cover all 40 source glyphs, four load
+targets and both interpreters. Points, contour ends and curve topology agree in
+this owned font. Normal, Monochrome and HorizontalLcd retain every authored scan
+mode; Unhinted yields flags zero and no contour overrides, losing the selected
+mode in 32 of 40 glyphs for each interpreter. This establishes a metadata gap for
+these inputs. It does not attribute the seven original system-font failures or
+permit changing Unhinted's existing instruction-free contract.
+
+The [source scan witness replay](../eng/probes/UnfittedScanWitness/README.md)
+tests that explanation against the original 64 descriptors and full images. A
+separate same-source/device Monochrome capture supplies only scan/dropout metadata
+after complete topology checks. Original unhinted geometry, precision flags and
+expected images remain unchanged. Both original provider processes keep their
+45-second limits; source and witness arrays are retained independently. The
+existing Windows reference lane used the exact previously qualified producer
+package from the failed experiment, isolating this change from new product code.
+The replay at `490367550` in
+[Build 41939650876](https://github.com/wieslawsoltes/ProGPU/actions/runs/41939650876)
+completed both providers and failed their original pixel checks. Each captured
+all 128 full frames in about 6.2 seconds, retained exact ordered geometry for all
+64 descriptors, preserved every non-scan segment bit and retired its private
+fonts and owned processes. All 128 provider pairs and cold/warm images agree.
+
+Compared with the unchanged original experiment, only six frames changed: one
+pixel in each cold/warm image for Microsoft Sans Serif source slots 1, 5 and 11.
+Those three descriptors now match their original images. No previously matching
+pixel changed. Segoe UI slots 2, 24, 27 and 30 still differ: eight frames and
+36 pixels per provider, versus the original fourteen frames and 42 pixels.
+Slots 2 and 30 share glyph 80; the other remaining glyphs are 90 and 41.
+
+This attributes those three Microsoft Sans Serif differences to scan metadata
+in this isolated replay. It is not a complete raster fix or source/application
+qualification. The remaining Segoe UI pixels require independent precision and
+scan-boundary evidence; exact GGO 26.6 geometry does not establish GDI+'s internal
+unfitted representation. Preserve both failures, all original expected images
+and the independent fitted fixtures. No generic boundary, font-load policy,
+shader or acceptance threshold changed. Artifact `13375063886` has SHA-256
+`02204e87d090266c2190b7e553128e7571731141344f92daa38d7e5cae32cd8e`.
+The completed replay is retired from routine CI, removing its expiring historical
+artifact dependency. Its source, inputs and both failed results remain retained;
+this does not turn the remaining original pixel failures into passing acceptance.
+
+An additional owned-source direction observation pairs the original font with a
+separate derivative. Only seven four-point right-edge contours reverse point
+order; their original coordinates, metrics and scan instructions remain intact.
+The derivative has a distinct family name and SHA-256
+`872c5a82825c5e1aa3e51589d758680b36a7e005b8fa982efd21d19b239fb91d`.
+Its deterministic generator follows the public
+[OpenType glyph format](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf).
+Actual native capture independently verifies both complete 441-glyph inventories
+under four load targets and both interpreters: 7,056 captures preserve all
+metadata, all 3,472 unaffected captures per font and the exact reversed point
+order in 56 affected comparisons. This is font-structure validation, not pixels.
+
+The original 98-frame source control retains its unchanged expectations and
+ten-second bound. A separate ten-second, 28-frame observation pairs both contour
+directions with fitted/unfitted rendering over five scan modes and the three
+original mode-one phases. All seven original fitted frames must still match the
+immutable fixture. Reversed frames remain observations, with complete pixels,
+owned private-family retirement and no input or desktop windows. Both architectures
+passed in [Build 41943979905](https://github.com/wieslawsoltes/ProGPU/actions/runs/41943979905).
+Independent review verifies all 252 full frames, all 126 cross-architecture pairs
+and all 100 immutable original comparisons. Each of the five phase-zero reversed
+contours adds the nine exact right-edge samples; the adjacent phases are unchanged.
+Every fitted/unfitted pair agrees. Both direction observations complete in about
+0.021 seconds, including owned-family retirement.
+
+`BinaryGlyphDirectionOriginals.json` retains these seven original reversed-font
+frames independently of the earlier 1,760-case fixtures. Its SHA-256 is
+`aebb5e4955a0003808f639601188c9151315ecc98ead3929f366513cd2a643fd`.
+The unchanged renderer fails five of these cases and 45 pixels while both earlier
+880-case fixtures pass. The common shader now admits the exact downward vertical
+line crossing. Its upward counterpart stays open; no slope, flat boundary,
+quadratic, dropout arithmetic, sorted event or source coordinate changes.
+All 37 focused managed controls pass after the correction, including all three
+original pixel inventories and cold/warm reuse. The native package consumer also
+retains the separate seven-case inventory through original segments and both
+owned font interpreters, without reducing either earlier 880-case inventory.
+Both rebuilt native providers pass all nine local executions: the three complete
+fixtures through original segments and both font interpreters, with unchanged
+cold/warm submissions, counters, full-frame padding and source lifetime checks.
+The exact loaded library hashes are retained with the results; wgpu completes in
+1.29 seconds and Dawn in 1.67 seconds. Windows and package qualification remain
+required.
+
+This proves and corrects the observed owned vertical-boundary defect. It does not
+by itself resolve the four remaining Segoe UI descriptors or qualify a GDI+
+unfitted source adapter. Their original full frames and metadata replay failure
+remain separate gates; do not infer a sloped-edge or unfitted precision policy
+from these rectangles.
+
+A local replay of the exact retained 64-case scan-applied geometry then tests
+the correction against every original full image. It retains the original render
+loop, 45-second/16-MiB bound, descriptor order, cache counters and cold/warm frames;
+it does not repeat source capture or replace Windows acceptance. Both rebuilt
+providers produce identical 128-frame inventories. Only the two glyph-80
+descriptors change: all 32 differing pixels across their four cold/warm frames
+now match. No other pixel changes. Source slots 24 (`w`) and 27 (`F`) still fail,
+each by one pixel per frame, leaving four differing pixels per provider.
+
+The remaining observations need broader independent direction and stroke-end
+coverage. A separate owned derivative reverses all 440 original contours across
+the eight original families, five modes and eleven phases. It preserves every
+coordinate, on/off-curve tag, instruction and metric; the original font and the
+seven-contour derivative stay immutable. Its SHA-256 is
+`6aec3fab6c6e9265541cb5bb9874b754bb2537e380187e4d35edafbb56db5bd4`.
+Actual native captures verify all 3,520 reversed point/tag inventories across
+four load targets and both interpreters, with unchanged metadata and eight
+unchanged notdef captures. The Windows observer is compiled and retains a
+separate ten-second bound for 1,760 full frames, including all 440 original
+fitted comparisons. Both smaller source observations keep their original inputs,
+counts and deadlines. Both Windows observations pass in
+[Build 41946818514](https://github.com/wieslawsoltes/ProGPU/actions/runs/41946818514).
+Independent review verifies every one of the 3,520 full frames, all 1,760
+architecture pairs and all 880 immutable original comparisons. Every fitted and
+unfitted pair agrees; both source processes retire their owned families in about
+1.1 seconds. The smaller 98/28-frame controls also retain their original matches,
+deadlines and cleanup. This adds no workflow, desktop window or input action.
+
+The complete `BinaryGlyphAllDirectionsOriginals.json` fixture retains all 440
+reversed originals, with SHA-256
+`2b9ab3fabed7d7437cd181a9b93648725d9189214ce76f4eb79809e8068adbbb`.
+The vertical-only correction still fails 43 of these cases and 90 pixels:
+horizontal boundaries, diagonal crossings and triangular contours require the
+same directed treatment. The common shader now uses the actual signed winding
+on either side of an exact straight crossing. Flat line contacts use the original
+winding above and exact start/end transfers for the limit below. Existing interior
+roots, event order, original coordinates, flat-curve calculations and all dropout
+arithmetic remain unchanged. This is not an epsilon, rounded scan or whole-contour
+area classification.
+
+All 38 focused managed controls pass, including every unchanged older case. Both
+rebuilt native providers pass all 12 full-frame fixture executions with original
+segments and both font interpreters, including complete blank padding, cold/warm
+cache counters and source lifetime. A further complete retained 64-case replay
+changes only the two cold/warm images for source slot 24 (`w`), one pixel each,
+both to the original expectations. All provider pairs agree and no other pixel
+changes. Only slot 27 (`F`) remains: one pixel per cold/warm frame per provider.
+Its stroke-end/dropout behavior, fresh Windows source execution, final packages
+and actual application qualification remain open.
+
+A separate flat-cap observation varies eleven finite endpoint coordinates in two
+authored strip frames, under all five scan modes and both contour directions.
+One frame retains the original half-pixel strip thickness; the other uses an
+independently declared fractional strip. Coordinates and sidebearings belong to
+these new test fonts, not modified system-font inputs. Advance widths and original
+scan instructions stay unchanged. The first preparation incorrectly retained an
+old sidebearing after moving the new strip's left bound; native capture exposed
+the resulting phantom-point translation before any source execution. That failed
+preparation is retained. Corrected authored sidebearings match their declared
+left bounds, and all 1,760 selected native point inventories now match exactly;
+all 5,296 unselected inventories and all scan metadata are unchanged across both
+derivatives and four load targets/two interpreters.
+
+The corrected forward font SHA-256 is
+`02ec6a8655adc7766325f8178a3433dd9b640b5ac61fa01bcaaa8ee3d5027ab7`;
+the reversed font SHA-256 is
+`d21da6a20855aecc2e329aebcf41554f71f14bd6311d4968143ea410cc006be6`.
+The source observer retains 660 full frames under a separate ten-second bound,
+including 110 mandatory unchanged original fitted comparisons. Earlier 98, 28
+and 1,760-frame observations retain their original expectations, schemas and
+limits. Build [41949972992](https://github.com/wieslawsoltes/ProGPU/actions/runs/41949972992)
+completed both source observations in 0.232 and 0.377 seconds. All 660 x64/ARM64
+frame pairs and all fitted/unfitted pairs agree. All 1,886 earlier frames per
+architecture remain byte-identical. Artifact 13380622019 has SHA-256
+`73dcdb927cf7b8f9e19ef33720d6ea1d6dc1ef732cd0428edcef9682fc602c2a`;
+artifact 13380383561 has SHA-256
+`45585dbb4c6b0b50933a182adc683fd5a919d992622ad6a6ee66d321943a4bd2`.
+
+The two new immutable fixture files retain all 220 original forward/reversed
+frames. Before the correction, 16 reversed cases lose one exact endpoint pixel
+each; every previous fixture and all 110 forward cases pass. The missing pixels
+are closed, positive-winding flat boundaries at upper scan endpoints. Ordinary
+lower-inclusive crossings correctly have no interval there. The shared shader
+now evaluates those exact straight endpoints separately, using the existing
+signed endpoint transfer and original scan modes. An existing nonzero interval
+stays on its original path. Axis transposition reverses only the winding test;
+no perturbed level, root replacement, contour-area approximation or new bitmap
+expectation is involved. Stub-excluding modes still require two distinct inward
+continuation contacts. Original event slots, parameters, sorting, lane traversal,
+vertex-dropout calls, buffers and barriers remain unchanged. The additional
+work is bounded by O(C*S), with at most S upper flat caps across both directions.
+
+All 40 focused managed controls pass, including all 2,427 original cases and
+cold/warm cache checks. A separate trial shortened the existing finite-cap
+allowance; it broke original forward and reversed source images and was discarded.
+Its failure is retained. Both rebuilt native providers pass all 18 executions
+(original segments and actual font captures under interpreters 35/40), including
+full pixels, source retirement and cold/warm cache counters. All 128 retained
+system-font frames per provider remain byte-identical to the previous run, so
+the separate `F` mismatch is unchanged. These isolated strip observations do not explain the
+system-font `F` mismatch: their complete glyph bounds differ from a connected
+stem. Fresh Windows/provider/package qualification remains required.
+
+A further independent observation adds a declared one-pixel connected stem below
+the same eleven fractional upper strips, in all five modes and both directions.
+The stem reaches design Y=64; it changes the actual whole-glyph extent without
+moving the upper strip. These are newly authored six-point outlines, not altered
+system-font images. The original font, isolated strips, advance widths and scan
+instructions remain byte-identical. All 880 selected native captures match their
+exact declared points across four load targets and both interpreters; all 6,176
+unselected captures remain unchanged. The forward font SHA-256 is
+`947028b7af7c585f3367fb9702b834965eba7b163fec8b3272e4fce96a5e339c`;
+the reversed font SHA-256 is
+`ef4f3997a72798d035f4d729f0757c1449746acd65a3a379aace2054eb93841e`.
+The existing windowless observer is compiled for 330 additional full frames,
+including 55 unchanged original fitted comparisons, under its separate ten-second
+bound. All earlier observations retain their own captures and deadlines. Source
+execution completed in Build
+[41952339870](https://github.com/wieslawsoltes/ProGPU/actions/runs/41952339870).
+Both architectures agree on all 330 full frames, with identical fitted/unfitted
+pairs and all 2,546 earlier frames per architecture unchanged. The x64 observation
+completed and retired in 0.127 seconds; ARM64 took 0.193 seconds. Artifact
+13381930791 has SHA-256
+`c9fb109e9ce3e6b6b20775d0aa71915879707cc6f219ddcee383d3948b3720be`;
+artifact 13382355554 has SHA-256
+`d55e760ce69479073f97f08e8da328b31e8016c9e5f64b9359c05fb19f1e59f9`.
+
+Both connected-stroke fixtures expose 22 extra endpoint pixels each in the
+preceding shader, only in the two stub-excluding modes. The original six fixture
+sets remain matching. The finite orthogonal-cap exception now requires the
+actual whole glyph's rounded scan-axis extent to collapse, using the same
+arithmetic as the existing mandatory one-pixel raster extent. A thin local bar
+in a connected glyph does not imply a collapsed whole-glyph extent. Exact
+pixel-center side contacts retain their independent rule. A cap exactly on the
+opposite edge of the unit square retains its original positive-winding closed
+contact; transposing scan axes reverses winding. The beginning event follows
+zero winding, so its original delta supplies the interval's sign. No coordinates,
+root parameters, sample grid, cap distance, expected image or source mode change.
+The separate exact upper-cap path uses the same whole-glyph extent admission
+for stub-excluding modes. With-stubs and no-dropout modes remain independent.
+
+All 42 focused managed controls pass over all 2,537 original authored cases.
+Both rebuilt native providers pass all 24 complete executions (original segments
+and actual source batches under interpreters 35/40), including full-frame padding,
+source retirement, actual submissions and cold/warm counters. The complete
+retained system-font replay now matches all 64 original descriptors in both
+cold/warm frames on both providers. Only the two formerly failing `F` frames
+change, one pixel each at (20,24), both to the original expected white. All other
+pixels remain byte-identical; all 128 provider pairs agree. Both processes stay
+inside the unchanged 45-second/16-MiB limits. This resolves the retained replay,
+not fresh Windows/source capture or the original 72-case Forms application gate.
+Those checks, whole-provider/package qualification and explicit source-policy
+admission remain required; existing font-loading defaults are unchanged.
+
+
+The preceding 18-frame probe at `b5865332` completed on both Windows architectures
+in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).
+All 18 paired full frames agree across architectures, all three original fitted
+frames per architecture match, and each fitted/unfitted pair is identical. This
+small right-edge observation does not select the source's unfitted dropout or
+precision policy. The broader mode inventory separates those questions from
+the already qualified fitted boundary rule; the seven system-font descriptor
+failures remain unresolved.
 
 Both captured JSON files are byte-preserving Git assets. The first Windows
 package runs at `dcaac6c7` rejected their unchanged SHA-256 checks before rendering:
@@ -245,6 +582,142 @@ passes all original and new cases through native wgpu and Dawn, including actual
 font captures under interpreters 35 and 40. A separate diagnostic also compares
 all 128 retained system-font contours without pixel differences; this is not the
 final original source-application, 72-frame text pair or package qualification.
+
+On 5 November, the connected-cap producer `d0d5e9e0` failed all three original
+ARM64 binary package routes (FXC, DXC and Dawn) after the first frame submission.
+All 73 head checks and 63 Build jobs reached terminal state; three failed. The
+exact failed package remains unqualified. A single disposable hosted capture
+([run 41960759862](https://github.com/wieslawsoltes/ProGPU/actions/runs/41960759862))
+reconstructed the unchanged DXC consumer from that exact source/package. Its
+independent handled-exception/fail-fast CPU control passed before application
+execution. The capture reached its unchanged eight-event cap, so it remains a
+failed bounded diagnostic, not a complete admitted runtime gate.
+
+Its retained first access-violation context and actual 1,024-byte code range show
+`mov w28, #0x3124; add x28, xzr, x28; str w4, [x28]`. The write targets `0x3124`,
+with an actual `0x3130` frame-pointer-to-stack-pointer distance. A later WARP
+fail-fast has subtype `0x49`. The bad zero-register address calculation is directly
+observed; shader-frame reduction remains a mitigation to validate, not a claim
+that a particular array alone causes the compiler defect. No system DLL, compiler
+default, original input or pixel expectation changes.
+
+The continuation helper now retains the same three immutable positions and
+admission flags in separate values. The original bounded edge loop visits
+exactly 0, 1 and 2, selecting respectively the opposite, left and right side.
+Both original root visits, all comparisons, each original float component and
+first-distinct-position counting remain unchanged. Selection performs no numeric
+interpolation or geometry recomputation. It removes two addressable local arrays
+without changing shared memory, barriers, atomics, event/root storage, smart
+subdivision or dropout order. Original ARM64 execution and whole-provider/package
+qualification remain required; smaller compiler output or local pixels alone
+cannot qualify this candidate.
+
+The revised shared shader passes all eight complete managed bitmap fixtures
+(2,537 authored cases), and both rebuilt native providers pass all 24 fixture
+executions through original segments and both font interpreters with zero pixel
+differences. The full canonical shader plus NUL occurs exactly once in each
+actual tested library. These local checks preserve the original cold/warm,
+ownership and submission assertions; Windows execution remains pending.
+
+The array-selection candidate `ba52504f1` still fails the original Windows ARM64
+DXC binary consumer in [Build 41961661131, job 127043560538](https://github.com/wieslawsoltes/ProGPU/actions/runs/41961661131/job/127043560538):
+frame zero reaches submission wait and exits `0xC0000409`. Its complete original
+log is retained. Array removal alone is therefore insufficient; neither that
+candidate nor its local successful pixels establish ARM64 safety.
+
+A further candidate retains each horizontal analytic coverage pair in a bounded
+two-visit helper. It selects the original first and second scalar arguments,
+returns immediately when the first succeeds, and otherwise performs the second
+check. The three original callers retain their exact coordinate expressions,
+including the vertex path's distinct `left + 1.5` expression. The complete
+`base_covered` arithmetic, all 21 other unchanged functions, event/root storage,
+shared memory, barriers, atomics, lane/dropout order and explicit smart-curve
+endpoint evaluations remain intact. This reduces duplicated heavy helper call
+sites without replacing the rendering algorithm or changing compiler settings.
+
+All 42 local fixture/resource controls pass, including the complete eight bitmap
+fixtures (2,537 original cases). Both rebuilt native providers pass all 24 fixture
+executions with zero pixel differences; the exact canonical shader plus NUL is
+present once in each actually loaded library. These results establish local
+pixel equivalence only. The original ARM64 package checks and full producer
+qualification remain mandatory before claiming a repair.
+
+A same-host managed comparison now independently reproduces the ARM64 failure
+with both the array-selection and coverage-pair shaders. In
+[run 41969418493](https://github.com/wieslawsoltes/ProGPU/actions/runs/41969418493),
+the original eight-fixture host loads each exact canonical shader with the same
+verified failed-package DXC payload and original system WARP. Both exit
+`0xC0000409` before completing the first fixture, in 3.385 and 1.319 seconds.
+The independent success, owned-deadline and log-cap controls pass. The retained
+artifact is SHA-256 verified; neither coverage-pair sharing nor array removal
+is a sufficient repair. This diagnostic does not replace the original native
+package gate or qualify the failed package.
+
+A subsequently rejected candidate shares the continuation helper's three original analytic
+crossing evaluations through one bounded call site. Its loop visits the opposite,
+left and right scan edges in exactly that order, selecting the original scalar
+levels and axis values without interpolation. Each result retains both complete
+root slots before the unchanged root/edge visitation and distinct-position
+counting. All 25 other functions, original event parameters, shared storage,
+barriers, atomics and explicit smart-curve endpoint evaluations are unchanged.
+The complete eight managed bitmap fixtures and resource controls pass (42 tests),
+and both rebuilt native providers pass all 24 original fixture executions with
+zero differing pixels. The exact candidate shader plus NUL occurs once in each
+actually tested native library. The actual
+[Windows ARM64 comparison](https://github.com/wieslawsoltes/ProGPU/actions/runs/41970682358)
+then reproduces `0xC0000409` in both the baseline and this candidate, in 2.959 and
+1.265 seconds, with no completed fixture. Their actual loaded WGPU and system WARP
+hashes are identical. This unsuccessful candidate is removed from the product
+shader; its exact bytes, local controls and original failed process receipts are
+retained for diagnosis. No compiler option, driver, pixel expectation or process
+limit was relaxed. Whole native/package/source qualification remains outstanding.
+
+The complete coverage-pair product Build at `3735757cb` is terminal: 60 of its
+63 jobs pass; all three original ARM64 binary routes (FXC, DXC and Dawn) fail.
+The complete 73-check inventory and original untruncated failure logs are retained
+before advancing that producer. A bounded
+[first-fault capture](https://github.com/wieslawsoltes/ProGPU/actions/runs/41971798360)
+then observes the unchanged managed shader's actual first write fault at `0x2764`
+and subsequent `0xC0000409`. The retained generated instructions load that address,
+add the zero register and write through it. Its frame is 10,096 bytes, 2,496 bytes
+smaller than the earlier failed frame; the smaller frame still produces an invalid
+write. This does not attribute the fault to an individual source construct or
+permit changing the driver, generated machine code or compiler settings.
+
+The next refactor shares the heavy coverage and continuation call sites across
+the original scan visits. Each lane still visits all its horizontal pixels, then
+events `lane` and `lane + 256`, then its vertex and flat cap. Vertical scans omit
+only the original absent horizontal-pixel phase. Integer quotient/remainder
+counts preserve those exact indices without floating reconstruction. Private
+admission descriptors retain the original sample expressions, including vertex
+`left + 1.5`, and the original midpoint arithmetic. The ordered short-circuit
+coverage pair and continuation directions remain unchanged. Smart curved endpoints
+still use two explicit original evaluations, their single addition and the
+original 32-step subdivision bound. No event layout, root parameter, shared array,
+barrier, atomic or dispatch order changes; all 20 arithmetic/storage helpers remain
+byte-identical to the previous product source.
+
+The actual GPU trace test executes the production visit loop against independent
+original loops for 21 widths, both axes and all 256 lanes: 10,752 traces on each
+provider, including zero width, workgroup boundaries and 16,384 pixels. All traces
+and untouched output tails match. All 42 original bitmap/resource controls pass;
+both rebuilt native providers pass all 24 original fixture executions with zero
+pixel differences. The full local renderer passes 6,478 tests with its unchanged
+13 platform skips; all 230 headless tests pass.
+
+In the same-host
+[original ARM64 comparison](https://github.com/wieslawsoltes/ProGPU/actions/runs/41973610995),
+the previous shader exits `0xC0000409` in 2.615 seconds before finishing a fixture.
+The shared-visit shader completes all eight original fixtures and 2,537 cases,
+exiting zero in 13.152 seconds. Both processes load identical verified WGPU and
+original system WARP binaries, retain the original 60-second deadline, and pass
+the independent success/deadline/log-cap controls. The candidate shader SHA-256 is
+`1545b475dfa1076d39e02830f3a18606535ea0c7da7f94a93b6af3d47243cd61`;
+the retained result archive SHA-256 is
+`e3f5e5dd71345916e5959f49c9dbf1b9ae1b78198a646eac6b2eba50c057468e`.
+This establishes the managed DXC repair on that original ARM64 workload, not full
+native FXC/DXC/Dawn, package, source-policy or application qualification. Those
+original gates remain mandatory on the rebuilt product before release.
 
 Local validation on 18 October 2026:
 

@@ -1,5 +1,24 @@
 # Native image-effect allocation measurement
 
+## Perlin brush-table measurement boundary, 2026-11-04
+
+The local macOS ARM64 full renderer suite, with the closing-owner change on
+`b5865332c4a3c74df6c9a4d7dcd317ee7086041e`, reported 1,344 bytes in
+`SemanticPerlinBrushTableIsBoundedAndAllocationFree`; 6,455 other cases passed
+and 13 platform cases skipped. Its final counter read still followed
+`Assert.True(success)`, so test-framework execution was inside the interval.
+The read now immediately follows the original 1,000 builder calls. The single
+warmup, complete stack payload/table, exact zero-byte threshold, truncated-table
+rejection and non-table Perlin case remain unchanged. No builder, renderer,
+native implementation, runtime option, retry allowance or iteration bound changes.
+
+This corrects the measured boundary only. It does not attribute the original
+1,344 bytes to xUnit or the separate runtime allocation-counter issue. The failed
+full-suite log remains retained as `progpu-closing-owner-renderer.log` in the
+2026-11-04 incoming-PR audit. Fresh full-suite and whole-producer CI qualification
+are still required; a passing corrected run cannot retrospectively qualify the
+failed run or establish its allocation provenance.
+
 ## Boolean vector-mask measurement boundary, 2026-09-29
 
 Build `36543489551`, macOS job `109324228538`, at

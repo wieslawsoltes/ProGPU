@@ -1149,6 +1149,14 @@ jobs:
           dotnet pack src/ProGPU.Backend.Dx12/ProGPU.Backend.Dx12.csproj \
             --configuration Release --output "${output}" \
             -p:Version="${version}" -p:PackageVersion="${version}"
+          # The scene-level font capture consumer must resolve the same exact
+          # candidate closure; no source reference or published-version fallback.
+          for project in ProGPU.WinRT ProGPU.Transpiler ProGPU.Text.Shaping \
+              ProGPU.Vector ProGPU.Text ProGPU.Compute ProGPU.Scene ProGPU.Scene.Native; do
+            dotnet pack "src/${project}/${project}.csproj" \
+              --configuration Release --output "${output}" \
+              -p:Version="${version}" -p:PackageVersion="${version}"
+          done
           PROGPU_PACKAGE_VERSION="${version}" \
           PROGPU_PACKAGE_OUTPUT="${output}" \
             ./eng/progpu-verify-native-package.sh
@@ -1389,6 +1397,15 @@ jobs:
         with:
           name: progpu-native-package
           path: artifacts/packages-native/Release
+
+      - name: Run paired font capture package consumer
+        if: matrix.suite == 'all' || matrix.suite == 'core'
+        shell: bash
+        run: |
+          dotnet run --project tests/ProGPU.FontCapture.PackageConsumer/ProGPU.FontCapture.PackageConsumer.csproj \
+            --configuration Release \
+            -p:ProGpuNativePackageSource="${GITHUB_WORKSPACE}/artifacts/packages-native/Release" \
+            -p:ProGpuNativePackageVersion="0.1.0-preview.${GITHUB_RUN_NUMBER}.ci"
 
       - name: Run ordered-query native package consumer
         if: matrix.suite == 'all' || matrix.suite == 'core'

@@ -8,6 +8,7 @@
     <PackageTags>progpu;scene;native;c++;webgpu;renderer</PackageTags>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
     <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
   </ItemGroup>

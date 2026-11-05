@@ -1,0 +1,120 @@
+--- a/naga/src/back/hlsl/writer.rs
++++ b/naga/src/back/hlsl/writer.rs
+@@ -1279,24 +1279,101 @@
+         module: &Module,
+     ) -> BackendResult {
+         let level = back::Level(1);
+-
+-        writeln!(
+-            self.out,
+-            "{level}if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {{"
+-        )?;
+-
+-        let vars = module.global_variables.iter().filter(|&(handle, var)| {
+-            !func_ctx.info[handle].is_empty() && var.space == crate::AddressSpace::WorkGroup
++        let vars: Vec<_> = module
++            .global_variables
++            .iter()
++            .filter(|&(handle, var)| {
++                !func_ctx.info[handle].is_empty() && var.space == crate::AddressSpace::WorkGroup
++            })
++            .collect();
++        let has_arrays = vars.iter().any(|&(_, var)| {
++            matches!(
++                module.types[var.ty].inner,
++                TypeInner::Array {
++                    size: crate::ArraySize::Constant(_),
++                    ..
++                }
++            )
+         });
+ 
+-        for (handle, var) in vars {
+-            let name = &self.names[&NameKey::GlobalVariable(handle)];
+-            write!(self.out, "{}{} = ", level.next(), name)?;
+-            self.write_default_init(module, var.ty)?;
+-            writeln!(self.out, ";")?;
+-        }
+-
+-        writeln!(self.out, "{level}}}")?;
++        if has_arrays {
++            let ep_index = match func_ctx.ty {
++                back::FunctionType::EntryPoint(index) => index,
++                back::FunctionType::Function(_) => unreachable!(),
++            };
++            let [width, height, depth] = module.entry_points[ep_index as usize].workgroup_size;
++            let stride = width
++                .checked_mul(height)
++                .and_then(|xy| xy.checked_mul(depth))
++                .filter(|&size| size != 0)
++                .ok_or_else(|| {
++                    super::Error::Custom("Invalid workgroup initialization extent".into())
++                })?;
++            let local_index = self.namer.call("workgroup_zero_local_index");
++            writeln!(self.out,
++                "{level}uint {local_index} = __local_invocation_id.x + {width}u * (__local_invocation_id.y + {height}u * __local_invocation_id.z);")?;
++            for &(handle, var) in &vars {
++                if let TypeInner::Array {
++                    base,
++                    size: crate::ArraySize::Constant(size),
++                    ..
++                } = module.types[var.ty].inner
++                {
++                    let index = self.namer.call("workgroup_zero_index");
++                    let name = &self.names[&NameKey::GlobalVariable(handle)];
++                    // Avoid a whole-array cast assignment: FXC can spend excessive time optimizing it.
++                    // Each invocation owns its residue class; all elements retain typed zero.
++                    writeln!(
++                        self.out,
++                        "{level}for (uint {index} = {local_index}; {index} < {size}u; ) {{"
++                    )?;
++                    write!(self.out, "{}{name}[{index}] = ", level.next())?;
++                    self.write_default_init(module, base)?;
++                    writeln!(self.out, ";")?;
++                    // Keep the final increment representable even for extreme array extents.
++                    if size.get() > u32::MAX - (stride - 1) {
++                        writeln!(
++                            self.out,
++                            "{}if ({size}u - {index} <= {stride}u) {{ break; }}",
++                            level.next()
++                        )?;
++                    }
++                    writeln!(self.out, "{}{index} += {stride}u;", level.next())?;
++                    writeln!(self.out, "{level}}}")?;
++                }
++            }
++        }
++
++        if vars.iter().any(|&(_, var)| {
++            !matches!(
++                module.types[var.ty].inner,
++                TypeInner::Array {
++                    size: crate::ArraySize::Constant(_),
++                    ..
++                }
++            )
++        }) {
++            writeln!(
++                self.out,
++                "{level}if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {{"
++            )?;
++            for (handle, var) in vars {
++                if matches!(
++                    module.types[var.ty].inner,
++                    TypeInner::Array {
++                        size: crate::ArraySize::Constant(_),
++                        ..
++                    }
++                ) {
++                    continue;
++                }
++                let name = &self.names[&NameKey::GlobalVariable(handle)];
++                write!(self.out, "{}{} = ", level.next(), name)?;
++                self.write_default_init(module, var.ty)?;
++                writeln!(self.out, ";")?;
++            }
++            writeln!(self.out, "{level}}}")?;
++        }
+         self.write_barrier(crate::Barrier::WORK_GROUP, level)
+     }
+ 

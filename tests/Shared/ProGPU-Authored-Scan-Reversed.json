@@ -1,0 +1,321 @@
+{
+  "sourceSha256": "60d952f14b770aec08221b8adee1a1b7d82a8abdc259fb2484de9666a2f45832",
+  "fixtureSha256": "6d13e632b5f260217bc17d9c86b61e77506f463644eeee923280400a52f3b092",
+  "sha256": "872c5a82825c5e1aa3e51589d758680b36a7e005b8fa982efd21d19b239fb91d",
+  "bytes": 21212,
+  "unitsPerEm": 2048,
+  "glyphs": 441,
+  "changedGlyphs": [
+    {
+      "glyph": 6,
+      "mode": 0,
+      "phase": 0,
+      "originalPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          160,
+          64
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          64,
+          640
+        ]
+      ],
+      "reversedPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          64,
+          640
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          160,
+          64
+        ]
+      ],
+      "instructions": "b801ff85b0008d",
+      "originalGlyphSha256": "4b05cbe1b4519a901c3cbb4a46adf90573d35f912dd5301d7d32e6c14c7ad332",
+      "reversedGlyphSha256": "53ada95578b68103dd18ee9f7d9ec9407bfcf99688753e823c5f2752d0cbe443"
+    },
+    {
+      "glyph": 93,
+      "mode": 1,
+      "phase": -1,
+      "originalPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          159,
+          64
+        ],
+        [
+          159,
+          640
+        ],
+        [
+          64,
+          640
+        ]
+      ],
+      "reversedPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          64,
+          640
+        ],
+        [
+          159,
+          640
+        ],
+        [
+          159,
+          64
+        ]
+      ],
+      "instructions": "b801ff85b0018d",
+      "originalGlyphSha256": "9787826dd993706df110d7e93cfbc7888fa98af4685e98895c76836229f2e1a1",
+      "reversedGlyphSha256": "b0b8c9d1a3e1c4d2f971ba82d18ad9b9b91b82da3705ef28cc7c161794107aa1"
+    },
+    {
+      "glyph": 94,
+      "mode": 1,
+      "phase": 0,
+      "originalPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          160,
+          64
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          64,
+          640
+        ]
+      ],
+      "reversedPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          64,
+          640
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          160,
+          64
+        ]
+      ],
+      "instructions": "b801ff85b0018d",
+      "originalGlyphSha256": "b0a044b4a9034162025b223eaee328436778eb6780b594c5255e4de37601f84f",
+      "reversedGlyphSha256": "19124a0de5bac8adfe197486a143795b1bc7abb65c55860d94002dfe7a5c074e"
+    },
+    {
+      "glyph": 95,
+      "mode": 1,
+      "phase": 1,
+      "originalPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          161,
+          64
+        ],
+        [
+          161,
+          640
+        ],
+        [
+          64,
+          640
+        ]
+      ],
+      "reversedPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          64,
+          640
+        ],
+        [
+          161,
+          640
+        ],
+        [
+          161,
+          64
+        ]
+      ],
+      "instructions": "b801ff85b0018d",
+      "originalGlyphSha256": "84b6004541f73127892c6fe394618ea05deb1d7db57ab01e2cde177189be092d",
+      "reversedGlyphSha256": "f06a51935db9f7772955713fadc287a055665c2f20384c1a1894f9dc16d4da8c"
+    },
+    {
+      "glyph": 182,
+      "mode": 2,
+      "phase": 0,
+      "originalPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          160,
+          64
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          64,
+          640
+        ]
+      ],
+      "reversedPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          64,
+          640
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          160,
+          64
+        ]
+      ],
+      "instructions": "b801ff85b0028d",
+      "originalGlyphSha256": "ded5ff8dfe120db82edaf6f405686cf372c05c19b89372429ae9e4a316f64b94",
+      "reversedGlyphSha256": "bb2002c82eb9a4cac8c5859d2306f6e06c20c82199026197d337dc476c29bd4b"
+    },
+    {
+      "glyph": 270,
+      "mode": 4,
+      "phase": 0,
+      "originalPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          160,
+          64
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          64,
+          640
+        ]
+      ],
+      "reversedPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          64,
+          640
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          160,
+          64
+        ]
+      ],
+      "instructions": "b801ff85b0048d",
+      "originalGlyphSha256": "66d59df399d10551e6367d1da472dc1ffb08f95a67ae30b83e540e7085ee8cd6",
+      "reversedGlyphSha256": "39cd4b416e1b15acb569ccd61cc9deb9cfedaf7ab8a33486b86b0fa542a8679a"
+    },
+    {
+      "glyph": 358,
+      "mode": 5,
+      "phase": 0,
+      "originalPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          160,
+          64
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          64,
+          640
+        ]
+      ],
+      "reversedPoints": [
+        [
+          64,
+          64
+        ],
+        [
+          64,
+          640
+        ],
+        [
+          160,
+          640
+        ],
+        [
+          160,
+          64
+        ]
+      ],
+      "instructions": "b801ff85b0058d",
+      "originalGlyphSha256": "e6297b229fc5a5039fa617410ad1b7c703b1adf09f573daa517597bdfe566f2d",
+      "reversedGlyphSha256": "a19f43c748d475549177ff36e7bf1d1da5ac3de79d38810b922cafcdcf79fb3c"
+    }
+  ],
+  "rendered": false,
+  "qualified": false,
+  "scope": "Contour direction control only; original font/fixture unchanged. No pixel expectation replacement."
+}

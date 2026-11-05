@@ -19,10 +19,35 @@ internal static class BinaryGlyphOriginalValidation
             "B30470FEAE7D095ADAD5E549595ADEAED929058E3040D94640F0CA214313E2B8", "ProGPU-Authored-Curve-Scan",
             ["1B022DD2BEBA0EE8E591A0A577F6E7872A3F1C661EFDBF4C2C42E9CC6E6EDAD3",
              "3AA2AB1D3104067B5EDED6406E4ED2B87F813260D8EFA39568082DF48190A721"]);
+        Run(context, create, "BinaryGlyphDirectionOriginals.json",
+            "AEBB5E4955A0003808F639601188C9151315ECC98EAD3929F366513CD2A643FD", "ProGPU-Authored-Scan-Reversed",
+            ["872C5A82825C5E1AA3E51589D758680B36A7E005B8FA982EFD21D19B239FB91D"],
+            expectedCases: 7, singleFontResource: "ProGPU-Authored-Scan-Reversed.ttf");
+        Run(context, create, "BinaryGlyphAllDirectionsOriginals.json",
+            "2B9AB3FABED7D7437CD181A9B93648725D9189214CE76F4EB79809E8068ADBBB", "ProGPU-Authored-Scan-AllDirections",
+            ["6AEC3FAB6C6E9265541CB5BB9874B754BB2537E380187E4D35EDAFBB56DB5BD4"],
+            expectedCases: 440, singleFontResource: "ProGPU-Authored-Scan-AllDirections.ttf");
+        Run(context, create, "BinaryGlyphCapsOriginals.json",
+            "AF48FDDCB0277D338E9301A01584E0CD21CF6A71F3B75D7599B54926F0286D3C", "ProGPU-Authored-Scan-Caps",
+            ["02EC6A8655ADC7766325F8178A3433DD9B640B5AC61FA01BCAAA8EE3D5027AB7"],
+            expectedCases: 110, singleFontResource: "ProGPU-Authored-Scan-Caps.ttf");
+        Run(context, create, "BinaryGlyphCapsReversedOriginals.json",
+            "6761D767449C974DCC046BA9B2D5F7D32198FEB7D92E1E44EF986F37130808BF", "ProGPU-Authored-Scan-Caps-Reversed",
+            ["D21DA6A20855AECC2E329AEBCF41554F71F14BD6311D4968143EA410CC006BE6"],
+            expectedCases: 110, singleFontResource: "ProGPU-Authored-Scan-Caps-Reversed.ttf");
+        Run(context, create, "BinaryGlyphConnectedCapsOriginals.json",
+            "6A627AB861F3079202F8210AA7AA2781DB3FD0062134BC5761C1C54E2964C604", "ProGPU-Authored-Scan-Connected-Caps",
+            ["947028B7AF7C585F3367FB9702B834965EBA7B163FEC8B3272E4FCE96A5E339C"],
+            expectedCases: 55, singleFontResource: "ProGPU-Authored-Scan-Connected-Caps.ttf");
+        Run(context, create, "BinaryGlyphConnectedCapsReversedOriginals.json",
+            "F3E8EFD17E39D90B5B8B90D4458AFC90A47023E61DB820F99101E1991D1C231A", "ProGPU-Authored-Scan-Connected-Caps-Reversed",
+            ["EF4F3997A72798D035F4D729F0757C1449746ACD65A3A379AACE2054EB93841E"],
+            expectedCases: 55, singleFontResource: "ProGPU-Authored-Scan-Connected-Caps-Reversed.ttf");
     }
 
     private static void Run(WgpuContext context, Func<NativeCompositor> create,
-        string resource, string digest, string fontPrefix, string[] fontDigests)
+        string resource, string digest, string fontPrefix, string[] fontDigests,
+        int expectedCases = 880, string? singleFontResource = null)
     {
         using Stream input = typeof(BinaryGlyphOriginalValidation).Assembly
             .GetManifestResourceStream(resource)!;
@@ -33,8 +58,11 @@ internal static class BinaryGlyphOriginalValidation
             digest, "original fixture digest");
         using JsonDocument document = JsonDocument.Parse(source);
         JsonElement[] cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
-        Check(cases.Length == 880 && cases.Select(c => (c.GetProperty("gasp").GetInt32(),
-            c.GetProperty("index").GetInt32())).Distinct().Count() == 880, "all 880 original cases");
+        Check(cases.Length == expectedCases && cases.Select(c => (c.GetProperty("gasp").GetInt32(),
+            c.GetProperty("index").GetInt32())).Distinct().Count() == expectedCases, "complete original case inventory");
+        int[] gasps = singleFontResource == null ? [1, 3] : [1];
+        Check(cases.Select(c => c.GetProperty("gasp").GetInt32()).Distinct().Order().SequenceEqual(gasps),
+            "complete original font inventory");
         const int columns = 32, tile = 64, width = columns * tile, height = 28 * tile;
         var outlines = new NativeGlyphOutline[cases.Length];
         var glyphs = new NativePositionedGlyph[cases.Length];
@@ -79,10 +107,10 @@ internal static class BinaryGlyphOriginalValidation
             var capturedOutlines = new List<NativeGlyphOutline>();
             var capturedSegments = new List<NativePathSegment>();
             var capturedGlyphs = new NativePositionedGlyph[cases.Length];
-            foreach (int gasp in new[] { 1, 3 })
+            foreach (int gasp in gasps)
             {
                 using var fontStream = typeof(BinaryGlyphOriginalValidation).Assembly
-                    .GetManifestResourceStream($"{fontPrefix}-{gasp}.ttf")!;
+                    .GetManifestResourceStream(singleFontResource ?? $"{fontPrefix}-{gasp}.ttf")!;
                 using var fontBytes = new MemoryStream(); fontStream.CopyTo(fontBytes);
                 byte[] font = fontBytes.ToArray();
                 Check(Convert.ToHexString(SHA256.HashData(font)) == fontDigests[gasp == 1 ? 0 : 1],
@@ -153,7 +181,7 @@ internal static class BinaryGlyphOriginalValidation
             renderer.WaitForSubmission(token);
             Check(renderer.IsSubmissionComplete(token), "actual completed native submission");
             byte[] pixels = target.ReadPixels();
-            Check(pixels.Length == expected.Length && metrics.GlyphCount == 880, "complete target and inventory");
+            Check(pixels.Length == expected.Length && metrics.GlyphCount == (uint)glyphs.Length, "complete target and inventory");
             if (frame == 0)
             {
                 Check(metrics.RasterizedGlyphCount == rasterIdentities.Count && metrics.CoverageStagingBytes != 0,
@@ -178,7 +206,7 @@ internal static class BinaryGlyphOriginalValidation
             Console.WriteLine($"binary-original-difference case={index} x={x % tile} y={y % tile} " +
                 $"expected={Convert.ToHexString(expected.AsSpan(pixel * 4, 4))} actual={Convert.ToHexString(cold.AsSpan(pixel * 4, 4))}");
         }
-        Console.WriteLine($"binary-originals provider={context.BackendKind} source={source} cases=880 failedCases={casesWithDifferences.Count} pixels={differences}");
+        Console.WriteLine($"binary-originals provider={context.BackendKind} source={source} cases={glyphs.Length} failedCases={casesWithDifferences.Count} pixels={differences}");
         Check(differences == 0, "every original full-frame pixel, including all blank padding");
     }
 

@@ -1,0 +1,32 @@
+[
+  {
+    "path": "fonts/GdiBitmapCapture.cs",
+    "originalSha256": "daa8edfb05ebfd6d60182df7a6ec71f2e93c4abb0229c7246a898a822850b3d3",
+    "lfSha256": "84c887987e39b81b6daf79f16a22e050b844e181872a87112187ca186e28939e",
+    "onlyChange": "CRLF to LF in copied build source; original retained capture source remains unchanged outside repo"
+  },
+  {
+    "path": "fonts/GdiOutlineCapture.cs",
+    "originalSha256": "b6aaa4e849ae1539ff8d7c3c0abd08fb771ab46df5be447206addac6db07652d",
+    "lfSha256": "b9f1419202205133133303941ccddc1e3c5b071d52461556b13ef93cd0edabf9",
+    "onlyChange": "CRLF to LF in copied build source; original retained capture source remains unchanged outside repo"
+  },
+  {
+    "path": "fonts/Program.cs",
+    "originalSha256": "58cfc5f3e3700b5ebd46112cd26c962ec4f87f59bfb7a525e6a21d76a0953fdc",
+    "lfSha256": "a75850f75806feb62ff3dbf17a1f8e3842ec0c7a6f649e8b0585e64a49a60c43",
+    "onlyChange": "CRLF to LF in copied build source; original retained capture source remains unchanged outside repo"
+  },
+  {
+    "path": "reference/TextRasterReference.csproj",
+    "originalSha256": "cbc89f1da7f7b491987d09464fd89127a776ea519d81f0c3b9d080644e68e3f3",
+    "lfSha256": "940683a014489a5a5987bd53d45cc8487f88ca0febe93585f2e723dd888bf549",
+    "onlyChange": "CRLF to LF in copied build source; original retained capture source remains unchanged outside repo"
+  },
+  {
+    "path": "reference/Program.cs",
+    "originalSha256": "070f1dd971e304137c733c70d57deba8247438b25440d051dd4a721b24371b33",
+    "lfSha256": "c90d11c1131a910edca141b3e6c3126f7628174c80f079abb60757f299ee508c",
+    "onlyChange": "CRLF to LF in copied build source; original retained capture source remains unchanged outside repo"
+  }
+]
