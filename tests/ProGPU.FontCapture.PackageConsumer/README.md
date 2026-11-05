@@ -19,3 +19,9 @@ requires the matching built native library on the native loader search path.
 A source run is not a package result. Record the actual loaded native library
 and SHA-256, all twelve capture lines and the successful process exit. There is
 no fallback when a requested projection, native export or topology is unavailable.
+
+The existing Build consumer matrix runs this once per platform's `all`/`core`
+lane; its native package artifact includes the matching Scene.Native managed
+closure. The existing Release consumer matrix runs it against the complete
+portable package artifact on all six desktop RIDs. No new workflow or job is
+introduced, and the original rendering/pixel consumers remain mandatory.
