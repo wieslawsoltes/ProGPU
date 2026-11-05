@@ -1,0 +1,21 @@
+{
+  ".gitattributes": "f5fa0d633befb64ab5151b4f7cc66f2e4d06bcd9afe269780c12927a85226053",
+  "FirstChanceControl.cpp": "94cb6720e5db8c877223c83fed2b253db62f6c516d58190795c44ef3d7558f70",
+  "app/BinaryGlyphOriginalCoverageTests.cs": "8a8350bf68f7790c719b9cfed7801d3405af4a19d0b13e928ca8ff5ace9c3743",
+  "app/Probe.csproj": "a7a3506e1e8073f57e6d22cf7cecbea61ecd60c2f2b583a7d7e866e366c3c50e",
+  "app/Program.cs": "7161fe6c4e962b1f100fba559866224df77805da75547e97c35b56264349bbf4",
+  "app/WindowsBuildPin.json": "0de2baaffcaacde32513ecf59344a9144a34af29b86f137fb2d07c98e7d2c278",
+  "app/WindowsNativePin.json": "b07586f8c8a1841062e39cd08bac6f9976e2ad01d6b8baed7d7213da5750c1c7",
+  "app/WindowsOwnedRuntimeValidation.cs": "93721c6c523883e3ef8a1ed7884e5f02771ea78c80cc97a7f7d44dfee1ac15a0",
+  "app/WindowsShaderPin.json": "ae71fdc538621d4cd59cf59b1563e3f4ab87123749c5f1550c524b8e24d28fa6",
+  "build.py": "20b04398c3c70085afd1f1550350b5f064287d4f1890199e75a51131512f1c04",
+  "canonical.wgsl": "c9011aa3f9761ca28001ae85fc53e6ea6fd4db3d02d850bd9ebc2bec7eeeecc7",
+  "cdb_event_scripts.py": "7f90ff9ec00570bc5d770eb5cb71d15c778d21e5415854858c28773502c39d3d",
+  "cdb_first_chance.py": "caae39a322132a3c038ea5ef6752648545f803a484fd39ffd0b6794e97815d5f",
+  "cleanup.py": "e127fe0a34d01a3500dc28f5653a2cccdd362b452030ec5e273d0bd0e28badc0",
+  "owned_process.py": "f8d8ac7ff32718e2f3cb0ee0aa7e66923b133c8d96c39fc9f4c423e80b18b5fe",
+  "preparation.json": "81f2ef58998773bf91bd57f6d2844f4d79a2986c2a700f1f6d278dfb98239b06",
+  "prepare-tools.ps1": "50597613c49a8aa5b503bd504510dead8fa07fbf5b9592d7df3af956689d379a",
+  "read_dump.py": "8f893ceb2fac4faf08971e48255bc7febaf053c4a6e4c44d34fc997d7c2b1dc1",
+  "read_jit.py": "ca6e447f064d8ed9ef860da4844d9047dd610a1aaa5796f99b061170d8dab25b"
+}
