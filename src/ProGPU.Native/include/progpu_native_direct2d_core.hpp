@@ -2,7 +2,7 @@
 
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d.h"
-#include "progpu_native_geometry.hpp"
+#include "progpu_native_geometry_types.hpp"
 
 #include <array>
 #include <bit>

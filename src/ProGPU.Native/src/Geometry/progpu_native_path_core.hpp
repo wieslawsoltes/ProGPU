@@ -1,7 +1,7 @@
 #pragma once
 
 #include "progpu_native.h"
-#include "progpu_native_geometry.hpp"
+#include "progpu_native_geometry_types.hpp"
 
 #include <atomic>
 #include <cstdint>

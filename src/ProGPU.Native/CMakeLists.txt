@@ -869,7 +869,7 @@ set(PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES
 # device, COM or Direct2D code. The C ABI over it (src/Geometry/*_abi.cpp and
 # progpu_native_geometry_utility.cpp) is compiled into each renderer library.
 add_library(progpu_native_geometry STATIC
-    include/progpu_native_geometry.hpp
+    include/progpu_native_geometry_types.hpp
     src/Geometry/progpu_native_arc.hpp
     src/Geometry/progpu_native_curve_dash.hpp
     src/Geometry/progpu_native_geometry_primitives.cpp
@@ -2634,7 +2634,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_direct2d_compat.hpp
         include/progpu_native_direct2d_core.hpp
         include/progpu_native_direct2d_scene_submission.hpp
-        include/progpu_native_geometry.hpp
+        include/progpu_native_geometry_types.hpp
         include/progpu_native_dawn.h
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp

@@ -209,7 +209,7 @@ The device-independent path, Boolean and stroke code is owned by the neutral
 Geometry module (`progpu_native_geometry`, namespace `progpu::native::geometry`),
 not by the Direct2D compatibility layer:
 
-- `include/progpu_native_geometry.hpp`: the vocabulary (points, matrices,
+- `include/progpu_native_geometry_types.hpp`: the vocabulary (points, matrices,
   rectangle edges, segments, arcs, triangles, stroke style properties, the path
   enums) and a 32-bit `status` whose values equal the COM results the Direct2D
   layer reports. It includes no Direct2D or COM header.
