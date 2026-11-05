@@ -2,39 +2,30 @@
 
 #include "progpu_native_com.hpp"
 #include "progpu_native_direct2d.h"
+#include "progpu_native_geometry.hpp"
 
 #include <array>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 
 namespace progpu::native::direct2d::core {
 
-inline constexpr float default_flattening_tolerance = 0.25F;
+inline constexpr float default_flattening_tolerance =
+    geometry::default_flattening_tolerance;
 
 /* Direct2D rectangles use edge coordinates rather than x/y/width/height.
  * Keeping that representation in the behavior core preserves valid spans
- * whose mathematical width is larger than FLT_MAX. */
-struct rectangle_edges_f final {
-    float left;
-    float top;
-    float right;
-    float bottom;
-};
+ * whose mathematical width is larger than FLT_MAX. The point-free shapes,
+ * enums and stroke properties are the neutral Geometry types. */
+using rectangle_edges_f = geometry::rectangle_edges_f;
+using size_f = geometry::size_f;
+using arc_sweep_direction = geometry::arc_sweep_direction;
+using arc_size_kind = geometry::arc_size_kind;
 
-struct size_f final {
-    float width;
-    float height;
-};
-
-enum class arc_sweep_direction : std::uint32_t {
-    counter_clockwise = 0U,
-    clockwise = 1U
-};
-
-enum class arc_size_kind : std::uint32_t {
-    small_value = 0U,
-    large_value = 1U
-};
-
+/* Shapes with point members keep the Direct2D C point type, the public C ABI;
+ * the neutral Geometry types have the same layout and the converters below
+ * translate at the boundary. */
 struct arc_segment_f final {
     progpu_native_direct2d_point_2f point;
     size_f size;
@@ -55,44 +46,133 @@ struct ellipse_f final {
     float radius_y;
 };
 
-struct rounded_rectangle_f final {
-    rectangle_edges_f rectangle;
-    float radius_x;
-    float radius_y;
-};
+using rounded_rectangle_f = geometry::rounded_rectangle_f;
+using cap_style = geometry::cap_style;
+using line_join = geometry::line_join;
+using dash_style = geometry::dash_style;
+using stroke_style_properties_f = geometry::stroke_style_properties_f;
 
-enum class cap_style : std::uint32_t {
-    flat = 0U,
-    square = 1U,
-    round = 2U,
-    triangle = 3U
-};
+static_assert(sizeof(progpu_native_direct2d_point_2f) ==
+    sizeof(geometry::point_2f));
+static_assert(offsetof(progpu_native_direct2d_point_2f, x) ==
+    offsetof(geometry::point_2f, x));
+static_assert(offsetof(progpu_native_direct2d_point_2f, y) ==
+    offsetof(geometry::point_2f, y));
+static_assert(sizeof(progpu_native_direct2d_matrix_3x2_f) ==
+    sizeof(geometry::matrix_3x2_f));
+static_assert(offsetof(progpu_native_direct2d_matrix_3x2_f, m11) ==
+    offsetof(geometry::matrix_3x2_f, m11));
+static_assert(offsetof(progpu_native_direct2d_matrix_3x2_f, m12) ==
+    offsetof(geometry::matrix_3x2_f, m12));
+static_assert(offsetof(progpu_native_direct2d_matrix_3x2_f, m21) ==
+    offsetof(geometry::matrix_3x2_f, m21));
+static_assert(offsetof(progpu_native_direct2d_matrix_3x2_f, m22) ==
+    offsetof(geometry::matrix_3x2_f, m22));
+static_assert(offsetof(progpu_native_direct2d_matrix_3x2_f, m31) ==
+    offsetof(geometry::matrix_3x2_f, m31));
+static_assert(offsetof(progpu_native_direct2d_matrix_3x2_f, m32) ==
+    offsetof(geometry::matrix_3x2_f, m32));
+static_assert(sizeof(progpu_native_direct2d_triangle) ==
+    sizeof(geometry::triangle_f));
+static_assert(offsetof(progpu_native_direct2d_triangle, point2) ==
+    offsetof(geometry::triangle_f, point2));
+static_assert(offsetof(progpu_native_direct2d_triangle, point3) ==
+    offsetof(geometry::triangle_f, point3));
+static_assert(sizeof(arc_segment_f) == sizeof(geometry::arc_segment_f));
+static_assert(offsetof(arc_segment_f, size) ==
+    offsetof(geometry::arc_segment_f, size));
+static_assert(offsetof(arc_segment_f, rotation_angle) ==
+    offsetof(geometry::arc_segment_f, rotation_angle));
+static_assert(offsetof(arc_segment_f, sweep) ==
+    offsetof(geometry::arc_segment_f, sweep));
+static_assert(offsetof(arc_segment_f, size_kind) ==
+    offsetof(geometry::arc_segment_f, size_kind));
+static_assert(sizeof(cubic_bezier_segment_f) ==
+    sizeof(geometry::cubic_bezier_segment_f));
+static_assert(offsetof(cubic_bezier_segment_f, point2) ==
+    offsetof(geometry::cubic_bezier_segment_f, point2));
+static_assert(offsetof(cubic_bezier_segment_f, point3) ==
+    offsetof(geometry::cubic_bezier_segment_f, point3));
+static_assert(sizeof(ellipse_f) == sizeof(geometry::ellipse_f));
+static_assert(offsetof(ellipse_f, radius_x) ==
+    offsetof(geometry::ellipse_f, radius_x));
+static_assert(offsetof(ellipse_f, radius_y) ==
+    offsetof(geometry::ellipse_f, radius_y));
 
-enum class line_join : std::uint32_t {
-    miter = 0U,
-    bevel = 1U,
-    round = 2U,
-    miter_or_bevel = 3U
-};
+/* Zero-cost conversions between the Direct2D C structs and the neutral
+ * Geometry types (identical layouts, asserted above). */
+[[nodiscard]] inline geometry::point_2f to_geometry(
+    progpu_native_direct2d_point_2f value) noexcept
+{
+    return std::bit_cast<geometry::point_2f>(value);
+}
 
-enum class dash_style : std::uint32_t {
-    solid = 0U,
-    dash = 1U,
-    dot = 2U,
-    dash_dot = 3U,
-    dash_dot_dot = 4U,
-    custom = 5U
-};
+[[nodiscard]] inline progpu_native_direct2d_point_2f from_geometry(
+    geometry::point_2f value) noexcept
+{
+    return std::bit_cast<progpu_native_direct2d_point_2f>(value);
+}
 
-struct stroke_style_properties_f final {
-    cap_style start_cap;
-    cap_style end_cap;
-    cap_style dash_cap;
-    line_join join;
-    float miter_limit;
-    dash_style dash;
-    float dash_offset;
-};
+[[nodiscard]] inline geometry::matrix_3x2_f to_geometry(
+    const progpu_native_direct2d_matrix_3x2_f& value) noexcept
+{
+    return std::bit_cast<geometry::matrix_3x2_f>(value);
+}
+
+[[nodiscard]] inline progpu_native_direct2d_matrix_3x2_f from_geometry(
+    const geometry::matrix_3x2_f& value) noexcept
+{
+    return std::bit_cast<progpu_native_direct2d_matrix_3x2_f>(value);
+}
+
+/* Optional transform: null stays null (identity); otherwise the converted
+ * value is stored in storage and its address returned. */
+[[nodiscard]] inline const geometry::matrix_3x2_f* to_geometry(
+    const progpu_native_direct2d_matrix_3x2_f* value,
+    geometry::matrix_3x2_f& storage) noexcept
+{
+    if (value == nullptr) {
+        return nullptr;
+    }
+    storage = std::bit_cast<geometry::matrix_3x2_f>(*value);
+    return &storage;
+}
+
+[[nodiscard]] inline geometry::arc_segment_f to_geometry(
+    const arc_segment_f& value) noexcept
+{
+    return std::bit_cast<geometry::arc_segment_f>(value);
+}
+
+[[nodiscard]] inline arc_segment_f from_geometry(
+    const geometry::arc_segment_f& value) noexcept
+{
+    return std::bit_cast<arc_segment_f>(value);
+}
+
+[[nodiscard]] inline geometry::cubic_bezier_segment_f to_geometry(
+    const cubic_bezier_segment_f& value) noexcept
+{
+    return std::bit_cast<geometry::cubic_bezier_segment_f>(value);
+}
+
+[[nodiscard]] inline cubic_bezier_segment_f from_geometry(
+    const geometry::cubic_bezier_segment_f& value) noexcept
+{
+    return std::bit_cast<cubic_bezier_segment_f>(value);
+}
+
+[[nodiscard]] inline geometry::ellipse_f to_geometry(
+    const ellipse_f& value) noexcept
+{
+    return std::bit_cast<geometry::ellipse_f>(value);
+}
+
+[[nodiscard]] inline progpu_native_direct2d_triangle from_geometry(
+    const geometry::triangle_f& value) noexcept
+{
+    return std::bit_cast<progpu_native_direct2d_triangle>(value);
+}
 
 [[nodiscard]] bool valid_transform(
     const progpu_native_direct2d_matrix_3x2_f* transform) noexcept;

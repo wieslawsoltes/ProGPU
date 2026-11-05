@@ -87,6 +87,23 @@ inline constexpr com::result wrong_factory = -2003238894;
 inline constexpr com::result wrong_state = -2003238911;
 inline constexpr com::result render_target_has_layer_or_cliprect = -2003238889; // 0x88990017
 
+/* The neutral Geometry status values equal these results; the Direct2D layer
+ * converts geometry::status to com::result by value. */
+static_assert(com::ok == ::progpu::native::geometry::status_code::ok);
+static_assert(com::invalid_argument ==
+    ::progpu::native::geometry::status_code::invalid_argument);
+static_assert(com::out_of_memory ==
+    ::progpu::native::geometry::status_code::out_of_memory);
+static_assert(com::pointer_error ==
+    ::progpu::native::geometry::status_code::pointer_error);
+static_assert(not_implemented ==
+    ::progpu::native::geometry::status_code::not_implemented);
+static_assert(failure == ::progpu::native::geometry::status_code::failure);
+static_assert(wrong_state ==
+    ::progpu::native::geometry::status_code::wrong_state);
+static_assert(wrong_factory ==
+    ::progpu::native::geometry::status_code::wrong_factory);
+
 inline constexpr com::guid resource_interface_id{
     0x2CD90691U,
     0x12E2U,
@@ -316,46 +333,19 @@ inline constexpr com::guid scene_layer_options_native_interface_id{
     0x658A462DU, 0x6C6CU, 0x4771U,
     {0xB4U, 0x9DU, 0x93U, 0xC8U, 0x6FU, 0x04U, 0x6DU, 0xC2U}};
 
-enum class fill_mode : std::uint32_t {
-    alternate = 0U,
-    winding = 1U
-};
-
-enum class path_segment : std::uint32_t {
-    none = 0U,
-    force_unstroked = 1U,
-    force_round_line_join = 2U
-};
-
-enum class figure_begin : std::uint32_t {
-    filled = 0U,
-    hollow = 1U
-};
-
-enum class figure_end : std::uint32_t {
-    open = 0U,
-    closed = 1U
-};
-
-enum class geometry_relation : std::uint32_t {
-    unknown = 0U,
-    disjoint = 1U,
-    is_contained = 2U,
-    contains = 3U,
-    overlap = 4U
-};
+/* The path enums are the neutral Geometry module's types (same values). */
+using fill_mode = ::progpu::native::geometry::fill_mode;
+using path_segment = ::progpu::native::geometry::path_segment;
+using figure_begin = ::progpu::native::geometry::figure_begin;
+using figure_end = ::progpu::native::geometry::figure_end;
+using geometry_relation = ::progpu::native::geometry::geometry_relation;
 
 enum class geometry_simplification_option : std::uint32_t {
     cubics_and_lines = 0U,
     lines = 1U
 };
 
-enum class combine_mode : std::uint32_t {
-    union_value = 0U,
-    intersect = 1U,
-    xor_value = 2U,
-    exclude = 3U
-};
+using combine_mode = ::progpu::native::geometry::combine_mode;
 
 enum class antialias_mode : std::uint32_t {
     per_primitive = 0U,
