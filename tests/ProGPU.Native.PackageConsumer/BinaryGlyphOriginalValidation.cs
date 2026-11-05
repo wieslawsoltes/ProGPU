@@ -23,6 +23,10 @@ internal static class BinaryGlyphOriginalValidation
             "AEBB5E4955A0003808F639601188C9151315ECC98EAD3929F366513CD2A643FD", "ProGPU-Authored-Scan-Reversed",
             ["872C5A82825C5E1AA3E51589D758680B36A7E005B8FA982EFD21D19B239FB91D"],
             expectedCases: 7, singleFontResource: "ProGPU-Authored-Scan-Reversed.ttf");
+        Run(context, create, "BinaryGlyphAllDirectionsOriginals.json",
+            "2B9AB3FABED7D7437CD181A9B93648725D9189214CE76F4EB79809E8068ADBBB", "ProGPU-Authored-Scan-AllDirections",
+            ["6AEC3FAB6C6E9265541CB5BB9874B754BB2537E380187E4D35EDAFBB56DB5BD4"],
+            expectedCases: 440, singleFontResource: "ProGPU-Authored-Scan-AllDirections.ttf");
     }
 
     private static void Run(WgpuContext context, Func<NativeCompositor> create,

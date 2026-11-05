@@ -168,7 +168,9 @@ fn in_bounds(point: vec2<f32>, bounds: vec4<f32>) -> bool {
     return all(point >= bounds.xy) && all(point < bounds.zw);
 }
 
-fn on_flat_boundary(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool {
+// Zero is no contact, one a straight boundary, two a flat quadratic. Retain
+// the original flat-curve extrema and source visit order independently.
+fn flat_boundary_kind(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> u32 {
     for (var i = 0u; i < record.segmentCount; i++) {
         let segment = segments[record.startSegment + i];
         let a = axis_point(segment.p0, vertical);
@@ -191,9 +193,29 @@ fn on_flat_boundary(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> 
                 }
             }
         }
-        if x >= low && x <= high { return true; }
+        if x >= low && x <= high { return segment.segmentType + 1u; }
     }
-    return false;
+    return 0u;
+}
+
+// Existing crossings own the lower-inclusive scan interval (the limit above
+// this Y-up level). At a flat line, obtain the limit below it using only exact
+// endpoint transfers: a nonflat segment's start removes one signed crossing;
+// its end adds one. Interior roots, coefficients and sorted events are reused,
+// never reevaluated at a perturbed level. Wholly flat segments transfer none.
+fn winding_below_boundary(record: GlyphRecord, x: f32, level: f32,
+    vertical: bool, above: i32) -> i32 {
+    var below = above;
+    for (var i = 0u; i < record.segmentCount; i++) {
+        let segment = segments[record.startSegment + i];
+        let start = axis_point(segment.p0, vertical);
+        let control = axis_point(segment.p1, vertical);
+        let finish = select(axis_point(segment.p2, vertical), control, segment.segmentType == 0u);
+        if start.y == finish.y && (segment.segmentType == 0u || control.y == start.y) { continue; }
+        if start.y == level && start.x < x { below -= 1; }
+        if finish.y == level && finish.x < x { below += 1; }
+    }
+    return below;
 }
 
 fn base_covered(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool {
@@ -206,21 +228,24 @@ fn base_covered(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool
         if events[middle].x < x { low = middle + 1u; }
         else { high = middle; }
     }
-    // Original paired contour observations retain an exact downward vertical
-    // edge. Its upward counterpart stays open; do not extend this rule to
-    // sloped lines, flat scan boundaries or degenerate quadratics.
+    var before = 0;
+    if low > 0u { before = winding[low - 1u]; }
+    // Complete paired source observations retain exact straight boundaries
+    // adjoining positive winding. Negative-winding interiors still paint,
+    // but their exact straight boundaries stay open. No contour area proxy.
     // An exact nondegenerate quadratic keeps its original closed boundary.
     // No epsilon or antialiasing threshold participates in this decision.
     if low < 512u && events[low].x == x {
         let edge = segments[record.startSegment + event_source(events[low])];
-        if edge.segmentType == 0u && edge.p0.x == edge.p1.x && edge.p1.y < edge.p0.y {
-            return true;
-        }
+        if edge.segmentType == 0u { return before > 0 || winding[low] > 0; }
         let a = edge.p1 - edge.p0;
         let b = edge.p2 - edge.p0;
         return edge.segmentType == 1u && a.x * b.y != a.y * b.x;
     }
-    return low > 0u && winding[low - 1u] != 0 && !on_flat_boundary(record, x, level, vertical);
+    let flat = flat_boundary_kind(record, x, level, vertical);
+    if flat == 0u { return before != 0; }
+    if flat != 1u { return false; }
+    return before > 0 || winding_below_boundary(record, x, level, vertical, before) > 0;
 }
 
 fn pixel_address(point: vec2<f32>) -> vec2<u32> {

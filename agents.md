@@ -1,3 +1,10 @@
+Exact straight binary-glyph boundaries retain their actual signed winding.
+Negative interiors stay filled; flat-line boundary limits use only exact endpoint
+transfers from the original scan, without perturbed roots or a contour-area proxy.
+Keep flat quadratics and original dropout arithmetic independent. Preserve all
+original and reversed source inventories; local replay is not Windows, source
+policy or package qualification. See docs/binary-font-scan-metadata.md.
+
 Binary glyph dropout traversal keeps the original ordered lane and lane+256
 visits in one bounded per-invocation loop. Preserve helper arithmetic, shared
 memory, atomics, barriers and the subsequent vertex dropout in the common shader.

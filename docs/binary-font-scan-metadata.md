@@ -52,9 +52,12 @@ boundary contacts, retains actual orthogonal caps and exact cap contacts, and
 keeps with-stubs contour-vertex contacts separate from positive winding intervals.
 Quadratic endpoints use their first nonzero one-sided coefficient; an interior
 curve extremum does not become an endpoint. Exact nondegenerate quadratic
-boundaries retain closed coverage. Exact downward vertical straight edges retain
-their original directed boundary coverage; upward, sloped and flat boundaries
-keep their independent rules.
+boundaries retain closed coverage. Exact straight boundaries adjoining positive
+winding retain their original closed coverage; negative-winding interiors remain
+filled while their exact straight boundaries stay open. Flat quadratics keep
+their independent rule. At a flat straight edge, exact endpoint transfers recover
+the winding below the scan from the existing lower-inclusive winding; no shifted
+scan, source-coordinate change or contour-area proxy participates.
 No epsilon, source-coordinate adjustment or AA threshold substitutes for a binary
 decision. The independent original system-font comparisons remain required.
 
@@ -257,8 +260,35 @@ four load targets and both interpreters, with unchanged metadata and eight
 unchanged notdef captures. The Windows observer is compiled and retains a
 separate ten-second bound for 1,760 full frames, including all 440 original
 fitted comparisons. Both smaller source observations keep their original inputs,
-counts and deadlines. The complete direction observation is pending; it adds no
-workflow, desktop window, input action or substitute expected pixels.
+counts and deadlines. Both Windows observations pass in
+[Build 41946818514](https://github.com/wieslawsoltes/ProGPU/actions/runs/41946818514).
+Independent review verifies every one of the 3,520 full frames, all 1,760
+architecture pairs and all 880 immutable original comparisons. Every fitted and
+unfitted pair agrees; both source processes retire their owned families in about
+1.1 seconds. The smaller 98/28-frame controls also retain their original matches,
+deadlines and cleanup. This adds no workflow, desktop window or input action.
+
+The complete `BinaryGlyphAllDirectionsOriginals.json` fixture retains all 440
+reversed originals, with SHA-256
+`2b9ab3fabed7d7437cd181a9b93648725d9189214ce76f4eb79809e8068adbbb`.
+The vertical-only correction still fails 43 of these cases and 90 pixels:
+horizontal boundaries, diagonal crossings and triangular contours require the
+same directed treatment. The common shader now uses the actual signed winding
+on either side of an exact straight crossing. Flat line contacts use the original
+winding above and exact start/end transfers for the limit below. Existing interior
+roots, event order, original coordinates, flat-curve calculations and all dropout
+arithmetic remain unchanged. This is not an epsilon, rounded scan or whole-contour
+area classification.
+
+All 38 focused managed controls pass, including every unchanged older case. Both
+rebuilt native providers pass all 12 full-frame fixture executions with original
+segments and both font interpreters, including complete blank padding, cold/warm
+cache counters and source lifetime. A further complete retained 64-case replay
+changes only the two cold/warm images for source slot 24 (`w`), one pixel each,
+both to the original expectations. All provider pairs agree and no other pixel
+changes. Only slot 27 (`F`) remains: one pixel per cold/warm frame per provider.
+Its stroke-end/dropout behavior, fresh Windows source execution, final packages
+and actual application qualification remain open.
 
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).
