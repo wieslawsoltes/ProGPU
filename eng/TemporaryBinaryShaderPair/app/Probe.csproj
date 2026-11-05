@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+  <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  <AssemblyName>ProGPU.Tests</AssemblyName><SignAssembly>true</SignAssembly>
+  <AssemblyOriginatorKeyFile>$(ProjectSourceRoot)/eng/ProGPU.snk</AssemblyOriginatorKeyFile>
+  <RestoreSources>$(DiagnosticFeed);https://api.nuget.org/v3/index.json</RestoreSources>
+ </PropertyGroup>
+ <ItemGroup>
+  <ProjectReference Include="$(ProjectSourceRoot)/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj" />
+  <ProjectReference Include="$(ProjectSourceRoot)/src/ProGPU.Text/ProGPU.Text.csproj" />
+  <PackageReference Include="xunit" Version="2.9.2" />
+  <PackageReference Include="ProGPU.Backend.Dx12" Version="[0.1.0-preview.3703.ci]" />
+ </ItemGroup>
+ <ItemGroup>
+  <EmbeddedResource Include="$(ProjectSourceRoot)/tests/Shared/BinaryGlyph*Originals.json" LogicalName="%(Filename)%(Extension)" />
+  <EmbeddedResource Include="WindowsNativePin.json" LogicalName="WindowsNativePin.json" />
+  <EmbeddedResource Include="WindowsBuildPin.json" LogicalName="WindowsBuildPin.json" />
+  <EmbeddedResource Include="WindowsShaderPin.json" LogicalName="WindowsShaderPin.json" />
+ </ItemGroup>
+</Project>

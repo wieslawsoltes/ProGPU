@@ -1,0 +1,12 @@
+{
+  "wgpuRevision": "87576b72b37c6b78b41104eb25fc31893af94092",
+  "nagaVersion": "0.19.2",
+  "patchSha256": "048251c667d3807f8bf28f6dc7d7d30f47cf08316c86c4b6f627f247d8575847",
+  "modifiedFiles": [
+    {
+      "path": "naga/src/back/hlsl/writer.rs",
+      "originalSha256": "8e61501bae6982273a525734d3e446694d4bf7a081419ec312c32b354e89d3ef",
+      "patchedSha256": "26ce406b7a707d7d46f903e86e0f6dbdbc1693ae0c7b0e0a88811678b6dadad2"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "sourceHead": "3735757cbb05e66290e14e6fe4225613da73d892",
+  "baselineShaderHead": "3735757cbb05e66290e14e6fe4225613da73d892",
+  "fixtureOriginalSha256": "9af65a96601804dd0a9c63fdc82f4a20f48ad2ea54e9293a4ffcbef19c4e3754",
+  "fixtureModifiedSha256": "8a8350bf68f7790c719b9cfed7801d3405af4a19d0b13e928ca8ff5ace9c3743",
+  "fixtureChanges": [
+    "Explicit software adapter to match the original native package route",
+    "Read-only original Windows runtime/compiler/WARP admission immediately after device initialization"
+  ],
+  "fixtureRows": [
+    [
+      "BinaryGlyphOriginals.json",
+      "6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092",
+      "880",
+      "176"
+    ],
+    [
+      "BinaryGlyphCurveOriginals.json",
+      "B30470FEAE7D095ADAD5E549595ADEAED929058E3040D94640F0CA214313E2B8",
+      "880",
+      "176"
+    ],
+    [
+      "BinaryGlyphDirectionOriginals.json",
+      "AEBB5E4955A0003808F639601188C9151315ECC98EAD3929F366513CD2A643FD",
+      "7",
+      "1"
+    ],
+    [
+      "BinaryGlyphAllDirectionsOriginals.json",
+      "2B9AB3FABED7D7437CD181A9B93648725D9189214CE76F4EB79809E8068ADBBB",
+      "440",
+      "88"
+    ],
+    [
+      "BinaryGlyphCapsOriginals.json",
+      "AF48FDDCB0277D338E9301A01584E0CD21CF6A71F3B75D7599B54926F0286D3C",
+      "110",
+      "22"
+    ],
+    [
+      "BinaryGlyphCapsReversedOriginals.json",
+      "6761D767449C974DCC046BA9B2D5F7D32198FEB7D92E1E44EF986F37130808BF",
+      "110",
+      "22"
+    ],
+    [
+      "BinaryGlyphConnectedCapsOriginals.json",
+      "6A627AB861F3079202F8210AA7AA2781DB3FD0062134BC5761C1C54E2964C604",
+      "55",
+      "11"
+    ],
+    [
+      "BinaryGlyphConnectedCapsReversedOriginals.json",
+      "F3E8EFD17E39D90B5B8B90D4458AFC90A47023E61DB820F99101E1991D1C231A",
+      "55",
+      "11"
+    ]
+  ],
+  "qualified": false,
+  "executed": false,
+  "candidateShaderSha256": "1545b475dfa1076d39e02830f3a18606535ea0c7da7f94a93b6af3d47243cd61",
+  "candidateSource": "Exact canonical working-tree shared ordered visit refactor.20arithmetic/storage helpers unchanged; original per-lane visits independently observed on stock andDawn. Unqualified.",
+  "localValidation": {
+    "originalBitmapResourceTests": 42,
+    "newGpuVisitOrderTests": 2,
+    "visitTraceCasesPerProvider": 10752,
+    "nativeWgpuFixtureExecutions": 24,
+    "nativeDawnFixtureExecutions": 24,
+    "pixelDifferences": 0
+  }
+}
