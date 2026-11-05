@@ -357,7 +357,42 @@ the reversed font SHA-256 is
 The existing windowless observer is compiled for 330 additional full frames,
 including 55 unchanged original fitted comparisons, under its separate ten-second
 bound. All earlier observations retain their own captures and deadlines. Source
-execution is pending; this preparation does not resolve the original `F` pixel.
+execution completed in Build
+[41952339870](https://github.com/wieslawsoltes/ProGPU/actions/runs/41952339870).
+Both architectures agree on all 330 full frames, with identical fitted/unfitted
+pairs and all 2,546 earlier frames per architecture unchanged. The x64 observation
+completed and retired in 0.127 seconds; ARM64 took 0.193 seconds. Artifact
+13381930791 has SHA-256
+`c9fb109e9ce3e6b6b20775d0aa71915879707cc6f219ddcee383d3948b3720be`;
+artifact 13382355554 has SHA-256
+`d55e760ce69479073f97f08e8da328b31e8016c9e5f64b9359c05fb19f1e59f9`.
+
+Both connected-stroke fixtures expose 22 extra endpoint pixels each in the
+preceding shader, only in the two stub-excluding modes. The original six fixture
+sets remain matching. The finite orthogonal-cap exception now requires the
+actual whole glyph's rounded scan-axis extent to collapse, using the same
+arithmetic as the existing mandatory one-pixel raster extent. A thin local bar
+in a connected glyph does not imply a collapsed whole-glyph extent. Exact
+pixel-center side contacts retain their independent rule. A cap exactly on the
+opposite edge of the unit square retains its original positive-winding closed
+contact; transposing scan axes reverses winding. The beginning event follows
+zero winding, so its original delta supplies the interval's sign. No coordinates,
+root parameters, sample grid, cap distance, expected image or source mode change.
+The separate exact upper-cap path uses the same whole-glyph extent admission
+for stub-excluding modes. With-stubs and no-dropout modes remain independent.
+
+All 42 focused managed controls pass over all 2,537 original authored cases.
+Both rebuilt native providers pass all 24 complete executions (original segments
+and actual source batches under interpreters 35/40), including full-frame padding,
+source retirement, actual submissions and cold/warm counters. The complete
+retained system-font replay now matches all 64 original descriptors in both
+cold/warm frames on both providers. Only the two formerly failing `F` frames
+change, one pixel each at (20,24), both to the original expected white. All other
+pixels remain byte-identical; all 128 provider pairs agree. Both processes stay
+inside the unchanged 45-second/16-MiB limits. This resolves the retained replay,
+not fresh Windows/source capture or the original 72-case Forms application gate.
+Those checks, whole-provider/package qualification and explicit source-policy
+admission remain required; existing font-loading defaults are unchanged.
 
 
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures

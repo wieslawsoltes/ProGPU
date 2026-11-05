@@ -1,3 +1,12 @@
+Binary glyph orthogonal-cap retention uses the actual whole-glyph collapsed
+rounded scan extent, never a thin local stroke or a shortened cap tolerance.
+Exact far-side contacts keep the original positive-winding closed rule, reversing
+only the winding test when axes transpose. Preserve original scan modes, roots,
+coordinates, sorted events and the independent pixel-center side-contact rule.
+All original isolated/connected and forward/reversed frames remain mandatory;
+retained system-font replay is not fresh source or package qualification. See
+docs/binary-font-scan-metadata.md.
+
 Exact upper flat binary-glyph boundaries retain their actual endpoint pair and
 original positive signed winding, with axis transposition accounted for. Ordinary
 nonzero scan intervals keep their original route; stub-excluding modes retain

@@ -35,3 +35,5 @@ tests/Shared/BinaryGlyphCapsReversedOriginals.json -text
 tests/Shared/ProGPU-Authored-Scan-Connected-Caps.ttf -text
 tests/Shared/ProGPU-Authored-Scan-Connected-Caps-Reversed.ttf -text
 tests/Shared/ProGPU-Authored-Scan-Connected-Caps.json -text
+tests/Shared/BinaryGlyphConnectedCapsOriginals.json -text
+tests/Shared/BinaryGlyphConnectedCapsReversedOriginals.json -text

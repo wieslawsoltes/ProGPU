@@ -165,6 +165,15 @@ fn raster_bounds(record: GlyphRecord) -> vec4<f32> {
     return vec4<f32>(low, high);
 }
 
+// Preserve the existing mandatory one-pixel raster extent only when the
+// actual glyph's rounded scan-axis interval collapses. A connected stem can
+// keep that interval nonempty even when a local upper stroke is subpixel-thin.
+fn promoted_scan_extent(record: GlyphRecord, vertical: bool) -> bool {
+    let minimum = axis_point(vec2<f32>(record.minX, record.minY), vertical).x;
+    let maximum = axis_point(vec2<f32>(record.maxX, record.maxY), vertical).x;
+    return floor(maximum + 0.5) <= ceil(minimum - 0.5);
+}
+
 fn in_bounds(point: vec2<f32>, bounds: vec4<f32>) -> bool {
     return all(point >= bounds.xy) && all(point < bounds.zw);
 }
@@ -310,8 +319,9 @@ fn segment_end(segment: Segment) -> vec2<f32> {
     return select(segment.p2, segment.p1, segment.segmentType == 0u);
 }
 
-// The original orthogonal side pair keeps its finite flat cap. A nonorthogonal
-// pair can also end at the exact pixel-center side of the unit square: retain
+// An orthogonal side pair keeps a cap inside the unit square only when the
+// actual whole glyph requires its one-pixel raster extent. A pair can also end at
+// the exact pixel-center side of the unit square: retain
 // that closed boundary contact, without widening it into a fractional tolerance.
 // Both cases require the actual connecting edge and original contour endpoints.
 fn has_flat_cap(record: GlyphRecord, beginning: Event, finish: Event,
@@ -331,7 +341,13 @@ fn has_flat_cap(record: GlyphRecord, beginning: Event, finish: Event,
         if p.y != q.y || p.x == q.x || distance <= 0.0 || distance > 1.0 { continue; }
         let boundary_contact = min(p.x, q.x) >= left && max(p.x, q.x) <= left + 1.0 &&
             (p.x == left || q.x == left || p.x == left + 1.0 || q.x == left + 1.0);
-        if !orthogonal && !boundary_contact { continue; }
+        // At the far side of the unit square, the interval's original
+        // positive winding retains a closed cap contact. The beginning event
+        // follows zero winding, so its delta is that interval's signed winding.
+        let closed_far = distance == 1.0 &&
+            select(beginning.delta > 0, beginning.delta < 0, vertical);
+        if !(orthogonal && (promoted_scan_extent(record, vertical) || closed_far)) &&
+           !boundary_contact { continue; }
         if (all(segment_end(a) == cap.p0) && all(b.p0 == cap.p1)) ||
            (all(segment_end(b) == cap.p0) && all(a.p0 == cap.p1)) { return true; }
     }
@@ -420,7 +436,8 @@ fn flat_boundary_dropout(record: GlyphRecord, index: u32, level: f32, vertical: 
            base_covered(record, right + 0.5, level, false) { return; }
     }
     if mode == 1u || mode == 5u {
-        if continuation_crossings(record, left + 0.5, level, -1.0, vertical) < 2u { return; }
+        if !promoted_scan_extent(record, vertical) ||
+           continuation_crossings(record, left + 0.5, level, -1.0, vertical) < 2u { return; }
     }
     var selected = left;
     if (mode == 4u || mode == 5u) && midpoint > right { selected = right; }

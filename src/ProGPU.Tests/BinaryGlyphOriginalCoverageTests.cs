@@ -28,6 +28,8 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
     [InlineData("BinaryGlyphAllDirectionsOriginals.json", "2B9AB3FABED7D7437CD181A9B93648725D9189214CE76F4EB79809E8068ADBBB", 440, 88)]
     [InlineData("BinaryGlyphCapsOriginals.json", "AF48FDDCB0277D338E9301A01584E0CD21CF6A71F3B75D7599B54926F0286D3C", 110, 22)]
     [InlineData("BinaryGlyphCapsReversedOriginals.json", "6761D767449C974DCC046BA9B2D5F7D32198FEB7D92E1E44EF986F37130808BF", 110, 22)]
+    [InlineData("BinaryGlyphConnectedCapsOriginals.json", "6A627AB861F3079202F8210AA7AA2781DB3FD0062134BC5761C1C54E2964C604", 55, 11)]
+    [InlineData("BinaryGlyphConnectedCapsReversedOriginals.json", "F3E8EFD17E39D90B5B8B90D4458AFC90A47023E61DB820F99101E1991D1C231A", 55, 11)]
     public void EveryOriginalAuthoredBitmapMatchesColdAndWarmCoverage(string resource, string digest,
         int expectedCases, int expectedNoDropoutCases)
     {
