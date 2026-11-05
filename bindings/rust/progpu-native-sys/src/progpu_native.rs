@@ -4085,6 +4085,11 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug)]
+pub struct progpu_native_geometry_path {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug)]
 pub struct progpu_native_path_measure {
     _unused: [u8; 0],
 }
@@ -6353,6 +6358,40 @@ pub struct ProGPUNativeLibrary {
         ) -> progpu_native_status,
         ::libloading::Error,
     >,
+    pub progpu_native_geometry_bounds: Result<
+        unsafe extern "C" fn(
+            figures: *const progpu_native_geometry_query_figure,
+            figure_count: u32,
+            segments: *const progpu_native_path_segment,
+            segment_flags: *const u8,
+            segment_count: u32,
+            world_transform: *const progpu_native_affine_2d,
+            bounds: *mut progpu_native_image_rect,
+            has_bounds: *mut u32,
+        ) -> progpu_native_status,
+        ::libloading::Error,
+    >,
+    pub progpu_native_geometry_widen: Result<
+        unsafe extern "C" fn(
+            figures: *const progpu_native_geometry_query_figure,
+            figure_count: u32,
+            segments: *const progpu_native_path_segment,
+            segment_flags: *const u8,
+            segment_count: u32,
+            pen: *const progpu_native_geometry_query_pen,
+            dashes: *const f32,
+            dash_count: u32,
+            world_transform: *const progpu_native_affine_2d,
+            tolerance: f32,
+            result: *mut *mut progpu_native_geometry_path,
+            outline: *mut *const progpu_native_path_segment,
+            outline_count: *mut u32,
+            fill_rule: *mut u32,
+        ) -> progpu_native_status,
+        ::libloading::Error,
+    >,
+    pub progpu_native_geometry_path_destroy:
+        Result<unsafe extern "C" fn(path: *mut progpu_native_geometry_path), ::libloading::Error>,
     pub progpu_native_path_measure_create: Result<
         unsafe extern "C" fn(
             figures: *const progpu_native_geometry_query_figure,
@@ -6847,6 +6886,15 @@ impl ProGPUNativeLibrary {
         let progpu_native_geometry_stroke_query = __library
             .get(b"progpu_native_geometry_stroke_query\0")
             .map(|sym| *sym);
+        let progpu_native_geometry_bounds = __library
+            .get(b"progpu_native_geometry_bounds\0")
+            .map(|sym| *sym);
+        let progpu_native_geometry_widen = __library
+            .get(b"progpu_native_geometry_widen\0")
+            .map(|sym| *sym);
+        let progpu_native_geometry_path_destroy = __library
+            .get(b"progpu_native_geometry_path_destroy\0")
+            .map(|sym| *sym);
         let progpu_native_path_measure_create = __library
             .get(b"progpu_native_path_measure_create\0")
             .map(|sym| *sym);
@@ -7012,6 +7060,9 @@ impl ProGPUNativeLibrary {
             progpu_native_geometry_outline_destroy,
             progpu_native_geometry_fill_contains,
             progpu_native_geometry_stroke_query,
+            progpu_native_geometry_bounds,
+            progpu_native_geometry_widen,
+            progpu_native_geometry_path_destroy,
             progpu_native_path_measure_create,
             progpu_native_path_measure_destroy,
             progpu_native_path_measure_contour_count,
@@ -7194,6 +7245,77 @@ impl ProGPUNativeLibrary {
             has_bounds,
             contains,
         )
+    }
+    pub unsafe fn progpu_native_geometry_bounds(
+        &self,
+        figures: *const progpu_native_geometry_query_figure,
+        figure_count: u32,
+        segments: *const progpu_native_path_segment,
+        segment_flags: *const u8,
+        segment_count: u32,
+        world_transform: *const progpu_native_affine_2d,
+        bounds: *mut progpu_native_image_rect,
+        has_bounds: *mut u32,
+    ) -> progpu_native_status {
+        (self
+            .progpu_native_geometry_bounds
+            .as_ref()
+            .expect("Expected function, got error."))(
+            figures,
+            figure_count,
+            segments,
+            segment_flags,
+            segment_count,
+            world_transform,
+            bounds,
+            has_bounds,
+        )
+    }
+    pub unsafe fn progpu_native_geometry_widen(
+        &self,
+        figures: *const progpu_native_geometry_query_figure,
+        figure_count: u32,
+        segments: *const progpu_native_path_segment,
+        segment_flags: *const u8,
+        segment_count: u32,
+        pen: *const progpu_native_geometry_query_pen,
+        dashes: *const f32,
+        dash_count: u32,
+        world_transform: *const progpu_native_affine_2d,
+        tolerance: f32,
+        result: *mut *mut progpu_native_geometry_path,
+        outline: *mut *const progpu_native_path_segment,
+        outline_count: *mut u32,
+        fill_rule: *mut u32,
+    ) -> progpu_native_status {
+        (self
+            .progpu_native_geometry_widen
+            .as_ref()
+            .expect("Expected function, got error."))(
+            figures,
+            figure_count,
+            segments,
+            segment_flags,
+            segment_count,
+            pen,
+            dashes,
+            dash_count,
+            world_transform,
+            tolerance,
+            result,
+            outline,
+            outline_count,
+            fill_rule,
+        )
+    }
+    pub unsafe fn progpu_native_geometry_path_destroy(
+        &self,
+        path: *mut progpu_native_geometry_path,
+    ) {
+        (self
+            .progpu_native_geometry_path_destroy
+            .as_ref()
+            .expect("Expected function, got error."))(path)
     }
     pub unsafe fn progpu_native_path_measure_create(
         &self,

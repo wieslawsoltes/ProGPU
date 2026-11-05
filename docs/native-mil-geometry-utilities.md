@@ -177,6 +177,31 @@ at the measured positions and its length half of the whole) and
 `bindings/rust/progpu-native-sys/tests/path_measure.rs` through the Rust
 bindings.
 
+## Geometry bounds and widened outlines
+
+`progpu_native_geometry_bounds` and `progpu_native_geometry_widen` complete the
+queries a native UI host needs of a geometry, over the query transport of
+`progpu_native_geometry_stroke_query` (figures, segments and segment flags):
+
+- `geometry_bounds` returns the tight bounds of the lines, curves and arcs and
+  of every figure's start point after an optional world transform, with
+  `has_bounds = 0` for a geometry without figures. It is the shared core's
+  `GetBounds` of the query geometry.
+- `geometry_widen` returns the area a pen covers (caps, joins, miter limit,
+  dashes, the world transform applied after widening) as filled contours of
+  canonical line and cubic segments with their fill rule, in the input layout of
+  `geometry_fill_contains` and `geometry_combine`, so a widened geometry can be
+  filled, hit-tested and combined again. It is the shared core's
+  `get_widened_outline_segments`: the production widening and its SIMD kernels,
+  curves kept. The result owns its segment view until
+  `progpu_native_geometry_path_destroy`.
+
+Both share the transport and pen validation and the status mapping of the
+stroke query (`src/Geometry/progpu_native_geometry_utility.cpp`). Test:
+`bounds_and_widen` (transformed and curved bounds, an empty geometry, flat and
+square caps checked by fill containment of the outline and against the stroke
+query's bounds, rejected pens).
+
 ## Original implementation provenance and performance boundaries
 
 Only original ProGPU implementation is reused:

@@ -13,6 +13,73 @@ struct progpu_native_geometry_outline final {
     std::vector<std::uint32_t> offsets;
 };
 
+struct progpu_native_geometry_path final {
+    std::vector<progpu_native_path_segment> segments;
+};
+
+namespace {
+
+namespace d2d = progpu::native::direct2d::compat;
+namespace com = progpu::native::com;
+
+[[nodiscard]] progpu_native_status native_status(com::result status) noexcept
+{
+    if (status == com::out_of_memory) return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    if (status == com::invalid_argument || status == com::pointer_error) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    if (status == d2d::not_implemented) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+    return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+}
+
+// The figure/segment transport of the query functions (stroke_query).
+[[nodiscard]] bool valid_query_transport(const progpu_native_geometry_query_figure* figures,
+    std::uint32_t figure_count, const progpu_native_path_segment* segments,
+    const std::uint8_t* segment_flags, std::uint32_t segment_count) noexcept
+{
+    return !((figure_count != 0U && figures == nullptr) ||
+        (segment_count != 0U && (segments == nullptr || segment_flags == nullptr)) ||
+        figure_count > (1U << 20U) || segment_count > (1U << 20U));
+}
+
+[[nodiscard]] bool valid_pen(const progpu_native_geometry_query_pen* pen, const float* dashes,
+    std::uint32_t dash_count) noexcept
+{
+    return !(pen == nullptr || (dash_count != 0U && dashes == nullptr) || dash_count > (1U << 20U) ||
+        !std::isfinite(pen->thickness) || pen->thickness < 0.0F ||
+        !std::isfinite(pen->miter_limit) || pen->miter_limit < 1.0F ||
+        !std::isfinite(pen->dash_offset) || pen->start_cap > 3U || pen->end_cap > 3U ||
+        pen->dash_cap > 3U || pen->line_join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL);
+}
+
+[[nodiscard]] d2d::matrix_3x2_f world_matrix(const progpu_native_affine_2d* transform) noexcept
+{
+    if (transform == nullptr) return {1, 0, 0, 1, 0, 0};
+    return {transform->m11, transform->m12, transform->m21, transform->m22, transform->m31, transform->m32};
+}
+
+// The query geometry of the transport, on a factory of its own.
+[[nodiscard]] com::result create_query_path(const progpu_native_geometry_query_figure* figures,
+    std::uint32_t figure_count, const progpu_native_path_segment* segments,
+    const std::uint8_t* segment_flags, std::uint32_t segment_count,
+    com::pointer<d2d::factory>& owner, com::pointer<d2d::path_geometry>& path) noexcept
+{
+    com::result status = d2d::create_factory(owner.put());
+    if (!com::failed(status)) status = d2d::detail::create_native_query_geometry(owner.get(),
+        {figures, figure_count}, {segments, segment_count}, {segment_flags, segment_count}, path.put());
+    return status;
+}
+
+[[nodiscard]] com::result create_pen_style(d2d::factory* owner, const progpu_native_geometry_query_pen& pen,
+    const float* dashes, std::uint32_t dash_count, com::pointer<d2d::stroke_style>& style) noexcept
+{
+    const d2d::stroke_style_properties properties{
+        static_cast<d2d::cap_style>(pen.start_cap), static_cast<d2d::cap_style>(pen.end_cap),
+        static_cast<d2d::cap_style>(pen.dash_cap), static_cast<d2d::line_join>(pen.line_join),
+        pen.miter_limit, dash_count == 0U ? d2d::dash_style::solid : d2d::dash_style::custom, pen.dash_offset};
+    return owner->CreateStrokeStyle(&properties, dash_count == 0U ? nullptr : dashes, dash_count, style.put());
+}
+
+} // namespace
+
 extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_query(
     const progpu_native_geometry_query_figure* figures, std::uint32_t figure_count,
     const progpu_native_path_segment* segments, const std::uint8_t* segment_flags, std::uint32_t segment_count,
@@ -22,34 +89,16 @@ extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_
 {
     if (bounds == nullptr || has_bounds == nullptr || contains == nullptr) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
     *bounds = {}; *has_bounds = 0U; *contains = 0U;
-    if (pen == nullptr || (figure_count != 0U && figures == nullptr) ||
-        (segment_count != 0U && (segments == nullptr || segment_flags == nullptr)) ||
-        (dash_count != 0U && dashes == nullptr) || figure_count > (1U << 20U) ||
-        segment_count > (1U << 20U) || dash_count > (1U << 20U) ||
-        !std::isfinite(tolerance) || tolerance <= 0.0F ||
-        !std::isfinite(pen->thickness) || pen->thickness < 0.0F ||
-        !std::isfinite(pen->miter_limit) || pen->miter_limit < 1.0F ||
-        !std::isfinite(pen->dash_offset) || pen->start_cap > 3U || pen->end_cap > 3U ||
-        pen->dash_cap > 3U || pen->line_join > PROGPU_NATIVE_STROKE_JOIN_MITER_OR_BEVEL)
+    if (!valid_query_transport(figures, figure_count, segments, segment_flags, segment_count) ||
+        !valid_pen(pen, dashes, dash_count) || !std::isfinite(tolerance) || tolerance <= 0.0F)
         return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    namespace d2d = progpu::native::direct2d::compat;
-    namespace com = progpu::native::com;
     try {
-        d2d::matrix_3x2_f matrix{1, 0, 0, 1, 0, 0};
-        if (world_transform != nullptr) matrix = {world_transform->m11, world_transform->m12,
-            world_transform->m21, world_transform->m22, world_transform->m31, world_transform->m32};
+        const d2d::matrix_3x2_f matrix = world_matrix(world_transform);
         com::pointer<d2d::factory> owner;
         com::pointer<d2d::path_geometry> path;
         com::pointer<d2d::stroke_style> style;
-        com::result status = d2d::create_factory(owner.put());
-        if (!com::failed(status)) status = d2d::detail::create_native_query_geometry(owner.get(),
-            {figures, figure_count}, {segments, segment_count}, {segment_flags, segment_count}, path.put());
-        const d2d::stroke_style_properties properties{
-            static_cast<d2d::cap_style>(pen->start_cap), static_cast<d2d::cap_style>(pen->end_cap),
-            static_cast<d2d::cap_style>(pen->dash_cap), static_cast<d2d::line_join>(pen->line_join),
-            pen->miter_limit, dash_count == 0U ? d2d::dash_style::solid : d2d::dash_style::custom, pen->dash_offset};
-        if (!com::failed(status)) status = owner->CreateStrokeStyle(&properties,
-            dash_count == 0U ? nullptr : dashes, dash_count, style.put());
+        com::result status = create_query_path(figures, figure_count, segments, segment_flags, segment_count, owner, path);
+        if (!com::failed(status)) status = create_pen_style(owner.get(), *pen, dashes, dash_count, style);
         d2d::rectangle_f measured{};
         bool emitted = false;
         std::int32_t hit = 0;
@@ -57,12 +106,7 @@ extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_
             ? d2d::detail::get_widened_outline_bounds(path.get(), pen->thickness, style.get(),
                 &matrix, tolerance, measured, emitted)
             : path->StrokeContainsPoint({point->x, point->y}, pen->thickness, style.get(), &matrix, tolerance, &hit);
-        if (com::failed(status)) {
-            if (status == com::out_of_memory) return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
-            if (status == com::invalid_argument || status == com::pointer_error) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-            if (status == d2d::not_implemented) return PROGPU_NATIVE_STATUS_UNSUPPORTED;
-            return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
-        }
+        if (com::failed(status)) return native_status(status);
         if (emitted) {
             const float width = measured.right - measured.left, height = measured.bottom - measured.top;
             if (!std::isfinite(measured.left) || !std::isfinite(measured.top) ||
@@ -91,8 +135,6 @@ extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_fill_co
         fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD || point == nullptr ||
         !std::isfinite(point->x) || !std::isfinite(point->y) ||
         !std::isfinite(tolerance) || tolerance <= 0.0F) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    namespace d2d = progpu::native::direct2d::compat;
-    namespace com = progpu::native::com;
     try {
         com::pointer<d2d::factory> owner;
         com::pointer<d2d::path_geometry> path;
@@ -129,8 +171,6 @@ extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_compare
         first_count > (1U << 20U) || second_count > (1U << 20U) ||
         first_fill > PROGPU_NATIVE_FILL_RULE_EVEN_ODD || second_fill > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
         !std::isfinite(tolerance) || tolerance <= 0.0F) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
-    namespace d2d = progpu::native::direct2d::compat;
-    namespace com = progpu::native::com;
     const auto fill = [](std::uint32_t value) {
         return value == PROGPU_NATIVE_FILL_RULE_EVEN_ODD ? d2d::fill_mode::alternate : d2d::fill_mode::winding;
     };
@@ -172,8 +212,6 @@ extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_combine
         first_fill > PROGPU_NATIVE_FILL_RULE_EVEN_ODD || second_fill > PROGPU_NATIVE_FILL_RULE_EVEN_ODD ||
         mode > 3U || !std::isfinite(tolerance) || tolerance <= 0.0F) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
 
-    namespace d2d = progpu::native::direct2d::compat;
-    namespace com = progpu::native::com;
     static_assert(static_cast<std::uint32_t>(d2d::combine_mode::union_value) == 0U);
     static_assert(static_cast<std::uint32_t>(d2d::combine_mode::intersect) == 1U);
     static_assert(static_cast<std::uint32_t>(d2d::combine_mode::xor_value) == 2U);
@@ -234,4 +272,83 @@ extern "C" PROGPU_NATIVE_API void progpu_native_geometry_outline_destroy(
     progpu_native_geometry_outline* result)
 {
     delete result;
+}
+
+extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_bounds(
+    const progpu_native_geometry_query_figure* figures, std::uint32_t figure_count,
+    const progpu_native_path_segment* segments, const std::uint8_t* segment_flags, std::uint32_t segment_count,
+    const progpu_native_affine_2d* world_transform, progpu_native_image_rect* bounds, std::uint32_t* has_bounds)
+{
+    if (bounds == nullptr || has_bounds == nullptr) return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *bounds = {}; *has_bounds = 0U;
+    if (!valid_query_transport(figures, figure_count, segments, segment_flags, segment_count))
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        const d2d::matrix_3x2_f matrix = world_matrix(world_transform);
+        com::pointer<d2d::factory> owner;
+        com::pointer<d2d::path_geometry> path;
+        com::result status = create_query_path(figures, figure_count, segments, segment_flags, segment_count, owner, path);
+        d2d::rectangle_f measured{};
+        if (!com::failed(status)) status = path->GetBounds(&matrix, &measured);
+        if (com::failed(status)) return native_status(status);
+        // Every figure contributes at least its start point; a geometry without
+        // figures has no bounds.
+        if (figure_count == 0U) return PROGPU_NATIVE_STATUS_SUCCESS;
+        const float width = measured.right - measured.left, height = measured.bottom - measured.top;
+        if (!std::isfinite(measured.left) || !std::isfinite(measured.top) ||
+            !std::isfinite(width) || !std::isfinite(height))
+            return PROGPU_NATIVE_STATUS_UNSUPPORTED;
+        *bounds = {measured.left, measured.top, width, height};
+        *has_bounds = 1U;
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+}
+
+extern "C" PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_widen(
+    const progpu_native_geometry_query_figure* figures, std::uint32_t figure_count,
+    const progpu_native_path_segment* segments, const std::uint8_t* segment_flags, std::uint32_t segment_count,
+    const progpu_native_geometry_query_pen* pen, const float* dashes, std::uint32_t dash_count,
+    const progpu_native_affine_2d* world_transform, float tolerance,
+    progpu_native_geometry_path** result, const progpu_native_path_segment** outline,
+    std::uint32_t* outline_count, std::uint32_t* fill_rule)
+{
+    if (result == nullptr || outline == nullptr || outline_count == nullptr || fill_rule == nullptr)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    *result = nullptr; *outline = nullptr; *outline_count = 0U; *fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    if (!valid_query_transport(figures, figure_count, segments, segment_flags, segment_count) ||
+        !valid_pen(pen, dashes, dash_count) || !std::isfinite(tolerance) || tolerance <= 0.0F)
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    try {
+        const d2d::matrix_3x2_f matrix = world_matrix(world_transform);
+        com::pointer<d2d::factory> owner;
+        com::pointer<d2d::path_geometry> path;
+        com::pointer<d2d::stroke_style> style;
+        com::result status = create_query_path(figures, figure_count, segments, segment_flags, segment_count, owner, path);
+        if (!com::failed(status)) status = create_pen_style(owner.get(), *pen, dashes, dash_count, style);
+        auto snapshot = std::make_unique<progpu_native_geometry_path>();
+        d2d::fill_mode mode = d2d::fill_mode::winding;
+        if (!com::failed(status)) status = d2d::detail::get_widened_outline_segments(
+            path.get(), pen->thickness, style.get(), &matrix, tolerance, snapshot->segments, mode);
+        if (com::failed(status)) return native_status(status);
+        if (snapshot->segments.size() > (std::numeric_limits<std::uint32_t>::max)())
+            return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+        *outline = snapshot->segments.data();
+        *outline_count = static_cast<std::uint32_t>(snapshot->segments.size());
+        *fill_rule = mode == d2d::fill_mode::alternate ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+        *result = snapshot.release();
+        return PROGPU_NATIVE_STATUS_SUCCESS;
+    } catch (const std::bad_alloc&) {
+        return PROGPU_NATIVE_STATUS_OUT_OF_MEMORY;
+    } catch (...) {
+        return PROGPU_NATIVE_STATUS_INTERNAL_ERROR;
+    }
+}
+
+extern "C" PROGPU_NATIVE_API void progpu_native_geometry_path_destroy(progpu_native_geometry_path* path)
+{
+    delete path;
 }

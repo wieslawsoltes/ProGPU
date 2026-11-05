@@ -2514,6 +2514,38 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_query(
     const progpu_native_affine_2d* world_transform, const progpu_native_point* point, float tolerance,
     progpu_native_image_rect* bounds, uint32_t* has_bounds, uint32_t* contains);
 
+/* Bounds of a query geometry (the figures, segments and segment flags of
+ * geometry_stroke_query; every figure, filled or not) after world_transform
+ * (null = identity): the tight bounds of its lines, curves and arcs and of the
+ * start point of every figure. Inputs are borrowed for the call, <= 2^20
+ * figures/segments. Both output addresses are required and zeroed before
+ * validation; a geometry without figures has has_bounds = 0. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_bounds(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, const uint8_t* segment_flags, uint32_t segment_count,
+    const progpu_native_affine_2d* world_transform, progpu_native_image_rect* bounds, uint32_t* has_bounds);
+
+/* Owned canonical segments of a geometry result. */
+typedef struct progpu_native_geometry_path progpu_native_geometry_path;
+
+/* The outline of a stroke: the area a pen covers along a query geometry, with
+ * the transport, pen, dash and world-order rules of geometry_stroke_query, as
+ * filled contours of canonical line and cubic segments (curves are kept, not
+ * flattened) and their fill rule. Each contour is contiguous and closed, and a
+ * discontinuity begins the next: the input layout of geometry_fill_contains and
+ * geometry_combine. On success result owns the immutable segment view until
+ * geometry_path_destroy; empty coverage has no segments. All output addresses
+ * are required and zeroed before validation; inputs are not retained. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_widen(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, const uint8_t* segment_flags, uint32_t segment_count,
+    const progpu_native_geometry_query_pen* pen, const float* dashes, uint32_t dash_count,
+    const progpu_native_affine_2d* world_transform, float tolerance,
+    progpu_native_geometry_path** result, const progpu_native_path_segment** outline,
+    uint32_t* outline_count, uint32_t* fill_rule);
+
+PROGPU_NATIVE_API void progpu_native_geometry_path_destroy(progpu_native_geometry_path* path);
+
 /* Arc-length measure of the contours of a path: the native port of ProGPU's
  * managed SKPathMeasure. Figures use the query-figure layout above and partition
  * the canonical segments in order; flags bit 0 closes a figure, bit 1 is
