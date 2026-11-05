@@ -1,3 +1,10 @@
+Binary glyph continuation visits select the original immutable positions and
+admission flags for the proven edge indices 0/1/2, without addressable temporary
+arrays. Preserve both root visits, opposite/left/right edge order, exact float
+components and first-distinct-position counting. This does not prove ARM64 WARP
+stack safety; retain every original provider/package/pixel gate. See
+docs/binary-font-scan-metadata.md.
+
 Binary glyph orthogonal-cap retention uses the actual whole-glyph collapsed
 rounded scan extent, never a thin local stroke or a shortened cap tolerance.
 Exact far-side contacts keep the original positive-winding closed rule, reversing

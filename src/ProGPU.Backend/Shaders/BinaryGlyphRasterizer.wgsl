@@ -299,16 +299,22 @@ fn continuation_crossings(record: GlyphRecord, left: f32, level: f32, direction:
             let side0_delta = select(side0.delta.x, side0.delta.y, j != 0u);
             let side1_x = select(side1.x.x, side1.x.y, j != 0u);
             let side1_delta = select(side1.delta.x, side1.delta.y, j != 0u);
-            var positions = array<vec2<f32>, 3>(vec2<f32>(across_x, opposite),
-                vec2<f32>(left, side0_x), vec2<f32>(left + 1.0, side1_x));
-            var admitted = array<bool, 3>(
-                (across_delta != 0 && across_x >= left && across_x <= left + 1.0),
-                (side0_delta != 0 && side0_x >= bottom && side0_x <= top),
-                (side1_delta != 0 && side1_x >= bottom && side1_x <= top));
+            let across_position = vec2<f32>(across_x, opposite);
+            let side0_position = vec2<f32>(left, side0_x);
+            let side1_position = vec2<f32>(left + 1.0, side1_x);
+            let across_admitted = across_delta != 0 && across_x >= left && across_x <= left + 1.0;
+            let side0_admitted = side0_delta != 0 && side0_x >= bottom && side0_x <= top;
+            let side1_admitted = side1_delta != 0 && side1_x >= bottom && side1_x <= top;
             for (var edge = 0u; edge < 3u; edge++) {
-                if !admitted[edge] { continue; }
-                if count == 0u { first = positions[edge]; count = 1u; }
-                else if any(first != positions[edge]) { return 2u; }
+                // This bounded loop visits exactly 0/1/2. Select the original
+                // immutable values without creating addressable local arrays.
+                let position = select(select(across_position, side0_position, edge == 1u),
+                    side1_position, edge == 2u);
+                let admitted = select(select(across_admitted, side0_admitted, edge == 1u),
+                    side1_admitted, edge == 2u);
+                if !admitted { continue; }
+                if count == 0u { first = position; count = 1u; }
+                else if any(first != position) { return 2u; }
             }
         }
     }

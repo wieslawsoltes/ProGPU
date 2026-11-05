@@ -546,6 +546,42 @@ font captures under interpreters 35 and 40. A separate diagnostic also compares
 all 128 retained system-font contours without pixel differences; this is not the
 final original source-application, 72-frame text pair or package qualification.
 
+On 5 November, the connected-cap producer `d0d5e9e0` failed all three original
+ARM64 binary package routes (FXC, DXC and Dawn) after the first frame submission.
+All 73 head checks and 63 Build jobs reached terminal state; three failed. The
+exact failed package remains unqualified. A single disposable hosted capture
+([run 41960759862](https://github.com/wieslawsoltes/ProGPU/actions/runs/41960759862))
+reconstructed the unchanged DXC consumer from that exact source/package. Its
+independent handled-exception/fail-fast CPU control passed before application
+execution. The capture reached its unchanged eight-event cap, so it remains a
+failed bounded diagnostic, not a complete admitted runtime gate.
+
+Its retained first access-violation context and actual 1,024-byte code range show
+`mov w28, #0x3124; add x28, xzr, x28; str w4, [x28]`. The write targets `0x3124`,
+with an actual `0x3130` frame-pointer-to-stack-pointer distance. A later WARP
+fail-fast has subtype `0x49`. The bad zero-register address calculation is directly
+observed; shader-frame reduction remains a mitigation to validate, not a claim
+that a particular array alone causes the compiler defect. No system DLL, compiler
+default, original input or pixel expectation changes.
+
+The continuation helper now retains the same three immutable positions and
+admission flags in separate values. The original bounded edge loop visits
+exactly 0, 1 and 2, selecting respectively the opposite, left and right side.
+Both original root visits, all comparisons, each original float component and
+first-distinct-position counting remain unchanged. Selection performs no numeric
+interpolation or geometry recomputation. It removes two addressable local arrays
+without changing shared memory, barriers, atomics, event/root storage, smart
+subdivision or dropout order. Original ARM64 execution and whole-provider/package
+qualification remain required; smaller compiler output or local pixels alone
+cannot qualify this candidate.
+
+The revised shared shader passes all eight complete managed bitmap fixtures
+(2,537 authored cases), and both rebuilt native providers pass all 24 fixture
+executions through original segments and both font interpreters with zero pixel
+differences. The full canonical shader plus NUL occurs exactly once in each
+actual tested library. These local checks preserve the original cold/warm,
+ownership and submission assertions; Windows execution remains pending.
+
 Local validation on 18 October 2026:
 
 - All 880 complete authored coverage cases match exactly in the managed atlas,
