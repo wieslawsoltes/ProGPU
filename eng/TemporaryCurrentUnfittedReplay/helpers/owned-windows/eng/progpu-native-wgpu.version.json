@@ -1,0 +1,8 @@
+{
+  "managedBinding": "Silk.NET.WebGPU 2.23.0",
+  "nativePackage": "Silk.NET.WebGPU.Native.WGPU 2.23.0",
+  "repository": "https://github.com/gfx-rs/wgpu-native.git",
+  "revision": "33133da4ec5a0174cb21539ef2d3346f75200411",
+  "webGpuHeadersRevision": "aef5e428a1fdab2ea770581ae7c95d8779984e0a",
+  "backendAbi": "PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05"
+}

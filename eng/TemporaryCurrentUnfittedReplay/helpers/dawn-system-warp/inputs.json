@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "dawnRepository": "https://dawn.googlesource.com/dawn",
+  "dawnRevision": "01249a97332468dbdd6cf5edb8dd7bae77875de5",
+  "releaseTag": "dawn-m150-01249a9",
+  "producerRun": 28411907227,
+  "builderRevision": "a63b42357c8c081cf6a1ace312670b2bb61680c6",
+  "webGpuSharpVersion": "0.5.5",
+  "generatedHeaderSha256": "32f8063fa2aa5977da27d8a39479581ac834e6cb0cf39f2f9bd6de928a998e5d",
+  "jinjaRepository": "https://chromium.googlesource.com/chromium/src/third_party/jinja2",
+  "jinjaRevision": "c3027d884967773057bf74b957e3fea87e5df4d7",
+  "markupSafeRepository": "https://chromium.googlesource.com/chromium/src/third_party/markupsafe",
+  "markupSafeRevision": "4256084ae14175d38a3ff7d739dca83ae49ccec6",
+  "runtimes": {
+    "win-x64": {
+      "url": "https://github.com/EmilSV/webgpu-dawn-build/releases/download/dawn-m150-01249a9/dawn-Windows-x64.zip",
+      "assetId": 461683538,
+      "archiveBytes": 4278383,
+      "archiveSha256": "87e72f02718d0282c53f7be878ecec99b47293f3f6363ce766553eb0350d8500",
+      "providerBytes": 10779648,
+      "providerSha256": "f8801b2be52bf1ddd536c72e2e8e77f757f32a85846c3505d0215ef19b444f5f",
+      "importLibrarySha256": "791c493f118cdc0f0a81603d8407f2eff8302e721ec6f5354743070bc1df8463",
+      "peMachine": 34404,
+      "clangTarget": "x86_64-pc-windows-msvc"
+    },
+    "win-arm64": {
+      "url": "https://github.com/EmilSV/webgpu-dawn-build/releases/download/dawn-m150-01249a9/dawn-Windows-arm64.zip",
+      "assetId": 461683541,
+      "archiveBytes": 4224471,
+      "archiveSha256": "9f6fc12853dc2694c14a89b6875c2eedc035b1affc191f72216db96aa3cead32",
+      "providerBytes": 11457536,
+      "providerSha256": "68e388593559c1a5dad9537873b0377f02aaec55d5f30b5eb5246b8df9743dc6",
+      "importLibrarySha256": "bc0a81478c5568614e9bcaff88f8520a2402831fdfaa1304ad84968531867a73",
+      "peMachine": 43620,
+      "clangTarget": "aarch64-pc-windows-msvc"
+    }
+  }
+}

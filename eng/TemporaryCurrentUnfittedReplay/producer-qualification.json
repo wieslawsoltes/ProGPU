@@ -1,0 +1,68 @@
+{
+  "qualificationReviewed": true,
+  "producer": {
+    "head": "2e9e434959ddb43922061c6a1e03efc390739adb",
+    "wholeBuildRunId": 41974319569,
+    "wholeBuildConclusion": "success",
+    "reviewEvidenceSha256": "b12e9f589b04f6ad4481c3c22e248e29529408b6e49cfbe666fdd1815e45910f"
+  },
+  "artifact": {
+    "name": "progpu-native-package",
+    "id": 13392892634,
+    "bytes": 333918146,
+    "sha256": "fe41cb4600db115f46d65ff8e8dbab5353d0fb89bdb64945dedd01ef5581a642"
+  },
+  "packageVersion": "0.1.0-preview.3711.ci",
+  "packages": {
+    "ProGPU.Backend": {
+      "file": "ProGPU.Backend.0.1.0-preview.3711.ci.nupkg",
+      "id": "ProGPU.Backend",
+      "version": "0.1.0-preview.3711.ci",
+      "repositoryCommit": "2e9e434959ddb43922061c6a1e03efc390739adb",
+      "dependencies": {
+        "Silk.NET.GLFW": "2.23.0",
+        "Silk.NET.Input.Glfw": "2.23.0",
+        "Silk.NET.WebGPU": "2.23.0",
+        "Silk.NET.WebGPU.Native.WGPU": "2.23.0",
+        "Silk.NET.Windowing.Common": "2.23.0",
+        "Silk.NET.Windowing.Glfw": "2.23.0"
+      },
+      "sha256": "da79a678423a921faf24a7545944894011ee562549887656a9d263a3cb44dd00",
+      "bytes": 10939033
+    },
+    "ProGPU.Backend.Dawn": {
+      "file": "ProGPU.Backend.Dawn.0.1.0-preview.3711.ci.nupkg",
+      "id": "ProGPU.Backend.Dawn",
+      "version": "0.1.0-preview.3711.ci",
+      "repositoryCommit": "2e9e434959ddb43922061c6a1e03efc390739adb",
+      "dependencies": {
+        "ProGPU.Backend": "0.1.0-preview.3711.ci",
+        "WebGPUSharp": "0.5.5"
+      },
+      "sha256": "362763bb0d790bbfdebccfe3562137239a5dc366de28b5d0a091fb927ba7e51e",
+      "bytes": 178748
+    },
+    "ProGPU.Backend.Native": {
+      "file": "ProGPU.Backend.Native.0.1.0-preview.3711.ci.nupkg",
+      "id": "ProGPU.Backend.Native",
+      "version": "0.1.0-preview.3711.ci",
+      "repositoryCommit": "2e9e434959ddb43922061c6a1e03efc390739adb",
+      "dependencies": {
+        "ProGPU.Backend.Dawn": "0.1.0-preview.3711.ci",
+        "ProGPU.Backend": "0.1.0-preview.3711.ci",
+        "ProGPU.Native.Sdk": "0.1.0-preview.3711.ci"
+      },
+      "sha256": "95001a7cdf325c77f18dd92cae0d9de4c536d16fda1a07946a59a2cbb813ff8d",
+      "bytes": 196082256
+    },
+    "ProGPU.Native.Sdk": {
+      "file": "ProGPU.Native.Sdk.0.1.0-preview.3711.ci.nupkg",
+      "id": "ProGPU.Native.Sdk",
+      "version": "0.1.0-preview.3711.ci",
+      "repositoryCommit": "2e9e434959ddb43922061c6a1e03efc390739adb",
+      "dependencies": {},
+      "sha256": "ad941d4ac5773443042fbcad4483b30af95b15dca97df42aad93ec12b5180780",
+      "bytes": 103383584
+    }
+  }
+}

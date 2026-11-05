@@ -1,0 +1,1000 @@
+{
+  "fonts": [
+    {
+      "requested": "Microsoft Sans Serif",
+      "managed": "Microsoft Sans Serif",
+      "native": "Microsoft Sans Serif",
+      "points": 9.75,
+      "charset": 0,
+      "bytes": 857472,
+      "sha256": "89b42a12ea0379133fb2f4a1d1bd53058fb61e2343c1d509452d5761acc85b7a",
+      "gasp": {
+        "tag": "gasp",
+        "queryResult": 16,
+        "available": true,
+        "sha256": "02850b63af0e21cce2efb7a3e2cd58c2105982e91b441c1840b347357e30f6e2",
+        "hex": "000000030008000200120001ffff0003"
+      }
+    },
+    {
+      "requested": "Segoe UI",
+      "managed": "Segoe UI",
+      "native": "Segoe UI",
+      "points": 9,
+      "charset": 0,
+      "bytes": 959752,
+      "sha256": "8134dbcd09e7b123c9a7f229d49cffbcb01352cc72ea5e1076b65d0dca9f73cd",
+      "gasp": {
+        "tag": "gasp",
+        "queryResult": 16,
+        "available": true,
+        "sha256": "140a33c36bf6b708135b030201e19c359442fdb7b5d613cdeee876308302129a",
+        "hex": "000100030008000a00130007ffff000f"
+      }
+    }
+  ],
+  "smoothing": [
+    {
+      "action": 74,
+      "success": true,
+      "value": 1,
+      "error": 0
+    },
+    {
+      "action": 8202,
+      "success": true,
+      "value": 2,
+      "error": 0
+    },
+    {
+      "action": 8204,
+      "success": true,
+      "value": 1200,
+      "error": 0
+    },
+    {
+      "action": 8210,
+      "success": true,
+      "value": 1,
+      "error": 0
+    }
+  ],
+  "caseInputs": [
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Microsoft Sans Serif",
+      "points": 9.75,
+      "api": "GdiTextRenderer",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SystemDefault",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SystemDefault",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixelGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixelGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "SingleBitPerPixel",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "SingleBitPerPixel",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAliasGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAliasGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "AntiAlias",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "AntiAlias",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 0,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 0,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 4,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 4,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiPlusDrawString",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    },
+    {
+      "font": "Segoe UI",
+      "points": 9,
+      "api": "GdiTextRenderer",
+      "requestedHint": "ClearTypeGridFit",
+      "requestedContrast": 12,
+      "actual": {
+        "hint": "ClearTypeGridFit",
+        "contrast": 12,
+        "dpiX": 96,
+        "dpiY": 96
+      }
+    }
+  ]
+}

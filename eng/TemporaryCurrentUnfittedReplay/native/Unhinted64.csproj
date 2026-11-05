@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ProGpuEnableDawnSystemWarp>true</ProGpuEnableDawnSystemWarp>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(PreparedAssemblyDirectory)' != ''">
+    <Reference Include="$(PreparedAssemblyDirectory)/*.dll" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PreparedAssemblyDirectory)' == ''">
+    <PackageReference Include="ProGPU.Backend.Native" Version="$(QualifiedProducerVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="WindowsNativePin.json" LogicalName="WindowsNativePin.json" />
+    <EmbeddedResource Include="WindowsBuildPin.json" LogicalName="WindowsBuildPin.json" />
+    <EmbeddedResource Include="WindowsShaderPin.json" LogicalName="WindowsShaderPin.json" />
+  </ItemGroup>
+</Project>
