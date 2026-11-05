@@ -206,11 +206,16 @@ fn base_covered(record: GlyphRecord, x: f32, level: f32, vertical: bool) -> bool
         if events[middle].x < x { low = middle + 1u; }
         else { high = middle; }
     }
-    // An exact nondegenerate quadratic crossing retains the closed curve
-    // boundary. Straight/flat boundaries keep their independent admission.
+    // Original paired contour observations retain an exact downward vertical
+    // edge. Its upward counterpart stays open; do not extend this rule to
+    // sloped lines, flat scan boundaries or degenerate quadratics.
+    // An exact nondegenerate quadratic keeps its original closed boundary.
     // No epsilon or antialiasing threshold participates in this decision.
     if low < 512u && events[low].x == x {
         let edge = segments[record.startSegment + event_source(events[low])];
+        if edge.segmentType == 0u && edge.p0.x == edge.p1.x && edge.p1.y < edge.p0.y {
+            return true;
+        }
         let a = edge.p1 - edge.p0;
         let b = edge.p2 - edge.p0;
         return edge.segmentType == 1u && a.x * b.y != a.y * b.x;

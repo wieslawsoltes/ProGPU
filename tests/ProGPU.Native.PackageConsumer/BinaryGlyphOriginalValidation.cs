@@ -19,10 +19,15 @@ internal static class BinaryGlyphOriginalValidation
             "B30470FEAE7D095ADAD5E549595ADEAED929058E3040D94640F0CA214313E2B8", "ProGPU-Authored-Curve-Scan",
             ["1B022DD2BEBA0EE8E591A0A577F6E7872A3F1C661EFDBF4C2C42E9CC6E6EDAD3",
              "3AA2AB1D3104067B5EDED6406E4ED2B87F813260D8EFA39568082DF48190A721"]);
+        Run(context, create, "BinaryGlyphDirectionOriginals.json",
+            "AEBB5E4955A0003808F639601188C9151315ECC98EAD3929F366513CD2A643FD", "ProGPU-Authored-Scan-Reversed",
+            ["872C5A82825C5E1AA3E51589D758680B36A7E005B8FA982EFD21D19B239FB91D"],
+            expectedCases: 7, singleFontResource: "ProGPU-Authored-Scan-Reversed.ttf");
     }
 
     private static void Run(WgpuContext context, Func<NativeCompositor> create,
-        string resource, string digest, string fontPrefix, string[] fontDigests)
+        string resource, string digest, string fontPrefix, string[] fontDigests,
+        int expectedCases = 880, string? singleFontResource = null)
     {
         using Stream input = typeof(BinaryGlyphOriginalValidation).Assembly
             .GetManifestResourceStream(resource)!;
@@ -33,8 +38,11 @@ internal static class BinaryGlyphOriginalValidation
             digest, "original fixture digest");
         using JsonDocument document = JsonDocument.Parse(source);
         JsonElement[] cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
-        Check(cases.Length == 880 && cases.Select(c => (c.GetProperty("gasp").GetInt32(),
-            c.GetProperty("index").GetInt32())).Distinct().Count() == 880, "all 880 original cases");
+        Check(cases.Length == expectedCases && cases.Select(c => (c.GetProperty("gasp").GetInt32(),
+            c.GetProperty("index").GetInt32())).Distinct().Count() == expectedCases, "complete original case inventory");
+        int[] gasps = singleFontResource == null ? [1, 3] : [1];
+        Check(cases.Select(c => c.GetProperty("gasp").GetInt32()).Distinct().Order().SequenceEqual(gasps),
+            "complete original font inventory");
         const int columns = 32, tile = 64, width = columns * tile, height = 28 * tile;
         var outlines = new NativeGlyphOutline[cases.Length];
         var glyphs = new NativePositionedGlyph[cases.Length];
@@ -79,10 +87,10 @@ internal static class BinaryGlyphOriginalValidation
             var capturedOutlines = new List<NativeGlyphOutline>();
             var capturedSegments = new List<NativePathSegment>();
             var capturedGlyphs = new NativePositionedGlyph[cases.Length];
-            foreach (int gasp in new[] { 1, 3 })
+            foreach (int gasp in gasps)
             {
                 using var fontStream = typeof(BinaryGlyphOriginalValidation).Assembly
-                    .GetManifestResourceStream($"{fontPrefix}-{gasp}.ttf")!;
+                    .GetManifestResourceStream(singleFontResource ?? $"{fontPrefix}-{gasp}.ttf")!;
                 using var fontBytes = new MemoryStream(); fontStream.CopyTo(fontBytes);
                 byte[] font = fontBytes.ToArray();
                 Check(Convert.ToHexString(SHA256.HashData(font)) == fontDigests[gasp == 1 ? 0 : 1],
@@ -153,7 +161,7 @@ internal static class BinaryGlyphOriginalValidation
             renderer.WaitForSubmission(token);
             Check(renderer.IsSubmissionComplete(token), "actual completed native submission");
             byte[] pixels = target.ReadPixels();
-            Check(pixels.Length == expected.Length && metrics.GlyphCount == 880, "complete target and inventory");
+            Check(pixels.Length == expected.Length && metrics.GlyphCount == (uint)glyphs.Length, "complete target and inventory");
             if (frame == 0)
             {
                 Check(metrics.RasterizedGlyphCount == rasterIdentities.Count && metrics.CoverageStagingBytes != 0,
@@ -178,7 +186,7 @@ internal static class BinaryGlyphOriginalValidation
             Console.WriteLine($"binary-original-difference case={index} x={x % tile} y={y % tile} " +
                 $"expected={Convert.ToHexString(expected.AsSpan(pixel * 4, 4))} actual={Convert.ToHexString(cold.AsSpan(pixel * 4, 4))}");
         }
-        Console.WriteLine($"binary-originals provider={context.BackendKind} source={source} cases=880 failedCases={casesWithDifferences.Count} pixels={differences}");
+        Console.WriteLine($"binary-originals provider={context.BackendKind} source={source} cases={glyphs.Length} failedCases={casesWithDifferences.Count} pixels={differences}");
         Check(differences == 0, "every original full-frame pixel, including all blank padding");
     }
 

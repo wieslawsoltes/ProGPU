@@ -52,8 +52,9 @@ boundary contacts, retains actual orthogonal caps and exact cap contacts, and
 keeps with-stubs contour-vertex contacts separate from positive winding intervals.
 Quadratic endpoints use their first nonzero one-sided coefficient; an interior
 curve extremum does not become an endpoint. Exact nondegenerate quadratic
-boundaries retain closed coverage, while straight and flat boundaries retain
-their separate rule.
+boundaries retain closed coverage. Exact downward vertical straight edges retain
+their original directed boundary coverage; upward, sloped and flat boundaries
+keep their independent rules.
 No epsilon, source-coordinate adjustment or AA threshold substitutes for a binary
 decision. The independent original system-font comparisons remain required.
 
@@ -204,8 +205,37 @@ ten-second bound. A separate ten-second, 28-frame observation pairs both contour
 directions with fitted/unfitted rendering over five scan modes and the three
 original mode-one phases. All seven original fitted frames must still match the
 immutable fixture. Reversed frames remain observations, with complete pixels,
-owned private-family retirement and no input or desktop windows. Its hosted
-result is pending; contour direction is a hypothesis, not a shader correction.
+owned private-family retirement and no input or desktop windows. Both architectures
+passed in [Build 41943979905](https://github.com/wieslawsoltes/ProGPU/actions/runs/41943979905).
+Independent review verifies all 252 full frames, all 126 cross-architecture pairs
+and all 100 immutable original comparisons. Each of the five phase-zero reversed
+contours adds the nine exact right-edge samples; the adjacent phases are unchanged.
+Every fitted/unfitted pair agrees. Both direction observations complete in about
+0.021 seconds, including owned-family retirement.
+
+`BinaryGlyphDirectionOriginals.json` retains these seven original reversed-font
+frames independently of the earlier 1,760-case fixtures. Its SHA-256 is
+`aebb5e4955a0003808f639601188c9151315ecc98ead3929f366513cd2a643fd`.
+The unchanged renderer fails five of these cases and 45 pixels while both earlier
+880-case fixtures pass. The common shader now admits the exact downward vertical
+line crossing. Its upward counterpart stays open; no slope, flat boundary,
+quadratic, dropout arithmetic, sorted event or source coordinate changes.
+All 37 focused managed controls pass after the correction, including all three
+original pixel inventories and cold/warm reuse. The native package consumer also
+retains the separate seven-case inventory through original segments and both
+owned font interpreters, without reducing either earlier 880-case inventory.
+Both rebuilt native providers pass all nine local executions: the three complete
+fixtures through original segments and both font interpreters, with unchanged
+cold/warm submissions, counters, full-frame padding and source lifetime checks.
+The exact loaded library hashes are retained with the results; wgpu completes in
+1.29 seconds and Dawn in 1.67 seconds. Windows and package qualification remain
+required.
+
+This proves and corrects the observed owned vertical-boundary defect. It does not
+by itself resolve the four remaining Segoe UI descriptors or qualify a GDI+
+unfitted source adapter. Their original full frames and metadata replay failure
+remain separate gates; do not infer a sloped-edge or unfitted precision policy
+from these rectangles.
 
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).

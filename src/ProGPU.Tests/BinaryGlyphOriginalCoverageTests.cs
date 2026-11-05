@@ -9,8 +9,9 @@ using Xunit.Abstractions;
 
 namespace ProGPU.Tests;
 
-// Original Windows bitmaps of our own authored TrueType outlines, with matching
-// GDI+ and GGO_BITMAP observations. These are complete coverage comparisons,
+// Original Windows bitmaps of our own authored TrueType outlines. The original
+// straight/curve sets pair GDI+ and GGO_BITMAP; the direction set pairs fitted
+// and unfitted GDI+ on x64/ARM64. These are complete coverage comparisons,
 // not system-font, package, source layout or application qualification.
 public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
 {
@@ -21,9 +22,11 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData("BinaryGlyphOriginals.json", "6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092")]
-    [InlineData("BinaryGlyphCurveOriginals.json", "B30470FEAE7D095ADAD5E549595ADEAED929058E3040D94640F0CA214313E2B8")]
-    public void EveryOriginalAuthoredBitmapMatchesColdAndWarmCoverage(string resource, string digest)
+    [InlineData("BinaryGlyphOriginals.json", "6D13E632B5F260217BC17D9C86B61E77506F463644EEEE923280400A52F3B092", 880, 176)]
+    [InlineData("BinaryGlyphCurveOriginals.json", "B30470FEAE7D095ADAD5E549595ADEAED929058E3040D94640F0CA214313E2B8", 880, 176)]
+    [InlineData("BinaryGlyphDirectionOriginals.json", "AEBB5E4955A0003808F639601188C9151315ECC98EAD3929F366513CD2A643FD", 7, 1)]
+    public void EveryOriginalAuthoredBitmapMatchesColdAndWarmCoverage(string resource, string digest,
+        int expectedCases, int expectedNoDropoutCases)
     {
         using Stream stream = typeof(BinaryGlyphOriginalCoverageTests).Assembly
             .GetManifestResourceStream(resource)!;
@@ -33,9 +36,9 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
             Convert.ToHexString(SHA256.HashData(bytes.ToArray())));
         using JsonDocument document = JsonDocument.Parse(bytes.ToArray());
         JsonElement[] cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
-        Assert.Equal(880, cases.Length);
-        Assert.Equal(880, cases.Select(c => (c.GetProperty("gasp").GetInt32(), c.GetProperty("index").GetInt32())).Distinct().Count());
-        Assert.Equal(176, cases.Count(c => c.GetProperty("mode").GetInt32() == 2));
+        Assert.Equal(expectedCases, cases.Length);
+        Assert.Equal(expectedCases, cases.Select(c => (c.GetProperty("gasp").GetInt32(), c.GetProperty("index").GetInt32())).Distinct().Count());
+        Assert.Equal(expectedNoDropoutCases, cases.Count(c => c.GetProperty("mode").GetInt32() == 2));
         var outlines = new GpuGlyphRecord[cases.Length];
         var placements = new FontGlyphPlacement[cases.Length];
         var segments = new List<GpuSegment>();
@@ -142,7 +145,7 @@ public sealed class BinaryGlyphOriginalCoverageTests(ITestOutputHelper output)
         retained.Dispose();
         Assert.Equal(1, owner.Disposals);
         Assert.True(failedCases == 0,
-            $"Original binary coverage: {failedCases}/880 cases and {failedPixels} pixels differ. " + string.Join("; ", differences));
+            $"Original binary coverage: {failedCases}/{expectedCases} cases and {failedPixels} pixels differ. " + string.Join("; ", differences));
         // Check accounting only after completing every original cold/warm pixel.
         Assert.Equal((ulong)coverageRingBytes, initialCoverageBytes);
         Assert.Equal(2UL * coverageRingBytes, coldCoverageBytes);

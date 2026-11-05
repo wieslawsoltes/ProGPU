@@ -23,3 +23,4 @@ tests/Shared/BinaryGlyphOriginals.json -text
 tests/Shared/BinaryGlyphCurveOriginals.json -text
 tests/Shared/ProGPU-Authored-Scan-Reversed.ttf -text
 tests/Shared/ProGPU-Authored-Scan-Reversed.json -text
+tests/Shared/BinaryGlyphDirectionOriginals.json -text
