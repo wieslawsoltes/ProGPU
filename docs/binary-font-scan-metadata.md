@@ -642,6 +642,36 @@ present once in each actually loaded library. These results establish local
 pixel equivalence only. The original ARM64 package checks and full producer
 qualification remain mandatory before claiming a repair.
 
+A same-host managed comparison now independently reproduces the ARM64 failure
+with both the array-selection and coverage-pair shaders. In
+[run 41969418493](https://github.com/wieslawsoltes/ProGPU/actions/runs/41969418493),
+the original eight-fixture host loads each exact canonical shader with the same
+verified failed-package DXC payload and original system WARP. Both exit
+`0xC0000409` before completing the first fixture, in 3.385 and 1.319 seconds.
+The independent success, owned-deadline and log-cap controls pass. The retained
+artifact is SHA-256 verified; neither coverage-pair sharing nor array removal
+is a sufficient repair. This diagnostic does not replace the original native
+package gate or qualify the failed package.
+
+A subsequently rejected candidate shares the continuation helper's three original analytic
+crossing evaluations through one bounded call site. Its loop visits the opposite,
+left and right scan edges in exactly that order, selecting the original scalar
+levels and axis values without interpolation. Each result retains both complete
+root slots before the unchanged root/edge visitation and distinct-position
+counting. All 25 other functions, original event parameters, shared storage,
+barriers, atomics and explicit smart-curve endpoint evaluations are unchanged.
+The complete eight managed bitmap fixtures and resource controls pass (42 tests),
+and both rebuilt native providers pass all 24 original fixture executions with
+zero differing pixels. The exact candidate shader plus NUL occurs once in each
+actually tested native library. The actual
+[Windows ARM64 comparison](https://github.com/wieslawsoltes/ProGPU/actions/runs/41970682358)
+then reproduces `0xC0000409` in both the baseline and this candidate, in 2.959 and
+1.265 seconds, with no completed fixture. Their actual loaded WGPU and system WARP
+hashes are identical. This unsuccessful candidate is removed from the product
+shader; its exact bytes, local controls and original failed process receipts are
+retained for diagnosis. No compiler option, driver, pixel expectation or process
+limit was relaxed. Whole native/package/source qualification remains outstanding.
+
 Local validation on 18 October 2026:
 
 - All 880 complete authored coverage cases match exactly in the managed atlas,
