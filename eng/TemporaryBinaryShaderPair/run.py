@@ -49,6 +49,7 @@ def review_process(receipt, log, shader):
     require(not receipt['timedOut'] and not receipt['logLimitExceeded'], 'Workload exceeded its original bound')
     text = log.read_text(encoding='utf-8', errors='replace')
     require('shader-identity='+shader in text, 'Missing actual embedded shader identity')
+    require('runtime=10.0.14 architecture=Arm64' in text, 'Unexpected actual managed runtime')
     wgpu = re.findall(r'owned-wgpu path=(.*?); sha256=([0-9a-f]{64}); rid=win-arm64; backend=D3D12; compiler=Dxc;',text)
     warp = re.findall(r'original-warp path=(.*?); sha256=([0-9a-f]{64});',text)
     require(wgpu and warp, 'Actual DXC/WARP admission did not complete')
@@ -91,6 +92,9 @@ def main():
     env = os.environ.copy(); env['NUGET_PACKAGES'] = str(work/'nuget')
     dotnet = str(Path(shutil.which('dotnet')).resolve())
     command([dotnet,'--info'],evidence/'dotnet-info.log',env)
+    sdk = subprocess.check_output([dotnet,'--version'],cwd=source,env=env,text=True,timeout=30).strip()
+    save(evidence/'selected-sdk.json',{'version':sdk,'dotnet':dotnet,'installation':'Existing hosted SDK; no installer or runtime override'})
+    require(sdk == '10.0.403', 'Original exact SDK is not preinstalled')
     outputs = {}
     try:
         for variant in ('baseline','candidate'):
