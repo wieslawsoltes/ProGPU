@@ -290,6 +290,29 @@ changes. Only slot 27 (`F`) remains: one pixel per cold/warm frame per provider.
 Its stroke-end/dropout behavior, fresh Windows source execution, final packages
 and actual application qualification remain open.
 
+A separate flat-cap observation varies eleven finite endpoint coordinates in two
+authored strip frames, under all five scan modes and both contour directions.
+One frame retains the original half-pixel strip thickness; the other uses an
+independently declared fractional strip. Coordinates and sidebearings belong to
+these new test fonts, not modified system-font inputs. Advance widths and original
+scan instructions stay unchanged. The first preparation incorrectly retained an
+old sidebearing after moving the new strip's left bound; native capture exposed
+the resulting phantom-point translation before any source execution. That failed
+preparation is retained. Corrected authored sidebearings match their declared
+left bounds, and all 1,760 selected native point inventories now match exactly;
+all 5,296 unselected inventories and all scan metadata are unchanged across both
+derivatives and four load targets/two interpreters.
+
+The corrected forward font SHA-256 is
+`02ec6a8655adc7766325f8178a3433dd9b640b5ac61fa01bcaaa8ee3d5027ab7`;
+the reversed font SHA-256 is
+`d21da6a20855aecc2e329aebcf41554f71f14bd6311d4968143ea410cc006be6`.
+The source observer retains 660 full frames under a separate ten-second bound,
+including 110 mandatory unchanged original fitted comparisons. Earlier 98, 28
+and 1,760-frame observations retain their original expectations, schemas and
+limits. The new stroke-end source pixels are pending; this does not change the
+product's dropout rule or qualify the remaining `F` pixel.
+
 The preceding 18-frame probe at `b5865332` completed on both Windows architectures
 in [Build 41916411244](https://github.com/wieslawsoltes/ProGPU/actions/runs/41916411244).
 All 18 paired full frames agree across architectures, all three original fitted

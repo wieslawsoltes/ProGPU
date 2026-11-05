@@ -26,6 +26,7 @@ try
         FontRasterSourceControls.Run(Path.ChangeExtension(args[1], ".raster.json"));
         FontRasterSourceControls.RunReversed(Path.ChangeExtension(args[1], ".direction.json"));
         FontRasterSourceControls.RunAllDirections(Path.ChangeExtension(args[1], ".all-directions.json"));
+        FontRasterSourceControls.RunCaps(Path.ChangeExtension(args[1], ".caps.json"));
     }
 #endif
     string[] roles = ["DefaultFont", "DialogFont", "MenuFont", "MessageBoxFont",

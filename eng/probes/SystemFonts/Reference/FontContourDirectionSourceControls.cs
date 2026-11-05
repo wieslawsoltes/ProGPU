@@ -16,13 +16,22 @@ internal static partial class FontRasterSourceControls
             "6AEC3FAB6C6E9265541CB5BB9874B754BB2537E380187E4D35EDAFBB56DB5BD4",
             Enumerable.Range(1, 440).ToArray(), null, "owned-complete-contour-direction-observation-v1");
 
+    internal static void RunCaps(string output)
+        => RunDirectionObservation(output, "ProGPU-Authored-Scan-Caps-Reversed.ttf",
+            "D21DA6A20855AECC2E329AEBCF41554F71F14BD6311D4968143EA410CC006BE6",
+            Enumerable.Range(1, 440).Where(i => (i - 1) % 88 / 11 is 1 or 3).ToArray(),
+            null, "owned-flat-cap-observation-v1", "ProGPU-Authored-Scan-Caps.ttf",
+            "02EC6A8655ADC7766325F8178A3433DD9B640B5AC61FA01BCAAA8EE3D5027AB7");
+
     private static void RunDirectionObservation(string output, string reversedFile, string reversedHash,
-        int[] selected, string? requiredKind, string schema)
+        int[] selected, string? requiredKind, string schema, string? forwardFile = null, string? forwardHash = null)
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
-        string[] paths = [Path.Combine(AppContext.BaseDirectory, "ProGPU-Authored-Scan-1.ttf"),
-            Path.Combine(AppContext.BaseDirectory, reversedFile)];
-        string[] expectedHashes = [FontHash, reversedHash];
+        Require((forwardFile == null) == (forwardHash == null), "Complete authored cap identity required.");
+        string[] files = forwardFile == null ? ["ProGPU-Authored-Scan-1.ttf", reversedFile]
+            : ["ProGPU-Authored-Scan-1.ttf", forwardFile, reversedFile];
+        string[] paths = files.Select(file => Path.Combine(AppContext.BaseDirectory, file)).ToArray();
+        string[] expectedHashes = forwardHash == null ? [FontHash, reversedHash] : [FontHash, forwardHash, reversedHash];
         for (int i = 0; i < paths.Length; i++)
             Require(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(paths[i]))) == expectedHashes[i],
                 "Owned direction-control font changed.");
@@ -38,7 +47,7 @@ internal static partial class FontRasterSourceControls
         Require(!File.Exists(output), "Fresh source direction receipt required.");
         Stopwatch clock = Stopwatch.StartNew();
         nuint token = 0;
-        nint[] collections = new nint[2], families = new nint[2];
+        nint[] collections = new nint[paths.Length], families = new nint[paths.Length];
         List<object> captures = [];
         List<int> cleanupFailures = [];
         Exception? primary = null;
@@ -62,7 +71,7 @@ internal static partial class FontRasterSourceControls
             }
             foreach (JsonElement row in cases)
             foreach (int hint in new[] { 1, 2 })
-            for (int direction = 0; direction < 2; direction++)
+            for (int direction = 0; direction < paths.Length; direction++)
             {
                 Require(clock.Elapsed < TimeSpan.FromSeconds(10), "Direction observation exceeded ten seconds.");
                 ushort glyph = row.GetProperty("index").GetUInt16();
@@ -82,14 +91,29 @@ internal static partial class FontRasterSourceControls
                     rgba[i*4+2] = (byte)pixels[i];
                     rgba[i*4+3] = (byte)(pixels[i] >> 24);
                 }
-                captures.Add(new { glyph, mode = row.GetProperty("mode").GetInt32(),
-                    phase = row.GetProperty("phase").GetInt32(), reversed = direction == 1,
-                    fontSha256 = expectedHashes[direction], pixelsPerEm = 32f,
-                    pixelsPerEmBits = BitConverter.SingleToInt32Bits(32f), hint, originalMatch,
-                    binary, black, rgbaSha256 = Convert.ToHexString(SHA256.HashData(rgba)),
-                    rgbaBase64 = Convert.ToBase64String(rgba) });
+                if (forwardFile == null)
+                {
+                    captures.Add(new { glyph, mode = row.GetProperty("mode").GetInt32(),
+                        phase = row.GetProperty("phase").GetInt32(), reversed = direction == 1,
+                        fontSha256 = expectedHashes[direction], pixelsPerEm = 32f,
+                        pixelsPerEmBits = BitConverter.SingleToInt32Bits(32f), hint, originalMatch,
+                        binary, black, rgbaSha256 = Convert.ToHexString(SHA256.HashData(rgba)),
+                        rgbaBase64 = Convert.ToBase64String(rgba) });
+                }
+                else
+                {
+                    int[] deltas = [-33, -32, -31, -16, -1, 0, 1, 16, 24, 31, 32];
+                    captures.Add(new { glyph, mode = row.GetProperty("mode").GetInt32(),
+                        phase = row.GetProperty("phase").GetInt32(), family = row.GetProperty("kind").GetString(),
+                        variant = direction, reversed = direction == 2,
+                        authoredCapShift26_6 = direction == 0 ? (int?)null : deltas[row.GetProperty("phase").GetInt32() + 5],
+                        fontSha256 = expectedHashes[direction], pixelsPerEm = 32f,
+                        pixelsPerEmBits = BitConverter.SingleToInt32Bits(32f), hint, originalMatch,
+                        binary, black, rgbaSha256 = Convert.ToHexString(SHA256.HashData(rgba)),
+                        rgbaBase64 = Convert.ToBase64String(rgba) });
+                }
             }
-            Require(captures.Count == selected.Length * 4 && matchedOriginals == selected.Length &&
+            Require(captures.Count == selected.Length * 2 * paths.Length && matchedOriginals == selected.Length &&
                 clock.Elapsed < TimeSpan.FromSeconds(10), "Incomplete bounded direction observations.");
             completed = true;
         }
