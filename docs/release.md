@@ -25,6 +25,16 @@ needed by an open investigation before deleting its workflow run history.
 
 ## Preview.70 preparation
 
+Builds require SDK 10.0.403 or a later compatible .NET 10 SDK through
+`global.json`. This services the implicit NativeAOT compiler/runtime selected by
+the earlier SDK 10.0.201: Microsoft identifies versions before 10.0.14 as affected
+by [CVE-2026-111497](https://github.com/dotnet/runtime/security/advisories/GHSA-p3jp-9v83-76w9),
+and [the official release inventory](https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json)
+associates SDK 10.0.403 with runtime 10.0.14. Existing workflows already consume
+`global.json`; the target framework remains .NET 10. Preserve original older
+runtime evidence separately: this servicing update does not attribute the
+collector/allocation failures or qualify the ARM64 shader candidate.
+
 Preview.70 prepares the merged source soft-wrap-space corrections and the
 Avalonia snapshot, WinUI Image, wavefront, chart-series and pipeline-cache
 retirement fixes. Their original ownership and five-second lifetime controls
