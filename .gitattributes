@@ -21,3 +21,5 @@ src/ProGPU.Tests/TestData/SourceDeviceLines/metrics.json -text
 # Do not rewrite their original LF bytes when core.autocrlf is enabled.
 tests/Shared/BinaryGlyphOriginals.json -text
 tests/Shared/BinaryGlyphCurveOriginals.json -text
+tests/Shared/ProGPU-Authored-Scan-Reversed.ttf -text
+tests/Shared/ProGPU-Authored-Scan-Reversed.json -text
