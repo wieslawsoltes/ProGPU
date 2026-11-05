@@ -7,9 +7,9 @@
   "app/WindowsNativePin.json": "b07586f8c8a1841062e39cd08bac6f9976e2ad01d6b8baed7d7213da5750c1c7",
   "app/WindowsOwnedRuntimeValidation.cs": "93721c6c523883e3ef8a1ed7884e5f02771ea78c80cc97a7f7d44dfee1ac15a0",
   "app/WindowsShaderPin.json": "ae71fdc538621d4cd59cf59b1563e3f4ab87123749c5f1550c524b8e24d28fa6",
-  "baseline.wgsl": "638211666f708bdb4605ba2b6fe3d9681239ee5fa2f7036a891e50635bdb7842",
-  "candidate.wgsl": "c9011aa3f9761ca28001ae85fc53e6ea6fd4db3d02d850bd9ebc2bec7eeeecc7",
+  "baseline.wgsl": "c9011aa3f9761ca28001ae85fc53e6ea6fd4db3d02d850bd9ebc2bec7eeeecc7",
+  "candidate.wgsl": "3b98a0f04cb68ba842c005025095da3b5599ee23e63bcf5c4715fcabc8777a5c",
   "owned_process.py": "f8d8ac7ff32718e2f3cb0ee0aa7e66923b133c8d96c39fc9f4c423e80b18b5fe",
-  "preparation.json": "ed18847c95c0dbd5185ede2f6ce3fb5d0fe5928daf9fa9b071e2bed98892537d",
-  "run.py": "883298fbcc6c9ef5ffa9b7d17447a9cbcffc4055e72d801a3ce01df449f9d326"
+  "preparation.json": "c1ec0c6d73a3fb028f2eeab4a1cc743a5677aa8550f6a6e20a76cc5d9b930e4f",
+  "run.py": "5fa45ed6dfe6011de998a6be8d52a15832986f1e30d6badcd05a7e88f933d2b4"
 }

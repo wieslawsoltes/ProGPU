@@ -1,6 +1,6 @@
 {
   "sourceHead": "3735757cbb05e66290e14e6fe4225613da73d892",
-  "baselineShaderHead": "ba52504f1880be1b8fe06b2f7110dbace17d6064",
+  "baselineShaderHead": "3735757cbb05e66290e14e6fe4225613da73d892",
   "fixtureOriginalSha256": "9af65a96601804dd0a9c63fdc82f4a20f48ad2ea54e9293a4ffcbef19c4e3754",
   "fixtureModifiedSha256": "8a8350bf68f7790c719b9cfed7801d3405af4a19d0b13e928ca8ff5ace9c3743",
   "fixtureChanges": [
@@ -58,5 +58,13 @@
     ]
   ],
   "qualified": false,
-  "executed": false
+  "executed": false,
+  "candidateShaderSha256": "3b98a0f04cb68ba842c005025095da3b5599ee23e63bcf5c4715fcabc8777a5c",
+  "candidateSource": "Exact working-tree canonical shader; only continuation_crossings changes. Not a qualified/published product revision.",
+  "localValidation": {
+    "managedFixtureResourceTests": 42,
+    "nativeWgpuFixtureExecutions": 24,
+    "nativeDawnFixtureExecutions": 24,
+    "pixelDifferences": 0
+  }
 }

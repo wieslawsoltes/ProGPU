@@ -299,9 +299,23 @@ fn continuation_crossings(record: GlyphRecord, left: f32, level: f32, direction:
     var first = vec2<f32>(0.0);
     for (var i = 0u; i < record.segmentCount; i++) {
         let segment = segments[record.startSegment + i];
-        let across = crossings(segment, opposite, vertical);
-        let side0 = crossings(segment, left, !vertical);
-        let side1 = crossings(segment, left + 1.0, !vertical);
+        // Evaluate the same three original scan edges in order through one
+        // analytic call site. Each result retains both original root slots;
+        // scalar level/axis selection does not interpolate or recompute roots.
+        var across_roots = Crossings(vec2<f32>(3.0e38), vec2<i32>(0), vec2<f32>(-1.0));
+        var side0_roots = across_roots;
+        var side1_roots = across_roots;
+        for (var edge = 0u; edge < 3u; edge++) {
+            let edge_level = select(select(opposite, left, edge == 1u), left + 1.0, edge == 2u);
+            let edge_vertical = select(vertical, !vertical, edge != 0u);
+            let roots = crossings(segment, edge_level, edge_vertical);
+            if edge == 0u { across_roots = roots; }
+            else if edge == 1u { side0_roots = roots; }
+            else { side1_roots = roots; }
+        }
+        let across = across_roots;
+        let side0 = side0_roots;
+        let side1 = side1_roots;
         for (var j = 0u; j < 2u; j++) {
             // Both retained root slots are scalar selections; no addressable vector copy.
             let across_x = select(across.x.x, across.x.y, j != 0u);

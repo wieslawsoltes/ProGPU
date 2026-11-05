@@ -95,10 +95,13 @@ def main():
     try:
         for variant in ('baseline','candidate'):
             data = (ROOT/(variant+'.wgsl')).read_bytes()
-            require(data == subprocess.check_output(['git','show',('ba52504f1880be1b8fe06b2f7110dbace17d6064' if variant=='baseline' else HEAD)+':'+SHADER],cwd=repository), 'Canonical shader changed')
+            if variant == 'baseline':
+                require(data == subprocess.check_output(['git','show',HEAD+':'+SHADER],cwd=repository), 'Original baseline shader changed')
+            else:
+                require(hashlib.sha256(data).hexdigest() == '3b98a0f04cb68ba842c005025095da3b5599ee23e63bcf5c4715fcabc8777a5c', 'Reviewed candidate shader changed')
             (source/SHADER).write_bytes(data)
             changed = subprocess.check_output(['git','diff','--name-only'],cwd=source,text=True).splitlines()
-            require(changed == ([SHADER] if variant == 'baseline' else []), 'Unexpected source edit')
+            require(changed == ([] if variant == 'baseline' else [SHADER]), 'Unexpected source edit')
             output = work/variant
             command([dotnet,'publish',str(app/'Probe.csproj'),'-c','Release','-r','win-arm64','--self-contained','false',
                 '-p:UseAppHost=false','-p:ProjectSourceRoot='+str(source),'-p:DiagnosticFeed='+str(feed),'-o',str(output)],evidence/(variant+'-build.log'),env)
@@ -133,7 +136,7 @@ def main():
     finally:
         # Only this diagnostic's own detached checkout and generated build/cache
         # outputs are removed. Original receipts/logs remain for artifact upload.
-        (source/SHADER).write_bytes((ROOT/'candidate.wgsl').read_bytes())
+        (source/SHADER).write_bytes((ROOT/'baseline.wgsl').read_bytes())
         subprocess.run(['git','worktree','remove','--force',str(source)],cwd=repository,check=True)
         for p in (app,feed,work/'nuget',work/'baseline',work/'candidate'):
             if p.exists(): shutil.rmtree(p)
