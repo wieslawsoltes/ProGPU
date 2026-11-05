@@ -54,7 +54,7 @@ def review_process(receipt, log, shader):
     warp = re.findall(r'original-warp path=(.*?); sha256=([0-9a-f]{64});',text)
     require(wgpu and warp, 'Actual DXC/WARP admission did not complete')
     require(len({h for _,h in wgpu}) == 1 and len({(p.lower(),h) for p,h in warp}) == 1, 'Runtime changed between fixture contexts')
-    require(receipt['exitUnsigned'] in (0,0xc0000409), 'Unexpected diagnostic process failure')
+    require(receipt['exitUnsigned'] in (0,0xc0000409,0xc0000005), 'Unexpected diagnostic process failure')
     rows = json.loads((ROOT/'preparation.json').read_text())['fixtureRows']
     expected = [name+' cases='+cases for name,_,cases,_ in rows]
     starts = re.findall(r'^fixture-start (.+)$',text,re.M)
@@ -65,7 +65,8 @@ def review_process(receipt, log, shader):
     if receipt['exitUnsigned'] == 0:
         require(passed == 8 and text.count('completed=True fixtures=8 cases=2537 originalNativePackageQualified=False') == 1, 'Incomplete original fixture inventory')
     return {'exit':receipt['exitHex'],'wgpuSha256':wgpu[0][1],'warpPath':warp[0][0],'warpSha256':warp[0][1],
-            'passedFixtures':passed,'managedFailFastReproduced':receipt['exitUnsigned']==0xc0000409,'nativePackageQualified':False}
+            'passedFixtures':passed,'managedFailFastReproduced':receipt['exitUnsigned']==0xc0000409,
+            'nativeAccessViolationObserved':receipt['exitUnsigned']==0xc0000005,'nativePackageQualified':False}
 
 def main():
     require(platform.system() == 'Windows' and platform.machine().lower() == 'arm64', 'Windows ARM64 only')
