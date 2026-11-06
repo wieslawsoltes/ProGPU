@@ -847,6 +847,8 @@ bool semantic_scene_builder::add_recorded_hit_test_index(std::uint32_t& resource
             if (kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC) {
                 for (std::size_t j = 0U; j < resource.payload.size() / sizeof(progpu_native_analytic_primitive); ++j) {
                     const auto source = read_record<progpu_native_analytic_primitive>(resource.payload, j);
+                    // A shadow paints around its element and is never a hit target.
+                    if (source.kind == PROGPU_NATIVE_PRIMITIVE_SHADOW) continue;
                     if ((source.flags & ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) != 0U) return unsupported();
                     if (source.width <= 0.0F || source.height <= 0.0F) return unsupported();
                     const bool ellipse = source.kind == PROGPU_NATIVE_PRIMITIVE_ELLIPSE;

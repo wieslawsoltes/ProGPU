@@ -3,6 +3,7 @@
 
 import argparse
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -38,6 +39,32 @@ def synthetic_archive(rid):
     return b"!<arch>\n" + header.encode("ascii") + payload
 
 
+def synthetic_common_data():
+    """A little-endian offset-TOC ICU common data file with three items."""
+    header = bytearray(32)
+    struct.pack_into("<HBB", header, 0, 32, 0xDA, 0x27)
+    struct.pack_into("<HHBBBB", header, 4, 20, 0, 0, 0, 2, 0)
+    header[12:16] = b"CmnD"
+    items = [("icudt78l/a.res", bytes(range(16))), ("icudt78l/brkitr/line.brk", bytes(range(16, 48))),
+             ("icudt78l/z.res", bytes(16))]
+    names = b"".join(name.encode("ascii") + b"\0" for name, _ in items)
+    table = 4 + 8 * len(items)
+    position = (table + len(names) + 15) & ~15
+    entries, name_position, body = [], table, b""
+    for name, item in items:
+        entries.append((name_position, position))
+        name_position += len(name) + 1
+        position += len(item)
+    data = bytes(header) + struct.pack("<I", len(items)) + b"".join(struct.pack("<II", *entry) for entry in entries)
+    data += names
+    data += b"\xaa" * (32 + entries[0][1] - len(data))
+    return data + b"".join(item for _, item in items)
+
+
+SYNTHETIC_DATA = synthetic_common_data()
+SYNTHETIC_ITEMS = ["icudt78l/brkitr/line.brk"]
+
+
 class DependencyTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="progpu-edit-icu-contract.")
@@ -47,7 +74,7 @@ class DependencyTests(unittest.TestCase):
         self.build.mkdir()
         self.source = self.build / "edit-word-icu-source"
         files = {"icu/LICENSE": b"Synthetic original complete notice\n",
-                 "icu/source/data/in/icudt78l.dat": bytes(range(16)),
+                 "icu/source/data/in/icudt78l.dat": SYNTHETIC_DATA,
                  "icu/source/common/sources.txt": b"fixture.cpp\n",
                  "icu/source/common/fixture.cpp": b"// synthetic source\n",
                  "icu/source/common/unicode/fixture.h": b"// synthetic header\n",
@@ -65,8 +92,12 @@ class DependencyTests(unittest.TestCase):
         self.pin["sourceSha256"] = DEPENDENCY.digest(self.archive)
         self.pin["licenseSha256"] = DEPENDENCY.digest(self.source / "icu/LICENSE")
         self.pin["dataSha256"] = DEPENDENCY.digest(self.source / self.pin["dataPath"])
+        self.pin["dataItems"] = SYNTHETIC_ITEMS
+        subset = DEPENDENCY.EMBED.filter_common_data(SYNTHETIC_DATA, SYNTHETIC_ITEMS)
+        self.pin["embeddedDataSha256"] = hashlib.sha256(subset).hexdigest()
         (self.build / "progpu_edit_icu_data.cpp").write_text(
-            "".join(DEPENDENCY.EMBED.source_chunks(files[self.pin["dataPath"]])), encoding="utf-8", newline="\n")
+            "".join(DEPENDENCY.EMBED.source_chunks(DEPENDENCY.EMBED.embedded_data(SYNTHETIC_DATA, self.pin))),
+            encoding="utf-8", newline="\n")
         self.pin_path = self.root / "pin.json"
         self.pin_path.write_text(json.dumps(self.pin), encoding="utf-8")
         patch = mock.patch.object(DEPENDENCY, "PIN", self.pin_path)
@@ -153,12 +184,33 @@ class DependencyTests(unittest.TestCase):
                     'extern "C" {\n'
                     'alignas(16) extern const std::uint32_t progpu_edit_icu_data[] = {\n'
                     '0x03020100U,0x07060504U,0x0b0a0908U,0x0f0e0d0cU,\n};\n}\n')
-        self.assertEqual(expected, (self.build / "progpu_edit_icu_data.cpp").read_text())
+        self.assertEqual(expected, "".join(DEPENDENCY.EMBED.source_chunks(bytes(range(16)))))
+        # The fixture embeds the subset: the common data header first.
+        self.assertTrue((self.build / "progpu_edit_icu_data.cpp").read_text().splitlines()[5]
+                        .startswith("0x27da0020U,"))
+
+    def test_subset_keeps_only_the_pinned_items_byte_for_byte(self):
+        subset = DEPENDENCY.EMBED.filter_common_data(SYNTHETIC_DATA, SYNTHETIC_ITEMS)
+        self.assertEqual(SYNTHETIC_DATA[:32], subset[:32])
+        count, name_offset, data_offset = struct.unpack_from("<III", subset, 32)
+        self.assertEqual(1, count)
+        self.assertEqual(b"icudt78l/brkitr/line.brk\0", subset[32 + name_offset:32 + name_offset + 25])
+        self.assertEqual(0, data_offset % 16)
+        self.assertEqual(bytes(range(16, 48)), subset[32 + data_offset:32 + data_offset + 32])
+        with self.assertRaisesRegex(ValueError, "lacks a pinned item"):
+            DEPENDENCY.EMBED.filter_common_data(SYNTHETIC_DATA, ["icudt78l/missing.res"])
+        with self.assertRaisesRegex(ValueError, "not little-endian offset-TOC"):
+            DEPENDENCY.EMBED.filter_common_data(bytes(64), SYNTHETIC_ITEMS)
+
+    def test_changed_subset_identity_is_rejected(self):
+        changed = dict(self.pin, embeddedDataSha256="0" * 64)
+        with self.assertRaisesRegex(ValueError, "subset identity changed"):
+            DEPENDENCY.EMBED.embedded_data(SYNTHETIC_DATA, changed)
 
     def test_changed_generated_source_never_publishes_receipt(self):
         path = self.build / "progpu_edit_icu_data.cpp"
         original = path.read_text()
-        for changed in (original.replace("0x03020100U", "0x03020101U"),
+        for changed in (original.replace("0x27da0020U", "0x27da0021U"),
                         original.replace("alignas(16)", "alignas(4)"), original + "// extra\n"):
             with self.subTest(changed=changed):
                 path.write_text(changed, encoding="utf-8")
@@ -170,7 +222,7 @@ class DependencyTests(unittest.TestCase):
     def test_generated_source_is_rechecked_before_staging(self):
         self.produce()
         path = self.build / "progpu_edit_icu_data.cpp"
-        path.write_text(path.read_text().replace("0x03020100U", "0x03020101U"), encoding="utf-8")
+        path.write_text(path.read_text().replace("0x27da0020U", "0x27da0021U"), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Generated ICU data source"):
             self.stage()
 

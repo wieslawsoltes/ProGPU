@@ -731,7 +731,8 @@ add_custom_target(progpu_native_generated_shaders
 set(PROGPU_NATIVE_BACKEND_SOURCES
     src/Backend/progpu_native_rgb_glyph_execution.cpp
     src/Backend/progpu_native_target_clear.cpp
-    src/Backend/progpu_native_geometry_utility.cpp
+    src/Geometry/progpu_native_geometry_utility.cpp
+    src/Geometry/progpu_native_path_measure_abi.cpp
     src/Backend/progpu_native_advanced_blend_execution.cpp
     src/Backend/progpu_native_backdrop_execution.cpp
     src/Backend/progpu_native.cpp
@@ -861,6 +862,33 @@ set(PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Text/Shaping"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Image"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Compression")
+
+# The device-independent geometry of the engine: the neutral vocabulary, path
+# measures, curve dash runs, and the shared path, Boolean and stroke algorithms
+# over recorded path data. Direct2D and MIL are clients; it depends on no
+# device, COM or Direct2D code. The C ABI over it (src/Geometry/*_abi.cpp and
+# progpu_native_geometry_utility.cpp) is compiled into each renderer library.
+add_library(progpu_native_geometry STATIC
+    include/progpu_native_geometry_types.hpp
+    src/Geometry/progpu_native_arc.hpp
+    src/Geometry/progpu_native_curve_dash.hpp
+    src/Geometry/progpu_native_geometry_primitives.cpp
+    src/Geometry/progpu_native_geometry_primitives.hpp
+    src/Geometry/progpu_native_path_builder.cpp
+    src/Geometry/progpu_native_path_core.cpp
+    src/Geometry/progpu_native_path_core.hpp
+    src/Geometry/progpu_native_path_measure.cpp
+    src/Geometry/progpu_native_path_measure.hpp)
+target_compile_features(progpu_native_geometry PUBLIC cxx_std_20)
+target_include_directories(progpu_native_geometry PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+set_target_properties(progpu_native_geometry PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+progpu_native_enable_warnings(progpu_native_geometry)
+progpu_native_enable_sanitizers(progpu_native_geometry)
 
 add_library(progpu_native_hit_testing STATIC
     src/HitTesting/progpu_native_hit_testing.cpp
@@ -1228,6 +1256,7 @@ target_include_directories(progpu_native_direct2d_core PUBLIC
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
 target_link_libraries(progpu_native_direct2d_core PUBLIC
     progpu_native_scene_builder
+    progpu_native_geometry
     PRIVATE progpu_native_text)
 if(WIN32)
     target_compile_definitions(progpu_native_direct2d_core PUBLIC
@@ -1280,6 +1309,7 @@ target_include_directories(progpu_native SYSTEM PRIVATE
 target_link_libraries(progpu_native PRIVATE
     progpu_native_mil
     progpu_native_text
+    progpu_native_geometry
     "${PROGPU_NATIVE_WEBGPU_LIBRARY}")
 progpu_native_enable_warnings(progpu_native)
 progpu_native_enable_sanitizers(progpu_native)
@@ -1317,7 +1347,8 @@ if(NOT EMSCRIPTEN AND PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR)
         "${PROGPU_NATIVE_DAWN_WEBGPU_INCLUDE_DIR}")
     target_link_libraries(progpu_native_dawn PRIVATE
         progpu_native_mil
-        progpu_native_text)
+        progpu_native_text
+        progpu_native_geometry)
     progpu_native_enable_warnings(progpu_native_dawn)
     progpu_native_enable_sanitizers(progpu_native_dawn)
     set_target_properties(progpu_native_dawn PROPERTIES
@@ -1568,7 +1599,8 @@ if(EMSCRIPTEN)
         "${CMAKE_CURRENT_SOURCE_DIR}/browser"
         "${CMAKE_CURRENT_SOURCE_DIR}/browser/include")
     target_link_libraries(progpu_native_browser_module PRIVATE
-        progpu_native_image progpu_native_scene_builder progpu_native_text)
+        progpu_native_image progpu_native_scene_builder progpu_native_text
+        progpu_native_geometry)
     target_compile_options(progpu_native_browser_module PRIVATE
         --use-port=emdawnwebgpu:cpp_bindings=false
         -fexceptions
@@ -1630,7 +1662,8 @@ if(EMSCRIPTEN)
     target_link_libraries(progpu_native_browser_smoke PRIVATE
         progpu_native_image
         progpu_native_scene_builder
-        progpu_native_text)
+        progpu_native_text
+        progpu_native_geometry)
     target_compile_options(progpu_native_browser_smoke PRIVATE
         --use-port=emdawnwebgpu:cpp_bindings=false)
     target_link_options(progpu_native_browser_smoke PRIVATE
@@ -1672,6 +1705,7 @@ if(EMSCRIPTEN)
         "${generated_directory}")
     target_link_libraries(progpu_native_browser_gallery PRIVATE
         progpu_native_image
+        progpu_native_geometry
         progpu_native_motion_mark_sample
         progpu_native_text_shaping_showcase_sample
         progpu_native_scene_builder
@@ -1769,12 +1803,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
 
     add_executable(progpu_native_geometry_utility_tests
         tests/progpu_native_geometry_utility_tests.cpp
-        src/Backend/progpu_native_geometry_utility.cpp)
+        src/Geometry/progpu_native_geometry_utility.cpp
+        src/Geometry/progpu_native_path_measure_abi.cpp)
     target_compile_features(progpu_native_geometry_utility_tests PRIVATE cxx_std_20)
     target_compile_definitions(progpu_native_geometry_utility_tests PRIVATE PROGPU_NATIVE_BUILD=1)
     target_include_directories(progpu_native_geometry_utility_tests PRIVATE
         ${PROGPU_NATIVE_INTERNAL_INCLUDE_DIRECTORIES})
-    target_link_libraries(progpu_native_geometry_utility_tests PRIVATE progpu_native_direct2d_core)
+    target_link_libraries(progpu_native_geometry_utility_tests PRIVATE
+        progpu_native_geometry progpu_native_direct2d_core)
     progpu_native_enable_warnings(progpu_native_geometry_utility_tests)
     progpu_native_enable_sanitizers(progpu_native_geometry_utility_tests)
     add_test(NAME progpu_native_geometry_utility_tests COMMAND progpu_native_geometry_utility_tests)
@@ -2587,6 +2623,7 @@ if(NOT EMSCRIPTEN)
         progpu_native_hit_testing
         progpu_native_image
         progpu_native_mil
+        progpu_native_geometry
         progpu_native_direct2d_core
         progpu_native_text
         progpu_native_scene_builder
@@ -2597,6 +2634,7 @@ if(NOT EMSCRIPTEN)
         include/progpu_native_direct2d_compat.hpp
         include/progpu_native_direct2d_core.hpp
         include/progpu_native_direct2d_scene_submission.hpp
+        include/progpu_native_geometry_types.hpp
         include/progpu_native_dawn.h
         include/progpu_native_compression.hpp
         include/progpu_native_hit_testing.hpp

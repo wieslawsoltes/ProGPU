@@ -1066,7 +1066,9 @@ progpu_native_status render_scene(
                         apply_semantic_transform(primitive, state);
                         apply_analytic_material(primitive, *brush);
                     }
-                    valid = is_valid_semantic_analytic(primitive);
+                    valid = is_valid_semantic_analytic(primitive) &&
+                        (primitive.kind != PROGPU_NATIVE_PRIMITIVE_SHADOW || brush == nullptr ||
+                            brush->type == PROGPU_NATIVE_SCENE_BRUSH_SOLID);
                 }
                 break;
             }

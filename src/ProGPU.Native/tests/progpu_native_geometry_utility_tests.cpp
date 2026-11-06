@@ -506,6 +506,209 @@ bool dash_validation_matches_scalar_oracle()
 }
 } // namespace
 
+
+segment measure_line(point from, point to)
+{
+    segment value{};
+    value.p0 = from; value.p1 = to; value.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+    return value;
+}
+
+struct measure_owner final {
+    progpu_native_path_measure* value = nullptr;
+    ~measure_owner() { progpu_native_path_measure_destroy(value); }
+};
+
+bool near_value(double value, double expected, double tolerance) { return std::abs(value - expected) <= tolerance; }
+
+bool near_point(point value, point expected, double tolerance)
+{
+    return near_value(value.x, expected.x, tolerance) && near_value(value.y, expected.y, tolerance);
+}
+
+// The length of a single-segment open path.
+float measured_length(const segment& value)
+{
+    const progpu_native_geometry_query_figure figure{value.p0, 0U, 1U, 0U};
+    measure_owner measure;
+    float length = -1.0F;
+    if (progpu_native_path_measure_create(&figure, 1U, &value, 1U, 0U, 1.0F, &measure.value) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        progpu_native_path_measure_contour(measure.value, 0U, &length, nullptr) != PROGPU_NATIVE_STATUS_SUCCESS)
+        return -1.0F;
+    return length;
+}
+
+bool path_measures_match_closed_forms_and_slice_exactly()
+{
+    constexpr double pi = std::numbers::pi;
+    // A closed rectangle: the closing line counts; positions and tangents.
+    const std::array<segment, 3> sides{{measure_line({0, 0}, {100, 0}), measure_line({100, 0}, {100, 50}),
+        measure_line({100, 50}, {0, 50})}};
+    const std::array<progpu_native_geometry_query_figure, 2> figures{{{{5, 5}, 0U, 0U, 0U}, {{0, 0}, 0U, 3U, 1U}}};
+    measure_owner rectangle;
+    if (progpu_native_path_measure_create(figures.data(), 2U, sides.data(), 3U, 0U, 1.0F, &rectangle.value) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || progpu_native_path_measure_contour_count(rectangle.value) != 1U) return false;
+    float length = 0.0F; std::uint32_t closed = 0U;
+    if (progpu_native_path_measure_contour(rectangle.value, 0U, &length, &closed) != PROGPU_NATIVE_STATUS_SUCCESS ||
+        length != 300.0F || closed != 1U) return false;
+    point position{}, tangent{};
+    if (progpu_native_path_measure_position_tangent(rectangle.value, 0U, 125.0F, &position, &tangent) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || !near_point(position, {100, 25}, 1e-4) || !near_point(tangent, {0, 1}, 1e-6)) return false;
+    if (progpu_native_path_measure_position_tangent(rectangle.value, 0U, 1000.0F, &position, &tangent) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || !near_point(position, {0, 0}, 1e-4) || !near_point(tangent, {0, -1}, 1e-6)) return false;
+    // A piece over three sides, an empty piece, an inverted range, a short buffer.
+    std::uint32_t count = 0U;
+    std::array<segment, 4> pieces{};
+    if (progpu_native_path_measure_segment(rectangle.value, 0U, 50.0F, 250.0F, pieces.data(), 4U, &count) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || count != 3U || !near_point(pieces[0].p0, {50, 0}, 1e-4) ||
+        !near_point(pieces[1].p1, {100, 50}, 1e-4) || !near_point(pieces[2].p1, {0, 50}, 1e-4)) return false;
+    if (progpu_native_path_measure_segment(rectangle.value, 0U, 50.0F, 250.0F, pieces.data(), 1U, &count) !=
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT || count != 3U) return false;
+    if (progpu_native_path_measure_segment(rectangle.value, 0U, 10.0F, 10.0F, pieces.data(), 4U, &count) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || count != 1U || !near_point(pieces[0].p0, {10, 0}, 1e-4) ||
+        !near_point(pieces[0].p1, {10, 0}, 1e-4)) return false;
+    if (progpu_native_path_measure_segment(rectangle.value, 0U, 20.0F, 10.0F, pieces.data(), 4U, &count) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || count != 0U) return false;
+
+    // Curves against their closed-form lengths: a cubic quarter circle, a
+    // half-circle arc and an exact conic quarter circle.
+    constexpr float k = 55.228475F;
+    segment cubic{};
+    cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+    cubic.p0 = {100, 0}; cubic.p1 = {100, k}; cubic.p2 = {k, 100}; cubic.p3 = {0, 100};
+    segment arc{};
+    arc.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+    arc.p0 = {0, 0}; arc.p1 = {100, 0}; arc.p2 = {50, 0}; arc.p3 = {50, 50};
+    arc.pad0 = std::bit_cast<std::uint32_t>(std::numbers::pi_v<float>);
+    arc.pad1 = std::bit_cast<std::uint32_t>(-std::numbers::pi_v<float>);
+    segment conic{};
+    conic.kind = PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC;
+    conic.p0 = {100, 0}; conic.p1 = {100, 100}; conic.p2 = {0, 100};
+    conic.pad0 = std::bit_cast<std::uint32_t>(std::numbers::sqrt2_v<float> * 0.5F);
+    if (!near_value(measured_length(cubic), pi * 50.0, 0.3) || !near_value(measured_length(arc), pi * 50.0, 0.3) ||
+        !near_value(measured_length(conic), pi * 50.0, 0.3)) return false;
+    segment rational_cubic{};
+    rational_cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC;
+    rational_cubic.p0 = {0, 0}; rational_cubic.p1 = {30, 80}; rational_cubic.p2 = {70, -60}; rational_cubic.p3 = {100, 10};
+    rational_cubic.pad0 = std::bit_cast<std::uint32_t>(2.0F);
+    rational_cubic.pad1 = std::bit_cast<std::uint32_t>(0.5F);
+    // Every kind slices into its own kind: a piece starts and ends at the measured
+    // positions, and a piece of half the length measures half the length.
+    for (const segment& value : {cubic, arc, conic, rational_cubic}) {
+        const progpu_native_geometry_query_figure figure{value.p0, 0U, 1U, 0U};
+        measure_owner measure;
+        if (progpu_native_path_measure_create(&figure, 1U, &value, 1U, 0U, 1.0F, &measure.value) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            progpu_native_path_measure_contour(measure.value, 0U, &length, nullptr) != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        point first{}, last{};
+        if (progpu_native_path_measure_position_tangent(measure.value, 0U, length * 0.25F, &first, nullptr) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            progpu_native_path_measure_position_tangent(measure.value, 0U, length * 0.75F, &last, nullptr) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            progpu_native_path_measure_segment(measure.value, 0U, length * 0.25F, length * 0.75F, pieces.data(), 4U, &count) !=
+                PROGPU_NATIVE_STATUS_SUCCESS || count != 1U || pieces[0].kind != value.kind) {
+            std::fprintf(stderr, "Path measure slice of kind %u failed\n", value.kind);
+            return false;
+        }
+        const point end = value.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC ? pieces[0].p1
+            : value.kind == PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC ? pieces[0].p2 : pieces[0].p3;
+        const float half = measured_length(pieces[0]);
+        if (!near_point(pieces[0].p0, first, 0.05) || !near_point(end, last, 0.05) || !near_value(half, length * 0.5, 0.5)) {
+            std::fprintf(stderr, "Path measure piece of kind %u: length %f of %f\n", value.kind, half, length);
+            return false;
+        }
+    }
+    // The conic's middle is on the circle.
+    {
+        const progpu_native_geometry_query_figure figure{conic.p0, 0U, 1U, 0U};
+        measure_owner measure;
+        if (progpu_native_path_measure_create(&figure, 1U, &conic, 1U, 0U, 1.0F, &measure.value) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            progpu_native_path_measure_contour(measure.value, 0U, &length, nullptr) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            progpu_native_path_measure_position_tangent(measure.value, 0U, length * 0.5F, &position, &tangent) != PROGPU_NATIVE_STATUS_SUCCESS ||
+            !near_point(position, {70.710678F, 70.710678F}, 0.2) || !near_point(tangent, {-0.70710678F, 0.70710678F}, 0.01)) return false;
+    }
+
+    // Invalid transport: a NaN point, a partition gap, no resolution, a zero weight.
+    measure_owner rejected;
+    segment bad = sides[0];
+    bad.p1.x = std::numeric_limits<float>::quiet_NaN();
+    const progpu_native_geometry_query_figure one{{0, 0}, 0U, 1U, 0U};
+    const progpu_native_geometry_query_figure gap{{0, 0}, 1U, 1U, 0U};
+    segment weightless = conic;
+    weightless.pad0 = 0U;
+    if (progpu_native_path_measure_create(&one, 1U, &bad, 1U, 0U, 1.0F, &rejected.value) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT ||
+        progpu_native_path_measure_create(&gap, 1U, sides.data(), 2U, 0U, 1.0F, &rejected.value) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT ||
+        progpu_native_path_measure_create(&one, 1U, sides.data(), 1U, 0U, 0.0F, &rejected.value) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT ||
+        progpu_native_path_measure_create(&one, 1U, &weightless, 1U, 0U, 1.0F, &rejected.value) != PROGPU_NATIVE_STATUS_INVALID_ARGUMENT ||
+        rejected.value != nullptr) return false;
+    return progpu_native_path_measure_position_tangent(rectangle.value, 1U, 0.0F, &position, nullptr) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        progpu_native_path_measure_position_tangent(rectangle.value, 0U, std::numeric_limits<float>::quiet_NaN(), &position, nullptr) ==
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+}
+
+bool bounds_and_widened_outlines_match_the_queries()
+{
+    // Bounds: a transformed closed rectangle, a cubic's tight bounds, an empty geometry.
+    const std::array<segment, 4> sides{{measure_line({0, 0}, {100, 0}), measure_line({100, 0}, {100, 50}),
+        measure_line({100, 50}, {0, 50}), measure_line({0, 50}, {0, 0})}};
+    const std::array<std::uint8_t, 4> stroked{{1U, 1U, 1U, 1U}};
+    const progpu_native_geometry_query_figure rectangle{{0, 0}, 0U, 4U, 3U};
+    const progpu_native_affine_2d scale{2, 0, 0, 2, 10, 0};
+    progpu_native_image_rect bounds{};
+    std::uint32_t has_bounds = 0U;
+    if (progpu_native_geometry_bounds(&rectangle, 1U, sides.data(), stroked.data(), 4U, &scale, &bounds, &has_bounds) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || has_bounds != 1U || bounds.x != 10.0F || bounds.y != 0.0F ||
+        bounds.width != 200.0F || bounds.height != 100.0F) return false;
+    segment cubic{};
+    cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+    cubic.p0 = {0, 0}; cubic.p1 = {0, 100}; cubic.p2 = {100, 100}; cubic.p3 = {100, 0};
+    const progpu_native_geometry_query_figure open_cubic{{0, 0}, 0U, 1U, 0U};
+    const std::uint8_t one = 1U;
+    if (progpu_native_geometry_bounds(&open_cubic, 1U, &cubic, &one, 1U, nullptr, &bounds, &has_bounds) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || has_bounds != 1U || !near_value(bounds.height, 75.0, 1e-3) ||
+        !near_value(bounds.width, 100.0, 1e-3)) return false;
+    if (progpu_native_geometry_bounds(nullptr, 0U, nullptr, nullptr, 0U, nullptr, &bounds, &has_bounds) !=
+            PROGPU_NATIVE_STATUS_SUCCESS || has_bounds != 0U) return false;
+
+    // Widening: a line with flat and with square caps, against fill containment
+    // of the outline and against the stroke query's bounds.
+    const segment spine = measure_line({0, 0}, {100, 0});
+    const progpu_native_geometry_query_figure open_line{{0, 0}, 0U, 1U, 0U};
+    for (const std::uint32_t cap : {0U, 1U}) {
+        const progpu_native_geometry_query_pen pen{10.0F, 10.0F, 0.0F, cap, cap, cap, 0U};
+        progpu_native_geometry_path* path = nullptr;
+        const segment* outline = nullptr;
+        std::uint32_t count = 0U, fill_rule = 9U;
+        if (progpu_native_geometry_widen(&open_line, 1U, &spine, &one, 1U, &pen, nullptr, 0U, nullptr, 0.25F,
+                &path, &outline, &count, &fill_rule) != PROGPU_NATIVE_STATUS_SUCCESS || path == nullptr || count < 4U ||
+            fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+            progpu_native_geometry_path_destroy(path);
+            return false;
+        }
+        const auto inside = [&](point p) {
+            std::uint32_t contains = 0U;
+            return progpu_native_geometry_fill_contains(outline, count, fill_rule, &p, 0.25F, &contains) ==
+                PROGPU_NATIVE_STATUS_SUCCESS && contains == 1U;
+        };
+        progpu_native_image_rect stroke_bounds{};
+        std::uint32_t stroke_has = 0U, contains = 0U;
+        const bool queried = progpu_native_geometry_stroke_query(&open_line, 1U, &spine, &one, 1U, &pen, nullptr, 0U,
+            nullptr, nullptr, 0.25F, &stroke_bounds, &stroke_has, &contains) == PROGPU_NATIVE_STATUS_SUCCESS;
+        const bool square = cap == 1U;
+        const bool ok = queried && stroke_has == 1U && inside({50, 4}) && !inside({50, 6}) && inside({1, 0}) &&
+            inside({104, 0}) == square && inside({-4, 0}) == square && !inside({106, 0});
+        progpu_native_geometry_path_destroy(path);
+        if (!ok) {
+            std::fprintf(stderr, "Widened outline with cap %u did not match the stroke queries\n", cap);
+            return false;
+        }
+    }
+    progpu_native_geometry_path* path = nullptr;
+    const segment* outline = nullptr;
+    std::uint32_t count = 1U, fill_rule = 1U;
+    const progpu_native_geometry_query_pen bad{-1.0F, 10.0F, 0.0F, 0U, 0U, 0U, 0U};
+    return progpu_native_geometry_widen(&open_line, 1U, &spine, &one, 1U, &bad, nullptr, 0U, nullptr, 0.25F,
+               &path, &outline, &count, &fill_rule) == PROGPU_NATIVE_STATUS_INVALID_ARGUMENT &&
+        path == nullptr && outline == nullptr && count == 0U && fill_rule == 0U;
+}
+
 int main()
 {
     for (const bool reverse : {false, true}) {
@@ -526,7 +729,7 @@ int main()
             }
         }
     }
-    const std::array<std::pair<const char*, bool (*)()>, 13> tests{{
+    const std::array<std::pair<const char*, bool (*)()>, 15> tests{{
         {"exact_pixel_mapping", exact_pixel_mapping_checks_every_corner},
         {"filled_relations", filled_relations_preserve_topology_and_shared_com_results},
         {"modes_and_boundaries", modes_and_actual_boundaries},
@@ -539,7 +742,9 @@ int main()
         {"stroke_transport", stroke_queries_reject_incomplete_transport},
         {"point_strokes", point_strokes_match_independent_cap_oracle},
         {"constant_edges", constant_edges_preserve_endpoint_and_join_eligibility},
-        {"dash_validation", dash_validation_matches_scalar_oracle}}};
+        {"dash_validation", dash_validation_matches_scalar_oracle},
+        {"path_measures", path_measures_match_closed_forms_and_slice_exactly},
+        {"bounds_and_widen", bounds_and_widened_outlines_match_the_queries}}};
     bool passed = true;
     for (const auto& [name, test] : tests) {
         if (!test()) {

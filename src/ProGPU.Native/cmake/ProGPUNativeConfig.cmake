@@ -91,6 +91,7 @@ _progpu_native_import(compression)
 _progpu_native_import(hit_testing)
 _progpu_native_import(image)
 _progpu_native_import(mil)
+_progpu_native_import(geometry)
 _progpu_native_import(direct2d_core)
 _progpu_native_import(text)
 _progpu_native_import(scene_builder)
@@ -141,7 +142,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/ProGPUNativeEditWordDependency.cmake")
 set_property(TARGET ProGPU::native_scene_builder PROPERTY
     INTERFACE_LINK_LIBRARIES "ProGPU::native_text;ProGPU::native_hit_testing")
 set_property(TARGET ProGPU::native_direct2d_core PROPERTY
-    INTERFACE_LINK_LIBRARIES ProGPU::native_scene_builder)
+    INTERFACE_LINK_LIBRARIES "ProGPU::native_scene_builder;ProGPU::native_geometry")
 if(WIN32)
     set_property(TARGET ProGPU::native_direct2d_core PROPERTY
         INTERFACE_COMPILE_DEFINITIONS "NOMINMAX;WIN32_LEAN_AND_MEAN")
