@@ -2,30 +2,13 @@
 //! against exact references: the blurred coverage of a square-cornered box is the product of two
 //! normal CDF differences; that of a rounded box is a numerical 2D Gaussian convolution.
 
+mod common;
+
 use progpu_native_sys::progpu::*;
 use progpu_native_sys::scene_builder::*;
-use progpu_native_sys::webgpu::*;
-use progpu_native_sys::Runtime;
 use std::ffi::c_void;
-use std::ptr;
 
 const SIZE: u32 = 128;
-
-unsafe extern "C" fn on_adapter(status: WGPURequestAdapterStatus, adapter: WGPUAdapter, _: *const i8, userdata: *mut c_void) {
-    if status == WGPURequestAdapterStatus_Success {
-        *(userdata as *mut WGPUAdapter) = adapter;
-    }
-}
-
-unsafe extern "C" fn on_device(status: WGPURequestDeviceStatus, device: WGPUDevice, _: *const i8, userdata: *mut c_void) {
-    if status == WGPURequestDeviceStatus_Success {
-        *(userdata as *mut WGPUDevice) = device;
-    }
-}
-
-unsafe extern "C" fn on_mapped(status: WGPUBufferMapAsyncStatus, userdata: *mut c_void) {
-    *(userdata as *mut i32) = if status == WGPUBufferMapAsyncStatus_Success { 1 } else { -1 };
-}
 
 /// The error function, to 1.2e-7 (Numerical Recipes' erfc Chebyshev fit).
 fn erf(x: f64) -> f64 {
@@ -83,31 +66,8 @@ fn rounded_reference(x: f64, y: f64, left: f64, top: f64, right: f64, bottom: f6
     sum / weight
 }
 
-/// Renders black shadows on white and returns the RGBA8 rows (256-byte aligned rows).
-unsafe fn render(runtime: &Runtime, shadows: &[progpu_native_analytic_primitive]) -> Option<(Vec<u8>, u32)> {
-    let w = &runtime.wgpu;
-    let p = &runtime.progpu;
-    let instance = w.wgpuCreateInstance(ptr::null());
-    let mut adapter: WGPUAdapter = ptr::null_mut();
-    w.wgpuInstanceRequestAdapter(instance, ptr::null(), Some(on_adapter), &mut adapter as *mut _ as *mut c_void);
-    if adapter.is_null() {
-        return None;
-    }
-    let mut device: WGPUDevice = ptr::null_mut();
-    w.wgpuAdapterRequestDevice(adapter, ptr::null(), Some(on_device), &mut device as *mut _ as *mut c_void);
-    let queue = w.wgpuDeviceGetQueue(device);
-    let options = progpu_native_engine_options {
-        struct_size: std::mem::size_of::<progpu_native_engine_options>() as u32,
-        abi_version: PROGPU_NATIVE_ABI_VERSION,
-        backend_abi: PROGPU_NATIVE_BACKEND_ABI_WGPU_NATIVE_2024_05 as u32,
-        target_format: PROGPU_NATIVE_TEXTURE_FORMAT_RGBA8_UNORM as u32,
-        device: device as usize,
-        queue: queue as usize,
-        flags: 0,
-    };
-    let mut engine: *mut progpu_native_engine = ptr::null_mut();
-    assert_eq!(PROGPU_NATIVE_STATUS_SUCCESS, p.progpu_native_engine_create(&options, &mut engine));
-
+/// Renders black shadows on white and returns the RGBA8 pixels (tightly packed rows).
+unsafe fn render(gpu: &common::Gpu, shadows: &[progpu_native_analytic_primitive]) -> Vec<u8> {
     let scene_id = 11u64;
     let builder = progpu_native_scene_builder_create(scene_id, 1);
     assert_eq!(1, progpu_native_scene_builder_clear_target(builder, progpu_native_color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }));
@@ -136,25 +96,9 @@ unsafe fn render(runtime: &Runtime, shadows: &[progpu_native_analytic_primitive]
     progpu_native_scene_builder_destroy(builder);
     let mut scene_metrics: progpu_native_scene_metrics = std::mem::zeroed();
     scene_metrics.struct_size = std::mem::size_of::<progpu_native_scene_metrics>() as u32;
-    let status = p.progpu_native_engine_update_scene(engine, stream.as_ptr() as *const c_void, written, &mut scene_metrics);
+    let status = progpu_native_engine_update_scene(gpu.engine, stream.as_ptr() as *const c_void, written, &mut scene_metrics);
     assert_eq!(PROGPU_NATIVE_STATUS_SUCCESS, status, "update_scene: validation error {}", scene_metrics.validation_error);
-
-    let texture = w.wgpuDeviceCreateTexture(
-        device,
-        &WGPUTextureDescriptor {
-            nextInChain: ptr::null(),
-            label: ptr::null(),
-            usage: (WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc) as u32,
-            dimension: WGPUTextureDimension_2D,
-            size: WGPUExtent3D { width: SIZE, height: SIZE, depthOrArrayLayers: 1 },
-            format: WGPUTextureFormat_RGBA8Unorm,
-            mipLevelCount: 1,
-            sampleCount: 1,
-            viewFormatCount: 0,
-            viewFormats: ptr::null(),
-        },
-    );
-    let view = w.wgpuTextureCreateView(texture, ptr::null());
+    let (texture, view) = gpu.target(SIZE, SIZE);
     let mut frame: progpu_native_scene_frame = std::mem::zeroed();
     frame.struct_size = std::mem::size_of::<progpu_native_scene_frame>() as u32;
     frame.width = SIZE;
@@ -165,37 +109,9 @@ unsafe fn render(runtime: &Runtime, shadows: &[progpu_native_analytic_primitive]
     frame.generation = 1;
     let mut metrics: progpu_native_scene_frame_metrics = std::mem::zeroed();
     metrics.struct_size = std::mem::size_of::<progpu_native_scene_frame_metrics>() as u32;
-    assert_eq!(PROGPU_NATIVE_STATUS_SUCCESS, p.progpu_native_engine_render_scene(engine, &frame, &mut metrics));
+    assert_eq!(PROGPU_NATIVE_STATUS_SUCCESS, progpu_native_engine_render_scene(gpu.engine, &frame, &mut metrics));
     eprintln!("{} shadows: {} draws", shadows.len(), metrics.draw_call_count);
-
-    let bytes_per_row = SIZE * 4;
-    let size = (bytes_per_row * SIZE) as u64;
-    let buffer = w.wgpuDeviceCreateBuffer(
-        device,
-        &WGPUBufferDescriptor { nextInChain: ptr::null(), label: ptr::null(), usage: (WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst) as u32, size, mappedAtCreation: 0 },
-    );
-    let encoder = w.wgpuDeviceCreateCommandEncoder(device, ptr::null());
-    w.wgpuCommandEncoderCopyTextureToBuffer(
-        encoder,
-        &WGPUImageCopyTexture { nextInChain: ptr::null(), texture, mipLevel: 0, origin: WGPUOrigin3D { x: 0, y: 0, z: 0 }, aspect: WGPUTextureAspect_All },
-        &WGPUImageCopyBuffer {
-            nextInChain: ptr::null(),
-            layout: WGPUTextureDataLayout { nextInChain: ptr::null(), offset: 0, bytesPerRow: bytes_per_row, rowsPerImage: SIZE },
-            buffer,
-        },
-        &WGPUExtent3D { width: SIZE, height: SIZE, depthOrArrayLayers: 1 },
-    );
-    let commands = w.wgpuCommandEncoderFinish(encoder, ptr::null());
-    w.wgpuQueueSubmit(queue, 1, &commands);
-    let mut mapped = 0i32;
-    w.wgpuBufferMapAsync(buffer, WGPUMapMode_Read as u32, 0, size as usize, Some(on_mapped), &mut mapped as *mut _ as *mut c_void);
-    while mapped == 0 {
-        w.wgpuDevicePoll(device, 1, ptr::null());
-    }
-    let data = std::slice::from_raw_parts(w.wgpuBufferGetConstMappedRange(buffer, 0, size as usize) as *const u8, size as usize).to_vec();
-    w.wgpuBufferUnmap(buffer);
-    p.progpu_native_engine_destroy(engine);
-    Some((data, bytes_per_row))
+    gpu.read_rgba8(texture, SIZE, SIZE)
 }
 
 fn shadow(x: f32, y: f32, width: f32, height: f32, radius: f32, sigma: f32) -> progpu_native_analytic_primitive {
@@ -216,13 +132,7 @@ fn shadow(x: f32, y: f32, width: f32, height: f32, radius: f32, sigma: f32) -> p
 
 #[test]
 fn analytic_shadows_match_the_gaussian_blur_of_their_box() {
-    let runtime = match Runtime::load() {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            eprintln!("skipped: {error}");
-            return;
-        }
-    };
+    let Some(gpu) = common::Gpu::new() else { return };
     // A square-cornered box (exact reference) and a rounded one, apart.
     let (left, top, right, bottom, sigma) = (24.0, 24.0, 64.0, 56.0, 5.0);
     let (rl, rt, rr, rb, radius, rsigma) = (80.0, 72.0, 116.0, 116.0, 10.0, 4.0);
@@ -230,12 +140,9 @@ fn analytic_shadows_match_the_gaussian_blur_of_their_box() {
         shadow(left as f32, top as f32, (right - left) as f32, (bottom - top) as f32, 0.0, sigma as f32),
         shadow(rl as f32, rt as f32, (rr - rl) as f32, (rb - rt) as f32, radius as f32, rsigma as f32),
     ];
-    // SAFETY: the runtime is loaded; the call owns its device and engine.
-    let Some((data, row)) = (unsafe { render(&runtime, &shadows) }) else {
-        eprintln!("skipped: no WebGPU adapter");
-        return;
-    };
-    let coverage = |x: u32, y: u32| 1.0 - data[(y * row + x * 4) as usize] as f64 / 255.0;
+    // SAFETY: the device and the engine are alive for the call.
+    let data = unsafe { render(&gpu, &shadows) };
+    let coverage = |x: u32, y: u32| 1.0 - data[((y * SIZE + x) * 4) as usize] as f64 / 255.0;
     let mut worst: f64 = 0.0;
     // Square corners: every pixel of a window around the box.
     for y in 8..72 {

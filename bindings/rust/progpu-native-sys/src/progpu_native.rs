@@ -6292,836 +6292,66 @@ const _: () = {
     ["Offset of field: progpu_native_image_frame_metrics::payload_hash"]
         [::core::mem::offset_of!(progpu_native_image_frame_metrics, payload_hash) - 64usize];
 };
-pub struct ProGPUNativeLibrary {
-    __library: ::libloading::Library,
-    pub progpu_native_geometry_compare_fill: Result<
-        unsafe extern "C" fn(
-            first: *const progpu_native_path_segment,
-            first_count: u32,
-            first_fill: u32,
-            second: *const progpu_native_path_segment,
-            second_count: u32,
-            second_fill: u32,
-            tolerance: f32,
-            relation: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_geometry_combine: Result<
-        unsafe extern "C" fn(
-            first: *const progpu_native_path_segment,
-            first_count: u32,
-            first_fill: u32,
-            second: *const progpu_native_path_segment,
-            second_count: u32,
-            second_fill: u32,
-            mode: u32,
-            tolerance: f32,
-            result: *mut *mut progpu_native_geometry_outline,
-            points: *mut *const progpu_native_point,
-            point_count: *mut u32,
-            contour_offsets: *mut *const u32,
-            contour_count: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_geometry_outline_destroy: Result<
-        unsafe extern "C" fn(result: *mut progpu_native_geometry_outline),
-        ::libloading::Error,
-    >,
-    pub progpu_native_geometry_fill_contains: Result<
-        unsafe extern "C" fn(
-            segments: *const progpu_native_path_segment,
-            segment_count: u32,
-            fill_rule: u32,
-            point: *const progpu_native_point,
-            tolerance: f32,
-            contains: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_geometry_stroke_query: Result<
-        unsafe extern "C" fn(
-            figures: *const progpu_native_geometry_query_figure,
-            figure_count: u32,
-            segments: *const progpu_native_path_segment,
-            segment_flags: *const u8,
-            segment_count: u32,
-            pen: *const progpu_native_geometry_query_pen,
-            dashes: *const f32,
-            dash_count: u32,
-            world_transform: *const progpu_native_affine_2d,
-            point: *const progpu_native_point,
-            tolerance: f32,
-            bounds: *mut progpu_native_image_rect,
-            has_bounds: *mut u32,
-            contains: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_geometry_bounds: Result<
-        unsafe extern "C" fn(
-            figures: *const progpu_native_geometry_query_figure,
-            figure_count: u32,
-            segments: *const progpu_native_path_segment,
-            segment_flags: *const u8,
-            segment_count: u32,
-            world_transform: *const progpu_native_affine_2d,
-            bounds: *mut progpu_native_image_rect,
-            has_bounds: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_geometry_widen: Result<
-        unsafe extern "C" fn(
-            figures: *const progpu_native_geometry_query_figure,
-            figure_count: u32,
-            segments: *const progpu_native_path_segment,
-            segment_flags: *const u8,
-            segment_count: u32,
-            pen: *const progpu_native_geometry_query_pen,
-            dashes: *const f32,
-            dash_count: u32,
-            world_transform: *const progpu_native_affine_2d,
-            tolerance: f32,
-            result: *mut *mut progpu_native_geometry_path,
-            outline: *mut *const progpu_native_path_segment,
-            outline_count: *mut u32,
-            fill_rule: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_geometry_path_destroy:
-        Result<unsafe extern "C" fn(path: *mut progpu_native_geometry_path), ::libloading::Error>,
-    pub progpu_native_path_measure_create: Result<
-        unsafe extern "C" fn(
-            figures: *const progpu_native_geometry_query_figure,
-            figure_count: u32,
-            segments: *const progpu_native_path_segment,
-            segment_count: u32,
-            force_closed: u32,
-            resolution_scale: f32,
-            measure: *mut *mut progpu_native_path_measure,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_path_measure_destroy:
-        Result<unsafe extern "C" fn(measure: *mut progpu_native_path_measure), ::libloading::Error>,
-    pub progpu_native_path_measure_contour_count: Result<
-        unsafe extern "C" fn(measure: *const progpu_native_path_measure) -> u32,
-        ::libloading::Error,
-    >,
-    pub progpu_native_path_measure_contour: Result<
-        unsafe extern "C" fn(
-            measure: *const progpu_native_path_measure,
-            contour: u32,
-            length: *mut f32,
-            closed: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_path_measure_position_tangent: Result<
-        unsafe extern "C" fn(
-            measure: *const progpu_native_path_measure,
-            contour: u32,
-            distance: f32,
-            position: *mut progpu_native_point,
-            tangent: *mut progpu_native_point,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_path_measure_segment: Result<
-        unsafe extern "C" fn(
-            measure: *const progpu_native_path_measure,
-            contour: u32,
-            start_distance: f32,
-            stop_distance: f32,
-            segments: *mut progpu_native_path_segment,
-            capacity: u32,
-            count: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_get_abi_version: Result<unsafe extern "C" fn() -> u32, ::libloading::Error>,
-    pub progpu_native_get_info: Result<
-        unsafe extern "C" fn(info: *mut progpu_native_engine_info) -> u8,
-        ::libloading::Error,
-    >,
-    pub progpu_native_scene_validate: Result<
-        unsafe extern "C" fn(
-            stream: *const ::core::ffi::c_void,
-            stream_size: usize,
-            metrics: *mut progpu_native_scene_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_create: Result<
-        unsafe extern "C" fn(
-            options: *const progpu_native_engine_options,
-            engine: *mut *mut progpu_native_engine,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_destroy:
-        Result<unsafe extern "C" fn(engine: *mut progpu_native_engine), ::libloading::Error>,
-    pub progpu_native_engine_mark_device_lost: Result<
-        unsafe extern "C" fn(engine: *mut progpu_native_engine) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_recreate: Result<
-        unsafe extern "C" fn(
-            source: *const progpu_native_engine,
-            options: *const progpu_native_engine_options,
-            replacement: *mut *mut progpu_native_engine,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_update_scene: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            stream: *const ::core::ffi::c_void,
-            stream_size: usize,
-            metrics: *mut progpu_native_scene_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_bind_scene_external_images: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            bindings: *const progpu_native_scene_external_image_binding,
-            binding_count: usize,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_render_scene: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            frame: *const progpu_native_scene_frame,
-            metrics: *mut progpu_native_scene_frame_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_begin_hit_test: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            query: *const progpu_native_hit_test_query,
-            request_token: *mut u64,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_poll_hit_test: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            request_token: u64,
-            results: *mut progpu_native_hit_test_result,
-            result_capacity: u32,
-            result_count: *mut u32,
-            summary: *mut progpu_native_hit_test_result,
-            complete: *mut u8,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_wait_hit_test: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            request_token: u64,
-            results: *mut progpu_native_hit_test_result,
-            result_capacity: u32,
-            result_count: *mut u32,
-            summary: *mut progpu_native_hit_test_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_get_hit_test_index: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            index: *mut progpu_native_scene_hit_test_index,
-            has_index: *mut u8,
-            uploaded: *mut u8,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_render: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            frame: *const progpu_native_frame,
-            metrics: *mut progpu_native_frame_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_render_analytic: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            frame: *const progpu_native_analytic_frame,
-            metrics: *mut progpu_native_analytic_frame_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_render_geometry: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            frame: *const progpu_native_geometry_frame,
-            metrics: *mut progpu_native_geometry_frame_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_render_paths: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            frame: *const progpu_native_path_frame,
-            metrics: *mut progpu_native_path_frame_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_render_glyphs: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            frame: *const progpu_native_glyph_frame,
-            metrics: *mut progpu_native_glyph_frame_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_render_image: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            frame: *const progpu_native_image_frame,
-            metrics: *mut progpu_native_image_frame_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_get_last_submission: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            submission_index: *mut u64,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_get_layer_metrics: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            metrics: *mut progpu_native_layer_metrics,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_get_gpu_memory_snapshot: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            snapshot: *mut progpu_native_gpu_memory_snapshot,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_get_cache_raster_limits: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            limits: *mut progpu_native_cache_raster_limits,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_poll_submission: Result<
-        unsafe extern "C" fn(
-            engine: *mut progpu_native_engine,
-            submission_index: u64,
-            wait: u8,
-            complete: *mut u8,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_engine_get_last_error: Result<
-        unsafe extern "C" fn(
-            engine: *const progpu_native_engine,
-            destination: *mut ::core::ffi::c_char,
-            destination_size: usize,
-        ) -> usize,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_resolve_language_tag: Result<
-        unsafe extern "C" fn(
-            language_utf8: *const ::core::ffi::c_char,
-            language_size: usize,
-            language_tag: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_resolve_digit_context: Result<
-        unsafe extern "C" fn(
-            text: *const u16,
-            text_length: u32,
-            initial_arabic_context: u8,
-            substitution_context: *mut u8,
-            context_capacity: u32,
-            final_arabic_context: *mut u8,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_resolve_digit_context_with_graphemes: Result<
-        unsafe extern "C" fn(
-            text: *const u16,
-            text_length: u32,
-            initial_arabic_context: u8,
-            substitution_context: *mut u8,
-            context_capacity: u32,
-            grapheme_starts: *mut u8,
-            grapheme_capacity: u32,
-            final_arabic_context: *mut u8,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_get_shape_requirements: Result<
-        unsafe extern "C" fn(
-            request: *const progpu_native_text_shape_request,
-            requirements: *mut progpu_native_text_shape_requirements,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_shape: Result<
-        unsafe extern "C" fn(
-            request: *const progpu_native_text_shape_request,
-            glyphs: *mut progpu_native_text_shaping_glyph,
-            glyph_capacity: u32,
-            scratch: *mut ::core::ffi::c_void,
-            scratch_size: usize,
-            result: *mut progpu_native_text_shape_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_context_create: Result<
-        unsafe extern "C" fn(
-            abi_version: u32,
-            font_data: *const u8,
-            font_size: usize,
-            face_index: u32,
-            normalization_data: *const u8,
-            normalization_data_size: usize,
-            context: *mut *mut progpu_native_text_context,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_context_destroy:
-        Result<unsafe extern "C" fn(context: *mut progpu_native_text_context), ::libloading::Error>,
-    pub progpu_native_text_context_get_device_advances: Result<
-        unsafe extern "C" fn(
-            context: *mut progpu_native_text_context,
-            font_index: u32,
-            pixels_per_em: u32,
-            glyph_indices: *const u32,
-            glyph_count: u32,
-            advances: *mut f32,
-            advance_capacity: u32,
-            available: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_context_add_fallback_font: Result<
-        unsafe extern "C" fn(
-            context: *mut progpu_native_text_context,
-            font_data: *const u8,
-            font_size: usize,
-            face_index: u32,
-            identity: u64,
-            font_index: *mut u32,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_context_get_shape_requirements: Result<
-        unsafe extern "C" fn(
-            context: *mut progpu_native_text_context,
-            request: *const progpu_native_text_shape_request,
-            requirements: *mut progpu_native_text_shape_requirements,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_context_shape: Result<
-        unsafe extern "C" fn(
-            context: *mut progpu_native_text_context,
-            request: *const progpu_native_text_shape_request,
-            glyphs: *mut progpu_native_text_shaping_glyph,
-            glyph_capacity: u32,
-            scratch: *mut ::core::ffi::c_void,
-            scratch_size: usize,
-            result: *mut progpu_native_text_shape_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_layout_get_requirements: Result<
-        unsafe extern "C" fn(
-            request: *const progpu_native_text_layout_request,
-            requirements: *mut progpu_native_text_layout_requirements,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_layout: Result<
-        unsafe extern "C" fn(
-            request: *const progpu_native_text_layout_request,
-            glyphs: *mut progpu_native_positioned_text_glyph,
-            glyph_capacity: u32,
-            lines: *mut progpu_native_positioned_text_line,
-            line_capacity: u32,
-            scratch: *mut ::core::ffi::c_void,
-            scratch_size: usize,
-            result: *mut progpu_native_text_layout_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_vertical_layout_get_requirements: Result<
-        unsafe extern "C" fn(
-            request: *const progpu_native_text_layout_request,
-            requirements: *mut progpu_native_text_vertical_layout_requirements,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_vertical_layout: Result<
-        unsafe extern "C" fn(
-            request: *const progpu_native_text_layout_request,
-            glyphs: *mut progpu_native_positioned_text_glyph,
-            glyph_capacity: u32,
-            columns: *mut progpu_native_positioned_text_column,
-            column_capacity: u32,
-            scratch: *mut ::core::ffi::c_void,
-            scratch_size: usize,
-            result: *mut progpu_native_text_vertical_layout_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_get_line_break_requirements: Result<
-        unsafe extern "C" fn(
-            input: *const progpu_native_text_scalar,
-            input_count: u32,
-            requirements: *mut progpu_native_text_line_break_requirements,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_resolve_line_breaks: Result<
-        unsafe extern "C" fn(
-            input: *const progpu_native_text_scalar,
-            input_count: u32,
-            breaks_after: *mut u8,
-            break_capacity: u32,
-            scratch: *mut ::core::ffi::c_void,
-            scratch_size: usize,
-            result: *mut progpu_native_text_line_break_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_resolve_edit_word_boundaries_utf16: Result<
-        unsafe extern "C" fn(
-            source: *const u16,
-            source_length: u32,
-            paragraph_level: i32,
-            positions: *mut u32,
-            position_capacity: u32,
-        ) -> progpu_native_edit_word_boundary_result,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_get_bidi_requirements: Result<
-        unsafe extern "C" fn(
-            input: *const progpu_native_text_scalar,
-            input_count: u32,
-            requirements: *mut progpu_native_text_bidi_requirements,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_resolve_bidi: Result<
-        unsafe extern "C" fn(
-            input: *const progpu_native_text_scalar,
-            input_count: u32,
-            requested_paragraph_level: i32,
-            levels: *mut progpu_native_text_bidi_level,
-            level_capacity: u32,
-            scratch: *mut ::core::ffi::c_void,
-            scratch_size: usize,
-            result: *mut progpu_native_text_bidi_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_context_get_paragraph_requirements: Result<
-        unsafe extern "C" fn(
-            context: *mut progpu_native_text_context,
-            shaping: *const progpu_native_text_shape_request,
-            layout: *const progpu_native_text_layout_options,
-            requirements: *mut progpu_native_text_paragraph_requirements,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
-    pub progpu_native_text_context_layout_paragraph: Result<
-        unsafe extern "C" fn(
-            context: *mut progpu_native_text_context,
-            shaping: *const progpu_native_text_shape_request,
-            layout: *const progpu_native_text_layout_options,
-            glyphs: *mut progpu_native_positioned_text_glyph,
-            glyph_capacity: u32,
-            lines: *mut progpu_native_positioned_text_line,
-            line_capacity: u32,
-            scratch: *mut ::core::ffi::c_void,
-            scratch_size: usize,
-            result: *mut progpu_native_text_paragraph_result,
-        ) -> progpu_native_status,
-        ::libloading::Error,
-    >,
+pub const PROGPU_NATIVE_DAWN_ADAPTER_ABI_VERSION: _bindgen_ty_27 = 1;
+pub const PROGPU_NATIVE_DAWN_REQUIRED_PROVIDER_ABI_VERSION: _bindgen_ty_27 = 2;
+pub type _bindgen_ty_27 = ::core::ffi::c_uint;
+pub type progpu_native_dawn_resolve_proc = ::core::option::Option<
+    unsafe extern "C" fn(
+        context: *mut ::core::ffi::c_void,
+        name: *const ::core::ffi::c_char,
+    ) -> *mut ::core::ffi::c_void,
+>;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct progpu_native_dawn_engine_options {
+    pub struct_size: u32,
+    pub native_abi_version: u32,
+    pub adapter_abi_version: u32,
+    pub provider_abi_version: u32,
+    pub target_format: u32,
+    pub reserved: u32,
+    pub resolver_context: *mut ::core::ffi::c_void,
+    pub resolve_proc: progpu_native_dawn_resolve_proc,
+    pub instance: usize,
+    pub device: usize,
+    pub queue: usize,
+    pub flags: u64,
 }
-impl ProGPUNativeLibrary {
-    pub unsafe fn new<P>(path: P) -> Result<Self, ::libloading::Error>
-    where
-        P: AsRef<::std::ffi::OsStr>,
-    {
-        let path = path.as_ref();
-        let library = ::libloading::Library::new(path)?;
-        Self::from_library(library)
-    }
-    pub unsafe fn from_library<L>(library: L) -> Result<Self, ::libloading::Error>
-    where
-        L: Into<::libloading::Library>,
-    {
-        let __library = library.into();
-        let progpu_native_geometry_compare_fill = __library
-            .get(b"progpu_native_geometry_compare_fill\0")
-            .map(|sym| *sym);
-        let progpu_native_geometry_combine = __library
-            .get(b"progpu_native_geometry_combine\0")
-            .map(|sym| *sym);
-        let progpu_native_geometry_outline_destroy = __library
-            .get(b"progpu_native_geometry_outline_destroy\0")
-            .map(|sym| *sym);
-        let progpu_native_geometry_fill_contains = __library
-            .get(b"progpu_native_geometry_fill_contains\0")
-            .map(|sym| *sym);
-        let progpu_native_geometry_stroke_query = __library
-            .get(b"progpu_native_geometry_stroke_query\0")
-            .map(|sym| *sym);
-        let progpu_native_geometry_bounds = __library
-            .get(b"progpu_native_geometry_bounds\0")
-            .map(|sym| *sym);
-        let progpu_native_geometry_widen = __library
-            .get(b"progpu_native_geometry_widen\0")
-            .map(|sym| *sym);
-        let progpu_native_geometry_path_destroy = __library
-            .get(b"progpu_native_geometry_path_destroy\0")
-            .map(|sym| *sym);
-        let progpu_native_path_measure_create = __library
-            .get(b"progpu_native_path_measure_create\0")
-            .map(|sym| *sym);
-        let progpu_native_path_measure_destroy = __library
-            .get(b"progpu_native_path_measure_destroy\0")
-            .map(|sym| *sym);
-        let progpu_native_path_measure_contour_count = __library
-            .get(b"progpu_native_path_measure_contour_count\0")
-            .map(|sym| *sym);
-        let progpu_native_path_measure_contour = __library
-            .get(b"progpu_native_path_measure_contour\0")
-            .map(|sym| *sym);
-        let progpu_native_path_measure_position_tangent = __library
-            .get(b"progpu_native_path_measure_position_tangent\0")
-            .map(|sym| *sym);
-        let progpu_native_path_measure_segment = __library
-            .get(b"progpu_native_path_measure_segment\0")
-            .map(|sym| *sym);
-        let progpu_native_get_abi_version = __library
-            .get(b"progpu_native_get_abi_version\0")
-            .map(|sym| *sym);
-        let progpu_native_get_info = __library.get(b"progpu_native_get_info\0").map(|sym| *sym);
-        let progpu_native_scene_validate = __library
-            .get(b"progpu_native_scene_validate\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_create = __library
-            .get(b"progpu_native_engine_create\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_destroy = __library
-            .get(b"progpu_native_engine_destroy\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_mark_device_lost = __library
-            .get(b"progpu_native_engine_mark_device_lost\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_recreate = __library
-            .get(b"progpu_native_engine_recreate\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_update_scene = __library
-            .get(b"progpu_native_engine_update_scene\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_bind_scene_external_images = __library
-            .get(b"progpu_native_engine_bind_scene_external_images\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_render_scene = __library
-            .get(b"progpu_native_engine_render_scene\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_begin_hit_test = __library
-            .get(b"progpu_native_engine_begin_hit_test\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_poll_hit_test = __library
-            .get(b"progpu_native_engine_poll_hit_test\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_wait_hit_test = __library
-            .get(b"progpu_native_engine_wait_hit_test\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_get_hit_test_index = __library
-            .get(b"progpu_native_engine_get_hit_test_index\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_render = __library
-            .get(b"progpu_native_engine_render\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_render_analytic = __library
-            .get(b"progpu_native_engine_render_analytic\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_render_geometry = __library
-            .get(b"progpu_native_engine_render_geometry\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_render_paths = __library
-            .get(b"progpu_native_engine_render_paths\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_render_glyphs = __library
-            .get(b"progpu_native_engine_render_glyphs\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_render_image = __library
-            .get(b"progpu_native_engine_render_image\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_get_last_submission = __library
-            .get(b"progpu_native_engine_get_last_submission\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_get_layer_metrics = __library
-            .get(b"progpu_native_engine_get_layer_metrics\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_get_gpu_memory_snapshot = __library
-            .get(b"progpu_native_engine_get_gpu_memory_snapshot\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_get_cache_raster_limits = __library
-            .get(b"progpu_native_engine_get_cache_raster_limits\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_poll_submission = __library
-            .get(b"progpu_native_engine_poll_submission\0")
-            .map(|sym| *sym);
-        let progpu_native_engine_get_last_error = __library
-            .get(b"progpu_native_engine_get_last_error\0")
-            .map(|sym| *sym);
-        let progpu_native_text_resolve_language_tag = __library
-            .get(b"progpu_native_text_resolve_language_tag\0")
-            .map(|sym| *sym);
-        let progpu_native_text_resolve_digit_context = __library
-            .get(b"progpu_native_text_resolve_digit_context\0")
-            .map(|sym| *sym);
-        let progpu_native_text_resolve_digit_context_with_graphemes = __library
-            .get(b"progpu_native_text_resolve_digit_context_with_graphemes\0")
-            .map(|sym| *sym);
-        let progpu_native_text_get_shape_requirements = __library
-            .get(b"progpu_native_text_get_shape_requirements\0")
-            .map(|sym| *sym);
-        let progpu_native_text_shape = __library.get(b"progpu_native_text_shape\0").map(|sym| *sym);
-        let progpu_native_text_context_create = __library
-            .get(b"progpu_native_text_context_create\0")
-            .map(|sym| *sym);
-        let progpu_native_text_context_destroy = __library
-            .get(b"progpu_native_text_context_destroy\0")
-            .map(|sym| *sym);
-        let progpu_native_text_context_get_device_advances = __library
-            .get(b"progpu_native_text_context_get_device_advances\0")
-            .map(|sym| *sym);
-        let progpu_native_text_context_add_fallback_font = __library
-            .get(b"progpu_native_text_context_add_fallback_font\0")
-            .map(|sym| *sym);
-        let progpu_native_text_context_get_shape_requirements = __library
-            .get(b"progpu_native_text_context_get_shape_requirements\0")
-            .map(|sym| *sym);
-        let progpu_native_text_context_shape = __library
-            .get(b"progpu_native_text_context_shape\0")
-            .map(|sym| *sym);
-        let progpu_native_text_layout_get_requirements = __library
-            .get(b"progpu_native_text_layout_get_requirements\0")
-            .map(|sym| *sym);
-        let progpu_native_text_layout = __library
-            .get(b"progpu_native_text_layout\0")
-            .map(|sym| *sym);
-        let progpu_native_text_vertical_layout_get_requirements = __library
-            .get(b"progpu_native_text_vertical_layout_get_requirements\0")
-            .map(|sym| *sym);
-        let progpu_native_text_vertical_layout = __library
-            .get(b"progpu_native_text_vertical_layout\0")
-            .map(|sym| *sym);
-        let progpu_native_text_get_line_break_requirements = __library
-            .get(b"progpu_native_text_get_line_break_requirements\0")
-            .map(|sym| *sym);
-        let progpu_native_text_resolve_line_breaks = __library
-            .get(b"progpu_native_text_resolve_line_breaks\0")
-            .map(|sym| *sym);
-        let progpu_native_text_resolve_edit_word_boundaries_utf16 = __library
-            .get(b"progpu_native_text_resolve_edit_word_boundaries_utf16\0")
-            .map(|sym| *sym);
-        let progpu_native_text_get_bidi_requirements = __library
-            .get(b"progpu_native_text_get_bidi_requirements\0")
-            .map(|sym| *sym);
-        let progpu_native_text_resolve_bidi = __library
-            .get(b"progpu_native_text_resolve_bidi\0")
-            .map(|sym| *sym);
-        let progpu_native_text_context_get_paragraph_requirements = __library
-            .get(b"progpu_native_text_context_get_paragraph_requirements\0")
-            .map(|sym| *sym);
-        let progpu_native_text_context_layout_paragraph = __library
-            .get(b"progpu_native_text_context_layout_paragraph\0")
-            .map(|sym| *sym);
-        Ok(ProGPUNativeLibrary {
-            __library,
-            progpu_native_geometry_compare_fill,
-            progpu_native_geometry_combine,
-            progpu_native_geometry_outline_destroy,
-            progpu_native_geometry_fill_contains,
-            progpu_native_geometry_stroke_query,
-            progpu_native_geometry_bounds,
-            progpu_native_geometry_widen,
-            progpu_native_geometry_path_destroy,
-            progpu_native_path_measure_create,
-            progpu_native_path_measure_destroy,
-            progpu_native_path_measure_contour_count,
-            progpu_native_path_measure_contour,
-            progpu_native_path_measure_position_tangent,
-            progpu_native_path_measure_segment,
-            progpu_native_get_abi_version,
-            progpu_native_get_info,
-            progpu_native_scene_validate,
-            progpu_native_engine_create,
-            progpu_native_engine_destroy,
-            progpu_native_engine_mark_device_lost,
-            progpu_native_engine_recreate,
-            progpu_native_engine_update_scene,
-            progpu_native_engine_bind_scene_external_images,
-            progpu_native_engine_render_scene,
-            progpu_native_engine_begin_hit_test,
-            progpu_native_engine_poll_hit_test,
-            progpu_native_engine_wait_hit_test,
-            progpu_native_engine_get_hit_test_index,
-            progpu_native_engine_render,
-            progpu_native_engine_render_analytic,
-            progpu_native_engine_render_geometry,
-            progpu_native_engine_render_paths,
-            progpu_native_engine_render_glyphs,
-            progpu_native_engine_render_image,
-            progpu_native_engine_get_last_submission,
-            progpu_native_engine_get_layer_metrics,
-            progpu_native_engine_get_gpu_memory_snapshot,
-            progpu_native_engine_get_cache_raster_limits,
-            progpu_native_engine_poll_submission,
-            progpu_native_engine_get_last_error,
-            progpu_native_text_resolve_language_tag,
-            progpu_native_text_resolve_digit_context,
-            progpu_native_text_resolve_digit_context_with_graphemes,
-            progpu_native_text_get_shape_requirements,
-            progpu_native_text_shape,
-            progpu_native_text_context_create,
-            progpu_native_text_context_destroy,
-            progpu_native_text_context_get_device_advances,
-            progpu_native_text_context_add_fallback_font,
-            progpu_native_text_context_get_shape_requirements,
-            progpu_native_text_context_shape,
-            progpu_native_text_layout_get_requirements,
-            progpu_native_text_layout,
-            progpu_native_text_vertical_layout_get_requirements,
-            progpu_native_text_vertical_layout,
-            progpu_native_text_get_line_break_requirements,
-            progpu_native_text_resolve_line_breaks,
-            progpu_native_text_resolve_edit_word_boundaries_utf16,
-            progpu_native_text_get_bidi_requirements,
-            progpu_native_text_resolve_bidi,
-            progpu_native_text_context_get_paragraph_requirements,
-            progpu_native_text_context_layout_paragraph,
-        })
-    }
-    pub unsafe fn progpu_native_geometry_compare_fill(
-        &self,
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of progpu_native_dawn_engine_options"]
+        [::core::mem::size_of::<progpu_native_dawn_engine_options>() - 72usize];
+    ["Alignment of progpu_native_dawn_engine_options"]
+        [::core::mem::align_of::<progpu_native_dawn_engine_options>() - 8usize];
+    ["Offset of field: progpu_native_dawn_engine_options::struct_size"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, struct_size) - 0usize];
+    ["Offset of field: progpu_native_dawn_engine_options::native_abi_version"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, native_abi_version) - 4usize];
+    ["Offset of field: progpu_native_dawn_engine_options::adapter_abi_version"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, adapter_abi_version) - 8usize];
+    ["Offset of field: progpu_native_dawn_engine_options::provider_abi_version"][::core::mem::offset_of!(
+        progpu_native_dawn_engine_options,
+        provider_abi_version
+    ) - 12usize];
+    ["Offset of field: progpu_native_dawn_engine_options::target_format"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, target_format) - 16usize];
+    ["Offset of field: progpu_native_dawn_engine_options::reserved"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, reserved) - 20usize];
+    ["Offset of field: progpu_native_dawn_engine_options::resolver_context"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, resolver_context) - 24usize];
+    ["Offset of field: progpu_native_dawn_engine_options::resolve_proc"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, resolve_proc) - 32usize];
+    ["Offset of field: progpu_native_dawn_engine_options::instance"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, instance) - 40usize];
+    ["Offset of field: progpu_native_dawn_engine_options::device"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, device) - 48usize];
+    ["Offset of field: progpu_native_dawn_engine_options::queue"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, queue) - 56usize];
+    ["Offset of field: progpu_native_dawn_engine_options::flags"]
+        [::core::mem::offset_of!(progpu_native_dawn_engine_options, flags) - 64usize];
+};
+unsafe extern "C" {
+    pub fn progpu_native_geometry_compare_fill(
         first: *const progpu_native_path_segment,
         first_count: u32,
         first_fill: u32,
@@ -7130,23 +6360,8 @@ impl ProGPUNativeLibrary {
         second_fill: u32,
         tolerance: f32,
         relation: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_geometry_compare_fill
-            .as_ref()
-            .expect("Expected function, got error."))(
-            first,
-            first_count,
-            first_fill,
-            second,
-            second_count,
-            second_fill,
-            tolerance,
-            relation,
-        )
-    }
-    pub unsafe fn progpu_native_geometry_combine(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_geometry_combine(
         first: *const progpu_native_path_segment,
         first_count: u32,
         first_fill: u32,
@@ -7160,58 +6375,17 @@ impl ProGPUNativeLibrary {
         point_count: *mut u32,
         contour_offsets: *mut *const u32,
         contour_count: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_geometry_combine
-            .as_ref()
-            .expect("Expected function, got error."))(
-            first,
-            first_count,
-            first_fill,
-            second,
-            second_count,
-            second_fill,
-            mode,
-            tolerance,
-            result,
-            points,
-            point_count,
-            contour_offsets,
-            contour_count,
-        )
-    }
-    pub unsafe fn progpu_native_geometry_outline_destroy(
-        &self,
-        result: *mut progpu_native_geometry_outline,
-    ) {
-        (self
-            .progpu_native_geometry_outline_destroy
-            .as_ref()
-            .expect("Expected function, got error."))(result)
-    }
-    pub unsafe fn progpu_native_geometry_fill_contains(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_geometry_outline_destroy(result: *mut progpu_native_geometry_outline);
+    pub fn progpu_native_geometry_fill_contains(
         segments: *const progpu_native_path_segment,
         segment_count: u32,
         fill_rule: u32,
         point: *const progpu_native_point,
         tolerance: f32,
         contains: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_geometry_fill_contains
-            .as_ref()
-            .expect("Expected function, got error."))(
-            segments,
-            segment_count,
-            fill_rule,
-            point,
-            tolerance,
-            contains,
-        )
-    }
-    pub unsafe fn progpu_native_geometry_stroke_query(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_geometry_stroke_query(
         figures: *const progpu_native_geometry_query_figure,
         figure_count: u32,
         segments: *const progpu_native_path_segment,
@@ -7226,29 +6400,8 @@ impl ProGPUNativeLibrary {
         bounds: *mut progpu_native_image_rect,
         has_bounds: *mut u32,
         contains: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_geometry_stroke_query
-            .as_ref()
-            .expect("Expected function, got error."))(
-            figures,
-            figure_count,
-            segments,
-            segment_flags,
-            segment_count,
-            pen,
-            dashes,
-            dash_count,
-            world_transform,
-            point,
-            tolerance,
-            bounds,
-            has_bounds,
-            contains,
-        )
-    }
-    pub unsafe fn progpu_native_geometry_bounds(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_geometry_bounds(
         figures: *const progpu_native_geometry_query_figure,
         figure_count: u32,
         segments: *const progpu_native_path_segment,
@@ -7257,23 +6410,8 @@ impl ProGPUNativeLibrary {
         world_transform: *const progpu_native_affine_2d,
         bounds: *mut progpu_native_image_rect,
         has_bounds: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_geometry_bounds
-            .as_ref()
-            .expect("Expected function, got error."))(
-            figures,
-            figure_count,
-            segments,
-            segment_flags,
-            segment_count,
-            world_transform,
-            bounds,
-            has_bounds,
-        )
-    }
-    pub unsafe fn progpu_native_geometry_widen(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_geometry_widen(
         figures: *const progpu_native_geometry_query_figure,
         figure_count: u32,
         segments: *const progpu_native_path_segment,
@@ -7288,38 +6426,9 @@ impl ProGPUNativeLibrary {
         outline: *mut *const progpu_native_path_segment,
         outline_count: *mut u32,
         fill_rule: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_geometry_widen
-            .as_ref()
-            .expect("Expected function, got error."))(
-            figures,
-            figure_count,
-            segments,
-            segment_flags,
-            segment_count,
-            pen,
-            dashes,
-            dash_count,
-            world_transform,
-            tolerance,
-            result,
-            outline,
-            outline_count,
-            fill_rule,
-        )
-    }
-    pub unsafe fn progpu_native_geometry_path_destroy(
-        &self,
-        path: *mut progpu_native_geometry_path,
-    ) {
-        (self
-            .progpu_native_geometry_path_destroy
-            .as_ref()
-            .expect("Expected function, got error."))(path)
-    }
-    pub unsafe fn progpu_native_path_measure_create(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_geometry_path_destroy(path: *mut progpu_native_geometry_path);
+    pub fn progpu_native_path_measure_create(
         figures: *const progpu_native_geometry_query_figure,
         figure_count: u32,
         segments: *const progpu_native_path_segment,
@@ -7327,67 +6436,25 @@ impl ProGPUNativeLibrary {
         force_closed: u32,
         resolution_scale: f32,
         measure: *mut *mut progpu_native_path_measure,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_path_measure_create
-            .as_ref()
-            .expect("Expected function, got error."))(
-            figures,
-            figure_count,
-            segments,
-            segment_count,
-            force_closed,
-            resolution_scale,
-            measure,
-        )
-    }
-    pub unsafe fn progpu_native_path_measure_destroy(
-        &self,
-        measure: *mut progpu_native_path_measure,
-    ) {
-        (self
-            .progpu_native_path_measure_destroy
-            .as_ref()
-            .expect("Expected function, got error."))(measure)
-    }
-    pub unsafe fn progpu_native_path_measure_contour_count(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_path_measure_destroy(measure: *mut progpu_native_path_measure);
+    pub fn progpu_native_path_measure_contour_count(
         measure: *const progpu_native_path_measure,
-    ) -> u32 {
-        (self
-            .progpu_native_path_measure_contour_count
-            .as_ref()
-            .expect("Expected function, got error."))(measure)
-    }
-    pub unsafe fn progpu_native_path_measure_contour(
-        &self,
+    ) -> u32;
+    pub fn progpu_native_path_measure_contour(
         measure: *const progpu_native_path_measure,
         contour: u32,
         length: *mut f32,
         closed: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_path_measure_contour
-            .as_ref()
-            .expect("Expected function, got error."))(measure, contour, length, closed)
-    }
-    pub unsafe fn progpu_native_path_measure_position_tangent(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_path_measure_position_tangent(
         measure: *const progpu_native_path_measure,
         contour: u32,
         distance: f32,
         position: *mut progpu_native_point,
         tangent: *mut progpu_native_point,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_path_measure_position_tangent
-            .as_ref()
-            .expect("Expected function, got error."))(
-            measure, contour, distance, position, tangent
-        )
-    }
-    pub unsafe fn progpu_native_path_measure_segment(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_path_measure_segment(
         measure: *const progpu_native_path_measure,
         contour: u32,
         start_distance: f32,
@@ -7395,126 +6462,49 @@ impl ProGPUNativeLibrary {
         segments: *mut progpu_native_path_segment,
         capacity: u32,
         count: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_path_measure_segment
-            .as_ref()
-            .expect("Expected function, got error."))(
-            measure,
-            contour,
-            start_distance,
-            stop_distance,
-            segments,
-            capacity,
-            count,
-        )
-    }
-    pub unsafe fn progpu_native_get_abi_version(&self) -> u32 {
-        (self
-            .progpu_native_get_abi_version
-            .as_ref()
-            .expect("Expected function, got error."))()
-    }
-    pub unsafe fn progpu_native_get_info(&self, info: *mut progpu_native_engine_info) -> u8 {
-        (self
-            .progpu_native_get_info
-            .as_ref()
-            .expect("Expected function, got error."))(info)
-    }
-    pub unsafe fn progpu_native_scene_validate(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_get_abi_version() -> u32;
+    pub fn progpu_native_get_info(info: *mut progpu_native_engine_info) -> u8;
+    pub fn progpu_native_scene_validate(
         stream: *const ::core::ffi::c_void,
         stream_size: usize,
         metrics: *mut progpu_native_scene_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_scene_validate
-            .as_ref()
-            .expect("Expected function, got error."))(stream, stream_size, metrics)
-    }
-    pub unsafe fn progpu_native_engine_create(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_create(
         options: *const progpu_native_engine_options,
         engine: *mut *mut progpu_native_engine,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_create
-            .as_ref()
-            .expect("Expected function, got error."))(options, engine)
-    }
-    pub unsafe fn progpu_native_engine_destroy(&self, engine: *mut progpu_native_engine) {
-        (self
-            .progpu_native_engine_destroy
-            .as_ref()
-            .expect("Expected function, got error."))(engine)
-    }
-    pub unsafe fn progpu_native_engine_mark_device_lost(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_destroy(engine: *mut progpu_native_engine);
+    pub fn progpu_native_engine_mark_device_lost(
         engine: *mut progpu_native_engine,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_mark_device_lost
-            .as_ref()
-            .expect("Expected function, got error."))(engine)
-    }
-    pub unsafe fn progpu_native_engine_recreate(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_recreate(
         source: *const progpu_native_engine,
         options: *const progpu_native_engine_options,
         replacement: *mut *mut progpu_native_engine,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_recreate
-            .as_ref()
-            .expect("Expected function, got error."))(source, options, replacement)
-    }
-    pub unsafe fn progpu_native_engine_update_scene(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_update_scene(
         engine: *mut progpu_native_engine,
         stream: *const ::core::ffi::c_void,
         stream_size: usize,
         metrics: *mut progpu_native_scene_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_update_scene
-            .as_ref()
-            .expect("Expected function, got error."))(engine, stream, stream_size, metrics)
-    }
-    pub unsafe fn progpu_native_engine_bind_scene_external_images(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_bind_scene_external_images(
         engine: *mut progpu_native_engine,
         bindings: *const progpu_native_scene_external_image_binding,
         binding_count: usize,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_bind_scene_external_images
-            .as_ref()
-            .expect("Expected function, got error."))(engine, bindings, binding_count)
-    }
-    pub unsafe fn progpu_native_engine_render_scene(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_render_scene(
         engine: *mut progpu_native_engine,
         frame: *const progpu_native_scene_frame,
         metrics: *mut progpu_native_scene_frame_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_render_scene
-            .as_ref()
-            .expect("Expected function, got error."))(engine, frame, metrics)
-    }
-    pub unsafe fn progpu_native_engine_begin_hit_test(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_begin_hit_test(
         engine: *mut progpu_native_engine,
         query: *const progpu_native_hit_test_query,
         request_token: *mut u64,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_begin_hit_test
-            .as_ref()
-            .expect("Expected function, got error."))(engine, query, request_token)
-    }
-    pub unsafe fn progpu_native_engine_poll_hit_test(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_poll_hit_test(
         engine: *mut progpu_native_engine,
         request_token: u64,
         results: *mut progpu_native_hit_test_result,
@@ -7522,220 +6512,92 @@ impl ProGPUNativeLibrary {
         result_count: *mut u32,
         summary: *mut progpu_native_hit_test_result,
         complete: *mut u8,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_poll_hit_test
-            .as_ref()
-            .expect("Expected function, got error."))(
-            engine,
-            request_token,
-            results,
-            result_capacity,
-            result_count,
-            summary,
-            complete,
-        )
-    }
-    pub unsafe fn progpu_native_engine_wait_hit_test(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_wait_hit_test(
         engine: *mut progpu_native_engine,
         request_token: u64,
         results: *mut progpu_native_hit_test_result,
         result_capacity: u32,
         result_count: *mut u32,
         summary: *mut progpu_native_hit_test_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_wait_hit_test
-            .as_ref()
-            .expect("Expected function, got error."))(
-            engine,
-            request_token,
-            results,
-            result_capacity,
-            result_count,
-            summary,
-        )
-    }
-    pub unsafe fn progpu_native_engine_get_hit_test_index(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_hit_test_index(
         engine: *mut progpu_native_engine,
         index: *mut progpu_native_scene_hit_test_index,
         has_index: *mut u8,
         uploaded: *mut u8,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_get_hit_test_index
-            .as_ref()
-            .expect("Expected function, got error."))(engine, index, has_index, uploaded)
-    }
-    pub unsafe fn progpu_native_engine_render(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_render(
         engine: *mut progpu_native_engine,
         frame: *const progpu_native_frame,
         metrics: *mut progpu_native_frame_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_render
-            .as_ref()
-            .expect("Expected function, got error."))(engine, frame, metrics)
-    }
-    pub unsafe fn progpu_native_engine_render_analytic(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_render_analytic(
         engine: *mut progpu_native_engine,
         frame: *const progpu_native_analytic_frame,
         metrics: *mut progpu_native_analytic_frame_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_render_analytic
-            .as_ref()
-            .expect("Expected function, got error."))(engine, frame, metrics)
-    }
-    pub unsafe fn progpu_native_engine_render_geometry(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_render_geometry(
         engine: *mut progpu_native_engine,
         frame: *const progpu_native_geometry_frame,
         metrics: *mut progpu_native_geometry_frame_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_render_geometry
-            .as_ref()
-            .expect("Expected function, got error."))(engine, frame, metrics)
-    }
-    pub unsafe fn progpu_native_engine_render_paths(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_render_paths(
         engine: *mut progpu_native_engine,
         frame: *const progpu_native_path_frame,
         metrics: *mut progpu_native_path_frame_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_render_paths
-            .as_ref()
-            .expect("Expected function, got error."))(engine, frame, metrics)
-    }
-    pub unsafe fn progpu_native_engine_render_glyphs(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_render_glyphs(
         engine: *mut progpu_native_engine,
         frame: *const progpu_native_glyph_frame,
         metrics: *mut progpu_native_glyph_frame_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_render_glyphs
-            .as_ref()
-            .expect("Expected function, got error."))(engine, frame, metrics)
-    }
-    pub unsafe fn progpu_native_engine_render_image(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_render_image(
         engine: *mut progpu_native_engine,
         frame: *const progpu_native_image_frame,
         metrics: *mut progpu_native_image_frame_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_render_image
-            .as_ref()
-            .expect("Expected function, got error."))(engine, frame, metrics)
-    }
-    pub unsafe fn progpu_native_engine_get_last_submission(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_last_submission(
         engine: *mut progpu_native_engine,
         submission_index: *mut u64,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_get_last_submission
-            .as_ref()
-            .expect("Expected function, got error."))(engine, submission_index)
-    }
-    pub unsafe fn progpu_native_engine_get_layer_metrics(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_layer_metrics(
         engine: *mut progpu_native_engine,
         metrics: *mut progpu_native_layer_metrics,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_get_layer_metrics
-            .as_ref()
-            .expect("Expected function, got error."))(engine, metrics)
-    }
-    pub unsafe fn progpu_native_engine_get_gpu_memory_snapshot(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_gpu_memory_snapshot(
         engine: *mut progpu_native_engine,
         snapshot: *mut progpu_native_gpu_memory_snapshot,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_get_gpu_memory_snapshot
-            .as_ref()
-            .expect("Expected function, got error."))(engine, snapshot)
-    }
-    pub unsafe fn progpu_native_engine_get_cache_raster_limits(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_cache_raster_limits(
         engine: *mut progpu_native_engine,
         limits: *mut progpu_native_cache_raster_limits,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_get_cache_raster_limits
-            .as_ref()
-            .expect("Expected function, got error."))(engine, limits)
-    }
-    pub unsafe fn progpu_native_engine_poll_submission(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_poll_submission(
         engine: *mut progpu_native_engine,
         submission_index: u64,
         wait: u8,
         complete: *mut u8,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_engine_poll_submission
-            .as_ref()
-            .expect("Expected function, got error."))(
-            engine, submission_index, wait, complete
-        )
-    }
-    pub unsafe fn progpu_native_engine_get_last_error(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_get_last_error(
         engine: *const progpu_native_engine,
         destination: *mut ::core::ffi::c_char,
         destination_size: usize,
-    ) -> usize {
-        (self
-            .progpu_native_engine_get_last_error
-            .as_ref()
-            .expect("Expected function, got error."))(engine, destination, destination_size)
-    }
-    pub unsafe fn progpu_native_text_resolve_language_tag(
-        &self,
+    ) -> usize;
+    pub fn progpu_native_text_resolve_language_tag(
         language_utf8: *const ::core::ffi::c_char,
         language_size: usize,
         language_tag: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_resolve_language_tag
-            .as_ref()
-            .expect("Expected function, got error."))(
-            language_utf8, language_size, language_tag
-        )
-    }
-    pub unsafe fn progpu_native_text_resolve_digit_context(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_resolve_digit_context(
         text: *const u16,
         text_length: u32,
         initial_arabic_context: u8,
         substitution_context: *mut u8,
         context_capacity: u32,
         final_arabic_context: *mut u8,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_resolve_digit_context
-            .as_ref()
-            .expect("Expected function, got error."))(
-            text,
-            text_length,
-            initial_arabic_context,
-            substitution_context,
-            context_capacity,
-            final_arabic_context,
-        )
-    }
-    pub unsafe fn progpu_native_text_resolve_digit_context_with_graphemes(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_resolve_digit_context_with_graphemes(
         text: *const u16,
         text_length: u32,
         initial_arabic_context: u8,
@@ -7744,54 +6606,20 @@ impl ProGPUNativeLibrary {
         grapheme_starts: *mut u8,
         grapheme_capacity: u32,
         final_arabic_context: *mut u8,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_resolve_digit_context_with_graphemes
-            .as_ref()
-            .expect("Expected function, got error."))(
-            text,
-            text_length,
-            initial_arabic_context,
-            substitution_context,
-            context_capacity,
-            grapheme_starts,
-            grapheme_capacity,
-            final_arabic_context,
-        )
-    }
-    pub unsafe fn progpu_native_text_get_shape_requirements(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_get_shape_requirements(
         request: *const progpu_native_text_shape_request,
         requirements: *mut progpu_native_text_shape_requirements,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_get_shape_requirements
-            .as_ref()
-            .expect("Expected function, got error."))(request, requirements)
-    }
-    pub unsafe fn progpu_native_text_shape(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_shape(
         request: *const progpu_native_text_shape_request,
         glyphs: *mut progpu_native_text_shaping_glyph,
         glyph_capacity: u32,
         scratch: *mut ::core::ffi::c_void,
         scratch_size: usize,
         result: *mut progpu_native_text_shape_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_shape
-            .as_ref()
-            .expect("Expected function, got error."))(
-            request,
-            glyphs,
-            glyph_capacity,
-            scratch,
-            scratch_size,
-            result,
-        )
-    }
-    pub unsafe fn progpu_native_text_context_create(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_context_create(
         abi_version: u32,
         font_data: *const u8,
         font_size: usize,
@@ -7799,31 +6627,9 @@ impl ProGPUNativeLibrary {
         normalization_data: *const u8,
         normalization_data_size: usize,
         context: *mut *mut progpu_native_text_context,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_context_create
-            .as_ref()
-            .expect("Expected function, got error."))(
-            abi_version,
-            font_data,
-            font_size,
-            face_index,
-            normalization_data,
-            normalization_data_size,
-            context,
-        )
-    }
-    pub unsafe fn progpu_native_text_context_destroy(
-        &self,
-        context: *mut progpu_native_text_context,
-    ) {
-        (self
-            .progpu_native_text_context_destroy
-            .as_ref()
-            .expect("Expected function, got error."))(context)
-    }
-    pub unsafe fn progpu_native_text_context_get_device_advances(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_context_destroy(context: *mut progpu_native_text_context);
+    pub fn progpu_native_text_context_get_device_advances(
         context: *mut progpu_native_text_context,
         font_index: u32,
         pixels_per_em: u32,
@@ -7832,50 +6638,21 @@ impl ProGPUNativeLibrary {
         advances: *mut f32,
         advance_capacity: u32,
         available: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_context_get_device_advances
-            .as_ref()
-            .expect("Expected function, got error."))(
-            context,
-            font_index,
-            pixels_per_em,
-            glyph_indices,
-            glyph_count,
-            advances,
-            advance_capacity,
-            available,
-        )
-    }
-    pub unsafe fn progpu_native_text_context_add_fallback_font(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_context_add_fallback_font(
         context: *mut progpu_native_text_context,
         font_data: *const u8,
         font_size: usize,
         face_index: u32,
         identity: u64,
         font_index: *mut u32,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_context_add_fallback_font
-            .as_ref()
-            .expect("Expected function, got error."))(
-            context, font_data, font_size, face_index, identity, font_index,
-        )
-    }
-    pub unsafe fn progpu_native_text_context_get_shape_requirements(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_context_get_shape_requirements(
         context: *mut progpu_native_text_context,
         request: *const progpu_native_text_shape_request,
         requirements: *mut progpu_native_text_shape_requirements,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_context_get_shape_requirements
-            .as_ref()
-            .expect("Expected function, got error."))(context, request, requirements)
-    }
-    pub unsafe fn progpu_native_text_context_shape(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_context_shape(
         context: *mut progpu_native_text_context,
         request: *const progpu_native_text_shape_request,
         glyphs: *mut progpu_native_text_shaping_glyph,
@@ -7883,32 +6660,12 @@ impl ProGPUNativeLibrary {
         scratch: *mut ::core::ffi::c_void,
         scratch_size: usize,
         result: *mut progpu_native_text_shape_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_context_shape
-            .as_ref()
-            .expect("Expected function, got error."))(
-            context,
-            request,
-            glyphs,
-            glyph_capacity,
-            scratch,
-            scratch_size,
-            result,
-        )
-    }
-    pub unsafe fn progpu_native_text_layout_get_requirements(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_layout_get_requirements(
         request: *const progpu_native_text_layout_request,
         requirements: *mut progpu_native_text_layout_requirements,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_layout_get_requirements
-            .as_ref()
-            .expect("Expected function, got error."))(request, requirements)
-    }
-    pub unsafe fn progpu_native_text_layout(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_layout(
         request: *const progpu_native_text_layout_request,
         glyphs: *mut progpu_native_positioned_text_glyph,
         glyph_capacity: u32,
@@ -7917,33 +6674,12 @@ impl ProGPUNativeLibrary {
         scratch: *mut ::core::ffi::c_void,
         scratch_size: usize,
         result: *mut progpu_native_text_layout_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_layout
-            .as_ref()
-            .expect("Expected function, got error."))(
-            request,
-            glyphs,
-            glyph_capacity,
-            lines,
-            line_capacity,
-            scratch,
-            scratch_size,
-            result,
-        )
-    }
-    pub unsafe fn progpu_native_text_vertical_layout_get_requirements(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_vertical_layout_get_requirements(
         request: *const progpu_native_text_layout_request,
         requirements: *mut progpu_native_text_vertical_layout_requirements,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_vertical_layout_get_requirements
-            .as_ref()
-            .expect("Expected function, got error."))(request, requirements)
-    }
-    pub unsafe fn progpu_native_text_vertical_layout(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_vertical_layout(
         request: *const progpu_native_text_layout_request,
         glyphs: *mut progpu_native_positioned_text_glyph,
         glyph_capacity: u32,
@@ -7952,34 +6688,13 @@ impl ProGPUNativeLibrary {
         scratch: *mut ::core::ffi::c_void,
         scratch_size: usize,
         result: *mut progpu_native_text_vertical_layout_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_vertical_layout
-            .as_ref()
-            .expect("Expected function, got error."))(
-            request,
-            glyphs,
-            glyph_capacity,
-            columns,
-            column_capacity,
-            scratch,
-            scratch_size,
-            result,
-        )
-    }
-    pub unsafe fn progpu_native_text_get_line_break_requirements(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_get_line_break_requirements(
         input: *const progpu_native_text_scalar,
         input_count: u32,
         requirements: *mut progpu_native_text_line_break_requirements,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_get_line_break_requirements
-            .as_ref()
-            .expect("Expected function, got error."))(input, input_count, requirements)
-    }
-    pub unsafe fn progpu_native_text_resolve_line_breaks(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_resolve_line_breaks(
         input: *const progpu_native_text_scalar,
         input_count: u32,
         breaks_after: *mut u8,
@@ -7987,52 +6702,20 @@ impl ProGPUNativeLibrary {
         scratch: *mut ::core::ffi::c_void,
         scratch_size: usize,
         result: *mut progpu_native_text_line_break_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_resolve_line_breaks
-            .as_ref()
-            .expect("Expected function, got error."))(
-            input,
-            input_count,
-            breaks_after,
-            break_capacity,
-            scratch,
-            scratch_size,
-            result,
-        )
-    }
-    pub unsafe fn progpu_native_text_resolve_edit_word_boundaries_utf16(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_resolve_edit_word_boundaries_utf16(
         source: *const u16,
         source_length: u32,
         paragraph_level: i32,
         positions: *mut u32,
         position_capacity: u32,
-    ) -> progpu_native_edit_word_boundary_result {
-        (self
-            .progpu_native_text_resolve_edit_word_boundaries_utf16
-            .as_ref()
-            .expect("Expected function, got error."))(
-            source,
-            source_length,
-            paragraph_level,
-            positions,
-            position_capacity,
-        )
-    }
-    pub unsafe fn progpu_native_text_get_bidi_requirements(
-        &self,
+    ) -> progpu_native_edit_word_boundary_result;
+    pub fn progpu_native_text_get_bidi_requirements(
         input: *const progpu_native_text_scalar,
         input_count: u32,
         requirements: *mut progpu_native_text_bidi_requirements,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_get_bidi_requirements
-            .as_ref()
-            .expect("Expected function, got error."))(input, input_count, requirements)
-    }
-    pub unsafe fn progpu_native_text_resolve_bidi(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_resolve_bidi(
         input: *const progpu_native_text_scalar,
         input_count: u32,
         requested_paragraph_level: i32,
@@ -8041,35 +6724,14 @@ impl ProGPUNativeLibrary {
         scratch: *mut ::core::ffi::c_void,
         scratch_size: usize,
         result: *mut progpu_native_text_bidi_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_resolve_bidi
-            .as_ref()
-            .expect("Expected function, got error."))(
-            input,
-            input_count,
-            requested_paragraph_level,
-            levels,
-            level_capacity,
-            scratch,
-            scratch_size,
-            result,
-        )
-    }
-    pub unsafe fn progpu_native_text_context_get_paragraph_requirements(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_context_get_paragraph_requirements(
         context: *mut progpu_native_text_context,
         shaping: *const progpu_native_text_shape_request,
         layout: *const progpu_native_text_layout_options,
         requirements: *mut progpu_native_text_paragraph_requirements,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_context_get_paragraph_requirements
-            .as_ref()
-            .expect("Expected function, got error."))(context, shaping, layout, requirements)
-    }
-    pub unsafe fn progpu_native_text_context_layout_paragraph(
-        &self,
+    ) -> progpu_native_status;
+    pub fn progpu_native_text_context_layout_paragraph(
         context: *mut progpu_native_text_context,
         shaping: *const progpu_native_text_shape_request,
         layout: *const progpu_native_text_layout_options,
@@ -8080,21 +6742,15 @@ impl ProGPUNativeLibrary {
         scratch: *mut ::core::ffi::c_void,
         scratch_size: usize,
         result: *mut progpu_native_text_paragraph_result,
-    ) -> progpu_native_status {
-        (self
-            .progpu_native_text_context_layout_paragraph
-            .as_ref()
-            .expect("Expected function, got error."))(
-            context,
-            shaping,
-            layout,
-            glyphs,
-            glyph_capacity,
-            lines,
-            line_capacity,
-            scratch,
-            scratch_size,
-            result,
-        )
-    }
+    ) -> progpu_native_status;
+    pub fn progpu_native_dawn_get_adapter_abi_version() -> u32;
+    pub fn progpu_native_dawn_engine_create(
+        options: *const progpu_native_dawn_engine_options,
+        engine: *mut *mut progpu_native_engine,
+    ) -> progpu_native_status;
+    pub fn progpu_native_dawn_engine_recreate(
+        source: *const progpu_native_engine,
+        options: *const progpu_native_dawn_engine_options,
+        replacement: *mut *mut progpu_native_engine,
+    ) -> progpu_native_status;
 }
