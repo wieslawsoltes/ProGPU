@@ -16,9 +16,9 @@ path = "src/lib.rs"
 [dependencies]
 # The WebGPU implementation of the engine, linked statically: wgpu-native (the C ABI of webgpu.h
 # over wgpu-core and wgpu-hal 30.0.1, the crates of the wgpu crate 30.0.1) with the native-object
-# interop (wieslawsoltes/wgpu-native, branch progpu/wgpu-30). WGSL only: the engine's shaders are
+# interop (FerroUI/wgpu-native, branch progpu/wgpu-30). WGSL only: the engine's shaders are
 # WGSL.
-wgpu-native = { git = "https://github.com/wieslawsoltes/wgpu-native", rev = "309bf22", default-features = false, features = ["wgsl", "metal", "dx12"] }
+wgpu-native = { git = "https://github.com/FerroUI/wgpu-native", rev = "309bf22", default-features = false, features = ["wgsl", "metal", "dx12"] }
 
 [build-dependencies]
 cc = "1"

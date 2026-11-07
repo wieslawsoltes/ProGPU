@@ -1545,7 +1545,7 @@ extern "C"
     WGPUShaderModule wgpuDeviceCreateShaderModuleTrusted(WGPUDevice device, WGPUShaderModuleDescriptor const * descriptor, WGPUShaderRuntimeChecks runtimeChecks);
 
 /**
- * Native-object interop (macOS and iOS; wieslawsoltes/wgpu-native, branch progpu/wgpu-30).
+ * Native-object interop (macOS and iOS; FerroUI/wgpu-native, branch progpu/wgpu-30).
  * A device for the host's id<MTLDevice> with the host's id<MTLCommandQueue> of it as its queue,
  * and a texture of a host id<MTLTexture> of that device: a platform that presents its own frames
  * hands its renderer the texture of each frame. Null on failure.

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Regenerates src/progpu_native.rs, src/webgpu.rs and src/scene_builder.rs with bindgen (cargo install
 # bindgen-cli): plain extern declarations of the statically linked engine and wgpu-native. headers/wgpu.h
-# is that of wieslawsoltes/wgpu-native, branch progpu/wgpu-30 (the native-object interop); progpu_native_dawn.h
+# is that of FerroUI/wgpu-native, branch progpu/wgpu-30 (the native-object interop); progpu_native_dawn.h
 # (which includes progpu_native.h) is the engine of the standard webgpu.h with a procedure resolver.
 # INCLUDE is the include directory of the C ABI: by default that of the ProGPU checkout this crate
 # is part of (src/ProGPU.Native/include).
