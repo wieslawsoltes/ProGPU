@@ -34,9 +34,9 @@ window.progpuReady = (async () => {
   }
   requestAnimationFrame(frame);
   window.addEventListener('pagehide', () => { stopped = true; });
-  // Capture the final presented frame without continuously submitting more work.
-  // Wait for any already-entered asynchronous frame before returning to the host.
-  const pause = () => { stopped = true; return exclusive(() => {}); };
+  // Drain entered JavaScript work, then submit a final frame with an explicit
+  // queue-completion signal. The host awaits that signal before compositor capture.
+  const pause = () => { stopped = true; return exclusive(() => renderer.begin_capture()); };
   return { renderer, exclusive, errors, dimensions, pause, decode_simple_glyph, decode_glyph_outline, decode_cff_outline, normalize_font_variation, item_variation_values, decode_cff2_outline, decode_variation_runs, interpolate_gvar_deltas, decode_gvar_metadata };
 })();
 window.progpuReady.catch(e => { status.textContent = String(e); });

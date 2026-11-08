@@ -287,6 +287,13 @@ try {
     await page.evaluate(async () => {
       const app=await window.progpuReady;
       await app.pause();
+    });
+    await waitFor(() => page.evaluate(async () => {
+      const app=await window.progpuReady;
+      return app.exclusive(() => app.renderer.capture_ready());
+    }));
+    entry.captureCompleted=true;
+    await page.evaluate(async () => {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     });
     const bounds = await page.locator('canvas').boundingBox();
@@ -303,6 +310,7 @@ try {
     assert.ok(background[2]>background[0] && background[2]>5,`canvas clear: ${background}`);
     for(const color of [rectangle,ellipse]) assert.ok(color[2]>color[0]+60 && color[2]>color[1]+60,`canvas analytic shape: ${color}`);
     assert.ok(curve[0]>curve[2]+60 && curve[0]>curve[1]+60,`canvas computed path: ${curve}`);
+    assert.deepEqual(errors,[]);
     await context.close();
   }
   const receipt = { status: 'passed', browser: browser.version(), platform: process.platform, architecture: process.arch, headless, flags, reports };

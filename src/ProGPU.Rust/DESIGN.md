@@ -869,3 +869,15 @@ DPR-2 compositor assertion with transparent-black canvas pixels, followed by a
 device-loss message during teardown (run 42517720607, job 128844366798). This is
 an open presentation gate, not a successful browser qualification. Hosted macOS
 was cancelled before execution. Local passing controls remain separate.
+
+The browser presentation harness now stops continuous animation, drains the
+JavaScript ownership queue, submits one final retained frame and waits for that
+specific GPU queue-completion callback before the original two compositor frame
+boundaries and screenshot. Each request owns a distinct atomic signal so an
+earlier callback cannot complete a later request. Missing final presentation,
+observed device loss, the original deadline and all screenshot pixel assertions
+remain failures. There is no readback substitute, fallback, retry-to-pass or
+driver/compiler change. The receipt records completion separately from pixels.
+Local Chromium passes both DPRs with the new barrier. The hosted transparent
+canvas failure remains open until the new lane provides actual evidence; queue
+completion alone does not prove compositor correctness.

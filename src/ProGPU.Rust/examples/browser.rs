@@ -231,6 +231,7 @@ mod web {
         scene: Option<PreparedScene>,
         validation: Option<Renderer>,
         frames: u32,
+        capture_complete: Option<Arc<AtomicBool>>,
         // Retain the complete browser device-creation ownership chain until
         // every child above has retired, including asynchronous validation.
         adapter: wgpu::Adapter,
@@ -296,6 +297,7 @@ mod web {
             scene: None,
             validation: None,
             frames: 0,
+            capture_complete: None,
             adapter,
             _instance: instance,
         };
@@ -381,6 +383,29 @@ mod web {
             self.frames += 1;
             Ok(true)
         }
+        /// Submit one final retained frame and track this exact queue completion.
+        /// Used only by the presentation test after stopping continuous animation.
+        pub fn begin_capture(&mut self) -> Result<(), JsValue> {
+            if !self.draw()? {
+                return Err(error("final capture frame was not presented"));
+            }
+            // Each request owns a distinct signal so a previous callback cannot
+            // satisfy a later capture. No readback or surface fallback is used.
+            let signal = Arc::new(AtomicBool::new(false));
+            self.capture_complete = Some(signal.clone());
+            self.queue
+                .on_submitted_work_done(move || signal.store(true, Ordering::Release));
+            Ok(())
+        }
+        /// Whether the requested final frame's GPU work completed; rejects observed device loss.
+        pub fn capture_ready(&self) -> Result<bool, JsValue> {
+            self.ensure_live()?;
+            self.capture_complete
+                .as_ref()
+                .map(|signal| signal.load(Ordering::Acquire))
+                .ok_or_else(|| error("no capture submission"))
+        }
+
         /// Actual immutable payload, raster, draw, physical-frame and presentation counts.
         pub fn metrics(&self) -> Result<Object, JsValue> {
             let result = Object::new();
