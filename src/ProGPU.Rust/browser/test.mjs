@@ -113,10 +113,24 @@ try {
         rejected=false;
         try { app.decode_glyph_outline(compoundFont.slice(0,compoundOffset-4),1); } catch { rejected=true; }
         check(rejected,'WASM truncated composite rejection');
+        const cff=new Uint8Array([1,0,4,4,0,0,0,1,1,1,3,156,17,0,0,0,0,
+          0,1,1,1,12,139,139,21,239,139,139,239,39,139,5,14]);
+        const cffFont=new Uint8Array(28+cff.length), cffv=new DataView(cffFont.buffer);
+        cffv.setUint32(0,0x4f54544f); cffv.setUint16(4,1);
+        cffv.setUint32(12,0x43464620); cffv.setUint32(20,28); cffv.setUint32(24,cff.length);
+        cffFont.set(cff,28);
+        const cffSegments=app.decode_cff_outline(cffFont,0);
+        const expectedCff=new Uint8Array(192), cfsv=new DataView(expectedCff.buffer);
+        [[0,0,100,0],[100,0,100,100],[100,100,0,100],[0,100,0,0]].forEach((line,i)=>
+          line.forEach((value,j)=>cfsv.setFloat32(i*48+j*4,value,true)));
+        check(cffSegments.length===192 && cffSegments.every((b,i)=>b===expectedCff[i]),'WASM CFF original closed path bytes');
+        rejected=false;
+        try { app.decode_cff_outline(cffFont.slice(0,-1),0); } catch { rejected=true; }
+        check(rejected,'WASM truncated CFF rejection');
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
-        for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1], ...Array.from({length:13},(_,i)=>[1,i])]) {
+        for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1],[1,-2],[1.25,-2],[2,-2], ...Array.from({length:13},(_,i)=>[1,i])]) {
           console.info(`validating GPU pixels: dpi=${dpi} contrast=${contrast}`);
           const [cold, warm] = await r.validation_pixels(dpi, contrast);
           check(cold.length === 64*64*4 && warm.length === cold.length, 'readback extent');
@@ -161,13 +175,13 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);
     assert.equal(report.before.pathRasters, 3);
     assert.equal(report.before.geometryBytes, 29760);
-    assert.equal(report.checkedPixels, 65536);
+    assert.equal(report.checkedPixels, 77824);
     assert.deepEqual(report.errors, []);
     await page.setViewportSize({ width: 800, height: 600 });
     await waitFor(() => page.evaluate(async () => {

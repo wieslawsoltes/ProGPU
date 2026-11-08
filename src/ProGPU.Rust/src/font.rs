@@ -7,6 +7,7 @@
 //! specialized metadata APIs must independently apply their stricter contracts.
 
 mod bytes;
+pub mod cff;
 mod composite;
 mod outline;
 pub use composite::{

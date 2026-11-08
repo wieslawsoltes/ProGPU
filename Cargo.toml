@@ -59,6 +59,10 @@ name = "composite"
 path = "src/ProGPU.Rust/tests/composite.rs"
 
 [[test]]
+name = "cff"
+path = "src/ProGPU.Rust/tests/cff.rs"
+
+[[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
 

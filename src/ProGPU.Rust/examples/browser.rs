@@ -2,6 +2,9 @@
 //! This example uses the same production renderer and shared scene as winit.
 
 #[cfg(target_arch = "wasm32")]
+#[path = "support/font_scene.rs"]
+mod font_scene;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/sample_scene.rs"]
 mod sample;
 
@@ -83,6 +86,19 @@ mod web {
             Reflect::set(&result, &JsValue::from_str(key), &value)?;
         }
         Ok(result)
+    }
+
+    /// Execute the original CFF1 Type 2 evaluator in WASM after source retirement.
+    #[wasm_bindgen]
+    pub fn decode_cff_outline(data: Vec<u8>, glyph_index: u32) -> Result<Uint8Array, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let font = face.cff1(0).map_err(error)?;
+        let glyph = font.outline(glyph_index).map_err(error)?;
+        drop(font);
+        drop(face);
+        Ok(Uint8Array::from(bytemuck::cast_slice::<_, u8>(
+            glyph.segments(),
+        )))
     }
 
     /// Browser-owned device, canvas surface and immutable prepared generation.
@@ -368,14 +384,18 @@ mod web {
 
     fn validation_scene(contrast: i32) -> Result<Scene, JsValue> {
         let points = [[4.25, 4.5], [20.75, 4.5], [20.75, 20.5], [4.25, 20.5]];
-        let path = Path::new(
-            (0..4)
-                .map(|i| Segment::line(points[i], points[(i + 1) % 4]))
-                .collect::<Vec<_>>(),
-            [4.25, 4.5, 20.75, 20.5],
-            FillRule::NonZero,
-        )
-        .map_err(error)?;
+        let path = if contrast == -2 {
+            super::font_scene::cff_rectangle().map_err(error)?
+        } else {
+            Path::new(
+                (0..4)
+                    .map(|i| Segment::line(points[i], points[(i + 1) % 4]))
+                    .collect::<Vec<_>>(),
+                [4.25, 4.5, 20.75, 20.5],
+                FillRule::NonZero,
+            )
+            .map_err(error)?
+        };
         let mut scene = Scene::default();
         if contrast >= 0 {
             let contrast = u8::try_from(contrast).map_err(error)?;
@@ -389,7 +409,7 @@ mod web {
                         .map_err(error)?,
                 })
                 .map_err(error)?;
-        } else if contrast == -1 {
+        } else if contrast == -1 || contrast == -2 {
             scene
                 .draw_path(PathDraw {
                     path: path.clone(),

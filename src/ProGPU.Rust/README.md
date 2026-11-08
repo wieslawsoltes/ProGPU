@@ -55,7 +55,7 @@ system libraries (`npx --yes playwright@1.62.1 install-deps chromium`). No missi
 adapter or shader failure is skipped. On Linux the harness explicitly enables
 Chromium Vulkan compositing with its SwiftShader driver. Linux CI runs a visible
 browser under Xvfb: `PROGPU_RUST_BROWSER_HEADED=1 xvfb-run -a eng/progpu-test-rust-browser.sh`.
-That configuration passes presentation on Ubuntu ARM64; headless Linux still
+That configuration passes presentation on Ubuntu ARM64 and hosted x64; headless Linux still
 produces a black canvas and is not qualified. The receipt records the actual
 mode and launch flags. Device loss fails the run, with no automatic fallback.
 
@@ -67,7 +67,7 @@ and tests so mutable WASM borrows cannot overlap. Readback is confined to the
 validation bridge; normal canvas replay performs one retained draw.
 
 The browser gate compiles all six canonical shader compositions and checks
-131,072 authored pixels across DPR 1 and 2, including three physical scene DPIs,
+155,648 authored pixels across DPR 1 and 2, including three physical scene DPIs,
 all thirteen grayscale contrast values, cold/warm equality, later-generation
 retirement, resize, and zero-extent suspension/resume. It also requires actual
 compositor screenshot pixels for the background, analytic shapes and GPU paths;
@@ -75,7 +75,9 @@ offscreen success alone cannot pass presentation. PNGs and a compact actual
 adapter/result receipt are written under `artifacts/progpu-rust/browser-results`.
 Chromium software WebGPU is a reproducible additional gate; it does not establish
 hardware-browser, original source-font, or complete engine parity. A WASM CPU control also verifies source-retained simple glyph points, instructions,
-exact quadratic path bytes and truncated-record rejection. Text/image shader
+exact quadratic/composite path bytes, CFF1 Type 2 closure and truncated-record
+rejection. CFF-derived paths also pass through retained GPU rendering at three
+DPIs. Text/image shader
 compilation alone does not implement their pending host stacks.
 
 Builds and browser tools stay outside the distributable crate. Delete verified
@@ -92,7 +94,8 @@ keep compact qualification receipts and reusable active dependencies.
 | Browser sample and tests | WebAssembly canvas host sharing the winit scene; Chromium WebGPU shader, pixel, DPI/resize and retained replay gates | Additional browser/hardware matrix, device-loss recovery, complete stack |
 | winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal and Linux Vulkan/Xvfb presentation pass | Windows runtime and interactive lifecycle controls |
 | Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
-| Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC, native metrics and cmap 4/12/13/14, standalone reconstruction, simple/composite TrueType records and recursive unhinted paths; native source-arithmetic differential controls | Containers, CFF outlines, interpreter, variations, Unicode, shaping, layout, GPU text and compiler-default native pixel qualification |
+| Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC, native metrics and cmap 4/12/13/14, standalone reconstruction, simple/composite TrueType records and recursive unhinted paths; native source-arithmetic differential controls | Containers, interpreter, variations, Unicode, shaping, layout, GPU text and compiler-default native pixel qualification |
+| CFF outlines | Owned CFF1 containers, encoded INDEX/FDSelect, private/global subroutines, bounded Type 2 execution and transformed closed paths; CFF2 INDEX/top metadata | CFF2 container/variation execution, complete text integration and original provider/source pixels |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |

@@ -552,3 +552,96 @@ remain unchanged. The revised capture passes locally; hosted verification remain
 required. The successful ARM64 VM run and temporary dependencies were cleaned up,
 retaining only compact receipts/PNGs and restoring the VM's original suspended
 state (approximately 870 MiB reclaimed across guest tools and shared inputs).
+
+### CFF1 owned containers and Type 2 outline execution
+
+Original sources are `progpu_native_cff_index.cpp`, `cff_dictionary`,
+`cff_fd_select`, `cff_private`, `cff1`, `cff_type2`, `cff_type2_operators` and
+`cff_outline` under the same native Text directory (full `progpu_native_` prefix).
+No third-party font interpreter is used. The Rust `font::cff::Font` retains the
+selected SFNT generation and validated table span. INDEX offsets and FDSelect
+formats 0/3/4 remain encoded: O(1) item/direct selection and O(log ranges) range
+selection, without expanded offset/selection arrays. CFF2 INDEX and strict top
+metadata are available, but CFF2 container/variation execution remains pending.
+
+DICT parsing retains the original 48-value limit, 96-character real payload,
+exact decimal powers through 22, malformed-number cursor advancement, CFF1
+last-applicable operators, private missing/malformed metadata policy and CFF2
+strict arity/duplicate/matrix admission. The exact 1/2048 real fixture stays exact;
+original range/extent checks and unrecognized operator behavior are not broadened.
+
+CFF1 Type 2 evaluation preserves the original 513 operands, 32 transient values,
+96-stem bound, ten-level subroutine limit, local/global bias boundaries, optional
+width consumption, hint-mask skipping, deterministic glyph-seeded random state,
+stack/arithmetic/flex/alternating-curve operators, implicit closure and explicit
+endchar admission. These stem/mask operations do not implement a hinted raster
+policy. Count-only evaluation validates the entire program before allocating a
+private output generation; a second identical execution publishes immutable
+line/cubic records with source ownership. Optional six-double transforms apply
+before float narrowing, including the closing edge. Invalid programs and
+unrepresentable coordinates cannot publish a partial outline.
+
+The linked-original oracle compares 122,411 inputs / 5,688,767 exact output bytes.
+Coverage includes every DICT first/payload byte pair, malformed reals, all INDEX
+widths, FDSelect formats, CID/local/private selection and owner retirement; every
+Type 2 operator byte with multiple operand counts; depth/bias/stack/stem bounds;
+transient, random, arithmetic and closure controls; raw, identity, fractional,
+zero and invalid transforms; and deterministic malformed/truncated programs.
+The oracle uses the established separate-operation arithmetic contract, with
+`PROGPU_RUST_NATIVE_DEFAULT_FP=1` available for the independent default-compiler
+control. Existing native provider/package/source-pixel gates remain mandatory.
+
+The independent ARM64 compiler-default CFF run does **not** pass: input 66,824
+(DICT real-number mode, a long repeated-nine decimal payload) differs in binary64
+digit accumulation. This is the same separate-operation versus contracted
+multiply/add qualification boundary, not a relaxed numeric tolerance. Reproduce
+with `PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test --no-default-features --test cff
+-- --ignored --nocapture`. Default native/C# numeric and package qualification
+remains open despite the passing source-arithmetic and ordinary font controls.
+
+An authored CFF rectangle is decoded and mapped through the actual production
+path compiler, GPU atlas and retained renderer at three DPIs, including painter
+order and lifetime controls. Metal passes the added explicit GPU test. Chromium
+WASM validates the original 192 closed-path bytes and truncation rejection, then
+renders the same font-derived paths through WebGPU. The full browser suite now
+checks 155,648 authored pixels at DPR 1/2, all six canonical shader compositions,
+TrueType and CFF CPU controls, cold/warm retirement, resize and actual compositor
+pixels. Local macOS passes. The preceding `9f9a72ec0` hosted x64/Xvfb browser,
+Linux GPU and Linux/Windows portable lanes all passed; hosted macOS was cancelled
+before starting and remains a separate gate. The new CFF commit requires fresh CI.
+
+CFF baseline: Rust 1.90 Release and Apple Clang 21.0.0 C++20/O3 on ARM64, five
+warmups and forty sequential measured rounds. File I/O and face construction are
+excluded. All glyphs are evaluated, allocated and hashed; CFF exposes path
+records rather than a separate decoded point inventory. The owned Rust API
+performs two executions; the original native public caller-buffer sequence
+requires measurement followed by a decode call which itself preflights (three
+executions total). These are actual API workload measurements, not isolated
+interpreter throughput or optimization attribution. Native default floating
+contraction remains enabled in the benchmark.
+
+| Local input / implementation | Glyphs / segments | Round p50 / p95 / p99 µs | Checksum |
+| --- | --- | --- | --- |
+| NotoSerifYezidi-Regular / Rust | 56 / 758 | 113.917 / 146.833 / 189.041 | 1999901585277320871 |
+| NotoSerifYezidi-Regular / C++ | 56 / 758 | 223.625 / 244.333 / 254.500 | 1999901585277320871 |
+| STIXGeneral / Rust | 3302 / 66255 | 4785.958 / 4984.791 / 7075.125 | 5211491498807598615 |
+| STIXGeneral / C++ | 3302 / 66255 | 5848.958 / 6192.166 / 6332.500 | 5211491498807598615 |
+
+Input SHA-256: NotoSerifYezidi-Regular (8664 bytes)
+`f8a3c04d1a0a872e2a522d07f1280369c30c680c40099eaf4471ee7c389ebde9`;
+STIXGeneral (369156 bytes)
+`5add3f3f2bd7fd897d2fa5ccbe468607c52111dc44cdfaaf2d851a574f5357a7`.
+Measured Rust binary (509888 bytes)
+`01e9a3d79481eb71e3f367126f47b1724475422ff7eef007429375d5c6ae0450`;
+native binary (110984 bytes)
+`6c2f4d544de28183bc17df4ebb393371160018fb0e98f1a708d72067139c8c51`.
+Fonts remain local and are not added to the crate. Reproduce with
+`outline_benchmark FONT_PATH 0 --cff`; the native benchmark links the original
+SFNT/TrueType/CFF translation units, including native CFF2/item-variation support
+required by those unchanged files. Temporary binaries and oracle input dumps are
+removed after verification; compact results above replace raw benchmark output.
+
+Strict native/WASM Clippy, all-feature and CPU-only tests pass locally. The
+extracted package builds on the native and WASM targets: 89 files, 924.5 KiB
+(211.5 KiB compressed). Browser bindings, tool dependencies and generated outputs
+remain outside the crate inventory.

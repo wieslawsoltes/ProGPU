@@ -1,5 +1,8 @@
 //! Actual-device pixel, replay and submission-ownership controls.
 
+#[path = "../examples/support/font_scene.rs"]
+mod font_scene;
+
 use progpu::{
     geometry::{AnalyticPrimitive, Mesh, Shape},
     renderer::{Frame, Renderer},
@@ -63,6 +66,14 @@ fn read_pixels(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Textu
 #[test]
 #[ignore = "requires a real GPU adapter; mandatory explicit GPU validation lane"]
 fn mixed_retained_scene_matches_painter_order_and_physical_samples() {
+    check_mixed_retained_scene(false);
+}
+#[test]
+#[ignore = "requires a real GPU adapter; mandatory CFF-to-GPU pixel validation"]
+fn cff_outlines_render_through_retained_gpu_paths() {
+    check_mixed_retained_scene(true);
+}
+fn check_mixed_retained_scene(cff: bool) {
     use progpu::{
         geometry::Affine,
         path::{FillRule, Path, Segment},
@@ -83,14 +94,18 @@ fn mixed_retained_scene_matches_painter_order_and_physical_samples() {
             .unwrap();
         assert!(!renderer.path_pipeline_is_initialized());
         let points = [[4.25, 4.5], [20.75, 4.5], [20.75, 20.5], [4.25, 20.5]];
-        let path = Path::new(
-            (0..4)
-                .map(|i| Segment::line(points[i], points[(i + 1) % 4]))
-                .collect::<Vec<_>>(),
-            [4.25, 4.5, 20.75, 20.5],
-            FillRule::NonZero,
-        )
-        .unwrap();
+        let path = if cff {
+            font_scene::cff_rectangle().unwrap()
+        } else {
+            Path::new(
+                (0..4)
+                    .map(|i| Segment::line(points[i], points[(i + 1) % 4]))
+                    .collect::<Vec<_>>(),
+                [4.25, 4.5, 20.75, 20.5],
+                FillRule::NonZero,
+            )
+            .unwrap()
+        };
         let mut source = Scene::default();
         source
             .draw_path(PathDraw {
