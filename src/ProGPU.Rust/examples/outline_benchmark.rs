@@ -6,12 +6,25 @@ fn run(
     glyphs: &[u16],
     expanded: bool,
     cff: Option<&progpu::font::cff::Font>,
+    coordinates: Option<&[i16]>,
 ) -> Result<u64, Box<dyn Error>> {
     let mut checksum = 14695981039346656037u64;
     let mut hash = |value: u32| {
         checksum = (checksum ^ u64::from(value)).wrapping_mul(1099511628211);
     };
     for &id in glyphs {
+        if let Some(coordinates) = coordinates {
+            let glyph = face.varied_glyph_outline(black_box(id), coordinates)?;
+            for point in glyph.points() {
+                for value in point {
+                    hash(value.to_bits());
+                }
+            }
+            for &word in bytemuck::cast_slice::<_, u32>(glyph.segments()) {
+                hash(word);
+            }
+            continue;
+        }
         if let Some(font) = cff {
             let glyph = font.outline(u32::from(black_box(id)))?;
             for &word in bytemuck::cast_slice::<_, u32>(glyph.segments()) {
@@ -47,7 +60,7 @@ fn run(
 fn main() -> Result<(), Box<dyn Error>> {
     let path = std::env::args()
         .nth(1)
-        .ok_or("usage: outline_benchmark FONT_PATH [FACE_INDEX] [--expanded|--cff]")?;
+        .ok_or("usage: outline_benchmark FONT_PATH [FACE_INDEX] [--expanded|--cff|--varied] [NORMALIZED_COORDINATE]")?;
     let index = std::env::args()
         .nth(2)
         .map(|s| s.parse())
@@ -57,12 +70,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mode = std::env::args().nth(3);
     let expanded = match mode.as_deref() {
         None | Some("--cff") => false,
-        Some("--expanded") => true,
+        Some("--expanded" | "--varied") => true,
         Some(_) => return Err("unknown benchmark mode".into()),
     };
     let cff = (mode.as_deref() == Some("--cff"))
         .then(|| face.cff1(0))
         .transpose()?;
+    let coordinates = if mode.as_deref() == Some("--varied") {
+        let font = face.gvar()?.ok_or("missing gvar")?;
+        let value: i16 = std::env::args()
+            .nth(4)
+            .map(|v| v.parse())
+            .transpose()?
+            .unwrap_or(8192);
+        Some(vec![value; usize::from(font.header().axis_count)])
+    } else {
+        None
+    };
     let mut glyphs = Vec::new();
     let (mut points, mut segments) = (0u64, 0u64);
     let count = match &cff {
@@ -92,21 +116,44 @@ fn main() -> Result<(), Box<dyn Error>> {
     if glyphs.is_empty() {
         return Err("no simple glyphs".into());
     }
-    let checksum = run(&face, &glyphs, expanded, cff.as_ref())?;
+    let checksum = run(
+        &face,
+        &glyphs,
+        expanded,
+        cff.as_ref(),
+        coordinates.as_deref(),
+    )?;
     for _ in 0..5 {
-        assert_eq!(run(&face, &glyphs, expanded, cff.as_ref())?, checksum);
+        assert_eq!(
+            run(
+                &face,
+                &glyphs,
+                expanded,
+                cff.as_ref(),
+                coordinates.as_deref()
+            )?,
+            checksum
+        );
     }
     let mut times = Vec::new();
     for _ in 0..40 {
         let start = Instant::now();
-        let actual = run(&face, &glyphs, expanded, cff.as_ref())?;
+        let actual = run(
+            &face,
+            &glyphs,
+            expanded,
+            cff.as_ref(),
+            coordinates.as_deref(),
+        )?;
         times.push(start.elapsed().as_secs_f64() * 1e6);
         assert_eq!(actual, checksum);
     }
     times.sort_by(f64::total_cmp);
     println!(
         "mode={} glyphs={} points={} segments={} checksum={} round_us_p50={:.3} p95={:.3} p99={:.3}",
-        if cff.is_some() {
+        if coordinates.is_some() {
+            "varied"
+        } else if cff.is_some() {
             "cff"
         } else if expanded {
             "expanded"

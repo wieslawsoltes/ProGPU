@@ -15,6 +15,7 @@ mod outline;
 mod variations;
 pub use composite::{
     CompositeComponent, CompositeGlyph, CompositeRequirements, ExpandedRequirements, GlyphOutline,
+    VariedGlyphOutline,
 };
 pub use item_variation::{DeltaSetIndexMap, ItemVariationStore};
 pub use outline::{GlyphKind, GlyphRequirements, OutlinePoint, SimpleGlyph};

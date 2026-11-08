@@ -5,11 +5,18 @@ use progpu::font::{
 };
 #[path = "support/gvar_apply.rs"]
 mod apply;
+#[path = "support/composite_fixture.rs"]
+mod composite_fixture;
 #[allow(dead_code)]
 #[path = "support/font_fixture.rs"]
 mod fixture;
+#[allow(dead_code)]
+#[path = "../examples/support/font_scene.rs"]
+mod font_scene;
 #[path = "support/gvar_metadata.rs"]
 mod metadata;
+#[path = "support/gvar_outline.rs"]
+mod varied;
 
 #[test]
 fn explicit_zero_count_is_not_all_points_and_output_is_transactional() {
@@ -214,12 +221,16 @@ fn corpus() -> Vec<Case> {
     }
     cases.extend(metadata::corpus());
     cases.extend(apply::corpus());
+    cases.extend(varied::corpus());
     cases
 }
 fn emit(out: &mut Vec<u8>, v: u32) {
     out.extend(v.to_ne_bytes());
 }
 fn snapshot(c: &Case) -> Vec<u8> {
+    if c.a[0] == 5 {
+        return varied::snapshot(c);
+    }
     if c.a[0] == 4 {
         return apply::snapshot(c);
     }
@@ -351,6 +362,8 @@ fn original_native_packed_variation_and_interpolation_match() {
         "true_type_path",
         "true_type_composite",
         "true_type_outline",
+        "true_type_varied_requirements",
+        "true_type_varied_outline",
     ] {
         command.arg(root.join(format!(
             "src/ProGPU.Native/src/Text/progpu_native_{file}.cpp"
@@ -360,7 +373,10 @@ fn original_native_packed_variation_and_interpolation_match() {
         root.join("src/ProGPU.Native/src/Text/Font/progpu_native_font_horizontal_metrics.cpp"),
     );
     assert!(command.arg("-o").arg(&exe).status().unwrap().success());
-    let cases = corpus();
+    let mut cases = corpus();
+    if std::env::var_os("PROGPU_RUST_VARIED_ONLY").is_some() {
+        cases.retain(|c| c.a[0] == 5);
+    }
     let mut input = Vec::new();
     let mut expected = Vec::new();
     let mut ends = Vec::new();

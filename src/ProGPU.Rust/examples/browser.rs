@@ -574,7 +574,9 @@ mod web {
 
     fn validation_scene(contrast: i32) -> Result<Scene, JsValue> {
         let points = [[4.25, 4.5], [20.75, 4.5], [20.75, 20.5], [4.25, 20.5]];
-        let path = if contrast == -3 {
+        let path = if contrast == -4 {
+            super::font_scene::varied_true_type_rectangle().map_err(error)?
+        } else if contrast == -3 {
             super::font_scene::cff2_rectangle().map_err(error)?
         } else if contrast == -2 {
             super::font_scene::cff_rectangle().map_err(error)?
@@ -601,7 +603,7 @@ mod web {
                         .map_err(error)?,
                 })
                 .map_err(error)?;
-        } else if (-3..=-1).contains(&contrast) {
+        } else if (-4..=-1).contains(&contrast) {
             scene
                 .draw_path(PathDraw {
                     path: path.clone(),

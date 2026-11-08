@@ -24,6 +24,7 @@ on:
       - src/ProGPU.Native/src/Text/progpu_native_true_type_composite.cpp
       - src/ProGPU.Native/src/Text/progpu_native_true_type_composite_internal.hpp
       - src/ProGPU.Native/src/Text/progpu_native_true_type_outline.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_varied*.cpp
       - src/ProGPU.Native/src/Text/progpu_native_cff*.cpp
       - src/ProGPU.Native/src/Text/progpu_native_cff_type2_internal.hpp
       - src/ProGPU.Native/src/Text/progpu_native_item_variation_store.cpp

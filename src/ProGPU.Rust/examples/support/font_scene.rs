@@ -103,3 +103,103 @@ pub fn cff2_rectangle() -> Result<Path, Box<dyn std::error::Error>> {
         FillRule::NonZero,
     )?)
 }
+
+/// Authored TrueType source: both the simple child and scaled component vary.
+pub fn varied_true_type_font() -> Vec<u8> {
+    fn put16(data: &mut [u8], at: usize, value: u16) {
+        data[at..at + 2].copy_from_slice(&value.to_be_bytes());
+    }
+    fn put32(data: &mut [u8], at: usize, value: u32) {
+        data[at..at + 4].copy_from_slice(&value.to_be_bytes());
+    }
+    fn tuple(x: &[i8], y: &[i8]) -> Vec<u8> {
+        let mut data = vec![
+            0,
+            1,
+            0,
+            10,
+            0,
+            (x.len() + y.len() + 2) as u8,
+            0x80,
+            0,
+            0x40,
+            0,
+        ];
+        data.push((x.len() - 1) as u8);
+        data.extend(x.iter().map(|v| *v as u8));
+        data.push((y.len() - 1) as u8);
+        data.extend(y.iter().map(|v| *v as u8));
+        data
+    }
+    let mut head = vec![0; 54];
+    put16(&mut head, 18, 1000);
+    put16(&mut head, 50, 1);
+    let mut maxp = vec![0; 6];
+    put16(&mut maxp, 4, 2);
+    let mut glyf = vec![0; 14];
+    put16(&mut glyf, 0, 1);
+    put16(&mut glyf, 10, 3);
+    glyf.extend([1; 4]);
+    for v in [0i16, 60, 0, -60, 0, 0, 64, 0] {
+        glyf.extend(v.to_be_bytes());
+    }
+    let mut loca = vec![0; 12];
+    put32(&mut loca, 4, glyf.len() as u32);
+    let mut component = vec![0; 20];
+    put16(&mut component, 0, 65535);
+    put16(&mut component, 10, 0x80b);
+    put16(&mut component, 14, 16);
+    put16(&mut component, 16, 16);
+    put16(&mut component, 18, 4096);
+    glyf.extend(component);
+    put32(&mut loca, 8, glyf.len() as u32);
+    let mut fvar = vec![0; 36];
+    put16(&mut fvar, 4, 16);
+    put16(&mut fvar, 8, 1);
+    put16(&mut fvar, 10, 20);
+    let mut gvar = vec![0; 32];
+    put32(&mut gvar, 0, 0x10000);
+    put16(&mut gvar, 4, 1);
+    put32(&mut gvar, 8, 32);
+    put16(&mut gvar, 12, 2);
+    put16(&mut gvar, 14, 1);
+    put32(&mut gvar, 16, 32);
+    gvar.extend(tuple(&[0, 12, 12, 0, 0, 0, 0, 0], &[0; 8]));
+    let end = (gvar.len() - 32) as u32;
+    put32(&mut gvar, 24, end);
+    gvar.extend(tuple(&[2, 0, 0, 0, 0], &[4, 0, 0, 0, 0]));
+    let end = (gvar.len() - 32) as u32;
+    put32(&mut gvar, 28, end);
+    let tables = [
+        (*b"head", head),
+        (*b"maxp", maxp),
+        (*b"loca", loca),
+        (*b"glyf", glyf),
+        (*b"fvar", fvar),
+        (*b"gvar", gvar),
+    ];
+    let mut data = vec![0; 12 + tables.len() * 16];
+    put32(&mut data, 0, 0x10000);
+    put16(&mut data, 4, tables.len() as u16);
+    for (i, (tag, table)) in tables.into_iter().enumerate() {
+        let at = 12 + i * 16;
+        data[at..at + 4].copy_from_slice(&tag);
+        let offset = data.len() as u32;
+        put32(&mut data, at + 8, offset);
+        put32(&mut data, at + 12, table.len() as u32);
+        data.extend(table);
+    }
+    data
+}
+
+/// Original varied simple points and scaled component offsets become GPU paths.
+pub fn varied_true_type_rectangle() -> Result<Path, Box<dyn std::error::Error>> {
+    let face = SfntFace::new(varied_true_type_font(), 0)?;
+    let outline = face.varied_glyph_outline(1, &[8192])?;
+    drop(face);
+    Ok(Path::new(
+        outline.segments().to_vec(),
+        [4.25, 4.5, 20.75, 20.5],
+        FillRule::NonZero,
+    )?)
+}

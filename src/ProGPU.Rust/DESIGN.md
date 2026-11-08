@@ -930,3 +930,93 @@ completion signals, both original canvas-pixel inventories, and 90,112 offscreen
 pixels per DPR. This supplies the previously missing hosted presentation evidence
 for that checkpoint; it does not qualify headless Linux or other browser/hardware
 combinations. Hosted macOS remained queued when this milestone was recorded.
+
+## Recursive variable TrueType outlines
+
+`SfntFace::varied_glyph_outline` and `VariedGlyphOutline` port the original
+`progpu_native_true_type_varied_requirements.cpp` and
+`progpu_native_true_type_varied_outline.cpp`. The immutable result retains the
+selected SFNT owner and exact requested coordinates (extra coordinates survive
+ownership but only original gvar axes execute). The existing original component
+parser, contour writer, transform arithmetic and recursion machinery are shared
+with unvaried expansion; ordinary unvaried admission remains independent.
+
+Whole-tree measurement includes every original child, even children later omitted
+by invalid point attachment. It preserves the depth-32/cycle/out-of-range empty
+routes, checked aggregate component storage, original tuple-header validation and
+maximum simple/component packed scratch capacities. Those maxima matter for
+admission: a zero-tuple child's shared point list may fit scratch supplied by a
+sibling, including an omitted sibling. The standalone operation still uses its
+own zero capacity. Header errors in skipped children fail preflight; their packed
+payloads are decoded only when output traversal admits them. An ordinary unit
+test explicitly preserves both sides of that distinction.
+
+Each admitted simple glyph varies its original positions before canonical contour
+lowering. Component deltas add to original XY arguments before any selected scaled
+offset transform, followed by original ties-to-even rounding. Point attachment
+ignores component translation deltas and follows the varied native route's
+independent child-root measurement. Parent/child rollback, original transform
+order, line-record padding and final exact point/segment counts survive. Output
+limits are checked before appending each simple child; no partial geometry is
+published. All source instructions remain unexecuted.
+
+The combined gvar oracle passes **462,131 inputs / 51,251,832 exact bytes**.
+The varied-outline addition contributes **205,227 inputs / 35,327,464 bytes**:
+all original composite flags with and without variation data, every signed
+16-bit coordinate on a nested attached fixture, empty/cyclic/deep children,
+whole-tree scratch admission, missing/short coordinates, truncation/mutation and
+the actual GPU font fixture. The unchanged unvaried oracle still passes all
+**72,993 inputs / 15,498,308 bytes**. Source fixtures are shared between test
+drivers without changing the native sources or removing original cases.
+
+The targeted native default-contraction control remains separate and fails at
+varied input 14: native `0x41cbe4a9`, Rust `0x41cbe4a8`. Reproduce using
+`PROGPU_RUST_VARIED_ONLY=1 PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test --locked
+--no-default-features --test gvar -- --ignored --nocapture`. The source-arithmetic
+oracle retains the existing isolated executable policy. No native package,
+compiler default, shader, driver or pixel tolerance was changed.
+
+An authored two-glyph TrueType font varies both a simple rectangle's width and
+its parent's scaled XY offsets. Half-peak execution produces exact physical
+design bounds `[4.25, 4.5, 20.75, 20.5]`. The production varied API feeds ordinary
+retained GPU paths after caller source retirement. Metal validates all three
+DPIs, cold/warm reuse, painter order and resource ownership. Chromium adds the
+same three-DPI cases, bringing its full mandatory inventory to **204,800
+offscreen pixels** across both DPRs, alongside the twelve gvar CPU controls per
+DPR, original six shaders, resize, queue completion and actual compositor pixels.
+Both DPRs pass locally. Payload checkpoint `a66439c7e` also passes hosted Linux/
+Windows portable, Vulkan/winit and browser lanes (Rust run 42519799824); its
+hosted macOS lane was cancelled. The new varied-path hosted checks remain pending.
+
+The matched `outline_benchmark FONT 0 --varied 8192` workload applies 8192 to
+every original axis, enumerates every glyph slot and hashes original point and
+path words. Both implementations include public preflight, scratch/output
+allocation, full decoding and hashing; input I/O and font opening are excluded.
+Five warmups precede forty measured rounds. Rust owns published source/coordinate
+generations; original C++ caller scratch is allocated per public call. These are
+public API baselines, not isolated algorithm speed or full performance parity.
+The C++ benchmark retains **default compiler contraction**, unlike the separate
+source-arithmetic oracle above.
+
+| Local input | Rust p50 / p95 / p99 µs | Original C++ p50 / p95 / p99 µs | Identical output |
+| --- | --- | --- | --- |
+| SFNSMono, 1,632 glyphs | 4446.125 / 4593.958 / 4608.000 | 4801.125 / 5038.208 / 5099.000 | 49,117 points, 39,549 segments; checksum 13411200118553759853 |
+| NewYork, 1,811 glyphs | 6919.500 / 7573.042 / 7708.458 | 7900.375 / 8045.000 / 8151.625 | 87,519 points, 69,402 segments; checksum 15093604794901869438 |
+
+Measured on local ARM64 macOS with Rust 1.90.0 release and Apple Clang 21.0.0,
+`-std=c++20 -O2 -Wall -Wextra -Werror`. Input SHA-256:
+SFNSMono `55caaed55254a28ac793847e8976be16c5ba7cbad1ec2ee2d5d86d4e6b3fa0c1`;
+NewYork `296ac5e08bea4da51b7c46eb9647f69be0f56077a9c35b4bc9f433d7e8734771`.
+Binary SHA-256: Rust
+`9cdafc4c443ddf632c0d75b3cb70727354a8f41d12895d77ab5f708934a87649`;
+native `60640abe7d95c36b99a021b2a45e4d8058d2055872053d80573a939e21ed00fd`.
+The native adapter compiles the original SFNT, font-variation, item-store,
+TrueType/static/varied, gvar metadata/packed/IUP/payload/simple/component and CFF
+translation units. System font binaries are not redistributed. Matching these
+workloads does not close the independent authored compiler-default difference.
+No optimization or overall speedup claim follows from this initial baseline.
+
+Remaining text work includes HVAR/VVAR and device metrics, hinting, Unicode,
+shaping, fallback, paragraph layout, glyph atlases and retained text replay.
+The broader rendering, image, material, clip, layer, effect and transport parity
+gates remain unchanged. The crate is an incremental port, not a full-stack release.

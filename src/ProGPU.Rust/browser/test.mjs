@@ -226,7 +226,7 @@ try {
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
-        for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1],[1,-2],[1.25,-2],[2,-2],[1,-3],[1.25,-3],[2,-3], ...Array.from({length:13},(_,i)=>[1,i])]) {
+        for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1],[1,-2],[1.25,-2],[2,-2],[1,-3],[1.25,-3],[2,-3],[1,-4],[1.25,-4],[2,-4], ...Array.from({length:13},(_,i)=>[1,i])]) {
           console.info(`validating GPU pixels: dpi=${dpi} contrast=${contrast}`);
           const [cold, warm] = await r.validation_pixels(dpi, contrast);
           check(cold.length === 64*64*4 && warm.length === cold.length, 'readback extent');
@@ -277,7 +277,7 @@ try {
     assert.equal(report.before.draws, 1);
     assert.equal(report.before.pathRasters, 3);
     assert.equal(report.before.geometryBytes, 29760);
-    assert.equal(report.checkedPixels, 90112);
+    assert.equal(report.checkedPixels, 102400);
     assert.deepEqual(report.errors, []);
     await page.setViewportSize({ width: 800, height: 600 });
     await waitFor(() => page.evaluate(async () => {

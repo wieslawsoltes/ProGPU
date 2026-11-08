@@ -63,6 +63,23 @@ int main(){
    sh.resize(pr.tuple_header_count);sc.resize(pr.region_coordinate_count);sp.resize(pr.point_number_count);pp.resize(pr.point_number_count);sx.resize(pr.delta_count);sy.resize(pr.delta_count);
    float left{},right{};ok=face.try_get_glyph_horizontal_phantom_deltas(a[2],coords,a[7],left,right,{sh,sc,sp,pp,sx,sy},&e);emit(static_cast<std::uint32_t>(e));
    if(ok){emit(std::bit_cast<std::uint32_t>(left));emit(std::bit_cast<std::uint32_t>(right));}
+  }else if(a[0]==5){
+   sfnt_font_view face{};auto ok=sfnt_font_view::try_create(b,a[5],face,&e);emit(static_cast<std::uint32_t>(e));if(!ok)continue;
+   std::vector<std::int16_t> coords(a[3],static_cast<std::int16_t>(a[4]));
+   sfnt_varied_glyph_requirements r{};face.try_get_varied_glyph_requirements(a[2],r,&e);
+   std::vector<std::uint16_t> ends(r.outline.simple_contour_scratch_count);std::vector<sfnt_outline_point> original(r.outline.simple_point_scratch_count);
+   std::vector<progpu_native_point> varied(r.varied_simple_point_count),offsets(r.component_offset_count),points(r.outline.point_count);
+   std::vector<progpu_native_path_segment> segments(r.outline.path_segment_count);
+   const auto& sr=r.simple_variation;const auto& cr=r.composite_variation;
+   std::vector<sfnt_gvar_tuple_header> sh(sr.tuple_header_count),ch(cr.tuple_header_count);
+   std::vector<std::int16_t> sc(sr.region_coordinate_count),sx(sr.delta_count),sy(sr.delta_count),cc(cr.region_coordinate_count),cx(cr.delta_count),cy(cr.delta_count);
+   std::vector<std::uint32_t> sp(sr.point_number_count),pp(sr.point_number_count),cp(cr.point_number_count),pc(cr.point_number_count);
+   std::vector<float> tx(sr.tuple_point_count),ty(sr.tuple_point_count);std::vector<std::uint8_t> touched(sr.tuple_point_count);
+   std::uint32_t pw{},sw{};
+   ok=face.try_decode_varied_glyph_outline(a[2],coords,{ends,original,varied,offsets,{sh,sc,sp,pp,sx,sy,tx,ty,touched},{ch,cc,cp,pc,cx,cy}},points,segments,pw,sw,&e);
+   emit(static_cast<std::uint32_t>(e));if(!ok)continue;emit(pw);emit(sw);
+   for(auto p:points){emit(std::bit_cast<std::uint32_t>(p.x));emit(std::bit_cast<std::uint32_t>(p.y));}
+   if(std::fwrite(segments.data(),sizeof(progpu_native_path_segment),sw,stdout)!=sw)return 9;
   }else return 5;
  }
  return std::ferror(stdin)?6:0;

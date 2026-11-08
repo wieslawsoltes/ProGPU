@@ -6,6 +6,8 @@ use std::ops::Range;
 const XY: u16 = 2;
 const MORE: u16 = 0x20;
 const MAX_DEPTH: usize = 32;
+mod varied;
+pub use varied::VariedGlyphOutline;
 
 /// Original component record. Raw flags and argument interpretation are retained.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -232,6 +234,8 @@ impl SfntFace {
             segments: reserve(required.path_segment_count as usize)?,
             contours: reserve(usize::from(required.simple_contour_scratch_count))?,
             scratch: reserve(required.simple_point_scratch_count as usize)?,
+            variation: None,
+            limits: required,
         };
         state.decode(
             self,
@@ -315,13 +319,15 @@ fn measure(
     }
     Ok(result)
 }
-struct Expansion {
+struct Expansion<'a> {
     points: Vec<[f32; 2]>,
     segments: Vec<Segment>,
     contours: Vec<u16>,
     scratch: Vec<OutlinePoint>,
+    variation: Option<varied::Variation<'a>>,
+    limits: ExpandedRequirements,
 }
-impl Expansion {
+impl Expansion<'_> {
     fn decode(
         &mut self,
         face: &SfntFace,
@@ -334,22 +340,71 @@ impl Expansion {
             return Ok(());
         }
         ancestors[depth] = index;
-        match face.glyph_requirements(index)?.kind {
+        let requirements = face.glyph_requirements(index)?;
+        match requirements.kind {
             GlyphKind::Empty => return Ok(()),
             GlyphKind::Simple => {
+                if self
+                    .points
+                    .len()
+                    .checked_add(requirements.point_count as usize)
+                    .is_none_or(|n| n > self.limits.point_count as usize)
+                    || self
+                        .segments
+                        .len()
+                        .checked_add(requirements.path_segment_count as usize)
+                        .is_none_or(|n| n > self.limits.path_segment_count as usize)
+                {
+                    return Err(FontError::InvalidGlyph);
+                }
                 outline::decode_scratch(face, index, &mut self.contours, &mut self.scratch)?;
-                outline::append_segments(&self.contours, &self.scratch, &[], &mut self.segments);
-                self.points
-                    .extend(self.scratch.iter().map(|p| [p.x as f32, p.y as f32]));
+                if let Some(v) = self.variation {
+                    let positions = super::gvar::apply_simple_with_capacity(
+                        face,
+                        index,
+                        v.coordinates,
+                        &self.contours,
+                        &self.scratch,
+                        Some(v.simple_capacity),
+                    )?;
+                    outline::append_segments(
+                        &self.contours,
+                        &self.scratch,
+                        &positions,
+                        &mut self.segments,
+                    );
+                    self.points.extend_from_slice(&positions);
+                } else {
+                    outline::append_segments(
+                        &self.contours,
+                        &self.scratch,
+                        &[],
+                        &mut self.segments,
+                    );
+                    self.points
+                        .extend(self.scratch.iter().map(|p| [p.x as f32, p.y as f32]));
+                }
                 return Ok(());
             }
             GlyphKind::Composite => {}
         }
         let r = face.composite_requirements(index)?;
         let data = face.glyph_data(index).ok_or(FontError::InvalidGlyph)?.bytes;
+        let offsets = self
+            .variation
+            .map(|v| {
+                super::gvar::component_offsets_with_capacity(
+                    face,
+                    index,
+                    v.coordinates,
+                    r.component_count,
+                    Some(v.component_capacity),
+                )
+            })
+            .transpose()?;
         let parent_start = self.points.len();
         let mut cursor = 10;
-        for _ in 0..r.component_count {
+        for component_index in 0..r.component_count {
             let c = component(data, &mut cursor).ok_or(FontError::InvalidGlyph)?;
             let point_start = self.points.len();
             let segment_start = self.segments.len();
@@ -357,7 +412,16 @@ impl Expansion {
                 if c.arguments[0] < 0 || c.arguments[0] as usize >= point_start - parent_start {
                     continue;
                 }
-                let child = measure(face, c.glyph_index, count, ancestors, depth + 1)?;
+                // The original varied route remeasures an attachment child as
+                // its own root; the unvaried route retains ancestor-aware measure.
+                let child = if self.variation.is_some() {
+                    match face.expanded_requirements(c.glyph_index) {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    }
+                } else {
+                    measure(face, c.glyph_index, count, ancestors, depth + 1)?
+                };
                 if c.arguments[1] < 0 || c.arguments[1] as u32 >= child.point_count {
                     continue;
                 }
@@ -367,7 +431,11 @@ impl Expansion {
                 continue;
             }
             let mut offset = if c.flags & XY != 0 {
-                let raw = [c.arguments[0] as f32, c.arguments[1] as f32];
+                let mut raw = [c.arguments[0] as f32, c.arguments[1] as f32];
+                if let Some(offsets) = &offsets {
+                    raw[0] += offsets[component_index as usize][0];
+                    raw[1] += offsets[component_index as usize][1];
+                }
                 if c.flags & 0x800 != 0 {
                     c.apply(raw, [0.0; 2])
                 } else {

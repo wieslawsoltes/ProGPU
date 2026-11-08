@@ -4,6 +4,7 @@ use super::{FontError, bytes};
 mod apply;
 mod font;
 pub use apply::{apply_simple, component_offsets, horizontal_phantom_deltas};
+pub(super) use apply::{apply_simple_with_capacity, component_offsets_with_capacity};
 pub use font::{Font, GlyphData, Header, TupleHeader, TupleHeaders, tuple_scalar};
 
 /// Validated packed point numbers, borrowing their exact encoded prefix.

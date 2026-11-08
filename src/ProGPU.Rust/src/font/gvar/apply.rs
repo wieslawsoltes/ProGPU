@@ -15,7 +15,12 @@ struct Prepared<'a> {
     payloads: Vec<Payload>,
 }
 impl<'a> Prepared<'a> {
-    fn new(font: &'a Font, glyph: u16, items: u32) -> Result<Self, FontError> {
+    fn new(
+        font: &'a Font,
+        glyph: u16,
+        items: u32,
+        capacity: Option<u32>,
+    ) -> Result<Self, FontError> {
         let headers = font.tuple_headers(glyph)?;
         let view = font.glyph_data(glyph)?;
         let data = view.bytes;
@@ -89,7 +94,9 @@ impl<'a> Prepared<'a> {
         // against zero slots. Retain that rejection
         // even though encoded Rust iterators themselves need no point arrays.
         // Complete byte preflight precedes these original decode-capacity gates.
-        let capacity = if payloads.is_empty() { 0 } else { items };
+        // Recursive varied outlines supply their original whole-tree maximum;
+        // the standalone public operations use their own measured requirements.
+        let capacity = capacity.unwrap_or(if payloads.is_empty() { 0 } else { items });
         if shared_count > capacity || payloads.iter().any(|p| p.count > capacity) {
             return Err(FontError::Capacity);
         }
@@ -194,6 +201,16 @@ pub fn apply_simple(
     ends: &[u16],
     original: &[OutlinePoint],
 ) -> Result<Vec<[f32; 2]>, FontError> {
+    apply_simple_with_capacity(face, glyph, coordinates, ends, original, None)
+}
+pub(in crate::font) fn apply_simple_with_capacity(
+    face: &SfntFace,
+    glyph: u16,
+    coordinates: &[i16],
+    ends: &[u16],
+    original: &[OutlinePoint],
+    capacity: Option<u32>,
+) -> Result<Vec<[f32; 2]>, FontError> {
     let items = u32::try_from(original.len())
         .ok()
         .and_then(|n| n.checked_add(4))
@@ -202,7 +219,7 @@ pub fn apply_simple(
     let font = face.gvar()?;
     let prepared = if let Some(font) = &font {
         check_coordinates(font, coordinates)?;
-        Some(Prepared::new(font, glyph, items)?)
+        Some(Prepared::new(font, glyph, items, capacity)?)
     } else {
         None
     };
@@ -270,6 +287,15 @@ pub fn component_offsets(
     coordinates: &[i16],
     components: u32,
 ) -> Result<Vec<[f32; 2]>, FontError> {
+    component_offsets_with_capacity(face, glyph, coordinates, components, None)
+}
+pub(in crate::font) fn component_offsets_with_capacity(
+    face: &SfntFace,
+    glyph: u16,
+    coordinates: &[i16],
+    components: u32,
+    capacity: Option<u32>,
+) -> Result<Vec<[f32; 2]>, FontError> {
     let font = face.gvar()?;
     if let Some(font) = &font {
         check_coordinates(font, coordinates)?;
@@ -279,7 +305,7 @@ pub fn component_offsets(
         .ok_or(FontError::InvalidArgument)?;
     let prepared = font
         .as_ref()
-        .map(|font| Prepared::new(font, glyph, items))
+        .map(|font| Prepared::new(font, glyph, items, capacity))
         .transpose()?;
     let mut offsets = filled(components as usize, [0.0; 2])?;
     if let Some(prepared) = prepared {
@@ -310,7 +336,7 @@ pub fn horizontal_phantom_deltas(
         return Ok([0.0; 2]);
     };
     check_coordinates(&font, coordinates)?;
-    let prepared = Prepared::new(&font, glyph, items)?;
+    let prepared = Prepared::new(&font, glyph, items, None)?;
     let mut result = [0.0; 2];
     prepared.visit(coordinates, |_, values, scalar| {
         for (point, x, _) in values {
