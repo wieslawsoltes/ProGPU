@@ -1,0 +1,27 @@
+{
+  "removed": [
+    {
+      "path": "/tmp/progpu-rust-normalization-package-check",
+      "logical_bytes": 505266393
+    },
+    {
+      "path": "target/release/examples/normalization_benchmark-9cfb734e857087c4.d",
+      "logical_bytes": 363
+    },
+    {
+      "path": "target/release/examples/normalization_benchmark",
+      "logical_bytes": 950400
+    },
+    {
+      "path": "target/release/examples/normalization_benchmark-9cfb734e857087c4",
+      "logical_bytes": 950400
+    },
+    {
+      "path": "target/release/examples/normalization_benchmark.d",
+      "logical_bytes": 4172
+    }
+  ],
+  "automatic_baseline_bytes_removed": 439116,
+  "logical_bytes_total": 507610844,
+  "notes": "Original-source and Unicode fixture harnesses also clean temporary files; unmeasured bytes are not included. Active shared builds and compact evidence remain."
+}

@@ -1783,3 +1783,126 @@ Cleanup removes **503,521,654 logical bytes** of package verification
 outputs, duplicate benchmark binaries and managed build trees; compact evidence
 and active shared dependencies remain. Source/fixture harnesses also clean their
 own temporary files, whose unmeasured sizes are not added to that total.
+
+
+## Original canonical normalization and plan ownership
+
+`text::unicode::normalization` ports the original native normalization worker and
+shares the exact `src/ProGPU.Text/UnicodeNormalizationData.bin` resource with
+C# and C++. The 450,920-byte plan has 13,253 decomposition records, 36,567 scalar
+slots and 12,133 composition pairs; SHA-256 is
+`da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff`.
+The original `eng/ProGPU.UnicodeNormalizationGenerator/Program.cs` derives these
+facts from .NET canonical FormD/FormC, and `UnicodeNormalizationPlan.cs` loads
+that resource. No foreign normalizer implementation or runtime FFI is added.
+The normative reference is [UAX #15 revision 57](https://www.unicode.org/reports/tr15/tr15-57.html).
+Compatibility forms are outside this original canonical API.
+
+Borrowed `NormalizationData` validates exact little-endian extents, strictly
+ordered decomposition/pair keys, scalar validity and every referenced component.
+It preserves original admission of overlapping component spans, zero-length
+records and unreferenced scalar slots. An empty present decomposition differs
+from absence. `NormalizationPlan` owns immutable Arc bytes and validated offsets;
+views borrow that exact owner. The process-wide default is validated once from
+the shared embedded bytes and requires no host file access.
+
+The capacity pass checks the complete original scalar inventory and maximum
+FormD output, rejecting u32 count overflow before mutation. Safe disjoint borrows
+rule out input/output overlap. Output records recompute original CCC/script and
+zero reserved bytes while retaining exact source coordinates. Stable canonical
+ordering preserves equal-class order and stops at starters. Composition preserves
+original blocked-pair state and source union arithmetic: u64 far ends and a u16
+length clamp, without first saturating endpoints to u32. Custom plan components
+are consumed once, never recursively expanded. After composition, intermediate
+records between written count and decomposition capacity stay exactly as the
+native compaction leaves them; only the later unused capacity is untouched.
+Validation/capacity errors leave the complete output untouched.
+
+`NormalizedText` owns normalized records and the original strict decoded source,
+which stays unchanged through cloning and plan disposal. The normalizer does not
+apply the managed shaper's per-grapheme normalization decisions, Hangul/Indic/USE
+exceptions, default-ignorable handling or glyph mapping. Those original callers
+remain necessary follow-on integration, as do source layout/pixel gates.
+
+The first exhaustive managed comparison identified exactly four differing
+invocations, all duplicate FormD/FormC controls of U+FFFE: native accepts the
+valid scalar; .NET's canonical call rejects it. The original ProGPU generator
+already catches ArgumentException from that call. The explicit managed entry
+points preserve that admission before output/capacity mutation, while default
+native normalization stays unchanged. Other noncharacters remain admitted;
+this is not a category-based approximation. The original runtime behavior is
+also documented by [Microsoft's canonical call contract](https://learn.microsoft.com/en-us/dotnet/api/system.string.normalize?view=net-10.0)
+and its [ICU input validation](https://source.dot.net/System.Private.CoreLib/src/runtime/src/libraries/System.Private.CoreLib/src/System/Globalization/Normalization.Icu.cs.html).
+Those references explain the observed admission fact; their normalization engine
+code is not ported. Shared-plan repertoire and arbitrary host/runtime versions
+remain distinct; explicit managed admission does not promise future/platform
+normalization tables or qualify the complete managed shaping call chain.
+
+Default-compiler C++ differential tests pass **3,668,863 controls / 248,877,000
+exact bytes**. They cover every scalar/invalid boundary, every original composed
+pair in both orders, both canonical forms, invalid forms, capacities, complete
+intermediate/tail records, long reordered contexts, source metadata, malformed
+custom plans and a proven u32 output-count overflow. Source harnesses compile
+the original C++ normalization/property files unchanged and delete temporary
+inputs/binaries afterward.
+
+The actual original managed plan loader and the .NET canonical call used by its
+generator/shaper pass **2,227,607 controls / 18,078,292 bytes** after explicit
+managed admission. The full original plan arrays, every valid Unicode scalar,
+combining/Hangul/supplementary triples and invalid/noncharacter contexts are
+compared. This is local .NET 10.0.403 canonical-operation evidence; source-range
+semantics are independently checked against C++, and full shaping is separate.
+
+All **20,034 official Unicode 17 NormalizationTest cases** pass as **400,680**
+checks across all five fixture columns, both UTF encodings, and canonical
+composition/decomposition. The runner downloads the
+[official fixture](https://www.unicode.org/Public/17.0.0/ucd/NormalizationTest.txt),
+requires SHA-256 `5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db`,
+and deletes it afterward. It does not claim compatibility normalization.
+Twenty browser controls per DPR pass exact normalized/source records, stable
+ordering, Hangul, supplementary decomposition, explicit input-policy separation,
+custom-plan zero-length/unused-slot semantics and wasm32 extent rejection.
+The original local browser gate also passes all 204,800 offscreen pixels, six
+shaders, resize and presented canvases at both DPRs. Native tests pass 58 cases
+(30 optional source/GPU controls ignored by that aggregate); the normalization
+oracles run separately. Strict native/WASM Clippy passes.
+
+The preceding line-break head `3f0897ded` now passes hosted Linux, Windows,
+Vulkan/winit and the original browser gate in run 42532056344. macOS remains
+queued at this observation. This successful browser run does not establish a
+fix for the retained intermittent stalls/losses on earlier heads.
+
+
+The reproducible normalization baseline uses five warmups and forty measured
+rounds per process. All eighteen workloads match output counts and code-point
+checksums across Rust, original C++ and the original .NET canonical operation.
+Rust/C++ use reused source/16-byte output records and include original source
+metadata/property reconstruction; decoding and allocation precede timing. The
+managed operation produces a string without those source records, and its
+runtime allocation remains inside timing. These different API responsibilities
+are explicit; results are not equivalent full-shaping benchmarks.
+
+| Large workload / UTF-16 units | Rust p50 / p95 / p99 µs | C++ p50 / p95 / p99 µs | C# p50 / p95 / p99 µs |
+| --- | --- | --- | --- |
+| ASCII NFC / 36,864 | 1898.334 / 1960.916 / 2028.083 | 1328.500 / 1356.875 / 1372.084 | 50.700 / 57.200 / 64.400 |
+| Composed NFD / 20,480 | 1048.459 / 1093.917 / 1118.583 | 728.500 / 805.083 / 833.458 | 166.900 / 193.800 / 234.500 |
+| Composed NFC / 20,480 | 1477.584 / 1503.792 / 1528.500 | 1051.958 / 1064.083 / 1087.375 | 109.000 / 114.500 / 118.100 |
+| Reordered NFC / 24,576 | 1476.625 / 1619.542 / 1660.500 | 1116.292 / 1157.625 / 1200.750 | 261.900 / 291.400 / 316.600 |
+
+The receipt records active background compiler work (an unrelated Rust compiler
+at about 80% CPU and Roslyn at about 13%) and host load; these are baseline
+observations, not isolated performance qualification or an improvement claim.
+The unrelated work was not interrupted. Rust is slower than C++ in these measured
+controls, and the managed string operation is materially faster. Further work
+requires matched Instruments evidence and complete source-record/consumer
+measurements. Managed allocated-byte medians are zero for ASCII, 65,656 for the
+large composed NFD workload, 49,272 for composed NFC and 36,984 for reordered NFC.
+The source/input/binary hashes, all quantiles and exact methodology remain in
+`perf/normalization-baseline.json`; temporary benchmark files are removed.
+
+Fresh extracted native all-feature/all-target and WASM browser checks pass with
+an initially empty independent target directory. The archived normalization
+resource matches the original bytes exactly. Cleanup removes **507,610,844
+logical bytes** of package checks and duplicate benchmark builds, retaining
+compact receipts and active shared dependencies. Source/fixture harnesses also
+delete their temporary data; those unmeasured bytes are not counted here.

@@ -594,6 +594,61 @@ mod web {
         }
         Ok(result)
     }
+    /// Normalize with the original plan while retaining exact UTF-16 source.
+    #[wasm_bindgen]
+    pub fn normalize_utf16(data: Vec<u16>, form: u8, managed: bool) -> Result<Object, JsValue> {
+        use progpu::text::unicode::{
+            DecodedText, UnicodeSource,
+            normalization::{NormalizationForm, NormalizedText},
+        };
+        let form = NormalizationForm::try_from(form).map_err(error)?;
+        let source = DecodedText::from_utf16(data).map_err(error)?;
+        let text = if managed {
+            NormalizedText::new_managed(source, form)
+        } else {
+            NormalizedText::new(source, form)
+        }
+        .map_err(error)?;
+        let result = Object::new();
+        Reflect::set(
+            &result,
+            &JsValue::from_str("scalars"),
+            &Uint8Array::from(bytemuck::cast_slice::<_, u8>(text.scalars())),
+        )?;
+        if let UnicodeSource::Utf16(source) = text.text().source() {
+            Reflect::set(
+                &result,
+                &JsValue::from_str("source"),
+                &Uint16Array::from(source.as_ref()),
+            )?;
+        }
+        Ok(result)
+    }
+    /// Validate borrowed custom-plan bytes, including WASM extent arithmetic.
+    #[wasm_bindgen]
+    pub fn normalization_plan_lookup(
+        bytes: Vec<u8>,
+        cp: u32,
+        first: u32,
+        second: u32,
+    ) -> Result<Vec<u32>, JsValue> {
+        let plan = progpu::text::unicode::normalization::NormalizationData::parse(&bytes)
+            .map_err(error)?;
+        let decomposition = plan.decomposition(cp);
+        let mut result = vec![
+            u32::from(decomposition.is_some()),
+            decomposition.map_or(0, |b| b.len() as u32 / 4),
+        ];
+        result.extend(
+            decomposition
+                .unwrap_or(&[])
+                .chunks_exact(4)
+                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+        );
+        let composed = plan.compose(first, second);
+        result.extend([u32::from(composed.is_some()), composed.unwrap_or(0)]);
+        Ok(result)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

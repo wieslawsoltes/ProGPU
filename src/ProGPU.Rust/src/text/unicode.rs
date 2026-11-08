@@ -8,6 +8,7 @@ pub mod bidi;
 mod data;
 pub mod grapheme;
 pub mod line_break;
+pub mod normalization;
 mod properties;
 mod types;
 pub use properties::{

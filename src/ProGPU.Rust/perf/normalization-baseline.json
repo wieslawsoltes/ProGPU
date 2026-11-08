@@ -1,0 +1,397 @@
+{
+  "method": "5 warmups, 40 serial measured rounds; canonical normalization plus identical code-point hashing. Rust/C++ decode and allocate output outside timing; original managed String.Normalize allocation remains inside timing and is reported separately.",
+  "qualification": "Baseline only; original default compiler/JIT settings; no full-stack, worst-case scaling or steady-state managed JIT claim. Further optimization requires Instruments evidence.",
+  "captured_utc": "2026-11-08T23:01:56.087195+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    8.8408203125,
+    12.58056640625,
+    16.94580078125
+  ],
+  "background_compilers": [
+    "15492  13.3 /private/tmp/progpu-rust-dotnet/sdk/10.0.403/Roslyn/bincore/VBCSCompiler",
+    "19029  79.8 /Users/wieslawsoltes/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+  ],
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "cpp": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "dotnet": "10.0.403",
+  "cpp_flags": "-std=c++20 -O2 -Wall -Wextra -Werror",
+  "source_sha256": {
+    "src/ProGPU.Rust/tests/native_normalization_benchmark.cpp": "39a068be71ef399d950638ef74e4e814854afe8b630454b9b59688b40df6987c",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode.cpp": "534f4879bdf4c0a8b77db3116e895a89c9eb780a7579387a91b04f7590f9889c",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp": "8fde3afee69b59a963ee44a6e9a0bb6d4f1b3d4c165161efe67a0c05027040f1",
+    "src/ProGPU.Rust/tests/managed_normalization_benchmark.cs": "a8b7291e65b1d4d3283792da672b045f0538bfda5d1b172aa3161b1ee8ce9d9a",
+    "src/ProGPU.Rust/examples/normalization_benchmark.rs": "6669a9adfaf1048b831beeaf174a88de5fa796c8cbc1587b770f8291671cfbb5",
+    "src/ProGPU.Rust/src/text/unicode/normalization.rs": "17b4bc8acd63c5e4c9e6b99ffb7d55aecf11d0f951e26403394232030a522e42",
+    "src/ProGPU.Rust/src/text/unicode/data.rs": "ae57dcde27d959504e0c3efa31a91aed33081a1d2231262295ac12c17954c84a",
+    "src/ProGPU.Text/UnicodeNormalizationData.bin": "da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff"
+  },
+  "binary_sha256": {
+    "rust": "6f109a550698f1f12943d34825a255b278be89e852dab276e39adb2321090c0c",
+    "cpp": "19952693bfd3716ac1fd6f78cc9114780edb798c00dd45919363577daa6a6710",
+    "managed": "b4c7926a740f7bb8660564708a6ee428e680b457420613b7b94b6bc40b1ac9fb"
+  },
+  "inputs": [
+    {
+      "kind": "ascii",
+      "mode": "nfd",
+      "repeats": 1,
+      "utf16_le_sha256": "3231b19fd64d992b96df980b2d2a1ee3e09389cb98cd19532f8a6d9598a872e1",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.667 p95=0.709 p99=0.750"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=2.417 p95=2.541 p99=2.584"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=18 scalars=18 output=18 checksum=11847369610821389592 round_us_p50=0.100 p95=0.100 p99=0.900 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "nfd",
+      "repeats": 256,
+      "utf16_le_sha256": "f321ee6bcfb9c79c637ad027f815d19e699c7b20835e093fc474da1dd888c58a",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=165.542 p95=169.750 p99=174.500"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=127.333 p95=141.583 p99=152.458"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=4608 scalars=4608 output=4608 checksum=7235650455821579045 round_us_p50=14.200 p95=15.400 p99=19.200 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "nfd",
+      "repeats": 2048,
+      "utf16_le_sha256": "8e775c56d68b18e1b0809388508f0a8d67736ecfc485c0cdbbdaff7194f4a56a",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1348.375 p95=1431.291 p99=1469.917"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=989.584 p95=1042.083 p99=1044.208"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=36864 scalars=36864 output=36864 checksum=3056821989238678309 round_us_p50=50.000 p95=52.000 p99=106.200 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "nfc",
+      "repeats": 1,
+      "utf16_le_sha256": "3231b19fd64d992b96df980b2d2a1ee3e09389cb98cd19532f8a6d9598a872e1",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.917 p95=0.959 p99=1.000"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=18 scalars=18 output=18 buffer_bytes=288 checksum=11847369610821389592 round_us_p50=0.625 p95=0.667 p99=0.708"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=18 scalars=18 output=18 checksum=11847369610821389592 round_us_p50=0.100 p95=0.100 p99=0.700 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "nfc",
+      "repeats": 256,
+      "utf16_le_sha256": "f321ee6bcfb9c79c637ad027f815d19e699c7b20835e093fc474da1dd888c58a",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=236.834 p95=243.667 p99=275.625"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=4608 scalars=4608 output=4608 buffer_bytes=73728 checksum=7235650455821579045 round_us_p50=163.750 p95=168.500 p99=175.583"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=4608 scalars=4608 output=4608 checksum=7235650455821579045 round_us_p50=18.000 p95=18.700 p99=20.400 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "mode": "nfc",
+      "repeats": 2048,
+      "utf16_le_sha256": "8e775c56d68b18e1b0809388508f0a8d67736ecfc485c0cdbbdaff7194f4a56a",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1898.334 p95=1960.916 p99=2028.083"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=36864 scalars=36864 output=36864 buffer_bytes=589824 checksum=3056821989238678309 round_us_p50=1328.500 p95=1356.875 p99=1372.084"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=36864 scalars=36864 output=36864 checksum=3056821989238678309 round_us_p50=50.700 p95=57.200 p99=64.400 managed_allocated_bytes_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "mode": "nfd",
+      "repeats": 1,
+      "utf16_le_sha256": "b882780ddd7b9515779c20d9ab784a230817cd461438b96de8372afe3805d959",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.500 p95=0.500 p99=0.542"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=10 scalars=9 output=14 buffer_bytes=224 checksum=2318852551630024172 round_us_p50=0.375 p95=0.417 p99=0.458"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=10 scalars=9 output=14 checksum=2318852551630024172 round_us_p50=0.200 p95=0.300 p99=2.100 managed_allocated_bytes_p50=152"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "mode": "nfd",
+      "repeats": 256,
+      "utf16_le_sha256": "450cede65f236e6edc475e2bba3a2be392e55d30e38c44654bf475aaa6a42cc4",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=124.334 p95=149.542 p99=174.500"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=2560 scalars=2304 output=3584 buffer_bytes=57344 checksum=15477076813868605733 round_us_p50=87.833 p95=90.750 p99=107.292"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=2560 scalars=2304 output=3584 checksum=15477076813868605733 round_us_p50=30.500 p95=34.200 p99=39.500 managed_allocated_bytes_p50=8312"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "mode": "nfd",
+      "repeats": 2048,
+      "utf16_le_sha256": "b66f891bc3e88481f2bfd4f16da14049a740c4289726cc4fc8acfd4db2508dc9",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=1048.459 p95=1093.917 p99=1118.583"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=20480 scalars=18432 output=28672 buffer_bytes=458752 checksum=6667139109791675173 round_us_p50=728.500 p95=805.083 p99=833.458"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=20480 scalars=18432 output=28672 checksum=6667139109791675173 round_us_p50=166.900 p95=193.800 p99=234.500 managed_allocated_bytes_p50=65656"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "mode": "nfc",
+      "repeats": 1,
+      "utf16_le_sha256": "b882780ddd7b9515779c20d9ab784a230817cd461438b96de8372afe3805d959",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.709 p95=0.750 p99=0.750"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=10 scalars=9 output=10 buffer_bytes=224 checksum=11714967598687831217 round_us_p50=0.500 p95=0.500 p99=0.542"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=10 scalars=9 output=10 checksum=11714967598687831217 round_us_p50=0.100 p95=0.200 p99=1.800 managed_allocated_bytes_p50=144"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "mode": "nfc",
+      "repeats": 256,
+      "utf16_le_sha256": "450cede65f236e6edc475e2bba3a2be392e55d30e38c44654bf475aaa6a42cc4",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=181.250 p95=186.292 p99=195.042"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=2560 scalars=2304 output=2560 buffer_bytes=57344 checksum=3308273286692986661 round_us_p50=130.750 p95=145.834 p99=181.917"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=2560 scalars=2304 output=2560 checksum=3308273286692986661 round_us_p50=22.100 p95=25.500 p99=27.000 managed_allocated_bytes_p50=6264"
+        }
+      ]
+    },
+    {
+      "kind": "composed",
+      "mode": "nfc",
+      "repeats": 2048,
+      "utf16_le_sha256": "b66f891bc3e88481f2bfd4f16da14049a740c4289726cc4fc8acfd4db2508dc9",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1477.584 p95=1503.792 p99=1528.500"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=20480 scalars=18432 output=20480 buffer_bytes=458752 checksum=11756552555922850597 round_us_p50=1051.958 p95=1064.083 p99=1087.375"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=20480 scalars=18432 output=20480 checksum=11756552555922850597 round_us_p50=109.000 p95=114.500 p99=118.100 managed_allocated_bytes_p50=49272"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "mode": "nfd",
+      "repeats": 1,
+      "utf16_le_sha256": "53008c7dc3b86c7a69c2c1ea9a8bd5e4a26f923ebe237f8ac802b6cace146183",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.541 p95=0.542 p99=0.583"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=12 scalars=12 output=12 buffer_bytes=192 checksum=6792489969003885927 round_us_p50=0.417 p95=0.542 p99=0.625"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=12 scalars=12 output=12 checksum=6792489969003885927 round_us_p50=0.200 p95=0.300 p99=2.500 managed_allocated_bytes_p50=144"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "mode": "nfd",
+      "repeats": 256,
+      "utf16_le_sha256": "e713b3c6060541d421b84df6994bf7f839888397b3aaa824adada1b9dff70338",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=137.250 p95=147.000 p99=156.500"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=3072 scalars=3072 output=3072 buffer_bytes=49152 checksum=1528894276177803045 round_us_p50=106.917 p95=115.709 p99=152.875"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=3072 scalars=3072 output=3072 checksum=1528894276177803045 round_us_p50=27.400 p95=30.700 p99=32.000 managed_allocated_bytes_p50=6264"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "mode": "nfd",
+      "repeats": 2048,
+      "utf16_le_sha256": "54ba1631f5d46186e7f49f642a63b74afa107462429685266787ae7040afbc89",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=1059.375 p95=1080.334 p99=1120.125"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=24576 scalars=24576 output=24576 buffer_bytes=393216 checksum=6830362938098303781 round_us_p50=866.333 p95=952.166 p99=988.291"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=24576 scalars=24576 output=24576 checksum=6830362938098303781 round_us_p50=150.000 p95=176.200 p99=195.800 managed_allocated_bytes_p50=49272"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "mode": "nfc",
+      "repeats": 1,
+      "utf16_le_sha256": "53008c7dc3b86c7a69c2c1ea9a8bd5e4a26f923ebe237f8ac802b6cace146183",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.708 p95=0.709 p99=0.750"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=12 scalars=12 output=9 buffer_bytes=192 checksum=14651609531505267462 round_us_p50=0.459 p95=0.541 p99=0.542"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=12 scalars=12 output=9 checksum=14651609531505267462 round_us_p50=0.200 p95=0.300 p99=2.500 managed_allocated_bytes_p50=136"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "mode": "nfc",
+      "repeats": 256,
+      "utf16_le_sha256": "e713b3c6060541d421b84df6994bf7f839888397b3aaa824adada1b9dff70338",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=193.916 p95=220.084 p99=221.167"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=3072 scalars=3072 output=2304 buffer_bytes=49152 checksum=6154331399911179301 round_us_p50=147.917 p95=168.709 p99=183.208"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=3072 scalars=3072 output=2304 checksum=6154331399911179301 round_us_p50=39.500 p95=53.100 p99=60.900 managed_allocated_bytes_p50=4728"
+        }
+      ]
+    },
+    {
+      "kind": "reordered",
+      "mode": "nfc",
+      "repeats": 2048,
+      "utf16_le_sha256": "54ba1631f5d46186e7f49f642a63b74afa107462429685266787ae7040afbc89",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1476.625 p95=1619.542 p99=1660.500"
+        },
+        {
+          "implementation": "cpp",
+          "output": "units=24576 scalars=24576 output=18432 buffer_bytes=393216 checksum=6045612186099948325 round_us_p50=1116.292 p95=1157.625 p99=1200.750"
+        },
+        {
+          "implementation": "managed",
+          "output": "units=24576 scalars=24576 output=18432 checksum=6045612186099948325 round_us_p50=261.900 p95=291.400 p99=316.600 managed_allocated_bytes_p50=36984"
+        }
+      ]
+    }
+  ],
+  "temporary_bytes_removed": 439116
+}

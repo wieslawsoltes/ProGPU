@@ -35,6 +35,8 @@ cargo test --locked --test grapheme -- --ignored --nocapture
 python3 eng/progpu-test-rust-grapheme-conformance.py
 cargo test --locked --test line_break -- --ignored --nocapture
 python3 eng/progpu-test-rust-line-break-conformance.py
+cargo test --locked --test normalization -- --ignored --nocapture
+python3 eng/progpu-test-rust-normalization-conformance.py
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -46,6 +48,7 @@ cargo run --release --locked --no-default-features --example unicode_benchmark -
 cargo run --release --locked --no-default-features --example bidi_benchmark -- mixed 2048
 cargo run --release --locked --no-default-features --example grapheme_benchmark -- emoji clusters 2048
 python3 eng/progpu-benchmark-rust-line-break.py
+python3 eng/progpu-benchmark-rust-normalization.py
 ```
 
 The renderer accepts a device/queue pair and produces immutable prepared scenes.
@@ -128,10 +131,11 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Horizontal variable metrics | Legacy HVAR advances, independent strict LSB preparation, cached source-owned scalar/map generations, original base fallback and HVAR-over-gvar precedence; 205,966 native cases and eight browser controls per DPR | Full source placement and compiler-default arithmetic qualification |
 | Static vertical metrics and VVAR | Original vhea/vmtx/VORG and static glyf origin fallbacks; independent strict owned VVAR with complete preflight and atomic batches; native differential and ten browser controls per DPR | Source CFF/sideways integration, default arithmetic and full provider/package qualification |
 | Simple UTF-16 glyph runs | Owned source/text/cluster/glyph generations, allocation-free mapping and exact scaled advances; 30,086 C++ cases and 10,683 original C# controls; ten browser controls per DPR | Full Unicode/OpenType shaping, bidi, fallback, paragraph layout and text GPU replay |
-| Unicode decoding and properties | Strict UTF-8/UTF-16, exact scalar/source records, owned text, initial script runs and nine frozen property inventories; 552,778 C++ cases, 1,114,132 C# property values and fourteen browser controls per DPR | Normalization, full shaping/layout and GPU text |
+| Unicode decoding and properties | Strict UTF-8/UTF-16, exact scalar/source records, owned text, initial script runs and nine frozen property inventories; 552,778 C++ cases, 1,114,132 C# property values and fourteen browser controls per DPR | Full shaping/layout and GPU text |
 | Bidi level resolution | Complete original embedding/isolate/bracket/weak/neutral/implicit/L1 resolver; reusable caller scratch and owned source generations; 168,077 C++ cases, 102,541 C# controls, Unicode 17 level conformance and fifteen browser controls per DPR | Line/cluster L2 visual ordering, inline direction policies, shaping/layout integration and actual text pixels |
 | Grapheme segmentation | Original Unicode 17 state and separate managed compatibility; immutable source clusters and allocation-free UTF-16 starts; 1,888,801 native controls, 89,921 managed controls and 766 official fixtures | Word boundaries, fallback/shaping/layout integration and retained interaction |
 | Line breaking | Original Unicode 17 and separate native EDIT selection profile; owned source, caller buffers and exact failure/tail behavior; 2,262,599 C++ cases, 1,688,365 C# controls, 19,338 official cases and fourteen browser checks per DPR | Word selection, width fitting, hyphenation, shaping/layout integration and text pixels |
+| Canonical normalization | Original validated shared plan; borrowed/owned views, stable ordering, composition and exact source/tail semantics; explicit managed input admission; 3,668,863 native and 2,227,607 managed controls, 400,680 Unicode checks and twenty browser controls per DPR | Managed shaping-specific grapheme/script policy, platform runtime repertoire and full text integration |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -224,3 +228,11 @@ The observed run has four pending submissions and no reported device loss;
 prior completions take 22–29 seconds. Compact evidence is retained in
 `perf/browser-8e5702-hosted.json`. This narrows investigation without closing the
 original gate or changing deadlines, shaders, compiler flags or pixel assertions.
+
+Canonical normalization ships the exact original `UnicodeNormalizationData.bin`.
+`NormalizationData` borrows a validated plan, `NormalizationPlan` owns one, and
+`NormalizedText` retains original encoded source alongside the normalized records.
+The native API admits U+FFFE; explicit `new_managed` / `normalize_managed_into`
+preserve the original managed canonical call's rejection. Both use the frozen
+ProGPU plan, with no promise to track arbitrary host/runtime Unicode versions.
+The managed shaper's grapheme and script exceptions remain separate integration.

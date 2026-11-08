@@ -289,6 +289,30 @@ try {
         for(const requested of [0,1,2])bidiCase([],requested,requested===1?1:0,[]);
         bidiCase([...Array(200).fill(0x202a),0x5d0,...Array(200).fill(0x202c)],0,0,[...Array(200).fill(0),125,...Array(200).fill(125)]);
         for(const source of [[0xd800],[0xdc00],[0x41,0xdbff,0x41]]){rejected=false;try{app.resolve_bidi_utf16(new Uint16Array(source),2);}catch{rejected=true;}check(rejected,'WASM owned bidi strict source rejection');bidiChecks++;}
+        let normalizationChecks=0;
+        const normalizationCase=(source,form,managed,records)=>{
+          const result=app.normalize_utf16(new Uint16Array(source),form,managed);
+          check(JSON.stringify([...result.source])===JSON.stringify(source) && result.scalars.length===records.length*16,'WASM normalized source ownership');
+          const data=new DataView(result.scalars.buffer,result.scalars.byteOffset,result.scalars.byteLength);
+          records.forEach(([cp,index,length],i)=>check(data.getUint32(i*16,true)===cp && data.getUint32(i*16+4,true)===index && data.getUint16(i*16+8,true)===length && data.getUint8(i*16+11)===0,'WASM normalized original scalar/range record'));
+          normalizationChecks++;
+        };
+        normalizationCase([],0,false,[]);
+        normalizationCase([0xc5],0,false,[[0x41,0,1],[0x30a,0,1]]);
+        normalizationCase([0x41,0x301],1,false,[[0xc1,0,2]]);
+        normalizationCase([0x41,0x301],1,true,[[0xc1,0,2]]);
+        normalizationCase([0x41,0x315,0x300,0x301],0,false,[[0x41,0,1],[0x300,2,1],[0x301,3,1],[0x315,1,1]]);
+        normalizationCase([0xac01],0,false,[[0x1100,0,1],[0x1161,0,1],[0x11a8,0,1]]);
+        normalizationCase([0x1100,0x1161,0x11a8],1,false,[[0xac01,0,3]]);
+        normalizationCase([0xd834,0xdd5e],0,false,[[0x1d157,0,2],[0x1d165,0,2]]);
+        normalizationCase([0xfffe],1,false,[[0xfffe,0,1]]);
+        normalizationCase([0xffff],1,true,[[0xffff,0,1]]);
+        for(const [source,form,managed] of [[[0xd800],0,false],[[0x41,0xdc00],1,false],[[0xfffe],1,true],[[0x41],2,false]]){rejected=false;try{app.normalize_utf16(new Uint16Array(source),form,managed);}catch{rejected=true;}check(rejected,'WASM original normalization rejection');normalizationChecks++;}
+        const planBytes=values=>{const b=new Uint8Array(values.length*4);const v=new DataView(b.buffer);values.forEach((n,i)=>v.setUint32(i*4,n,true));return b;};
+        const normalizationPlan=planBytes([0x4e554750,1,2,3,1,0x41,0,0,0xc1,0,2,0x41,0x301,0xd800,0x41,0x301,0xc1]);
+        check(JSON.stringify([...app.normalization_plan_lookup(normalizationPlan,0xc1,0x41,0x301)])==='[1,2,65,769,1,193]','WASM original custom decomposition/composition');normalizationChecks++;
+        check(JSON.stringify([...app.normalization_plan_lookup(normalizationPlan,0x41,0,0)])==='[1,0,0,0]','WASM present empty decomposition and unused scalar admission');normalizationChecks++;
+        for(const bytes of [new Uint8Array(),normalizationPlan.subarray(0,normalizationPlan.length-1),planBytes([0x4e554750,1,0xffffffff,0,0]),planBytes([0x4e554750,1,1,1,0,0x41,0,1,0xd800])]){rejected=false;try{app.normalization_plan_lookup(bytes,0,0,0);}catch{rejected=true;}check(rejected,'WASM full normalization plan validation');normalizationChecks++;}
         let lineBreakChecks=0;
         const lineCase=(source,edit,classes,breaks,indices=source.map((_,i)=>i),lengths=classes.map(()=>1))=>{
           const result=app.resolve_line_breaks_utf16(new Uint16Array(source),edit);
@@ -441,7 +465,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);
