@@ -58,7 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install Vulkan software adapter and X11 smoke host
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 xvfb
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 xvfb
       - name: Install Rust
         run: |
           rustup toolchain install 1.90.0 --profile minimal
