@@ -1991,3 +1991,34 @@ The earlier normalization commit's hosted Linux managed oracle fails at case
 passed, and browser/Windows/GPU passed; macOS was cancelled. The exact runtime
 repertoire has not yet been isolated. The failure remains mandatory and visible;
 no runtime override, exclusion or shader/compiler change hides it.
+
+
+## Observed runtime normalization repertoire
+
+The unchanged original `eng/ProGPU.UnicodeNormalizationGenerator/Program.cs`
+was rebuilt and run on macOS (.NET SDK 10.0.403) and the existing Ubuntu ARM64
+VM (SDK 10.0.400, runtime 10.0.11, installed ICU 74.2-1ubuntu3.1), without
+selecting another globalization backend or altering runtime defaults. The new
+`eng/progpu-audit-rust-normalization-runtime.py` reproduces this read-only audit,
+compares complete decomposition/composition inventories, and deletes temporary
+builds and generated plans. Compact receipts retain all differing facts and hashes.
+
+macOS reproduces the exact frozen resource (13,253 decomposition records,
+36,567 scalar slots, 12,133 composition pairs, SHA-256
+`da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff`).
+Ubuntu generates 450,264 bytes, 13,233 decomposition records, 36,523 scalar slots,
+and 12,113 pairs, SHA-256
+`3657473d5565b37d68549b431f2acc50c5d0080147403356c3eff8c9428e40d5`.
+Its exact 20 absent decomposition records and 20 absent composition pairs account
+for all inventory differences; the first is U+105C9. [Unicode 16's Todhri specification](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-8/)
+independently documents U+105C9's decomposition to U+105D2 U+0307.
+
+This isolates a local runtime-data difference. It does not prove the exact hosted
+x64 runtime inventory, canonical ordering across newer combining characters, or
+full managed shaping compatibility. The frozen native plan remains unchanged;
+the original hosted managed comparison still fails. A failure-only CI audit now
+records its actual runtime inventory without replacing or relaxing any oracle.
+Explicit immutable runtime-profile support and full differential qualification
+remain work to do. Do not select a profile merely from an OS label or silently
+remove the newer records from the original native plan. The VM is restored to its
+prior suspended state and both guest/host diagnostic work directories are removed.

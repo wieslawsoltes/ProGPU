@@ -59,6 +59,8 @@ on:
       - eng/progpu-test-rust-grapheme-conformance.py
       - eng/progpu-test-rust-line-break-conformance.py
       - eng/progpu-test-rust-normalization-conformance.py
+      - eng/progpu-audit-rust-normalization-runtime.py
+      - eng/ProGPU.UnicodeNormalizationGenerator/Program.cs
       - src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gdef.cpp
@@ -158,6 +160,7 @@ jobs:
         with:
           dotnet-version: '10.0.403'
       - name: Original C++ and managed differential oracles
+        id: original-oracles
         if: runner.os != 'Windows'
         run: |
           python3 eng/progpu-generate-rust-unicode.py --check
@@ -183,6 +186,11 @@ jobs:
           cargo test --locked --test normalization -- --ignored --nocapture
           python3 eng/progpu-test-rust-normalization-conformance.py
           cargo test --locked --lib -- --ignored --nocapture
+      - name: Observe runtime normalization data after an oracle failure
+        if: failure() && steps.original-oracles.outcome == 'failure'
+        run: |
+          python3 eng/progpu-audit-rust-normalization-runtime.py --output artifacts/progpu-rust/normalization-runtime.json
+          cat artifacts/progpu-rust/normalization-runtime.json
       - name: Verify distributable crate
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target

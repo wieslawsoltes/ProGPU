@@ -1,0 +1,10 @@
+{
+  "guest_path": "/tmp/progpu-rust-normalization-audit-437",
+  "logical_bytes_removed": 278031,
+  "host_shared_path": "/Volumes/1TB-macOS/progpu-rust-normalization-audit-437",
+  "host_shared_logical_bytes_removed": 926821,
+  "linux-arm64_automatic_build_bytes_removed": 702349,
+  "macos_automatic_build_bytes_removed": 798447,
+  "total_logical_bytes_removed": 2705648,
+  "captured_utc": "2026-11-08T23:28:27.010781+00:00"
+}

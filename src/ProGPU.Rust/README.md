@@ -252,3 +252,12 @@ Linux's actual managed comparison fails at U+105C9, while its native comparison
 passes. The frozen resource decomposes that scalar to U+105D2 U+0307, whereas
 that runtime returned its original two UTF-16 units. macOS was cancelled. This
 runtime-repertoire gap remains open; no oracle, runtime default or gate is changed.
+
+A reproducible diagnostic, `python3 eng/progpu-audit-rust-normalization-runtime.py
+--output /tmp/progpu-normalization-runtime.json`, rebuilds the original managed
+generator under the current runtime defaults. Local Ubuntu/ICU 74.2 lacks 20
+of the frozen plan's decomposition records and 20 composition pairs; macOS
+reproduces the frozen resource exactly. Compact `perf/normalization-runtime-*.json`
+receipts retain the differences. CI runs this audit after an oracle failure while
+preserving the failed result. Runtime profiles and full canonical ordering remain
+unqualified; no test input is excluded.
