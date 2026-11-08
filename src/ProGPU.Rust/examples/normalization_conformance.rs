@@ -10,6 +10,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .nth(1)
         .ok_or("usage: normalization_conformance NormalizationTest.txt")?;
     let (mut cases, mut checks, mut failures) = (0, 0, 0);
+    let profile = std::env::args()
+        .nth(2)
+        .map(|s| s.parse::<u16>())
+        .transpose()?
+        .map(ManagedNormalizationProfile::try_from)
+        .transpose()?;
     for (line_number, line) in BufReader::new(File::open(path)?).lines().enumerate() {
         let line = line?;
         let body = line.split('#').next().unwrap().trim();
@@ -48,7 +54,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                         (NormalizationForm::CanonicalComposition, true) => 1,
                         (NormalizationForm::CanonicalComposition, false) => 3,
                     };
-                    let normalized = NormalizedText::new(decoded.clone(), form)?;
+                    let normalized = match profile {
+                        Some(p) => NormalizedText::with_managed_profile(decoded.clone(), p, form)?,
+                        None => NormalizedText::new(decoded.clone(), form)?,
+                    };
                     let actual: Vec<_> =
                         normalized.scalars().iter().map(|s| s.code_point).collect();
                     checks += 1;

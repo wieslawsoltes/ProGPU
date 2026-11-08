@@ -15,6 +15,111 @@ const SENTINEL: UnicodeScalar = UnicodeScalar {
     reserved: 0x77,
     script: Tag(0x88888888),
 };
+
+#[test]
+fn source_profiles_preserve_original_metadata_and_atomic_failures() {
+    use ManagedNormalizationProfile::*;
+    use NormalizationForm::*;
+    let run = |points: &[u32], profile, form| {
+        let text: String = points
+            .iter()
+            .map(|&cp| char::from_u32(cp).unwrap())
+            .collect();
+        NormalizedText::with_managed_profile(
+            DecodedText::from_utf16(text.encode_utf16().collect::<Vec<_>>()).unwrap(),
+            profile,
+            form,
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        run(&[0x105c9], Unicode15_1, CanonicalDecomposition).scalars()[0].code_point,
+        0x105c9
+    );
+    for p in [Unicode16_0, Unicode17_0] {
+        assert_eq!(
+            run(&[0x105c9], p, CanonicalDecomposition)
+                .scalars()
+                .iter()
+                .map(|s| s.code_point)
+                .collect::<Vec<_>>(),
+            [0x105d2, 0x307]
+        );
+    }
+    let old = run(&[0x61, 0x1acf, 0x334], Unicode16_0, CanonicalDecomposition);
+    assert_eq!(
+        old.scalars()
+            .iter()
+            .map(|s| s.code_point)
+            .collect::<Vec<_>>(),
+        [0x61, 0x1acf, 0x334]
+    );
+    assert_eq!(old.scalars()[1].canonical_combining_class, 230);
+    assert_eq!(Unicode16_0.canonical_class(0x1acf), 0);
+    let new = run(&[0x61, 0x1acf, 0x334], Unicode17_0, CanonicalDecomposition);
+    assert_eq!(
+        new.scalars()
+            .iter()
+            .map(|s| s.code_point)
+            .collect::<Vec<_>>(),
+        [0x61, 0x334, 0x1acf]
+    );
+    assert_eq!(new.scalars()[1].input_index, 2);
+    assert_eq!(new.scalars()[2].input_index, 1);
+    let retained = new.clone();
+    drop(new);
+    assert_eq!(retained.managed_profile(), Some(Unicode17_0));
+    for p in [Unicode15_1, Unicode16_0, Unicode17_0] {
+        let mut output = [SENTINEL; 5];
+        assert_eq!(
+            normalize_managed_profile_into(
+                &raw(&[0x41, 0xfffe]),
+                p,
+                CanonicalComposition,
+                &mut output[..0]
+            ),
+            Err(UnicodeError::InvalidArgument)
+        );
+        assert_eq!(output, [SENTINEL; 5]);
+        assert_eq!(
+            normalize_managed_profile_into(
+                &raw(&[0xc5]),
+                p,
+                CanonicalDecomposition,
+                &mut output[..1]
+            ),
+            Err(UnicodeError::Capacity)
+        );
+        assert_eq!(output, [SENTINEL; 5]);
+        assert_eq!(
+            normalize_managed_profile_into(
+                &raw(&[0x41, 0x301]),
+                p,
+                CanonicalComposition,
+                &mut output
+            ),
+            Ok(1)
+        );
+        assert_eq!(output[0].code_point, 0xc1);
+        assert_eq!(output[0].input_length, u16::MAX);
+        assert_eq!(output[1].code_point, 0x301);
+        assert_eq!(output[2..], [SENTINEL; 3]);
+    }
+    assert_eq!(
+        ManagedNormalizationProfile::try_from(0),
+        Err(UnicodeError::InvalidArgument)
+    );
+    assert_eq!(
+        NormalizedText::new_managed(
+            DecodedText::from_utf16(vec![0xd801, 0xddc9]).unwrap(),
+            CanonicalDecomposition
+        )
+        .unwrap()
+        .scalars()[0]
+            .code_point,
+        0x105d2
+    );
+}
 fn raw(points: &[u32]) -> Vec<UnicodeScalar> {
     points
         .iter()
@@ -432,6 +537,92 @@ fn original_managed_normalization_matches() {
             .unwrap()
             .success()
     );
+    // Select explicit source facts from observed canonical results, never an OS
+    // label. This identifies a candidate only: the complete original corpus and
+    // added ordering/composition inventory below must still match that runtime.
+    let witnesses: &[&[u32]] = &[
+        &[0x105c9],
+        &[0x105d2, 0x307],
+        &[0x61, 0x897, 0x334],
+        &[0x61, 0x1acf, 0x334],
+        &[0x61, 0x301, 0x1acf],
+        &[0xfffe],
+    ];
+    let mut witness_input = vec![];
+    for points in witnesses {
+        let units: Vec<_> = points
+            .iter()
+            .flat_map(|&cp| {
+                char::from_u32(cp)
+                    .unwrap()
+                    .encode_utf16(&mut [0; 2])
+                    .to_vec()
+            })
+            .collect();
+        for form in [0, 1] {
+            emit(&mut witness_input, units.len() as u32);
+            witness_input.extend(bytemuck::cast_slice::<_, u8>(&units));
+            witness_input.push(form);
+        }
+    }
+    let witness_path = dir.0.join("witness.bin");
+    std::fs::write(&witness_path, &witness_input).unwrap();
+    let observed = Command::new(&dotnet)
+        .arg(dir.0.join("out/Control.dll"))
+        .arg("--witness")
+        .stdin(std::fs::File::open(witness_path).unwrap())
+        .output()
+        .unwrap();
+    assert!(observed.status.success());
+    let mut candidates = vec![];
+    for profile in [
+        ManagedNormalizationProfile::Unicode15_1,
+        ManagedNormalizationProfile::Unicode16_0,
+        ManagedNormalizationProfile::Unicode17_0,
+    ] {
+        let mut expected = vec![];
+        for points in witnesses {
+            let text: String = points
+                .iter()
+                .map(|&cp| char::from_u32(cp).unwrap())
+                .collect();
+            for form in [0, 1] {
+                match NormalizedText::with_managed_profile(
+                    DecodedText::from_utf8(text.as_bytes().to_vec()).unwrap(),
+                    profile,
+                    NormalizationForm::try_from(form).unwrap(),
+                ) {
+                    Ok(text) => {
+                        let units: Vec<_> = text
+                            .scalars()
+                            .iter()
+                            .flat_map(|s| {
+                                char::from_u32(s.code_point)
+                                    .unwrap()
+                                    .encode_utf16(&mut [0; 2])
+                                    .to_vec()
+                            })
+                            .collect();
+                        emit(&mut expected, units.len() as u32);
+                        expected.extend(bytemuck::cast_slice::<_, u8>(&units));
+                    }
+                    Err(_) => emit(&mut expected, u32::MAX),
+                }
+            }
+        }
+        if observed.stdout == expected {
+            candidates.push(profile);
+        }
+    }
+    assert_eq!(
+        candidates.len(),
+        1,
+        "Original runtime has an unsupported/ambiguous canonical profile"
+    );
+    let profile = candidates[0];
+    eprintln!(
+        "Original managed runtime candidate: {profile:?}; complete comparison still mandatory"
+    );
     let (mut input, mut expected, mut ends) = (Vec::new(), Vec::new(), Vec::new());
     let bytes = default_data().unwrap().bytes();
     let u = |i| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap()) as usize;
@@ -450,8 +641,9 @@ fn original_managed_normalization_matches() {
             match DecodedText::from_utf16(units.to_vec()) {
                 Err(_) => emit(&mut expected, u32::MAX),
                 Ok(text) => {
-                    let Ok(normalized) = NormalizedText::new_managed(
+                    let Ok(normalized) = NormalizedText::with_managed_profile(
                         text,
+                        profile,
                         NormalizationForm::try_from(form).unwrap(),
                     ) else {
                         emit(&mut expected, u32::MAX);
@@ -478,7 +670,23 @@ fn original_managed_normalization_matches() {
         if let Some(c) = char::from_u32(cp) {
             let mut units = [0; 2];
             case(c.encode_utf16(&mut units));
+            // Every scalar also participates in ordering across known marks,
+            // including source-unassigned scalars and every recent CCC change.
+            let mut mixed = vec![0x61, 0x301];
+            mixed.extend_from_slice(c.encode_utf16(&mut units));
+            mixed.extend([0x334, 0x315]);
+            case(&mixed);
         }
+    }
+    // Every original pair, including those absent from the selected older source.
+    let pairs_offset = 20 + u(8) * 12 + u(12) * 4;
+    for index in 0..u(16) {
+        let at = pairs_offset + index * 12;
+        let mut units = vec![];
+        for cp in [u(at) as u32, u(at + 4) as u32] {
+            units.extend_from_slice(char::from_u32(cp).unwrap().encode_utf16(&mut [0; 2]));
+        }
+        case(&units);
     }
     for units in [
         vec![],

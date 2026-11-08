@@ -598,7 +598,7 @@ mod web {
     #[wasm_bindgen]
     pub fn normalize_utf16(data: Vec<u16>, form: u8, managed: bool) -> Result<Object, JsValue> {
         use progpu::text::unicode::{
-            DecodedText, UnicodeSource,
+            DecodedText,
             normalization::{NormalizationForm, NormalizedText},
         };
         let form = NormalizationForm::try_from(form).map_err(error)?;
@@ -609,6 +609,31 @@ mod web {
             NormalizedText::new(source, form)
         }
         .map_err(error)?;
+        normalized_result(text)
+    }
+    /// Normalize for an explicit source Unicode profile without runtime inference.
+    #[wasm_bindgen]
+    pub fn normalize_utf16_profile(
+        data: Vec<u16>,
+        form: u8,
+        profile: u16,
+    ) -> Result<Object, JsValue> {
+        use progpu::text::unicode::{
+            DecodedText,
+            normalization::{ManagedNormalizationProfile, NormalizationForm, NormalizedText},
+        };
+        let text = NormalizedText::with_managed_profile(
+            DecodedText::from_utf16(data).map_err(error)?,
+            ManagedNormalizationProfile::try_from(profile).map_err(error)?,
+            NormalizationForm::try_from(form).map_err(error)?,
+        )
+        .map_err(error)?;
+        normalized_result(text)
+    }
+    fn normalized_result(
+        text: progpu::text::unicode::normalization::NormalizedText,
+    ) -> Result<Object, JsValue> {
+        use progpu::text::unicode::UnicodeSource;
         let result = Object::new();
         Reflect::set(
             &result,

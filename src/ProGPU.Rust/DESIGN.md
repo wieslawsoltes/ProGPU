@@ -2022,3 +2022,101 @@ Explicit immutable runtime-profile support and full differential qualification
 remain work to do. Do not select a profile merely from an OS label or silently
 remove the newer records from the original native plan. The VM is restored to its
 prior suspended state and both guest/host diagnostic work directories are removed.
+
+
+## Explicit immutable managed normalization profiles
+
+`ManagedNormalizationProfile` identifies Unicode 15.1, 16.0 or 17.0 source facts;
+selection is explicit and immutable, independent of OS names, SDK versions or
+runtime callbacks. `NormalizedText::with_managed_profile` retains that identity
+alongside its original source and derived records. Caller-buffer capacity and
+normalization APIs allocate nothing, while sharing the frozen native resource.
+Ordinary native/custom/frozen-managed entry points retain their behavior.
+
+The original ProGPU algorithm is shared through statically dispatched private
+source views. Source profile facts govern decomposition, stable canonical ordering
+and composition blocking. Published records restore the original ProGPU combining
+class inventory, keeping script metadata, reserved bytes, source indices and
+clamped range unions. This distinction matters for source-unassigned combining
+characters: their ordering class can be zero while ProGPU's recorded class is
+nonzero. Composition's original intermediate tail and untouched capacity tail are
+preserved; invalid scalar/U+FFFE or capacity failures remain atomic.
+
+The [Unicode normalization versioning contract](https://www.unicode.org/reports/tr15/)
+and [.NET globalization documentation](https://learn.microsoft.com/en-us/dotnet/core/extensions/globalization-icu)
+inform the explicit source boundary. ProGPU's original native algorithm and
+managed canonical operation remain the implementations under comparison. No
+foreign normalizer, ICU bridge or alternate compiler/runtime is introduced.
+
+`eng/progpu-generate-rust-normalization-profiles.py` verifies SHA-256 for the
+UnicodeData files for all three versions. It checks every original decomposition
+against recursively expanded factual mappings, verifies the complete original
+Unicode 17 class inventory, and reconstructs the exact 450,264-byte older plan
+observed from the unchanged managed generator. The old profile's absent keys and
+source class inventories are compact static facts; no second full plan is shipped.
+Data terms are bundled in UNICODE-LICENSE.txt, and package metadata identifies
+both MIT code and Unicode-3.0 facts. The generator's check is mandatory in CI.
+
+The original managed oracle now observes six canonical witnesses to identify one
+candidate profile, rejecting unknown/ambiguous results. That observation does not
+qualify the profile: every original input remains, plus every scalar embedded
+between combining marks and all 12,133 original composition pairs, including
+pairs absent from the older source. The unchanged managed plan reader and runtime
+String.Normalize execute the original source operation. Full comparison passes
+4,476,001 controls / 51,423,694 bytes on macOS SDK 10.0.403 (Unicode17_0), and
+4,476,001 / 51,423,570 on Ubuntu ARM64 SDK 10.0.400, runtime 10.0.11, ICU 74.2
+(Unicode15_1). The latter used its existing Rust 1.97.1; local macOS uses MSRV
+1.90.0, while hosted MSRV/source/platform qualification remains separate.
+
+The original native oracle is unchanged and passes 3,668,863 controls /
+248,877,000 bytes on both hosts after sharing the algorithm. The original default
+Unicode 17 gate also remains and passes its 400,680 checks. The added official
+source-profile fixtures pass 19,074 / 19,965 / 20,034 cases, totaling 1,181,460
+UTF-8/UTF-16 canonical checks, with all five columns and both canonical forms.
+The three downloaded fixtures are hash-pinned and retired automatically.
+
+The browser passes 36 normalization controls per DPR, including new decomposition
+admission, older/newer combining-class ordering, preserved original metadata,
+unknown profile rejection and strict source admission. All six canonical shaders,
+204,800 offscreen pixels, resize and both actual presented canvases still pass
+locally. All-feature tests pass 61 with 32 explicit source/GPU controls ignored
+by that aggregate; native/managed controls ran separately. Strict native/WASM
+Clippy and fresh extracted package checks remain part of this checkpoint.
+
+The previous hosted commit 3119468ae now supplies independent x64 evidence:
+SDK 10.0.403/runtime 10.0.14/ICU 74.2 generates the same older-plan hash and exact
+20/20 differences. Its original managed oracle stays failed in that history.
+OpenType C++/C# controls pass there. Both original and diagnostic browser gates
+fail with DPR 2 device loss; no browser fix is claimed by normalization work.
+The new explicit API addresses source-data selection, not full source-shaper
+policy or original provider/package/pixel qualification.
+
+The performance driver builds pre-change commit 3119468ae and current Rust in
+separate empty temporary target directories, preserving their actual binaries.
+It compares both native routes, three explicit profiles, original C++ and actual
+managed String.Normalize on 18 common-character workloads, five warmups and forty
+measured rounds. Every scalar count and code-point hash matches. Source/output
+allocation is outside Rust/C++ timing; managed string allocation remains inside.
+Large native medians vary from -3.8% to +1.0% relative to the prior implementation
+in this sample; no optimization or statistical equivalence is claimed. Profiles
+add roughly 13–30% over the current native medians on these workloads. Rust remains
+slower than the original C++ and managed string operation. Full matching shaping
+records and steady-state JIT remain separate measurements.
+
+Representative ASCII NFC p50 microseconds (36,864 UTF-16 units) are 1938.208 before,
+1957.125 current native, 2186.875/2151.958/2172.584 for profiles 15.1/16/17,
+1345.375 C++, and 51.100 C#. Reordered NFC (24,576 units) is 1512.166/1454.125,
+1685.000/1659.125/1642.875, 1123.500, and 274.700 respectively. Load was
+4.90/17.99/18.32 with the owned Roslyn server at 17.3% CPU, so this is a diagnostic
+baseline. Compact hashes, percentiles and allocation evidence are retained in
+`perf/normalization-profiles-baseline.json`. No optimization was made; future
+performance changes still require Instruments and representative final workloads.
+
+Fresh extracted archives pass native all-feature/all-target and WebAssembly browser
+checks from an empty target directory, with exact runtime/profile/resource/license
+bytes. Profile work retires 1,060,694,677 measured logical bytes across the fresh
+archive, factual fixtures, benchmark builds and Ubuntu guest/host work directories.
+An additional package-specific release clean reports 27.8 MiB, excluded from that
+exact total. The Ubuntu VM is restored to its initial suspended state; active
+dependency caches, current browser evidence and the distributable remain available.
+Compact validation and cleanup receipts are retained alongside the baseline.

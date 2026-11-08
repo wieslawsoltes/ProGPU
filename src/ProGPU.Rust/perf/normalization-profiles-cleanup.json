@@ -1,0 +1,26 @@
+{
+  "captured_utc": "2026-11-08T23:55:33.703217+00:00",
+  "removed": [
+    {
+      "path": "/private/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-profile-package-wq7dkrn9",
+      "logical_bytes": 512352177
+    },
+    {
+      "path": "/private/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-normalization-ucd-d49lo0ib",
+      "logical_bytes": 14539592
+    },
+    {
+      "path": "Ubuntu ARM64:/tmp/progpu-rust-normalization-profile-437",
+      "logical_bytes": 300711434
+    },
+    {
+      "path": "/Volumes/1TB-macOS/progpu-rust-normalization-profile-437",
+      "logical_bytes": 3964148
+    }
+  ],
+  "benchmark_automatic_cleanup_logical_bytes": 229127326,
+  "total_measured_logical_bytes": 1060694677,
+  "additional_cargo_release_cleanup": "cargo clean --release --package progpu removed 102 files, 27.8 MiB reported; excluded from exact byte total",
+  "retained": "Active root build/dependency caches, installed tools, current browser evidence and distributable archive",
+  "vm_final_state": "suspended, same as entry"
+}

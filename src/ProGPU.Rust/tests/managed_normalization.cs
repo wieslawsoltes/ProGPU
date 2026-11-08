@@ -7,9 +7,11 @@ using var output = new BinaryWriter(Console.OpenStandardOutput());
 var records=UnicodeNormalizationPlan.DecompositionRecords.Span;
 var scalars=UnicodeNormalizationPlan.DecompositionScalars.Span;
 var pairs=UnicodeNormalizationPlan.CompositionRecords.Span;
-output.Write((uint)records.Length);foreach(uint v in records)output.Write(v);
-output.Write((uint)scalars.Length);foreach(uint v in scalars)output.Write(v);
-output.Write((uint)pairs.Length);foreach(uint v in pairs)output.Write(v);
+if(!args.Contains("--witness")){
+ output.Write((uint)records.Length);foreach(uint v in records)output.Write(v);
+ output.Write((uint)scalars.Length);foreach(uint v in scalars)output.Write(v);
+ output.Write((uint)pairs.Length);foreach(uint v in pairs)output.Write(v);
+}
 while(true){uint count;try{count=input.ReadUInt32();}catch(EndOfStreamException){break;}
  var source=new char[count];for(int i=0;i<source.Length;i++)source[i]=(char)input.ReadUInt16();
  byte form=input.ReadByte();if(form>1)throw new InvalidDataException();

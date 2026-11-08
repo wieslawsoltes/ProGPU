@@ -37,6 +37,8 @@ cargo test --locked --test line_break -- --ignored --nocapture
 python3 eng/progpu-test-rust-line-break-conformance.py
 cargo test --locked --test normalization -- --ignored --nocapture
 python3 eng/progpu-test-rust-normalization-conformance.py
+python3 eng/progpu-test-rust-normalization-profiles.py
+python3 eng/progpu-generate-rust-normalization-profiles.py --check
 cargo test --locked --test layout -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
@@ -50,6 +52,7 @@ cargo run --release --locked --no-default-features --example bidi_benchmark -- m
 cargo run --release --locked --no-default-features --example grapheme_benchmark -- emoji clusters 2048
 python3 eng/progpu-benchmark-rust-line-break.py
 python3 eng/progpu-benchmark-rust-normalization.py
+python3 eng/progpu-benchmark-rust-normalization-profiles.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -137,7 +140,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Bidi level resolution | Complete original embedding/isolate/bracket/weak/neutral/implicit/L1 resolver; reusable caller scratch and owned source generations; 168,077 C++ cases, 102,541 C# controls, Unicode 17 level conformance and fifteen browser controls per DPR | Line/cluster L2 visual ordering, inline direction policies, shaping/layout integration and actual text pixels |
 | Grapheme segmentation | Original Unicode 17 state and separate managed compatibility; immutable source clusters and allocation-free UTF-16 starts; 1,888,801 native controls, 89,921 managed controls and 766 official fixtures | Word boundaries, fallback/shaping/layout integration and retained interaction |
 | Line breaking | Original Unicode 17 and separate native EDIT selection profile; owned source, caller buffers and exact failure/tail behavior; 2,262,599 C++ cases, 1,688,365 C# controls, 19,338 official cases and fourteen browser checks per DPR | Word selection, width fitting, hyphenation, shaping/layout integration and text pixels |
-| Canonical normalization | Original validated shared plan; borrowed/owned views, stable ordering, composition and exact source/tail semantics; explicit managed input admission; 3,668,863 native and 2,227,607 managed controls, 400,680 Unicode checks and twenty browser controls per DPR | Managed shaping-specific grapheme/script policy, platform runtime repertoire and full text integration |
+| Canonical normalization | Original frozen plan plus explicit Unicode 15.1/16.0/17.0 source profiles; native source/tail semantics and original output metadata preserved; 3,668,863 native controls, 4,476,001 managed controls on both macOS and Ubuntu, 1,181,460 profile fixture checks, 36 browser controls per DPR | Source runtime selection and full shaping integration; performance and hosted/platform qualification |
 | OpenType common tables and GDEF | Borrowed/owned coverage, classes, lazy lookup validation, GDEF classification/mark sets and exact independent blocklist; 6,415,296 native and 5,374,312 actual C# queries; 26 browser controls per DPR | Feature selection, lookup accelerators, GSUB/GPOS execution, shaping plans and full text integration |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
@@ -261,3 +264,25 @@ reproduces the frozen resource exactly. Compact `perf/normalization-runtime-*.js
 receipts retain the differences. CI runs this audit after an oracle failure while
 preserving the failed result. Runtime profiles and full canonical ordering remain
 unqualified; no test input is excluded.
+
+Explicit source normalization uses `ManagedNormalizationProfile` with
+`NormalizedText::with_managed_profile`, `managed_profile_capacity`, or
+`normalize_managed_profile_into`. Choose Unicode15_1, Unicode16_0 or Unicode17_0
+from evidence about the source runtime. The library does not guess from an OS
+or SDK version. Source classes govern ordering/composition; published records
+retain ProGPU's original class/script metadata and exact source-range contract.
+The owned result retains its chosen profile identity. Existing native, custom-plan
+and `new_managed` frozen-plan entry points keep their original behavior.
+
+The managed differential gate observes candidate source facts, then compares the
+entire original corpus plus every scalar between combining marks and every
+original composition pair. No original input is excluded. Local macOS selected
+Unicode17_0 and Ubuntu/ICU 74.2 selected Unicode15_1; both pass 4,476,001 controls.
+A new source/runtime still requires full comparison. Script exceptions, font
+fallback and complete managed shaping are independent unfinished work.
+
+Profile facts come from hash-pinned UnicodeData files, with no imported engine
+implementation. The generator verifies every original canonical decomposition,
+the exact older runtime plan inventory, and the original Unicode 17 class table.
+The crate's code is MIT; the added Unicode facts carry the bundled
+`UNICODE-LICENSE.txt` notice. Cargo declares `MIT AND Unicode-3.0`.

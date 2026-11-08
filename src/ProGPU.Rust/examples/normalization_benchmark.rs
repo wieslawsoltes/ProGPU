@@ -3,9 +3,10 @@ use progpu::text::unicode::{DecodedText, normalization::*};
 use std::{error::Error, hint::black_box, time::Instant};
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 3 {
+    if !(3..=4).contains(&args.len()) {
         return Err(
-            "usage: normalization_benchmark ascii|composed|reordered nfd|nfc REPEATS".into(),
+            "usage: normalization_benchmark ascii|composed|reordered nfd|nfc REPEATS [151|160|170]"
+                .into(),
         );
     }
     let pattern = match args[0].as_str() {
@@ -27,9 +28,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     let unit_count = units.len();
     let text = DecodedText::from_utf16(units)?;
     let data = default_data()?;
-    let mut output = vec![Default::default(); scalar_capacity(text.scalars(), data)? as usize];
+    let profile = args
+        .get(3)
+        .map(|s| s.parse::<u16>())
+        .transpose()?
+        .map(ManagedNormalizationProfile::try_from)
+        .transpose()?;
+    let capacity = match profile {
+        Some(p) => managed_profile_capacity(text.scalars(), p)?,
+        None => scalar_capacity(text.scalars(), data)?,
+    };
+    let mut output = vec![Default::default(); capacity as usize];
     let mut execute = || -> Result<(u64, u32), Box<dyn Error>> {
-        let count = normalize_into(black_box(text.scalars()), data, form, &mut output)?;
+        let count = match profile {
+            Some(p) => {
+                normalize_managed_profile_into(black_box(text.scalars()), p, form, &mut output)?
+            }
+            None => normalize_into(black_box(text.scalars()), data, form, &mut output)?,
+        };
         let mut hash = 14695981039346656037u64;
         for s in &output[..count as usize] {
             hash = (hash ^ u64::from(s.code_point)).wrapping_mul(1099511628211);

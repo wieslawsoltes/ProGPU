@@ -6,6 +6,29 @@ use super::{
     script,
 };
 use std::sync::{Arc, OnceLock};
+mod profile;
+pub use profile::{
+    ManagedNormalizationProfile, managed_profile_capacity, normalize_managed_profile_into,
+};
+
+// Static dispatch keeps the original native route independent of source-profile
+// facts. Both routes execute the same original ordering/composition algorithm.
+trait Source {
+    fn decomposition(&self, cp: u32) -> Option<&[u8]>;
+    fn compose(&self, first: u32, second: u32) -> Option<u32>;
+    fn class(&self, cp: u32) -> u8;
+}
+impl Source for NormalizationData<'_> {
+    fn decomposition(&self, cp: u32) -> Option<&[u8]> {
+        self.decomposition(cp)
+    }
+    fn compose(&self, first: u32, second: u32) -> Option<u32> {
+        self.compose(first, second)
+    }
+    fn class(&self, cp: u32) -> u8 {
+        canonical_combining_class(cp)
+    }
+}
 
 /// Original canonical forms; compatibility normalization is not this contract.
 #[repr(u8)]
@@ -205,6 +228,9 @@ pub fn scalar_capacity(
     input: &[UnicodeScalar],
     data: &NormalizationData<'_>,
 ) -> Result<u32, UnicodeError> {
+    capacity(input, data)
+}
+fn capacity(input: &[UnicodeScalar], data: &impl Source) -> Result<u32, UnicodeError> {
     let mut count = 0u32;
     for scalar in input {
         if !is_scalar(scalar.code_point) {
@@ -219,12 +245,12 @@ pub fn scalar_capacity(
     }
     Ok(count)
 }
-fn component(code_point: u32, source: &UnicodeScalar) -> UnicodeScalar {
+fn component(code_point: u32, source: &UnicodeScalar, class: u8) -> UnicodeScalar {
     UnicodeScalar {
         code_point,
         input_index: source.input_index,
         input_length: source.input_length,
-        canonical_combining_class: canonical_combining_class(code_point),
+        canonical_combining_class: class,
         reserved: 0,
         script: script(code_point),
     }
@@ -248,7 +274,15 @@ pub fn normalize_into(
     form: NormalizationForm,
     output: &mut [UnicodeScalar],
 ) -> Result<u32, UnicodeError> {
-    let required = scalar_capacity(input, data)? as usize;
+    normalize_source(input, data, form, output).map(|(written, _)| written)
+}
+fn normalize_source(
+    input: &[UnicodeScalar],
+    data: &impl Source,
+    form: NormalizationForm,
+    output: &mut [UnicodeScalar],
+) -> Result<(u32, usize), UnicodeError> {
+    let required = capacity(input, data)? as usize;
     if output.len() < required {
         return Err(UnicodeError::Capacity);
     }
@@ -256,11 +290,12 @@ pub fn normalize_into(
     for scalar in input {
         if let Some(bytes) = data.decomposition(scalar.code_point) {
             for offset in (0..bytes.len()).step_by(4) {
-                output[count] = component(read(bytes, offset), scalar);
+                let cp = read(bytes, offset);
+                output[count] = component(cp, scalar, data.class(cp));
                 count += 1;
             }
         } else {
-            output[count] = component(scalar.code_point, scalar);
+            output[count] = component(scalar.code_point, scalar, data.class(scalar.code_point));
             count += 1;
         }
     }
@@ -293,7 +328,7 @@ pub fn normalize_into(
             {
                 merge_range(&mut output[starter], current);
                 output[starter].code_point = composed;
-                output[starter].canonical_combining_class = canonical_combining_class(composed);
+                output[starter].canonical_combining_class = data.class(composed);
                 output[starter].script = script(composed);
                 continue;
             }
@@ -306,7 +341,7 @@ pub fn normalize_into(
         }
         count = destination;
     }
-    Ok(count as u32)
+    Ok((count as u32, required))
 }
 
 fn validate_managed_input(input: &[UnicodeScalar]) -> Result<(), UnicodeError> {
@@ -340,6 +375,7 @@ pub struct NormalizedText {
     text: DecodedText,
     scalars: Vec<UnicodeScalar>,
     form: NormalizationForm,
+    profile: Option<ManagedNormalizationProfile>,
 }
 impl NormalizedText {
     /// Normalize with the shared original plan; preserve the encoded source.
@@ -351,6 +387,23 @@ impl NormalizedText {
     pub fn new_managed(text: DecodedText, form: NormalizationForm) -> Result<Self, UnicodeError> {
         validate_managed_input(text.scalars())?;
         Self::new(text, form)
+    }
+    /// Normalize for an explicitly selected source Unicode profile, retaining
+    /// its identity and original source. No OS/runtime detection or fallback.
+    pub fn with_managed_profile(
+        text: DecodedText,
+        profile: ManagedNormalizationProfile,
+        form: NormalizationForm,
+    ) -> Result<Self, UnicodeError> {
+        let mut scalars = allocate(managed_profile_capacity(text.scalars(), profile)? as usize)?;
+        let written = normalize_managed_profile_into(text.scalars(), profile, form, &mut scalars)?;
+        scalars.truncate(written as usize);
+        Ok(Self {
+            text,
+            scalars,
+            form,
+            profile: Some(profile),
+        })
     }
     /// Normalize with an explicitly selected validated plan. The resulting
     /// records own all derived data and remain valid after the plan is dropped.
@@ -366,6 +419,7 @@ impl NormalizedText {
             text,
             scalars,
             form,
+            profile: None,
         })
     }
     /// Exact unmodified source and its initial decoded records.
@@ -379,5 +433,9 @@ impl NormalizedText {
     /// Selected canonical form.
     pub fn form(&self) -> NormalizationForm {
         self.form
+    }
+    /// Selected source profile, absent for ordinary frozen/custom-plan APIs.
+    pub fn managed_profile(&self) -> Option<ManagedNormalizationProfile> {
+        self.profile
     }
 }

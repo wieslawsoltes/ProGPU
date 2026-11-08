@@ -316,8 +316,8 @@ try {
         otReject(otGdef.subarray(0,otGdef.length-1),3);
         check(app.gdef_blocklisted(442,2874,42038)&&!app.gdef_blocklisted(442,2874,42039),'WASM exact GDEF blocklist tuple');layoutChecks++;
         let normalizationChecks=0;
-        const normalizationCase=(source,form,managed,records)=>{
-          const result=app.normalize_utf16(new Uint16Array(source),form,managed);
+        const normalizationCase=(source,form,managed,records,profile=null)=>{
+          const result=profile===null?app.normalize_utf16(new Uint16Array(source),form,managed):app.normalize_utf16_profile(new Uint16Array(source),form,profile);
           check(JSON.stringify([...result.source])===JSON.stringify(source) && result.scalars.length===records.length*16,'WASM normalized source ownership');
           const data=new DataView(result.scalars.buffer,result.scalars.byteOffset,result.scalars.byteLength);
           records.forEach(([cp,index,length],i)=>check(data.getUint32(i*16,true)===cp && data.getUint32(i*16+4,true)===index && data.getUint16(i*16+8,true)===length && data.getUint8(i*16+11)===0,'WASM normalized original scalar/range record'));
@@ -339,6 +339,15 @@ try {
         check(JSON.stringify([...app.normalization_plan_lookup(normalizationPlan,0xc1,0x41,0x301)])==='[1,2,65,769,1,193]','WASM original custom decomposition/composition');normalizationChecks++;
         check(JSON.stringify([...app.normalization_plan_lookup(normalizationPlan,0x41,0,0)])==='[1,0,0,0]','WASM present empty decomposition and unused scalar admission');normalizationChecks++;
         for(const bytes of [new Uint8Array(),normalizationPlan.subarray(0,normalizationPlan.length-1),planBytes([0x4e554750,1,0xffffffff,0,0]),planBytes([0x4e554750,1,1,1,0,0x41,0,1,0xd800])]){rejected=false;try{app.normalization_plan_lookup(bytes,0,0,0);}catch{rejected=true;}check(rejected,'WASM full normalization plan validation');normalizationChecks++;}
+        for(const profile of [151,160,170]){
+          normalizationCase([0xd801,0xddc9],0,true,profile===151?[[0x105c9,0,2]]:[[0x105d2,0,2],[0x307,0,2]],profile);
+          normalizationCase([0xd801,0xddd2,0x307],1,true,profile===151?[[0x105d2,0,2],[0x307,2,1]]:[[0x105c9,0,3]],profile);
+          normalizationCase([0x61,0x1acf,0x334],0,true,profile===170?[[0x61,0,1],[0x334,2,1],[0x1acf,1,1]]:[[0x61,0,1],[0x1acf,1,1],[0x334,2,1]],profile);
+          normalizationCase([0x61,0x897,0x334],0,true,profile===151?[[0x61,0,1],[0x897,1,1],[0x334,2,1]]:[[0x61,0,1],[0x334,2,1],[0x897,1,1]],profile);
+        }
+        for(const [source,profile] of [[[0xfffe],151],[[0xd800],160],[[0x61],999]]){rejected=false;try{app.normalize_utf16_profile(new Uint16Array(source),0,profile);}catch{rejected=true;}check(rejected,'WASM explicit normalization profile rejection');normalizationChecks++;}
+        const sourceMetadata=app.normalize_utf16_profile(new Uint16Array([0x61,0x1acf,0x334]),0,160).scalars;
+        check(new DataView(sourceMetadata.buffer,sourceMetadata.byteOffset,sourceMetadata.byteLength).getUint8(26)===230,'WASM original metadata after source-profile ordering');normalizationChecks++;
         let lineBreakChecks=0;
         const lineCase=(source,edit,classes,breaks,indices=source.map((_,i)=>i),lengths=classes.map(()=>1))=>{
           const result=app.resolve_line_breaks_utf16(new Uint16Array(source),edit);
