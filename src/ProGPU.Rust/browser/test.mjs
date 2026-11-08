@@ -207,7 +207,22 @@ try {
         rejected=false;
         try { app.decode_gvar_metadata(gf.slice(0,113),0); } catch { rejected=true; }
         check(rejected,'WASM truncated gvar rejection');
-        const gvarChecks=8;
+        const payloadFont = new Uint8Array(190), pv = new DataView(payloadFont.buffer);
+        payloadFont.set(gf.subarray(0,112));
+        payloadFont.set([4,3,0,0,2,1,3,1,1,6,10,3,2,2,8,12],112);
+        payloadFont.set(gf.subarray(114),128);
+        pv.setUint32(24,68); pv.setUint32(36,128); pv.setUint32(52,134);
+        pv.setUint32(84,36); pv.setUint16(96,16);
+        const coordinates = new Int16Array([7153,-9973]);
+        const originalPoints = new Int32Array([0,0,5,5,10,10]);
+        check(sameValues(app.apply_gvar_simple(payloadFont,0,coordinates,new Uint16Array([2]),originalPoints),[2,4,9,11,16,18]),'WASM sparse gvar duplicates and IUP');
+        check(sameValues(app.gvar_component_metrics(payloadFont,0,coordinates,3),[2,4,0,0,6,8,10,0]),'WASM component offsets and phantom deltas');
+        check(sameValues(app.apply_gvar_simple(payloadFont,0,new Int16Array([0,0]),new Uint16Array([2]),originalPoints),originalPoints),'WASM inactive tuple');
+        const badPayload=payloadFont.slice();badPayload[112]=7;
+        rejected=false;
+        try { app.apply_gvar_simple(badPayload,0,new Int16Array([0,0]),new Uint16Array([2]),originalPoints); } catch { rejected=true; }
+        check(rejected,'WASM inactive malformed payload rejection');
+        const gvarChecks=12;
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;

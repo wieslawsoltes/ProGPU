@@ -218,6 +218,54 @@ mod web {
         Ok(Int32Array::from(values.as_slice()))
     }
 
+    /// Apply original simple-point deltas and IUP to an explicit contour inventory.
+    #[wasm_bindgen]
+    pub fn apply_gvar_simple(
+        data: Vec<u8>,
+        glyph: u16,
+        coordinates: Vec<i16>,
+        ends: Vec<u16>,
+        points: Vec<i32>,
+    ) -> Result<Float32Array, JsValue> {
+        if !points.len().is_multiple_of(2) {
+            return Err(error("incomplete point"));
+        }
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let original: Vec<_> = points
+            .chunks_exact(2)
+            .map(|p| progpu::font::OutlinePoint {
+                x: p[0],
+                y: p[1],
+                flags: 0,
+            })
+            .collect();
+        let varied = progpu::font::gvar::apply_simple(&face, glyph, &coordinates, &ends, &original)
+            .map_err(error)?;
+        Ok(Float32Array::from(bytemuck::cast_slice::<_, f32>(&varied)))
+    }
+
+    /// Query ordered component offsets and the separate raw horizontal phantom pair.
+    #[wasm_bindgen]
+    pub fn gvar_component_metrics(
+        data: Vec<u8>,
+        glyph: u16,
+        coordinates: Vec<i16>,
+        components: u32,
+    ) -> Result<Float32Array, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let mut offsets =
+            progpu::font::gvar::component_offsets(&face, glyph, &coordinates, components)
+                .map_err(error)?;
+        let items = components
+            .checked_add(4)
+            .ok_or_else(|| error("item count overflow"))?;
+        offsets.push(
+            progpu::font::gvar::horizontal_phantom_deltas(&face, glyph, &coordinates, items)
+                .map_err(error)?,
+        );
+        Ok(Float32Array::from(bytemuck::cast_slice::<_, f32>(&offsets)))
+    }
+
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

@@ -29,6 +29,9 @@ on:
       - src/ProGPU.Native/src/Text/progpu_native_item_variation_store.cpp
       - src/ProGPU.Native/src/Text/progpu_native_font_variations.cpp
       - src/ProGPU.Native/src/Text/progpu_native_gvar*.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_gvar_payload_internal.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_hvar.cpp
+      - src/ProGPU.Native/src/Text/Font/progpu_native_font_horizontal_metrics.cpp
       - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
       - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml

@@ -43,6 +43,26 @@ int main(){
    for(const auto t:headers){emit(t.region_coordinate_offset);emit(t.serialized_data_size);emit(t.flags);}
    for(auto v:regions)emit(static_cast<std::uint32_t>(v));std::array<std::int16_t,2> coords{static_cast<std::int16_t>(a[5]),static_cast<std::int16_t>(a[6])};
    for(const auto t:headers)emit(std::bit_cast<std::uint32_t>(sfnt_gvar_tuple_data::calculate_scalar(std::span(coords).first(a[7]),std::span(regions).subspan(t.region_coordinate_offset,h.axis_count*3U))));
+  }else if(a[0]==4){
+   sfnt_font_view face{};auto ok=sfnt_font_view::try_create(b,0,face,&e);emit(static_cast<std::uint32_t>(e));if(!ok)continue;
+   std::vector<std::int16_t> coords(a[3],static_cast<std::int16_t>(a[4]));
+   const auto point_count=a[6];std::vector<sfnt_outline_point> original(point_count);std::vector<std::uint16_t> ends;
+   for(std::uint32_t i=0;i<point_count;++i)original[i]={static_cast<std::int32_t>(i*11)-7,static_cast<std::int32_t>((i*i*7)%43)-20,static_cast<std::uint8_t>(i&1)};
+   if(point_count)ends.push_back(static_cast<std::uint16_t>(point_count-1));
+   sfnt_simple_glyph_variation_requirements sr{};face.try_get_simple_glyph_variation_requirements(a[2],point_count,sr,&e);
+   std::vector<sfnt_gvar_tuple_header> sh(sr.tuple_header_count);std::vector<std::int16_t> sc(sr.region_coordinate_count),sx(sr.delta_count),sy(sr.delta_count);
+   std::vector<std::uint32_t> sp(sr.point_number_count),pp(sr.point_number_count);std::vector<float> tx(sr.tuple_point_count),ty(sr.tuple_point_count);std::vector<std::uint8_t> touched(sr.tuple_point_count);
+   std::vector<progpu_native_point> varied(point_count);
+   ok=face.try_apply_simple_glyph_variations(a[2],coords,ends,original,varied,{sh,sc,sp,pp,sx,sy,tx,ty,touched},&e);emit(static_cast<std::uint32_t>(e));
+   if(ok)for(auto p:varied){emit(std::bit_cast<std::uint32_t>(p.x));emit(std::bit_cast<std::uint32_t>(p.y));}
+   sfnt_composite_glyph_variation_requirements cr{};face.try_get_composite_glyph_variation_requirements(a[2],a[5],cr,&e);
+   sh.resize(cr.tuple_header_count);sc.resize(cr.region_coordinate_count);sp.resize(cr.point_number_count);pp.resize(cr.point_number_count);sx.resize(cr.delta_count);sy.resize(cr.delta_count);
+   std::vector<progpu_native_point> offsets(a[5]);ok=face.try_get_composite_glyph_variation_offsets(a[2],coords,a[5],offsets,{sh,sc,sp,pp,sx,sy},&e);emit(static_cast<std::uint32_t>(e));
+   if(ok)for(auto p:offsets){emit(std::bit_cast<std::uint32_t>(p.x));emit(std::bit_cast<std::uint32_t>(p.y));}
+   sfnt_glyph_phantom_variation_requirements pr{};face.try_get_glyph_phantom_variation_requirements(a[2],a[7],pr,&e);
+   sh.resize(pr.tuple_header_count);sc.resize(pr.region_coordinate_count);sp.resize(pr.point_number_count);pp.resize(pr.point_number_count);sx.resize(pr.delta_count);sy.resize(pr.delta_count);
+   float left{},right{};ok=face.try_get_glyph_horizontal_phantom_deltas(a[2],coords,a[7],left,right,{sh,sc,sp,pp,sx,sy},&e);emit(static_cast<std::uint32_t>(e));
+   if(ok){emit(std::bit_cast<std::uint32_t>(left));emit(std::bit_cast<std::uint32_t>(right));}
   }else return 5;
  }
  return std::ferror(stdin)?6:0;

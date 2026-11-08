@@ -1,4 +1,4 @@
-import init, { create_renderer, decode_simple_glyph, decode_glyph_outline, decode_cff_outline, normalize_font_variation, item_variation_values, decode_cff2_outline, decode_variation_runs, interpolate_gvar_deltas, decode_gvar_metadata } from './pkg/progpu.js';
+import init, { create_renderer, decode_simple_glyph, decode_glyph_outline, decode_cff_outline, normalize_font_variation, item_variation_values, decode_cff2_outline, decode_variation_runs, interpolate_gvar_deltas, decode_gvar_metadata, apply_gvar_simple, gvar_component_metrics } from './pkg/progpu.js';
 const canvas = document.querySelector('canvas');
 const status = document.querySelector('#status');
 const errors = [];
@@ -37,6 +37,6 @@ window.progpuReady = (async () => {
   // Drain entered JavaScript work, then submit a final frame with an explicit
   // queue-completion signal. The host awaits that signal before compositor capture.
   const pause = () => { stopped = true; return exclusive(() => renderer.begin_capture()); };
-  return { renderer, exclusive, errors, dimensions, pause, decode_simple_glyph, decode_glyph_outline, decode_cff_outline, normalize_font_variation, item_variation_values, decode_cff2_outline, decode_variation_runs, interpolate_gvar_deltas, decode_gvar_metadata };
+  return { renderer, exclusive, errors, dimensions, pause, decode_simple_glyph, decode_glyph_outline, decode_cff_outline, normalize_font_variation, item_variation_values, decode_cff2_outline, decode_variation_runs, interpolate_gvar_deltas, decode_gvar_metadata, apply_gvar_simple, gvar_component_metrics };
 })();
 window.progpuReady.catch(e => { status.textContent = String(e); });

@@ -1,7 +1,9 @@
 //! Original TrueType variation data primitives. No hinting or rasterization.
 //! Direct ports of ProGPU's gvar packed-data and contour interpolation sources.
 use super::{FontError, bytes};
+mod apply;
 mod font;
+pub use apply::{apply_simple, component_offsets, horizontal_phantom_deltas};
 pub use font::{Font, GlyphData, Header, TupleHeader, TupleHeaders, tuple_scalar};
 
 /// Validated packed point numbers, borrowing their exact encoded prefix.

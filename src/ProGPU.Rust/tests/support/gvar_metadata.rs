@@ -1,8 +1,6 @@
+use super::fixture;
 use super::{Case, emit};
 use progpu::font::{FontError, SfntFace, gvar::tuple_scalar};
-#[allow(dead_code)]
-#[path = "font_fixture.rs"]
-mod fixture;
 fn font(flags: u16, long: bool) -> Vec<u8> {
     let mut glyph = vec![0, 1, 0, 0, 0, 2];
     glyph.extend(flags.to_be_bytes());

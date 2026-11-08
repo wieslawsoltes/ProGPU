@@ -881,3 +881,52 @@ driver/compiler change. The receipt records completion separately from pixels.
 Local Chromium passes both DPRs with the new barrier. The hosted transparent
 canvas failure remains open until the new lane provides actual evidence; queue
 completion alone does not prove compositor correctness.
+
+## Original gvar payload application
+
+`font/gvar/apply.rs` ports the original `progpu_native_gvar_payload.cpp`,
+`progpu_native_gvar_apply.cpp`, `progpu_native_gvar_composite.cpp` and the
+horizontal pair route in `progpu_native_gvar_phantom.cpp`. Public operations
+return owned numeric outputs after complete validation; `SimpleGlyph` also
+offers `varied_points`. No font engine, hinting policy or native FFI is introduced.
+Immutable payload descriptors retain encoded point and delta spans. Concrete
+iterators avoid expanded per-tuple point/delta arrays and dynamic dispatch.
+All declared tuple payloads validate before publication, even inactive or later
+tuples. Private/shared explicit empty sets remain distinct from all-points.
+Trailing payload bytes retain their original ignored policy.
+
+Simple sparse duplicate deltas sum before scalar multiplication. Each tuple's
+IUP uses positions already changed by preceding tuples, following the original
+implementation. Component and horizontal phantom duplicate deltas instead scale
+and accumulate individually in source order. Phantom slots never move geometry;
+horizontal metrics remain raw left/right deltas, without HVAR precedence or the
+independent stricter vertical query. The owned API uses the original per-call
+scratch capacity: a zero-tuple glyph with nonempty shared point numbers still
+fails against zero slots. Counts below four retain the horizontal query's
+unconditional zero result. All source bytes and original point inventories stay
+immutable.
+
+The expanded unchanged-native oracle passes **256,904 inputs / 15,924,368 exact
+bytes**, including 70,134 new application cases. It covers every signed 16-bit
+coordinate for ordered full/sparse/duplicate tuples; shared/private point sets;
+phantom-only and out-of-range references; differing item counts; inactive/later
+malformed payloads; zero-tuple shared sets; and truncation/byte mutations. The
+native harness compiles the actual original payload, application, component and
+phantom units plus their original dependencies. The ARM64 compiler-default
+arithmetic gate documented above remains open.
+
+Chromium adds four payload controls per DPR (twelve gvar controls total): exact
+sparse/IUP positions, component/phantom values, inactive tuples and rejection of
+an inactive malformed payload. Both DPRs pass with all **180,224** existing
+offscreen pixels, six canonical shaders, queue completion and actual compositor
+pixels. Native/all-feature and WASM strict Clippy and CPU tests pass locally.
+These are functional ports; no application speedup or full text parity is claimed.
+Recursive varied-outline expansion and workload performance remain next steps.
+
+Hosted capture checkpoint `98594ac35` subsequently passed Linux and Windows
+portable lanes, Linux Vulkan/winit, and the complete browser suite (run
+42518804549, browser job 128847597231). The browser receipt includes both queue
+completion signals, both original canvas-pixel inventories, and 90,112 offscreen
+pixels per DPR. This supplies the previously missing hosted presentation evidence
+for that checkpoint; it does not qualify headless Linux or other browser/hardware
+combinations. Hosted macOS remained queued when this milestone was recorded.

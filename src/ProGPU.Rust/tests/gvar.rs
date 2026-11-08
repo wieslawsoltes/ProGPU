@@ -3,6 +3,11 @@ use progpu::font::{
     FontError,
     gvar::{PackedDeltas, PackedPoints, infer_untouched},
 };
+#[path = "support/gvar_apply.rs"]
+mod apply;
+#[allow(dead_code)]
+#[path = "support/font_fixture.rs"]
+mod fixture;
 #[path = "support/gvar_metadata.rs"]
 mod metadata;
 
@@ -208,12 +213,16 @@ fn corpus() -> Vec<Case> {
         }
     }
     cases.extend(metadata::corpus());
+    cases.extend(apply::corpus());
     cases
 }
 fn emit(out: &mut Vec<u8>, v: u32) {
     out.extend(v.to_ne_bytes());
 }
 fn snapshot(c: &Case) -> Vec<u8> {
+    if c.a[0] == 4 {
+        return apply::snapshot(c);
+    }
     if c.a[0] == 3 {
         return metadata::snapshot(c);
     }
@@ -331,6 +340,25 @@ fn original_native_packed_variation_and_interpolation_match() {
             "src/ProGPU.Native/src/Text/progpu_native_{file}.cpp"
         )));
     }
+    for file in [
+        "gvar_payload",
+        "gvar_apply",
+        "gvar_composite",
+        "gvar_phantom",
+        "hvar",
+        "item_variation_store",
+        "true_type_glyph",
+        "true_type_path",
+        "true_type_composite",
+        "true_type_outline",
+    ] {
+        command.arg(root.join(format!(
+            "src/ProGPU.Native/src/Text/progpu_native_{file}.cpp"
+        )));
+    }
+    command.arg(
+        root.join("src/ProGPU.Native/src/Text/Font/progpu_native_font_horizontal_metrics.cpp"),
+    );
     assert!(command.arg("-o").arg(&exe).status().unwrap().success());
     let cases = corpus();
     let mut input = Vec::new();
@@ -361,6 +389,9 @@ fn original_native_packed_variation_and_interpolation_match() {
         let word = byte & !3;
         let native = u32::from_ne_bytes(actual.stdout[word..word + 4].try_into().unwrap());
         let rust = u32::from_ne_bytes(expected[word..word + 4].try_into().unwrap());
+        let start = if case == 0 { 0 } else { ends[case - 1] };
+        eprintln!("arguments: {:?}, case byte {}", cases[case].a, byte - start);
+        eprintln!("source bytes: {:02x?}", cases[case].data);
         panic!(
             "gvar case {case} mode {} byte {byte}: native {native:#010x}, rust {rust:#010x}",
             cases[case].a[0]
