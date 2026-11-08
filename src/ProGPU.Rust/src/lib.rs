@@ -4,6 +4,8 @@
 //! approximated. GPU programs are embedded from the canonical production WGSL.
 
 pub mod geometry;
+#[cfg(feature = "gpu")]
+pub mod renderer;
 pub mod shaders;
 
 /// Errors detected before publishing geometry or GPU state.
@@ -15,4 +17,11 @@ pub enum Error {
     /// The request exceeds a buffer, index, or device capacity.
     #[error("capacity exceeded")]
     Capacity,
+    /// A retained resource belongs to a different renderer generation.
+    #[error("resource belongs to another renderer")]
+    ResourceDomain,
+    /// wgpu rejected a shader or pipeline.
+    #[cfg(feature = "gpu")]
+    #[error("WebGPU validation failed: {0}")]
+    Gpu(#[from] wgpu::Error),
 }

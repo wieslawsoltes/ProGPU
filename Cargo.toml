@@ -42,3 +42,18 @@ path = "src/ProGPU.Rust/tests/shader_validation.rs"
 [[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
+
+[[test]]
+name = "gpu_rendering"
+path = "src/ProGPU.Rust/tests/gpu_rendering.rs"
+required-features = ["gpu"]
+
+[[example]]
+name = "winit"
+path = "src/ProGPU.Rust/examples/winit.rs"
+required-features = ["window"]
+
+[[example]]
+name = "retained_benchmark"
+path = "src/ProGPU.Rust/examples/retained_benchmark.rs"
+required-features = ["gpu"]

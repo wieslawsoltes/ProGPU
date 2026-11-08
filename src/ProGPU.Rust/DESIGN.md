@@ -41,6 +41,26 @@ generations. Resource eviction cannot invalidate an encoded frame. Culling must
 operate on original bounds/clip semantics, not approximate shader envelopes.
 These are port requirements, not claims that pending families are implemented.
 
+## Retained analytic execution
+
+`Renderer` compiles the original general vector entry points with the native
+56-byte vertex layout and straight-alpha blend factors. The default brush,
+gradient buffer and required one-texel atlas binding are the only support
+resources. Public mesh recording admits only analytic primitive families;
+the placeholder atlas cannot silently render an unported path or glyph.
+
+Each prepared scene owns its vertex/index buffers and its exact original
+224-byte projection/DPI uniform through a bind group. No mutable uniform is
+shared between prepared frames. Renderer identity prevents use of a scene with
+another renderer's inferred pipeline layout, even on the same device. wgpu's
+retained resource handles own dependencies through command submission; ordinary
+Rust drops do not force premature buffer destruction. GPU publication rejects
+overflowed geometry while the CPU geometry port keeps the original arithmetic.
+
+The current implementation does not implement a compute fallback policy because
+it dispatches no compute workload yet. Path and text compute ports must introduce
+the typed execution policy and fail unsupported forced modes explicitly.
+
 ## Initial validation
 
 `cargo test --no-default-features`: two geometry regressions and canonical Naga
@@ -54,3 +74,24 @@ The new implementation does not alter managed/native source or shaders; their
 behavior and existing qualification gates remain unchanged. Rendering changes
 in this port still require matched CPU records and GPU image evidence before
 being declared parity-qualified. No performance improvement is claimed.
+
+On Apple M3 Pro/Metal, all six shader modules validate on the actual device.
+The analytic GPU test checks all three families, original rectangle boundaries,
+2,752 source-over reference pixels, immutable frame preparation, cross-renderer
+rejection, and full-frame cold/warm equality after owner retirement. The winit
+sample presents four frames and exits successfully. Strict all-feature/all-target
+Clippy passes.
+
+Initial Release baseline (`cargo run --release --locked --example retained_benchmark`):
+
+```text
+primitives=4096 warmup=120 frames=480 pipeline_ms=297.042 preparation_ms=0.394
+cpu_submit_us p50=18.209 p95=26.584 p99=56.833 serial_fps=2267.19
+cold_geometry_bytes=1015808 cold_uniform_bytes=224 draws_per_frame=1
+warm_geometry_upload_bytes=0 warm_uniform_upload_bytes=0
+```
+
+Submission timings exclude the explicit wait; serial FPS includes it. Upload
+counts describe the actual immutable payload and upload-free replay route, not
+GPU timestamps or allocator measurements. This is a single Rust baseline, not
+matched managed/native performance qualification or an optimization claim.

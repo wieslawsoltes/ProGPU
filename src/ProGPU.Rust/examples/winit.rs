@@ -1,0 +1,279 @@
+//! A native window validating the retained ProGPU Rust/wgpu renderer.
+
+use progpu::{
+    geometry::{Affine, AnalyticPrimitive, Mesh, Shape},
+    renderer::{Frame, PreparedScene, Renderer},
+};
+use std::{error::Error, sync::Arc};
+use winit::{
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::{Window, WindowId},
+};
+
+type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+struct WindowRenderer {
+    window: Arc<Window>,
+    instance: wgpu::Instance,
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    renderer: Renderer,
+    scene: Option<PreparedScene>,
+}
+
+impl WindowRenderer {
+    async fn new(event_loop: &ActiveEventLoop) -> Result<Self> {
+        let window = Arc::new(
+            event_loop.create_window(
+                Window::default_attributes()
+                    .with_title("ProGPU Rust · canonical WebGPU vector rendering")
+                    .with_inner_size(winit::dpi::LogicalSize::new(960.0, 640.0))
+                    .with_visible(false),
+            )?,
+        );
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
+            Box::new(event_loop.owned_display_handle()),
+        ));
+        let surface = instance.create_surface(window.clone())?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            })
+            .await?;
+        eprintln!("adapter: {:?}", adapter.get_info());
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await?;
+        let size = window.inner_size();
+        let mut config = surface
+            .get_default_config(&adapter, size.width.max(1), size.height.max(1))
+            .ok_or("surface has no supported configuration")?;
+        // The original ProGPU color contract uses unorm targets. Prefer those
+        // when the surface advertises them, without changing shader color math.
+        if let Some(format) = surface
+            .get_capabilities(&adapter)
+            .formats
+            .into_iter()
+            .find(|f| {
+                matches!(
+                    f,
+                    wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
+                )
+            })
+        {
+            config.format = format;
+        }
+        config.present_mode = wgpu::PresentMode::Fifo;
+        let renderer = Renderer::new(&device, &queue, config.format).await?;
+        let mut state = Self {
+            window,
+            instance,
+            surface,
+            device,
+            queue,
+            config,
+            renderer,
+            scene: None,
+        };
+        state.resize()?;
+        state.window.set_visible(true);
+        state.window.request_redraw();
+        Ok(state)
+    }
+
+    fn resize(&mut self) -> Result<()> {
+        let size = self.window.inner_size();
+        if size.width == 0 || size.height == 0 {
+            self.scene = None;
+            return Ok(());
+        }
+        let dpi = self.window.scale_factor() as f32;
+        let frame = Frame {
+            width: size.width,
+            height: size.height,
+            dpi_scale: dpi,
+        };
+        let mesh = sample_mesh(dpi)?;
+        let scene = self.renderer.prepare(&mesh, frame)?;
+        self.config.width = size.width;
+        self.config.height = size.height;
+        self.surface.configure(&self.device, &self.config);
+        self.scene = Some(scene);
+        self.window.request_redraw();
+        Ok(())
+    }
+
+    fn draw(&mut self) -> Result<bool> {
+        let Some(scene) = self.scene.as_ref() else {
+            return Ok(false);
+        };
+        let (texture, suboptimal) = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture) => (texture, false),
+            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => (texture, true),
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(false);
+            }
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                self.resize()?;
+                return Ok(false);
+            }
+            wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface = self.instance.create_surface(self.window.clone())?;
+                self.resize()?;
+                return Ok(false);
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                return Err("surface acquisition validation error".into());
+            }
+        };
+        let view = texture.texture.create_view(&Default::default());
+        self.renderer.render(
+            scene,
+            &view,
+            wgpu::Color {
+                r: 0.025,
+                g: 0.035,
+                b: 0.06,
+                a: 1.0,
+            },
+        )?;
+        self.window.pre_present_notify();
+        self.queue.present(texture);
+        if suboptimal {
+            self.resize()?;
+        }
+        Ok(true)
+    }
+}
+
+fn sample_mesh(dpi: f32) -> Result<Mesh> {
+    let mut mesh = Mesh::default();
+    for row in 0..8 {
+        for column in 0..12 {
+            let mut primitive = AnalyticPrimitive::rectangle(
+                [
+                    24.0 + column as f32 * 76.0,
+                    24.0 + row as f32 * 74.0,
+                    56.0,
+                    50.0,
+                ],
+                [
+                    0.15 + column as f32 * 0.055,
+                    0.35 + row as f32 * 0.065,
+                    0.9,
+                    0.85,
+                ],
+            );
+            primitive.shape =
+                [Shape::Rectangle, Shape::Ellipse, Shape::RoundedRectangle][column % 3];
+            primitive.corner_radius = 12.0;
+            primitive.stroke_thickness = if row % 3 == 1 { 2.0 } else { 0.0 };
+            primitive.aliased = row % 3 == 2;
+            if row == 7 {
+                primitive.transform = Affine([1.0, 0.0, 0.05, 1.0, -24.0, 0.0]);
+            }
+            mesh.push(&primitive, 1.5 / dpi)?;
+        }
+    }
+    Ok(mesh)
+}
+
+#[derive(Default)]
+struct App {
+    state: Option<WindowRenderer>,
+    frame_limit: Option<u64>,
+    frames: u64,
+    failure: Option<String>,
+}
+
+impl App {
+    fn fail(&mut self, event_loop: &ActiveEventLoop, error: impl std::fmt::Display) {
+        self.failure = Some(error.to_string());
+        event_loop.exit();
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_none() {
+            match pollster::block_on(WindowRenderer::new(event_loop)) {
+                Ok(state) => self.state = Some(state),
+                Err(error) => self.fail(event_loop, error),
+            }
+        }
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.state = None;
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        let Some(state) = self.state.as_mut() else {
+            return;
+        };
+        if state.window.id() != id {
+            return;
+        }
+        let result = match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+                Ok(())
+            }
+            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => state.resize(),
+            WindowEvent::RedrawRequested => match state.draw() {
+                Ok(presented) => {
+                    self.frames += u64::from(presented);
+                    if let Some(limit) = self.frame_limit {
+                        if self.frames >= limit {
+                            eprintln!("presented_frames={}", self.frames);
+                            event_loop.exit();
+                        } else {
+                            state.window.request_redraw();
+                        }
+                    }
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            },
+            _ => Ok(()),
+        };
+        if let Err(error) = result {
+            self.fail(event_loop, error);
+        }
+    }
+}
+
+fn main() -> Result<()> {
+    let mut app = App::default();
+    let mut args = std::env::args().skip(1);
+    while let Some(argument) = args.next() {
+        match argument.as_str() {
+            "--frames" => {
+                let frames: u64 = args
+                    .next()
+                    .ok_or("--frames requires a positive count")?
+                    .parse()?;
+                if frames == 0 {
+                    return Err("--frames must be positive".into());
+                }
+                app.frame_limit = Some(frames);
+            }
+            _ => {
+                return Err(format!(
+                    "unknown argument {argument}; use --frames N for a bounded smoke run"
+                )
+                .into());
+            }
+        }
+    }
+    EventLoop::new()?.run_app(&mut app)?;
+    if let Some(error) = app.failure {
+        return Err(error.into());
+    }
+    Ok(())
+}
