@@ -14,10 +14,13 @@ cargo run --locked --features window --example winit
 cargo test --locked --test gpu_rendering -- --ignored --nocapture
 # Original C++ byte-level differential oracle (requires clang++ and checkout)
 cargo test --locked --test native_geometry -- --ignored --nocapture
+cargo test --locked --test font -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
 cargo run --release --locked --example retained_benchmark -- --paths
+# CPU-only original cmap + metrics workload (supply a real font file)
+cargo run --release --locked --no-default-features --example font_benchmark -- FONT_PATH
 ```
 
 The renderer accepts a device/queue pair and produces immutable prepared scenes.
@@ -42,7 +45,7 @@ compiler; both must run in the port qualification lanes.
 | wgpu resources and rendering | Immutable mixed analytic/path scenes and per-generation atlas bindings; GPU pixels, owner-domain and replay lifetime controls | Cross-provider pixel corpus, device-loss recovery |
 | winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal presentation smoke passes; Linux smoke passed for the preceding analytic sample | Mixed Linux/Windows runtime and interactive lifecycle controls |
 | Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
-| Fonts, Unicode, shaping, layout and text | Pending | Complete owned text stack and original fixtures |
+| Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC selection, native metrics and cmap 4/12/13/14, original glyph data, standalone reconstruction; 2,518 native differential inputs | Containers, outlines, interpreter, variations, Unicode, shaping, layout and GPU text replay |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -75,5 +78,10 @@ retains `progpu_native_glyph_coverage_transfer.hpp` metadata and the canonical
 shader transfer; this is not source font or Microsoft pixel qualification.
 The compute kernel is
 the unchanged canonical `cs_main_single_path` with operation zero.
+Font access ports `src/ProGPU.Native/src/Text/progpu_native_sfnt.cpp` and
+`Text/Metadata/progpu_native_sfnt_standalone.cpp`. `SfntFace` owns shared immutable
+bytes and supports explicit collection selection; missing tables, unmapped glyphs,
+and unsupported variation sequences retain distinct results. A cmap lookup is
+not shaping, and raw glyph bytes are not a hinted or rendered outline.
 Only original ProGPU implementation is ported; external crates remain normal
 Cargo dependencies with a committed lockfile.

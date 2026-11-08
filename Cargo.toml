@@ -40,6 +40,10 @@ name = "shader_validation"
 path = "src/ProGPU.Rust/tests/shader_validation.rs"
 
 [[test]]
+name = "font"
+path = "src/ProGPU.Rust/tests/font.rs"
+
+[[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
 
@@ -52,6 +56,10 @@ required-features = ["gpu"]
 name = "winit"
 path = "src/ProGPU.Rust/examples/winit.rs"
 required-features = ["window"]
+
+[[example]]
+name = "font_benchmark"
+path = "src/ProGPU.Rust/examples/font_benchmark.rs"
 
 [[example]]
 name = "retained_benchmark"

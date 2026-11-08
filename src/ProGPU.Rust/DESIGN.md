@@ -207,3 +207,90 @@ The later submission timings differ substantially from the initial baseline;
 a matched host/profile investigation remains required for performance
 qualification. These are reproducible workloads and measured receipts, not
 cross-language comparisons, GPU timestamps, or speedup claims.
+
+## Owned font data and native SFNT compatibility
+
+Font architecture research extends the earlier cross-engine review:
+
+- [Skia font-manager data/collection APIs](https://api.skia.org/classSkFontMgr.html)
+  and [HarfBuzz face ownership](https://harfbuzz.github.io/harfbuzz-hb-face.html)
+  separate source data and selected faces from text execution. Adapt that boundary
+  to `Arc<[u8]>` with validated private ranges and owner-tied borrowed tables.
+  No external parser implementation is used.
+- [DirectWrite collections](https://learn.microsoft.com/en-us/windows/win32/directwrite/font-enumeration)
+  and [Win2D file font sets](https://microsoft.github.io/Win2D/WinUI2/html/M_Microsoft_Graphics_Canvas_Text_CanvasFontSet__ctor.htm)
+  distinguish a file's faces from system discovery. Retain explicit face selection;
+  do not eagerly enumerate system fonts or silently select a fallback font.
+- [Parley FontContext](https://docs.rs/parley/latest/parley/struct.FontContext.html)
+  keeps database/source caching separate. Here the immutable face shares source
+  bytes; a system catalog and its cache remain separate future ports. Construction
+  requires neither a window nor GPU initialization, and faces are Send + Sync.
+- [WebRender font templates and instances](https://github.com/servo/webrender/blob/main/webrender_api/src/font.rs)
+  separate original source/index from size, render options and variations.
+  Preserve that separation: the face currently exposes original design units,
+  not a fabricated device instance, DPI policy or hinted generation.
+- [Vello glyph-run state](https://docs.rs/vello/latest/vello/struct.DrawGlyphs.html)
+  keeps size, hinting, variations, transforms and brush state explicit. Retain
+  ProGPU's corresponding original contracts when GPU text replay is ported;
+  nominal cmap mapping must never be presented as Unicode/OpenType shaping.
+
+The architecture comparisons inform ownership boundaries only. Implementation
+comes directly from the original `progpu_native_sfnt.cpp` and
+`progpu_native_sfnt_standalone.cpp` at this branch's source revision. Ordinary
+native compatibility includes last-valid duplicate table selection, symbol map
+precedence, conditional 12/13/4 fallback, exact format-14 default/nondefault
+selection, repeated final horizontal advances, absent-bearing zero, raw signed
+metrics, short/long loca and empty glyph slots. These ordinary semantics do not
+replace stricter raw-inventory checks required by future gasp/VDMX queries.
+WOFF normalization, outlines, interpreter execution, variable instances, shaping,
+layout and rasterization remain pending independent layers.
+
+`SfntFace` retains one immutable byte generation through clones and selected
+collection views. No public mutable source or dangling self-referential slice is
+introduced. All reads are checked; private retained spans are admitted only
+within the owner. Construction performs O(T + C) work for directory/table scans
+and cmap records, with O(1) face storage excluding the shared bytes. Metrics
+and cmap queries allocate nothing. Group cmap lookup keeps the original binary
+search and format 4 keeps the original ordered segment scan. Standalone extraction
+keeps native bounded O(T² + B) work (T <= 4096), sorted effective tags, copied
+checksums, four-byte zero padding, and CFF/CFF2 OTTO selection. It publishes a
+new owned buffer only after complete sizing and allocation admission.
+
+Validation: 2,518 inputs compare 3,364,916 exact output bytes against the unchanged
+original C++ loader and standalone writer. Inputs include every truncation of an
+authored synthetic face, 2,048 deterministic mutations, explicit cmap and symbol
+branches, collection selection, duplicate tables, and all ten existing authored
+scan-font files. The transcript includes errors, selected tables, raw metrics,
+nominal/variation mapping, glyph bytes and complete standalone output. Separate
+CPU tests prove source retention, selected-view identity, Send + Sync, and the
+absence of source mutation or parser panic across the malformed corpus. Both
+CPU-only and all-feature builds pass strict Clippy/tests. The original native
+oracle is now mandatory in Linux/macOS Rust CI.
+
+Reproducible font workload:
+
+```sh
+cargo run --release --locked --no-default-features --example font_benchmark -- tests/Shared/ProGPU-Authored-Scan-1.ttf
+clang++ -std=c++20 -O3 -DNDEBUG -Wall -Wextra -Werror -Isrc/ProGPU.Native/include src/ProGPU.Rust/tests/native_font_benchmark.cpp src/ProGPU.Native/src/Text/progpu_native_sfnt.cpp -o /tmp/progpu-native-font-benchmark
+/tmp/progpu-native-font-benchmark tests/Shared/ProGPU-Authored-Scan-1.ttf
+```
+
+Both run 66,560 nominal cmap + horizontal metric queries per round, five warmups
+and forty measured rounds. File I/O/source storage acquisition is outside timing;
+Rust owns a shared face while native borrows its input buffer. Apple M3 Pro local
+Release observations, sequential runs, no GPU activity:
+
+| Input / implementation | First parse µs | Round p50 / p95 / p99 µs | Checksum |
+| --- | ---: | --- | --- |
+| Authored Scan-1 / Rust | 15.458 | 362.375 / 1006.250 / 1010.583 | 288488074189568764 |
+| Authored Scan-1 / original C++ | 0.875 | 318.250 / 910.916 / 925.792 | 288488074189568764 |
+| Local Helvetica TTC face 0 / Rust | 53.125 | 5965.125 / 9742.750 / 11144.333 | 359704000785784050 |
+| Local Helvetica TTC face 0 / original C++ | 1.417 | 4440.333 / 4584.125 / 8252.917 | 359704000785784050 |
+
+Authored input is 20,952 bytes/11 tables; the locally installed collection is
+2,369,592 bytes/20 selected tables and is not redistributed. Identical checksums
+confirm the matched workload's output. Rust is slower in these observations;
+performance parity is not established. First-call timings include process/cache
+startup differences, and no improvement or regression attribution is claimed.
+A matched Instruments investigation remains required before optimization claims;
+these receipts do not qualify complete shaping, text rendering, or frame times.

@@ -16,6 +16,11 @@ on:
       - src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp
       - src/ProGPU.Native/src/Scene/progpu_native_glyph_coverage_transfer.hpp
       - src/ProGPU.Native/include/progpu_native.h
+      - src/ProGPU.Native/include/progpu_native_text.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_sfnt.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_font_bytes.hpp
+      - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
+      - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml
   push:
     branches: [main]
@@ -57,6 +62,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cargo test --locked --test native_geometry -- --ignored --nocapture
+          cargo test --locked --test font -- --ignored --nocapture
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         run: cargo package --locked
