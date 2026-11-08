@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 const tools = path.resolve(process.env.PROGPU_RUST_BROWSER_TOOLS ?? 'artifacts/progpu-rust/browser-tools');
 const { chromium } = createRequire(path.join(tools, 'package.json'))('playwright');
+const { PNG } = createRequire(path.join(tools, 'package.json'))('pngjs');
 const output = path.resolve(process.env.PROGPU_RUST_BROWSER_RESULTS ?? 'artifacts/progpu-rust/browser-results');
 await mkdir(output, { recursive: true });
+// A failed rerun must not leave a previous successful receipt or screenshot.
+await Promise.all(['results.json', 'canvas-dpr1.png', 'canvas-dpr2.png'].map(
+  name => rm(path.join(output, name), { force: true })));
 const flags = ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--disable-webgpu-shader-disk-cache'];
 if (process.platform === 'linux') {
   // WebGPU and the Linux canvas compositor must share the Vulkan software host.
@@ -13,7 +17,8 @@ if (process.platform === 'linux') {
   // the device because Chromium cannot allocate its shared image backing.
   flags.push('--enable-features=Vulkan', '--use-vulkan=swiftshader', '--disable-vulkan-surface');
 }
-const browser = await chromium.launch({ headless: true, channel: 'chromium', args: flags });
+const headless = process.env.PROGPU_RUST_BROWSER_HEADED !== '1';
+const browser = await chromium.launch({ headless, channel: 'chromium', args: flags });
 const reports = [];
 // Playwright's waitForFunction treats a returned Promise as truthy. Await each
 // serialized WASM query explicitly so a false result cannot pass the gate.
@@ -154,11 +159,29 @@ try {
     assert.equal(resized.metrics.dpi,dpr);
     assert.deepEqual(resized.errors,[]);
     assert.deepEqual(errors,[]);
-    await page.screenshot({ path: path.join(output, `canvas-dpr${dpr}.png`) });
+    const bounds = await page.locator('canvas').boundingBox();
+    assert.ok(bounds);
+    const screenshot = PNG.sync.read(await page.screenshot({ path: path.join(output, `canvas-dpr${dpr}.png`) }));
+    // The compositor screenshot is a separate required gate. Offscreen readback
+    // can pass while a browser compositor presents an entirely black canvas.
+    const pixel = (x,y) => {
+      const offset=(Math.floor((bounds.y+y)*dpr)*screenshot.width+Math.floor((bounds.x+x)*dpr))*4;
+      return [...screenshot.data.subarray(offset,offset+4)];
+    };
+    const background=pixel(8,8), rectangle=pixel(40,40), ellipse=pixel(128,49), curve=pixel(52,503);
+    report.presentationPixels={background,rectangle,ellipse,curve};
     reports.push({ dpr, ...report, resized: resized.metrics });
+    assert.ok(background[2]>background[0] && background[2]>5,`canvas clear: ${background}`);
+    for(const color of [rectangle,ellipse]) assert.ok(color[2]>color[0]+60 && color[2]>color[1]+60,`canvas analytic shape: ${color}`);
+    assert.ok(curve[0]>curve[2]+60 && curve[0]>curve[1]+60,`canvas computed path: ${curve}`);
     await context.close();
   }
-  const receipt = { browser: browser.version(), platform: process.platform, architecture: process.arch, flags, reports };
+  const receipt = { status: 'passed', browser: browser.version(), platform: process.platform, architecture: process.arch, headless, flags, reports };
   await writeFile(path.join(output,'results.json'),JSON.stringify(receipt,null,2)+'\n');
   console.log(JSON.stringify(receipt,null,2));
+} catch (error) {
+  await writeFile(path.join(output,'results.json'),JSON.stringify({ status: 'failed',
+    browser: browser.version(), platform: process.platform, architecture: process.arch,
+    headless, flags, reports, error: String(error) },null,2)+'\n');
+  throw error;
 } finally { await browser.close(); }

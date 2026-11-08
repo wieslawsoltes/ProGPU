@@ -2,5 +2,8 @@
   "name": "progpu-rust-browser-tests",
   "private": true,
   "type": "module",
-  "devDependencies": { "playwright": "1.62.1" }
+  "devDependencies": {
+    "playwright": "1.62.1",
+    "pngjs": "7.0.0"
+  }
 }

@@ -53,8 +53,11 @@ checks. Set `PROGPU_RUST_WASM_BINDGEN` to an isolated matching CLI executable if
 another version is already installed. Linux hosts also need Playwright's Chromium
 system libraries (`npx --yes playwright@1.62.1 install-deps chromium`). No missing
 adapter or shader failure is skipped. On Linux the harness explicitly enables
-Chromium Vulkan compositing with its SwiftShader driver so canvas presentation
-shares a working software GPU host. Device loss fails the run.
+Chromium Vulkan compositing with its SwiftShader driver. Linux offscreen checks
+pass, but canvas presentation is still under investigation; this configuration
+does not yet qualify Linux browser support. Device loss fails the run.
+`PROGPU_RUST_BROWSER_HEADED=1` selects a visible browser and requires a display
+(or an explicit `xvfb-run` on Linux); the receipt records this selection.
 
 The reusable site is in `artifacts/progpu-rust/browser`; serve that directory over
 localhost HTTP or HTTPS to explore it interactively. The desktop sample uses
@@ -66,7 +69,9 @@ validation bridge; normal canvas replay performs one retained draw.
 The browser gate compiles all six canonical shader compositions and checks
 131,072 authored pixels across DPR 1 and 2, including three physical scene DPIs,
 all thirteen grayscale contrast values, cold/warm equality, later-generation
-retirement, resize, and zero-extent suspension/resume. PNGs and a compact actual
+retirement, resize, and zero-extent suspension/resume. It also requires actual
+compositor screenshot pixels for the background, analytic shapes and GPU paths;
+offscreen success alone cannot pass presentation. PNGs and a compact actual
 adapter/result receipt are written under `artifacts/progpu-rust/browser-results`.
 Chromium software WebGPU is a reproducible additional gate; it does not establish
 hardware-browser, original source-font, or complete engine parity. A WASM CPU control also verifies source-retained simple glyph points, instructions,

@@ -445,10 +445,19 @@ The Linux test host explicitly enables Vulkan compositing, selects Chromium's
 SwiftShader Vulkan driver and disables native Vulkan surfaces for headless
 presentation. This follows the [Chrome headless WebGPU setup](https://developer.chrome.com/blog/supercharge-web-ai-testing)
 and [Chromium SwiftShader switches](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/gpu/swiftshader.md).
-The complete headless ARM64 suite then passed on the same Chromium 151 binary,
-within the unchanged deadline. No shader source, shader compiler option, pixel
-tolerance, provider or original native/managed gate changes. The x64 hosted CI
-must separately confirm this setup; ARM64 success is supplementary evidence.
+The headless ARM64 offscreen/readback checks then passed on the same Chromium
+151 binary, within the unchanged deadline. However, visual inspection of the
+screenshots found a black presented canvas. Offscreen success does not qualify
+browser presentation. Linux x64 CI also still failed its resize gate. No shader
+source, shader compiler option, pixel tolerance, provider or original
+native/managed gate changes follow from either result.
+
+The browser gate now decodes the actual compositor PNG and requires the canvas
+background, analytic rectangle/ellipse and computed curved path at both pixel
+densities. These checks pass on macOS; Linux presentation remains under
+investigation. `PROGPU_RUST_BROWSER_HEADED=1` permits the same gate to run in a
+visible browser or an explicitly supplied virtual display. Receipts record the
+actual headless mode, with no automatic fallback or skipped pixel assertions.
 
 Browser shader validation now also checks `get_compilation_info` for every module.
 The host retains its instance/adapter lifetime and records device loss explicitly;
