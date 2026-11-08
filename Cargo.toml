@@ -7,7 +7,7 @@ license = "MIT"
 description = "ProGPU's native Rust rendering engine using canonical WebGPU shaders"
 repository = "https://github.com/wieslawsoltes/ProGPU"
 readme = "src/ProGPU.Rust/README.md"
-include = ["Cargo.toml", "Cargo.lock", "LICENSE", "src/ProGPU.Rust/**", "src/ProGPU.Backend/Shaders/*.wgsl"]
+include = ["/Cargo.toml", "/Cargo.lock", "/LICENSE", "/src/ProGPU.Rust/**", "/src/ProGPU.Backend/Shaders/*.wgsl"]
 
 [lib]
 path = "src/ProGPU.Rust/src/lib.rs"

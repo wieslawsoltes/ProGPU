@@ -99,9 +99,10 @@ matched managed/native performance qualification or an optimization claim.
 
 `cargo package --locked --allow-dirty` produces and verifies a standalone crate
 containing the canonical shader files (58 files, 608.5 KiB uncompressed at this
-increment). The allow-dirty option was required only by an unrelated transient
-managed build artifact; that artifact is outside the crate's explicit include
-inventory. Package verification builds from the extracted crate, with no paths
+increment). The initial allow-dirty verification was triggered by a generated
+native dependency license. Follow-up archive inspection found that the unanchored
+`LICENSE` pattern had included that nested file; the package allowlist is now
+anchored at the repository root. Package verification builds from the extracted crate, with no paths
 back into the checkout. Nothing has been published to crates.io.
 
 The existing managed renderer gates passed locally using the exact SDK from
