@@ -16,6 +16,9 @@ cargo test --locked --test gpu_rendering -- --ignored --nocapture
 cargo test --locked --test native_geometry -- --ignored --nocapture
 cargo test --locked --test font -- --ignored --nocapture
 cargo test --locked --test outline -- --ignored --nocapture
+cargo test --locked --test composite -- --ignored --nocapture
+cargo test --locked --test cff -- --ignored --nocapture
+cargo test --locked --test variations -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -96,6 +99,7 @@ keep compact qualification receipts and reusable active dependencies.
 | Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
 | Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC, native metrics and cmap 4/12/13/14, standalone reconstruction, simple/composite TrueType records and recursive unhinted paths; native source-arithmetic differential controls | Containers, interpreter, variations, Unicode, shaping, layout, GPU text and compiler-default native pixel qualification |
 | CFF outlines | Owned CFF1 containers, encoded INDEX/FDSelect, private/global subroutines, bounded Type 2 execution and transformed closed paths; CFF2 INDEX/top metadata | CFF2 container/variation execution, complete text integration and original provider/source pixels |
+| Font variation metadata | Allocation-free original fvar inventory; independent fixed and strict design avar normalization; 112,629 native source-arithmetic cases | Item variation stores, variable outlines and compiler-default arithmetic qualification |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |

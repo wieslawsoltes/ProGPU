@@ -101,6 +101,25 @@ mod web {
         )))
     }
 
+    /// Validate the independent fixed/design variation contracts in WASM.
+    #[wasm_bindgen]
+    pub fn normalize_font_variation(
+        data: Vec<u8>,
+        index: u16,
+        fixed: i32,
+        design: f32,
+        strict: bool,
+    ) -> Result<i16, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        if strict {
+            face.normalize_variation_design_coordinate(index, design)
+                .map_err(error)
+        } else {
+            face.normalize_variation_coordinate(index, fixed)
+                .map_err(error)
+        }
+    }
+
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

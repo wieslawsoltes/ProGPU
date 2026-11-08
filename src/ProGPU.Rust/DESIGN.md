@@ -645,3 +645,54 @@ Strict native/WASM Clippy, all-feature and CPU-only tests pass locally. The
 extracted package builds on the native and WASM targets: 89 files, 924.5 KiB
 (211.5 KiB compressed). Browser bindings, tool dependencies and generated outputs
 remain outside the crate inventory.
+
+## Original fvar and avar metadata
+
+`font/variations.rs` ports only the original
+`src/ProGPU.Native/src/Text/progpu_native_font_variations.cpp`. The public axis
+iterator borrows the immutable face, allocates nothing and validates the full
+declared extent before exposing records. It retains raw tags, fixed endpoints,
+flags, name IDs, strides and the native empty behavior for undersized records.
+Bulk inventory preserves reversed endpoints; selected-axis queries reject them,
+matching the two original APIs rather than silently sanitizing the source.
+
+Fixed normalization clamps signed 16.16 input, computes against widened original
+endpoints and rounds initial ties away from zero. Its legacy avar route retains
+the original version/count admission and endpoint behavior. Floating design
+normalization promotes the exact input before using original fixed endpoints,
+without an intermediate 16.16 quantization. Its strict avar v1 route validates
+all maps, including unselected later axes, ordered input coordinates, range,
+endpoints and the explicit zero mapping. Interpolated ties round to even. Neither
+route executes variable outlines or implies a source font raster policy.
+
+The original linked C++ differential test covers 112,629 inputs and 13,049,224
+exact bytes: all signed F2DOT14 inputs across a nonlinear map, every byte mutation
+of two-axis records/maps, truncations, reversed/extreme endpoint combinations,
+random float bit patterns, nonfinite input and missing/invalid axes. Three normal
+CPU tests independently check public contracts, ownership and both tie rules.
+Linux/macOS CI requires the original-source oracle; ordinary consumers need no
+C++ compiler. Temporary input streams and executables retire on success/failure.
+
+The independent ARM64 Clang default-contraction control remains **failing** at
+case 17,481: native normalized coordinate -14831 versus Rust -14832. This is a
+one-unit final F2DOT14 difference from contracted avar interpolation. The passing
+source-arithmetic oracle uses the same isolated `-ffp-contract=off` policy as
+the existing geometry, composite and CFF controls. Reproduce the original
+default gate with `PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test
+--no-default-features --test variations -- --ignored --nocapture`. No original
+source, compiler default, package, tolerance or shader was altered. Full native
+and managed numeric/pixel qualification remains open.
+
+The browser bridge runs ten independent fixed/design rounding and rejection
+checks per DPR alongside the existing 155,648-pixel GPU suite. Local Chromium
+passes both DPRs, all six shaders, font controls, resize and actual compositor
+pixels. Strict native/WASM Clippy and all-feature/CPU-only tests pass locally.
+The package verification contains 92 files (approximately 952 KiB), and both its
+native and WASM builds pass. Verified extraction directories are removed while
+active reusable compilation dependencies and compact receipts are retained.
+
+The preceding CFF checkpoint `950efd342` passed hosted Linux/Windows portable,
+Linux Vulkan/winit and the full 155,648-pixel x64/Xvfb browser lane in run
+42515743204. Hosted macOS was cancelled before execution; local macOS evidence
+does not replace that gate. Item variation stores, CFF2 execution, variable
+TrueType outlines and the remaining full text stack are still pending.

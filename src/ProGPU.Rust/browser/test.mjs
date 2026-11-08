@@ -127,6 +127,28 @@ try {
         rejected=false;
         try { app.decode_cff_outline(cffFont.slice(0,-1),0); } catch { rejected=true; }
         check(rejected,'WASM truncated CFF rejection');
+        const variableFont=new Uint8Array(110), vv=new DataView(variableFont.buffer);
+        vv.setUint32(0,0x10000); vv.setUint16(4,2);
+        vv.setUint32(12,0x66766172); vv.setUint32(20,44); vv.setUint32(24,36);
+        vv.setUint32(28,0x61766172); vv.setUint32(36,80); vv.setUint32(40,30);
+        vv.setUint32(44,0x10000); vv.setUint16(48,16); vv.setUint16(52,1); vv.setUint16(54,20);
+        vv.setUint32(60,0x77676874); vv.setInt32(64,-65536); vv.setInt32(72,65536);
+        vv.setUint32(80,0x10000); vv.setUint16(86,1); vv.setUint16(88,5);
+        [[-16384,-16384],[-4,-2],[0,0],[4,2],[16384,16384]].forEach((pair,i)=>
+          pair.forEach((value,j)=>vv.setInt16(90+i*4+j*2,value)));
+        let variationChecks=0;
+        for (const [fixed,expected] of [[-12,-2],[-4,0],[4,0],[12,2]]) {
+          for (const strict of [false,true]) {
+            check(app.normalize_font_variation(variableFont,0,fixed,fixed/65536,strict)===expected,'WASM variation mapped ties');
+            variationChecks++;
+          }
+        }
+        vv.setInt16(100,1);
+        check(app.normalize_font_variation(variableFont,0,0,0,false)===1,'WASM legacy avar admission');
+        rejected=false;
+        try { app.normalize_font_variation(variableFont,0,0,0,true); } catch { rejected=true; }
+        check(rejected,'WASM strict avar rejection');
+        variationChecks+=2;
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
@@ -175,7 +197,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

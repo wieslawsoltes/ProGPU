@@ -10,11 +10,13 @@ mod bytes;
 pub mod cff;
 mod composite;
 mod outline;
+mod variations;
 pub use composite::{
     CompositeComponent, CompositeGlyph, CompositeRequirements, ExpandedRequirements, GlyphOutline,
 };
 pub use outline::{GlyphKind, GlyphRequirements, OutlinePoint, SimpleGlyph};
 use std::sync::Arc;
+pub use variations::{VariationAxes, VariationAxis};
 
 /// Exact big-endian four-byte OpenType tag, including spaces and arbitrary bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
