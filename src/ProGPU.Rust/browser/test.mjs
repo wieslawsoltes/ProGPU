@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { installWebGpuDiagnostics } from './diagnostics.mjs';
 const tools = path.resolve(process.env.PROGPU_RUST_BROWSER_TOOLS ?? 'artifacts/progpu-rust/browser-tools');
 const { chromium } = createRequire(path.join(tools, 'package.json'))('playwright');
 const { PNG } = createRequire(path.join(tools, 'package.json'))('pngjs');
@@ -20,6 +21,9 @@ if (process.platform === 'linux') {
 const headless = process.env.PROGPU_RUST_BROWSER_HEADED !== '1';
 const browser = await chromium.launch({ headless, channel: 'chromium', args: flags });
 const reports = [];
+const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
+let activePage;
+let activeEntry;
 // Playwright's waitForFunction treats a returned Promise as truthy. Await each
 // serialized WASM query explicitly so a false result cannot pass the gate.
 async function waitFor(check) {
@@ -35,10 +39,16 @@ try {
   for (const dpr of [1, 2]) {
     const context = await browser.newContext({ viewport: { width: 960, height: 680 }, deviceScaleFactor: dpr });
     const page = await context.newPage();
+    activePage=page;
+    const entry={dpr,stage:'initialization',consoleErrors:[]};
+    activeEntry=entry;
+    reports.push(entry);
+    if(diagnosticsEnabled)await page.addInitScript(installWebGpuDiagnostics);
     const errors = [];
-    page.on('pageerror', e => errors.push(String(e)));
+    page.on('pageerror', e => { errors.push(String(e));entry.consoleErrors.push(String(e)); });
     page.on('console', m => {
-      if (m.type() === 'error') errors.push(m.text());
+      if (m.type() === 'error') {errors.push(m.text());entry.consoleErrors.push(m.text());}
+      if(m.type()==='info'&&m.text().startsWith('validating '))entry.stage=m.text();
       if (m.type() === 'info' || m.type() === 'error') console.log(`[DPR ${dpr}] ${m.text()}`);
     });
     await page.goto(process.env.PROGPU_RUST_BROWSER_URL ?? 'http://127.0.0.1:4174', { waitUntil: 'networkidle' });
@@ -48,6 +58,7 @@ try {
       const app = await window.progpuReady;
       return app.exclusive(() => app.renderer.metrics().frames >= 4);
     }));
+    entry.stage='source and offscreen controls';
     const report = await page.evaluate(async () => {
       const app = await window.progpuReady;
       return app.exclusive(async () => {
@@ -411,6 +422,8 @@ try {
         return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
+    Object.assign(entry,report);
+    entry.stage='resize';
     assert.equal(report.before.draws, 1);
     assert.equal(report.before.pathRasters, 3);
     assert.equal(report.before.geometryBytes, 29760);
@@ -433,8 +446,8 @@ try {
     assert.equal(resized.metrics.dpi,dpr);
     assert.deepEqual(resized.errors,[]);
     assert.deepEqual(errors,[]);
-    const entry={ dpr, ...report, resized: resized.metrics };
-    reports.push(entry);
+    entry.resized=resized.metrics;
+    entry.stage='final capture completion';
     console.log(`[DPR ${dpr}] resize verified; capturing final presented frame`);
     await page.evaluate(async () => {
       const app=await window.progpuReady;
@@ -445,6 +458,7 @@ try {
       return app.exclusive(() => app.renderer.capture_ready());
     }));
     entry.captureCompleted=true;
+    entry.stage='compositor screenshot';
     await page.evaluate(async () => {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     });
@@ -463,12 +477,19 @@ try {
     for(const color of [rectangle,ellipse]) assert.ok(color[2]>color[0]+60 && color[2]>color[1]+60,`canvas analytic shape: ${color}`);
     assert.ok(curve[0]>curve[2]+60 && curve[0]>curve[1]+60,`canvas computed path: ${curve}`);
     assert.deepEqual(errors,[]);
+    if(diagnosticsEnabled)entry.gpuDiagnostics=await page.evaluate(()=>window.progpuGpuDiagnostics?.());
+    entry.stage='passed';
     await context.close();
+    activePage=undefined;activeEntry=undefined;
   }
   const receipt = { status: 'passed', browser: browser.version(), platform: process.platform, architecture: process.arch, headless, flags, reports };
   await writeFile(path.join(output,'results.json'),JSON.stringify(receipt,null,2)+'\n');
   console.log(JSON.stringify(receipt,null,2));
 } catch (error) {
+  if(diagnosticsEnabled&&activePage&&activeEntry){
+    try{activeEntry.gpuDiagnostics=await activePage.evaluate(()=>window.progpuGpuDiagnostics?.());}
+    catch(problem){activeEntry.diagnosticError=String(problem);}
+  }
   await writeFile(path.join(output,'results.json'),JSON.stringify({ status: 'failed',
     browser: browser.version(), platform: process.platform, architecture: process.arch,
     headless, flags, reports, error: String(error) },null,2)+'\n');

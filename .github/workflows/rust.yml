@@ -98,9 +98,19 @@ jobs:
       - name: Strict WebAssembly lints
         run: cargo clippy --locked --target wasm32-unknown-unknown --features browser --example browser -- -D warnings
       - name: Real browser WebGPU pixels and presentation
+        id: browser-gate
         env:
           PROGPU_RUST_BROWSER_HEADED: '1'
+          DEBUG: pw:browser
         run: xvfb-run -a eng/progpu-test-rust-browser.sh
+      - name: Observe failed browser workload without replacing its result
+        if: failure() && steps.browser-gate.outcome == 'failure'
+        env:
+          PROGPU_RUST_BROWSER_HEADED: '1'
+          PROGPU_RUST_BROWSER_DIAGNOSTICS: '1'
+          PROGPU_RUST_BROWSER_RESULTS: artifacts/progpu-rust/browser-results/diagnostic-rerun
+          DEBUG: pw:browser
+        run: xvfb-run -a node src/ProGPU.Rust/browser/serve-test.mjs artifacts/progpu-rust/browser
       - uses: actions/upload-artifact@v6
         if: always()
         with:

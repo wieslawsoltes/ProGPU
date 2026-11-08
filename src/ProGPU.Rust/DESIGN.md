@@ -1636,3 +1636,56 @@ using independent empty target directories. The crate contains 160 files, about
 1.7 MiB before compression (417.9 KiB compressed). This checkpoint removes
 1,027,441,950 logical bytes of duplicate package/build trees, downloaded
 fixtures and temporary benchmark executables; compact receipts remain.
+
+## Browser GPU-process stall investigation
+
+Grapheme checkpoint `c814583b2` passes hosted Linux/Windows and Vulkan/winit in
+run 42529822673; macOS is cancelled. Browser job 128881331351 repeats the final
+DPR 2 device loss after all source and 204,800 offscreen pixel checks pass. The
+retained failed receipt shows five frames before the warm loop, fifteen after
+its ten draws and twenty after resize, with no final completion. This excludes
+an unbounded animation-frame inventory as an explanation for that receipt.
+
+The pinned Chromium 151.0.7922.34 / Node 24.22.2 workload was reproduced on the
+existing four-CPU, 6-GiB Ubuntu 24.04.5 ARM64 VM. An uninstrumented run failed
+while requesting vector shader compilation info. Chromium reported GPU-process
+exit 512; the crash dump's exception thread 67703 is named `GpuWatchdog` and its
+exception code is `0xffffffff`. The subsequent device-loss string is a consequence,
+not a diagnosis of a dropped Rust owner. The [Dawn device-lost contract source](https://dawn.googlesource.com/dawn/+/8a134682e4f49704ec8c7fc6c8510296dc014323/src/dawn/wire/client/Device.cpp)
+uses the same message when its event manager shuts down; that message alone
+cannot distinguish the cause. No foreign implementation is incorporated.
+
+A separate instrumented rerun passed both DPRs. A brief debugger sample during
+its DPR 2 warmup found SwiftShader's LLVM `computeKnownBitsFromOperator` /
+`computeKnownBits` on an active thread; observed submissions nine and ten completed
+after 5,685.4 ms. This implicates compilation latency for investigation, but does
+not establish the hosted x64 cause or an application fix. Debugger attachment and
+extra completion observations change timing, so that run is not performance or
+uninstrumented reliability qualification. A final run of the checked-in optional
+diagnostics, without the debugger, passes both DPRs on macOS and Linux ARM64.
+The original hosted failure remains an open gate.
+
+`browser/diagnostics.mjs` adds bounded test-only observations under the explicit
+`PROGPU_RUST_BROWSER_DIAGNOSTICS=1` switch. It records at most 128 recent events,
+64 slow/error events, aggregate submissions/completions and actual queue pending
+counts. Weak queue keys and plain records avoid retaining GPU resource owners.
+It preserves original arguments, return values, submissions and errors; it adds
+completion observers without awaiting or retrying GPU work. The
+[WebGPU queue completion contract](https://www.w3.org/TR/webgpu/#dom-gpuqueue-onsubmittedworkdone)
+guides those observations. There is no descriptor, shader, compiler flag, driver,
+pixel tolerance, fallback or deadline change. Default tests have no GPU observer.
+Failure receipts now preserve the active phase and console errors even before an
+offscreen report can be returned. CI retains Chromium stderr for the original
+gate and, only after failure, runs the diagnostic observation into a separate
+artifact subdirectory. The original step/job remains failed regardless of the
+observation's result; this is not a retry-to-green policy.
+
+`perf/browser-c814-investigation.json` retains the exact WASM/crash hashes, original
+hosted receipt, compact successful diagnostic samples and attribution limits.
+Temporary VM browser/tool copies, raw dumps and exploratory scripts are removed
+after preserving that evidence; the VM is restored to its initial suspended state.
+
+Cleanup removed 924,357,135 guest logical bytes and 21,229,655
+host logical bytes of diagnostic payloads, tools and raw crash files. The VM's
+suspended state was verified after cleanup. Local diagnostic browser runs pass
+all existing pixel and source checks; they do not close hosted reliability.

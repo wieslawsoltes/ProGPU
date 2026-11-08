@@ -198,3 +198,11 @@ control links `src/ProGPU.Text/SfntSimpleGlyphShaper.cs` directly; set
 is part of the Rust crate. A reusable-buffer baseline is available with
 `cargo run --release --locked --no-default-features --example simple_text_benchmark
 -- FONT_PATH FACE_INDEX REPEATS` (repeats 1..4096).
+
+Browser failures retain the active phase and console errors in `results.json`.
+For bounded submission/completion diagnostics, set
+`PROGPU_RUST_BROWSER_DIAGNOSTICS=1` when running the browser script. CI runs the
+original gate first and only adds a separate diagnostic observation after failure;
+that observation cannot replace the failed result. `DEBUG=pw:browser` retains
+Chromium process-exit evidence in the job log. Compiler settings, launch flags,
+shaders, pixel checks and deadlines are unchanged.
