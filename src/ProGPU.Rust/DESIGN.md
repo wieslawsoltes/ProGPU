@@ -696,3 +696,48 @@ Linux Vulkan/winit and the full 155,648-pixel x64/Xvfb browser lane in run
 42515743204. Hosted macOS was cancelled before execution; local macOS evidence
 does not replace that gate. Item variation stores, CFF2 execution, variable
 TrueType outlines and the remaining full text stack are still pending.
+
+## Item variation stores and delta-index maps
+
+`font/item_variation.rs` ports the original
+`src/ProGPU.Native/src/Text/progpu_native_item_variation_store.cpp` without a
+foreign font implementation. Both public views borrow validated immutable bytes;
+private layout fields prohibit caller-forged extents. Parsing, lookup and scalar
+evaluation allocate nothing. Checked row/region products preserve rejection on
+32-bit WebAssembly as well as native targets. Every declared subtable and row
+extent is validated before publication, including later unselected data.
+
+The implementation retains original region order, F2DOT14 scaling, neutral and
+invalid region-tuple rules, exact peak/boundary branches and zero-scalar early
+exit. Delta rows preserve long/short signed encodings, original accumulation
+order, zero-offset subtables, zero for absent item indices and skipped invalid
+region references. Supplied region scalars retain the original raw arithmetic.
+CFF2 blend selection is a separate stricter route: zero item/word counts and
+every selected region index must pass before a position is queried. These rules
+are not generalized into the ordinary delta route. Format-zero/one index maps
+retain encoded entry widths, raw format-bit handling, last-entry repetition,
+empty-map saturation and original outer/inner narrowing.
+
+The linked-original source-arithmetic oracle compares 157,958 inputs and
+6,892,604 exact bytes: every signed coordinate with both delta encodings;
+two-axis region tuple permutations; malformed/truncated complete stores;
+missing/invalid selection and short coordinate/scalar arrays; all 256 entry
+formats, both map count widths and invalid format controls; and zero/nonzero
+store offsets. Three normal CPU tests independently cover values, complete
+preflight, unrepresentable offsets and different ordinary/blend admission.
+Temporary native executables and input streams are removed by scope cleanup.
+
+The independent ARM64 default compiler remains a separate failing gate. At
+input 66,082, native delta accumulation produces `0x419f7d41` and Rust produces
+`0x419f7d42`. Reproduce with `PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test
+--no-default-features --test item_variation -- --ignored --nocapture`. Only the
+isolated source-arithmetic executable uses `-ffp-contract=off`; original native
+source/packages/defaults, pixel gates and tolerances remain unchanged. This
+milestone does not claim full compiler-default or managed/native numeric parity.
+
+The WASM browser control additionally checks a region scalar, encoded delta,
+CFF2 selected scalar and rejection of a truncated later subtable. It brings the
+variation check count to twelve per DPR without reducing any existing font,
+shader, 155,648-pixel or actual-presentation checks. CFF2 container/evaluation
+integration and variable TrueType outlines remain pending; these APIs alone do
+not implement variable-font rendering.

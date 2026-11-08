@@ -120,6 +120,23 @@ mod web {
         }
     }
 
+    /// Exercise original item-store scalars, encoded deltas and blend selection.
+    #[wasm_bindgen]
+    pub fn item_variation_values(
+        data: Vec<u8>,
+        coordinates: Vec<i16>,
+    ) -> Result<Float32Array, JsValue> {
+        let store = progpu::font::ItemVariationStore::parse(&data, 0, 1).map_err(error)?;
+        let values = [
+            store.region_scalar(&coordinates, 0).map_err(error)?,
+            store.delta(&coordinates, 0, 0).map_err(error)?,
+            store
+                .blend_region_scalar(&coordinates, 1, 0)
+                .map_err(error)?,
+        ];
+        Ok(Float32Array::from(values.as_slice()))
+    }
+
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

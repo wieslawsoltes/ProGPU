@@ -149,6 +149,18 @@ try {
         try { app.normalize_font_variation(variableFont,0,0,0,true); } catch { rejected=true; }
         check(rejected,'WASM strict avar rejection');
         variationChecks+=2;
+        const itemStore=new Uint8Array(44), iv=new DataView(itemStore.buffer);
+        iv.setUint16(0,1); iv.setUint32(2,16); iv.setUint16(6,2);
+        iv.setUint32(8,26); iv.setUint32(12,36);
+        iv.setUint16(16,1); iv.setUint16(18,1); iv.setInt16(22,8192); iv.setInt16(24,16384);
+        iv.setUint16(26,1); iv.setUint16(28,1); iv.setUint16(30,1); iv.setInt16(34,100);
+        iv.setUint16(40,1);
+        const itemValues=app.item_variation_values(itemStore,new Int16Array([4096]));
+        check(itemValues.length===3 && itemValues[0]===0.5 && itemValues[1]===50 && itemValues[2]===0.5,'WASM item variation scalars/deltas');
+        rejected=false;
+        try { app.item_variation_values(itemStore.slice(0,-1),new Int16Array([4096])); } catch { rejected=true; }
+        check(rejected,'WASM unselected item subtable truncation rejection');
+        variationChecks+=2;
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;

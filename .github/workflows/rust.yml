@@ -110,6 +110,7 @@ jobs:
           cargo test --locked --test composite -- --ignored --nocapture
           cargo test --locked --test cff -- --ignored --nocapture
           cargo test --locked --test variations -- --ignored --nocapture
+          cargo test --locked --test item_variation -- --ignored --nocapture
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         env:

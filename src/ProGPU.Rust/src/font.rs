@@ -9,11 +9,13 @@
 mod bytes;
 pub mod cff;
 mod composite;
+mod item_variation;
 mod outline;
 mod variations;
 pub use composite::{
     CompositeComponent, CompositeGlyph, CompositeRequirements, ExpandedRequirements, GlyphOutline,
 };
+pub use item_variation::{DeltaSetIndexMap, ItemVariationStore};
 pub use outline::{GlyphKind, GlyphRequirements, OutlinePoint, SimpleGlyph};
 use std::sync::Arc;
 pub use variations::{VariationAxes, VariationAxis};
