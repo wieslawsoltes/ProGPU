@@ -1,0 +1,44 @@
+[package]
+name = "progpu"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+description = "ProGPU's native Rust rendering engine using canonical WebGPU shaders"
+repository = "https://github.com/wieslawsoltes/ProGPU"
+readme = "src/ProGPU.Rust/README.md"
+include = ["Cargo.toml", "Cargo.lock", "LICENSE", "src/ProGPU.Rust/**", "src/ProGPU.Backend/Shaders/*.wgsl"]
+
+[lib]
+path = "src/ProGPU.Rust/src/lib.rs"
+
+[features]
+default = ["gpu"]
+gpu = ["dep:wgpu"]
+window = ["gpu", "dep:winit", "dep:pollster"]
+
+[dependencies]
+bytemuck = { version = "1.24", features = ["derive"] }
+thiserror = "2"
+wgpu = { version = "30.0.1", optional = true }
+winit = { version = "0.30.13", optional = true }
+pollster = { version = "0.4", optional = true }
+
+[dev-dependencies]
+naga = { version = "30.0.0", features = ["wgsl-in"] }
+pollster = "0.4"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[[test]]
+name = "shader_validation"
+path = "src/ProGPU.Rust/tests/shader_validation.rs"
+
+[[test]]
+name = "native_geometry"
+path = "src/ProGPU.Rust/tests/native_geometry.rs"
