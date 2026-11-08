@@ -29,7 +29,7 @@ pollster = { version = "0.4", optional = true }
 wasm-bindgen = { version = "=0.2.130", optional = true }
 wasm-bindgen-futures = { version = "0.4.80", optional = true }
 js-sys = { version = "0.3.107", optional = true }
-web-sys = { version = "0.3.107", features = ["HtmlCanvasElement"], optional = true }
+web-sys = { version = "0.3.107", features = ["HtmlCanvasElement", "console"], optional = true }
 
 [dev-dependencies]
 naga = { version = "30.0.0", features = ["wgsl-in"] }

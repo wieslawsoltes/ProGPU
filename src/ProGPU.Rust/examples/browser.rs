@@ -223,6 +223,7 @@ mod web {
         /// Validate all canonical shader compositions on this browser device.
         pub async fn validate_shaders(&self) -> Result<u32, JsValue> {
             for &(name, source) in progpu::shaders::MODULES {
+                web_sys::console::info_1(&format!("validating canonical shader: {name}").into());
                 let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
                 let _module = self
                     .device
@@ -233,6 +234,7 @@ mod web {
                 if let Some(problem) = scope.pop().await {
                     return Err(error(format!("{name}: {problem}")));
                 }
+                web_sys::console::info_1(&format!("validated canonical shader: {name}").into());
             }
             Ok(progpu::shaders::MODULES.len() as u32)
         }

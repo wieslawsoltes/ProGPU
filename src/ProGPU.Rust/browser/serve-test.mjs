@@ -18,6 +18,9 @@ const server=createServer(async (req,res)=>{
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const child=spawn(process.execPath,['src/ProGPU.Rust/browser/test.mjs'],{stdio:'inherit',env:{...process.env,
   PROGPU_RUST_BROWSER_URL:`http://127.0.0.1:${server.address().port}`}});
-const timeout=setTimeout(()=>child.kill('SIGTERM'),180000);
+const timeout=setTimeout(()=>{
+  console.error('Browser validation exceeded its 180-second deadline; the last stage is logged above.');
+  child.kill('SIGTERM');
+},180000);
 child.on('exit',(code)=>{clearTimeout(timeout);server.close();process.exitCode=code??1;});
 for(const signal of ['SIGINT','SIGTERM']) process.on(signal,()=>{child.kill(signal);server.close();});

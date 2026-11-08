@@ -27,9 +27,13 @@ try {
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
-    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('console', m => {
+      if (m.type() === 'error') errors.push(m.text());
+      if (m.type() === 'info' || m.type() === 'error') console.log(`[DPR ${dpr}] ${m.text()}`);
+    });
     await page.goto(process.env.PROGPU_RUST_BROWSER_URL ?? 'http://127.0.0.1:4174', { waitUntil: 'networkidle' });
     await page.evaluate(() => window.progpuReady);
+    console.log(`[DPR ${dpr}] browser renderer initialized`);
     await waitFor(() => page.evaluate(async () => {
       const app = await window.progpuReady;
       return app.exclusive(() => app.renderer.metrics().frames >= 4);
@@ -76,6 +80,7 @@ try {
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
         for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1], ...Array.from({length:13},(_,i)=>[1,i])]) {
+          console.info(`validating GPU pixels: dpi=${dpi} contrast=${contrast}`);
           const [cold, warm] = await r.validation_pixels(dpi, contrast);
           check(cold.length === 64*64*4 && warm.length === cold.length, 'readback extent');
           for (let i=0; i<cold.length; ++i) check(cold[i]===warm[i], `warm generation mismatch ${dpi}/${contrast}/${i}`);
