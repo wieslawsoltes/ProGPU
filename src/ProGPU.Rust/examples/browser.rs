@@ -649,6 +649,66 @@ mod web {
         result.extend([u32::from(composed.is_some()), composed.unwrap_or(0)]);
         Ok(result)
     }
+    /// Validate original OpenType common tables on the actual wasm32 boundary.
+    #[wasm_bindgen]
+    pub fn layout_table_query(
+        bytes: Vec<u8>,
+        kind: u8,
+        offset: u32,
+        glyph: u16,
+        set: u16,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{FontError, layout::*};
+        match kind {
+            0 => Ok(vec![
+                Coverage::parse(&bytes, offset as usize)
+                    .map_err(error)?
+                    .find(glyph)
+                    .map_or(u32::MAX, u32::from),
+            ]),
+            1 => Ok(vec![u32::from(
+                ClassDefinition::parse(&bytes, offset as usize)
+                    .map_err(error)?
+                    .get(glyph),
+            )]),
+            2 => {
+                let owned = OwnedLayoutTable::new(bytes).map_err(error)?;
+                let retained = owned.clone();
+                drop(owned);
+                let view = retained.view();
+                let lookup = view.lookup(glyph).map_err(error)?;
+                let mut result = vec![
+                    u32::from(view.lookup_count()),
+                    lookup.offset() as u32,
+                    u32::from(lookup.lookup_type()),
+                    u32::from(lookup.flags()),
+                    u32::from(lookup.mark_filtering_set()),
+                ];
+                for i in 0..lookup.subtable_count() {
+                    result.push(lookup.subtable_offset(i).map_err(error)? as u32);
+                }
+                Ok(result)
+            }
+            3 => {
+                let owned = OwnedGdef::new(bytes).map_err(error)?;
+                let retained = owned.clone();
+                drop(owned);
+                let view = retained.view();
+                Ok(vec![
+                    view.glyph_class(glyph) as u32,
+                    u32::from(view.mark_attachment_class(glyph)),
+                    u32::from(view.mark_set_count()),
+                    u32::from(view.is_in_mark_set(set, glyph)),
+                ])
+            }
+            _ => Err(error(FontError::InvalidArgument)),
+        }
+    }
+    /// Original explicit GDEF blocklist, independent of successful table parsing.
+    #[wasm_bindgen]
+    pub fn gdef_blocklisted(gdef: u32, gsub: u32, gpos: u32) -> bool {
+        progpu::font::layout::is_gdef_blocklisted(gdef as usize, gsub as usize, gpos as usize)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

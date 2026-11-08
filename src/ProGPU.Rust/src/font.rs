@@ -12,6 +12,7 @@ mod composite;
 pub mod gvar;
 mod horizontal;
 mod item_variation;
+pub mod layout;
 mod outline;
 mod variations;
 mod vertical;

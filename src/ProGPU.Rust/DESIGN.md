@@ -1906,3 +1906,88 @@ resource matches the original bytes exactly. Cleanup removes **507,610,844
 logical bytes** of package checks and duplicate benchmark builds, retaining
 compact receipts and active shared dependencies. Source/fixture harnesses also
 delete their temporary data; those unmeasured bytes are not counted here.
+
+
+## Original common OpenType layout and GDEF boundaries
+
+`font::layout` ports the two unchanged original native files
+`Shaping/progpu_native_open_type_layout.cpp` and
+`Shaping/progpu_native_open_type_gdef.cpp`. The actual managed
+`OpenTypeTextShaper.FindCoverage`, `GetGlyphClass` and `OpenTypeGdefPolicy`
+provide independent execution controls. The [OpenType common formats](https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2)
+and [GDEF specification](https://learn.microsoft.com/en-us/typography/opentype/spec/gdef)
+inform table organization and independently authored fixtures, without importing
+implementation code. The earlier cross-engine research still governs retained
+CPU shaping data, lazy initialization and separate GPU rasterization.
+
+Coverage format 1 admits sorted duplicate glyph IDs and returns the original
+inclusive binary-search midpoint, including its exact duplicate index. Format 2
+requires ordered disjoint ranges and contiguous coverage ordinals through 65535.
+Class definitions retain every raw class value; only GDEF interpretation maps
+values above Component to Unclassified. Whole inventory validation is O(N),
+coverage/range queries O(log N), dense class queries O(1), with O(1) extra storage.
+
+Common GSUB/GPOS headers retain versions 1.0/1.1, nonzero top-level list offsets,
+complete array extents and optional variation header extent. Individual lookup
+records remain lazy. Every declared subtable offset and the optional filtering
+set validate before a lookup is published. Unknown types and flags remain raw;
+absence of a mark-filtering set preserves the original 0xffff sentinel. Deeper
+script/feature records, feature selection, accelerators and execution are pending.
+
+GDEF admits original versions 1.0/1.2/1.3, independent optional class definitions
+and every mark-set coverage. AttachList/LigCaretList are outside the original API;
+the item store receives its original eight-byte extent check only. Missing mark
+sets return false. The exact 40-tuple blocklist stays an explicit independent
+policy, never an automatic parsing fallback. Initialization is linear in the
+complete class and mark coverage inventories; queries allocate nothing and do not
+repeat validation. All offsets are bounded safely on wasm32 as well as native.
+
+Owned wrappers retain either Arc table bytes or the exact selected SfntFace and
+its original table span. Views borrow their owner; private fields prevent forged
+unvalidated metadata. Clones preserve the original generation with O(1) shared
+ownership; no self-referential pointers, unsafe blocks, FFI or runtime reflection
+occur in the Rust library. The managed test alone uses reflection to bind actual
+private span delegates, since those source helpers have no public testing API.
+
+Local comparisons pass 23,597 native records / 6,415,296 queries / 31,360,632
+exact output bytes and 442 managed records / 5,374,312 queries / 21,497,576 bytes.
+Native controls include 20,000 deterministic mutations, every prefix of the
+fixture inventory, extreme offsets, all 65,536 glyph IDs, optional/undefined data,
+transactional lookup rejection and blocklist neighbors. Managed controls compile
+the actual original ProGPU.Text project and compare native-admitted inventories:
+its private helpers have weaker malformed-data admission, which is not relabeled
+as equivalent validation. Temporary outputs use isolated directories and retire
+automatically, including failures.
+
+The browser executes 26 new controls at each DPR, including wasm32 overflow,
+duplicate indices, malformed later records, raw flags, missing data, exact GDEF
+policy and owner-clone retirement. The unchanged original browser gate passes
+204,800 offscreen pixels, six canonical shaders, resize and both actual presented
+canvases. Local all-feature tests pass 60 with 32 explicit source/GPU controls
+ignored by that aggregate; both new differential controls run separately and pass.
+Native all-target and WASM strict Clippy pass. Fresh extracted native/WASM package
+validation is recorded in the compact receipt; this does not qualify full shaping.
+
+The baseline driver compiles original native methods with default -O2 settings
+and actual managed methods with default .NET settings. Eight workloads cover both
+coverage/class formats at 256 and 4096 records, each with 65,536 permuted glyph
+queries, five warmups and forty measured rounds. Validation, allocation and output
+hashing are outside the timer; all three implementations produce identical hashes.
+Managed delegate call overhead is inside its timer; no measured query allocation
+occurs. This is not a matched full-shaper or steady-state managed JIT measurement.
+The host was heavily loaded (89.38/35.94/22.46) with compiler processes present;
+these timings are diagnostic evidence only, not optimization qualification.
+
+At 4096 records, Rust/C++/C# p50 microseconds are respectively 3534.584/2716.958/
+4099.400 for coverage format 1; 3645.084/3595.583/4222.200 for coverage format 2;
+83.083/90.292/780.500 for dense classes; and 3660.375/4270.083/4143.200 for ranged
+classes. No optimization is claimed; repeat isolation and Instruments investigation
+remain required before drawing performance conclusions. The compact
+`perf/layout-baseline.json` records source/binary/input hashes and full percentiles.
+
+The earlier normalization commit's hosted Linux managed oracle fails at case
+129941, byte 1283146. The input is U+105C9, native/frozen NFD U+105D2 U+0307
+(three UTF-16 units), while that .NET runtime returned two units. Native comparison
+passed, and browser/Windows/GPU passed; macOS was cancelled. The exact runtime
+repertoire has not yet been isolated. The failure remains mandatory and visible;
+no runtime override, exclusion or shader/compiler change hides it.

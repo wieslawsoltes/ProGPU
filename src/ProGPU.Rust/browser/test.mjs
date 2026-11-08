@@ -289,6 +289,32 @@ try {
         for(const requested of [0,1,2])bidiCase([],requested,requested===1?1:0,[]);
         bidiCase([...Array(200).fill(0x202a),0x5d0,...Array(200).fill(0x202c)],0,0,[...Array(200).fill(0),125,...Array(200).fill(125)]);
         for(const source of [[0xd800],[0xdc00],[0x41,0xdbff,0x41]]){rejected=false;try{app.resolve_bidi_utf16(new Uint16Array(source),2);}catch{rejected=true;}check(rejected,'WASM owned bidi strict source rejection');bidiChecks++;}
+        let layoutChecks=0;
+        const otWords=(values)=>{const b=new Uint8Array(values.length*2),d=new DataView(b.buffer);values.forEach((v,i)=>d.setUint16(i*2,v));return b;};
+        const otCheck=(bytes,kind,offset,glyph,set,expected)=>{check(JSON.stringify([...app.layout_table_query(bytes,kind,offset,glyph,set)])===JSON.stringify(expected),'WASM original layout query');layoutChecks++;};
+        const otReject=(bytes,kind,offset=0,glyph=0)=>{let caught=false;try{app.layout_table_query(bytes,kind,offset,glyph,0);}catch{caught=true;}check(caught,'WASM original layout rejection');layoutChecks++;};
+        otCheck(otWords([1,4,10,10,10,10]),0,0,10,0,[1]);
+        otCheck(otWords([1,4,10,10,10,10]),0,0,9,0,[0xffffffff]);
+        otCheck(otWords([2,1,0,65535,0]),0,0,65535,0,[65535]);
+        otCheck(otWords([1,65534,2,4,65535]),1,0,65535,0,[65535]);
+        otCheck(otWords([2,2,10,14,65535,65535,65535,7]),1,0,65535,0,[7]);
+        for(const b of [otWords([1,2,10,9]),otWords([2,2,0,1,0,1,2,2]),otWords([2,2,0,1,0,2,3,1]),new Uint8Array()])otReject(b,0);
+        otReject(otWords([1,65535,2,1,2]),1);
+        otReject(otWords([1,1,0]),0,0xffffffff);
+        otReject(otWords([1,1,0]),1,0xfffffffe);
+        const otLayout=otWords([1,1,14,16,18,0,0,0,0,2,6,18,1,65535,2,12,14,42,65535,65535,2,12,14,42,0xbeef,0x1234]);
+        otCheck(otLayout,2,0,0,0,[2,24,1,65535,42,36,38]);
+        otCheck(otLayout,2,0,1,0,[2,36,65535,65535,42,48,50]);
+        otReject(otLayout,2,0,2);
+        const otBadLookup=otLayout.slice();new DataView(otBadLookup.buffer).setUint16(32,0);
+        otReject(otBadLookup,2,0,0);otCheck(otBadLookup,2,0,1,0,[2,36,65535,65535,42,48,50]);
+        const otGdef=otWords([1,3,18,65535,65535,36,52,0,0,1,10,6,0,1,2,3,4,5,2,2,10,14,65535,65535,65535,7,1,2,0,12,0,24,1,4,10,10,10,65535,2,1,0,65535,0]);
+        otCheck(otGdef,3,0,14,1,[4,65535,2,1]);otCheck(otGdef,3,0,15,0,[0,0,2,0]);
+        otCheck(otGdef,3,0,65535,0,[0,7,2,1]);otCheck(otGdef,3,0,10,65535,[0,65535,2,0]);
+        const otBadGdef=otGdef.slice();new DataView(otBadGdef.buffer).setUint32(60,0xffffffff);otReject(otBadGdef,3);
+        for(const minor of [1,4]){const b=otGdef.slice();new DataView(b.buffer).setUint16(2,minor);otReject(b,3);}
+        otReject(otGdef.subarray(0,otGdef.length-1),3);
+        check(app.gdef_blocklisted(442,2874,42038)&&!app.gdef_blocklisted(442,2874,42039),'WASM exact GDEF blocklist tuple');layoutChecks++;
         let normalizationChecks=0;
         const normalizationCase=(source,form,managed,records)=>{
           const result=app.normalize_utf16(new Uint16Array(source),form,managed);
@@ -465,7 +491,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

@@ -37,6 +37,7 @@ cargo test --locked --test line_break -- --ignored --nocapture
 python3 eng/progpu-test-rust-line-break-conformance.py
 cargo test --locked --test normalization -- --ignored --nocapture
 python3 eng/progpu-test-rust-normalization-conformance.py
+cargo test --locked --test layout -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -49,6 +50,7 @@ cargo run --release --locked --no-default-features --example bidi_benchmark -- m
 cargo run --release --locked --no-default-features --example grapheme_benchmark -- emoji clusters 2048
 python3 eng/progpu-benchmark-rust-line-break.py
 python3 eng/progpu-benchmark-rust-normalization.py
+python3 eng/progpu-benchmark-rust-layout.py
 ```
 
 The renderer accepts a device/queue pair and produces immutable prepared scenes.
@@ -136,6 +138,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Grapheme segmentation | Original Unicode 17 state and separate managed compatibility; immutable source clusters and allocation-free UTF-16 starts; 1,888,801 native controls, 89,921 managed controls and 766 official fixtures | Word boundaries, fallback/shaping/layout integration and retained interaction |
 | Line breaking | Original Unicode 17 and separate native EDIT selection profile; owned source, caller buffers and exact failure/tail behavior; 2,262,599 C++ cases, 1,688,365 C# controls, 19,338 official cases and fourteen browser checks per DPR | Word selection, width fitting, hyphenation, shaping/layout integration and text pixels |
 | Canonical normalization | Original validated shared plan; borrowed/owned views, stable ordering, composition and exact source/tail semantics; explicit managed input admission; 3,668,863 native and 2,227,607 managed controls, 400,680 Unicode checks and twenty browser controls per DPR | Managed shaping-specific grapheme/script policy, platform runtime repertoire and full text integration |
+| OpenType common tables and GDEF | Borrowed/owned coverage, classes, lazy lookup validation, GDEF classification/mark sets and exact independent blocklist; 6,415,296 native and 5,374,312 actual C# queries; 26 browser controls per DPR | Feature selection, lookup accelerators, GSUB/GPOS execution, shaping plans and full text integration |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -236,3 +239,16 @@ The native API admits U+FFFE; explicit `new_managed` / `normalize_managed_into`
 preserve the original managed canonical call's rejection. Both use the frozen
 ProGPU plan, with no promise to track arbitrary host/runtime Unicode versions.
 The managed shaper's grapheme and script exceptions remain separate integration.
+
+`font::layout` exposes validated borrowed views and immutable owned GSUB/GPOS
+and GDEF generations. `OwnedLayoutTable::from_face` and `OwnedGdef::from_face`
+retain the selected `SfntFace` without copying its table bytes. Lookups validate
+all declared subtable offsets on demand; their raw types/flags remain unchanged.
+GDEF blocklist policy is explicit and independent of parsing. These APIs provide
+shaping data boundaries; they do not yet apply substitutions or positioning.
+
+Hosted normalization checkpoint `672d632b9` passes Windows, browser and GPU;
+Linux's actual managed comparison fails at U+105C9, while its native comparison
+passes. The frozen resource decomposes that scalar to U+105D2 U+0307, whereas
+that runtime returned its original two UTF-16 units. macOS was cancelled. This
+runtime-repertoire gap remains open; no oracle, runtime default or gate is changed.
