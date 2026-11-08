@@ -62,7 +62,9 @@ jobs:
       - name: Strict WebAssembly lints
         run: cargo clippy --locked --target wasm32-unknown-unknown --features browser --example browser -- -D warnings
       - name: Real browser WebGPU pixels and presentation
-        run: eng/progpu-test-rust-browser.sh
+        env:
+          PROGPU_RUST_BROWSER_HEADED: '1'
+        run: xvfb-run -a eng/progpu-test-rust-browser.sh
       - uses: actions/upload-artifact@v6
         if: always()
         with:

@@ -454,10 +454,20 @@ native/managed gate changes follow from either result.
 
 The browser gate now decodes the actual compositor PNG and requires the canvas
 background, analytic rectangle/ellipse and computed curved path at both pixel
-densities. These checks pass on macOS; Linux presentation remains under
-investigation. `PROGPU_RUST_BROWSER_HEADED=1` permits the same gate to run in a
-visible browser or an explicitly supplied virtual display. Receipts record the
-actual headless mode, with no automatic fallback or skipped pixel assertions.
+densities. These checks pass on macOS. Running the same Linux Chromium binary
+and Vulkan/SwiftShader flags in headed mode under Xvfb also passes both DPRs,
+all 131,072 offscreen pixels, six shader modules, WASM outlines, resize and
+retained lifetime controls within the original deadline. Both presented PNGs
+were visually inspected. The sampled RGBA pixels at each DPR are background
+`6,9,15,255`, rectangle `33,77,197,255`, ellipse `45,77,197,255` and computed
+path `219,81,59,255`, identical to the macOS control.
+
+Linux CI therefore explicitly selects `PROGPU_RUST_BROWSER_HEADED=1` under
+Xvfb. This ARM64 result does not replace the separate hosted x64 lane, and
+headless Linux remains unqualified. Receipts record the actual headless mode,
+with no automatic fallback or skipped pixel assertions. Failed reruns remove
+stale prior success receipts/screenshots and write a failed receipt when the
+test catches an error. Neither the browser version nor shader options changed.
 
 Browser shader validation now also checks `get_compilation_info` for every module.
 The host retains its instance/adapter lifetime and records device loss explicitly;

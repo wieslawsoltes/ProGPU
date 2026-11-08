@@ -53,11 +53,11 @@ checks. Set `PROGPU_RUST_WASM_BINDGEN` to an isolated matching CLI executable if
 another version is already installed. Linux hosts also need Playwright's Chromium
 system libraries (`npx --yes playwright@1.62.1 install-deps chromium`). No missing
 adapter or shader failure is skipped. On Linux the harness explicitly enables
-Chromium Vulkan compositing with its SwiftShader driver. Linux offscreen checks
-pass, but canvas presentation is still under investigation; this configuration
-does not yet qualify Linux browser support. Device loss fails the run.
-`PROGPU_RUST_BROWSER_HEADED=1` selects a visible browser and requires a display
-(or an explicit `xvfb-run` on Linux); the receipt records this selection.
+Chromium Vulkan compositing with its SwiftShader driver. Linux CI runs a visible
+browser under Xvfb: `PROGPU_RUST_BROWSER_HEADED=1 xvfb-run -a eng/progpu-test-rust-browser.sh`.
+That configuration passes presentation on Ubuntu ARM64; headless Linux still
+produces a black canvas and is not qualified. The receipt records the actual
+mode and launch flags. Device loss fails the run, with no automatic fallback.
 
 The reusable site is in `artifacts/progpu-rust/browser`; serve that directory over
 localhost HTTP or HTTPS to explore it interactively. The desktop sample uses
