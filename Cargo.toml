@@ -16,6 +16,7 @@ path = "src/ProGPU.Rust/src/lib.rs"
 default = ["gpu"]
 gpu = ["dep:wgpu"]
 window = ["gpu", "dep:winit", "dep:pollster"]
+browser = ["gpu", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:web-sys"]
 
 [dependencies]
 bytemuck = { version = "1.24", features = ["derive"] }
@@ -23,6 +24,12 @@ thiserror = "2"
 wgpu = { version = "30.0.1", optional = true }
 winit = { version = "0.30.13", optional = true }
 pollster = { version = "0.4", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "=0.2.130", optional = true }
+wasm-bindgen-futures = { version = "0.4.80", optional = true }
+js-sys = { version = "0.3.107", optional = true }
+web-sys = { version = "0.3.107", features = ["HtmlCanvasElement"], optional = true }
 
 [dev-dependencies]
 naga = { version = "30.0.0", features = ["wgsl-in"] }
@@ -56,6 +63,12 @@ required-features = ["gpu"]
 name = "winit"
 path = "src/ProGPU.Rust/examples/winit.rs"
 required-features = ["window"]
+
+[[example]]
+name = "browser"
+path = "src/ProGPU.Rust/examples/browser.rs"
+crate-type = ["cdylib"]
+required-features = ["browser"]
 
 [[example]]
 name = "font_benchmark"

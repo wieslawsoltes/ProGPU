@@ -36,6 +36,43 @@ surfaces. Full device-loss recovery is still pending. GPU/reference tests are
 explicit opt-in tests so CPU-only consumers do not need a graphics adapter or C++
 compiler; both must run in the port qualification lanes.
 
+## Browser WebGPU
+
+From the source checkout:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
+eng/progpu-test-rust-browser.sh
+```
+
+The script builds the browser example, generates matching bindings, installs the
+pinned Playwright browser, serves an ephemeral loopback URL and runs real WebGPU
+checks. Set `PROGPU_RUST_WASM_BINDGEN` to an isolated matching CLI executable if
+another version is already installed. Linux hosts also need Playwright's Chromium
+system libraries (`npx --yes playwright@1.62.1 install-deps chromium`). No missing
+adapter or shader failure is skipped.
+
+The reusable site is in `artifacts/progpu-rust/browser`; serve that directory over
+localhost HTTP or HTTPS to explore it interactively. The desktop sample uses
+winit; the browser sample uses an HTML canvas and requestAnimationFrame with the
+same renderer and scene. It serializes asynchronous preparation, physical resize
+and tests so mutable WASM borrows cannot overlap. Readback is confined to the
+validation bridge; normal canvas replay performs one retained draw.
+
+The browser gate compiles all six canonical shader compositions and checks
+131,072 authored pixels across DPR 1 and 2, including three physical scene DPIs,
+all thirteen grayscale contrast values, cold/warm equality, later-generation
+retirement, resize, and zero-extent suspension/resume. PNGs and a compact actual
+adapter/result receipt are written under `artifacts/progpu-rust/browser-results`.
+Chromium software WebGPU is a reproducible additional gate; it does not establish
+hardware-browser, original source-font, or complete engine parity. Text/image
+shader compilation alone does not implement their pending host stacks.
+
+Builds and browser tools stay outside the distributable crate. Delete verified
+`target/package` extractions and obsolete test outputs when no longer needed;
+keep compact qualification receipts and reusable active dependencies.
+
 ## Port ledger
 
 | Domain | Implementation | Remaining qualification |
@@ -43,6 +80,7 @@ compiler; both must run in the port qualification lanes.
 | Shader composition | Compile-time canonical vector, path, glyph, binary glyph, text, image modules | Device pipeline and pixel tests for each host path |
 | Analytic geometry | Native layout and all three analytic shape expansions; 288 native differential cases | Broader managed/native corpus |
 | wgpu resources and rendering | Immutable mixed analytic/path scenes and per-generation atlas bindings; GPU pixels, owner-domain and replay lifetime controls | Cross-provider pixel corpus, device-loss recovery |
+| Browser sample and tests | WebAssembly canvas host sharing the winit scene; Chromium WebGPU shader, pixel, DPI/resize and retained replay gates | Additional browser/hardware matrix, device-loss recovery, complete stack |
 | winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal presentation smoke passes; Linux smoke passed for the preceding analytic sample | Mixed Linux/Windows runtime and interactive lifecycle controls |
 | Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
 | Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC selection, native metrics and cmap 4/12/13/14, original glyph data, standalone reconstruction; 2,518 native differential inputs | Containers, outlines, interpreter, variations, Unicode, shaping, layout and GPU text replay |
@@ -57,7 +95,8 @@ remain independent and mandatory.
 The new Rust CI runs CPU/shader validation and package verification on Linux,
 macOS and Windows. Linux additionally requires the native C++ oracle, Vulkan
 software-adapter pixels and Xvfb winit presentation; macOS also runs the C++
-oracle. These are additive gates. They do not qualify the existing pinned
+oracle. A separate Linux Chromium job requires the WebAssembly pixel and
+presentation harness. These are additive gates. They do not qualify the existing pinned
 wgpu-native/Dawn packages, Windows compiler patches, or original source adapters.
 
 ## Provenance

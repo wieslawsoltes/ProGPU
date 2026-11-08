@@ -22,6 +22,7 @@ on:
       - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
       - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml
+      - eng/progpu-test-rust-browser.sh
   push:
     branches: [main]
     paths:
@@ -30,12 +31,39 @@ on:
       - src/ProGPU.Rust/**
       - src/ProGPU.Backend/Shaders/**
       - .github/workflows/rust.yml
+      - eng/progpu-test-rust-browser.sh
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install Rust and matching WebAssembly bindings
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup override set 1.90.0
+          cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - name: Install Chromium system libraries
+        run: npx --yes playwright@1.62.1 install-deps chromium
+      - name: Strict WebAssembly lints
+        run: cargo clippy --locked --target wasm32-unknown-unknown --features browser --example browser -- -D warnings
+      - name: Real browser WebGPU pixels and presentation
+        run: eng/progpu-test-rust-browser.sh
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: rust-browser-results
+          path: artifacts/progpu-rust/browser-results
+          retention-days: 7
+
   portable:
     strategy:
       fail-fast: false

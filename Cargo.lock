@@ -1309,9 +1309,13 @@ name = "progpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "js-sys",
  "naga",
  "pollster",
  "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "wgpu",
  "winit",
 ]

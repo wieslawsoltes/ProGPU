@@ -335,3 +335,39 @@ discarded binaries and the old package extraction were removed after validation
 at the user's request to limit disk use. Reusable build dependencies and the
 active SDK remain available. No GPU/allocator optimization is claimed by this
 CPU-only change; complete rendering and platform gates remain mandatory.
+
+
+## Browser host and validation
+
+The browser host follows the original repository's native browser approach:
+`src/ProGPU.Native/browser/test.mjs` supplies the Playwright/Chromium/WebGPU gate
+pattern; the Rust host uses wasm-bindgen and an actual HTML canvas surface.
+`examples/support/sample_scene.rs` is shared verbatim with the winit host.
+No source shader, pixel arithmetic or native browser gate changes are needed.
+`wgpu::SurfaceTarget::Canvas`, asynchronous mapping callbacks and browser promises
+keep preparation/readback off blocking native polling paths. A serialized host
+queue prevents concurrent mutable Rust borrows while JavaScript awaits GPU work.
+Canvas CSS layout is independent of its physical backing size.
+
+The local Rust 1.90 / Chromium 151.0.7922.34 run reported BrowserWebGpu with a CPU
+adapter (ANGLE SwiftShader requested). At both DPR 1 and 2, all six modules
+compiled and 65,536 independently calculated authored pixels matched: three
+64×64 painter-order scenes at DPI 1/1.25/2 plus thirteen 64×64 explicit contrast
+frames. UNORM blend comparisons retain the native test tolerances (two levels
+for painter-order blending, one for contrast). Every warm image is byte-identical
+to its cold image after a later prepared generation retires, and after the
+replayed generation is dropped following submission. Canvas replay retains
+29,760 geometry bytes, 224 uniform bytes, three unique paths, a 1 MiB atlas and
+one draw; ten additional presentations leave these payload counts unchanged.
+Both viewport axes and physical DPI are checked after resize. Zero extents stop
+presentation and a subsequent valid frame resumes it. No GPU/page/console errors
+are accepted. The test explicitly awaits asynchronous predicates; treating a
+Promise as a truthy wait predicate is not a valid presentation gate.
+
+The full runner is `eng/progpu-test-rust-browser.sh`; only small PNGs and JSON
+receipts are retained by CI for seven days. Installed browser/tool dependencies
+remain reusable, with browser garbage collection disabled by this runner.
+Generated bindings, WASM, browser packages and package verification extractions
+are not source assets. This is current Rust-subset browser qualification only;
+full text, images, effects, source applications and native package gates remain
+independent work.
