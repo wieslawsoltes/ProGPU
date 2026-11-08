@@ -427,3 +427,32 @@ still required. Reproduce with `cargo run --release --locked --no-default-featur
 glyph and path translation units. Temporary oracle inputs/binaries clean up on
 both success and failure; the one-off benchmark binary is removed after recording
 these compact results. No new raw profiler traces are generated for this port.
+
+
+### Linux browser compositor and device-loss gate
+
+The first Linux x64 browser job reached initialization but then exceeded its
+original 180-second deadline. Ubuntu 24.04 ARM64 reproduced the failure. API and
+browser diagnostics located the cause: Chromium could not allocate a canvas
+shared-image backing for its WebGPU swap buffer, destroyed the device, and then
+rejected `popErrorScope` with `Instance dropped in popErrorScope`. The wgpu 30
+web backend converts a rejected scope promise to `None`; a successful-looking
+scope pop alone therefore does not establish shader compilation. Retaining the
+instance/adapter and driving animation frames continuously did not fix this
+host problem; the animation-loop experiment was discarded.
+
+The Linux test host explicitly enables Vulkan compositing, selects Chromium's
+SwiftShader Vulkan driver and disables native Vulkan surfaces for headless
+presentation. This follows the [Chrome headless WebGPU setup](https://developer.chrome.com/blog/supercharge-web-ai-testing)
+and [Chromium SwiftShader switches](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/gpu/swiftshader.md).
+The complete headless ARM64 suite then passed on the same Chromium 151 binary,
+within the unchanged deadline. No shader source, shader compiler option, pixel
+tolerance, provider or original native/managed gate changes. The x64 hosted CI
+must separately confirm this setup; ARM64 success is supplementary evidence.
+
+Browser shader validation now also checks `get_compilation_info` for every module.
+The host retains its instance/adapter lifetime and records device loss explicitly;
+lost devices reject subsequent draw/preparation instead of counting invalid
+presentations. Full device recreation remains pending. Receipts include actual
+platform, architecture, browser, adapter and launch flags. Detailed exploratory
+API interception and discarded host experiments are not production code.

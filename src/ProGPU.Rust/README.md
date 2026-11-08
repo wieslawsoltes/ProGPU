@@ -52,7 +52,9 @@ pinned Playwright browser, serves an ephemeral loopback URL and runs real WebGPU
 checks. Set `PROGPU_RUST_WASM_BINDGEN` to an isolated matching CLI executable if
 another version is already installed. Linux hosts also need Playwright's Chromium
 system libraries (`npx --yes playwright@1.62.1 install-deps chromium`). No missing
-adapter or shader failure is skipped.
+adapter or shader failure is skipped. On Linux the harness explicitly enables
+Chromium Vulkan compositing with its SwiftShader driver so canvas presentation
+shares a working software GPU host. Device loss fails the run.
 
 The reusable site is in `artifacts/progpu-rust/browser`; serve that directory over
 localhost HTTP or HTTPS to explore it interactively. The desktop sample uses
@@ -83,7 +85,7 @@ keep compact qualification receipts and reusable active dependencies.
 | Analytic geometry | Native layout and all three analytic shape expansions; 288 native differential cases | Broader managed/native corpus |
 | wgpu resources and rendering | Immutable mixed analytic/path scenes and per-generation atlas bindings; GPU pixels, owner-domain and replay lifetime controls | Cross-provider pixel corpus, device-loss recovery |
 | Browser sample and tests | WebAssembly canvas host sharing the winit scene; Chromium WebGPU shader, pixel, DPI/resize and retained replay gates | Additional browser/hardware matrix, device-loss recovery, complete stack |
-| winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal presentation smoke passes; Linux smoke passed for the preceding analytic sample | Mixed Linux/Windows runtime and interactive lifecycle controls |
+| winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal and Linux Vulkan/Xvfb presentation pass | Windows runtime and interactive lifecycle controls |
 | Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
 | Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC selection, native metrics and cmap 4/12/13/14, original glyph data, standalone reconstruction, owned simple TrueType outlines and exact contour paths; native differential controls | Containers, composite/CFF outlines, interpreter, variations, Unicode, shaping, layout and GPU text replay |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |

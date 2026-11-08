@@ -15,6 +15,10 @@ mod web {
         renderer::{Frame, PreparedScene, Renderer},
         scene::{PathDraw, PathSampling, Scene},
     };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::JsFuture;
     use web_sys::HtmlCanvasElement;
@@ -60,9 +64,9 @@ mod web {
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {
-        adapter_info: String,
         canvas: HtmlCanvasElement,
         device: wgpu::Device,
+        device_lost: Arc<AtomicBool>,
         queue: wgpu::Queue,
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
@@ -70,6 +74,10 @@ mod web {
         scene: Option<PreparedScene>,
         validation: Option<Renderer>,
         frames: u32,
+        // Retain the complete browser device-creation ownership chain until
+        // every child above has retired, including asynchronous validation.
+        adapter: wgpu::Adapter,
+        _instance: wgpu::Instance,
     }
 
     /// Create a real browser WebGPU renderer; missing adapters fail explicitly.
@@ -95,6 +103,12 @@ mod web {
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
             .map_err(error)?;
+        let device_lost = Arc::new(AtomicBool::new(false));
+        let loss_signal = device_lost.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            loss_signal.store(true, Ordering::Release);
+            web_sys::console::error_1(&format!("WebGPU device lost: {reason:?}: {message}").into());
+        });
         let mut config = surface
             .get_default_config(&adapter, width.max(1), height.max(1))
             .ok_or_else(|| error("no browser surface configuration"))?;
@@ -115,9 +129,9 @@ mod web {
             .await
             .map_err(error)?;
         let mut result = WebRenderer {
-            adapter_info: format!("{:?}", adapter.get_info()),
             canvas,
             device,
+            device_lost,
             queue,
             surface,
             config,
@@ -125,6 +139,8 @@ mod web {
             scene: None,
             validation: None,
             frames: 0,
+            adapter,
+            _instance: instance,
         };
         result.resize(width, height, dpi).await?;
         Ok(result)
@@ -132,12 +148,20 @@ mod web {
 
     #[wasm_bindgen]
     impl WebRenderer {
+        fn ensure_live(&self) -> Result<(), JsValue> {
+            if self.device_lost.load(Ordering::Acquire) {
+                Err(error("WebGPU device is lost"))
+            } else {
+                Ok(())
+            }
+        }
         /// Actual WebGPU adapter receipt; launch flags alone do not identify it.
         pub fn adapter_info(&self) -> String {
-            self.adapter_info.clone()
+            format!("{:?}", self.adapter.get_info())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
         pub async fn resize(&mut self, width: u32, height: u32, dpi: f32) -> Result<(), JsValue> {
+            self.ensure_live()?;
             if width == 0 || height == 0 {
                 self.scene = None;
                 return Ok(());
@@ -155,6 +179,7 @@ mod web {
                 )
                 .await
                 .map_err(error)?;
+            self.ensure_live()?;
             self.config.width = width;
             self.config.height = height;
             self.canvas.set_width(width);
@@ -165,6 +190,7 @@ mod web {
         }
         /// Present retained GPU resources without uploads, rasterization or readback.
         pub fn draw(&mut self) -> Result<bool, JsValue> {
+            self.ensure_live()?;
             let Some(scene) = self.scene.as_ref() else {
                 return Ok(false);
             };
@@ -222,10 +248,11 @@ mod web {
         }
         /// Validate all canonical shader compositions on this browser device.
         pub async fn validate_shaders(&self) -> Result<u32, JsValue> {
+            self.ensure_live()?;
             for &(name, source) in progpu::shaders::MODULES {
                 web_sys::console::info_1(&format!("validating canonical shader: {name}").into());
                 let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-                let _module = self
+                let module = self
                     .device
                     .create_shader_module(wgpu::ShaderModuleDescriptor {
                         label: Some(name),
@@ -233,6 +260,11 @@ mod web {
                     });
                 if let Some(problem) = scope.pop().await {
                     return Err(error(format!("{name}: {problem}")));
+                }
+                for message in module.get_compilation_info().await.messages {
+                    if message.message_type == wgpu::CompilationMessageType::Error {
+                        return Err(error(format!("{name}: {}", message.message)));
+                    }
                 }
                 web_sys::console::info_1(&format!("validated canonical shader: {name}").into());
             }
@@ -245,6 +277,7 @@ mod web {
             dpi: f32,
             contrast: i32,
         ) -> Result<Array, JsValue> {
+            self.ensure_live()?;
             if self.validation.is_none() {
                 self.validation = Some(
                     Renderer::new(&self.device, &self.queue, wgpu::TextureFormat::Rgba8Unorm)

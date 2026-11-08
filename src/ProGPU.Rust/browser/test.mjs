@@ -6,9 +6,14 @@ const tools = path.resolve(process.env.PROGPU_RUST_BROWSER_TOOLS ?? 'artifacts/p
 const { chromium } = createRequire(path.join(tools, 'package.json'))('playwright');
 const output = path.resolve(process.env.PROGPU_RUST_BROWSER_RESULTS ?? 'artifacts/progpu-rust/browser-results');
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true, channel: 'chromium', args: [
-  '--enable-unsafe-webgpu', '--use-angle=swiftshader', '--disable-webgpu-shader-disk-cache',
-] });
+const flags = ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--disable-webgpu-shader-disk-cache'];
+if (process.platform === 'linux') {
+  // WebGPU and the Linux canvas compositor must share the Vulkan software host.
+  // Adapter creation alone succeeds without this, but canvas presentation loses
+  // the device because Chromium cannot allocate its shared image backing.
+  flags.push('--enable-features=Vulkan', '--use-vulkan=swiftshader', '--disable-vulkan-surface');
+}
+const browser = await chromium.launch({ headless: true, channel: 'chromium', args: flags });
 const reports = [];
 // Playwright's waitForFunction treats a returned Promise as truthy. Await each
 // serialized WASM query explicitly so a false result cannot pass the gate.
@@ -153,7 +158,7 @@ try {
     reports.push({ dpr, ...report, resized: resized.metrics });
     await context.close();
   }
-  const receipt = { browser: browser.version(), flags: ['--enable-unsafe-webgpu', '--use-angle=swiftshader'], reports };
+  const receipt = { browser: browser.version(), platform: process.platform, architecture: process.arch, flags, reports };
   await writeFile(path.join(output,'results.json'),JSON.stringify(receipt,null,2)+'\n');
   console.log(JSON.stringify(receipt,null,2));
 } finally { await browser.close(); }
