@@ -300,7 +300,7 @@ fn extent(data: &[u8], offset: usize, length: usize) -> Result<(), FontError> {
         .map(|_| ())
         .ok_or(FontError::InvalidFace)
 }
-fn axis_scalar(coordinate: f32, start: f32, peak: f32, end: f32) -> f32 {
+pub(super) fn axis_scalar(coordinate: f32, start: f32, peak: f32, end: f32) -> f32 {
     if start > peak || peak > end || (start < 0.0 && end > 0.0 && peak != 0.0) || peak == 0.0 {
         return 1.0;
     }

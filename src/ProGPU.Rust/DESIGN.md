@@ -811,3 +811,61 @@ CFF2 oracle, Metal variable-path pixels and the full Chromium suite. The extract
 Temporary oracle files and verified package extractions are removed; compact
 receipts and active reusable dependencies remain. Hosted checks for the new
 commit are independent of these local results.
+
+## Original gvar metadata, packed runs and interpolation
+
+`font/gvar.rs` and `font/gvar/font.rs` port the original
+`progpu_native_gvar.cpp`, `progpu_native_gvar_packed.cpp`,
+`progpu_native_gvar_tuples.cpp` and `progpu_native_gvar_interpolate.cpp`.
+The table owner retains its exact selected SFNT generation. Missing gvar remains
+distinct from a malformed present table; original axis/glyph counts, encoded
+offset widths, shared tuples and selected glyph-offset checks are preserved.
+The port does not introduce a stricter version or unknown-flag policy. Entire
+tuple-header and declared-payload extents are checked before allocating owned
+descriptors and start/peak/end regions. Implicit regions retain original signed
+peaks, and raw tuple flags survive. Actual packed payload application is separate.
+
+Packed point/delta parsers validate complete requested runs before publishing
+borrowed views. Their exact-size iterators allocate nothing and preserve original
+prefix consumption, duplicate cumulative points, signed byte/word deltas and
+zero-run precedence. The single-zero all-points marker stays distinct from an
+encoded two-byte zero count. Caller-buffer copies validate capacity before any
+write and preserve unused output tails. Contour interpolation validates every
+capacity and contour endpoint before mutation, preserves untouched contours,
+uses original circular touched-point order and retains exact equal-position,
+clamping, signed-zero and nonfinite arithmetic branches. No hinting or raster
+policy is inferred. Tuple scalars retain the native shorter-coordinate behavior,
+which remains distinct from item-store coordinate-capacity rejection.
+
+The unchanged-native source-arithmetic oracle passes 186,770 inputs and
+10,907,644 exact bytes. Its packed/IUP portion covers 116,668 inputs: all first
+and run-control byte combinations, zero/byte/word encodings, maximum cumulative
+point runs, short capacities, output tails, all eight-point touched masks across
+all contour partitions, later-contour rejection and raw nonfinite/zero bits.
+The metadata portion adds all 65,536 tuple flag patterns, shared and embedded
+peaks, intermediate regions, both glyph-offset encodings, missing/truncated/
+mutated tables, empty glyph slots, ownership and scalar-coordinate truncation.
+Normal CPU tests independently check expected public values and transactional
+failure behavior. Linux/macOS CI requires the original-source oracle.
+
+The separate ARM64 Clang default-contraction control still fails at input 82,932
+in interpolation: native `0xbfed5a8b` versus Rust `0xbfed5a88`. Reproduce using
+`PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test --no-default-features --test gvar
+-- --ignored --nocapture`. The passing isolated source-arithmetic executable
+uses the established separate-operation policy; no native source/package/compiler
+default, shader, tolerance or original pixel gate was changed. Full numeric
+qualification remains open.
+
+The browser bridge adds eight gvar controls per DPR: original packed points,
+delta zero-run precedence, both empty/all-point encodings, interpolation,
+complete-contour rejection, exact tuple metadata and truncation rejection. All
+existing 180,224 authored pixels, CFF2 controls and actual presentation assertions
+remain mandatory. Full gvar payload accumulation, phantom metrics, varied
+composites/outline replay, hinting and the remaining text stack are still pending.
+
+Hosted CFF2 checkpoint `a2b44584e` passes Linux/Windows portable and Linux GPU
+lanes. Its browser lane passed both offscreen inventories but failed the final
+DPR-2 compositor assertion with transparent-black canvas pixels, followed by a
+device-loss message during teardown (run 42517720607, job 128844366798). This is
+an open presentation gate, not a successful browser qualification. Hosted macOS
+was cancelled before execution. Local passing controls remain separate.

@@ -20,6 +20,7 @@ cargo test --locked --test composite -- --ignored --nocapture
 cargo test --locked --test cff -- --ignored --nocapture
 cargo test --locked --test variations -- --ignored --nocapture
 cargo test --locked --test item_variation -- --ignored --nocapture
+cargo test --locked --test gvar -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -102,6 +103,7 @@ keep compact qualification receipts and reusable active dependencies.
 | Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC, native metrics and cmap 4/12/13/14, standalone reconstruction, simple/composite TrueType records and recursive unhinted paths; native source-arithmetic differential controls | Containers, interpreter, variations, Unicode, shaping, layout, GPU text and compiler-default native pixel qualification |
 | CFF outlines | Owned CFF1/CFF2 containers, encoded INDEX/FDSelect, private/global subroutines and bounded Type 2 execution; original CFF2 variation blends and source-owned closed paths | Full text integration, original provider/source pixels and broader variable-font corpus |
 | Font variation metadata | Allocation-free fvar/avar, item variation stores, encoded deltas and delta-index maps; original fixed/design and CFF2 selection contracts; native differential tests | Variable TrueType outlines and full compiler-default arithmetic qualification |
+| TrueType variation decoding | Owned gvar tables and tuple regions, packed point/delta iterators and transactional circular untouched-point interpolation; 186,770 native source-arithmetic cases | Tuple payload application, phantom metrics, composite/outline integration and compiler-default interpolation qualification |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |

@@ -182,6 +182,32 @@ try {
         rejected=false;
         try { app.decode_cff2_outline(cff2Font,0,new Int16Array()); } catch { rejected=true; }
         check(rejected,'WASM CFF2 missing coordinates rejection');
+        const sameValues=(actual,expected)=>actual.length===expected.length && actual.every((v,i)=>v===expected[i]);
+        check(sameValues(app.decode_variation_runs(new Uint8Array([3,2,1,0,7]),0,true),[5,0,1,1,8]),'WASM packed point duplicates');
+        check(sameValues(app.decode_variation_runs(new Uint8Array([0xc2]),3,false),[1,0,0,0,0]),'WASM packed zero-run precedence');
+        check(sameValues(app.decode_variation_runs(new Uint8Array([0]),0,true),[1,1]),'WASM all-point marker');
+        check(sameValues(app.decode_variation_runs(new Uint8Array([128,0]),0,true),[2,0]),'WASM explicit empty point set');
+        const ip=new Float32Array([0,0,10,5,20,10]),ix=new Float32Array([2,99,6]),iy=new Float32Array([4,98,8]),it=new Uint8Array([1,0,255]);
+        check(sameValues(app.interpolate_gvar_deltas(ip,new Uint16Array([2]),ix,iy,it),[2,4,6,4,6,8]),'WASM contour interpolation');
+        rejected=false;
+        try { app.interpolate_gvar_deltas(ip,new Uint16Array([1,0]),ix,iy,it); } catch { rejected=true; }
+        check(rejected,'WASM complete contour rejection');
+        const gf=new Uint8Array(176),gvarView=new DataView(gf.buffer);
+        gvarView.setUint32(0,0x10000);gvarView.setUint16(4,3);
+        [[0x67766172,60,54],[0x6d617870,114,6],[0x66766172,120,56]].forEach(([tag,off,len],i)=>{
+          gvarView.setUint32(12+i*16,tag);gvarView.setUint32(20+i*16,off);gvarView.setUint32(24+i*16,len);
+        });
+        gvarView.setUint32(60,0x10000);gvarView.setUint16(64,2);gvarView.setUint16(66,1);gvarView.setUint32(68,28);
+        gvarView.setUint16(72,1);gvarView.setUint16(74,1);gvarView.setUint32(76,32);gvarView.setUint32(84,22);
+        gvarView.setInt16(88,7153);gvarView.setInt16(90,-9973);gvarView.setUint16(92,1);gvarView.setUint16(94,20);
+        gvarView.setUint16(96,2);gvarView.setUint16(98,0xe000);
+        [7153,-9973,0,-16384,16384,0].forEach((v,i)=>gvarView.setInt16(100+i*2,v));gf.set([128,128],112);
+        gvarView.setUint16(118,1);gvarView.setUint16(124,16);gvarView.setUint16(128,2);gvarView.setUint16(130,20);
+        check(sameValues(app.decode_gvar_metadata(gf,0),[2,1,0,2,0xe000,0,-16384,7153,-9973,16384,0]),'WASM original gvar tuple metadata');
+        rejected=false;
+        try { app.decode_gvar_metadata(gf.slice(0,113),0); } catch { rejected=true; }
+        check(rejected,'WASM truncated gvar rejection');
+        const gvarChecks=8;
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
@@ -230,7 +256,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

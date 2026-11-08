@@ -9,6 +9,7 @@
 mod bytes;
 pub mod cff;
 mod composite;
+pub mod gvar;
 mod item_variation;
 mod outline;
 mod variations;

@@ -71,6 +71,10 @@ name = "item_variation"
 path = "src/ProGPU.Rust/tests/item_variation.rs"
 
 [[test]]
+name = "gvar"
+path = "src/ProGPU.Rust/tests/gvar.rs"
+
+[[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
 

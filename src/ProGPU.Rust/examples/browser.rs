@@ -154,6 +154,70 @@ mod web {
         )))
     }
 
+    /// Decode original packed variation records in the WASM runtime.
+    #[wasm_bindgen]
+    pub fn decode_variation_runs(
+        data: Vec<u8>,
+        count: u32,
+        points: bool,
+    ) -> Result<Int32Array, JsValue> {
+        use progpu::font::gvar::{PackedDeltas, PackedPoints};
+        let mut values = Vec::new();
+        if points {
+            let p = PackedPoints::parse(&data).map_err(error)?;
+            values.extend([p.bytes_consumed() as i32, i32::from(p.all_points())]);
+            values.extend(p.iter().map(|v| v as i32));
+        } else {
+            let d = PackedDeltas::parse(&data, count).map_err(error)?;
+            values.extend([d.bytes_consumed() as i32, 0]);
+            values.extend(d.iter().map(i32::from));
+        }
+        Ok(Int32Array::from(values.as_slice()))
+    }
+    /// Run the original circular contour interpolation using supplied buffers.
+    #[wasm_bindgen]
+    pub fn interpolate_gvar_deltas(
+        points: Vec<f32>,
+        ends: Vec<u16>,
+        mut x: Vec<f32>,
+        mut y: Vec<f32>,
+        touched: Vec<u8>,
+    ) -> Result<Float32Array, JsValue> {
+        if !points.len().is_multiple_of(2) {
+            return Err(error("incomplete point"));
+        }
+        let points: Vec<_> = points.chunks_exact(2).map(|p| [p[0], p[1]]).collect();
+        progpu::font::gvar::infer_untouched(&points, &ends, &mut x, &mut y, &touched)
+            .map_err(error)?;
+        x.extend(y);
+        Ok(Float32Array::from(x.as_slice()))
+    }
+    /// Decode original gvar tuple metadata, retaining its owner after face drop.
+    #[wasm_bindgen]
+    pub fn decode_gvar_metadata(data: Vec<u8>, glyph: u16) -> Result<Int32Array, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let font = face
+            .gvar()
+            .map_err(error)?
+            .ok_or_else(|| error("missing gvar"))?;
+        let tuples = font.tuple_headers(glyph).map_err(error)?;
+        drop(font);
+        drop(face);
+        let mut values = vec![
+            i32::from(tuples.source().header().axis_count),
+            tuples.headers().len() as i32,
+        ];
+        for h in tuples.headers() {
+            values.extend([
+                h.region_coordinate_offset as i32,
+                i32::from(h.serialized_data_size),
+                i32::from(h.flags),
+            ]);
+        }
+        values.extend(tuples.coordinates().iter().map(|v| i32::from(*v)));
+        Ok(Int32Array::from(values.as_slice()))
+    }
+
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {
