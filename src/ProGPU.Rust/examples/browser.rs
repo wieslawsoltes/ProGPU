@@ -137,6 +137,23 @@ mod web {
         Ok(Float32Array::from(values.as_slice()))
     }
 
+    /// Execute variable CFF2 paths while retaining the original font generation.
+    #[wasm_bindgen]
+    pub fn decode_cff2_outline(
+        data: Vec<u8>,
+        glyph: u32,
+        coordinates: Vec<i16>,
+    ) -> Result<Uint8Array, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let font = face.cff2(0).map_err(error)?;
+        let outline = font.outline(glyph, &coordinates).map_err(error)?;
+        drop(font);
+        drop(face);
+        Ok(Uint8Array::from(bytemuck::cast_slice::<_, u8>(
+            outline.segments(),
+        )))
+    }
+
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {
@@ -420,7 +437,9 @@ mod web {
 
     fn validation_scene(contrast: i32) -> Result<Scene, JsValue> {
         let points = [[4.25, 4.5], [20.75, 4.5], [20.75, 20.5], [4.25, 20.5]];
-        let path = if contrast == -2 {
+        let path = if contrast == -3 {
+            super::font_scene::cff2_rectangle().map_err(error)?
+        } else if contrast == -2 {
             super::font_scene::cff_rectangle().map_err(error)?
         } else {
             Path::new(
@@ -445,7 +464,7 @@ mod web {
                         .map_err(error)?,
                 })
                 .map_err(error)?;
-        } else if contrast == -1 || contrast == -2 {
+        } else if (-3..=-1).contains(&contrast) {
             scene
                 .draw_path(PathDraw {
                     path: path.clone(),

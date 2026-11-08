@@ -66,14 +66,19 @@ fn read_pixels(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Textu
 #[test]
 #[ignore = "requires a real GPU adapter; mandatory explicit GPU validation lane"]
 fn mixed_retained_scene_matches_painter_order_and_physical_samples() {
-    check_mixed_retained_scene(false);
+    check_mixed_retained_scene(0);
 }
 #[test]
 #[ignore = "requires a real GPU adapter; mandatory CFF-to-GPU pixel validation"]
 fn cff_outlines_render_through_retained_gpu_paths() {
-    check_mixed_retained_scene(true);
+    check_mixed_retained_scene(1);
 }
-fn check_mixed_retained_scene(cff: bool) {
+#[test]
+#[ignore = "requires a real GPU adapter; mandatory variable CFF2-to-GPU validation"]
+fn cff2_variable_outlines_render_through_retained_gpu_paths() {
+    check_mixed_retained_scene(2);
+}
+fn check_mixed_retained_scene(cff: u8) {
     use progpu::{
         geometry::Affine,
         path::{FillRule, Path, Segment},
@@ -94,7 +99,9 @@ fn check_mixed_retained_scene(cff: bool) {
             .unwrap();
         assert!(!renderer.path_pipeline_is_initialized());
         let points = [[4.25, 4.5], [20.75, 4.5], [20.75, 20.5], [4.25, 20.5]];
-        let path = if cff {
+        let path = if cff == 2 {
+            font_scene::cff2_rectangle().unwrap()
+        } else if cff == 1 {
             font_scene::cff_rectangle().unwrap()
         } else {
             Path::new(

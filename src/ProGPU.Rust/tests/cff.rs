@@ -5,6 +5,8 @@ use progpu::font::{
 };
 #[path = "support/cff_execution.rs"]
 mod execution;
+#[path = "support/cff2_execution.rs"]
+mod execution2;
 #[allow(dead_code)]
 #[path = "support/font_fixture.rs"]
 mod fixture;
@@ -295,6 +297,7 @@ fn corpus() -> Vec<Case> {
         cases.push(Case { mode, args, data });
     }
     cases.extend(execution::corpus());
+    cases.extend(execution2::corpus());
     cases
 }
 fn emit(out: &mut Vec<u8>, v: u32) {
@@ -334,6 +337,9 @@ fn top(out: &mut Vec<u8>, v: TopDictionary) {
     }
 }
 fn snapshot(c: &Case) -> Vec<u8> {
+    if c.mode == 9 {
+        return execution2::snapshot(c);
+    }
     if c.mode == 8 {
         return execution::snapshot(c);
     }
@@ -535,7 +541,10 @@ fn original_cff_containers_and_dictionary_bytes_match() {
         )));
     }
     assert!(cmd.arg("-o").arg(&exe).status().unwrap().success());
-    let cases = corpus();
+    let mut cases = corpus();
+    if std::env::var_os("PROGPU_RUST_CFF2_ONLY").is_some() {
+        cases.retain(|c| c.mode == 9);
+    }
     let mut input = Vec::new();
     let mut expected = Vec::new();
     let mut ends = Vec::new();

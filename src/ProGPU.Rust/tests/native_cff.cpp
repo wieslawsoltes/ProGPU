@@ -1,5 +1,6 @@
 // Original CFF containers and DICT readers, linked without source changes.
 #include "progpu_native_text.hpp"
+#include "../../ProGPU.Native/src/Text/progpu_native_cff_type2_internal.hpp"
 #include <bit>
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +47,21 @@ int main(){
    ok=a[0]?sfnt_cff_data::try_decode_outline(v,a[1],t,segments,written,&e):sfnt_cff_data::try_decode_outline(v,a[1],segments,written,&e);
    if(!ok||written!=segments.size())return 8;emit(written);
    if(std::fwrite(segments.data(),sizeof(progpu_native_path_segment),written,stdout)!=written)return 9;
+  }else if(mode==9){sfnt_font_view face{};ok=sfnt_font_view::try_create(b,0,face,&e);emit(static_cast<std::uint32_t>(e));if(!ok)continue;
+   sfnt_cff2_font_view v{};ok=face.try_get_cff2_font(a[0],v,&e);emit(static_cast<std::uint32_t>(e));if(!ok)continue;
+   emit(v.axis_count);emit(v.char_strings.count);emit(v.global_subroutines.count);emit(v.font_dictionaries.count);
+   sfnt_cff_index_view local{};std::uint16_t initial{};
+   ok=detail::try_get_cff2_glyph_private(v,a[1],local,initial,&e);emit(static_cast<std::uint32_t>(e));
+   if(ok){emit(initial);index_snapshot(local);}
+   std::vector<std::int16_t> coords(a[2]);if(coords.size()>0)coords[0]=static_cast<std::int16_t>(a[3]);if(coords.size()>1)coords[1]=static_cast<std::int16_t>(a[3]>>16);
+   sfnt_cff2_outline_requirements r{};ok=sfnt_cff_data::try_get_outline_requirements(v,a[1],coords,r,&e);
+   // Original oversized-charstring guard returns false with error::none.
+   // Rust's Result represents this rejection as InvalidGlyph; preserve the
+   // original success flag independently, without accepting the invalid program.
+   emit(ok);emit(static_cast<std::uint32_t>(!ok&&e==font_error::none?font_error::invalid_glyph:e));if(!ok)continue;
+   std::vector<progpu_native_path_segment> segments(r.path_segment_count);std::uint32_t written{};
+   if(!sfnt_cff_data::try_decode_outline(v,a[1],coords,segments,written,&e)||written!=segments.size())return 10;
+   emit(written);if(std::fwrite(segments.data(),sizeof(progpu_native_path_segment),written,stdout)!=written)return 11;
   }else return 6;
  }
  return std::ferror(stdin)?7:0;

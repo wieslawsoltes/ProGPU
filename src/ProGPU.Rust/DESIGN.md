@@ -741,3 +741,73 @@ variation check count to twelve per DPR without reducing any existing font,
 shader, 155,648-pixel or actual-presentation checks. CFF2 container/evaluation
 integration and variable TrueType outlines remain pending; these APIs alone do
 not implement variable-font rendering.
+
+## Owned CFF2 containers and variable Type 2 outlines
+
+`font/cff/font2.rs` ports the original `progpu_native_cff2.cpp`; the existing
+Rust Type 2 evaluator gains the original CFF2 branches from
+`progpu_native_cff_type2.cpp`, `progpu_native_cff_type2_operators.cpp` and
+`progpu_native_cff_outline.cpp`. No foreign font-engine source or native bridge
+is used. CFF1 and CFF2 retain distinct public owners and admission rules while
+sharing the original line/cubic writer and curve operators. The previously
+documented immutable source/instance separation remains: owned CFF2 outputs keep
+the source generation and the exact supplied normalized coordinate vector.
+
+Opening retains the exact 2.0/five-byte header, 32-bit INDEX inventories, global
+subroutine limit, optional expected glyph count, required FontDICT inventory,
+one-versus-multiple FDSelect rule, complete private-range validation, bounded
+variation store and every blend-region subtable. The original font matrix must
+agree with the selected head units per em. Selected private metadata separately
+retains first-operator vsindex, duplicate rejection, unknown-operator behavior,
+513 operands and local-subroutine limits. Opening does not eagerly reject an
+unselected private program that the original API defers to glyph selection.
+
+CFF2 execution retains implicit root/subroutine termination, forbidden explicit
+return/endchar, no CFF1 width consumption, the four admitted escaped flex
+operators, ten-level subroutine depth and the 513-operand/96-stem bounds.
+Variation selection occurs at most once before the first blend. At most 512
+selected region scalars are cached in each evaluation; blends retain source
+value/delta order, float scalar promotion, double accumulation and finite-result
+rejection. All output is preflighted before fallible allocation and immutable
+publication. The Rust `Result` maps the original oversized-charstring guard's
+false-with-error-none result to `InvalidGlyph`; the oracle records the original
+success flag independently and normalizes only that absent error code. It does
+not admit the rejected program or weaken output comparison.
+
+The combined unchanged-native oracle passes 198,745 CFF1/CFF2 inputs and
+15,992,461 exact bytes. The added CFF2 portion contributes 76,334 inputs and
+10,303,694 bytes, including all signed normalized coordinates, every regular and
+escaped operator byte with multiple stack lengths, blend sizes and region limits,
+vsindex ordering, multiple values/regions, private programs, local/global depth,
+bias limits, malformed containers, matrix admission and oversized charstrings.
+The targeted ARM64 Clang **default-compiler** CFF2 control also passes all of
+those added cases: `PROGPU_RUST_CFF2_ONLY=1 PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo
+test --no-default-features --test cff -- --ignored --nocapture`. This does not
+resolve the independently retained CFF1/composite/avar/item-store contraction
+gaps or qualify every real variable font. Ordinary CPU tests independently check
+source lifetime, coordinate ownership, blended values and admission boundaries.
+
+An authored variable CFF2 rectangle is evaluated at half peak and passed to the
+actual retained path compiler, atlas and renderer at three physical DPIs. The
+added Metal test checks original pixels, painter order and resource lifetime.
+The browser adds an independent original 96-byte blended outline and missing
+coordinate rejection, plus the same variable paths at three DPIs. This expands
+the full pixel inventory from 155,648 to 180,224 while preserving every prior
+font, shader, contrast, retirement, resize and actual-compositor check. The
+test's fixed count was updated after the first run correctly detected the larger
+inventory. No pixel tolerance or prior case was removed.
+
+Full text replay, source policies, broader font/provider/package qualification,
+variable TrueType outlines, CFF2 workload performance baselines and device-loss
+recovery remain pending. This change makes no performance-optimization claim;
+the borrowed CFF2 variation-store getter currently revalidates its immutable
+encoded inventory without allocation. Profile representative final workloads
+before changing that policy or claiming throughput improvements.
+
+Local validation passes strict all-target/all-feature and WASM Clippy, ordinary
+all-feature and CPU-only tests, the combined source oracle, the separate default
+CFF2 oracle, Metal variable-path pixels and the full Chromium suite. The extracted
+97-file package (about 1 MiB, 234.9 KiB compressed) builds for native and WASM.
+Temporary oracle files and verified package extractions are removed; compact
+receipts and active reusable dependencies remain. Hosted checks for the new
+commit are independent of these local results.

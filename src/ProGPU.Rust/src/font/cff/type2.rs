@@ -1,7 +1,7 @@
-//! Original bounded CFF1 Type 2 evaluator; no external font engine.
-use super::{Font, Index};
+//! Original bounded CFF1/CFF2 Type 2 evaluator; no external font engine.
+use super::{Font, Font2, Index};
 use crate::{
-    font::{FontError, bytes},
+    font::{FontError, ItemVariationStore, bytes},
     path::Segment,
 };
 
@@ -100,12 +100,150 @@ impl Font {
             width_seen: false,
             p: [0.0; 2],
             random: glyph.wrapping_add(1),
+            variation: None,
         };
         if !matches!(e.execute(program, 0, false), Some(Flow::End)) {
             return Err(FontError::InvalidGlyph);
         }
         e.writer.close().ok_or(FontError::InvalidGlyph)?;
         Ok(e.writer.count)
+    }
+}
+/// Owned CFF2 outline retaining the source and exact requested coordinates.
+#[derive(Clone, Debug)]
+pub struct Outline2 {
+    source: Font2,
+    glyph: u32,
+    coordinates: Vec<i16>,
+    segments: Vec<Segment>,
+}
+impl Outline2 {
+    /// Original selected CFF2 generation.
+    pub fn source(&self) -> &Font2 {
+        &self.source
+    }
+    /// Original charstring index.
+    pub fn glyph_index(&self) -> u32 {
+        self.glyph
+    }
+    /// Exact supplied normalized coordinates, including unused extra entries.
+    pub fn coordinates(&self) -> &[i16] {
+        &self.coordinates
+    }
+    /// Original closed line/cubic path records.
+    pub fn segments(&self) -> &[Segment] {
+        &self.segments
+    }
+}
+impl Font2 {
+    /// Measure a CFF2 outline with original F2DOT14 coordinates, without output allocation.
+    pub fn outline_segment_count(&self, glyph: u32, coordinates: &[i16]) -> Result<u32, FontError> {
+        self.evaluate(glyph, coordinates, None)
+    }
+    /// Execute and publish an owned unhinted CFF2 outline after complete preflight.
+    pub fn outline(&self, glyph: u32, coordinates: &[i16]) -> Result<Outline2, FontError> {
+        let count = self.evaluate(glyph, coordinates, None)?;
+        let mut segments = Vec::new();
+        segments
+            .try_reserve_exact(count as usize)
+            .map_err(|_| FontError::Capacity)?;
+        let mut owned_coordinates = Vec::new();
+        owned_coordinates
+            .try_reserve_exact(coordinates.len())
+            .map_err(|_| FontError::Capacity)?;
+        owned_coordinates.extend_from_slice(coordinates);
+        if self.evaluate(glyph, &owned_coordinates, Some((&mut segments, count)))? != count {
+            return Err(FontError::InvalidGlyph);
+        }
+        Ok(Outline2 {
+            source: self.clone(),
+            glyph,
+            coordinates: owned_coordinates,
+            segments,
+        })
+    }
+    fn evaluate(
+        &self,
+        glyph: u32,
+        coordinates: &[i16],
+        output: Option<(&mut Vec<Segment>, u32)>,
+    ) -> Result<u32, FontError> {
+        if glyph >= self.char_strings().len() {
+            return Err(FontError::InvalidArgument);
+        }
+        if coordinates.len() < usize::from(self.axis_count()) {
+            return Err(FontError::Capacity);
+        }
+        let program = self.char_strings().get(glyph)?;
+        if program.len() > 65535 {
+            return Err(FontError::InvalidGlyph);
+        }
+        let private = self.glyph_private(glyph)?;
+        let mut e = Evaluator {
+            writer: Writer {
+                output,
+                transform: None,
+                count: 0,
+                start: [0.0; 2],
+                current: [0.0; 2],
+                active: false,
+            },
+            global: self.global_subroutines(),
+            local: private.local_subroutines,
+            operands: [0.0; 513],
+            len: 0,
+            transient: [0.0; 32],
+            stems: 0,
+            width_seen: true,
+            p: [0.0; 2],
+            random: glyph.wrapping_add(1),
+            variation: Some(Variation {
+                store: self.variation_store(),
+                coordinates,
+                active: private.initial_vsindex,
+                vsindex_seen: false,
+                blend_seen: false,
+                scalars: [0.0; 512],
+                count: None,
+            }),
+        };
+        if !matches!(e.execute(program, 0, false), Some(Flow::End)) {
+            return Err(FontError::InvalidGlyph);
+        }
+        e.writer.close().ok_or(FontError::InvalidGlyph)?;
+        Ok(e.writer.count)
+    }
+}
+
+struct Variation<'a> {
+    store: Option<ItemVariationStore<'a>>,
+    coordinates: &'a [i16],
+    active: u16,
+    vsindex_seen: bool,
+    blend_seen: bool,
+    scalars: [f32; 512],
+    count: Option<usize>,
+}
+impl Variation<'_> {
+    fn ensure(&mut self) -> Option<usize> {
+        if let Some(count) = self.count {
+            return Some(count);
+        }
+        let store = self.store?;
+        if self.coordinates.len() < usize::from(store.axis_count()) {
+            return None;
+        }
+        let count = usize::from(store.blend_region_count(self.active).ok()?);
+        if count > self.scalars.len() {
+            return None;
+        }
+        for region in 0..count {
+            self.scalars[region] = store
+                .blend_region_scalar(self.coordinates, self.active, region as u16)
+                .ok()?;
+        }
+        self.count = Some(count);
+        Some(count)
     }
 }
 struct Writer<'a> {
@@ -216,6 +354,7 @@ struct Evaluator<'a, 'b> {
     width_seen: bool,
     p: [f64; 2],
     random: u32,
+    variation: Option<Variation<'a>>,
 }
 impl Evaluator<'_, '_> {
     fn push(&mut self, v: f64) -> Option<()> {
@@ -361,13 +500,16 @@ impl Evaluator<'_, '_> {
                         Flow::Return => {}
                     }
                 }
-                11 => return sub.then_some(Flow::Return),
+                11 => return (sub && self.variation.is_none()).then_some(Flow::Return),
                 12 => {
                     let escaped = *program.get(cursor)?;
                     cursor += 1;
                     self.escaped(escaped)?;
                 }
                 14 => {
+                    if self.variation.is_some() {
+                        return None;
+                    }
                     let expected = if self.len == 1 || self.len == 5 {
                         self.len - 1
                     } else {
@@ -376,6 +518,8 @@ impl Evaluator<'_, '_> {
                     self.width(expected)?;
                     return (self.len == 0).then_some(Flow::End);
                 }
+                15 => self.select_variation()?,
+                16 => self.blend_variation()?,
                 24 => {
                     if self.len < 8 || !(self.len - 2).is_multiple_of(6) {
                         return None;
@@ -403,7 +547,57 @@ impl Evaluator<'_, '_> {
                 _ => return None,
             }
         }
-        sub.then_some(Flow::Return)
+        if self.variation.is_some() && !sub {
+            Some(Flow::End)
+        } else {
+            sub.then_some(Flow::Return)
+        }
+    }
+    fn select_variation(&mut self) -> Option<()> {
+        let v = self.variation.as_mut()?;
+        if v.vsindex_seen || v.blend_seen || self.len != 1 {
+            return None;
+        }
+        let value = self.operands[0];
+        if value != value.trunc() || !(0.0..=65535.0).contains(&value) || v.store.is_none() {
+            return None;
+        }
+        self.len = 0;
+        v.active = value as u16;
+        v.count = None;
+        v.vsindex_seen = true;
+        v.ensure()?;
+        Some(())
+    }
+    fn blend_variation(&mut self) -> Option<()> {
+        if self.len == 0 {
+            return None;
+        }
+        let v = self.variation.as_mut()?;
+        let scalar_count = v.ensure()?;
+        let value = self.operands[self.len - 1];
+        let n = i32_value(value)?;
+        if n <= 0 || value != f64::from(n) {
+            return None;
+        }
+        let n = n as usize;
+        let consumed = n.checked_mul(scalar_count + 1)?.checked_add(1)?;
+        let start = self.len.checked_sub(consumed)?;
+        let deltas = start + n;
+        for i in 0..n {
+            let mut blended = self.operands[start + i];
+            for region in 0..scalar_count {
+                blended += self.operands[deltas + i * scalar_count + region]
+                    * f64::from(v.scalars[region]);
+            }
+            if !blended.is_finite() {
+                return None;
+            }
+            self.operands[start + i] = blended;
+        }
+        self.len = start + n;
+        v.blend_seen = true;
+        Some(())
     }
     fn parallel_curve(&mut self, horizontal: bool) -> Option<()> {
         if self.len < 4 {
@@ -453,6 +647,9 @@ impl Evaluator<'_, '_> {
         valid.then_some(())
     }
     fn escaped(&mut self, op: u8) -> Option<()> {
+        if self.variation.is_some() && !(34..=37).contains(&op) {
+            return None;
+        }
         match op {
             0 => self.len = 0,
             3 | 4 | 10 | 11 | 12 | 15 | 24 => {

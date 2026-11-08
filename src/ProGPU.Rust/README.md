@@ -71,7 +71,7 @@ and tests so mutable WASM borrows cannot overlap. Readback is confined to the
 validation bridge; normal canvas replay performs one retained draw.
 
 The browser gate compiles all six canonical shader compositions and checks
-155,648 authored pixels across DPR 1 and 2, including three physical scene DPIs,
+180,224 authored pixels across DPR 1 and 2, including three physical scene DPIs,
 all thirteen grayscale contrast values, cold/warm equality, later-generation
 retirement, resize, and zero-extent suspension/resume. It also requires actual
 compositor screenshot pixels for the background, analytic shapes and GPU paths;
@@ -80,7 +80,8 @@ adapter/result receipt are written under `artifacts/progpu-rust/browser-results`
 Chromium software WebGPU is a reproducible additional gate; it does not establish
 hardware-browser, original source-font, or complete engine parity. A WASM CPU control also verifies source-retained simple glyph points, instructions,
 exact quadratic/composite path bytes, CFF1 Type 2 closure and truncated-record
-rejection. CFF-derived paths also pass through retained GPU rendering at three
+rejection, CFF2 blended path bytes and variation metadata. CFF1 and variable
+CFF2 paths also pass through retained GPU rendering at three
 DPIs. Text/image shader
 compilation alone does not implement their pending host stacks.
 
@@ -99,8 +100,8 @@ keep compact qualification receipts and reusable active dependencies.
 | winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal and Linux Vulkan/Xvfb presentation pass | Windows runtime and interactive lifecycle controls |
 | Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
 | Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC, native metrics and cmap 4/12/13/14, standalone reconstruction, simple/composite TrueType records and recursive unhinted paths; native source-arithmetic differential controls | Containers, interpreter, variations, Unicode, shaping, layout, GPU text and compiler-default native pixel qualification |
-| CFF outlines | Owned CFF1 containers, encoded INDEX/FDSelect, private/global subroutines, bounded Type 2 execution and transformed closed paths; CFF2 INDEX/top metadata | CFF2 container/variation execution, complete text integration and original provider/source pixels |
-| Font variation metadata | Allocation-free fvar/avar, item variation stores, encoded deltas and delta-index maps; original fixed/design and CFF2 selection contracts; native differential tests | Variable outlines, CFF2 execution and compiler-default arithmetic qualification |
+| CFF outlines | Owned CFF1/CFF2 containers, encoded INDEX/FDSelect, private/global subroutines and bounded Type 2 execution; original CFF2 variation blends and source-owned closed paths | Full text integration, original provider/source pixels and broader variable-font corpus |
+| Font variation metadata | Allocation-free fvar/avar, item variation stores, encoded deltas and delta-index maps; original fixed/design and CFF2 selection contracts; native differential tests | Variable TrueType outlines and full compiler-default arithmetic qualification |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |

@@ -161,10 +161,31 @@ try {
         try { app.item_variation_values(itemStore.slice(0,-1),new Int16Array([4096])); } catch { rejected=true; }
         check(rejected,'WASM unselected item subtable truncation rejection');
         variationChecks+=2;
+        const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
+        cff2Table.set([2,0,5,0,19]);
+        [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
+        c2.setUint8(17,36);
+        cff2Table.set([0,0,0,1,1,1,10,139,139,21,239,159,140,16,139,5],28);
+        cff2Table.set([0,0,0,1,1,1,4,139,139,18],44);
+        cff2Table.set([0,30,0,1,0,0,0,12,0,1,0,0,0,22,0,1,0,1,0,0,32,0,64,0,0,0,0,0,0,1,0,0],54);
+        const cff2Font=new Uint8Array(60+86+54+36), c2f=new DataView(cff2Font.buffer);
+        c2f.setUint32(0,0x4f54544f);c2f.setUint16(4,3);
+        [[0x43464632,60,86],[0x68656164,146,54],[0x66766172,200,36]].forEach(([tag,off,len],i)=>{
+          c2f.setUint32(12+i*16,tag);c2f.setUint32(20+i*16,off);c2f.setUint32(24+i*16,len);
+        });
+        cff2Font.set(cff2Table,60);c2f.setUint16(164,1000);
+        c2f.setUint16(204,16);c2f.setUint16(208,1);c2f.setUint16(210,20);
+        const cff2Segments=app.decode_cff2_outline(cff2Font,0,new Int16Array([8192]));
+        const cff2Expected=new Uint8Array(96), c2e=new DataView(cff2Expected.buffer);
+        c2e.setFloat32(8,120,true);c2e.setFloat32(48,120,true);
+        check(cff2Segments.length===96 && cff2Segments.every((b,i)=>b===cff2Expected[i]),'WASM CFF2 original blended bytes');
+        rejected=false;
+        try { app.decode_cff2_outline(cff2Font,0,new Int16Array()); } catch { rejected=true; }
+        check(rejected,'WASM CFF2 missing coordinates rejection');
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
-        for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1],[1,-2],[1.25,-2],[2,-2], ...Array.from({length:13},(_,i)=>[1,i])]) {
+        for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1],[1,-2],[1.25,-2],[2,-2],[1,-3],[1.25,-3],[2,-3], ...Array.from({length:13},(_,i)=>[1,i])]) {
           console.info(`validating GPU pixels: dpi=${dpi} contrast=${contrast}`);
           const [cold, warm] = await r.validation_pixels(dpi, contrast);
           check(cold.length === 64*64*4 && warm.length === cold.length, 'readback extent');
@@ -209,13 +230,13 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);
     assert.equal(report.before.pathRasters, 3);
     assert.equal(report.before.geometryBytes, 29760);
-    assert.equal(report.checkedPixels, 77824);
+    assert.equal(report.checkedPixels, 90112);
     assert.deepEqual(report.errors, []);
     await page.setViewportSize({ width: 800, height: 600 });
     await waitFor(() => page.evaluate(async () => {

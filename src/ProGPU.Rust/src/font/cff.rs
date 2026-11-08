@@ -1,15 +1,18 @@
-//! Original CFF encoded data access and source-owned CFF1 faces.
+//! Original CFF encoded data access and source-owned CFF1/CFF2 faces.
 //! Container access and unhinted Type 2 execution retain independent validation.
 use super::{FontError, SfntFace, Span, Tag, bytes};
 mod dictionary;
 mod fd_select;
+mod font2;
 mod index;
 mod type2;
 pub use dictionary::{TopDictionary, TopDictionary2, read_number};
 pub use fd_select::FdSelect;
 use fd_select::SelectLayout;
+pub use font2::{Font2, GlyphPrivate2};
 pub use index::Index;
 use index::IndexLayout;
+pub use type2::Outline2;
 pub use type2::{Outline, OutlineTransform};
 
 /// Original CFF1 face retaining its selected SFNT generation and encoded indices.
