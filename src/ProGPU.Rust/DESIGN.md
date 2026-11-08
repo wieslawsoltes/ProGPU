@@ -371,3 +371,59 @@ Generated bindings, WASM, browser packages and package verification extractions
 are not source assets. This is current Rust-subset browser qualification only;
 full text, images, effects, source applications and native package gates remain
 independent work.
+
+
+## Original simple TrueType outlines
+
+`font/outline.rs` directly ports `progpu_native_true_type_glyph.cpp` and
+`progpu_native_true_type_path.cpp`. The existing owned face remains the source
+boundary: a decoded `SimpleGlyph` retains the exact face generation and borrows
+its original instruction bytes. An allocation-free whole-record inspection
+precedes fallible output allocation. All original expanded flag bits, signed
+coordinate accumulation, endpoint ordering, repeat counts and instruction lengths
+remain intact. The 16-bit endpoint inventory bounds coordinates to signed i32,
+including the 65,536-point extreme. Empty and composite record classification
+stays independent; this increment does not fabricate composite expansion.
+
+Contour lowering preserves original start selection, first/last off-curve
+midpoints, closure order, single-point no-segment behavior, complete optional
+position inventories and exact 48-byte line/quadratic records. It performs no
+hinting, flattening, source placement, winding repair or raster-policy inference.
+The cross-engine ownership/instance boundaries described above still apply;
+only original ProGPU code supplies implementation behavior.
+
+The unchanged original C++ decoder/writer matches 18,073 inputs and 10,407,780
+transcript bytes. The inventory includes every on/off pattern of lengths 1..8,
+all 256 raw flag values with compressed/expanded runs crossing contour bounds,
+truncations and mutations, the maximum original point count, the original font
+malformed corpus and every glyph in all ten authored fonts. Both original and
+explicit alternate positions produce exact path bytes. Default tests verify
+source retention after face retirement and atomic rejection. Chromium additionally
+executes the production WASM decoder against an independently authored three-point
+control: exact points, flags, endpoints, instructions and 96 quadratic-record
+bytes, with truncated-glyph rejection. The existing 131,072 browser pixel checks
+remain green; this CPU outline control is not complete browser text rendering.
+
+A matched Release CPU baseline allocates decoded point/contour/segment outputs
+for every simple glyph, then hashes every original point/flag and segment word.
+Both implementations use five warmups and forty measured rounds, excluding file
+I/O, face construction and initial glyph selection. C++ uses its unchanged
+caller-buffer API; Rust returns an owned generation. Apple M3 Pro / Rust 1.90,
+sequential local runs:
+
+| Input / implementation | Simple glyphs / points / segments | Round p50 / p95 / p99 µs | Checksum |
+| --- | --- | --- | --- |
+| Authored Scan-1 / Rust | 440 / 1815 / 1650 | 182.167 / 307.667 / 311.667 | 10113802853148328976 |
+| Authored Scan-1 / C++ | 440 / 1815 / 1650 | 171.583 / 188.584 / 213.667 | 10113802853148328976 |
+| Local Helvetica face 0 / Rust | 1246 / 34202 / 25309 | 904.875 / 1056.083 / 1159.875 | 13577311101863472582 |
+| Local Helvetica face 0 / C++ | 1246 / 34202 / 25309 | 966.834 / 1401.833 / 1591.833 | 13577311101863472582 |
+
+These are baseline observations, not optimization attribution or whole-stack
+performance parity. The owned and caller-buffer APIs differ in allocation and
+ownership bookkeeping. Composite, varied, hinted and shaped text workloads are
+still required. Reproduce with `cargo run --release --locked --no-default-features
+--example outline_benchmark -- FONT_PATH [FACE_INDEX]`; build
+`tests/native_outline_benchmark.cpp` with C++20/O3 and the unchanged SFNT, simple
+glyph and path translation units. Temporary oracle inputs/binaries clean up on
+both success and failure; the one-off benchmark binary is removed after recording
+these compact results. No new raw profiler traces are generated for this port.

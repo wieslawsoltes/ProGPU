@@ -1,4 +1,4 @@
-import init, { create_renderer } from './pkg/progpu.js';
+import init, { create_renderer, decode_simple_glyph } from './pkg/progpu.js';
 const canvas = document.querySelector('canvas');
 const status = document.querySelector('#status');
 const errors = [];
@@ -34,6 +34,6 @@ window.progpuReady = (async () => {
   }
   requestAnimationFrame(frame);
   window.addEventListener('pagehide', () => { stopped = true; });
-  return { renderer, exclusive, errors, dimensions };
+  return { renderer, exclusive, errors, dimensions, decode_simple_glyph };
 })();
 window.progpuReady.catch(e => { status.textContent = String(e); });

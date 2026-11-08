@@ -39,6 +39,39 @@ try {
       return app.exclusive(async () => {
         const r = app.renderer;
         const check = (condition, message) => { if (!condition) throw new Error(message); };
+        // Authored three-point contour: off/on/off, original signed deltas and
+        // instructions. Expected records are independent explicit native controls.
+        const head=new Uint8Array(54); new DataView(head.buffer).setInt16(50,1);
+        const maxp=new Uint8Array(6); new DataView(maxp.buffer).setUint16(4,1);
+        const glyf=new Uint8Array(31), gv=new DataView(glyf.buffer);
+        gv.setInt16(0,1); gv.setUint16(10,2); gv.setUint16(12,2);
+        glyf.set([0xb0,1,0,1,0],14);
+        for(let i=19;i<31;i+=2) gv.setInt16(i,-513);
+        const loca=new Uint8Array(8); new DataView(loca.buffer).setUint32(4,glyf.length);
+        const tables=[['head',head],['maxp',maxp],['loca',loca],['glyf',glyf]];
+        const font=new Uint8Array(200), fv=new DataView(font.buffer);
+        fv.setUint32(0,0x10000); fv.setUint16(4,tables.length);
+        let offset=12+tables.length*16;
+        for(let i=0;i<tables.length;++i) {
+          const [tag,bytes]=tables[i], record=12+i*16;
+          font.set(new TextEncoder().encode(tag),record);
+          fv.setUint32(record+8,offset); fv.setUint32(record+12,bytes.length);
+          font.set(bytes,offset); offset=(offset+bytes.length+3)&~3;
+        }
+        const decoded=app.decode_simple_glyph(font,0);
+        check(JSON.stringify([...decoded.points])===JSON.stringify([-513,-513,0,-1026,-1026,1,-1539,-1539,0]),'WASM original outline points');
+        check(JSON.stringify([...decoded.ends])==='[2]','WASM contour endpoints');
+        check(JSON.stringify([...decoded.instructions])==='[176,1]','WASM retained instructions');
+        const expectedSegments=new ArrayBuffer(96), sv=new DataView(expectedSegments);
+        for(let i=0;i<2;++i) {
+          const values=[-1026,-1026,i===0?-513:-1539,i===0?-513:-1539,-1026,-1026,0,0];
+          values.forEach((value,j)=>sv.setFloat32(i*48+j*4,value,true));
+          sv.setUint32(i*48+32,1,true);
+        }
+        check(decoded.segments.length===96 && decoded.segments.every((b,i)=>b===new Uint8Array(expectedSegments)[i]),'WASM exact quadratic path bytes');
+        let rejected=false;
+        try { app.decode_simple_glyph(font.slice(0,offset-4),0); } catch { rejected=true; }
+        check(rejected,'WASM truncated glyph rejection');
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
@@ -86,7 +119,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

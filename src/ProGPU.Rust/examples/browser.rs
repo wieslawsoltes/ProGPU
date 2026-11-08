@@ -8,7 +8,7 @@ mod sample;
 #[cfg(target_arch = "wasm32")]
 mod web {
     use super::sample;
-    use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
+    use js_sys::{Array, Int32Array, Object, Promise, Reflect, Uint8Array, Uint16Array};
     use progpu::{
         geometry::{Affine, AnalyticPrimitive},
         path::{FillRule, Path, Segment},
@@ -24,6 +24,37 @@ mod web {
     }
     fn field(object: &Object, name: &str, value: f64) -> Result<(), JsValue> {
         Reflect::set(object, &JsValue::from_str(name), &JsValue::from_f64(value)).map(|_| ())
+    }
+
+    /// Execute the production CPU font decoder in WASM, retaining its source
+    /// after the caller's face is dropped. Returns original point/segment bytes.
+    #[wasm_bindgen]
+    pub fn decode_simple_glyph(data: Vec<u8>, glyph_index: u16) -> Result<Object, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let glyph = face.simple_glyph(glyph_index).map_err(error)?;
+        drop(face);
+        let points: Vec<i32> = glyph
+            .points()
+            .iter()
+            .flat_map(|p| [p.x, p.y, i32::from(p.flags)])
+            .collect();
+        let segments = glyph.segments().map_err(error)?;
+        let result = Object::new();
+        for (key, value) in [
+            ("points", Int32Array::from(points.as_slice()).into()),
+            ("ends", Uint16Array::from(glyph.contour_end_points()).into()),
+            (
+                "instructions",
+                Uint8Array::from(glyph.instructions()).into(),
+            ),
+            (
+                "segments",
+                Uint8Array::from(bytemuck::cast_slice::<_, u8>(&segments)).into(),
+            ),
+        ] {
+            Reflect::set(&result, &JsValue::from_str(key), &value)?;
+        }
+        Ok(result)
     }
 
     /// Browser-owned device, canvas surface and immutable prepared generation.

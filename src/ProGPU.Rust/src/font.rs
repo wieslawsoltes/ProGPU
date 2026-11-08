@@ -1,11 +1,14 @@
 //! Immutable owned SFNT/TTC font faces, original metrics and character maps.
 //!
 //! Direct port of ProGPU's `progpu_native_sfnt.cpp` and standalone-font writer.
+//! Simple TrueType decoding preserves source topology and instruction bytes.
 //! No font discovery, shaping, hinting, rasterization or GPU work occurs here.
 //! Ordinary table lookup preserves the native last-valid-duplicate policy;
 //! specialized metadata APIs must independently apply their stricter contracts.
 
 mod bytes;
+mod outline;
+pub use outline::{GlyphKind, GlyphRequirements, OutlinePoint, SimpleGlyph};
 use std::sync::Arc;
 
 /// Exact big-endian four-byte OpenType tag, including spaces and arbitrary bytes.
@@ -22,7 +25,7 @@ impl Tag {
     }
 }
 
-/// Errors at font construction or standalone publication boundaries.
+/// Errors at font parsing, decoding or publication boundaries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 #[repr(u32)]
@@ -42,6 +45,9 @@ pub enum FontError {
     /// The complete declared directory does not fit its owner.
     #[error("truncated font directory")]
     TruncatedDirectory = 5,
+    /// Invalid or unavailable glyph record for the selected decoding route.
+    #[error("invalid font glyph")]
+    InvalidGlyph = 6,
     /// Output cannot be represented or allocated within the supported capacity.
     #[error("font capacity exceeded")]
     Capacity = 7,

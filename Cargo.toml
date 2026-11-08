@@ -51,6 +51,10 @@ name = "font"
 path = "src/ProGPU.Rust/tests/font.rs"
 
 [[test]]
+name = "outline"
+path = "src/ProGPU.Rust/tests/outline.rs"
+
+[[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
 
@@ -73,6 +77,10 @@ required-features = ["browser"]
 [[example]]
 name = "font_benchmark"
 path = "src/ProGPU.Rust/examples/font_benchmark.rs"
+
+[[example]]
+name = "outline_benchmark"
+path = "src/ProGPU.Rust/examples/outline_benchmark.rs"
 
 [[example]]
 name = "retained_benchmark"

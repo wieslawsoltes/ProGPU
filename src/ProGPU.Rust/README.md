@@ -15,6 +15,7 @@ cargo test --locked --test gpu_rendering -- --ignored --nocapture
 # Original C++ byte-level differential oracle (requires clang++ and checkout)
 cargo test --locked --test native_geometry -- --ignored --nocapture
 cargo test --locked --test font -- --ignored --nocapture
+cargo test --locked --test outline -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -66,8 +67,9 @@ all thirteen grayscale contrast values, cold/warm equality, later-generation
 retirement, resize, and zero-extent suspension/resume. PNGs and a compact actual
 adapter/result receipt are written under `artifacts/progpu-rust/browser-results`.
 Chromium software WebGPU is a reproducible additional gate; it does not establish
-hardware-browser, original source-font, or complete engine parity. Text/image
-shader compilation alone does not implement their pending host stacks.
+hardware-browser, original source-font, or complete engine parity. A WASM CPU control also verifies source-retained simple glyph points, instructions,
+exact quadratic path bytes and truncated-record rejection. Text/image shader
+compilation alone does not implement their pending host stacks.
 
 Builds and browser tools stay outside the distributable crate. Delete verified
 `target/package` extractions and obsolete test outputs when no longer needed;
@@ -83,7 +85,7 @@ keep compact qualification receipts and reusable active dependencies.
 | Browser sample and tests | WebAssembly canvas host sharing the winit scene; Chromium WebGPU shader, pixel, DPI/resize and retained replay gates | Additional browser/hardware matrix, device-loss recovery, complete stack |
 | winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal presentation smoke passes; Linux smoke passed for the preceding analytic sample | Mixed Linux/Windows runtime and interactive lifecycle controls |
 | Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
-| Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC selection, native metrics and cmap 4/12/13/14, original glyph data, standalone reconstruction; 2,518 native differential inputs | Containers, outlines, interpreter, variations, Unicode, shaping, layout and GPU text replay |
+| Fonts, Unicode, shaping, layout and text | Owned SFNT/TTC selection, native metrics and cmap 4/12/13/14, original glyph data, standalone reconstruction, owned simple TrueType outlines and exact contour paths; native differential controls | Containers, composite/CFF outlines, interpreter, variations, Unicode, shaping, layout and GPU text replay |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -124,3 +126,10 @@ and unsupported variation sequences retain distinct results. A cmap lookup is
 not shaping, and raw glyph bytes are not a hinted or rendered outline.
 Only original ProGPU implementation is ported; external crates remain normal
 Cargo dependencies with a committed lockfile.
+
+Simple TrueType records decode through `SfntFace::simple_glyph`. The returned
+immutable geometry owns the selected face, preserves full flags/instructions and
+lowers to original line/quadratic segments. `glyph_requirements` preflights without
+allocation. Single-point contours retain their points and emit no path segments;
+composite and empty records retain distinct classifications. This is unhinted
+design geometry, not shaped text or a source raster-policy implementation.
