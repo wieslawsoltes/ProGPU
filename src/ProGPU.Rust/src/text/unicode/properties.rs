@@ -59,8 +59,31 @@ pub fn decimal_digit_value(code_point: u32) -> Option<u8> {
     }
     None
 }
+// Compile-time projection of the exact original inventory. This is 128 bytes,
+// no lazy allocation/cache state or separate Unicode policy. The remaining
+// scalar domain retains the original binary search below.
+const ASCII_BIDI: [BidiClass; 128] = {
+    let mut classes = [BidiClass::LeftToRight; 128];
+    let mut point = 0;
+    while point < classes.len() {
+        let mut index = 0;
+        while index < data::BIDI_RANGES.len() {
+            let range = data::BIDI_RANGES[index];
+            if point as u64 >= range & MASK && point as u64 <= (range >> 21) & MASK {
+                classes[point] = BidiClass::from_data((range >> 42) as u32);
+                break;
+            }
+            index += 1;
+        }
+        point += 1;
+    }
+    classes
+};
 /// Original bidi property, independent of paragraph direction/level resolution.
 pub fn bidi_class(code_point: u32) -> BidiClass {
+    if code_point < 128 {
+        return ASCII_BIDI[code_point as usize];
+    }
     if !is_scalar(code_point) {
         return BidiClass::LeftToRight;
     }

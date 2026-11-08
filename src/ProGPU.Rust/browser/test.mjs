@@ -260,6 +260,24 @@ try {
         check(properties[0]===0x6b616e61 && properties[10]===0x6c616f20 && properties[21]===230,'WASM script aliases and combining class');unicodeChecks++;
         check(properties[35]===0x29 && properties[36]===0x28 && properties[37]===1 && properties[38]===0x29 && properties[39]===1 && properties[66]===0xfe35,'WASM original directional/bracket mappings');unicodeChecks++;
         check(properties[40]===defaultTag && properties[43]===29 && properties[44]===0xffffffff && properties[54]===2,'WASM invalid scalar category and mathematical decimal digit');unicodeChecks++;
+        let bidiChecks=0;
+        const bidiCase=(source,requested,paragraph,levels,indices=source.map((_,i)=>i),lengths=levels.map(()=>1))=>{
+          const result=app.resolve_bidi_utf16(new Uint16Array(source),requested);
+          const data=new DataView(result.levels.buffer,result.levels.byteOffset,result.levels.byteLength);
+          check(result.paragraph===paragraph && result.levels.length===levels.length*8 && JSON.stringify([...result.source])===JSON.stringify(source),'WASM owned bidi source/paragraph');
+          levels.forEach((level,i)=>check(data.getUint32(i*8,true)===indices[i] && data.getUint16(i*8+4,true)===lengths[i] && data.getInt8(i*8+6)===level && data.getUint8(i*8+7)===0,'WASM original bidi record'));
+          bidiChecks++;
+        };
+        const bidiMixed=[0x61,0x62,0x63,0x20,0x5d0,0x5d1,0x5d2];
+        bidiCase(bidiMixed,0,0,[0,0,0,0,1,1,1]);bidiCase(bidiMixed,1,1,[2,2,2,1,1,1,1]);bidiCase(bidiMixed,-128,0,[0,0,0,0,1,1,1]);
+        bidiCase([0x5d0,0x20,0xd83d,0xde00,0x20,0x61],2,1,[1,1,1,1,2],[0,1,2,4,5],[1,1,2,1,1]);
+        bidiCase([0x61,0x2067,0x5d0,0x31,0x2069,0x62],0,0,[0,0,1,2,0,0]);
+        bidiCase([0x28,0x5d0,0x5d1,0x29],0,0,[0,1,1,0]);
+        bidiCase([0x5d0,0x28,0x41,0x29,0x301],1,1,[1,1,2,1,1]);
+        bidiCase([0x202b,0x41,0x202c,0x20],0,0,[0,2,2,0]);
+        for(const requested of [0,1,2])bidiCase([],requested,requested===1?1:0,[]);
+        bidiCase([...Array(200).fill(0x202a),0x5d0,...Array(200).fill(0x202c)],0,0,[...Array(200).fill(0),125,...Array(200).fill(125)]);
+        for(const source of [[0xd800],[0xdc00],[0x41,0xdbff,0x41]]){rejected=false;try{app.resolve_bidi_utf16(new Uint16Array(source),2);}catch{rejected=true;}check(rejected,'WASM owned bidi strict source rejection');bidiChecks++;}
         const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
         cff2Table.set([2,0,5,0,19]);
         [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
@@ -370,7 +388,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

@@ -45,11 +45,14 @@ on:
       - src/ProGPU.Text.Shaping/ShapingContracts.cs
       - src/ProGPU.Text.Shaping/ShapingBuffer.cs
       - src/ProGPU.Native/src/Text/progpu_native_unicode.cpp
+      - src/ProGPU.Native/src/Text/Bidi/progpu_native_unicode_bidi.cpp
+      - src/ProGPU.Text/Bidi/Uax9Resolver.cs
       - src/ProGPU.Native/src/Text/progpu_native_unicode_data.generated.hpp
       - src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_category.cpp
       - src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_categories.generated.hpp
       - src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_directional.cpp
       - eng/progpu-generate-rust-unicode.py
+      - eng/progpu-test-rust-bidi-conformance.py
       - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
       - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml
@@ -143,6 +146,8 @@ jobs:
           cargo test --locked --test vertical -- --ignored --nocapture
           cargo test --locked --test simple_text -- --ignored --nocapture
           cargo test --locked --test unicode -- --ignored --nocapture
+          cargo test --locked --test bidi -- --ignored --nocapture
+          python3 eng/progpu-test-rust-bidi-conformance.py
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         env:

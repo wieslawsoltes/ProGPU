@@ -481,6 +481,29 @@ mod web {
     pub fn decode_unicode_utf16(data: Vec<u16>) -> Result<Object, JsValue> {
         unicode_records(progpu::text::unicode::DecodedText::from_utf16(data).map_err(error)?)
     }
+    /// Resolve original bidi levels while retaining strict UTF-16 source ownership.
+    #[wasm_bindgen]
+    pub fn resolve_bidi_utf16(data: Vec<u16>, requested: i8) -> Result<Object, JsValue> {
+        use progpu::text::unicode::{DecodedText, UnicodeSource, bidi::BidiParagraph};
+        let paragraph =
+            BidiParagraph::new(DecodedText::from_utf16(data).map_err(error)?, requested)
+                .map_err(error)?;
+        let result = Object::new();
+        field(&result, "paragraph", f64::from(paragraph.paragraph_level()))?;
+        Reflect::set(
+            &result,
+            &JsValue::from_str("levels"),
+            &Uint8Array::from(bytemuck::cast_slice::<_, u8>(paragraph.levels())),
+        )?;
+        if let UnicodeSource::Utf16(source) = paragraph.text().source() {
+            Reflect::set(
+                &result,
+                &JsValue::from_str("source"),
+                &Uint16Array::from(source.as_ref()),
+            )?;
+        }
+        Ok(result)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

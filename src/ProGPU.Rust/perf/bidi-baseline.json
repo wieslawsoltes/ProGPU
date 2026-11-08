@@ -1,0 +1,202 @@
+{
+  "date": "2026-11-08",
+  "method": "5 warmups, 40 serial measured rounds after compilation/tests; original bidi resolve + identical paragraph/level hash; decoded input, output and scratch allocated before timing",
+  "rust": "1.90.0 release",
+  "cpp": "Apple Clang 21.0.0 -std=c++20 -O2 -Wall -Wextra -Werror; original defaults",
+  "binaries": {
+    "target/release/examples/bidi_benchmark": "163f8582612c4e667075b01f1c0c6022b5d6046c2103ad90f3fd76c2664220e6",
+    "/tmp/progpu-rust-bidi-native-benchmark": "c91a1a18dcf553e6b7acd6a4e10970e0bed8db8772027dbe22e479405f49f83d"
+  },
+  "inputs": [
+    {
+      "kind": "ascii",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 1,
+      "utf16_le_sha256": "3231b19fd64d992b96df980b2d2a1ee3e09389cb98cd19532f8a6d9598a872e1",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 scratch_bytes=1008 checksum=3539131765198612986 round_us_p50=0.834 p95=0.875 p99=0.916",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=18 scalars=18 scratch_bytes=1008 checksum=3539131765198612986 round_us_p50=0.750 p95=1.542 p99=11.000",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 256,
+      "utf16_le_sha256": "f321ee6bcfb9c79c637ad027f815d19e699c7b20835e093fc474da1dd888c58a",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 scratch_bytes=258048 checksum=10723841258503652831 round_us_p50=95.000 p95=204.000 p99=217.333",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=4608 scalars=4608 scratch_bytes=258048 checksum=10723841258503652831 round_us_p50=89.166 p95=97.834 p99=261.584",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "ascii",
+      "pattern": "ProGPU sample 123 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "8e775c56d68b18e1b0809388508f0a8d67736ecfc485c0cdbbdaff7194f4a56a",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 scratch_bytes=2064384 checksum=1358226979519539167 round_us_p50=774.125 p95=1674.000 p99=1777.167",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=36864 scalars=36864 scratch_bytes=2064384 checksum=1358226979519539167 round_us_p50=714.333 p95=1602.959 p99=1669.709",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "pattern": "abc אבג (123) العربية Á 日本語 😀 ",
+      "repeats": 1,
+      "utf16_le_sha256": "e0827b2adff540ef474b9a1dc64a90d365656f50dad66aba31626f7ec0eb1b84",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=32 scalars=31 scratch_bytes=1732 checksum=10674663896369556153 round_us_p50=1.458 p95=1.541 p99=5.500",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=32 scalars=31 scratch_bytes=1732 checksum=10674663896369556153 round_us_p50=0.667 p95=0.709 p99=0.750",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "pattern": "abc אבג (123) العربية Á 日本語 😀 ",
+      "repeats": 256,
+      "utf16_le_sha256": "dd4410c637248579062c401377a725a5a598866363cf133b21aedada34cfbfe8",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=8192 scalars=7936 scratch_bytes=444416 checksum=8533037420204111839 round_us_p50=369.791 p95=381.291 p99=409.250",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=8192 scalars=7936 scratch_bytes=444416 checksum=8533037420204111839 round_us_p50=167.583 p95=364.875 p99=380.208",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "mixed",
+      "pattern": "abc אבג (123) العربية Á 日本語 😀 ",
+      "repeats": 2048,
+      "utf16_le_sha256": "eef8e96b1c3dc934da3e7b90e5cc92c3bf96faa04ff7157bbd5fe4ebd2780b2d",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=65536 scalars=63488 scratch_bytes=3555328 checksum=6545124452426561503 round_us_p50=2485.792 p95=3378.667 p99=3449.500",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=65536 scalars=63488 scratch_bytes=3555328 checksum=6545124452426561503 round_us_p50=1554.583 p95=3041.458 p99=3192.500",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "isolates",
+      "pattern": "A⁨אב ⁦abc (123)⁩ ד⁩ z ",
+      "repeats": 1,
+      "utf16_le_sha256": "ea340c3552442bd63ad69e1ab4a66f1f1c1e4406ba281d2aedb28717c8b7258a",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=22 scalars=22 scratch_bytes=1232 checksum=703537440000592893 round_us_p50=0.583 p95=0.584 p99=0.750",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=22 scalars=22 scratch_bytes=1232 checksum=703537440000592893 round_us_p50=1.083 p95=1.125 p99=1.166",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "isolates",
+      "pattern": "A⁨אב ⁦abc (123)⁩ ד⁩ z ",
+      "repeats": 256,
+      "utf16_le_sha256": "e31c9088ddd9b594956bf373f0fa97a918526d42a752f0ca5530a4ce892be557",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=5632 scalars=5632 scratch_bytes=315392 checksum=1641803790257095135 round_us_p50=266.875 p95=293.250 p99=333.666",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=5632 scalars=5632 scratch_bytes=315392 checksum=1641803790257095135 round_us_p50=130.625 p95=252.334 p99=311.125",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "kind": "isolates",
+      "pattern": "A⁨אב ⁦abc (123)⁩ ד⁩ z ",
+      "repeats": 2048,
+      "utf16_le_sha256": "c0cc86b825194c89c9923ed11224c38f81d2e0e7d8f7d48047beb09333ba2e86",
+      "runs": [
+        {
+          "binary": "target/release/examples/bidi_benchmark",
+          "exit": 0,
+          "output": "units=45056 scalars=45056 scratch_bytes=2523136 checksum=11828083453641975775 round_us_p50=1114.083 p95=2352.250 p99=2439.541",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-bidi-native-benchmark",
+          "exit": 0,
+          "output": "units=45056 scalars=45056 scratch_bytes=2523136 checksum=11828083453641975775 round_us_p50=1037.584 p95=2134.750 p99=2851.791",
+          "stderr": ""
+        }
+      ]
+    }
+  ],
+  "sources": {
+    "src/ProGPU.Rust/src/text/unicode/bidi.rs": "6322630213b52dbb7df51f7e3c31f2d06b729969be537df2d10464e5ad891b0b",
+    "src/ProGPU.Rust/src/text/unicode/bidi/resolve.rs": "6eb05025f21c37c1d6036f1a6e52c51db22e5152b2f364222e3d24d2bfa0735c",
+    "src/ProGPU.Rust/examples/bidi_benchmark.rs": "909d74857f7ec324bdab7ce9f128a6db9c9a00202818f8a4e3ff3bd7ec95c553",
+    "src/ProGPU.Rust/tests/native_bidi_benchmark.cpp": "9903aa47ecb71e3df264aaa28d51df19f344d535a03d04d8ee4a173b4df03058",
+    "src/ProGPU.Native/src/Text/Bidi/progpu_native_unicode_bidi.cpp": "14c06b89e6a42cc5823f0ff16f8b48ba419b1eebfa3d8a96e25601ae3e55db46",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode.cpp": "534f4879bdf4c0a8b77db3116e895a89c9eb780a7579387a91b04f7590f9889c",
+    "src/ProGPU.Rust/src/text/unicode/properties.rs": "3392800386db86f98a9f88ed04c25929d69177f8df498271b00ec560abf556f0"
+  },
+  "stage": "Initial pre-optimization baseline; repeated interleaved comparisons and final binary evidence are in bidi-time-profiler.json"
+}

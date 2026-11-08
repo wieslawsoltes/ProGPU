@@ -157,7 +157,7 @@ pub enum BidiClass {
     PopDirectionalIsolate = 22,
 }
 impl BidiClass {
-    pub(super) fn from_data(value: u32) -> Self {
+    pub(super) const fn from_data(value: u32) -> Self {
         const VALUES: &[BidiClass] = &[
             BidiClass::LeftToRight,
             BidiClass::RightToLeft,

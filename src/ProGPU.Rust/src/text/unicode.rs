@@ -1,9 +1,10 @@
 //! Original strict Unicode decoding, static properties and initial script runs.
 //! Property facts come from ProGPU's checked-in native projection of C# data,
 //! preserving the original generators' Unicode/.NET versions and provenance. This layer
-//! does not implement bidi resolution, normalization, shaping or paragraph layout.
+//! Bidi level resolution is separate from normalization, shaping and paragraph layout.
 use crate::font::Tag;
 use std::sync::Arc;
+pub mod bidi;
 mod data;
 mod properties;
 mod types;

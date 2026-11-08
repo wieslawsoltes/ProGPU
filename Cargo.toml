@@ -138,3 +138,15 @@ required-features = ["gpu"]
 [[example]]
 name = "unicode_benchmark"
 path = "src/ProGPU.Rust/examples/unicode_benchmark.rs"
+
+[[test]]
+name = "bidi"
+path = "src/ProGPU.Rust/tests/bidi.rs"
+
+[[example]]
+name = "bidi_levels_conformance"
+path = "src/ProGPU.Rust/examples/bidi_levels_conformance.rs"
+
+[[example]]
+name = "bidi_benchmark"
+path = "src/ProGPU.Rust/examples/bidi_benchmark.rs"

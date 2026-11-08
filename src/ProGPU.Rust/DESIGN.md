@@ -1406,3 +1406,133 @@ benchmark executables are removed after retaining compact receipts.
 This checkpoint removes 1,008,130,295 logical bytes of duplicate package/build and
 benchmark artifacts; active toolchains/browser dependencies and compact evidence
 remain. The archive has 141 files, approximately 1.5 MiB before compression.
+
+## Original bidi level resolution
+
+`text::unicode::bidi` ports the complete original
+`Bidi/progpu_native_unicode_bidi.cpp`, itself ProGPU's native port of
+`Bidi/Uax9Resolver.cs`. Its phases retain original isolate pairing, paragraph
+inference, explicit levels/overrides, isolating run construction, W1–W7, ordered
+N0 bracket resolution, N1/N2, I1/I2, L1 and retained formatting-control levels.
+The existing architecture research above keeps this result on the CPU, reusable
+and independent of GPU realization. The normative boundary is
+[UAX #9 revision 51](https://www.unicode.org/reports/tr9/tr9-51.html): logical
+levels, line reordering and glyph shaping/rendering are separate operations.
+No foreign resolver implementation is copied or invoked.
+
+The buffer API preflights all four scratch capacities and output capacity before
+mutation. It keeps exact source indices/lengths and untouched tails, and does not
+invent code-point/range/paragraph-request admission absent from the original.
+Requests zero/one select direction; every other signed byte invokes original
+inference. Fixed explicit and bracket stacks retain capacities 127 and 63;
+explicit levels retain the original 125 bound. Bracket overflow abandons N0 for
+that sequence without partial fixup; pairs remain sorted by opening position and
+canonical 2329/232A equivalence is retained. Scratch storage has N units, 4N
+indices, N runs and floor(N/2) pairs. Time retains the original O(N²) worst case
+for nested FSI/context searches; scratch is O(N), with no per-resolution heap
+allocation in the caller-buffer route.
+
+`BidiWorkspace` allocates reusable scratch separately and rejects oversize
+resolution without growing during a call. `BidiParagraph` owns the original
+`DecodedText` plus logical scalar levels. Its strict encoded-input policy stays
+separate from raw scalar resolution. The eight-byte output record retains its
+zero reserved byte. Native/C# scratch implementation types are represented with
+safe typed Rust records; no unsafe code, borrowed foreign resources or FFI shim
+is introduced.
+
+The exact source oracle exposed an int8 narrowing corner: raw admitted sequences
+whose isolates cross a paragraph separator can revisit levels during implicit
+resolution. A fixture with nested FSI/RLE, a separator and trailing controls
+requires original signed-byte wrapping. Explicit `wrapping_add` preserves C++
+and unchecked C# behavior in debug and Release instead of adding a new panic,
+clamp or rejection. This is raw source parity, not a claim about correct P1
+paragraph splitting; the higher-level paragraph/line stage remains required.
+
+**168,077 C++ controls / 257,616,416 exact bytes** pass with original compiler
+defaults. The comparison includes every output and scratch field/tail, all 23
+bidi-class triples in three directions, all ASCII pairs, every paired bracket,
+canonical bracket equivalents and NSMs, depths through 260, overflow/reset and
+unmatched controls, all signed-byte requests, all original source lengths,
+invalid raw scalar values, all independent capacity failures and seeded mixed
+sequences. **102,541 controls / 28,430,576 exact bytes** also match the actual
+original managed `Uax9Resolver`. Its own permissive UTF-16 decoder runs unchanged;
+raw native source ranges are qualified separately. Existing managed/native
+providers already supply this resolver and remain unchanged.
+
+Independent official Unicode 17 fixtures pass **91,707 character cases** and
+**770,241 bidi-type/direction cases** for resolved levels and, where specified,
+paragraph levels. `eng/progpu-test-rust-bidi-conformance.py` downloads only the
+versioned data into a disposable directory and checks SHA-256 before execution:
+
+| Official source | SHA-256 |
+| --- | --- |
+| [BidiCharacterTest.txt](https://www.unicode.org/Public/17.0.0/ucd/BidiCharacterTest.txt) | `a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488` |
+| [BidiTest.txt](https://www.unicode.org/Public/17.0.0/ucd/BidiTest.txt) | `888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620` |
+
+The runner checks every supplied level except fixture-defined X9 `x` slots. Those
+retained control slots have independent exact C++/C# coverage. It does not assert
+L2 visual-order fields or claim full bidi/text conformance. P1 splitting, line
+wrapping, cluster-preserving visual reordering, inline direction policies,
+normalization, grapheme/line breaking, shaping/layout and actual text pixels
+remain separate port work. Linux/macOS CI requires both source comparisons and
+the pinned independent level check; the distributable runner also accepts local
+fixture paths without requiring network access from the crate.
+
+Fifteen browser controls at each DPR verify exact source ownership and eight-byte
+records, explicit/inferred directions, mixed scripts, surrogate lengths, isolates,
+N0 brackets/NSMs, retained controls, deep embeddings, empty input and strict
+encoded-source rejection. All existing 204,800 offscreen pixels, canonical shader
+modules, resize, queue completion and actual canvas screenshots still pass after
+the final implementation change. Native/WASM strict lints, all-feature tests,
+complete Unicode property oracles and official level fixtures also pass.
+Unicode checkpoint `bbc5fdf25` passes hosted Linux/Windows, Vulkan/winit and browser
+run 42526865494; macOS was cancelled. The preceding `abc0be335`
+DPR 2 device-loss failure remains evidence of a hosted reliability gap and is not
+erased by a subsequent pass. New-head CI remains separate.
+
+### Bidi performance investigation
+
+The original buffer workload uses five warmups and forty measured rounds of
+resolution plus identical source-level hashing. UTF decoding, input allocation,
+output and scratch allocation precede timing. C++ uses Apple Clang 21.0.0
+`-std=c++20 -O2 -Wall -Wextra -Werror` with unchanged defaults; Rust uses 1.90.0
+Release. All nine workloads retain matching paragraph/level checksums and exact
+scratch extents. Initial results and variation are preserved in
+`perf/bidi-baseline.json`.
+
+Matched six-second Xcode Instruments Time Profiler recordings of the same mixed
+65,536-unit workload identified property search inside the resolver. Exported
+instruction samples map to the exact measured Release binaries: 806/4,792 samples
+before and 918/5,999 after fall in the remaining binary-lookup region (16.8% and
+15.3%). The traces also record E/P-core migration, so raw sample counts are not
+elapsed-time comparisons. A narrowed-slice search candidate gave inconsistent
+results across repeated interleaved runs and was rejected.
+
+The retained improvement is a **128-byte typed ASCII bidi table computed at
+compile time from the same frozen original packed inventory**. It adds no dynamic
+cache, allocation, initialization race or new Unicode policy. Non-ASCII lookup
+and all resolver rule ordering remain unchanged. Complete C++/C# property and
+bidi comparisons, official level conformance and browser tests were rerun after
+this change. Three interleaved before/after/C++ trials give these medians of the
+individual p50 measurements:
+
+| Input / units | Initial Rust µs | Final Rust µs | Original C++ µs |
+| --- | --- | --- | --- |
+| ASCII / 36,864 | 724.834 | 575.375 | 687.500 |
+| Mixed / 65,536 | 1407.125 | 1315.125 | 1300.083 |
+| Isolates / 45,056 | 1056.750 | 953.125 | 994.708 |
+
+These matched CPU workloads improve about 21%, 7% and 10% respectively; mixed
+Rust remains slightly slower than C++. They do not establish frame latency,
+allocator/GPU behavior, universal script performance or full-stack parity.
+`perf/bidi-time-profiler.json` preserves both exported profile summaries, exact
+binary/source hashes, all interleaved measurements and the rejected experiment.
+The final independent nine-workload receipt is `perf/bidi-final-baseline.json`.
+Temporary traces, exports, binaries and duplicate package trees are removed after
+retaining these compact receipts.
+
+Fresh extracted native all-feature/all-target and WASM browser package checks pass
+using independent empty target directories. The archive contains 152 files, about
+1.6 MiB before compression (391.8 KiB compressed). This checkpoint removes
+1,050,545,477 logical bytes of temporary trace/fixture/benchmark and
+duplicate package/build artifacts after preserving the compact evidence above.
