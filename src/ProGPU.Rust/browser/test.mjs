@@ -244,6 +244,22 @@ try {
           rejected=false;try{app.simple_font_advances(simpleText,simpleRun.clusters,simpleRun.glyphs,metrics,units,scales,false);}catch{rejected=true;}check(rejected,'WASM finite and overflow preflight');simpleTextChecks++;
         }
         rejected=false;try{app.simple_font_run(simpleFont,new Uint16Array(65537).fill(0x41),0,0);}catch{rejected=true;}check(rejected,'WASM complete simple run capacity boundary');simpleTextChecks++;
+        const unicode8=app.decode_unicode_utf8(new TextEncoder().encode('  A\u0301 ا😀'));
+        const unicode16=app.decode_unicode_utf16(new Uint16Array([0x20,0x20,0x41,0x301,0x20,0x627,0xd83d,0xde00]));
+        const records8=new Uint32Array(unicode8.scalars.buffer,unicode8.scalars.byteOffset,unicode8.scalars.byteLength/4);
+        const records16=new Uint32Array(unicode16.scalars.buffer,unicode16.scalars.byteOffset,unicode16.scalars.byteLength/4);
+        const latinTag=0x6c61746e,arabicTag=0x61726162,defaultTag=0x44464c54;
+        check(JSON.stringify([...records8])===JSON.stringify([0x20,0,1,defaultTag,0x20,1,1,defaultTag,0x41,2,1,latinTag,0x301,3,0x00e60002,defaultTag,0x20,5,1,defaultTag,0x627,6,2,arabicTag,0x1f600,8,4,defaultTag]),'WASM strict UTF-8 original scalar records');
+        check(JSON.stringify([...records16])===JSON.stringify([0x20,0,1,defaultTag,0x20,1,1,defaultTag,0x41,2,1,latinTag,0x301,3,0x00e60001,defaultTag,0x20,4,1,defaultTag,0x627,5,1,arabicTag,0x1f600,6,2,defaultTag]),'WASM strict UTF-16 source offsets');
+        check(JSON.stringify([...new Uint32Array(unicode8.runs.buffer,unicode8.runs.byteOffset,unicode8.runs.byteLength/4)])===JSON.stringify([0,5,0,6,latinTag,5,2,6,6,arabicTag]),'WASM original leading/trailing Common script attachment');
+        check(JSON.stringify([...new Uint32Array(unicode16.runs.buffer,unicode16.runs.byteOffset,unicode16.runs.byteLength/4)])===JSON.stringify([0,5,0,5,latinTag,5,2,5,3,arabicTag]),'WASM script run UTF-16 ranges');
+        let unicodeChecks=4;
+        for(const bytes of [[0x41,0xc0,0x80],[0x41,0xed,0xa0,0x80],[0xf4,0x90,0x80,0x80],[0xe2,0x82]]){rejected=false;try{app.decode_unicode_utf8(new Uint8Array(bytes));}catch{rejected=true;}check(rejected,'WASM invalid UTF-8 atomic rejection');unicodeChecks++;}
+        for(const words of [[0x41,0xd800],[0xdc00],[0xdbff,0x41]]){rejected=false;try{app.decode_unicode_utf16(new Uint16Array(words));}catch{rejected=true;}check(rejected,'WASM strict unpaired-surrogate rejection');unicodeChecks++;}
+        const properties=app.unicode_properties(new Uint32Array([0x3042,0xe81,0x301,0x28,0xd800,0x1d7d0,0xff08]));
+        check(properties[0]===0x6b616e61 && properties[10]===0x6c616f20 && properties[21]===230,'WASM script aliases and combining class');unicodeChecks++;
+        check(properties[35]===0x29 && properties[36]===0x28 && properties[37]===1 && properties[38]===0x29 && properties[39]===1 && properties[66]===0xfe35,'WASM original directional/bracket mappings');unicodeChecks++;
+        check(properties[40]===defaultTag && properties[43]===29 && properties[44]===0xffffffff && properties[54]===2,'WASM invalid scalar category and mathematical decimal digit');unicodeChecks++;
         const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
         cff2Table.set([2,0,5,0,19]);
         [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
@@ -354,7 +370,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

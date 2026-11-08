@@ -13,6 +13,7 @@ mod web {
     use super::sample;
     use js_sys::{
         Array, Float32Array, Int32Array, Object, Promise, Reflect, Uint8Array, Uint16Array,
+        Uint32Array,
     };
     use progpu::{
         geometry::{Affine, AnalyticPrimitive},
@@ -430,6 +431,55 @@ mod web {
             &Int32Array::from(advances.as_slice()),
         )?;
         Ok(result)
+    }
+    /// Original static Unicode properties as exact integer records.
+    #[wasm_bindgen]
+    pub fn unicode_properties(code_points: Vec<u32>) -> Uint32Array {
+        use progpu::text::unicode as u;
+        let values: Vec<_> = code_points
+            .into_iter()
+            .flat_map(|cp| {
+                let bracket = u::bidi_bracket(cp);
+                [
+                    u::script(cp).0,
+                    u32::from(u::canonical_combining_class(cp)),
+                    u::bidi_class(cp) as u32,
+                    u::general_category(cp) as u32,
+                    u::decimal_digit_value(cp).map_or(u32::MAX, u32::from),
+                    u::mirrored_code_point(cp),
+                    u::vertical_code_point(cp),
+                    u32::from(bracket.is_some()),
+                    bracket.map_or(0, |b| b.paired_code_point),
+                    bracket.map_or(0, |b| b.kind as u32),
+                ]
+            })
+            .collect();
+        Uint32Array::from(values.as_slice())
+    }
+    fn unicode_records(text: progpu::text::unicode::DecodedText) -> Result<Object, JsValue> {
+        let runs = text.script_runs().map_err(error)?;
+        let result = Object::new();
+        Reflect::set(
+            &result,
+            &JsValue::from_str("scalars"),
+            &Uint8Array::from(bytemuck::cast_slice::<_, u8>(text.scalars())),
+        )?;
+        Reflect::set(
+            &result,
+            &JsValue::from_str("runs"),
+            &Uint8Array::from(bytemuck::cast_slice::<_, u8>(&runs)),
+        )?;
+        Ok(result)
+    }
+    /// Execute strict source-owned UTF-8 decoding and original script itemization.
+    #[wasm_bindgen]
+    pub fn decode_unicode_utf8(data: Vec<u8>) -> Result<Object, JsValue> {
+        unicode_records(progpu::text::unicode::DecodedText::from_utf8(data).map_err(error)?)
+    }
+    /// Execute strict source-owned UTF-16, independently of simple-run decoding.
+    #[wasm_bindgen]
+    pub fn decode_unicode_utf16(data: Vec<u16>) -> Result<Object, JsValue> {
+        unicode_records(progpu::text::unicode::DecodedText::from_utf16(data).map_err(error)?)
     }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]

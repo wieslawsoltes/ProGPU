@@ -87,6 +87,10 @@ name = "simple_text"
 path = "src/ProGPU.Rust/tests/simple_text.rs"
 
 [[test]]
+name = "unicode"
+path = "src/ProGPU.Rust/tests/unicode.rs"
+
+[[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
 
@@ -130,3 +134,7 @@ path = "src/ProGPU.Rust/examples/simple_text_benchmark.rs"
 name = "retained_benchmark"
 path = "src/ProGPU.Rust/examples/retained_benchmark.rs"
 required-features = ["gpu"]
+
+[[example]]
+name = "unicode_benchmark"
+path = "src/ProGPU.Rust/examples/unicode_benchmark.rs"

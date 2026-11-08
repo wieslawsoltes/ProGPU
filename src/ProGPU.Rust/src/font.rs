@@ -29,7 +29,20 @@ pub use vertical::{
 };
 
 /// Exact big-endian four-byte OpenType tag, including spaces and arbitrary bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
 pub struct Tag(pub u32);
 impl Tag {
     /// Construct without Unicode conversion or normalization.

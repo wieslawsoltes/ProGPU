@@ -1310,3 +1310,99 @@ containing the new module. That attempt is not qualification evidence. Fresh
 native all-feature/all-target and WASM browser checks both pass; their complete
 build directories are removed afterward. Future local archive checks must avoid
 shared-target freshness assumptions with normalized archive mtimes.
+
+## Strict Unicode decoding, properties and initial script runs
+
+The Rust `text::unicode` module ports `progpu_native_unicode.cpp` and the original
+category/directional lookup sources. Strict UTF-8 and UTF-16 decoding uses Rust's
+checked standard-library iterators, retaining the original whole-input validation
+before capacity admission or writes. Invalid encodings leave the complete output
+unchanged. Source positions remain byte offsets for UTF-8 and code-unit offsets
+for UTF-16; supplementary scalars retain their original lengths. The independent
+simple-glyph API still accepts original unpaired surrogate code units.
+
+`UnicodeScalar` retains the original 16-byte layout and zero reserved byte;
+`ScriptRun` retains its 20-byte layout. Script itemization preserves leading
+Common/Inherited attachment to the first following resolved script, later
+attachment to the active script, arbitrary original raw tags, saturated source
+ends and zero-clamped reversed spans. It validates every code point before output
+mutation and does not fabricate cluster boundaries or additional tag/order rules.
+Buffer APIs allocate no scratch; `DecodedText` retains an immutable Arc source,
+its encoding kind and owned scalar generation. Runs can be produced separately.
+
+The generator projects only nine selected numeric inventories from the two
+checked-in native headers, retaining exact source hashes, dimensions and order.
+It validates range ordering, widths, tag references, category/CCC bounds, packed
+bidi fields and decimal-zero inventories. It makes no network request or Unicode
+version upgrade. Script/CCC/directional facts inherit the original managed
+generators' Unicode 17 provenance, including Unicode data sourced through
+HarfBuzz; categories/digits retain the independent original .NET 10 snapshot.
+These are property facts, not a copied shaping engine. No Indic/USE syllable
+machine or foreign algorithm is added to the Rust implementation.
+
+The unchanged C++ oracle passes **552,778 inputs / 137,213,300 exact bytes** under
+original compiler defaults. Coverage includes all Unicode values and invalid
+boundary values, every valid UTF-8/UTF-16 scalar, all two-byte input combinations,
+all single UTF-16 units, surrogate/continuation boundary combinations, malformed
+late sequences, error-before-capacity ordering, all source lengths, raw script
+patterns, saturated/reversed spans, untouched tails and reserved fields. Focused
+Rust tests check ownership, exact record layouts and atomic failure.
+
+An independent disposable .NET 10.0.403 control links the actual original
+`OpenTypeScriptResolver`, `UnicodeShapingProperties`, bidi data and required
+source dependencies. It compares **1,114,132 raw values / 40,108,752 exact bytes**
+for script, CCC, bidi class, category, mirrors, vertical forms and bracket
+presence/pair/kind. It does not substitute rewritten C# algorithms. Unused original
+syllable-machine dependencies compile to satisfy the unchanged helper, but are
+never called or ported. Decimal values retain their exhaustive C++ control.
+Both original implementations already supply these contracts; this milestone
+changes only the new Rust implementation and its test/build/documentation paths.
+
+Fourteen browser controls per DPR verify exact UTF records and script ranges,
+strict malformed input rejection, aliases, CCC, invalid scalar defaults and
+directional/bracket/digit metadata. The initial browser expectation incorrectly
+mapped ASCII '(' to FE35; the original table maps full-width FF08 and leaves ASCII
+unchanged. The corrected assertion explicitly checks both. Both local DPRs pass
+all 204,800 existing offscreen pixels, six shaders, resize, final queue completion
+and real canvas presentation. This property layer does not implement full shaping,
+normalization, bidi resolution, grapheme/line breaking or layout.
+
+Hosted simple-text checkpoint `abc0be335` passes Linux/Windows portable and
+Vulkan/winit controls; macOS was cancelled. Its browser run 42524949419 passes
+both offscreen inventories but loses the device at final DPR 2 capture with
+"A valid external Instance reference no longer exists." This is an open hosted
+presentation gate despite earlier successful hosted checkpoints and the current
+local browser pass. No shader, driver, compiler, assertion or timeout is changed
+to turn that failure into a pass.
+
+The matched Release baseline uses strict decoding, original script itemization
+and the same scalar/run checksum. Inputs and reusable output vectors are allocated
+before timing; five warmups precede forty rounds, measured serially after all
+compilation/tests finish. C++ uses original Apple Clang
+21.0.0 defaults, Rust uses 1.90.0 release. All twelve workloads have matching
+checksums. Representative 4,096-repeat workloads are:
+
+| Pattern / encoding / source units | Rust p50 / p95 / p99 µs | C++ p50 / p95 / p99 µs |
+| --- | --- | --- |
+| ASCII / UTF-8 / 73,728 | 1497.083 / 1537.416 / 1585.083 | 1514.334 / 1589.667 / 1635.541 |
+| ASCII / UTF-16 / 73,728 | 1514.833 / 1582.833 / 1589.458 | 1454.625 / 1488.083 / 1530.000 |
+| Mixed / UTF-8 / 159,744 | 2061.334 / 2094.500 / 2116.333 | 2104.042 / 2201.000 / 2255.917 |
+| Mixed / UTF-16 / 86,016 | 2061.250 / 2103.750 / 2135.125 | 1844.042 / 1905.000 / 1982.250 |
+
+Mixed input includes Latin, combining marks, Arabic, Japanese and supplementary
+scalars; it measures decoding and script classification, not language shaping.
+These are baseline observations, including slower UTF-16 medians. No optimization
+or full performance parity is claimed; Instruments profiling precedes further
+optimization. `perf/unicode-baseline.json` retains all twelve results and exact
+input/source/binary hashes. Native reproduction links `native_unicode_benchmark.cpp`
+and the unchanged `progpu_native_unicode.cpp` with `-std=c++20 -O2 -Wall -Wextra
+-Werror`; it accepts the same `ascii|mixed 8|16 REPEATS` arguments as Rust.
+
+Strict native/WASM Clippy, the all-feature test suite, all five Unicode tests
+(including both source oracles), deterministic data checks and fresh extracted
+native all-target/WASM browser package checks pass. Temporary source-control
+projects clean themselves. Verified duplicate package targets and temporary
+benchmark executables are removed after retaining compact receipts.
+This checkpoint removes 1,008,130,295 logical bytes of duplicate package/build and
+benchmark artifacts; active toolchains/browser dependencies and compact evidence
+remain. The archive has 141 files, approximately 1.5 MiB before compression.

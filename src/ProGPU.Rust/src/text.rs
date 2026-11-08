@@ -2,6 +2,7 @@
 //! they do not substitute for OpenType shaping, bidi or paragraph layout.
 
 mod simple;
+pub mod unicode;
 pub use simple::{
     SimpleAdvanceScale, SimpleGlyphMetrics, SimpleGlyphRun, SimpleGlyphRunRequirements,
     build_simple_glyph_run_into, fill_simple_glyph_advances, is_simple_formatting_control,
