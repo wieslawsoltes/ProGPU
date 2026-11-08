@@ -187,6 +187,38 @@ try {
         rejected=false;try {app.horizontal_font_metrics(metricsFont,0,new Int16Array(),true);}catch{rejected=true;}
         check(rejected,'WASM prepared HVAR coordinate capacity');
         const horizontalChecks=8;
+        // Neutral VVAR is strict and separate from static VORG origin policy.
+        const verticalHeader=new Uint8Array(36), vh=new DataView(verticalHeader.buffer);
+        vh.setUint16(34,1);
+        const verticalMetric=new Uint8Array([4,176,0,0]);
+        const verticalOrigin=new Uint8Array([0,1,0,0,3,132,0,0]); // 900, no records
+        const verticalMaxp=new Uint8Array([0,0,0,0,0,8]);
+        const vvar=new Uint8Array(73), vr=new DataView(vvar.buffer);
+        vr.setUint32(0,0x10000);vr.setUint32(4,24);vr.setUint32(8,68);vr.setUint32(12,68);vr.setUint32(20,68);
+        vvar.set(itemStore,24);vvar.set([0,0,0,1,0],68);
+        const verticalTables=[['maxp',verticalMaxp],['fvar',variableFont.slice(44,80)],['vhea',verticalHeader],['vmtx',verticalMetric],['VORG',verticalOrigin],['VVAR',vvar]];
+        const makeVertical=(tables)=>{
+          const bytes=new Uint8Array(12+tables.length*16+tables.reduce((n,[,v])=>n+v.length,0)),view=new DataView(bytes.buffer);
+          view.setUint32(0,0x10000);view.setUint16(4,tables.length);let at=12+tables.length*16;
+          tables.forEach(([tag,data],i)=>{bytes.set(new TextEncoder().encode(tag),12+i*16);view.setUint32(20+i*16,at);view.setUint32(24+i*16,data.length);bytes.set(data,at);at+=data.length;});
+          return bytes;
+        };
+        const verticalFont=makeVertical(verticalTables);
+        check(JSON.stringify([...app.vertical_font_metrics(verticalFont,7,metricsCoordinates)])==='[1200,1,900,1,1,1,50,50,0,50,1,0,1]','WASM owned VVAR deltas and independent static VORG');
+        check(JSON.stringify([...app.vertical_font_metrics(makeVertical(verticalTables.slice(0,-1)),7,metricsCoordinates)])==='[1200,1,900,1,0,0,0,0,0,0,0,0,0]','WASM absent VVAR remains distinct');
+        let verticalChecks=2;
+        for (const [bytes,glyph,coords] of [
+          [verticalFont,8,metricsCoordinates],
+          [verticalFont,0,new Int16Array()],
+          [verticalFont,0,new Int16Array([16385])],
+          [makeVertical([...verticalTables,['VVAR',vvar]]),0,metricsCoordinates],
+        ]) {rejected=false;try{app.vertical_font_metrics(bytes,glyph,coords);}catch{rejected=true;}check(rejected,'WASM strict VVAR request/directory rejection');verticalChecks++;}
+        for (const mutate of [
+          v=>v.setUint32(8,0), // implicit advance map lacks all eight rows
+          v=>v.setUint8(69,0x40), // reserved map format bits
+          v=>v.setUint8(68,1), // generic format one is not VVAR admission
+          v=>v.setInt16(48,16385), // region endpoint outside normalized range
+        ]) {const changed=vvar.slice();mutate(new DataView(changed.buffer));const tables=verticalTables.slice();tables[5]=['VVAR',changed];rejected=false;try{app.vertical_font_metrics(makeVertical(tables),0,metricsCoordinates);}catch{rejected=true;}check(rejected,'WASM whole VVAR validation');verticalChecks++;}
         const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
         cff2Table.set([2,0,5,0,19]);
         [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
@@ -297,7 +329,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

@@ -3,6 +3,7 @@
 
 use super::{FontError, bytes};
 mod owned;
+mod vertical;
 pub(super) use owned::{OwnedMap, OwnedStore};
 
 /// Validated borrowed item variation store. Private layout fields prevent

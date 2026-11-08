@@ -22,6 +22,7 @@ cargo test --locked --test variations -- --ignored --nocapture
 cargo test --locked --test item_variation -- --ignored --nocapture
 cargo test --locked --test gvar -- --ignored --nocapture
 cargo test --locked --test horizontal -- --ignored --nocapture
+cargo test --locked --test vertical -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -73,7 +74,7 @@ and tests so mutable WASM borrows cannot overlap. Readback is confined to the
 validation bridge; normal canvas replay performs one retained draw.
 
 The browser gate compiles all six canonical shader compositions and checks
-180,224 authored pixels across DPR 1 and 2, including three physical scene DPIs,
+204,800 authored pixels across DPR 1 and 2, including three physical scene DPIs,
 all thirteen grayscale contrast values, cold/warm equality, later-generation
 retirement, resize, and zero-extent suspension/resume. It also requires actual
 compositor screenshot pixels for the background, analytic shapes and GPU paths;
@@ -105,7 +106,8 @@ keep compact qualification receipts and reusable active dependencies.
 | CFF outlines | Owned CFF1/CFF2 containers, encoded INDEX/FDSelect, private/global subroutines and bounded Type 2 execution; original CFF2 variation blends and source-owned closed paths | Full text integration, original provider/source pixels and broader variable-font corpus |
 | Font variation metadata | Allocation-free fvar/avar, item variation stores, encoded deltas and delta-index maps; original fixed/design and CFF2 selection contracts; native differential tests | Full text/metrics integration and compiler-default arithmetic qualification |
 | TrueType variation decoding | Owned gvar tables/regions, packed iterators, circular IUP, complete payload preflight, simple-point accumulation, component offsets, horizontal phantom deltas and recursive varied outlines; 462,131 native source-arithmetic cases, twelve browser controls per DPR and three-DPI GPU varied paths | Vertical metrics integration and compiler-default arithmetic qualification |
-| Horizontal variable metrics | Legacy HVAR advances, independent strict LSB preparation, cached source-owned scalar/map generations, original base fallback and HVAR-over-gvar precedence; 205,966 native cases and eight browser controls per DPR | Vertical metrics/VVAR, full source placement and compiler-default arithmetic qualification |
+| Horizontal variable metrics | Legacy HVAR advances, independent strict LSB preparation, cached source-owned scalar/map generations, original base fallback and HVAR-over-gvar precedence; 205,966 native cases and eight browser controls per DPR | Full source placement and compiler-default arithmetic qualification |
+| Static vertical metrics and VVAR | Original vhea/vmtx/VORG and static glyf origin fallbacks; independent strict owned VVAR with complete preflight and atomic batches; native differential and ten browser controls per DPR | Source CFF/sideways integration, default arithmetic and full provider/package qualification |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -153,3 +155,13 @@ lowers to original line/quadratic segments. `glyph_requirements` preflights with
 allocation. Single-point contours retain their points and emit no path segments;
 composite and empty records retain distinct classifications. This is unhinted
 design geometry, not shaped text or a source raster-policy implementation.
+
+Static vertical APIs port `Text/Font/progpu_native_font_vertical_metrics.cpp`.
+Neutral VVAR instances port `Text/progpu_native_vvar.cpp` and reuse the original
+item-store arithmetic. They retain exact source/coordinate ownership, validate
+all raw VVAR directory records and mappings, and expose optional deltas separately
+from static origin selection. `VerticalMetricsInstance::variations_into` preserves
+the caller's tail and rejects the whole batch before writing. These APIs do not
+select CFF source control bounds or admit sideways rendering. A matched baseline
+is available with `cargo run --release --locked --no-default-features --example
+vertical_metrics_benchmark -- FONT_PATH FACE_INDEX NORMALIZED_COORDINATE`.

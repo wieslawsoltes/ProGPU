@@ -33,6 +33,8 @@ on:
       - src/ProGPU.Native/src/Text/progpu_native_gvar_payload_internal.hpp
       - src/ProGPU.Native/src/Text/progpu_native_hvar.cpp
       - src/ProGPU.Native/src/Text/Font/progpu_native_font_horizontal_metrics.cpp
+      - src/ProGPU.Native/src/Text/Font/progpu_native_font_vertical_metrics.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_vvar.cpp
       - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
       - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml
@@ -118,6 +120,7 @@ jobs:
           cargo test --locked --test item_variation -- --ignored --nocapture
           cargo test --locked --test gvar -- --ignored --nocapture
           cargo test --locked --test horizontal -- --ignored --nocapture
+          cargo test --locked --test vertical -- --ignored --nocapture
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         env:

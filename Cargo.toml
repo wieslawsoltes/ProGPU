@@ -79,6 +79,10 @@ name = "horizontal"
 path = "src/ProGPU.Rust/tests/horizontal.rs"
 
 [[test]]
+name = "vertical"
+path = "src/ProGPU.Rust/tests/vertical.rs"
+
+[[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
 
@@ -109,6 +113,10 @@ path = "src/ProGPU.Rust/examples/outline_benchmark.rs"
 [[example]]
 name = "metrics_benchmark"
 path = "src/ProGPU.Rust/examples/metrics_benchmark.rs"
+
+[[example]]
+name = "vertical_metrics_benchmark"
+path = "src/ProGPU.Rust/examples/vertical_metrics_benchmark.rs"
 
 [[example]]
 name = "retained_benchmark"

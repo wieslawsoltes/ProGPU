@@ -1,0 +1,63 @@
+{
+  "method": "5 warmups, 40 measured rounds, all glyphs; static height/origin + prepared VVAR deltas + hash; opening/preparation/I/O excluded",
+  "rust": "1.90.0 release",
+  "cpp": "Apple Clang 21.0.0 -std=c++20 -O2 -Wall -Wextra -Werror; original FP defaults",
+  "binaries": {
+    "target/release/examples/vertical_metrics_benchmark": "9cbb39e7018c0a014e2a25821e2dd29442b2c659bab88f008554a2321fe68d19",
+    "/tmp/progpu-rust-vertical-native-benchmark": "8d4a6c3ac4ac768f54b36ba0592b6d680a445943ee90203875091d858a592d42"
+  },
+  "inputs": [
+    {
+      "path": "/System/Library/Fonts/ADTNumeric.ttc",
+      "face": 0,
+      "coordinate": 8192,
+      "sha256": "0986b0390bd5059f0797c7a501acac9cc7448c1f4918d8646fe0ccd4ffd61081",
+      "runs": [
+        {
+          "binary": "target/release/examples/vertical_metrics_benchmark",
+          "exit": 0,
+          "output": "glyphs=311 axes=3 regions=24 vvar=true checksum=6560198863156398706 round_us_p50=25.833 p95=26.333 p99=27.666",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-vertical-native-benchmark",
+          "exit": 0,
+          "output": "glyphs=311 axes=3 regions=24 vvar=true checksum=6560198863156398706 round_us_p50=21.250 p95=21.417 p99=24.875",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "path": "/System/Library/Fonts/CJKSymbolsFallback.ttc",
+      "face": 0,
+      "coordinate": 8192,
+      "sha256": "f5da5a9233a7fcc6d05f663cfbb865785c9e7d14f3e4fffd559695c7e0edd9aa",
+      "runs": [
+        {
+          "binary": "target/release/examples/vertical_metrics_benchmark",
+          "exit": 0,
+          "output": "glyphs=1103 axes=2 regions=5 vvar=true checksum=576141269095100997 round_us_p50=102.291 p95=105.375 p99=114.125",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-vertical-native-benchmark",
+          "exit": 0,
+          "output": "glyphs=1103 axes=2 regions=5 vvar=true checksum=576141269095100997 round_us_p50=75.542 p95=131.083 p99=148.958",
+          "stderr": ""
+        }
+      ]
+    }
+  ],
+  "date": "2026-11-08",
+  "qualification": "Initial local baseline only; no optimization or full text/frame parity claim. Independent ARM64 default-contraction fixture fails.",
+  "source_sha256": {
+    "src/ProGPU.Native/src/Text/progpu_native_sfnt.cpp": "ec9484ebb72dacfb8053bea846692bbec1ed8bfb84e0c2d83c476b526864b8e6",
+    "src/ProGPU.Native/src/Text/progpu_native_font_variations.cpp": "02437c0ac86e039f7383e12c179ea714828b9ca402bf7ff545bb84ac21871978",
+    "src/ProGPU.Native/src/Text/progpu_native_item_variation_store.cpp": "d39dff08236107c156cfb42acda4d51a276a75afb9badca85d6bea16c592bde1",
+    "src/ProGPU.Native/src/Text/progpu_native_vvar.cpp": "e64ef47ed9afc87dec926bd45edde34a0c503c31de0f237c89faeeb227883433",
+    "src/ProGPU.Native/src/Text/Font/progpu_native_font_vertical_metrics.cpp": "ec3847ee5d147eb92d96ee01d58e828a2c0d7499ef8320de60008a18254fce73",
+    "src/ProGPU.Native/include/progpu_native_text.hpp": "3fe6431abed09f1f15e0ebfc5ee18687ba8fc0ed9a5d65e13ff582c1c3d5c0a7",
+    "src/ProGPU.Rust/tests/native_vertical_metrics_benchmark.cpp": "e91f3590c402bd389c15b4f013770197d06ae4770ac60b27e7537155bfd2fc34",
+    "src/ProGPU.Rust/examples/vertical_metrics_benchmark.rs": "2b69f9c8b0d0e5f83aadafe8e61abc47c3150e19013f41cfa775445fbd196d26"
+  }
+}

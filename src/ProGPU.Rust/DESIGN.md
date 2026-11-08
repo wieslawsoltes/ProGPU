@@ -1131,3 +1131,78 @@ close the independent compiler-default fixture difference or establish full
 text/frame performance parity. Run the Rust workload with
 `cargo run --locked --release --no-default-features --example metrics_benchmark
 -- FONT_PATH 0 8192`.
+
+## Static vertical metrics and independent VVAR
+
+This milestone ports the unchanged original
+`Text/Font/progpu_native_font_vertical_metrics.cpp` and
+`Text/progpu_native_vvar.cpp`. Static queries retain vhea/vmtx field values,
+repeated final advances, optional missing top bearings, original positive glyf
+header bounds and VORG's original binary search (including its existing malformed
+ordering/version behavior). Vertical origins keep VORG precedence, then actual
+bearing plus glyf maximum, then original horizontal-metric fallback with negative
+half values rounded down. Invalid glyph indices keep their separate original
+fallback. No outline reconstruction, hinted placement, CFF control-bound origin
+or automatic variation application is introduced.
+
+Neutral VVAR preparation is deliberately stricter than legacy HVAR. It requires
+exact normalized coordinate counts/ranges, validates original fvar admission,
+rejects every duplicate/out-of-range selected-face VVAR directory record, checks
+all region tuples and subtable region indices, and validates every encoded map
+entry before narrowing. Format-one maps, reserved format bits, empty explicit
+maps and invalid unused references reject. Null subtables and the original
+no-variation sentinel stay valid. Missing optional mappings differ from an
+explicit zero delta; an absent VVAR still requires a valid glyph inventory and
+normalized request. This does not change generic item-store or HVAR acceptance.
+
+`VerticalMetricsInstance` owns the exact selected face, original coordinates and
+private cached region scalars. Its public immutable views cannot substitute a
+foreign source or alter a prepared scalar. Rust's exclusive borrows prevent
+caller-buffer aliasing; `variations_into` retains the original complete dry pass,
+capacity/error order, unchanged destination on failure and untouched caller tail.
+The static origin API and neutral delta API remain separate. In particular,
+these results do not apply VVAR vOrg to CFF2 source placement or admit sideways
+source drawing; original provider/package/source-pixel gates remain required.
+
+The unchanged-native source-arithmetic oracle passes **338,184 inputs /
+108,080,984 exact bytes**. It covers every signed coordinate, all glyph indices,
+all signed ascent values with bounded/empty glyph origins, exact scalar/delta
+bits, atomic batch outputs/tails, raw map formats, null/sentinel references,
+complete truncation/mutation, strict malformed unused records, zero region offsets,
+collection face selection and original unsorted/duplicate/truncated VORG lookup.
+Three focused ownership/rollback/static-fallback tests also pass. The independent
+ARM64 compiler-default control fails at input **68,732**, native `0x40c5e44a`
+versus Rust `0x40c5e448` in a VVAR delta. Reproduce with
+`PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test --locked --no-default-features
+--test vertical -- --ignored --nocapture`. The ordinary isolated oracle uses its
+existing separate-operation policy; no native package/compiler default, shader,
+driver, output tolerance or original qualification gate was changed.
+
+Native and WASM strict Clippy, CPU/all-feature tests, extracted native and WASM
+package checks pass locally. Ten new browser controls per DPR validate retained
+VVAR values, independent static VORG, absent mappings/tables, strict request and
+raw-directory rejection, complete unused-region validation and batch prefix/tail.
+Both browser DPRs pass all **204,800** original offscreen pixels, six canonical
+shaders, queue completion, resize and actual canvas screenshot assertions. This
+is metadata validation plus existing rendered-path coverage, not vertical text
+rendering qualification. HVAR checkpoint `7c012a4a6` passes hosted Linux/Windows,
+Vulkan/winit and full browser lanes in run 42522247278; macOS remained queued at
+this milestone. New-head CI remains independent.
+
+Initial matched local workload: every glyph, static height/origin plus prepared
+neutral VVAR lookup and hashing; five warmups and forty timed rounds. Opening,
+I/O, preparation and Rust single/batch consistency checks precede timing. Rust
+1.90.0 release and unchanged Apple Clang 21.0.0 default contraction are used.
+
+| Selected local face 0 | Rust p50 / p95 / p99 µs | Original C++ p50 / p95 / p99 µs | Matching checksum |
+| --- | --- | --- | --- |
+| ADTNumeric, 311 glyphs, 3 axes / 24 regions | 25.833 / 26.333 / 27.666 | 21.250 / 21.417 / 24.875 | 6560198863156398706 |
+| CJKSymbolsFallback, 1,103 glyphs, 2 axes / 5 regions | 102.291 / 105.375 / 114.125 | 75.542 / 131.083 / 148.958 | 576141269095100997 |
+
+These are initial observations: Rust p50 is slower on both workloads. No
+optimization or full performance parity is claimed. Compact binary/input/source
+hashes and exact output receipts are retained in `perf/vertical-metrics-baseline.json`;
+the original local font files are not redistributed. Performance investigation
+must use Instruments before making an optimization claim. Temporary benchmark
+executables, inventory/results scratch and verified package extraction are removed
+once their compact evidence has been retained.

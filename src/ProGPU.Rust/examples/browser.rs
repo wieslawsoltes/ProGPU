@@ -302,6 +302,45 @@ mod web {
         ];
         Ok(Float32Array::from(values.as_slice()))
     }
+    /// Static vertical origins and independently prepared neutral VVAR deltas.
+    #[wasm_bindgen]
+    pub fn vertical_font_metrics(
+        data: Vec<u8>,
+        glyph: u16,
+        coordinates: Vec<i16>,
+    ) -> Result<Float32Array, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let height = face.design_advance_height(glyph);
+        let origin = face.design_vertical_origin_y(glyph);
+        let instance = face
+            .prepare_vertical_metrics_variation(&coordinates)
+            .map_err(error)?;
+        drop(face);
+        let delta = instance.variation(glyph).map_err(error)?;
+        let mut output = [progpu::font::VerticalMetricsVariation::default(); 2];
+        instance
+            .variations_into(&[glyph], &mut output)
+            .map_err(error)?;
+        if output[0] != delta || output[1] != progpu::font::VerticalMetricsVariation::default() {
+            return Err(error("vertical batch prefix/tail mismatch"));
+        }
+        let values = [
+            height.unwrap_or(0) as f32,
+            f32::from(height.is_some()),
+            origin.unwrap_or(0) as f32,
+            f32::from(origin.is_some()),
+            f32::from(delta.uses_vvar),
+            instance.region_scalars().len() as f32,
+            delta.advance_height,
+            delta.top_side_bearing.unwrap_or(0.0),
+            delta.bottom_side_bearing.unwrap_or(0.0),
+            delta.vertical_origin_y.unwrap_or(0.0),
+            f32::from(delta.top_side_bearing.is_some()),
+            f32::from(delta.bottom_side_bearing.is_some()),
+            f32::from(delta.vertical_origin_y.is_some()),
+        ];
+        Ok(Float32Array::from(values.as_slice()))
+    }
     /// Original direct advance boundary, including empty-request bypass.
     #[wasm_bindgen]
     pub fn design_font_advance(
