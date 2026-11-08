@@ -129,6 +129,7 @@ pub struct SfntFace {
     table_count: u16,
     metrics: [Span; 4], // head, hhea, hmtx, maxp
     cmap: [Span; 4],    // format 4, 12, 13, 14
+    cmap4_ordered: bool,
     symbol: bool,
 }
 
@@ -180,6 +181,7 @@ impl SfntFace {
             table_count,
             metrics: [Span::default(); 4],
             cmap: [Span::default(); 4],
+            cmap4_ordered: false,
             symbol: false,
         };
         for (i, tag) in [*b"head", *b"hhea", *b"hmtx", *b"maxp"]
@@ -191,6 +193,7 @@ impl SfntFace {
             }
         }
         result.select_cmap();
+        result.cmap4_ordered = format4_endpoints_are_ordered(result.cmap[0].get(&result.data));
         Ok(result)
     }
 
@@ -407,7 +410,7 @@ impl SfntFace {
                 return glyph;
             }
         }
-        lookup_format4(self.cmap[0].get(&self.data), code).unwrap_or(0)
+        lookup_format4(self.cmap[0].get(&self.data), code, self.cmap4_ordered).unwrap_or(0)
     }
     /// Original cmap 12/13/4 selection. `None` means no selected base cmap;
     /// `Some(0)` means unmapped. This does not perform shaping or font fallback.
@@ -588,7 +591,32 @@ fn lookup_groups(table: &[u8], code: u32, constant: bool) -> Option<u16> {
     Some(0)
 }
 
-fn lookup_format4(table: &[u8], code: u32) -> Option<u16> {
+// A one-time proof on the selected immutable subtable. Duplicate endpoints are
+// admitted: lower_bound must still select their first original source slot.
+fn format4_endpoints_are_ordered(table: &[u8]) -> bool {
+    let Some(count) = bytes::u16(table, 6).map(|n| usize::from(n / 2)) else {
+        return false;
+    };
+    // Short inventories retain the cheaper original sequential route. The
+    // search choice changes cost only, never admission or selected source slot.
+    if count < 16 {
+        return false;
+    }
+    let Some(ends) = bytes::bytes(table, 14, count * 2) else {
+        return false;
+    };
+    let mut previous = 0;
+    for end in ends.chunks_exact(2) {
+        let current = u16::from_be_bytes([end[0], end[1]]);
+        if current < previous {
+            return false;
+        }
+        previous = current;
+    }
+    true
+}
+
+fn lookup_format4(table: &[u8], code: u32, ordered: bool) -> Option<u16> {
     let code = u16::try_from(code).ok()?;
     bytes::bytes(table, 0, 14)?;
     let count = usize::from(bytes::u16(table, 6)? / 2);
@@ -600,8 +628,22 @@ fn lookup_format4(table: &[u8], code: u32) -> Option<u16> {
     let range = delta + count * 2;
     bytes::bytes(table, range, count * 2)?;
     let mut index = 0;
-    while index < count && bytes::u16(table, 14 + index * 2)? < code {
-        index += 1;
+    if ordered {
+        let mut high = count;
+        while index < high {
+            let middle = index + (high - index) / 2;
+            if bytes::u16(table, 14 + middle * 2)? < code {
+                index = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+    } else {
+        // Unsorted source inventories retain native first-contact behavior;
+        // no sorting, skipped slot, or repaired range is admitted.
+        while index < count && bytes::u16(table, 14 + index * 2)? < code {
+            index += 1;
+        }
     }
     if index == count || bytes::u16(table, start + index * 2)? > code {
         return Some(0);

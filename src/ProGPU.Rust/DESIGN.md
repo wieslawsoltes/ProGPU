@@ -248,10 +248,13 @@ layout and rasterization remain pending independent layers.
 `SfntFace` retains one immutable byte generation through clones and selected
 collection views. No public mutable source or dangling self-referential slice is
 introduced. All reads are checked; private retained spans are admitted only
-within the owner. Construction performs O(T + C) work for directory/table scans
-and cmap records, with O(1) face storage excluding the shared bytes. Metrics
+within the owner. Construction performs O(T + C + S) work for directory/table scans,
+cmap records and the selected format-4 endpoint inventory, with O(1) face storage
+excluding the shared bytes. Metrics
 and cmap queries allocate nothing. Group cmap lookup keeps the original binary
-search and format 4 keeps the original ordered segment scan. Standalone extraction
+search. Format 4 retains original first-contact selection; a proven sorted
+inventory with at least 16 segments uses a lower-bound search, while shorter or
+unsorted inventories retain the original ordered scan. Standalone extraction
 keeps native bounded O(T² + B) work (T <= 4096), sorted effective tags, copied
 checksums, four-byte zero padding, and CFF/CFF2 OTTO selection. It publishes a
 new owned buffer only after complete sizing and allocation admission.
@@ -294,3 +297,41 @@ performance parity is not established. First-call timings include process/cache
 startup differences, and no improvement or regression attribution is claimed.
 A matched Instruments investigation remains required before optimization claims;
 these receipts do not qualify complete shaping, text rendering, or frame times.
+
+### Profile-guided format-4 lookup
+
+Instruments Time Profiler on the same Release benchmark and system font found
+245/262 initial Rust leaf samples in cmap lookup; the original C++ control had
+215/239 there. The selected format-4 inventory contains 187 segments. Merely
+iterating a prevalidated byte slice did not improve measured time and was
+rejected. The accepted change validates endpoint ordering once on the selected
+immutable source and uses lower-bound search for sorted inventories of at least
+16 segments. Every shorter or unsorted inventory keeps the original ordered
+scan. Duplicate endpoints still select the first original slot; invalid starts,
+indirect range addresses, zero glyphs and unsigned delta wrapping keep their
+native behavior. No original query bounds check or fallback gate is removed.
+
+The original oracle now additionally checks every BMP code point for 42 distinct
+inventories: 2,752,512 exact mappings. Cases cover 1/2/3/15/16/17/187 segments,
+sorted/duplicate/unsorted ends, direct/indirect/zero glyph slots, and invalid
+start/range data. All existing 2,518 full-face transcripts still match.
+
+A sequential uninstrumented before/after run (same workload/checksums) recorded:
+
+| Workload | Before p50/p95/p99 µs | Guarded search p50/p95/p99 µs |
+| --- | --- | --- |
+| Helvetica face 0, 187 segments | 5538.125 / 5602.084 / 5701.541 | 1122.791 / 1206.625 / 1213.458 |
+| Authored Scan-1, original short scan | 349.500 / 368.125 / 375.167 | 368.708 / 394.375 / 440.500 |
+
+The large-inventory median falls substantially; the small case is about 5.5%
+slower in this observation, so this is not a universal performance improvement.
+The final isolated Instruments run recorded 60 samples, with 39 cmap-lookup leaf
+samples. Short statistical traces support the lookup-work diagnosis, not complete
+text/frame performance or precise attribution of first-parse latency.
+
+The compact exported frame tables and exact input/binary/source SHA-256 receipts
+are retained in `perf/font-5bd03cfc1-time-profiler.json`. Raw traces, sample XML,
+discarded binaries and the old package extraction were removed after validation
+at the user's request to limit disk use. Reusable build dependencies and the
+active SDK remain available. No GPU/allocator optimization is claimed by this
+CPU-only change; complete rendering and platform gates remain mandatory.

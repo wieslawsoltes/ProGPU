@@ -212,3 +212,47 @@ pub fn corpus() -> Vec<(u32, Vec<u8>)> {
     }
     result
 }
+
+pub fn format4_inventory() -> Vec<Vec<u8>> {
+    let mut result = Vec::new();
+    for count in [1usize, 2, 3, 15, 16, 17, 187] {
+        for ordering in 0..3 {
+            for indirect in [false, true] {
+                let mut table = vec![0u8; 16 + count * 8 + usize::from(indirect) * count * 2];
+                let length = table.len() as u16;
+                u16_at(&mut table, 0, 4);
+                u16_at(&mut table, 2, length);
+                u16_at(&mut table, 6, count as u16 * 2);
+                for i in 0..count {
+                    let end = match ordering {
+                        0 => ((i + 1) * 65535 / count) as u16,
+                        1 => ((i / 2 + 1) * 65535 / count.div_ceil(2)) as u16,
+                        _ => ((count - i) * 65535 / count) as u16,
+                    };
+                    let start = if i % 4 == 0 {
+                        end.saturating_add(1)
+                    } else {
+                        end.saturating_sub(100)
+                    };
+                    u16_at(&mut table, 14 + i * 2, end);
+                    u16_at(&mut table, 16 + count * 2 + i * 2, start);
+                    u16_at(
+                        &mut table,
+                        16 + count * 4 + i * 2,
+                        (i as u16).wrapping_sub(400),
+                    );
+                    if indirect {
+                        u16_at(&mut table, 16 + count * 6 + i * 2, count as u16 * 2);
+                        u16_at(
+                            &mut table,
+                            16 + count * 8 + i * 2,
+                            if i % 3 == 0 { 0 } else { i as u16 + 3 },
+                        );
+                    }
+                }
+                result.push(sfnt(&tables(cmap(&[(3, 1, table)])), 0));
+            }
+        }
+    }
+    result
+}

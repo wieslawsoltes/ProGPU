@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 using namespace progpu::native::text;
 void emit(std::uint32_t value) {
@@ -12,7 +13,8 @@ void payload(std::span<const std::byte> bytes) {
     emit(static_cast<std::uint32_t>(bytes.size()));
     if (std::fwrite(bytes.data(), 1, bytes.size(), stdout) != bytes.size()) std::exit(3);
 }
-int main() {
+int main(int argc, char** argv) {
+    const bool exhaustive = argc == 2 && std::strcmp(argv[1], "cmap4-exhaustive") == 0;
     std::uint32_t index{}, length{};
     while (std::fread(&index, sizeof(index), 1, stdin) == 1) {
         if (std::fread(&length, sizeof(length), 1, stdin) != 1) return 4;
@@ -27,6 +29,14 @@ int main() {
         const auto accepted = sfnt_font_view::try_create(bytes, index, face, &error);
         emit(static_cast<std::uint32_t>(error));
         if (!accepted) continue;
+        if (exhaustive) {
+            for (std::uint32_t code = 0; code <= 65535; ++code) {
+                std::uint16_t glyph{};
+                emit(face.try_get_glyph_index(code, glyph));
+                emit(glyph);
+            }
+            continue;
+        }
         emit(face.face_index()); emit(face.face_offset()); emit(face.table_count());
         emit(face.uses_symbol_character_map());
         for (const auto* name : {"head", "hhea", "hmtx", "maxp", "loca", "glyf", "cmap", "CFF2", "zzzz"}) {

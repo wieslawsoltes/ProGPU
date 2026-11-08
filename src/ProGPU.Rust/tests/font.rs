@@ -323,7 +323,7 @@ fn original_native_sfnt_and_standalone_bytes_match() {
     }
     let input_path = directory.join("input.bin");
     std::fs::write(&input_path, input).unwrap();
-    let output = Command::new(executable)
+    let output = Command::new(&executable)
         .stdin(Stdio::from(std::fs::File::open(input_path).unwrap()))
         .output()
         .unwrap();
@@ -345,6 +345,47 @@ fn original_native_sfnt_and_standalone_bytes_match() {
         "native_sfnt: {} matched inputs, {} exact bytes",
         corpus.len(),
         expected.len()
+    );
+    // Every BMP code point across sorted, duplicate and unsorted inventories,
+    // both sides of the lookup threshold, and direct/indirect/zero glyph slots.
+    let inputs = fixture::format4_inventory();
+    let mut input = Vec::new();
+    let mut expected = Vec::new();
+    for data in &inputs {
+        input.extend_from_slice(&0u32.to_ne_bytes());
+        input.extend_from_slice(&(data.len() as u32).to_ne_bytes());
+        input.extend_from_slice(data);
+        for value in [0u32, 1, 0] {
+            expected.extend_from_slice(&value.to_ne_bytes());
+        }
+        let face = SfntFace::new(data.clone(), 0).unwrap();
+        for code in 0..=65535 {
+            let glyph = face.glyph_index(code);
+            expected.extend_from_slice(&u32::from(glyph.is_some()).to_ne_bytes());
+            expected.extend_from_slice(&u32::from(glyph.unwrap_or(0)).to_ne_bytes());
+        }
+    }
+    let input_path = directory.join("cmap4-input.bin");
+    std::fs::write(&input_path, input).unwrap();
+    let output = Command::new(&executable)
+        .arg("cmap4-exhaustive")
+        .stdin(Stdio::from(std::fs::File::open(input_path).unwrap()))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout.len(), expected.len());
+    if let Some(byte) = output
+        .stdout
+        .iter()
+        .zip(&expected)
+        .position(|(a, b)| a != b)
+    {
+        panic!("native exhaustive cmap4 differs at byte {byte}");
+    }
+    eprintln!(
+        "native_cmap4: {} complete BMP inventories, {} exact mappings",
+        inputs.len(),
+        inputs.len() * 65536
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
