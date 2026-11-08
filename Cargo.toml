@@ -162,3 +162,15 @@ path = "src/ProGPU.Rust/examples/grapheme_conformance.rs"
 [[example]]
 name = "grapheme_benchmark"
 path = "src/ProGPU.Rust/examples/grapheme_benchmark.rs"
+
+[[test]]
+name = "line_break"
+path = "src/ProGPU.Rust/tests/line_break.rs"
+
+[[example]]
+name = "line_break_conformance"
+path = "src/ProGPU.Rust/examples/line_break_conformance.rs"
+
+[[example]]
+name = "line_break_benchmark"
+path = "src/ProGPU.Rust/examples/line_break_benchmark.rs"

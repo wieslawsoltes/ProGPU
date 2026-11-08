@@ -57,6 +57,11 @@ on:
       - eng/progpu-generate-rust-unicode.py
       - eng/progpu-test-rust-bidi-conformance.py
       - eng/progpu-test-rust-grapheme-conformance.py
+      - eng/progpu-test-rust-line-break-conformance.py
+      - src/ProGPU.Native/src/Text/progpu_native_unicode_line_break*
+      - src/ProGPU.Native/src/Text/progpu_native_edit_symbol_data.generated.hpp
+      - src/ProGPU.Text/UnicodeLineBreak*
+      - src/ProGPU.Text/UnicodeGraphemeData.Generated.cs
       - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
       - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml
@@ -164,6 +169,8 @@ jobs:
           python3 eng/progpu-test-rust-bidi-conformance.py
           cargo test --locked --test grapheme -- --ignored --nocapture
           python3 eng/progpu-test-rust-grapheme-conformance.py
+          cargo test --locked --test line_break -- --ignored --nocapture
+          python3 eng/progpu-test-rust-line-break-conformance.py
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         env:

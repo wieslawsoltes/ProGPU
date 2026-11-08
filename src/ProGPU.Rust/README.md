@@ -33,6 +33,8 @@ cargo test --locked --test bidi -- --ignored --nocapture
 python3 eng/progpu-test-rust-bidi-conformance.py
 cargo test --locked --test grapheme -- --ignored --nocapture
 python3 eng/progpu-test-rust-grapheme-conformance.py
+cargo test --locked --test line_break -- --ignored --nocapture
+python3 eng/progpu-test-rust-line-break-conformance.py
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -43,6 +45,7 @@ cargo run --release --locked --no-default-features --example font_benchmark -- F
 cargo run --release --locked --no-default-features --example unicode_benchmark -- mixed 16 4096
 cargo run --release --locked --no-default-features --example bidi_benchmark -- mixed 2048
 cargo run --release --locked --no-default-features --example grapheme_benchmark -- emoji clusters 2048
+python3 eng/progpu-benchmark-rust-line-break.py
 ```
 
 The renderer accepts a device/queue pair and produces immutable prepared scenes.
@@ -125,9 +128,10 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Horizontal variable metrics | Legacy HVAR advances, independent strict LSB preparation, cached source-owned scalar/map generations, original base fallback and HVAR-over-gvar precedence; 205,966 native cases and eight browser controls per DPR | Full source placement and compiler-default arithmetic qualification |
 | Static vertical metrics and VVAR | Original vhea/vmtx/VORG and static glyf origin fallbacks; independent strict owned VVAR with complete preflight and atomic batches; native differential and ten browser controls per DPR | Source CFF/sideways integration, default arithmetic and full provider/package qualification |
 | Simple UTF-16 glyph runs | Owned source/text/cluster/glyph generations, allocation-free mapping and exact scaled advances; 30,086 C++ cases and 10,683 original C# controls; ten browser controls per DPR | Full Unicode/OpenType shaping, bidi, fallback, paragraph layout and text GPU replay |
-| Unicode decoding and properties | Strict UTF-8/UTF-16, exact scalar/source records, owned text, initial script runs and nine frozen property inventories; 552,778 C++ cases, 1,114,132 C# property values and fourteen browser controls per DPR | Normalization, line breaking, full shaping/layout and GPU text |
+| Unicode decoding and properties | Strict UTF-8/UTF-16, exact scalar/source records, owned text, initial script runs and nine frozen property inventories; 552,778 C++ cases, 1,114,132 C# property values and fourteen browser controls per DPR | Normalization, full shaping/layout and GPU text |
 | Bidi level resolution | Complete original embedding/isolate/bracket/weak/neutral/implicit/L1 resolver; reusable caller scratch and owned source generations; 168,077 C++ cases, 102,541 C# controls, Unicode 17 level conformance and fifteen browser controls per DPR | Line/cluster L2 visual ordering, inline direction policies, shaping/layout integration and actual text pixels |
-| Grapheme segmentation | Original Unicode 17 state and separate managed compatibility; immutable source clusters and allocation-free UTF-16 starts; 1,888,801 native controls, 89,921 managed controls and 766 official fixtures | Line/word boundaries, fallback/shaping/layout integration and retained interaction |
+| Grapheme segmentation | Original Unicode 17 state and separate managed compatibility; immutable source clusters and allocation-free UTF-16 starts; 1,888,801 native controls, 89,921 managed controls and 766 official fixtures | Word boundaries, fallback/shaping/layout integration and retained interaction |
+| Line breaking | Original Unicode 17 and separate native EDIT selection profile; owned source, caller buffers and exact failure/tail behavior; 2,262,599 C++ cases, 1,688,365 C# controls, 19,338 official cases and fourteen browser checks per DPR | Word selection, width fitting, hyphenation, shaping/layout integration and text pixels |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -206,3 +210,17 @@ original gate first and only adds a separate diagnostic observation after failur
 that observation cannot replace the failed result. `DEBUG=pw:browser` retains
 Chromium process-exit evidence in the job log. Compiler settings, launch flags,
 shaders, pixel checks and deadlines are unchanged.
+
+The line-break module exposes logical scalar boundaries and resolved classes,
+with the original context-sensitive rule order and separate EDIT projection.
+It preserves scratch-prefix writes on a later invalid scalar while never
+publishing break output on failure. Owned text keeps the original encoding and
+positions. The default profile matches the original managed resolver; this does
+not supply line fitting, dictionary segmentation, shaping or text rendering.
+
+Browser checkpoint `8e5702a52` passes hosted Linux/Windows and Vulkan/winit,
+but both original and diagnostic browser runs time out at final DPR 2 completion.
+The observed run has four pending submissions and no reported device loss;
+prior completions take 22–29 seconds. Compact evidence is retained in
+`perf/browser-8e5702-hosted.json`. This narrows investigation without closing the
+original gate or changing deadlines, shaders, compiler flags or pixel assertions.

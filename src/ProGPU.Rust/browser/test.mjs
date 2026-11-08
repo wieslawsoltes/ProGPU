@@ -289,6 +289,28 @@ try {
         for(const requested of [0,1,2])bidiCase([],requested,requested===1?1:0,[]);
         bidiCase([...Array(200).fill(0x202a),0x5d0,...Array(200).fill(0x202c)],0,0,[...Array(200).fill(0),125,...Array(200).fill(125)]);
         for(const source of [[0xd800],[0xdc00],[0x41,0xdbff,0x41]]){rejected=false;try{app.resolve_bidi_utf16(new Uint16Array(source),2);}catch{rejected=true;}check(rejected,'WASM owned bidi strict source rejection');bidiChecks++;}
+        let lineBreakChecks=0;
+        const lineCase=(source,edit,classes,breaks,indices=source.map((_,i)=>i),lengths=classes.map(()=>1))=>{
+          const result=app.resolve_line_breaks_utf16(new Uint16Array(source),edit);
+          check(JSON.stringify([...result.source])===JSON.stringify(source),'WASM line-break retained source');
+          check(JSON.stringify([...result.classes])===JSON.stringify(classes) && JSON.stringify([...result.breaks])===JSON.stringify(breaks),'WASM original line classes/boundaries');
+          check(result.scalars.length===classes.length*16,'WASM line scalar slots');
+          const records=new DataView(result.scalars.buffer,result.scalars.byteOffset,result.scalars.byteLength);
+          classes.forEach((_,i)=>check(records.getUint32(i*16+4,true)===indices[i] && records.getUint16(i*16+8,true)===lengths[i],'WASM line scalar source ranges'));
+          lineBreakChecks++;
+        };
+        lineCase([],false,[],[]);
+        lineCase([0x41,0x20,0x42],false,[3,42,3],[0,1,2]);
+        lineCase([13,10,0x301],false,[15,31,3],[0,2,2]);
+        lineCase([0x41,0x301,0x42],false,[3,3,3],[0,0,2]);
+        lineCase([0x4e00,0x200d,0x4e01],false,[25,25,25],[0,0,2]);
+        lineCase([0x4e00,0x200d,0x4e01],true,[25,25,25],[0,1,2]);
+        lineCase([0x41,0x200b,0x20,0x42],false,[3,47,42,3],[0,0,1,2]);
+        lineCase([0x24,0x28,0x2e,0x31,0x29,0x25],false,[37,35,27,34,14,36],[0,0,0,0,0,2]);
+        lineCase([0xd83c,0xdde6,0xd83c,0xdde7,0xd83c,0xdde8],false,[39,39,39],[0,1,2],[0,2,4],[2,2,2]);
+        lineCase([0xd83d,0xdc4d,0xd83c,0xdffd],false,[16,17],[0,2],[0,2],[2,2]);
+        lineCase([0x1100,0x1161,0x11a8],false,[28,30,29],[0,0,2]);
+        for(const source of [[0xd800],[0xdc00],[0x41,0xd800,0x41]]){rejected=false;try{app.resolve_line_breaks_utf16(new Uint16Array(source),false);}catch{rejected=true;}check(rejected,'WASM line-break strict invalid source');lineBreakChecks++;}
         let graphemeChecks=0;
         const graphemeCase=(source,managed,records,starts)=>{
           const result=app.segment_graphemes_utf16(new Uint16Array(source),managed);
@@ -419,7 +441,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

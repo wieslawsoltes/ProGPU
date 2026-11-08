@@ -1689,3 +1689,97 @@ Cleanup removed 924,357,135 guest logical bytes and 21,229,655
 host logical bytes of diagnostic payloads, tools and raw crash files. The VM's
 suspended state was verified after cleanup. Local diagnostic browser runs pass
 all existing pixel and source checks; they do not close hosted reliability.
+
+
+## Original Unicode line-break resolution
+
+`text::unicode::line_break` ports the complete owned native worker and the
+independent original managed resolver's default behavior. The normative reference
+is [Unicode 17 UAX #14 revision 55](https://www.unicode.org/reports/tr14/tr14-55.html).
+This stage produces logical break opportunities, while width fitting and actual
+line selection remain higher-level work. Foreign line/word engines are not used.
+
+Six numeric inventories project the original line classes, Pi/Pf quotation
+categories, mark categories, East Asian flags, unassigned ranges and pinned EDIT
+symbol AL/ID overrides. The generator now validates eighteen original arrays,
+including dimensions, sorted non-overlapping ranges, property domains and source
+hashes. The existing extended-pictographic inventory stays shared with graphemes.
+
+The resolver retains LB5–LB30b precedence and original raw-versus-resolved class
+choices: CRLF/hard boundaries, space and ZWSP context, CM/ZWJ inheritance, glue,
+quotation source bases, numeric lookaround, initial/Hebrew hyphens, Hangul,
+Brahmic dotted-circle/virama context, raw regional-indicator parity and unassigned
+pictographic emoji bases. `Unicode17` is the public default and the managed
+resolver's policy. `EditSelection` retains the original native profile's exact
+symbol inventory and omission of LB8a only; it does not claim full EDIT word
+selection or platform source qualification.
+
+Safe disjoint slices retain allocation-free calls with one class byte per input
+scalar and one boundary byte per scalar. Both capacities are checked before
+writes. As in the original implementations, an invalid later scalar leaves the
+already-resolved class prefix, but break output remains untouched. Tails and
+all original source records remain unchanged. Empty inputs write nothing; the
+last boundary of a nonempty valid input is mandatory. `LineBreakText` owns the
+exact strict decoded source, resolved classes, boundaries and policy. Context
+walks retain original worst-case quadratic time; no linear-time claim is made.
+
+Default-compiler native controls pass **2,262,599 cases / 155,775,200 exact bytes**;
+original C# controls pass **1,688,365 cases / 80,115,862 exact bytes**. They cover
+all properties through U+110010 plus high invalid values, available class triples
+and quotation/EA/mark distinctions, every BMP value in contextual input, original
+noncontiguous/saturated/zero source metadata, both profiles, invalid-prefix
+mutation, capacities/tails, long contexts and seeded mixed sequences. Native
+sources and the original managed resolver/data compile unchanged in temporary
+harnesses, removed after execution. No floating-point compiler override is used.
+
+All **19,338 official Unicode 17 LineBreakTest cases** pass independently for
+UTF-8 and UTF-16. The runner downloads only the temporary official fixture from
+[Unicode](https://www.unicode.org/Public/17.0.0/ucd/auxiliary/LineBreakTest.txt),
+requires SHA-256 `e69884e0dde6a8724873f885d68c52dc14518abf9ae4ca9e2283b8773db3b752`,
+and deletes it on success/failure. Fourteen WASM checks per DPR cover exact
+classes/boundaries/source positions, policy separation, supplementary flags and
+emoji, hard breaks, numeric and Hangul context, and strict invalid encoding.
+The local original browser gate passes both DPRs, all 204,800 offscreen pixels,
+six shaders, resize and actual presented canvas pixels without diagnostics.
+Native all-feature tests and strict native/WASM Clippy pass.
+
+The preceding `8e5702a52` hosted run 42530979071 passes Linux/Windows and Vulkan/
+winit; macOS is cancelled. Both original browser and separate diagnostic runs
+time out at final DPR 2 completion, with all offscreen controls passed. The
+diagnostic has 174 submissions, 170 completions and four pending at failure;
+submissions 157–167 complete around 22.36 seconds, 168–169 around 26.77 seconds,
+and 170 around 28.95 seconds. Neither run reports a device loss. This is a queue
+stall observation, separate from earlier loss receipts; no root cause or fix is
+claimed. `perf/browser-8e5702-hosted.json` retains compact exact artifact evidence.
+No shader, compiler, launch flag, deadline, pixel or original failure gate changes.
+
+
+The reproducible `eng/progpu-benchmark-rust-line-break.py` baseline uses five
+warmups and forty measured rounds of resolution plus identical class/boundary
+hashing, with strict decoding and all array allocation outside timing. Release
+Rust 1.90.0, Apple Clang 21 default arithmetic and original .NET 10.0.403 JIT
+settings are preserved. All eighteen Rust/C++ workloads match checksums; the
+nine default-policy managed workloads match too. The native-only EDIT profile
+has no fabricated managed equivalent. Compact source/input/binary hashes and all
+quantiles are retained in `perf/line-break-baseline.json`.
+
+| Default-policy workload / UTF-16 units | Rust p50 / p95 / p99 µs | C++ p50 / p95 / p99 µs | C# p50 / p95 / p99 µs |
+| --- | --- | --- | --- |
+| ASCII / 61,440 | 3457.209 / 3590.541 / 3612.375 | 2800.417 / 2948.500 / 3171.625 | 4436.600 / 18826.100 / 19702.900 |
+| Mixed / 43,008 | 2351.167 / 2514.541 / 2619.167 | 2084.375 / 2236.333 / 2272.791 | 3166.000 / 12868.200 / 13113.400 |
+| Emoji / 43,008 | 1863.291 / 1977.375 / 2012.583 | 1604.542 / 1716.125 / 1723.291 | 2104.400 / 9005.300 / 9168.300 |
+
+These Rust medians are slower than C++; managed runs show broad JIT transitions.
+This is a baseline with default process/JIT settings, not steady-state managed
+parity, an optimization claim, or complete-stack frame evidence. Original
+worst-case context complexity remains. Subsequent optimization requires matched
+Instruments investigation, and steady-state managed comparisons need dedicated
+warm-state controls. Temporary baseline sources, binaries and managed build
+outputs (1,049,759 bytes) are deleted automatically after recording evidence.
+
+The distributable crate passes fresh extracted native all-feature/all-target and
+WASM browser checks with an initially empty independent target directory.
+Cleanup removes **503,521,654 logical bytes** of package verification
+outputs, duplicate benchmark binaries and managed build trees; compact evidence
+and active shared dependencies remain. Source/fixture harnesses also clean their
+own temporary files, whose unmeasured sizes are not added to that total.

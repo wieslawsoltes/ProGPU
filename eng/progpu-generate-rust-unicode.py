@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = [
     ROOT / 'src/ProGPU.Native/src/Text/progpu_native_unicode_data.generated.hpp',
     ROOT / 'src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_categories.generated.hpp',
+    ROOT / 'src/ProGPU.Native/src/Text/progpu_native_edit_symbol_data.generated.hpp',
 ]
 SELECTED = {
     'unicode_script_tags': ('SCRIPT_TAGS', 1),
@@ -24,6 +25,12 @@ SELECTED = {
     'unicode_grapheme_ranges': ('GRAPHEME_RANGES', 3),
     'unicode_extended_pictographic_ranges': ('PICTOGRAPHIC_RANGES', 3),
     'unicode_indic_conjunct_ranges': ('CONJUNCT_RANGES', 3),
+    'unicode_line_break_ranges': ('LINE_RANGES', 3),
+    'unicode_line_break_quotation_categories': ('LINE_QUOTATION_RANGES', 3),
+    'unicode_line_break_mark_ranges': ('LINE_MARK_RANGES', 3),
+    'unicode_line_break_east_asian_ranges': ('LINE_EAST_ASIAN_RANGES', 3),
+    'unicode_line_break_unassigned_ranges': ('LINE_UNASSIGNED_RANGES', 3),
+    'edit_symbol_line_class_ranges': ('EDIT_LINE_RANGES', 3),
 }
 OUTPUT = ROOT / 'src/ProGPU.Rust/src/text/unicode/data.rs'
 
@@ -72,9 +79,14 @@ def generate() -> str:
         raise ValueError('Invalid combining class')
     if any(v >= 30 for v in arrays['unicode_general_category_ranges'][2::3]):
         raise ValueError('Invalid original category')
-    for name, maximum in [('unicode_grapheme_ranges', 13), ('unicode_extended_pictographic_ranges', 1), ('unicode_indic_conjunct_ranges', 3)]:
+    for name, maximum in [('unicode_grapheme_ranges', 13), ('unicode_extended_pictographic_ranges', 1), ('unicode_indic_conjunct_ranges', 3),
+                          ('unicode_line_break_ranges', 48), ('unicode_line_break_quotation_categories', 2),
+                          ('unicode_line_break_mark_ranges', 1), ('unicode_line_break_east_asian_ranges', 1),
+                          ('unicode_line_break_unassigned_ranges', 1)]:
         if any(v > maximum for v in arrays[name][2::3]):
             raise ValueError(f'Invalid original property in {name}')
+    if any(v not in (3, 25) for v in arrays['edit_symbol_line_class_ranges'][2::3]):
+        raise ValueError('Invalid original EDIT AL/ID property')
     mask = (1 << 21) - 1
     for name, maximum in [('unicode_bidi_class_ranges', 22), ('unicode_bidi_bracket_records', 2)]:
         previous = -1

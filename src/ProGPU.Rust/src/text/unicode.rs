@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub mod bidi;
 mod data;
 pub mod grapheme;
+pub mod line_break;
 mod properties;
 mod types;
 pub use properties::{

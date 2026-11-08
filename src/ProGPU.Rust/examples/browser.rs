@@ -543,6 +543,57 @@ mod web {
         progpu::text::unicode::grapheme::utf16_starts_into(&data, &mut starts).map_err(error)?;
         Ok(starts)
     }
+    /// Original logical line opportunities with strict retained source ownership.
+    #[wasm_bindgen]
+    pub fn resolve_line_breaks_utf16(
+        data: Vec<u16>,
+        edit_selection: bool,
+    ) -> Result<Object, JsValue> {
+        use progpu::text::unicode::{
+            DecodedText, UnicodeSource,
+            line_break::{LineBreakPolicy, LineBreakText},
+        };
+        let policy = if edit_selection {
+            LineBreakPolicy::EditSelection
+        } else {
+            LineBreakPolicy::Unicode17
+        };
+        let text = LineBreakText::new(DecodedText::from_utf16(data).map_err(error)?, policy)
+            .map_err(error)?;
+        let result = Object::new();
+        for (name, bytes) in [
+            (
+                "classes",
+                text.classes().iter().map(|c| *c as u8).collect::<Vec<_>>(),
+            ),
+            (
+                "breaks",
+                text.breaks_after()
+                    .iter()
+                    .map(|b| *b as u8)
+                    .collect::<Vec<_>>(),
+            ),
+        ] {
+            Reflect::set(
+                &result,
+                &JsValue::from_str(name),
+                &Uint8Array::from(bytes.as_slice()),
+            )?;
+        }
+        Reflect::set(
+            &result,
+            &JsValue::from_str("scalars"),
+            &Uint8Array::from(bytemuck::cast_slice::<_, u8>(text.text().scalars())),
+        )?;
+        if let UnicodeSource::Utf16(source) = text.text().source() {
+            Reflect::set(
+                &result,
+                &JsValue::from_str("source"),
+                &Uint16Array::from(source.as_ref()),
+            )?;
+        }
+        Ok(result)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {
