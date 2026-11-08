@@ -2,6 +2,8 @@
 //! Direct port of `progpu_native_item_variation_store.cpp`.
 
 use super::{FontError, bytes};
+mod owned;
+pub(super) use owned::{OwnedMap, OwnedStore};
 
 /// Validated borrowed item variation store. Private layout fields prevent
 /// constructing a view over unchecked data. The borrow keeps its source alive.

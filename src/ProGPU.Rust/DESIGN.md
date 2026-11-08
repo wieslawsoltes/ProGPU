@@ -1020,3 +1020,114 @@ Remaining text work includes HVAR/VVAR and device metrics, hinting, Unicode,
 shaping, fallback, paragraph layout, glyph atlases and retained text replay.
 The broader rendering, image, material, clip, layer, effect and transport parity
 gates remain unchanged. The crate is an incremental port, not a full-stack release.
+
+## Horizontal variation metrics and prepared source ownership
+
+`font/horizontal.rs` ports the original `progpu_native_hvar.cpp` and
+`Font/progpu_native_font_horizontal_metrics.cpp`. Legacy advance-only lookup
+retains its original 12-byte minimum header, ignored version field and disabled
+zero-store result. Missing/disabled HVAR is `None`, distinct from an active store
+returning zero. Original axis capacity, implicit indices, repeated last map entry,
+empty-map behavior, null subtables and missing-item zero results are preserved.
+The independent source-bearing preparation requires the complete version-1.0
+20-byte header and nonzero store, validating its LSB map before the legacy advance
+parser. The original unused right-bearing offset is not newly interpreted.
+
+`HorizontalAdvanceInstance` and `HorizontalMetricsInstance` own the selected
+immutable face, exact coordinate request, encoded store/map layouts and complete
+cached region scalars. They cannot be applied to unrelated font storage. Private
+owned item-store/map wrappers restore validated borrowed views without reparsing
+or expanding encoded entries at every query. Public scalar slices are immutable.
+LSB absence remains separate from a present zero result; the original finite
+result check remains at that boundary. Rust publishes an owned result or error,
+without exposing partially initialized caller scratch or mutable source aliases.
+
+The design advance APIs keep original base selection and evaluation order:
+original hmtx metrics when admitted, otherwise half the original positive units
+per em. Empty coordinate requests return the base before validating variation
+tables. The explicit HVAR-only route retains the original no-phantom behavior;
+the full route gives active HVAR precedence over gvar, including over malformed
+unused gvar. Only absent/disabled HVAR selects original right-minus-left phantom
+deltas. Item counts use original simple points or component descriptors followed
+by four phantom slots; absent glyf/loca retains four. No hinting, shaping, origin
+selection or raster-policy admission is inferred.
+
+The unchanged-native source-arithmetic oracle passes **205,966 inputs /
+22,637,340 exact bytes**, covering all signed 16-bit coordinates, all glyph indices,
+raw map formats, direct/prepared outputs and scalar bits, complete truncation and
+byte mutation, legacy/strict header differences, empty-coordinate bypass, base
+fallback, HVAR/gvar precedence, and absent/empty/invalid-duplicate hmtx selection.
+All original **157,958 item-store cases / 6,892,604 bytes** still pass. The C++
+driver links the actual original HVAR, horizontal metric, gvar phantom and parser
+dependencies. It never substitutes a font algorithm. Linux/macOS CI requires the
+new oracle alongside all earlier font suites.
+
+The independent ARM64 compiler-default control exposes input 68,165: native
+`0x4265506b`, Rust `0x4265506c` in a raw HVAR delta. Reproduce with
+`PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test --locked --no-default-features
+--test horizontal -- --ignored --nocapture`. The ordinary source-arithmetic
+control retains its isolated separate-operation policy. Native package/compiler
+defaults, shaders, drivers, original pixels and previous numeric gates stay
+unchanged. This is not full source/managed/native metric qualification.
+
+Eight new browser controls per DPR check source-owned prepared values, direct
+advances, repeated maps, explicit bearing absence, legacy zero-store acceptance,
+strict rejection, empty-request bypass and coordinate capacity. They pass with
+all **204,800** existing offscreen pixels, six canonical shaders, both original
+canvas captures, queue completion and resize. Strict native/WASM lints and
+CPU/all-feature tests pass locally. Recursive-outline checkpoint `8c7ad0efb`
+also passes hosted Linux/Windows portable, Vulkan/winit and full browser lanes
+(run 42520804177); hosted macOS was cancelled. Current-head CI remains separate.
+
+### Profile-guided prepared base selection
+
+The initial prepared metric baseline matched native checksums but showed a slower
+SFNSMono median (Rust 69.417 µs versus native 57.750 µs). Instruments Time Profiler
+then found 1,711 of 2,576 Rust samples inside base-advance resolution, including
+1,461 leaf samples there. The implementation was repeatedly resolving immutable
+hmtx/header selection for every prepared glyph query. A matched native profile
+also identified original table/header lookup costs; no native code was changed.
+
+Prepared Rust instances now capture that exact base-selection decision once,
+alongside their already frozen source. The descriptor retains either original
+half-em fallback or the original selected hmtx span and complete-metric count.
+Query-time checked reads preserve repeated last advance and truncated-slot errors.
+Invalid base metadata remains a later query error, never a new preparation
+failure. Missing and present-empty tables remain distinct even for an offset-zero
+empty table; invalid later duplicate ranges still select the last valid original
+entry. Native differential controls plus an independent unit test cover these
+boundaries. The direct route uses the same decision logic without a persistent
+instance. No arithmetic, source bytes or original error gate is changed.
+
+The same 100,000-round Instruments workload recorded 1,104 samples after caching;
+the repeated base-resolution frame disappeared. The complete before/native/after
+frame summaries and exact input/binary hashes are retained in
+`perf/horizontal-metrics-time-profiler.json`. These statistical traces support
+the lookup-cost diagnosis, not GPU, allocation or full-frame qualification.
+The profiler harness adds an optional `PROGPU_RUST_PROFILE_ROUNDS` mode; it is
+disabled in ordinary timing runs. Timings vary across short runs, so the final
+comparison uses the same benchmark harness for both Rust binaries.
+
+Final sequential uninstrumented observations, five warmups and forty measured
+rounds, every glyph at normalized coordinate 8192 on every original axis:
+
+| Local font | Rust before p50 / p95 / p99 µs | Cached Rust p50 / p95 / p99 µs | Original C++ p50 / p95 / p99 µs |
+| --- | --- | --- | --- |
+| SFNSMono, 1,632 glyphs | 25.834 / 60.291 / 106.791 | 11.166 / 11.291 / 11.333 | 25.458 / 25.667 / 28.791 |
+| NewYork, 1,811 glyphs | 48.292 / 55.958 / 72.042 | 25.583 / 29.833 / 33.916 | 44.875 / 46.125 / 47.833 |
+
+All three binaries produce identical checksums: SFNSMono `971861562991243685`
+(two axes/two regions), NewYork `719888288547038463` (three axes/five regions).
+The measured workload includes prepared full-advance lookup, optional LSB lookup
+and hashing. Font opening, instance preparation and a direct/prepared Rust
+consistency pass precede timing. Active HVAR needs no per-glyph phantom scratch;
+the native adapter preserves the original full public query. C++ uses Apple
+Clang 21.0.0 `-std=c++20 -O2 -Wall -Wextra -Werror` with its original contraction
+defaults; Rust uses 1.90.0 release. Input hashes are the same SFNSMono/NewYork
+hashes recorded above. The compact profiler receipt retains the initial,
+intermediate and final timing observations and all measured binary hashes.
+This improvement is scoped to these prepared CPU metric workloads. It does not
+close the independent compiler-default fixture difference or establish full
+text/frame performance parity. Run the Rust workload with
+`cargo run --locked --release --no-default-features --example metrics_benchmark
+-- FONT_PATH 0 8192`.

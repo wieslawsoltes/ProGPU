@@ -75,6 +75,10 @@ name = "gvar"
 path = "src/ProGPU.Rust/tests/gvar.rs"
 
 [[test]]
+name = "horizontal"
+path = "src/ProGPU.Rust/tests/horizontal.rs"
+
+[[test]]
 name = "native_geometry"
 path = "src/ProGPU.Rust/tests/native_geometry.rs"
 
@@ -101,6 +105,10 @@ path = "src/ProGPU.Rust/examples/font_benchmark.rs"
 [[example]]
 name = "outline_benchmark"
 path = "src/ProGPU.Rust/examples/outline_benchmark.rs"
+
+[[example]]
+name = "metrics_benchmark"
+path = "src/ProGPU.Rust/examples/metrics_benchmark.rs"
 
 [[example]]
 name = "retained_benchmark"

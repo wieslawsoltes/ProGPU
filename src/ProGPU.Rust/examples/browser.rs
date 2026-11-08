@@ -266,6 +266,55 @@ mod web {
         Ok(Float32Array::from(bytemuck::cast_slice::<_, f32>(&offsets)))
     }
 
+    /// Exercise source-owned prepared HVAR scalars, metrics and map presence.
+    #[wasm_bindgen]
+    pub fn horizontal_font_metrics(
+        data: Vec<u8>,
+        glyph: u16,
+        coordinates: Vec<i16>,
+        strict: bool,
+    ) -> Result<Float32Array, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let (advance, bearing) = if strict {
+            let m = face
+                .prepare_horizontal_metrics_variation(&coordinates)
+                .map_err(error)?;
+            let bearing = m.left_side_bearing_variation(glyph).map_err(error)?;
+            (m.advance().clone(), bearing)
+        } else {
+            (
+                face.prepare_horizontal_advance_variation(&coordinates)
+                    .map_err(error)?,
+                None,
+            )
+        };
+        drop(face);
+        let delta = advance.advance_variation(glyph).map_err(error)?;
+        let values = [
+            f32::from(advance.uses_hvar()),
+            advance.region_scalars().len() as f32,
+            advance.design_advance_width_hvar(glyph).map_err(error)?,
+            advance.design_advance_width(glyph).map_err(error)?,
+            delta.unwrap_or(0.0),
+            f32::from(delta.is_some()),
+            bearing.unwrap_or(0.0),
+            f32::from(bearing.is_some()),
+        ];
+        Ok(Float32Array::from(values.as_slice()))
+    }
+    /// Original direct advance boundary, including empty-request bypass.
+    #[wasm_bindgen]
+    pub fn design_font_advance(
+        data: Vec<u8>,
+        glyph: u16,
+        coordinates: Vec<i16>,
+    ) -> Result<f32, JsValue> {
+        progpu::font::SfntFace::new(data, 0)
+            .map_err(error)?
+            .design_advance_width(glyph, &coordinates)
+            .map_err(error)
+    }
+
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

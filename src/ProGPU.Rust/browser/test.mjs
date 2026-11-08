@@ -161,6 +161,32 @@ try {
         try { app.item_variation_values(itemStore.slice(0,-1),new Int16Array([4096])); } catch { rejected=true; }
         check(rejected,'WASM unselected item subtable truncation rejection');
         variationChecks+=2;
+        const metricsFont=new Uint8Array(219), mv=new DataView(metricsFont.buffer);
+        mv.setUint32(0,0x10000);mv.setUint16(4,3);
+        [[0x66766172,60,36],[0x68656164,96,54],[0x48564152,150,69]].forEach(([tag,off,len],i)=>{
+          mv.setUint32(12+i*16,tag);mv.setUint32(20+i*16,off);mv.setUint32(24+i*16,len);
+        });
+        metricsFont.set(variableFont.subarray(44,80),60);metricsFont.set(head,96);mv.setUint16(114,1000);
+        mv.setUint32(150,0x10000);mv.setUint32(154,20);mv.setUint32(158,64);mv.setUint32(162,64);mv.setUint32(166,0xffffffff);
+        metricsFont.set(itemStore,170);metricsFont.set([0,0,0,1,0],214);
+        const metricsCoordinates=new Int16Array([4096]);
+        const metricValues=app.horizontal_font_metrics(metricsFont,65535,metricsCoordinates,true);
+        check(JSON.stringify([...metricValues])==='[1,1,550,550,50,1,50,1]','WASM owned HVAR mapping and base fallback');
+        check(app.design_font_advance(metricsFont,0,metricsCoordinates)===550,'WASM direct HVAR advance');
+        const noBearing=metricsFont.slice();new DataView(noBearing.buffer).setUint32(162,0);
+        const noBearingValues=app.horizontal_font_metrics(noBearing,0,metricsCoordinates,true);
+        check(noBearingValues[6]===0 && noBearingValues[7]===0,'WASM absent bearing mapping');
+        const disabledHvar=metricsFont.slice();new DataView(disabledHvar.buffer).setUint32(154,0);
+        check(JSON.stringify([...app.horizontal_font_metrics(disabledHvar,0,metricsCoordinates,false)])==='[0,0,500,500,0,0,0,0]','WASM legacy zero-store HVAR');
+        rejected=false;try {app.horizontal_font_metrics(disabledHvar,0,metricsCoordinates,true);}catch{rejected=true;}
+        check(rejected,'WASM strict HVAR rejects zero store');
+        const badHvar=metricsFont.slice();new DataView(badHvar.buffer).setUint32(154,0xffffffff);
+        check(app.design_font_advance(badHvar,0,new Int16Array())===500,'WASM empty request precedes variation validation');
+        rejected=false;try {app.design_font_advance(badHvar,0,metricsCoordinates);}catch{rejected=true;}
+        check(rejected,'WASM active malformed HVAR rejection');
+        rejected=false;try {app.horizontal_font_metrics(metricsFont,0,new Int16Array(),true);}catch{rejected=true;}
+        check(rejected,'WASM prepared HVAR coordinate capacity');
+        const horizontalChecks=8;
         const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
         cff2Table.set([2,0,5,0,19]);
         [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
@@ -271,7 +297,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

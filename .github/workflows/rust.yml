@@ -117,6 +117,7 @@ jobs:
           cargo test --locked --test variations -- --ignored --nocapture
           cargo test --locked --test item_variation -- --ignored --nocapture
           cargo test --locked --test gvar -- --ignored --nocapture
+          cargo test --locked --test horizontal -- --ignored --nocapture
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         env:
