@@ -23,6 +23,8 @@ cargo test --locked --test item_variation -- --ignored --nocapture
 cargo test --locked --test gvar -- --ignored --nocapture
 cargo test --locked --test horizontal -- --ignored --nocapture
 cargo test --locked --test vertical -- --ignored --nocapture
+# Simple text also requires .NET 10 SDK for the original managed-source control
+cargo test --locked --test simple_text -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -90,7 +92,9 @@ compilation alone does not implement their pending host stacks.
 
 Builds and browser tools stay outside the distributable crate. Delete verified
 `target/package` extractions and obsolete test outputs when no longer needed;
-keep compact qualification receipts and reusable active dependencies.
+keep compact qualification receipts and reusable active dependencies. Use a fresh
+disposable `CARGO_TARGET_DIR` for extracted-package checks: normalized archive
+mtimes can otherwise reuse a stale compiled library in a shared local target.
 
 ## Port ledger
 
@@ -108,6 +112,7 @@ keep compact qualification receipts and reusable active dependencies.
 | TrueType variation decoding | Owned gvar tables/regions, packed iterators, circular IUP, complete payload preflight, simple-point accumulation, component offsets, horizontal phantom deltas and recursive varied outlines; 462,131 native source-arithmetic cases, twelve browser controls per DPR and three-DPI GPU varied paths | Vertical metrics integration and compiler-default arithmetic qualification |
 | Horizontal variable metrics | Legacy HVAR advances, independent strict LSB preparation, cached source-owned scalar/map generations, original base fallback and HVAR-over-gvar precedence; 205,966 native cases and eight browser controls per DPR | Full source placement and compiler-default arithmetic qualification |
 | Static vertical metrics and VVAR | Original vhea/vmtx/VORG and static glyf origin fallbacks; independent strict owned VVAR with complete preflight and atomic batches; native differential and ten browser controls per DPR | Source CFF/sideways integration, default arithmetic and full provider/package qualification |
+| Simple UTF-16 glyph runs | Owned source/text/cluster/glyph generations, allocation-free mapping and exact scaled advances; 30,086 C++ cases and 10,683 original C# controls; ten browser controls per DPR | Full Unicode/OpenType shaping, bidi, fallback, paragraph layout and text GPU replay |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -165,3 +170,16 @@ the caller's tail and rejects the whole batch before writing. These APIs do not
 select CFF source control bounds or admit sideways rendering. A matched baseline
 is available with `cargo run --release --locked --no-default-features --example
 vertical_metrics_benchmark -- FONT_PATH FACE_INDEX NORMALIZED_COORDINATE`.
+
+`text::SimpleGlyphRun` owns its original font and UTF-16 source; the free
+`build_simple_glyph_run_into` / `fill_simple_glyph_advances` functions reuse caller
+buffers without allocation. Unpaired surrogates, control mapping, soft hyphens,
+first-cluster ownership, original scale order and ties-to-even rounding match
+`progpu_native_sfnt_simple_glyph_shaper.cpp`. Advance metrics align with glyph
+occurrences; sideways selects supplied heights and does not rotate outlines.
+This is the original simple-run API, not full shaping. The managed differential
+control links `src/ProGPU.Text/SfntSimpleGlyphShaper.cs` directly; set
+`PROGPU_RUST_DOTNET` when using an isolated .NET 10 SDK. No C# or C++ runtime bridge
+is part of the Rust crate. A reusable-buffer baseline is available with
+`cargo run --release --locked --no-default-features --example simple_text_benchmark
+-- FONT_PATH FACE_INDEX REPEATS` (repeats 1..4096).

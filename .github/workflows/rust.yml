@@ -35,6 +35,8 @@ on:
       - src/ProGPU.Native/src/Text/Font/progpu_native_font_horizontal_metrics.cpp
       - src/ProGPU.Native/src/Text/Font/progpu_native_font_vertical_metrics.cpp
       - src/ProGPU.Native/src/Text/progpu_native_vvar.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_sfnt_simple_glyph_shaper.cpp
+      - src/ProGPU.Text/SfntSimpleGlyphShaper.cs
       - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
       - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml
@@ -108,7 +110,11 @@ jobs:
         run: |
           cargo test --locked --all-features
           cargo test --locked --no-default-features
-      - name: Original C++ differential oracle
+      - uses: actions/setup-dotnet@v5
+        if: runner.os != 'Windows'
+        with:
+          dotnet-version: '10.0.403'
+      - name: Original C++ and managed differential oracles
         if: runner.os != 'Windows'
         run: |
           cargo test --locked --test native_geometry -- --ignored --nocapture
@@ -121,6 +127,7 @@ jobs:
           cargo test --locked --test gvar -- --ignored --nocapture
           cargo test --locked --test horizontal -- --ignored --nocapture
           cargo test --locked --test vertical -- --ignored --nocapture
+          cargo test --locked --test simple_text -- --ignored --nocapture
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         env:

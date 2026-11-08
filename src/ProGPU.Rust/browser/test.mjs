@@ -219,6 +219,31 @@ try {
           v=>v.setUint8(68,1), // generic format one is not VVAR admission
           v=>v.setInt16(48,16385), // region endpoint outside normalized range
         ]) {const changed=vvar.slice();mutate(new DataView(changed.buffer));const tables=verticalTables.slice();tables[5]=['VVAR',changed];rejected=false;try{app.vertical_font_metrics(makeVertical(tables),0,metricsCoordinates);}catch{rejected=true;}check(rejected,'WASM whole VVAR validation');verticalChecks++;}
+        const simpleFont=new Uint8Array(80), simpleView=new DataView(simpleFont.buffer);
+        simpleView.setUint32(0,0x10000);simpleView.setUint16(4,1);simpleView.setUint32(12,0x636d6170);simpleView.setUint32(20,28);simpleView.setUint32(24,52);
+        simpleView.setUint16(30,1);simpleView.setUint16(32,3);simpleView.setUint16(34,10);simpleView.setUint32(36,12);simpleView.setUint16(40,12);simpleView.setUint32(44,40);simpleView.setUint32(52,2);
+        [[56,0x41,3],[68,0x1f600,7]].forEach(([at,code,glyph])=>{simpleView.setUint32(at,code);simpleView.setUint32(at+4,code);simpleView.setUint32(at+8,glyph);});
+        const simpleText=new Uint16Array([0x41,0xd83d,0xde00,0xad,10,0x85,0xd800]);
+        const simpleRun=app.simple_font_run(simpleFont,simpleText,2,6);
+        check(JSON.stringify([...simpleRun.text])===JSON.stringify([...simpleText]) && JSON.stringify([...simpleRun.clusters])==='[0,1,1,2,3,4,5]' && JSON.stringify([...simpleRun.glyphs])==='[3,7,6,2,2,0]','WASM owned UTF-16 run and source retention');
+        const metricPairs=new Uint32Array([250,300,350,400,450,500,999,999,999,999,550,600]);
+        const simpleScale=new Float64Array([10,1]);
+        const horizontal=app.simple_font_advances(simpleText,simpleRun.clusters,simpleRun.glyphs,metricPairs,1000,simpleScale,false);
+        check(JSON.stringify([...horizontal.advances])==='[2,4,4,0,0,6,-1234567,-1234567]' && JSON.stringify([...horizontal.state])==='[2,2,2,1,1,2,165,165]','WASM exact simple advance rounding, scratch and tails');
+        const sideways=app.simple_font_advances(simpleText,simpleRun.clusters,simpleRun.glyphs,metricPairs,1000,simpleScale,true);
+        check(JSON.stringify([...sideways.advances])==='[3,4,5,0,0,6,-1234567,-1234567]','WASM simple height selection');
+        const noCmap=new Uint8Array(12);new DataView(noCmap.buffer).setUint32(0,0x10000);
+        check(JSON.stringify([...app.simple_font_run(noCmap,new Uint16Array([0,0xad,0x85]),9,0).glyphs])==='[9,9,9]','WASM missing cmap control mapping and soft-hyphen fallback');
+        rejected=false;try{app.simple_font_run(noCmap,new Uint16Array([0,0x41]),9,0);}catch{rejected=true;}check(rejected,'WASM late missing cmap rejection');
+        let simpleTextChecks=5;
+        for (const [text,expected] of [[[0x41,10],2],[[10,0x41],0]]) {
+          const result=app.simple_font_advances(new Uint16Array(text),new Uint16Array([0,0]),new Uint16Array([3]),new Uint32Array([250,300]),1000,simpleScale,false);
+          check(result.advances[0]===expected,'WASM original first cluster control ownership');simpleTextChecks++;
+        }
+        for (const [metrics,units,scales] of [[metricPairs,1000,new Float64Array([NaN,1])],[new Uint32Array([0xffffffff,300,350,400,450,500,999,999,999,999,550,600]),1,simpleScale]]) {
+          rejected=false;try{app.simple_font_advances(simpleText,simpleRun.clusters,simpleRun.glyphs,metrics,units,scales,false);}catch{rejected=true;}check(rejected,'WASM finite and overflow preflight');simpleTextChecks++;
+        }
+        rejected=false;try{app.simple_font_run(simpleFont,new Uint16Array(65537).fill(0x41),0,0);}catch{rejected=true;}check(rejected,'WASM complete simple run capacity boundary');simpleTextChecks++;
         const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
         cff2Table.set([2,0,5,0,19]);
         [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
@@ -329,7 +354,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

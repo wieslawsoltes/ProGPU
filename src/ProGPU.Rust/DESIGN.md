@@ -1206,3 +1206,107 @@ the original local font files are not redistributed. Performance investigation
 must use Instruments before making an optimization claim. Temporary benchmark
 executables, inventory/results scratch and verified package extraction are removed
 once their compact evidence has been retained.
+
+## Original simple UTF-16 glyph runs and advances
+
+The new `text` module ports the owned original
+`Text/progpu_native_sfnt_simple_glyph_shaper.cpp`, paired with
+`ProGPU.Text/SfntSimpleGlyphShaper.cs`. Both existing implementations already
+provide this contract, so this Rust addition changes neither source algorithm nor
+its managed/native policies. It introduces no font engine dependency, FFI renderer
+or external implementation. Full OpenType shaping, bidi, Unicode properties,
+fallback, paragraph layout and text-atlas replay remain required future work.
+
+`SimpleGlyphRun` freezes the exact selected face and original UTF-16 source with
+its complete cluster/glyph arrays. The allocation-free buffer form retains whole
+mapping preflight, original 65,536-glyph capacity, unchanged outputs on failure and
+untouched tails. Supplementary pairs occupy one glyph and two cluster entries;
+unpaired surrogates retain their numeric code unit. Only the original C0/C1 control
+inventory maps to the supplied blank; U+00AD selects a nonzero supplied hyphen or
+the blank. Empty/control-only runs retain their original missing-cmap admission.
+
+Advance metrics are per occurrence rather than glyph-ID indexed. Classification
+visits every original code-unit position, preserving first-mapped-position control
+ownership, invalid cluster-slot skipping, independent low-surrogate visits and
+noncontrol advances for unmapped slots. The numeric route keeps unsigned width or
+height selection, left-associated original multiply/multiply/divide, zero-upem
+substitution, finite-input admission, negative scales and exact ties-to-even i32
+bounds. No hinting, position, ink origin or outline rotation is inferred. A complete
+numeric pass precedes output publication. Original native capacity/error precedence
+and scratch behavior remain explicit: scratch is classified before numeric failure,
+while advance output and both caller tails remain unchanged.
+
+The UTF-16 walker depends on the preceding unit's pair consumption. Cluster writes
+depend on accumulated glyph count; control classification depends on the first
+source occurrence. These ordered data dependencies retain their original linear
+walks. The native and Rust buffer APIs allocate no heap storage in these walks;
+owned construction allocates its three bounded arrays once and retains the shared
+font generation. Numeric preflight preserves early error ordering and atomic
+publication; the exact floating primitive is Rust's ties-to-even intrinsic.
+
+The original C++ source oracle passes **30,086 cases / 55,356,876 exact bytes**
+using **unchanged compiler defaults**, including every BMP code unit, every
+supplementary surrogate pair and independent low-half read, all capacity edges,
+invalid/missing fonts, original control/hyphen mapping, shared clusters, scratch
+and output tails, all 16-bit metric values, adjacent floating ties, intermediate
+overflow/underflow and deterministic raw IEEE requests. Four focused ownership,
+publication, capacity and source-admission tests pass.
+
+A second control builds and executes the actual original managed helper, without
+transcribing its implementation. It passes **10,683 controls / 35,996,228 exact
+bytes** for UTF-16 decoding, owned glyph-run creation and valid advance/tail values.
+Its explicit authored cmap callback matches the independently qualified font
+fixture; it does not claim C# font-parser qualification. Advance cases assign one
+ID per occurrence so the managed glyph-ID callback selects exactly the supplied
+native occurrence metric. Native-invalid requests are excluded from this paired
+valid-output comparison: C#'s partial writes/exceptions and native whole-output
+preflight are separate original contracts. Native failure/scratch semantics remain
+covered by the complete C++ oracle. The .NET 10.0.403 control runs in a disposable
+project linking the original source. Linux/macOS CI installs that SDK and requires
+both oracles; source-path triggers cover the managed helper as well as native.
+
+Strict native/WASM Clippy, CPU/all-feature tests and extracted native/WASM package
+checks pass. Ten browser controls per DPR verify owned UTF-16 arrays, exact
+horizontal/sideways advance values, scratch/tails, missing-cmap controls, soft
+hyphens, first-cluster ownership, finite/overflow rejection and complete capacity
+admission. Both DPRs also pass all **204,800** existing offscreen pixels, six
+canonical shaders, queue completion, resize and actual canvas screenshot pixels.
+These text checks do not imply shaped-text rendering. Vertical checkpoint
+`990a45b64` passes hosted Linux/Windows portable, Vulkan/winit and browser lanes in
+run 42523397293; hosted macOS was cancelled. New-head CI is separate.
+
+The matched Release baseline measures repeated original buffer mapping, prealigned
+advance calculation and hashing with reused arrays/scratch. Font I/O/opening and
+initial per-occurrence metric gathering precede timing. The 14-unit authored
+pattern includes Latin letters, space, soft hyphen, controls, a supplementary pair,
+an unpaired surrogate, ZWJ and a Hebrew code unit. This exercises simple mapping,
+not script shaping. Each round uses font size 13.25 and scale 1.25, five warmups
+and forty measurements; C++ retains original Apple Clang 21.0.0 defaults, Rust
+uses 1.90.0 release. No per-round heap allocation appears in either buffer path.
+
+| Local face 0 / UTF-16 units | Rust p50 / p95 / p99 µs | Original C++ p50 / p95 / p99 µs | Matching checksum |
+| --- | --- | --- | --- |
+| SFNSMono / 14 | 1.833 / 1.875 / 1.917 | 0.334 / 0.375 / 0.375 | 6137714686561589816 |
+| SFNSMono / 3,584 | 105.042 / 114.584 / 226.792 | 91.542 / 144.375 / 202.708 | 14569572735245613093 |
+| SFNSMono / 28,672 | 850.667 / 1036.792 / 1132.416 | 732.209 / 776.958 / 805.167 | 1884019004303862565 |
+| Helvetica / 14 | 0.458 / 0.459 / 0.541 | 0.542 / 0.584 / 0.584 | 8526167976510404703 |
+| Helvetica / 3,584 | 113.709 / 114.208 / 128.666 | 136.417 / 140.959 / 159.875 | 11230045730393425189 |
+| Helvetica / 28,672 | 915.042 / 1868.042 / 2248.166 | 1102.042 / 1181.208 / 1210.875 | 4417436596732891941 |
+
+The scratch prefix is one byte per glyph: 13, 3,328 and 26,624 bytes respectively.
+These initial observations retain both regressions and tail variability. Rust
+medians are slower on SFNSMono and faster on Helvetica; no optimization or full
+performance parity is claimed. Instruments investigation remains required before
+any optimization claim. Exact input/binary/source hashes and all outputs are kept
+in `perf/simple-text-baseline.json`; original local fonts are not redistributed.
+Temporary oracle/managed projects clean themselves, and benchmark binaries,
+duplicate scratch receipts and verified package extraction are removed after
+retaining compact evidence.
+
+Extracted-package validation uses fresh disposable native and WASM target
+directories for this milestone. The first shared-target attempt reused an older
+compiled library (new tests could not resolve `progpu::text`) despite the archive
+containing the new module. That attempt is not qualification evidence. Fresh
+native all-feature/all-target and WASM browser checks both pass; their complete
+build directories are removed afterward. Future local archive checks must avoid
+shared-target freshness assumptions with normalized archive mtimes.

@@ -1,0 +1,161 @@
+{
+  "date": "2026-11-08",
+  "method": "five warmups, forty measured rounds; original buffer-based UTF-16 mapping + prealigned advance calculation + hash; reusable output/scratch, opening and metric gathering excluded",
+  "pattern_utf16": [
+    65,
+    86,
+    87,
+    32,
+    105,
+    106,
+    173,
+    10,
+    133,
+    55357,
+    56832,
+    55296,
+    8205,
+    1488
+  ],
+  "font_em_size": 13.25,
+  "scaling_factor": 1.25,
+  "sideways": false,
+  "rust": "1.90.0 release",
+  "cpp": "Apple Clang 21.0.0 -std=c++20 -O2 -Wall -Wextra -Werror, original floating-point defaults",
+  "binaries": {
+    "target/release/examples/simple_text_benchmark": "7eae33a8de56885b3e33052506bb7fa999009edfb1835babe04687403f0fc03d",
+    "/tmp/progpu-rust-simple-text-native-benchmark": "2cbccfc8902a3a8aa5ecc0bcaf2426daefc8603ff7c09156d7654105af4dc761"
+  },
+  "inputs": [
+    {
+      "path": "/System/Library/Fonts/SFNSMono.ttf",
+      "face": 0,
+      "repeats": 1,
+      "sha256": "55caaed55254a28ac793847e8976be16c5ba7cbad1ec2ee2d5d86d4e6b3fa0c1",
+      "runs": [
+        {
+          "binary": "target/release/examples/simple_text_benchmark",
+          "exit": 0,
+          "output": "units=14 glyphs=13 scratch_bytes=13 checksum=6137714686561589816 round_us_p50=1.833 p95=1.875 p99=1.917",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-simple-text-native-benchmark",
+          "exit": 0,
+          "output": "units=14 glyphs=13 scratch_bytes=13 checksum=6137714686561589816 round_us_p50=0.334 p95=0.375 p99=0.375",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "path": "/System/Library/Fonts/SFNSMono.ttf",
+      "face": 0,
+      "repeats": 256,
+      "sha256": "55caaed55254a28ac793847e8976be16c5ba7cbad1ec2ee2d5d86d4e6b3fa0c1",
+      "runs": [
+        {
+          "binary": "target/release/examples/simple_text_benchmark",
+          "exit": 0,
+          "output": "units=3584 glyphs=3328 scratch_bytes=3328 checksum=14569572735245613093 round_us_p50=105.042 p95=114.584 p99=226.792",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-simple-text-native-benchmark",
+          "exit": 0,
+          "output": "units=3584 glyphs=3328 scratch_bytes=3328 checksum=14569572735245613093 round_us_p50=91.542 p95=144.375 p99=202.708",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "path": "/System/Library/Fonts/SFNSMono.ttf",
+      "face": 0,
+      "repeats": 2048,
+      "sha256": "55caaed55254a28ac793847e8976be16c5ba7cbad1ec2ee2d5d86d4e6b3fa0c1",
+      "runs": [
+        {
+          "binary": "target/release/examples/simple_text_benchmark",
+          "exit": 0,
+          "output": "units=28672 glyphs=26624 scratch_bytes=26624 checksum=1884019004303862565 round_us_p50=850.667 p95=1036.792 p99=1132.416",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-simple-text-native-benchmark",
+          "exit": 0,
+          "output": "units=28672 glyphs=26624 scratch_bytes=26624 checksum=1884019004303862565 round_us_p50=732.209 p95=776.958 p99=805.167",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "path": "/System/Library/Fonts/Helvetica.ttc",
+      "face": 0,
+      "repeats": 1,
+      "sha256": "25eceb458d4baf628ee0b6a135a9f8ac5ec7b2826646720834bd2bf00dfc825a",
+      "runs": [
+        {
+          "binary": "target/release/examples/simple_text_benchmark",
+          "exit": 0,
+          "output": "units=14 glyphs=13 scratch_bytes=13 checksum=8526167976510404703 round_us_p50=0.458 p95=0.459 p99=0.541",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-simple-text-native-benchmark",
+          "exit": 0,
+          "output": "units=14 glyphs=13 scratch_bytes=13 checksum=8526167976510404703 round_us_p50=0.542 p95=0.584 p99=0.584",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "path": "/System/Library/Fonts/Helvetica.ttc",
+      "face": 0,
+      "repeats": 256,
+      "sha256": "25eceb458d4baf628ee0b6a135a9f8ac5ec7b2826646720834bd2bf00dfc825a",
+      "runs": [
+        {
+          "binary": "target/release/examples/simple_text_benchmark",
+          "exit": 0,
+          "output": "units=3584 glyphs=3328 scratch_bytes=3328 checksum=11230045730393425189 round_us_p50=113.709 p95=114.208 p99=128.666",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-simple-text-native-benchmark",
+          "exit": 0,
+          "output": "units=3584 glyphs=3328 scratch_bytes=3328 checksum=11230045730393425189 round_us_p50=136.417 p95=140.959 p99=159.875",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "path": "/System/Library/Fonts/Helvetica.ttc",
+      "face": 0,
+      "repeats": 2048,
+      "sha256": "25eceb458d4baf628ee0b6a135a9f8ac5ec7b2826646720834bd2bf00dfc825a",
+      "runs": [
+        {
+          "binary": "target/release/examples/simple_text_benchmark",
+          "exit": 0,
+          "output": "units=28672 glyphs=26624 scratch_bytes=26624 checksum=4417436596732891941 round_us_p50=915.042 p95=1868.042 p99=2248.166",
+          "stderr": ""
+        },
+        {
+          "binary": "/tmp/progpu-rust-simple-text-native-benchmark",
+          "exit": 0,
+          "output": "units=28672 glyphs=26624 scratch_bytes=26624 checksum=4417436596732891941 round_us_p50=1102.042 p95=1181.208 p99=1210.875",
+          "stderr": ""
+        }
+      ]
+    }
+  ],
+  "qualification": "Initial local buffer-API baseline only. No optimization or full shaping/frame performance parity claim. Short-run timing and tail variability remain explicit.",
+  "source_sha256": {
+    "src/ProGPU.Native/src/Text/progpu_native_sfnt.cpp": "ec9484ebb72dacfb8053bea846692bbec1ed8bfb84e0c2d83c476b526864b8e6",
+    "src/ProGPU.Native/src/Text/progpu_native_sfnt_simple_glyph_shaper.cpp": "a76f6363bf1611c486eadf394d2e2d65ffb8439d028b1b9b0d7045d2239ff81b",
+    "src/ProGPU.Native/src/Text/Font/progpu_native_font_vertical_metrics.cpp": "ec3847ee5d147eb92d96ee01d58e828a2c0d7499ef8320de60008a18254fce73",
+    "src/ProGPU.Native/include/progpu_native_text.hpp": "3fe6431abed09f1f15e0ebfc5ee18687ba8fc0ed9a5d65e13ff582c1c3d5c0a7",
+    "src/ProGPU.Text/SfntSimpleGlyphShaper.cs": "00192206d1c39181948b713b2b5b4b7bec0bd55d80c55077279ba88d63e25e25",
+    "src/ProGPU.Rust/tests/native_simple_text_benchmark.cpp": "279a10615c16bb82092fbba4257d671aa9a1809eb440efe372819b8bf58c47a5",
+    "src/ProGPU.Rust/examples/simple_text_benchmark.rs": "966062c009f3a9ee260afad9c28021138d8c5d9f75a44ce8efe78d2ea09bfdae"
+  }
+}

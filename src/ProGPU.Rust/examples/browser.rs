@@ -354,6 +354,83 @@ mod web {
             .map_err(error)
     }
 
+    /// Original owned simple UTF-16 run; no replacement of unpaired surrogates.
+    #[wasm_bindgen]
+    pub fn simple_font_run(
+        data: Vec<u8>,
+        text: Vec<u16>,
+        blank: u16,
+        hyphen: u16,
+    ) -> Result<Object, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let run = progpu::text::SimpleGlyphRun::new(&face, &text, blank, hyphen).map_err(error)?;
+        drop(face);
+        drop(text);
+        let result = Object::new();
+        for (name, values) in [
+            ("text", run.text()),
+            ("clusters", run.cluster_map()),
+            ("glyphs", run.glyph_indices()),
+        ] {
+            Reflect::set(
+                &result,
+                &JsValue::from_str(name),
+                &Uint16Array::from(values),
+            )?;
+        }
+        Ok(result)
+    }
+    /// Original per-occurrence advance scaling with explicit caller tails.
+    #[wasm_bindgen]
+    pub fn simple_font_advances(
+        text: Vec<u16>,
+        clusters: Vec<u16>,
+        glyphs: Vec<u16>,
+        metric_pairs: Vec<u32>,
+        units_per_em: u16,
+        scales: Vec<f64>,
+        is_sideways: bool,
+    ) -> Result<Object, JsValue> {
+        if scales.len() != 2 || !metric_pairs.len().is_multiple_of(2) {
+            return Err(error("invalid simple metric protocol"));
+        }
+        let metrics: Vec<_> = metric_pairs
+            .chunks_exact(2)
+            .map(|m| progpu::text::SimpleGlyphMetrics {
+                advance_width: m[0],
+                advance_height: m[1],
+            })
+            .collect();
+        let mut state = vec![0xa5; glyphs.len() + 2];
+        let mut advances = vec![-1234567; glyphs.len() + 2];
+        progpu::text::fill_simple_glyph_advances(
+            &text,
+            &clusters,
+            &glyphs,
+            &metrics,
+            progpu::text::SimpleAdvanceScale {
+                units_per_em,
+                font_em_size: scales[0],
+                scaling_factor: scales[1],
+                is_sideways,
+            },
+            &mut state,
+            &mut advances,
+        )
+        .map_err(error)?;
+        let result = Object::new();
+        Reflect::set(
+            &result,
+            &JsValue::from_str("state"),
+            &Uint8Array::from(state.as_slice()),
+        )?;
+        Reflect::set(
+            &result,
+            &JsValue::from_str("advances"),
+            &Int32Array::from(advances.as_slice()),
+        )?;
+        Ok(result)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {
