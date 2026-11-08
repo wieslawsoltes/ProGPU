@@ -57,9 +57,10 @@ retained resource handles own dependencies through command submission; ordinary
 Rust drops do not force premature buffer destruction. GPU publication rejects
 overflowed geometry while the CPU geometry port keeps the original arithmetic.
 
-The current implementation does not implement a compute fallback policy because
-it dispatches no compute workload yet. Path and text compute ports must introduce
-the typed execution policy and fail unsupported forced modes explicitly.
+Path compute uses a typed execution preference. Automatic and forced compute
+select the canonical compute kernel after checking required device limits.
+Forced alternative GPU, intrinsic-SIMD CPU and scalar-reference routes fail
+explicitly until implemented and qualified; no approximation is selected.
 
 ## Initial validation
 
@@ -102,3 +103,35 @@ increment). The allow-dirty option was required only by an unrelated transient
 managed build artifact; that artifact is outside the crate's explicit include
 inventory. Package verification builds from the extracted crate, with no paths
 back into the checkout. Nothing has been published to crates.io.
+
+The existing managed renderer gates passed locally using the exact SDK from
+`global.json`, installed in an isolated temporary directory: 6,478 passed and 13
+platform skips (6,491 total), and 230/230 headless tests. The first parallel build
+attempt collided on a shared generated runtimeconfig; the renderer suite was
+rerun sequentially after headless completed and passed. No gate was weakened.
+
+## Independent path masks
+
+The path port retains exact 48-byte line/quadratic/cubic/arc/rational records and
+the original finite/reserved/positive-weight checks. Source bounds, parameter
+bits, two-axis scale and fractional origin are retained explicitly. Whole-batch
+preflight bounds CPU payloads and GPU storage before GPU mutation. All paths use
+the canonical single-path operation-zero entry; Boolean/signed programs and
+linear-only specialization remain independent pending features.
+
+Native extent grouping is ported with original source-order tie breaks, 256-byte
+binding alignment, exact bound byte lengths and the 65,535 Z-slice split. One
+compute pass writes packed coverage into one buffer; copies to owned R8 textures
+share the same command buffer/submission. Row pitch is 256-byte aligned and
+source placement is 512-byte aligned. Warm consumers retain these textures;
+automatic atlas caching and scene integration are still pending.
+
+Validation: an original-C++ differential control compares 65,540 dispatch records
+and 3,146,752 bytes, including the Z-limit split and original signed-zero bits.
+GPU controls compare 9,545 R8 pixels against an independent 8x8 sample oracle
+for all six segment kinds, nonzero/even-odd, reversed winding, two-axis scale,
+fractional origins, unequal output extents, and a true two-arc circle. Invalid
+last requests reject the whole batch and unavailable forced routes reject.
+The compute owner is dropped before mask readback to verify retained outputs.
+These authored controls do not replace the remaining original source/application
+and package pixel inventories.

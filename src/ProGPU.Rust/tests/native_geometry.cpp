@@ -1,8 +1,23 @@
 // Differential oracle: execute the original ProGPU-owned header unchanged.
 #include "progpu_native_geometry_analytic.hpp"
+#include "progpu_native_path_dispatch.hpp"
 #include <cstdio>
 
-int main() {
+int main(int argc, char**) {
+    if (argc == 2) {
+        std::vector<progpu::native::gpu_path_uniforms> uniforms;
+        progpu::native::gpu_path_uniforms item{};
+        while (std::fread(&item, sizeof(item), 1, stdin) == 1) uniforms.push_back(item);
+        const auto plan = progpu::native::group_single_path_dispatches(uniforms);
+        const auto count = static_cast<std::uint64_t>(plan.groups.size());
+        if (std::fwrite(&count, sizeof(count), 1, stdout) != 1) return 7;
+        for (const auto& group : plan.groups) {
+            const std::uint64_t values[]{group.offset, group.bytes, group.x, group.y, group.count};
+            if (std::fwrite(values, sizeof(values), 1, stdout) != 1) return 8;
+        }
+        if (std::fwrite(plan.uniforms.data(), 1, plan.uniforms.size(), stdout) != plan.uniforms.size()) return 9;
+        return 0;
+    }
     progpu_native_analytic_primitive primitive{};
     float padding{};
     while (std::fread(&primitive, sizeof(primitive), 1, stdin) == 1) {

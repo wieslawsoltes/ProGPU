@@ -48,7 +48,9 @@ jobs:
           cargo test --locked --no-default-features
       - name: Original C++ differential oracle
         if: runner.os != 'Windows'
-        run: cargo test --locked --test native_geometry -- --ignored --nocapture
+        run: |
+          cargo test --locked --test native_geometry -- --ignored --nocapture
+          cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         run: cargo package --locked
 

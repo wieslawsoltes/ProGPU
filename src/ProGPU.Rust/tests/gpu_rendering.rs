@@ -6,9 +6,16 @@ use progpu::{
 };
 
 fn read_pixels(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture) -> Vec<u8> {
+    let pixel_bytes = match texture.format() {
+        wgpu::TextureFormat::R8Unorm => 1,
+        wgpu::TextureFormat::Rgba8Unorm => 4,
+        _ => panic!("unsupported test texture format"),
+    };
+    let row_bytes = texture.width() * pixel_bytes;
+    let pitch = row_bytes.div_ceil(256) * 256;
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("pixel test readback"),
-        size: 256 * 64,
+        size: u64::from(pitch) * u64::from(texture.height()),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -19,8 +26,8 @@ fn read_pixels(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Textu
             buffer: &buffer,
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(256),
-                rows_per_image: Some(64),
+                bytes_per_row: Some(pitch),
+                rows_per_image: Some(texture.height()),
             },
         },
         texture.size(),
@@ -42,9 +49,162 @@ fn read_pixels(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Textu
         .recv_timeout(std::time::Duration::from_secs(20))
         .unwrap()
         .unwrap();
-    let bytes = buffer.slice(..).get_mapped_range().unwrap().to_vec();
+    let bytes = buffer
+        .slice(..)
+        .get_mapped_range()
+        .unwrap()
+        .chunks_exact(pitch as usize)
+        .flat_map(|row| row[..row_bytes as usize].iter().copied())
+        .collect();
     buffer.unmap();
     bytes
+}
+
+#[test]
+#[ignore = "requires a real GPU adapter; mandatory explicit GPU validation lane"]
+fn batched_path_coverage_matches_independent_samples() {
+    use progpu::path::{
+        ExecutionPath, ExecutionPreference, FillRule, Path, PathRasterizer, RasterRequest, Segment,
+    };
+    pollster::block_on(async {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .expect("GPU adapter required");
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await
+            .unwrap();
+        for preference in [
+            ExecutionPreference::GpuShader,
+            ExecutionPreference::CpuSimd,
+            ExecutionPreference::ScalarReference,
+        ] {
+            assert!(matches!(
+                PathRasterizer::new(&device, &queue, preference).await,
+                Err(progpu::Error::UnsupportedExecution)
+            ));
+        }
+        let rasterizer = PathRasterizer::new(&device, &queue, ExecutionPreference::NativeCompute)
+            .await
+            .unwrap();
+        let corners = [[4.0, 4.0], [16.0, 4.0], [16.0, 16.0], [4.0, 16.0]];
+        let lines: Vec<_> = (0..4)
+            .map(|i| Segment::line(corners[i], corners[(i + 1) % 4]))
+            .collect();
+        let mut paths = Vec::new();
+        for kind in [0, 1, 2, 4, 5] {
+            let segments: Vec<_> = lines
+                .iter()
+                .map(|line| {
+                    let [start, end, _, _] = line.points;
+                    let middle = [(start[0] + end[0]) * 0.5, (start[1] + end[1]) * 0.5];
+                    let control1 = [
+                        start[0] + (end[0] - start[0]) / 3.0,
+                        start[1] + (end[1] - start[1]) / 3.0,
+                    ];
+                    let control2 = [
+                        start[0] + (end[0] - start[0]) * (2.0 / 3.0),
+                        start[1] + (end[1] - start[1]) * (2.0 / 3.0),
+                    ];
+                    let mut segment = match kind {
+                        0 => *line,
+                        1 | 4 => Segment::quadratic([start, middle, end]),
+                        _ => Segment::cubic([start, control1, control2, end]),
+                    };
+                    segment.kind = kind;
+                    if kind >= 4 {
+                        segment.parameters[0] = 1.0f32.to_bits();
+                    }
+                    if kind == 5 {
+                        segment.parameters[1] = 1.0f32.to_bits();
+                    }
+                    segment
+                })
+                .collect();
+            paths.push(Path::new(segments, [4.0, 4.0, 16.0, 16.0], FillRule::NonZero).unwrap());
+        }
+        let doubled: Vec<_> = lines.iter().chain(&lines).copied().collect();
+        paths.push(Path::new(doubled.clone(), [4.0, 4.0, 16.0, 16.0], FillRule::EvenOdd).unwrap());
+        paths.push(Path::new(doubled, [4.0, 4.0, 16.0, 16.0], FillRule::NonZero).unwrap());
+        let reversed: Vec<_> = lines
+            .iter()
+            .rev()
+            .map(|s| Segment::line(s.points[1], s.points[0]))
+            .collect();
+        paths.push(Path::new(reversed, [4.0, 4.0, 16.0, 16.0], FillRule::NonZero).unwrap());
+        let arcs = vec![
+            Segment {
+                points: [[12.0, 8.0], [4.0, 8.0], [8.0, 8.0], [4.0, 4.0]],
+                kind: 3,
+                parameters: [0.0f32.to_bits(), std::f32::consts::PI.to_bits(), 0],
+            },
+            Segment {
+                points: [[4.0, 8.0], [12.0, 8.0], [8.0, 8.0], [4.0, 4.0]],
+                kind: 3,
+                parameters: [
+                    std::f32::consts::PI.to_bits(),
+                    std::f32::consts::PI.to_bits(),
+                    0,
+                ],
+            },
+        ];
+        paths.push(Path::new(arcs, [4.0, 4.0, 12.0, 12.0], FillRule::NonZero).unwrap());
+        let requests: Vec<_> = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                (
+                    path,
+                    RasterRequest {
+                        origin: [0.25, 0.5],
+                        scale: [1.5, 0.75],
+                        size: [if index % 2 == 0 { 31 } else { 65 }, 23],
+                        sample_grid: 8,
+                    },
+                )
+            })
+            .collect();
+        let mut invalid = requests.clone();
+        invalid.last_mut().unwrap().1.sample_grid = 0;
+        assert!(rasterizer.rasterize_batch(&invalid).is_err());
+        let masks = rasterizer.rasterize_batch(&requests).unwrap();
+        assert_eq!(masks.len(), paths.len());
+        drop(rasterizer);
+        for (index, mask) in masks.iter().enumerate() {
+            assert_eq!(mask.execution_path(), ExecutionPath::NativeCompute);
+            let pixels = read_pixels(&device, &queue, mask.texture());
+            let request = mask.request();
+            for y in 0..request.size[1] {
+                for x in 0..request.size[0] {
+                    let mut samples = 0u32;
+                    for sy in 0..8 {
+                        for sx in 0..8 {
+                            let px = (request.origin[0] + x as f32 + (sx as f32 + 0.5) / 8.0)
+                                / request.scale[0];
+                            let py = (request.origin[1] + y as f32 + (sy as f32 + 0.5) / 8.0)
+                                / request.scale[1];
+                            let inside = if index == 5 {
+                                false
+                            } else if index == 8 {
+                                (px - 8.0).powi(2) + (py - 8.0).powi(2) < 16.0
+                            } else {
+                                (4.0..16.0).contains(&px) && (4.0..16.0).contains(&py)
+                            };
+                            samples += u32::from(inside);
+                        }
+                    }
+                    let expected = (samples as f32 * (255.0 / 64.0)).round() as u8;
+                    assert_eq!(
+                        pixels[(y * request.size[0] + x) as usize],
+                        expected,
+                        "path {index} pixel ({x},{y})"
+                    );
+                }
+            }
+        }
+    });
 }
 
 #[test]

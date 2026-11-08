@@ -4,6 +4,7 @@
 //! approximated. GPU programs are embedded from the canonical production WGSL.
 
 pub mod geometry;
+pub mod path;
 #[cfg(feature = "gpu")]
 pub mod renderer;
 pub mod shaders;
@@ -20,6 +21,9 @@ pub enum Error {
     /// A retained resource belongs to a different renderer generation.
     #[error("resource belongs to another renderer")]
     ResourceDomain,
+    /// The explicitly selected execution route is unavailable.
+    #[error("requested execution path is not supported")]
+    UnsupportedExecution,
     /// wgpu rejected a shader or pipeline.
     #[cfg(feature = "gpu")]
     #[error("WebGPU validation failed: {0}")]
