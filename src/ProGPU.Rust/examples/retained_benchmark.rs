@@ -2,8 +2,10 @@
 //! Run in Release; this is a baseline, not a cross-language speedup claim.
 
 use progpu::{
-    geometry::{AnalyticPrimitive, Mesh, Shape},
+    geometry::{Affine, AnalyticPrimitive, Mesh, Shape},
+    path::{FillRule, Path, Segment},
     renderer::{Frame, Renderer},
+    scene::{PathDraw, PathSampling, Scene},
 };
 use std::{
     error::Error,
@@ -15,6 +17,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn run() -> Result<(), Box<dyn Error>> {
+    let arguments: Vec<_> = std::env::args().skip(1).collect();
+    let mixed = match arguments.as_slice() {
+        [] => false,
+        [argument] if argument == "--paths" => true,
+        _ => return Err("use --paths for the mixed retained workload".into()),
+    };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
@@ -24,10 +32,19 @@ async fn run() -> Result<(), Box<dyn Error>> {
         .request_device(&wgpu::DeviceDescriptor::default())
         .await?;
     let cold = Instant::now();
-    let renderer = Renderer::new(&device, &queue, wgpu::TextureFormat::Rgba8Unorm).await?;
+    let mut renderer = Renderer::new(&device, &queue, wgpu::TextureFormat::Rgba8Unorm).await?;
     let pipeline_ms = cold.elapsed().as_secs_f64() * 1000.0;
     let cold = Instant::now();
     let mut mesh = Mesh::default();
+    let mut source = Scene::default();
+    let path = Path::new(
+        vec![
+            Segment::quadratic([[0.0, 12.0], [6.0, -12.0], [12.0, 12.0]]),
+            Segment::line([12.0, 12.0], [0.0, 12.0]),
+        ],
+        [0.0, -12.0, 12.0, 12.0],
+        FillRule::NonZero,
+    )?;
     for index in 0..4096 {
         let mut primitive = AnalyticPrimitive::rectangle(
             [
@@ -40,16 +57,29 @@ async fn run() -> Result<(), Box<dyn Error>> {
         );
         primitive.shape = [Shape::Rectangle, Shape::Ellipse, Shape::RoundedRectangle][index % 3];
         primitive.corner_radius = 3.0;
-        mesh.push(&primitive, 1.5)?;
+        if mixed && index % 2 == 0 {
+            source.draw_path(PathDraw {
+                path: path.clone(),
+                transform: Affine([1.0, 0.0, 0.0, 1.0, primitive.bounds[0], primitive.bounds[1]]),
+                color: primitive.color,
+                sampling: PathSampling::default(),
+            })?;
+        } else if mixed {
+            source.draw_analytic(primitive)?;
+        } else {
+            mesh.push(&primitive, 1.5)?;
+        }
     }
-    let scene = renderer.prepare(
-        &mesh,
-        Frame {
-            width: 1024,
-            height: 1024,
-            dpi_scale: 1.0,
-        },
-    )?;
+    let frame = Frame {
+        width: 1024,
+        height: 1024,
+        dpi_scale: 1.0,
+    };
+    let scene = if mixed {
+        renderer.prepare_scene(&source, frame).await?
+    } else {
+        renderer.prepare(&mesh, frame)?
+    };
     let preparation_ms = cold.elapsed().as_secs_f64() * 1000.0;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("benchmark target"),
@@ -89,7 +119,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let elapsed = total.elapsed().as_secs_f64();
     samples.sort_by(f64::total_cmp);
     println!(
-        "primitives=4096 warmup=120 frames=480 pipeline_ms={pipeline_ms:.3} preparation_ms={preparation_ms:.3}"
+        "mixed_paths={mixed} primitives=4096 warmup=120 frames=480 pipeline_ms={pipeline_ms:.3} preparation_ms={preparation_ms:.3}"
     );
     println!(
         "cpu_submit_us p50={:.3} p95={:.3} p99={:.3} serial_fps={:.2}",
@@ -103,6 +133,11 @@ async fn run() -> Result<(), Box<dyn Error>> {
         scene.metrics().geometry_bytes,
         scene.metrics().uniform_bytes,
         scene.metrics().draws
+    );
+    println!(
+        "cold_path_rasters={} atlas_bytes={} warm_path_rasters=0",
+        scene.metrics().rasterized_paths,
+        scene.metrics().atlas_bytes
     );
     Ok(())
 }

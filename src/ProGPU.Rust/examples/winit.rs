@@ -1,8 +1,10 @@
 //! A native window validating the retained ProGPU Rust/wgpu renderer.
 
 use progpu::{
-    geometry::{Affine, AnalyticPrimitive, Mesh, Shape},
+    geometry::{Affine, AnalyticPrimitive, Shape},
+    path::{FillRule, Path, Segment},
     renderer::{Frame, PreparedScene, Renderer},
+    scene::{PathDraw, PathSampling, Scene},
 };
 use std::{error::Error, sync::Arc};
 use winit::{
@@ -98,8 +100,9 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
-        let mesh = sample_mesh(dpi)?;
-        let scene = self.renderer.prepare(&mesh, frame)?;
+        let source = sample_scene()?;
+        let scene = pollster::block_on(self.renderer.prepare_scene(&source, frame))?;
+        eprintln!("prepared: {:?}", scene.metrics());
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
@@ -151,9 +154,9 @@ impl WindowRenderer {
     }
 }
 
-fn sample_mesh(dpi: f32) -> Result<Mesh> {
-    let mut mesh = Mesh::default();
-    for row in 0..8 {
+fn sample_scene() -> Result<Scene> {
+    let mut scene = Scene::default();
+    for row in 0..6 {
         for column in 0..12 {
             let mut primitive = AnalyticPrimitive::rectangle(
                 [
@@ -174,13 +177,55 @@ fn sample_mesh(dpi: f32) -> Result<Mesh> {
             primitive.corner_radius = 12.0;
             primitive.stroke_thickness = if row % 3 == 1 { 2.0 } else { 0.0 };
             primitive.aliased = row % 3 == 2;
-            if row == 7 {
-                primitive.transform = Affine([1.0, 0.0, 0.05, 1.0, -24.0, 0.0]);
-            }
-            mesh.push(&primitive, 1.5 / dpi)?;
+            scene.draw_analytic(primitive)?;
         }
     }
-    Ok(mesh)
+    let quadratic = Segment::quadratic([[0.0, 40.0], [28.0, -40.0], [56.0, 40.0]]);
+    let cubic = Segment::cubic([[0.0, 40.0], [0.0, -14.0], [56.0, -14.0], [56.0, 40.0]]);
+    let rational = Segment {
+        kind: 4,
+        parameters: [0.5f32.to_bits(), 0, 0],
+        ..quadratic
+    };
+    let paths: Vec<_> = [quadratic, cubic, rational]
+        .into_iter()
+        .map(|curve| {
+            Path::new(
+                vec![curve, Segment::line([56.0, 40.0], [0.0, 40.0])],
+                [0.0, -40.0, 56.0, 40.0],
+                FillRule::NonZero,
+            )
+        })
+        .collect::<std::result::Result<_, _>>()?;
+    for row in 6..8 {
+        for column in 0..12 {
+            // Repeated immutable paths share rasters at equal scale and phase.
+            // Interleaved translucent analytic paint tests command ordering.
+            scene.draw_path(PathDraw {
+                path: paths[column % paths.len()].clone(),
+                transform: Affine([
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    24.0 + column as f32 * 76.0,
+                    24.0 + row as f32 * 74.0,
+                ]),
+                color: [0.95, 0.35 + column as f32 * 0.035, 0.25, 0.9],
+                sampling: PathSampling::default(),
+            })?;
+            scene.draw_analytic(AnalyticPrimitive::rectangle(
+                [
+                    36.0 + column as f32 * 76.0,
+                    44.0 + row as f32 * 74.0,
+                    32.0,
+                    10.0,
+                ],
+                [0.1, 0.6, 1.0, 0.35],
+            ))?;
+        }
+    }
+    Ok(scene)
 }
 
 #[derive(Default)]

@@ -1,4 +1,4 @@
-//! Retained wgpu execution of ProGPU's canonical analytic vector shader.
+//! Retained wgpu execution of ProGPU's canonical vector and path shaders.
 //!
 //! CPU geometry is prepared once, uploaded once and retained by an immutable
 //! scene. Frames submit one ordered draw with no geometry/uniform re-upload.
@@ -8,6 +8,8 @@
 use crate::{
     Error,
     geometry::{Mesh, VectorVertex},
+    path::{CoverageAtlas, ExecutionPreference, PathRasterizer},
+    scene::{CompiledScene, Scene},
     shaders,
 };
 use bytemuck::{Pod, Zeroable};
@@ -82,10 +84,14 @@ impl Frame {
 pub struct UploadMetrics {
     /// Original vertex and index payload bytes uploaded once at preparation.
     pub geometry_bytes: u64,
-    /// Uniform bytes uploaded once at preparation.
+    /// Frame uniform bytes uploaded once at preparation (excludes path compute).
     pub uniform_bytes: u64,
     /// Ordered indexed draw count (zero for empty scenes).
     pub draws: u32,
+    /// Distinct path masks rasterized when this generation was prepared.
+    pub rasterized_paths: u32,
+    /// Owned R8 atlas bytes; zero for analytic-only generations.
+    pub atlas_bytes: u64,
 }
 
 /// GPU resources for a frozen scene and physical frame.
@@ -94,6 +100,7 @@ pub struct PreparedScene {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     bindings: wgpu::BindGroup,
+    atlas: wgpu::BindGroup,
     index_count: u32,
     frame: Frame,
     metrics: UploadMetrics,
@@ -110,7 +117,7 @@ impl PreparedScene {
     }
 }
 
-/// A single-device analytic vector renderer with immutable prepared generations.
+/// A single-device vector renderer with immutable prepared generations.
 pub struct Renderer {
     owner: Arc<()>,
     device: wgpu::Device,
@@ -119,6 +126,7 @@ pub struct Renderer {
     brush: wgpu::Buffer,
     stops: wgpu::Buffer,
     atlas: wgpu::BindGroup,
+    path_rasterizer: Option<PathRasterizer>,
 }
 
 impl Renderer {
@@ -236,19 +244,79 @@ impl Renderer {
             brush,
             stops,
             atlas,
+            path_rasterizer: None,
         })
     }
 
     /// Freeze and upload geometry for a physical target. On failure no scene is
     /// published. All byte/index/device limits are checked before allocation.
     pub fn prepare(&self, mesh: &Mesh, frame: Frame) -> Result<PreparedScene, Error> {
+        if mesh.vertices().iter().any(|v| v.shape_type == 4.0) {
+            return Err(Error::InvalidInput);
+        }
+        self.prepare_geometry(mesh, frame, None)
+    }
+
+    /// Whether the optional path compute pipeline has been initialized.
+    pub fn path_pipeline_is_initialized(&self) -> bool {
+        self.path_rasterizer.is_some()
+    }
+
+    /// Compile and prepare an ordered mixed scene at the actual target frame.
+    /// Path compute is initialized only when the scene contains path commands.
+    pub async fn prepare_scene(
+        &mut self,
+        scene: &Scene,
+        frame: Frame,
+    ) -> Result<PreparedScene, Error> {
+        let compiled = scene.compile(frame.dpi_scale)?;
+        self.prepare_compiled(&compiled, frame).await
+    }
+
+    /// Upload a CPU-compiled immutable generation. Exact DPI must match the
+    /// compilation; changing paint or geometry requires a new generation.
+    /// Paths are deduplicated and populated in one atlas/compute submission,
+    /// then mixed with analytic commands in one painter-ordered indexed draw.
+    pub async fn prepare_compiled(
+        &mut self,
+        compiled: &CompiledScene,
+        frame: Frame,
+    ) -> Result<PreparedScene, Error> {
+        if compiled.dpi_scale().to_bits() != frame.dpi_scale.to_bits() {
+            return Err(Error::InvalidInput);
+        }
+        self.validate_geometry(&compiled.mesh, frame)?;
+        if compiled.atlas_size() > self.device.limits().max_texture_dimension_2d {
+            return Err(Error::Capacity);
+        }
+        if compiled.rasters.is_empty() {
+            return self.prepare_geometry(&compiled.mesh, frame, None);
+        }
+        if self.path_rasterizer.is_none() {
+            let rasterizer =
+                PathRasterizer::new(&self.device, &self.queue, ExecutionPreference::Automatic)
+                    .await?;
+            self.path_rasterizer = Some(rasterizer);
+        }
+        let requests: Vec<_> = compiled
+            .rasters
+            .iter()
+            .map(|(path, request)| (path, *request))
+            .collect();
+        let atlas = self
+            .path_rasterizer
+            .as_ref()
+            .ok_or(Error::UnsupportedExecution)?
+            .rasterize_atlas(&requests)?;
+        self.prepare_geometry(&compiled.mesh, frame, Some(&atlas))
+    }
+
+    fn validate_geometry(&self, mesh: &Mesh, frame: Frame) -> Result<Uniforms, Error> {
         let limits = self.device.limits();
         let uniforms = frame.uniforms(limits.max_texture_dimension_2d)?;
-        let index_count = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
-        let vertices = bytemuck::cast_slice(mesh.vertices());
-        let indices = bytemuck::cast_slice(mesh.indices());
-        if vertices.len() as u64 > limits.max_buffer_size
-            || indices.len() as u64 > limits.max_buffer_size
+        u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
+        if std::mem::size_of_val(mesh.vertices()) as u64 > limits.max_buffer_size
+            || std::mem::size_of_val(mesh.indices()) as u64 > limits.max_buffer_size
         {
             return Err(Error::Capacity);
         }
@@ -261,6 +329,47 @@ impl Renderer {
         }) {
             return Err(Error::InvalidInput);
         }
+        Ok(uniforms)
+    }
+
+    fn prepare_geometry(
+        &self,
+        mesh: &Mesh,
+        frame: Frame,
+        coverage: Option<&CoverageAtlas>,
+    ) -> Result<PreparedScene, Error> {
+        let uniforms = self.validate_geometry(mesh, frame)?;
+        if coverage.is_some_and(|atlas| atlas.device != self.device) {
+            return Err(Error::ResourceDomain);
+        }
+        let index_count = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
+        let vertices = bytemuck::cast_slice(mesh.vertices());
+        let indices = bytemuck::cast_slice(mesh.indices());
+        let atlas = if let Some(coverage) = coverage {
+            let view = coverage.texture().create_view(&Default::default());
+            let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("ProGPU path atlas sampler"),
+                min_filter: wgpu::FilterMode::Linear,
+                mag_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            });
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ProGPU retained path atlas binding"),
+                layout: &self.pipeline.get_bind_group_layout(1),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                ],
+            })
+        } else {
+            self.atlas.clone()
+        };
         let buffer = |label, contents: &[u8], usage| {
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -311,12 +420,17 @@ impl Renderer {
             vertices: vertex_buffer,
             indices: index_buffer,
             bindings,
+            atlas,
             index_count,
             frame,
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
                 uniform_bytes: size_of::<Uniforms>() as u64,
                 draws: u32::from(index_count != 0),
+                rasterized_paths: coverage.map_or(0, |a| a.tiles().len() as u32),
+                atlas_bytes: coverage.map_or(0, |a| {
+                    u64::from(a.texture().width()) * u64::from(a.texture().height())
+                }),
             },
         })
     }
@@ -362,7 +476,7 @@ impl Renderer {
             if scene.index_count != 0 {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &scene.bindings, &[]);
-                pass.set_bind_group(1, &self.atlas, &[]);
+                pass.set_bind_group(1, &scene.atlas, &[]);
                 pass.set_vertex_buffer(0, scene.vertices.slice(..));
                 pass.set_index_buffer(scene.indices.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..scene.index_count, 0, 0..1);

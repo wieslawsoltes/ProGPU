@@ -18,6 +18,31 @@ impl Affine {
         let [a, b, c, d, tx, ty] = self.0;
         [x * a + y * c + tx, x * b + y * d + ty]
     }
+
+    /// Original native maximum/minimum singular scales, calculated in double
+    /// precision and narrowed once. Singular and near-singular frames reject.
+    pub fn scales(self) -> Result<[f32; 2], Error> {
+        if self.0.iter().any(|v| !v.is_finite()) {
+            return Err(Error::InvalidInput);
+        }
+        let [m11, m12, m21, m22, _, _] = self.0.map(f64::from);
+        let sum = m11 * m11 + m12 * m12 + m21 * m21 + m22 * m22;
+        let determinant = m11 * m22 - m12 * m21;
+        let discriminant = (sum * sum - 4.0 * determinant * determinant).max(0.0);
+        let maximum = ((sum + discriminant.sqrt()) * 0.5).max(0.0).sqrt();
+        let minimum = ((sum - discriminant.sqrt()) * 0.5).max(0.0).sqrt();
+        if [maximum, minimum]
+            .iter()
+            .any(|v| !v.is_finite() || *v <= 0.000001)
+        {
+            return Err(Error::InvalidInput);
+        }
+        let scales = [maximum as f32, minimum as f32];
+        if scales.iter().any(|v| !v.is_finite() || *v <= 0.000001) {
+            return Err(Error::InvalidInput);
+        }
+        Ok(scales)
+    }
 }
 
 impl Default for Affine {
@@ -181,6 +206,10 @@ impl Mesh {
         antialias_padding: f32,
     ) -> Result<(), Error> {
         let vertices = primitive.vertices(antialias_padding)?;
+        self.push_quad(vertices)
+    }
+
+    pub(crate) fn push_quad(&mut self, vertices: [VectorVertex; 4]) -> Result<(), Error> {
         let base = u32::try_from(self.vertices.len()).map_err(|_| Error::Capacity)?;
         base.checked_add(4).ok_or(Error::Capacity)?;
         self.vertices.try_reserve(4).map_err(|_| Error::Capacity)?;

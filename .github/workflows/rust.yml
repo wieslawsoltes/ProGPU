@@ -8,6 +8,13 @@ on:
       - src/ProGPU.Rust/**
       - src/ProGPU.Backend/Shaders/**
       - src/ProGPU.Native/src/Backend/progpu_native_geometry*.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_gpu_records.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_path_dispatch.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_path_pixel_mapping.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_path_execution.cpp
+      - src/ProGPU.Native/src/Backend/progpu_native_vector_execution.cpp
+      - src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp
+      - src/ProGPU.Native/src/Scene/progpu_native_glyph_coverage_transfer.hpp
       - src/ProGPU.Native/include/progpu_native.h
       - .github/workflows/rust.yml
   push:

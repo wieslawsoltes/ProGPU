@@ -17,11 +17,17 @@ cargo test --locked --test native_geometry -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
+cargo run --release --locked --example retained_benchmark -- --paths
 ```
 
 The renderer accepts a device/queue pair and produces immutable prepared scenes.
 Prepare again when geometry, DPI or physical dimensions change; reuse a prepared
-scene for stable frames. Replay uses one indexed draw with original painter order.
+scene for stable frames. `Scene` records analytic and filled-path commands;
+`Scene::compile` performs CPU-only placement and atlas planning at the actual DPI.
+`Renderer::prepare_compiled` uploads that frozen generation and rasterizes its
+unique paths into one owned atlas. Replay uses one indexed draw with original
+painter order and no further path rasterization or geometry/frame uploads.
+The optional path pipeline is created only when a path scene is prepared.
 The example handles resize, scale changes, zero extents, suspend/resume and lost
 surfaces. Full device-loss recovery is still pending. GPU/reference tests are
 explicit opt-in tests so CPU-only consumers do not need a graphics adapter or C++
@@ -33,12 +39,12 @@ compiler; both must run in the port qualification lanes.
 | --- | --- | --- |
 | Shader composition | Compile-time canonical vector, path, glyph, binary glyph, text, image modules | Device pipeline and pixel tests for each host path |
 | Analytic geometry | Native layout and all three analytic shape expansions; 288 native differential cases | Broader managed/native corpus |
-| wgpu resources and rendering | Immutable retained analytic scenes; GPU pixels, owner-domain and replay lifetime controls | Cross-provider pixel corpus, device-loss recovery |
-| winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; Metal presentation smoke passes | Windows/Linux runtime and interactive lifecycle controls |
-| Paths, strokes and Boolean geometry | All six path segment records; independent fill masks through canonical batched compute; exact native extent grouping | Mask-to-scene integration, atlases, strokes and Boolean/signed programs |
+| wgpu resources and rendering | Immutable mixed analytic/path scenes and per-generation atlas bindings; GPU pixels, owner-domain and replay lifetime controls | Cross-provider pixel corpus, device-loss recovery |
+| winit sample | Native window, DPI/resize, suspend/resume, lost surface handling; mixed Metal presentation smoke passes; Linux smoke passed for the preceding analytic sample | Mixed Linux/Windows runtime and interactive lifecycle controls |
+| Paths, strokes and Boolean geometry | All six path segment records; canonical batched masks and retained shared atlases; native extent grouping and physical path placement | Strokes, Boolean/signed programs and original corpus |
 | Fonts, Unicode, shaping, layout and text | Pending | Complete owned text stack and original fixtures |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
-| Scene compiler, interaction and archives | Pending | Generation, replay and transport compatibility |
+| Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
 
 No C/C++ FFI renderer, third-party text/raster engine, or CPU raster substitute is
@@ -60,7 +66,14 @@ and `progpu_native_geometry_analytic.hpp`; GPU records and projection follow
 Shader compositions follow `src/ProGPU.Backend/Shaders.cs` and native CMake.
 Path records and validation follow `progpu_native.h` and
 `src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp`;
-batch grouping follows `progpu_native_path_dispatch.hpp`. The compute kernel is
+batch grouping follows `progpu_native_path_dispatch.hpp`. Scene path placement,
+phase, atlas shelves and exact texel-load admission follow
+`progpu_native_path_execution.cpp`, `progpu_native_gpu_records.hpp` and
+`progpu_native_path_pixel_mapping.hpp`. Analytic scene padding retains the
+original `progpu_native_vector_execution.cpp` formula. Explicit grayscale contrast
+retains `progpu_native_glyph_coverage_transfer.hpp` metadata and the canonical
+shader transfer; this is not source font or Microsoft pixel qualification.
+The compute kernel is
 the unchanged canonical `cs_main_single_path` with operation zero.
 Only original ProGPU implementation is ported; external crates remain normal
 Cargo dependencies with a committed lockfile.

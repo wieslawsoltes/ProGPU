@@ -62,6 +62,237 @@ fn read_pixels(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Textu
 
 #[test]
 #[ignore = "requires a real GPU adapter; mandatory explicit GPU validation lane"]
+fn mixed_retained_scene_matches_painter_order_and_physical_samples() {
+    use progpu::{
+        geometry::Affine,
+        path::{FillRule, Path, Segment},
+        scene::{PathDraw, PathSampling, Scene},
+    };
+    pollster::block_on(async {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .expect("GPU adapter required");
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default())
+            .await
+            .unwrap();
+        let mut renderer = Renderer::new(&device, &queue, wgpu::TextureFormat::Rgba8Unorm)
+            .await
+            .unwrap();
+        assert!(!renderer.path_pipeline_is_initialized());
+        let points = [[4.25, 4.5], [20.75, 4.5], [20.75, 20.5], [4.25, 20.5]];
+        let path = Path::new(
+            (0..4)
+                .map(|i| Segment::line(points[i], points[(i + 1) % 4]))
+                .collect::<Vec<_>>(),
+            [4.25, 4.5, 20.75, 20.5],
+            FillRule::NonZero,
+        )
+        .unwrap();
+        let mut source = Scene::default();
+        source
+            .draw_path(PathDraw {
+                path: path.clone(),
+                transform: Affine::IDENTITY,
+                color: [1.0, 0.0, 0.0, 0.6],
+                sampling: PathSampling::default(),
+            })
+            .unwrap();
+        let mut rectangle =
+            AnalyticPrimitive::rectangle([12.0, 8.0, 20.0, 20.0], [0.0, 0.0, 1.0, 0.4]);
+        rectangle.aliased = true;
+        source.draw_analytic(rectangle).unwrap();
+        source
+            .draw_path(PathDraw {
+                path: path.clone(),
+                transform: Affine([1.0, 0.0, 0.0, 1.0, 12.0, -2.0]),
+                color: [0.0, 1.0, 0.0, 0.7],
+                sampling: PathSampling::default(),
+            })
+            .unwrap();
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mixed retained scene target"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        for dpi_scale in [1.0, 1.25, 2.0] {
+            let frame = Frame {
+                width: 64,
+                height: 64,
+                dpi_scale,
+            };
+            let compiled = source.compile(dpi_scale).unwrap();
+            assert_eq!(
+                compiled.path_raster_count(),
+                if dpi_scale == 1.25 { 2 } else { 1 }
+            );
+            assert!(
+                renderer.prepare(compiled.mesh(), frame).is_err(),
+                "path mesh cannot use a placeholder atlas"
+            );
+            assert!(
+                renderer
+                    .prepare_compiled(
+                        &compiled,
+                        Frame {
+                            dpi_scale: dpi_scale + 1.0,
+                            ..frame
+                        }
+                    )
+                    .await
+                    .is_err()
+            );
+            let scene = renderer.prepare_compiled(&compiled, frame).await.unwrap();
+            assert!(renderer.path_pipeline_is_initialized());
+            assert_eq!(scene.metrics().draws, 1);
+            assert_eq!(
+                scene.metrics().rasterized_paths as usize,
+                compiled.path_raster_count()
+            );
+            assert_eq!(scene.metrics().atlas_bytes, 1024 * 1024);
+            drop(compiled);
+            // A later atlas generation must not alter the first prepared scene.
+            let later = renderer
+                .prepare_scene(
+                    &source,
+                    Frame {
+                        dpi_scale: 3.0,
+                        ..frame
+                    },
+                )
+                .await
+                .unwrap();
+            drop(later);
+            renderer
+                .render(&scene, &view, wgpu::Color::TRANSPARENT)
+                .unwrap();
+            let pixels = read_pixels(&device, &queue, &texture);
+            for y in 0..64 {
+                for x in 0..64 {
+                    let coverage = |translation: [f32; 2]| {
+                        let mut count = 0;
+                        for sy in 0..8 {
+                            for sx in 0..8 {
+                                let px = (x as f32 + (sx as f32 + 0.5) / 8.0) / dpi_scale
+                                    - translation[0];
+                                let py = (y as f32 + (sy as f32 + 0.5) / 8.0) / dpi_scale
+                                    - translation[1];
+                                count += u32::from(
+                                    (4.25..20.75).contains(&px) && (4.5..20.5).contains(&py),
+                                );
+                            }
+                        }
+                        (count as f32 * 255.0 / 64.0).round() / 255.0
+                    };
+                    let mut expected = [0.0f32; 4];
+                    let mut blend = |color: [f32; 4], coverage: f32| {
+                        let alpha = color[3] * coverage;
+                        for channel in 0..3 {
+                            expected[channel] = ((color[channel] * alpha
+                                + expected[channel] * (1.0 - alpha))
+                                * 255.0)
+                                .round()
+                                / 255.0;
+                        }
+                        expected[3] =
+                            ((alpha + expected[3] * (1.0 - alpha)) * 255.0).round() / 255.0;
+                    };
+                    blend([1.0, 0.0, 0.0, 0.6], coverage([0.0, 0.0]));
+                    let px = (x as f32 + 0.5) / dpi_scale;
+                    let py = (y as f32 + 0.5) / dpi_scale;
+                    blend(
+                        [0.0, 0.0, 1.0, 0.4],
+                        f32::from((12.0..32.0).contains(&px) && (8.0..28.0).contains(&py)),
+                    );
+                    blend([0.0, 1.0, 0.0, 0.7], coverage([12.0, -2.0]));
+                    for channel in 0..4 {
+                        let actual = pixels[(y * 64 + x) * 4 + channel];
+                        let expected = (expected[channel] * 255.0).round() as i16;
+                        assert!(
+                            (i16::from(actual) - expected).abs() <= 2,
+                            "dpi={dpi_scale} ({x},{y}) channel {channel}: {actual} != {expected}"
+                        );
+                    }
+                }
+            }
+            renderer
+                .render(&scene, &view, wgpu::Color::TRANSPARENT)
+                .unwrap();
+            drop(scene);
+            assert_eq!(read_pixels(&device, &queue, &texture), pixels);
+        }
+        source.clear();
+        let empty = renderer
+            .prepare_scene(
+                &source,
+                Frame {
+                    width: 64,
+                    height: 64,
+                    dpi_scale: 1.0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(empty.metrics().draws, 0);
+        assert_eq!(empty.metrics().atlas_bytes, 0);
+        // Explicit source contrast retains all thirteen original values. Use
+        // exact pixel-area intersections and a double background-domain oracle;
+        // allow only the final shader/unorm conversion's one-byte rounding.
+        for contrast in 0..=12 {
+            source.clear();
+            source
+                .draw_path(PathDraw {
+                    path: path.clone(),
+                    transform: Affine::IDENTITY,
+                    color: [1.0; 4],
+                    sampling: PathSampling::default()
+                        .with_grayscale_contrast(contrast)
+                        .unwrap(),
+                })
+                .unwrap();
+            let scene = renderer
+                .prepare_scene(&source, empty.frame())
+                .await
+                .unwrap();
+            renderer
+                .render(&scene, &view, wgpu::Color::TRANSPARENT)
+                .unwrap();
+            let pixels = read_pixels(&device, &queue, &texture);
+            for y in 0..64 {
+                for x in 0..64 {
+                    let overlap = |v: usize, low: f64, high: f64| {
+                        ((v as f64 + 1.0).min(high) - (v as f64).max(low)).max(0.0)
+                    };
+                    let area = overlap(x, 4.25, 20.75) * overlap(y, 4.5, 20.5);
+                    let coverage = (area * 255.0).round() / 255.0;
+                    let exponent = 1.0 / (1.0 + f64::from(contrast) / 10.0);
+                    let expected = 255.0 - ((1.0 - coverage).powf(exponent) * 255.0).round();
+                    for channel in &pixels[(y * 64 + x) * 4..(y * 64 + x + 1) * 4] {
+                        assert!(
+                            (f64::from(*channel) - expected).abs() <= 1.0,
+                            "contrast={contrast} ({x},{y}): {channel} != {expected}"
+                        );
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
+#[ignore = "requires a real GPU adapter; mandatory explicit GPU validation lane"]
 fn batched_path_coverage_matches_independent_samples() {
     use progpu::path::{
         ExecutionPath, ExecutionPreference, FillRule, Path, PathRasterizer, RasterRequest, Segment,
@@ -170,12 +401,25 @@ fn batched_path_coverage_matches_independent_samples() {
         invalid.last_mut().unwrap().1.sample_grid = 0;
         assert!(rasterizer.rasterize_batch(&invalid).is_err());
         let masks = rasterizer.rasterize_batch(&requests).unwrap();
+        assert!(rasterizer.rasterize_atlas(&invalid).is_err());
+        let atlas = rasterizer.rasterize_atlas(&requests).unwrap();
+        let mut expected_atlas =
+            vec![0u8; (atlas.texture().width() * atlas.texture().height()) as usize];
         assert_eq!(masks.len(), paths.len());
         drop(rasterizer);
         for (index, mask) in masks.iter().enumerate() {
             assert_eq!(mask.execution_path(), ExecutionPath::NativeCompute);
             let pixels = read_pixels(&device, &queue, mask.texture());
             let request = mask.request();
+            let tile = atlas.tiles()[index];
+            assert_eq!(tile.request.size, request.size);
+            for y in 0..request.size[1] {
+                let source = (y * request.size[0]) as usize;
+                let destination =
+                    ((tile.origin[1] + y) * atlas.texture().width() + tile.origin[0]) as usize;
+                expected_atlas[destination..destination + request.size[0] as usize]
+                    .copy_from_slice(&pixels[source..source + request.size[0] as usize]);
+            }
             for y in 0..request.size[1] {
                 for x in 0..request.size[0] {
                     let mut samples = 0u32;
@@ -204,6 +448,12 @@ fn batched_path_coverage_matches_independent_samples() {
                 }
             }
         }
+        // Full comparison includes every padding texel and unused atlas region,
+        // after the compute owner has retired. No neighboring tile may leak.
+        assert_eq!(
+            read_pixels(&device, &queue, atlas.texture()),
+            expected_atlas
+        );
     });
 }
 

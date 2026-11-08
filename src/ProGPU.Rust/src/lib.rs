@@ -7,6 +7,7 @@ pub mod geometry;
 pub mod path;
 #[cfg(feature = "gpu")]
 pub mod renderer;
+pub mod scene;
 pub mod shaders;
 
 /// Errors detected before publishing geometry or GPU state.

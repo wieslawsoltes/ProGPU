@@ -1,20 +1,7 @@
-use super::{ExecutionPath, ExecutionPreference, Path};
+use super::{ExecutionPath, ExecutionPreference, Path, RasterRequest};
 use crate::{Error, shaders};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
-
-/// Original physical raster origin, scale and sample-grid request.
-#[derive(Clone, Copy, Debug)]
-pub struct RasterRequest {
-    /// Physical x/y origin before division by source scale.
-    pub origin: [f32; 2],
-    /// Positive independent source-to-physical scales.
-    pub scale: [f32; 2],
-    /// Physical output width and height.
-    pub size: [u32; 2],
-    /// Original samples per axis, in 1..=8.
-    pub sample_grid: u32,
-}
 
 /// Submission-owned R8 coverage, ready for GPU sampling without CPU readback.
 pub struct CoverageMask {
@@ -34,6 +21,33 @@ impl CoverageMask {
     /// Execution route used to produce the mask.
     pub fn execution_path(&self) -> ExecutionPath {
         ExecutionPath::NativeCompute
+    }
+}
+
+/// One original request and its immutable position in a shared coverage atlas.
+#[derive(Clone, Copy, Debug)]
+pub struct AtlasTile {
+    /// Physical texel origin within the atlas.
+    pub origin: [u32; 2],
+    /// Original source-to-raster request.
+    pub request: RasterRequest,
+}
+
+/// One device-owned R8 atlas generation, populated by a single batched submission.
+pub struct CoverageAtlas {
+    pub(crate) device: wgpu::Device,
+    texture: wgpu::Texture,
+    tiles: Vec<AtlasTile>,
+}
+
+impl CoverageAtlas {
+    /// Original request order and exact atlas placement.
+    pub fn tiles(&self) -> &[AtlasTile] {
+        &self.tiles
+    }
+    /// Texture retained by this generation; do not explicitly destroy it in use.
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.texture
     }
 }
 
@@ -130,6 +144,72 @@ impl PathRasterizer {
         ExecutionPath::NativeCompute
     }
 
+    /// Rasterize a nonempty independent path batch into one shared atlas.
+    /// The native shelf packing, two-texel margins and 1024..8192 growth remain
+    /// unchanged. Device limits are checked before encoding. No temporary
+    /// per-path texture, extra copy submission or CPU readback is introduced.
+    pub fn rasterize_atlas(
+        &self,
+        paths: &[(&Path, RasterRequest)],
+    ) -> Result<CoverageAtlas, Error> {
+        let layout = crate::scene::AtlasLayout::new(paths.iter().map(|(_, r)| r.size))?;
+        if layout.size == 0 {
+            return Err(Error::InvalidInput);
+        }
+        if layout.size > self.device.limits().max_texture_dimension_2d {
+            return Err(Error::Capacity);
+        }
+        let (mut encoder, output, uniforms) = self.encode_batch(paths)?;
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ProGPU immutable path atlas"),
+            size: wgpu::Extent3d {
+                width: layout.size,
+                height: layout.size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let mut tiles = Vec::with_capacity(paths.len());
+        for ((&(_, request), uniform), origin) in paths.iter().zip(&uniforms).zip(layout.origins) {
+            let mut destination = texture.as_image_copy();
+            destination.origin = wgpu::Origin3d {
+                x: origin[0],
+                y: origin[1],
+                z: 0,
+            };
+            encoder.copy_buffer_to_texture(
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &output,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: u64::from(uniform.output_offset_words) * 4,
+                        bytes_per_row: Some(uniform.output_row_words * 4),
+                        rows_per_image: Some(request.size[1]),
+                    },
+                },
+                destination,
+                wgpu::Extent3d {
+                    width: request.size[0],
+                    height: request.size[1],
+                    depth_or_array_layers: 1,
+                },
+            );
+            tiles.push(AtlasTile { origin, request });
+        }
+        self.queue.submit([encoder.finish()]);
+        Ok(CoverageAtlas {
+            device: self.device.clone(),
+            texture,
+            tiles,
+        })
+    }
+
     /// Rasterize independent paths in one compute pass and one submission.
     ///
     /// The complete batch is validated before any GPU mutation. Dispatches group
@@ -144,6 +224,50 @@ impl PathRasterizer {
         if paths.is_empty() {
             return Ok(Vec::new());
         }
+        let (mut encoder, output, uniforms) = self.encode_batch(paths)?;
+        let masks: Vec<_> = paths
+            .iter()
+            .zip(&uniforms)
+            .map(|(&(_, request), uniform)| {
+                let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("ProGPU retained R8 path mask"),
+                    size: wgpu::Extent3d {
+                        width: request.size[0],
+                        height: request.size[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                });
+                encoder.copy_buffer_to_texture(
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &output,
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: u64::from(uniform.output_offset_words) * 4,
+                            bytes_per_row: Some(uniform.output_row_words * 4),
+                            rows_per_image: Some(request.size[1]),
+                        },
+                    },
+                    texture.as_image_copy(),
+                    texture.size(),
+                );
+                CoverageMask { texture, request }
+            })
+            .collect();
+        self.queue.submit([encoder.finish()]);
+        Ok(masks)
+    }
+
+    fn encode_batch(
+        &self,
+        paths: &[(&Path, RasterRequest)],
+    ) -> Result<(wgpu::CommandEncoder, wgpu::Buffer, Vec<Uniforms>), Error> {
         if paths.len() > 1 << 20 {
             return Err(Error::Capacity);
         }
@@ -308,43 +432,7 @@ impl PathRasterizer {
                 pass.dispatch_workgroups(dispatch.size[0], dispatch.size[1], dispatch.size[2]);
             }
         }
-        let masks: Vec<_> = paths
-            .iter()
-            .zip(&uniforms)
-            .map(|(&(_, request), uniform)| {
-                let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("ProGPU retained R8 path mask"),
-                    size: wgpu::Extent3d {
-                        width: request.size[0],
-                        height: request.size[1],
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::R8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                });
-                encoder.copy_buffer_to_texture(
-                    wgpu::TexelCopyBufferInfo {
-                        buffer: &output,
-                        layout: wgpu::TexelCopyBufferLayout {
-                            offset: u64::from(uniform.output_offset_words) * 4,
-                            bytes_per_row: Some(uniform.output_row_words * 4),
-                            rows_per_image: Some(request.size[1]),
-                        },
-                    },
-                    texture.as_image_copy(),
-                    texture.size(),
-                );
-                CoverageMask { texture, request }
-            })
-            .collect();
-        self.queue.submit([encoder.finish()]);
-        Ok(masks)
+        Ok((encoder, output, uniforms))
     }
 }
 

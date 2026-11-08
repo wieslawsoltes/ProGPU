@@ -124,7 +124,8 @@ binding alignment, exact bound byte lengths and the 65,535 Z-slice split. One
 compute pass writes packed coverage into one buffer; copies to owned R8 textures
 share the same command buffer/submission. Row pitch is 256-byte aligned and
 source placement is 512-byte aligned. Warm consumers retain these textures;
-automatic atlas caching and scene integration are still pending.
+cross-generation atlas reuse and eviction are still pending. The retained scene
+integration below adds within-generation sharing and direct atlas population.
 
 Validation: an original-C++ differential control compares 65,540 dispatch records
 and 3,146,752 bytes, including the Z-limit split and original signed-zero bits.
@@ -135,3 +136,73 @@ last requests reject the whole batch and unavailable forced routes reject.
 The compute owner is dropped before mask readback to verify retained outputs.
 These authored controls do not replace the remaining original source/application
 and package pixel inventories.
+
+
+## Mixed retained scenes and path atlases
+
+`Scene` retains immutable `Path` source arrays and ordered analytic/path commands.
+Compilation runs without a GPU and preserves source coordinates, maximum/minimum
+singular-scale arithmetic, 1/64 phase quantization, four-texel raster padding,
+source bounds, fill rule, and the complete sampling/contrast identity. Integer
+translations and paint changes can share one raster; different phase, scale or
+sampling metadata cannot. The temporary identity map never outlives its strong
+source leases. Analytic padding keeps the native 1.5/minimum-scale formula.
+
+The original shelf allocator starts at 1024, grows to at most 8192 without
+repacking old tiles, and preserves two-texel margins and the 4092 tile limit.
+The compute batch writes directly into the final atlas using the same encoder
+and submission as rasterization. Prepared scenes own their exact atlas binding;
+later preparations cannot replace textures or uniforms referenced by old scenes.
+Warm frames submit one painter-ordered draw with no path compute or uploads.
+The optional compute pipeline stays uninitialized for analytic-only scenes.
+CPU generations are reusable only at their exact captured DPI. A raw path mesh
+cannot accidentally be prepared against the analytic placeholder texture.
+
+Exact texel loads require the original complete four-corner integer mapping and
+power-of-two projection proof. Other admitted frames retain the canonical
+filtered route. Explicit grayscale contrast preserves all thirteen raw values
+and remains separate from binary sampling and ordinary coverage.
+
+Validation added at this increment:
+
+- Original native helpers: 528 affine/phase/projection cases, 19,584 exact bytes,
+  including reflections, shears, fractional translations, half-phase ties,
+  singular and nonfinite rejection. Existing 288 analytic cases and 65,540
+  dispatch cases remain mandatory.
+- Mixed GPU scenes: 12,288 independently sampled/composited pixels across DPI
+  1, 1.25 and 2, preserving overlapping alpha and command order, followed by
+  complete cold/warm equality. A later prepared atlas is retired before replay
+  of the earlier generation. Mismatched DPI and placeholder path replay reject.
+- Every texel in a 1024-square atlas matches the independently checked mask
+  inventory, including margins and unused space, after compute-owner retirement.
+- All 13 explicit contrast values: 53,248 output pixels checked against exact
+  rectangular area intersections and a double background-domain transfer oracle.
+  Only final shader/unorm rounding tolerances are admitted. This does not qualify
+  source font policy, original Microsoft pixels, or native packages.
+- The mixed winit sample presents four Metal frames: 120 commands, 29,760 geometry
+  bytes, 224 frame-uniform bytes, three unique path rasters, one 1 MiB atlas,
+  and one draw. Resize/DPI rebuilds the actual frozen generation.
+
+Strict all-feature/all-target Clippy, CPU-only/default tests and the explicit
+Metal GPU controls pass locally. On the preceding independent-mask commit,
+Linux and Windows portable/package lanes and Linux Vulkan/Xvfb passed; the macOS
+hosted job remained queued. Those receipts do not validate later commits.
+
+Release measurements on Apple M3 Pro/Metal, run sequentially without the GPU test
+suite, use 4,096 commands, 120 warmups and 480 measured serial frames:
+
+| Workload | Pipeline ms | CPU preparation ms | Submit p50/p95/p99 µs | Serial FPS |
+| --- | ---: | ---: | --- | ---: |
+| Analytic baseline | 17.497 | 0.479 | 133.041 / 249.875 / 443.292 | 1531.41 |
+| 2,048 analytic + 2,048 path draws | 13.450 | 5.349 | 134.917 / 179.208 / 239.792 | 1419.36 |
+
+Both upload 1,015,808 geometry bytes and 224 frame-uniform bytes once and submit
+one draw per frame. The mixed workload rasterizes one shared path into a 1 MiB
+atlas during preparation, then performs zero warm path rasterizations. Preparation
+includes first-use pipeline creation but excludes a completion wait; submission
+quantiles exclude the wait and serial FPS includes it. Driver caches are not
+cleared. An earlier run overlapped GPU tests and is excluded from this table.
+The later submission timings differ substantially from the initial baseline;
+a matched host/profile investigation remains required for performance
+qualification. These are reproducible workloads and measured receipts, not
+cross-language comparisons, GPU timestamps, or speedup claims.

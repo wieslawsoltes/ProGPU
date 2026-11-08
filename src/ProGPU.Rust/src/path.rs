@@ -4,6 +4,19 @@
 use crate::Error;
 use bytemuck::{Pod, Zeroable};
 
+/// Original physical raster origin, scale and sample-grid request.
+#[derive(Clone, Copy, Debug)]
+pub struct RasterRequest {
+    /// Physical x/y origin before division by source scale.
+    pub origin: [f32; 2],
+    /// Positive independent source-to-physical scales.
+    pub scale: [f32; 2],
+    /// Physical output width and height.
+    pub size: [u32; 2],
+    /// Original samples per axis, in 1..=8.
+    pub sample_grid: u32,
+}
+
 /// Requested compute execution route; unavailable forced routes fail closed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ExecutionPreference {
@@ -157,6 +170,10 @@ impl Path {
             fill_rule,
         })
     }
+    pub(crate) fn identity(&self) -> usize {
+        std::sync::Arc::as_ptr(&self.segments) as *const Segment as usize
+    }
+
     /// Read the original immutable segment inventory.
     pub fn segments(&self) -> &[Segment] {
         &self.segments
@@ -174,7 +191,7 @@ impl Path {
 #[cfg(feature = "gpu")]
 mod raster;
 #[cfg(feature = "gpu")]
-pub use raster::{CoverageMask, PathRasterizer, RasterRequest};
+pub use raster::{AtlasTile, CoverageAtlas, CoverageMask, PathRasterizer};
 
 #[cfg(test)]
 mod tests {
