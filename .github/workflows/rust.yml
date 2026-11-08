@@ -1,0 +1,71 @@
+name: Rust
+
+on:
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - src/ProGPU.Rust/**
+      - src/ProGPU.Backend/Shaders/**
+      - src/ProGPU.Native/src/Backend/progpu_native_geometry*.hpp
+      - src/ProGPU.Native/include/progpu_native.h
+      - .github/workflows/rust.yml
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - src/ProGPU.Rust/**
+      - src/ProGPU.Backend/Shaders/**
+      - .github/workflows/rust.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the minimum supported Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.90.0
+      - name: Formatting and strict lints
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --all-features --all-targets -- -D warnings
+      - name: CPU and canonical shader validation
+        run: |
+          cargo test --locked --all-features
+          cargo test --locked --no-default-features
+      - name: Original C++ differential oracle
+        if: runner.os != 'Windows'
+        run: cargo test --locked --test native_geometry -- --ignored --nocapture
+      - name: Verify distributable crate
+        run: cargo package --locked
+
+  gpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Vulkan software adapter and X11 smoke host
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 xvfb
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup override set 1.90.0
+      - name: GPU pixels and resource ownership (missing adapter fails)
+        run: cargo test --locked --test gpu_rendering -- --ignored --nocapture
+      - name: winit presentation smoke
+        run: |
+          cargo build --locked --features window --example winit
+          timeout 60s xvfb-run -a target/debug/examples/winit --frames 4

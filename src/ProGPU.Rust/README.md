@@ -44,6 +44,12 @@ No C/C++ FFI renderer, third-party text/raster engine, or CPU raster substitute 
 used. Existing managed/native provider, source application and package gates
 remain independent and mandatory.
 
+The new Rust CI runs CPU/shader validation and package verification on Linux,
+macOS and Windows. Linux additionally requires the native C++ oracle, Vulkan
+software-adapter pixels and Xvfb winit presentation; macOS also runs the C++
+oracle. These are additive gates. They do not qualify the existing pinned
+wgpu-native/Dawn packages, Windows compiler patches, or original source adapters.
+
 ## Provenance
 
 Initial source baseline: `cbfd65c6a69c49e10a5dbe2fe35967311efd80cc`.
