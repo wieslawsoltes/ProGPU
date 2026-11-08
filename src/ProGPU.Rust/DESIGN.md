@@ -475,3 +475,80 @@ lost devices reject subsequent draw/preparation instead of counting invalid
 presentations. Full device recreation remains pending. Receipts include actual
 platform, architecture, browser, adapter and launch flags. Detailed exploratory
 API interception and discarded host experiments are not production code.
+
+### Composite TrueType records and recursive unhinted outlines
+
+The original component parser and recursive outline expander are ported from
+`progpu_native_true_type_composite.cpp`, its internal header, and
+`progpu_native_true_type_outline.cpp`. `CompositeGlyph` retains ordered raw flags,
+original signed/unsigned arguments, F2Dot14 matrix entries and the final
+component's instruction payload. It retains the selected immutable face;
+record parsing does not fabricate child validity or execute instructions.
+`GlyphOutline` owns expanded points and canonical path records with the same
+source generation. Whole-tree requirements are validated before publication,
+and the maximum simple point/contour scratch is reused across children.
+
+Expansion preserves original order, parent/child point attachment, scaled offsets,
+round-to-even translation, explicit transform operations and line-only endpoint
+handling. The original depth limit is 32; cyclic, out-of-range and over-depth
+children are empty, while malformed visited children fail. Invalid attachment
+components follow the original omission route. The root itself requires a valid
+glyph slot. No hinting, variation or source raster policy is inferred.
+
+The source-arithmetic oracle links the original C++ files unchanged and compares
+72,993 inputs / 15,498,308 bytes: all 65,536 raw flags, transform precedence,
+signed/unsigned argument widths, point attachment, fractional nested transforms,
+depth boundaries/cycles, malformed/truncated records and all authored font glyphs.
+Refactored shared simple decoding/lowering also retains all 18,073 original
+simple-outline comparisons / 10,407,780 exact bytes.
+
+**Compiler-default qualification remains open.** Deeper fractional transforms
+revealed a one-bit difference at input 65,771 with default ARM64 Clang `-O2`
+(native `0x40f5a8bf`, Rust `0x40f5a8be`).
+Assembly confirms multiply/add contraction in the native transform, while Rust
+uses separate scalar operations. As in the existing geometry oracle, the new
+source-arithmetic control uses `-ffp-contract=off` only for its isolated C++ oracle.
+No native source, package build, driver, shader or compiler default is changed.
+The original failing control remains reproducible with
+`PROGPU_RUST_NATIVE_DEFAULT_FP=1 cargo test --no-default-features --test composite
+-- --ignored --nocapture`. Source-arithmetic success is not compiler-default
+native package or C# pixel qualification; that gate remains mandatory.
+
+The expanded benchmark mode (`outline_benchmark FONT_PATH 0 --expanded`) decodes
+all glyph slots, allocates the complete generation and hashes every expanded
+float point and path word. The original C++ caller-buffer path performs matching
+measurement/allocation/decoding/hash work. Five warmups precede forty measured
+rounds; I/O and face creation are excluded. Sequential Apple ARM64 Release/Rust
+and Clang C++20/O3 runs, with **default native contraction retained**:
+
+| Input / implementation | Glyphs / points / segments | Round p50 / p95 / p99 µs | Checksum |
+| --- | --- | --- | --- |
+| Authored Scan-1 / Rust | 441 / 1815 / 1650 | 145.291 / 154.083 / 155.792 | 12432019274016934652 |
+| Authored Scan-1 / C++ | 441 / 1815 / 1650 | 310.541 / 496.875 / 565.916 | 12432019274016934652 |
+| Local Helvetica face 0 / Rust | 2252 / 72668 / 52795 | 2737.833 / 3139.958 / 3449.958 | 3026803012000123258 |
+| Local Helvetica face 0 / C++ | 2252 / 72668 / 52795 | 2582.500 / 2715.584 / 2771.166 | 3026803012000123258 |
+
+These inputs have matching checksums despite the separate deep-fractional control
+failure. They are baseline observations, not proof of full performance parity or
+optimization attribution. The larger input is approximately 6% slower at p50.
+The native benchmark now links component/outline translation units as well as
+SFNT/simple/path sources. Temporary binaries and oracle inputs are removed after
+recording; no raw profiling trace is needed for this baseline.
+
+The WASM bridge also decodes a composite half-scale fixture with scaled offsets
+and round-to-even ties, preserves its exact 96 path bytes after source retirement,
+and rejects truncation. The macOS Chromium run passes this control at both DPRs,
+together with the unchanged 131,072 GPU pixels and actual compositor assertions.
+Strict native/WASM Clippy, CPU/all-feature tests and extracted package build pass;
+the package contains 80 files, 838.8 KiB (192.1 KiB compressed).
+
+Hosted Linux x64 at `2a27c3f00` passes DPR-1 actual presentation and both offscreen
+pixel suites, then times out capturing the DPR-2 screenshot. It is still not a
+passing browser lane. The capture host now pauses its animation loop after resize
+and ten-frame replay validation, waits for any already-entered frame and two
+browser animation turns, then captures the last presented surface. This avoids
+continuous submissions during capture; pixel assertions, timeout and shader code
+remain unchanged. The revised capture passes locally; hosted verification remains
+required. The successful ARM64 VM run and temporary dependencies were cleaned up,
+retaining only compact receipts/PNGs and restoring the VM's original suspended
+state (approximately 870 MiB reclaimed across guest tools and shared inputs).

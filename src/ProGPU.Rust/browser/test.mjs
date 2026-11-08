@@ -86,6 +86,33 @@ try {
         let rejected=false;
         try { app.decode_simple_glyph(font.slice(0,offset-4),0); } catch { rejected=true; }
         check(rejected,'WASM truncated glyph rejection');
+        // Half-scale component with scaled offsets (3,5), rounded ties-to-even.
+        // This executes production recursive expansion, not a JS geometry path.
+        new DataView(maxp.buffer).setUint16(4,2);
+        const compound=new Uint8Array(20), cv=new DataView(compound.buffer);
+        cv.setInt16(0,-1); cv.setUint16(10,0x80f);
+        cv.setInt16(14,3); cv.setInt16(16,5); cv.setInt16(18,8192);
+        const allGlyphs=new Uint8Array(glyf.length+compound.length);
+        allGlyphs.set(glyf); allGlyphs.set(compound,glyf.length);
+        const locations=new Uint8Array(12), lv=new DataView(locations.buffer);
+        lv.setUint32(4,glyf.length); lv.setUint32(8,allGlyphs.length);
+        const compoundFont=new Uint8Array(256), cfv=new DataView(compoundFont.buffer);
+        cfv.setUint32(0,0x10000); cfv.setUint16(4,4);
+        let compoundOffset=76;
+        for(const [i,[tag,data]] of [['head',head],['maxp',maxp],['loca',locations],['glyf',allGlyphs]].entries()) {
+          const record=12+i*16;
+          compoundFont.set(new TextEncoder().encode(tag),record);
+          cfv.setUint32(record+8,compoundOffset); cfv.setUint32(record+12,data.length);
+          compoundFont.set(data,compoundOffset); compoundOffset=(compoundOffset+data.length+3)&~3;
+        }
+        const expanded=app.decode_glyph_outline(compoundFont,1);
+        check(JSON.stringify([...expanded.points])==='[-254.5,-254.5,-511,-511,-767.5,-767.5]','WASM composite original points');
+        const expectedExpanded=expectedSegments.slice(0), ev=new DataView(expectedExpanded);
+        for(let i=0;i<2;++i) for(let j=0;j<6;++j) ev.setFloat32(i*48+j*4,sv.getFloat32(i*48+j*4,true)*.5+2,true);
+        check(expanded.segments.length===96 && expanded.segments.every((b,i)=>b===new Uint8Array(expectedExpanded)[i]),'WASM composite exact path bytes');
+        rejected=false;
+        try { app.decode_glyph_outline(compoundFont.slice(0,compoundOffset-4),1); } catch { rejected=true; }
+        check(rejected,'WASM truncated composite rejection');
         const shaders = await r.validate_shaders();
         check(shaders === 6, 'canonical shader inventory');
         let checkedPixels = 0;
@@ -134,7 +161,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);
@@ -159,6 +186,14 @@ try {
     assert.equal(resized.metrics.dpi,dpr);
     assert.deepEqual(resized.errors,[]);
     assert.deepEqual(errors,[]);
+    const entry={ dpr, ...report, resized: resized.metrics };
+    reports.push(entry);
+    console.log(`[DPR ${dpr}] resize verified; capturing final presented frame`);
+    await page.evaluate(async () => {
+      const app=await window.progpuReady;
+      await app.pause();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
     const bounds = await page.locator('canvas').boundingBox();
     assert.ok(bounds);
     const screenshot = PNG.sync.read(await page.screenshot({ path: path.join(output, `canvas-dpr${dpr}.png`) }));
@@ -169,8 +204,7 @@ try {
       return [...screenshot.data.subarray(offset,offset+4)];
     };
     const background=pixel(8,8), rectangle=pixel(40,40), ellipse=pixel(128,49), curve=pixel(52,503);
-    report.presentationPixels={background,rectangle,ellipse,curve};
-    reports.push({ dpr, ...report, resized: resized.metrics });
+    entry.presentationPixels={background,rectangle,ellipse,curve};
     assert.ok(background[2]>background[0] && background[2]>5,`canvas clear: ${background}`);
     for(const color of [rectangle,ellipse]) assert.ok(color[2]>color[0]+60 && color[2]>color[1]+60,`canvas analytic shape: ${color}`);
     assert.ok(curve[0]>curve[2]+60 && curve[0]>curve[1]+60,`canvas computed path: ${curve}`);

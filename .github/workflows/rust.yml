@@ -21,6 +21,9 @@ on:
       - src/ProGPU.Native/src/Text/progpu_native_font_bytes.hpp
       - src/ProGPU.Native/src/Text/progpu_native_true_type_glyph.cpp
       - src/ProGPU.Native/src/Text/progpu_native_true_type_path.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_composite.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_composite_internal.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_outline.cpp
       - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
       - tests/Shared/ProGPU-Authored-*.ttf
       - .github/workflows/rust.yml
@@ -100,6 +103,7 @@ jobs:
           cargo test --locked --test native_geometry -- --ignored --nocapture
           cargo test --locked --test font -- --ignored --nocapture
           cargo test --locked --test outline -- --ignored --nocapture
+          cargo test --locked --test composite -- --ignored --nocapture
           cargo test --locked --lib -- --ignored --nocapture
       - name: Verify distributable crate
         env:

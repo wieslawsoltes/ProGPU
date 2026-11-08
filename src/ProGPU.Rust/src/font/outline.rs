@@ -114,64 +114,73 @@ impl SimpleGlyph {
         result
             .try_reserve_exact(self.requirements.path_segment_count as usize)
             .map_err(|_| FontError::Capacity)?;
-        let mut start = 0;
-        for &end in &self.contours {
-            let end = usize::from(end) + 1;
-            let contour = &self.points[start..end];
-            let varied = if positions.is_empty() {
-                &[][..]
-            } else {
-                &positions[start..end]
-            };
-            start = end;
-            let count = contour.len();
-            if count < 2 {
-                continue;
-            }
-            let coordinate = |i: usize| {
-                if varied.is_empty() {
-                    contour[i].position()
-                } else {
-                    varied[i]
-                }
-            };
-            let mut index = 0;
-            let mut current = if contour[0].on_curve() {
-                index = 1;
-                coordinate(0)
-            } else if contour[count - 1].on_curve() {
-                coordinate(count - 1)
-            } else {
-                midpoint(coordinate(0), coordinate(count - 1))
-            };
-            let mut processed = 0;
-            while processed < count {
-                let slot = index % count;
-                if contour[slot].on_curve() {
-                    let end = coordinate(slot);
-                    result.push(Segment::line(current, end));
-                    current = end;
-                    index += 1;
-                    processed += 1;
-                } else {
-                    let next = (index + 1) % count;
-                    let control = coordinate(slot);
-                    let end = if contour[next].on_curve() {
-                        index += 2;
-                        processed += 2;
-                        coordinate(next)
-                    } else {
-                        index += 1;
-                        processed += 1;
-                        midpoint(control, coordinate(next))
-                    };
-                    result.push(Segment::quadratic([current, control, end]));
-                    current = end;
-                }
-            }
-        }
+        append_segments(&self.contours, &self.points, positions, &mut result);
         debug_assert_eq!(result.len(), self.requirements.path_segment_count as usize);
         Ok(result)
+    }
+}
+// Callers preflight topology and reserve the complete output before mutation.
+pub(super) fn append_segments(
+    contours: &[u16],
+    points: &[OutlinePoint],
+    positions: &[[f32; 2]],
+    result: &mut Vec<Segment>,
+) {
+    let mut start = 0;
+    for &end in contours {
+        let end = usize::from(end) + 1;
+        let contour = &points[start..end];
+        let varied = if positions.is_empty() {
+            &[][..]
+        } else {
+            &positions[start..end]
+        };
+        start = end;
+        let count = contour.len();
+        if count < 2 {
+            continue;
+        }
+        let coordinate = |i: usize| {
+            if varied.is_empty() {
+                contour[i].position()
+            } else {
+                varied[i]
+            }
+        };
+        let mut index = 0;
+        let mut current = if contour[0].on_curve() {
+            index = 1;
+            coordinate(0)
+        } else if contour[count - 1].on_curve() {
+            coordinate(count - 1)
+        } else {
+            midpoint(coordinate(0), coordinate(count - 1))
+        };
+        let mut processed = 0;
+        while processed < count {
+            let slot = index % count;
+            if contour[slot].on_curve() {
+                let end = coordinate(slot);
+                result.push(Segment::line(current, end));
+                current = end;
+                index += 1;
+                processed += 1;
+            } else {
+                let next = (index + 1) % count;
+                let control = coordinate(slot);
+                let end = if contour[next].on_curve() {
+                    index += 2;
+                    processed += 2;
+                    coordinate(next)
+                } else {
+                    index += 1;
+                    processed += 1;
+                    midpoint(control, coordinate(next))
+                };
+                result.push(Segment::quadratic([current, control, end]));
+                current = end;
+            }
+        }
     }
 }
 fn midpoint(left: [f32; 2], right: [f32; 2]) -> [f32; 2] {
@@ -308,56 +317,8 @@ impl SfntFace {
             .ok_or(FontError::InvalidGlyph)?;
         let layout = inspect(glyph).ok_or(FontError::InvalidGlyph)?;
         let mut contours = Vec::new();
-        contours
-            .try_reserve_exact(usize::from(layout.requirements.contour_count))
-            .map_err(|_| FontError::Capacity)?;
-        for index in 0..usize::from(layout.requirements.contour_count) {
-            contours.push(bytes::u16(glyph.bytes, 10 + index * 2).ok_or(FontError::InvalidGlyph)?);
-        }
         let mut points = Vec::new();
-        points
-            .try_reserve_exact(layout.requirements.point_count as usize)
-            .map_err(|_| FontError::Capacity)?;
-        let mut cursor = layout.flags;
-        while points.len() < layout.requirements.point_count as usize {
-            let flag = glyph.bytes[cursor];
-            cursor += 1;
-            let mut copies = 1;
-            if flag & 8 != 0 {
-                copies += usize::from(glyph.bytes[cursor]);
-                cursor += 1;
-            }
-            points.extend(std::iter::repeat_n(
-                OutlinePoint {
-                    flags: flag,
-                    ..Default::default()
-                },
-                copies,
-            ));
-        }
-        for (axis, mut cursor) in [layout.x, layout.y].into_iter().enumerate() {
-            let mut value = 0i32;
-            for point in &mut points {
-                if point.flags & (2 << axis) != 0 {
-                    let delta = i32::from(glyph.bytes[cursor]);
-                    cursor += 1;
-                    value += if point.flags & (16 << axis) != 0 {
-                        delta
-                    } else {
-                        -delta
-                    };
-                } else if point.flags & (16 << axis) == 0 {
-                    value +=
-                        i32::from(bytes::i16(glyph.bytes, cursor).ok_or(FontError::InvalidGlyph)?);
-                    cursor += 2;
-                }
-                if axis == 0 {
-                    point.x = value;
-                } else {
-                    point.y = value;
-                }
-            }
-        }
+        decode(glyph, &layout, &mut contours, &mut points)?;
         Ok(SimpleGlyph {
             source: self.clone(),
             glyph_index,
@@ -367,4 +328,74 @@ impl SfntFace {
             points,
         })
     }
+}
+
+fn decode(
+    glyph: GlyphData<'_>,
+    layout: &Layout,
+    contours: &mut Vec<u16>,
+    points: &mut Vec<OutlinePoint>,
+) -> Result<(), FontError> {
+    contours.clear();
+    contours
+        .try_reserve_exact(usize::from(layout.requirements.contour_count))
+        .map_err(|_| FontError::Capacity)?;
+    for index in 0..usize::from(layout.requirements.contour_count) {
+        contours.push(bytes::u16(glyph.bytes, 10 + index * 2).ok_or(FontError::InvalidGlyph)?);
+    }
+    points.clear();
+    points
+        .try_reserve_exact(layout.requirements.point_count as usize)
+        .map_err(|_| FontError::Capacity)?;
+    let mut cursor = layout.flags;
+    while points.len() < layout.requirements.point_count as usize {
+        let flag = glyph.bytes[cursor];
+        cursor += 1;
+        let mut copies = 1;
+        if flag & 8 != 0 {
+            copies += usize::from(glyph.bytes[cursor]);
+            cursor += 1;
+        }
+        points.extend(std::iter::repeat_n(
+            OutlinePoint {
+                flags: flag,
+                ..Default::default()
+            },
+            copies,
+        ));
+    }
+    for (axis, mut cursor) in [layout.x, layout.y].into_iter().enumerate() {
+        let mut value = 0i32;
+        for point in points.iter_mut() {
+            if point.flags & (2 << axis) != 0 {
+                let delta = i32::from(glyph.bytes[cursor]);
+                cursor += 1;
+                value += if point.flags & (16 << axis) != 0 {
+                    delta
+                } else {
+                    -delta
+                };
+            } else if point.flags & (16 << axis) == 0 {
+                value += i32::from(bytes::i16(glyph.bytes, cursor).ok_or(FontError::InvalidGlyph)?);
+                cursor += 2;
+            }
+            if axis == 0 {
+                point.x = value;
+            } else {
+                point.y = value;
+            }
+        }
+    }
+    Ok(())
+}
+/// Reuse the original maximum-simple-record scratch across composite children.
+pub(super) fn decode_scratch(
+    face: &SfntFace,
+    index: u16,
+    contours: &mut Vec<u16>,
+    points: &mut Vec<OutlinePoint>,
+) -> Result<(), FontError> {
+    let glyph = face.glyph_data(index).ok_or(FontError::InvalidGlyph)?;
+    let layout = inspect(glyph).ok_or(FontError::InvalidGlyph)?;
+    decode(glyph, &layout, contours, points)
 }

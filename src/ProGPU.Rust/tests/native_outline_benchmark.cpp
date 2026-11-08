@@ -7,11 +7,25 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <cstring>
 using namespace progpu::native::text;
-std::uint64_t run(const sfnt_font_view& face,const std::vector<std::uint16_t>& glyphs) {
+std::uint64_t run(const sfnt_font_view& face,const std::vector<std::uint16_t>& glyphs,bool expanded) {
     std::uint64_t checksum=14695981039346656037ULL;
     auto hash=[&](std::uint32_t value){checksum=(checksum^value)*1099511628211ULL;};
     for(const auto id:glyphs) {
+        if(expanded) {
+            sfnt_expanded_glyph_requirements r{};
+            if(!face.try_get_expanded_glyph_requirements(id,r))std::exit(15);
+            std::vector<std::uint16_t> contours(r.simple_contour_scratch_count);
+            std::vector<sfnt_outline_point> scratch(r.simple_point_scratch_count);
+            std::vector<progpu_native_point> points(r.point_count);
+            std::vector<progpu_native_path_segment> segments(r.path_segment_count);
+            std::uint32_t pc{},sc{};
+            if(!face.try_decode_glyph_outline(id,contours,scratch,points,segments,pc,sc)||pc!=points.size()||sc!=segments.size())std::exit(16);
+            for(const auto p:points){hash(std::bit_cast<std::uint32_t>(p.x));hash(std::bit_cast<std::uint32_t>(p.y));}
+            for(const auto& s:segments)for(const auto word:std::bit_cast<std::array<std::uint32_t,12>>(s))hash(word);
+            continue;
+        }
         sfnt_glyph_decode_requirements r{};
         if(!face.try_get_glyph_decode_requirements(id,r))std::exit(2);
         std::vector<std::uint16_t> contours(r.contour_count);
@@ -26,7 +40,9 @@ std::uint64_t run(const sfnt_font_view& face,const std::vector<std::uint16_t>& g
     return checksum;
 }
 int main(int argc,char** argv) {
-    if(argc<2||argc>3)return 1;
+    if(argc<2||argc>4)return 1;
+    const bool expanded=argc==4;
+    if(expanded && std::strcmp(argv[3],"--expanded")!=0)return 1;
     auto* file=std::fopen(argv[1],"rb");if(!file)return 5;
     if(std::fseek(file,0,SEEK_END))return 6;
     const auto size=std::ftell(file);if(size<0||std::fseek(file,0,SEEK_SET))return 7;
@@ -34,21 +50,27 @@ int main(int argc,char** argv) {
     if(std::fread(bytes.data(),1,bytes.size(),file)!=bytes.size())return 8;
     std::fclose(file);
     sfnt_font_view face{};
-    if(!sfnt_font_view::try_create(bytes,argc==3?static_cast<std::uint32_t>(std::strtoul(argv[2],nullptr,10)):0,face))return 9;
+    if(!sfnt_font_view::try_create(bytes,argc>=3?static_cast<std::uint32_t>(std::strtoul(argv[2],nullptr,10)):0,face))return 9;
     std::uint16_t count{};if(!face.try_get_glyph_count(count))return 10;
     std::vector<std::uint16_t> glyphs;std::uint64_t points{},segments{};
     for(std::uint32_t id=0;id<count;++id) {
+        if(expanded) {
+            sfnt_expanded_glyph_requirements r{};
+            if(!face.try_get_expanded_glyph_requirements(static_cast<std::uint16_t>(id),r))return 17;
+            glyphs.push_back(static_cast<std::uint16_t>(id));points+=r.point_count;segments+=r.path_segment_count;
+            continue;
+        }
         sfnt_glyph_decode_requirements r{};if(!face.try_get_glyph_decode_requirements(static_cast<std::uint16_t>(id),r))return 11;
         if(r.kind==sfnt_glyph_kind::simple){glyphs.push_back(static_cast<std::uint16_t>(id));points+=r.point_count;segments+=r.path_segment_count;}
     }
     if(glyphs.empty())return 12;
-    const auto checksum=run(face,glyphs);
-    for(unsigned i=0;i<5;++i)if(run(face,glyphs)!=checksum)return 13;
+    const auto checksum=run(face,glyphs,expanded);
+    for(unsigned i=0;i<5;++i)if(run(face,glyphs,expanded)!=checksum)return 13;
     std::vector<double> times;
     for(unsigned i=0;i<40;++i) {
-        const auto start=std::chrono::steady_clock::now();const auto actual=run(face,glyphs);
+        const auto start=std::chrono::steady_clock::now();const auto actual=run(face,glyphs,expanded);
         times.push_back(std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-start).count());if(actual!=checksum)return 14;
     }
     std::sort(times.begin(),times.end());
-    std::printf("simple_glyphs=%zu points=%llu segments=%llu checksum=%llu round_us_p50=%.3f p95=%.3f p99=%.3f\n",glyphs.size(),static_cast<unsigned long long>(points),static_cast<unsigned long long>(segments),static_cast<unsigned long long>(checksum),times[19],times[37],times[39]);
+    std::printf("mode=%s glyphs=%zu points=%llu segments=%llu checksum=%llu round_us_p50=%.3f p95=%.3f p99=%.3f\n",expanded?"expanded":"simple",glyphs.size(),static_cast<unsigned long long>(points),static_cast<unsigned long long>(segments),static_cast<unsigned long long>(checksum),times[19],times[37],times[39]);
 }

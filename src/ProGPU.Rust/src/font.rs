@@ -1,13 +1,17 @@
 //! Immutable owned SFNT/TTC font faces, original metrics and character maps.
 //!
 //! Direct port of ProGPU's `progpu_native_sfnt.cpp` and standalone-font writer.
-//! Simple TrueType decoding preserves source topology and instruction bytes.
+//! Simple/composite TrueType decoding preserves source topology and instruction bytes.
 //! No font discovery, shaping, hinting, rasterization or GPU work occurs here.
 //! Ordinary table lookup preserves the native last-valid-duplicate policy;
 //! specialized metadata APIs must independently apply their stricter contracts.
 
 mod bytes;
+mod composite;
 mod outline;
+pub use composite::{
+    CompositeComponent, CompositeGlyph, CompositeRequirements, ExpandedRequirements, GlyphOutline,
+};
 pub use outline::{GlyphKind, GlyphRequirements, OutlinePoint, SimpleGlyph};
 use std::sync::Arc;
 

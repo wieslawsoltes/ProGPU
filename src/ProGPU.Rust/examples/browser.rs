@@ -8,7 +8,9 @@ mod sample;
 #[cfg(target_arch = "wasm32")]
 mod web {
     use super::sample;
-    use js_sys::{Array, Int32Array, Object, Promise, Reflect, Uint8Array, Uint16Array};
+    use js_sys::{
+        Array, Float32Array, Int32Array, Object, Promise, Reflect, Uint8Array, Uint16Array,
+    };
     use progpu::{
         geometry::{Affine, AnalyticPrimitive},
         path::{FillRule, Path, Segment},
@@ -54,6 +56,28 @@ mod web {
             (
                 "segments",
                 Uint8Array::from(bytemuck::cast_slice::<_, u8>(&segments)).into(),
+            ),
+        ] {
+            Reflect::set(&result, &JsValue::from_str(key), &value)?;
+        }
+        Ok(result)
+    }
+
+    /// Execute original unhinted recursive expansion in WASM with retained source ownership.
+    #[wasm_bindgen]
+    pub fn decode_glyph_outline(data: Vec<u8>, glyph_index: u16) -> Result<Object, JsValue> {
+        let face = progpu::font::SfntFace::new(data, 0).map_err(error)?;
+        let glyph = face.glyph_outline(glyph_index).map_err(error)?;
+        drop(face);
+        let result = Object::new();
+        for (key, value) in [
+            (
+                "points",
+                Float32Array::from(bytemuck::cast_slice::<_, f32>(glyph.points())).into(),
+            ),
+            (
+                "segments",
+                Uint8Array::from(bytemuck::cast_slice::<_, u8>(glyph.segments())).into(),
             ),
         ] {
             Reflect::set(&result, &JsValue::from_str(key), &value)?;
