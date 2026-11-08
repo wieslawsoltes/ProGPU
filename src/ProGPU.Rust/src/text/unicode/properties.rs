@@ -135,7 +135,7 @@ pub fn vertical_code_point(code_point: u32) -> u32 {
     directional(&data::VERTICAL_PAIRS, code_point)
 }
 const MASK: u64 = (1 << 21) - 1;
-fn range_value(code_point: u32, data: &[u32], fallback: u32) -> u32 {
+pub(super) fn range_value(code_point: u32, data: &[u32], fallback: u32) -> u32 {
     let (mut low, mut high) = (0, data.len() / 3);
     while low < high {
         let mid = low + (high - low) / 2;

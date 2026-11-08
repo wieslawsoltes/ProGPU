@@ -504,6 +504,45 @@ mod web {
         }
         Ok(result)
     }
+    /// Original grapheme clusters with explicit managed shaping compatibility.
+    #[wasm_bindgen]
+    pub fn segment_graphemes_utf16(
+        data: Vec<u16>,
+        managed_compatible: bool,
+    ) -> Result<Object, JsValue> {
+        use progpu::text::unicode::{
+            DecodedText, UnicodeSource,
+            grapheme::{GraphemePolicy, GraphemeText},
+        };
+        let policy = if managed_compatible {
+            GraphemePolicy::ManagedCompatible
+        } else {
+            GraphemePolicy::Unicode17
+        };
+        let text = GraphemeText::new(DecodedText::from_utf16(data).map_err(error)?, policy)
+            .map_err(error)?;
+        let result = Object::new();
+        Reflect::set(
+            &result,
+            &JsValue::from_str("clusters"),
+            &Uint8Array::from(bytemuck::cast_slice::<_, u8>(text.clusters())),
+        )?;
+        if let UnicodeSource::Utf16(source) = text.text().source() {
+            Reflect::set(
+                &result,
+                &JsValue::from_str("source"),
+                &Uint16Array::from(source.as_ref()),
+            )?;
+        }
+        Ok(result)
+    }
+    /// Strict original Unicode 17 starts, including low-surrogate zeros.
+    #[wasm_bindgen]
+    pub fn grapheme_starts_utf16(data: Vec<u16>) -> Result<Vec<u8>, JsValue> {
+        let mut starts = vec![0; data.len()];
+        progpu::text::unicode::grapheme::utf16_starts_into(&data, &mut starts).map_err(error)?;
+        Ok(starts)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

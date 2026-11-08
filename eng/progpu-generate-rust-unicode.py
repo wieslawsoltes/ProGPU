@@ -21,6 +21,9 @@ SELECTED = {
     'unicode_vertical_pairs': ('VERTICAL_PAIRS', 2),
     'unicode_general_category_ranges': ('CATEGORY_RANGES', 3),
     'unicode_decimal_digit_zeros': ('DIGIT_ZEROS', 1),
+    'unicode_grapheme_ranges': ('GRAPHEME_RANGES', 3),
+    'unicode_extended_pictographic_ranges': ('PICTOGRAPHIC_RANGES', 3),
+    'unicode_indic_conjunct_ranges': ('CONJUNCT_RANGES', 3),
 }
 OUTPUT = ROOT / 'src/ProGPU.Rust/src/text/unicode/data.rs'
 
@@ -69,6 +72,9 @@ def generate() -> str:
         raise ValueError('Invalid combining class')
     if any(v >= 30 for v in arrays['unicode_general_category_ranges'][2::3]):
         raise ValueError('Invalid original category')
+    for name, maximum in [('unicode_grapheme_ranges', 13), ('unicode_extended_pictographic_ranges', 1), ('unicode_indic_conjunct_ranges', 3)]:
+        if any(v > maximum for v in arrays[name][2::3]):
+            raise ValueError(f'Invalid original property in {name}')
     mask = (1 << 21) - 1
     for name, maximum in [('unicode_bidi_class_ranges', 22), ('unicode_bidi_bracket_records', 2)]:
         previous = -1

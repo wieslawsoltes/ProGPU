@@ -278,6 +278,26 @@ try {
         for(const requested of [0,1,2])bidiCase([],requested,requested===1?1:0,[]);
         bidiCase([...Array(200).fill(0x202a),0x5d0,...Array(200).fill(0x202c)],0,0,[...Array(200).fill(0),125,...Array(200).fill(125)]);
         for(const source of [[0xd800],[0xdc00],[0x41,0xdbff,0x41]]){rejected=false;try{app.resolve_bidi_utf16(new Uint16Array(source),2);}catch{rejected=true;}check(rejected,'WASM owned bidi strict source rejection');bidiChecks++;}
+        let graphemeChecks=0;
+        const graphemeCase=(source,managed,records,starts)=>{
+          const result=app.segment_graphemes_utf16(new Uint16Array(source),managed);
+          const data=new DataView(result.clusters.buffer,result.clusters.byteOffset,result.clusters.byteLength);
+          check(JSON.stringify([...result.source])===JSON.stringify(source) && result.clusters.length===records.length*16,'WASM grapheme source/count');
+          records.forEach((record,i)=>record.forEach((value,j)=>check(data.getUint32(i*16+j*4,true)===value,'WASM exact grapheme source/scalar record')));
+          if(starts)check(JSON.stringify([...app.grapheme_starts_utf16(new Uint16Array(source))])===JSON.stringify(starts),'WASM Unicode 17 code-unit starts');
+          graphemeChecks++;
+        };
+        graphemeCase([],false,[],[]);
+        graphemeCase([0x41,0x301,0x42],false,[[0,2,0,2],[2,1,2,1]],[1,0,1]);
+        graphemeCase([13,10,0x301],false,[[0,2,0,2],[2,1,2,1]],[1,0,1]);
+        graphemeCase([0x1100,0x1161,0x11a8],false,[[0,3,0,3]],[1,0,0]);
+        graphemeCase([0x600,0x41,0x903],false,[[0,3,0,3]],[1,0,0]);
+        graphemeCase([0xd83c,0xdde6,0xd83c,0xdde7,0xd83c,0xdde8],false,[[0,4,0,2],[4,2,2,1]],[1,0,0,0,1,0]);
+        graphemeCase([0xd83d,0xdc69,0x301,0x200d,0xd83d,0xdc67],false,[[0,6,0,4]],[1,0,0,0,0,0]);
+        graphemeCase([0x915,0x94d,0x915],false,[[0,3,0,3]],[1,0,0]);
+        graphemeCase([0x915,0x94d,0x915],true,[[0,2,0,2],[2,1,2,1]]);
+        graphemeCase([0x1,0x301,0x2],false,[[0,1,0,1],[1,1,1,1],[2,1,2,1]],[1,1,1]);
+        for(const source of [[0xd800],[0xdc00],[0x41,0xd800,0x41]]){for(const call of [()=>app.segment_graphemes_utf16(new Uint16Array(source),false),()=>app.grapheme_starts_utf16(new Uint16Array(source))]){rejected=false;try{call();}catch{rejected=true;}check(rejected,'WASM grapheme invalid source rejection');graphemeChecks++;}}
         const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
         cff2Table.set([2,0,5,0,19]);
         [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
@@ -388,7 +408,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     assert.equal(report.before.draws, 1);

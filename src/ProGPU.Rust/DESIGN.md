@@ -1536,3 +1536,103 @@ using independent empty target directories. The archive contains 152 files, abou
 1.6 MiB before compression (391.8 KiB compressed). This checkpoint removes
 1,050,545,477 logical bytes of temporary trace/fixture/benchmark and
 duplicate package/build artifacts after preserving the compact evidence above.
+
+## Original grapheme segmentation
+
+`text::unicode::grapheme` ports the original native Unicode 17 UAX #29 revision-47
+boundary state without introducing a foreign segmentation implementation.
+[UAX #29 revision 47](https://www.unicode.org/reports/tr29/tr29-47.html) separates
+grapheme, word and sentence boundaries; line breaking remains a separate stage.
+The CPU preparation/immutable generation boundary established by the architecture
+research above continues here. Segmentation never normalizes, shapes, reorders or
+realizes a glyph, and retained callers can preserve one captured generation.
+
+The original two policies stay explicit: `Unicode17` retains GB9c Indic conjunct
+joining; `ManagedCompatible` reproduces the native shaping-only path which omits
+GB9c. The latter is not a promise to follow arbitrary future/platform StringInfo
+versions. Original managed `OriginalGraphemePolicy` is tested independently and
+unchanged. Its malformed UTF-16 rejection and empty `[0]` boundary inventory stay
+separate from the native raw-scalar contract and empty cluster inventory.
+
+Three added numeric inventories project the exact original grapheme, extended
+pictographic and Indic conjunct ranges. All twelve projected arrays have checked
+extents, order and property domains; generator provenance and original source
+hashes remain in `unicode/data.rs`. The added tables contain 4,287, 1,353 and 1,515
+u32 values (28,620 numeric bytes) from the original official Unicode 17 facts.
+No newer host Unicode library replaces these records.
+
+The bounded state preserves CR/LF/control ordering, Hangul composition classes,
+Extend/ZWJ/SpacingMark/Prepend, separate Indic linker/consonant flags, pictographic
+ZWJ readiness and regional-indicator parity across cluster boundaries. Two
+original ordered scans count before writing caller output. Complete capacity
+failure and unused tails remain unchanged. Raw scalar values and source ranges
+keep original admission; cluster source extents union actual indices with
+saturated endpoints, including reversed/noncontiguous records. Strict UTF-16
+starts validate the complete source before capacity checking and write zero to
+supplementary low-surrogate slots. Scratch is O(1); time is O(N log R) for N
+scalars and fixed R property ranges. `GraphemeText` owns the strict decoded source,
+clusters and selected policy without retained borrowed font/GPU dependencies.
+
+The native original-default-compiler oracle passes **1,888,801 controls /
+84,956,820 exact bytes**: every property value through U+110010, invalid high
+boundaries, all 22 representative-class/state triples, source-length saturation
+and unions, long flag/emoji/Indic chains, seeded mixed raw sequences, both policies,
+capacity/untouched-tail cases and every single UTF-16 value with malformed contexts.
+The actual original C# `OriginalGraphemePolicy` passes **89,921 controls /
+1,172,196 bytes**, including all single code units, ASCII pairs and representative
+class/state triples. These source checks do not substitute a guessed managed
+runtime policy or a Rust reference library.
+
+The independent official
+[GraphemeBreakTest.txt](https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakTest.txt)
+passes **766 cases**, each checked as UTF-8 clusters, UTF-16 clusters and strict
+UTF-16 starts. The temporary-download runner checks SHA-256
+`e2d134d2c52919bace503ebb6a551c1855fe1a1faec18478c78fff254a1793ec` before execution
+and removes the fixture on exit. This checks default extended graphemes only;
+word/line segmentation, fallback, shaping, layout, retained caret/hit interaction
+and text rendering remain separate required work. Both source comparisons and
+the independent pinned conformance run are mandatory in the Linux/macOS CI lane.
+
+Sixteen browser checks per DPR exercise original 16-byte records/source ownership,
+code-unit starts, emoji ZWJ/flags, Hangul, CRLF/control precedence, Indic policy
+separation and strict malformed-input rejection. Both DPRs pass all 204,800
+existing offscreen pixels, six shaders, resize and actual canvas presentation
+locally. Native/WASM strict Clippy and the all-feature suite also pass.
+The preceding bidi hosted run 42528983430 repeats final DPR 2 device loss after
+both offscreen inventories pass. This is an unresolved hosted presentation gate;
+local passes, unchanged screenshot checks and CPU correctness do not qualify it.
+
+### Grapheme performance baseline
+
+The matched Rust/C++ workloads reuse strict decoded sources, cluster output and
+UTF-16-start buffers. Decoding/allocation are outside timing; each iteration runs
+the original two-pass segmentation or strict UTF-16-start API and hashes identical
+output fields. Five warmups and forty measured rounds run serially after builds,
+tests and browser execution finish. All 27 pattern/policy/size combinations match
+checksums and cluster counts with O(1) scratch. C++ uses original Apple Clang 21
+`-std=c++20 -O2 -Wall -Wextra -Werror` defaults; Rust uses 1.90.0 Release.
+
+| Input / API / units | Rust p50 / p95 / p99 µs | Original C++ p50 / p95 / p99 µs |
+| --- | --- | --- |
+| ascii / clusters / 36864 | 2032.083 / 2090.291 / 2122.958 | 1938.625 / 2022.209 / 2099.041 |
+| ascii / managed / 36864 | 1680.250 / 1720.959 / 1801.375 | 1738.375 / 1808.584 / 1832.542 |
+| ascii / starts / 36864 | 1039.459 / 1197.459 / 1350.458 | 956.166 / 1141.500 / 1182.292 |
+| mixed / clusters / 43008 | 2801.000 / 3018.542 / 3221.625 | 2603.375 / 2670.125 / 2696.417 |
+| mixed / managed / 43008 | 2426.209 / 2510.625 / 2528.625 | 2334.917 / 2429.542 / 2457.291 |
+| mixed / starts / 43008 | 1390.792 / 1499.542 / 1560.042 | 1273.166 / 1337.209 / 1354.000 |
+| emoji / clusters / 43008 | 2132.833 / 2217.250 / 2272.083 | 1861.916 / 1953.542 / 2005.834 |
+| emoji / managed / 43008 | 1803.625 / 1918.042 / 2048.791 | 1659.958 / 1741.084 / 1815.209 |
+| emoji / starts / 43008 | 1129.791 / 1171.708 / 1200.917 | 921.208 / 955.292 / 992.958 |
+
+These are baseline observations, not an optimization or complete performance
+parity claim. `perf/grapheme-baseline.json` preserves all measurements and exact
+input/source/binary hashes. Grapheme clustering does not measure fallback,
+shaping, layout, interaction or rendering; further optimization requires matched
+Instruments investigation. The existing unhinted/default-compiler arithmetic and
+provider/package/source pixel gates remain independent and unchanged.
+
+Fresh extracted native all-feature/all-target and WASM browser package checks pass
+using independent empty target directories. The crate contains 160 files, about
+1.7 MiB before compression (417.9 KiB compressed). This checkpoint removes
+1,027,441,950 logical bytes of duplicate package/build trees, downloaded
+fixtures and temporary benchmark executables; compact receipts remain.

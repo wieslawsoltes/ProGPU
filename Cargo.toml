@@ -150,3 +150,15 @@ path = "src/ProGPU.Rust/examples/bidi_levels_conformance.rs"
 [[example]]
 name = "bidi_benchmark"
 path = "src/ProGPU.Rust/examples/bidi_benchmark.rs"
+
+[[test]]
+name = "grapheme"
+path = "src/ProGPU.Rust/tests/grapheme.rs"
+
+[[example]]
+name = "grapheme_conformance"
+path = "src/ProGPU.Rust/examples/grapheme_conformance.rs"
+
+[[example]]
+name = "grapheme_benchmark"
+path = "src/ProGPU.Rust/examples/grapheme_benchmark.rs"
