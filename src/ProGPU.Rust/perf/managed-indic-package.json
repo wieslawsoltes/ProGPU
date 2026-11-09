@@ -1,0 +1,11 @@
+{
+  "utc": "2026-11-09T12:48:54.773724+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "archive_files_at_fresh_build": 536,
+  "exact_original_files_at_fresh_build": 534,
+  "fresh_build_archive_sha256": "1f025101108f55564f4484f5a63042009bf6b971b00780619ac3c13874d47f54",
+  "scope": "Independent package source/resources compiled for native all targets/features and WASM. Compact package/cleanup receipts finalized afterward.",
+  "final_unchanged_non_receipt_files": 357
+}

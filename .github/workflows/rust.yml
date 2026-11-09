@@ -70,6 +70,7 @@ on:
       - eng/progpu-test-rust-khmer-syllables.py
       - eng/progpu-test-rust-myanmar-syllables.py
       - eng/progpu-test-rust-use-syllables.py
+      - eng/progpu-test-rust-indic-syllables.py
       - eng/progpu-capture-rust-arabic-fallback.py
       - src/ProGPU.Text/ArabicJoiningData.Generated.cs
       - src/ProGPU.Text/UnicodeJoiningFallbackData.Generated.cs
@@ -132,7 +133,7 @@ jobs:
         run: |
           python3 eng/progpu-generate-rust-grapheme-profile.py --check
           cargo test --locked --release --no-default-features --test managed_grapheme -- --include-ignored --nocapture
-      - name: Verify original text preparation, script actions and captured Khmer/Myanmar/USE decisions
+      - name: Verify original text preparation, script actions and captured Khmer/Myanmar/USE/Indic decisions
         run: |
           python3 eng/progpu-capture-rust-preparation.py --check
           python3 eng/progpu-generate-rust-joining.py --check
@@ -141,6 +142,7 @@ jobs:
           python3 eng/progpu-test-rust-khmer-syllables.py
           python3 eng/progpu-test-rust-myanmar-syllables.py
           python3 eng/progpu-test-rust-use-syllables.py
+          python3 eng/progpu-test-rust-indic-syllables.py
           python3 eng/progpu-capture-rust-arabic-fallback.py --check
           cargo test --locked --release --no-default-features --test managed_preparation -- --include-ignored --nocapture
           cargo test --locked --release --no-default-features --test managed_script_actions -- --include-ignored --nocapture

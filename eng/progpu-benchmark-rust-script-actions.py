@@ -65,6 +65,7 @@ def corpus():
     fallback_only = os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1'
     vowel_only = os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1'
     use_only = os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1'
+    indic_only = os.environ.get('PROGPU_RUST_ACTIONS_INDIC_ONLY') == '1'
     myanmar_only = os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1'
     khmer_only = os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1'
     fonts=[font(False, fallback_only),font(True)]
@@ -138,6 +139,19 @@ def corpus():
             ('use-reorder', 'tibt', [0xd4e,0x30,0x94d,0x30,0x93f,0x1c34], [78]),
             ('use-disabled', 'tibt', [0xd4e,0x30,0x93f], [73,77]),
         ]
+    if indic_only:
+        patterns = [
+            ('indic-consonants', 'deva', [0x930,0x94d,0x915,0x93c,0x93f,0x900,0x951], [80]),
+            ('indic-vowels', 'deva', [0x930,0x94d,0x904,0x200d,0x94d,0x915], [80]),
+            ('indic-standalone', 'knda', [0xcf1,0x2d,0x93c,0x94d,0x915], [80]),
+            ('indic-symbols', 'deva', [0x93d,0x93c,0x900,0xb2,0x200c,0x951], [80]),
+            ('indic-broken', 'deva', [0x200c,0x200d,0xb2,0xa40,0x93c,0x94d,0x93a], [80]),
+            ('indic-long-joiners', 'deva', [0x200c,0x200d], [80]),
+            ('indic-matras', 'deva', [0x200d,0x93a,0x93c,0x94d], [80]),
+            ('indic-vedic', 'deva', [0x951], [80]),
+            ('indic-halant-nukta', 'deva', [0x915,0x94d,0x200d,0x93c,0x915,0x900], [80]),
+            ('indic-disabled', 'deva', [0x930,0x94d,0x915], [79]),
+        ]
     if joining_only:
         patterns = [pattern for pattern in patterns if pattern[0].startswith('joining-')]
     for index in range(len(fonts)):
@@ -145,7 +159,7 @@ def corpus():
             for count in [128,4096]:
                 data+=word(index)+request(script,points,count,actions,fallback_only,myanmar_only,use_only)
                 cases.append(dict(font='space-only' if index else ('identity-bmp' if fallback_only else 'full'),pattern=name,records=count,script=script,actions=actions))
-    selected = patterns[0 if joining_only or fallback_only or vowel_only or khmer_only or myanmar_only or use_only else 4]
+    selected = patterns[0 if joining_only or fallback_only or vowel_only or khmer_only or myanmar_only or use_only or indic_only else 4]
     profile_input=header+(word(0)+request(selected[1],selected[2],4096,selected[3],fallback_only,myanmar_only,use_only))*20
     return data,cases,profile_input
 
@@ -218,6 +232,8 @@ def main():
                  'src/ProGPU.Rust/src/text/script_actions/use_shaping.rs',
                  'src/ProGPU.Rust/src/text/script_actions/use_syllables.rs',
                  'src/ProGPU.Rust/src/text/script_actions/use_indices.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/indic.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/indic_syllables.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
@@ -228,7 +244,9 @@ def main():
             receipt['measurement_limits'] = 'New-stage matched baseline, not an optimization or end-to-end shaping claim. Disabled preparation is a near-clock-resolution no-op; relative latency is not qualified.'
         if os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1':
             receipt['measurement_limits'] = ('Paired Release Rust before/after and original C#; matched CPU-stage outputs and three rotating trials. Instruments CPU tables retained separately. Disabled stages are clock-limited; no allocator, process-memory, GPU or end-to-end shaping qualification.' if before else 'New-stage matched baseline, not optimization or end-to-end shaping qualification. Disabled stages are near-clock-resolution no-ops; relative latency is not qualified.')
-        name = 'managed-use-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1' else 'managed-myanmar-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1' else 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
+        if os.environ.get('PROGPU_RUST_ACTIONS_INDIC_ONLY') == '1':
+            receipt['measurement_limits'] = 'New-stage matched baseline, not a before/after optimization or end-to-end shaping claim. Disabled preparation is a clock-limited no-op; no Rust allocator-event or GPU qualification.'
+        name = 'managed-indic-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_INDIC_ONLY') == '1' else 'managed-use-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1' else 'managed-myanmar-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1' else 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
         output = ROOT / 'src/ProGPU.Rust/perf' / name
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')

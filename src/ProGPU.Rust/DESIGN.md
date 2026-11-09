@@ -4207,3 +4207,81 @@ and leaves no guest dependencies or dumps. The Ubuntu VM is returned to its
 original suspended state. Compact validation and complete compressed output are
 retained in `perf/browser-packed-process-validation.json` and
 `perf/browser-packed-process-live.json.gz`.
+
+## Original Indic preparation with independent recognition
+
+`ManagedScriptAction::IndicPreparation` ports the approved ProGPU-owned
+`PrepareIndicShaping`, `AssignIndicSyllable` and `MarkSyllablesUnsafeToBreak`
+contracts from `src/ProGPU.Text/OpenTypeTextShaper.cs` (SHA-256
+`ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1`).
+The original `FindIndicSyllables` runs only as a black-box oracle. Its generated
+machine arrays and lexer implementation were not read or transcribed for this
+port. Reflection transports complete records and literal category names/values;
+it does not inspect generated state, transition or action tables.
+
+[Microsoft's Devanagari specification](https://learn.microsoft.com/en-us/typography/script-development/devanagari)
+and [Tamil specification](https://learn.microsoft.com/en-us/typography/script-development/tamil)
+inform independent syllable families, ordered components and the separation of
+font-dependent reordering from classification. Original API observations remain
+authoritative, including malformed raw categories and tie decisions. The existing
+cross-engine research ledger still applies: reusable CPU shaping precedes demand
+driven GPU realization, with immutable font/text generations. This change does
+not alter cache publication, source raster policies, DPI, hinting or GPU work.
+
+The recognizer compares independently parsed consonant, vowel, standalone,
+symbol and broken extents, retaining the original non-Indic fallback and ties.
+Tests observe separate halant/ZWJ/nukta continuations, medial termination, repeated
+matras, modifier and Vedic tails, Ra-halant and repha prefixes, and raw category
+57's contextual modifier behavior. Category 57 alone remains non-Indic. A failed
+matra lookahead caches its actual joiner interval, so repeated standalone joiners
+cannot rescan an arbitrarily long suffix. Accepted tails are consumed and the
+number of candidates is fixed: recognition is O(N) with O(1) scratch, no heap
+allocation and genuine sequential dependencies. A category-visit bound checks
+8,192-joiner runs with independent prefix/suffix combinations without a timing
+threshold. Existing property lookup contributes O(N log R) work for R ranges.
+
+The source-only corpus compares every sequence through length five over 21
+categories, every raw-byte pair, raw bytes in each position with two relevant
+neighbors, long components through 4,096 repetitions, fifteen 100,000-repeat
+joiner cases, 30,000 random runs and 30,000 authored grammar combinations and
+mutations. All **4,768,385 cases / 43,831,648 bytes** match original results.
+No generated foreign topology is reproduced in the corpus or production parser.
+
+Disabled preparation performs no mutation. Enabled preparation writes only the
+original shaper/category/position fields before assigning complete syllables,
+with serials wrapping from fifteen to one. Unsafe-break/concat bits use signed
+cluster minima without rewriting cluster values. No insertion, font lookup or
+reordering occurs at this stage. Complete source generation/context admission
+remains common to the action API. The full source suite retains all 1,532,882
+earlier cases and adds 124,765: **1,657,647 cases / 1,931,091,724 bytes** on
+macOS Unicode 17. It compares all 31 glyph fields, eight lookup states, source
+owners, failures and continuations. The 2,466 frozen cases are replayed under
+all three normalization profiles in ordinary native tests and the browser.
+
+The new-stage performance baseline covers 40 complete-output matched workloads
+at 128/4,096 records with full and space-only fonts. Three rotating process
+trials retain first-call and forty warm samples. Rust medians are lower in
+35 of 36 active workloads; space-only 128-record halant/nukta is 1.750 versus
+1.666 microseconds (1.0504x). Four disabled no-ops are clock-limited. The host
+load is 8.57/11.79/16.78; these are observations, not full-stack speedup claims.
+Alternating joiners scale from about 2.54 to 82 microseconds in Rust across the
+two sizes. Original C# results and allocation counters remain in the receipt.
+
+Matched six-second Instruments Time Profiler captures use the actual final
+4,096-record joiner workload, including buffer creation and restoration. The
+Rust executable matches the timing baseline; the C# profile is a fresh Release
+build of unchanged source/harness with its distinct assembly hash recorded.
+Complete single-workload outputs match again after that rebuild. Full compressed
+time-profile exports and input replace temporary traces. Startup, JIT attribution
+and CPU-core distributions differ, so sample counts are not timing evidence.
+The final parser adds only the test-only visit bound after profiling; its
+production algorithm is unchanged. No historical Rust before/after, allocator
+event, process-footprint, GPU/Metal or complete shaping qualification is claimed.
+
+Indic initial/final reordering still requires the actual selected font and GSUB
+plan; no synthetic feature-presence substitute is admitted. Complete stage
+sequencing, metric/default-ignorable preparation, fallback, paragraph layout,
+retained interaction, GPU text and original provider/package/source/pixel gates
+remain open. Receipts are `perf/managed-indic-{validation,baseline,time-profiler,
+package,cleanup}.json`; the mandatory source parser gate is
+`eng/progpu-test-rust-indic-syllables.py`.

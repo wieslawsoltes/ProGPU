@@ -19,6 +19,8 @@ mod replay;
 use replay::Case;
 #[path = "support/managed_arabic_fallback_cases.rs"]
 mod fallback;
+#[path = "support/managed_indic_cases.rs"]
+mod indic;
 #[path = "support/managed_khmer_cases.rs"]
 mod khmer;
 #[path = "support/managed_myanmar_cases.rs"]
@@ -329,7 +331,8 @@ fn corpus(mut emit: impl FnMut(Case, bool)) {
     vowels::corpus(&mut emit);
     khmer::corpus(&mut emit);
     myanmar::corpus(&mut emit);
-    use_cases::corpus(emit);
+    use_cases::corpus(&mut emit);
+    indic::corpus(emit);
 }
 
 fn joining_corpus(mut emit: impl FnMut(Case, bool)) {

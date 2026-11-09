@@ -1,0 +1,2284 @@
+{
+  "utc": "2026-11-09T12:34:32.287949+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    8.56884765625,
+    11.7880859375,
+    16.7783203125
+  ],
+  "normalization_profile": 170,
+  "source_runtime": ".NET 10.0.14 macOS 26.6.0",
+  "scope": "Three rotating-order process trials; first action, five warmups, 40 samples. Actual owned buffer preparation, typed raw-record restoration, witnesses and serialization excluded. Selected production actions timed; complete 31-field records, state and source context matched. Source GC allocation counters observed; Rust allocator events and full shaping/layout/frame qualification remain open.",
+  "input_sha256": "d85a6acaba56b6628bf83d7e3f618b0adc82f89b0e708aded3d0e273ae990565",
+  "output_sha256": "09ed5dbede79b873b342a901fccc4e9b72f6e9a19d6796b00c00c3902fe94604",
+  "rust_binary_sha256": "bc8c0b8598af9570c156dd2025a29980db80863db1c9101712fadc2e69a8b6d2",
+  "csharp_assembly_sha256": "9e09d1de911d19d800443347ad35198f4d1c0bab79624e6b3456f3d9380e0593",
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "63a1b61685759b0e75312713a4a8cec839350a7235a3a4c4fbdae07226be6537",
+    "src/ProGPU.Rust/src/text/script_actions/joining.rs": "089c9ea67c2344f8e2fb18b29f434043c5c69d88049e1a7a8c019f8fbcec48cc",
+    "src/ProGPU.Rust/src/text/script_actions/joining_data.rs": "20ea6d3401e5c297a84cc1ca3ebe933a6291e1f4aa43bd535ba7a5e0251f35a8",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback.rs": "6acb3a16698e5de781623e37c7b392927d396e3b4ca22f7b4149042701b5ef14",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs": "7a7114d94d4a16f50cd49515112bc0fb6d27cfbe57e3f7166ec55b49fe29438f",
+    "src/ProGPU.Rust/src/text/script_actions/vowel.rs": "87706a6b7936f94eb52d824dec3823a3df3a46272872fd89f5997d7d1d841b76",
+    "src/ProGPU.Rust/src/text/script_actions/vowel_data.rs": "5f3df8634c7fb473ef34001f07c780219453c7f980d121c15c7bc9e2252a1ce7",
+    "src/ProGPU.Rust/src/text/script_actions/khmer.rs": "4ac87b5793ef3357a0f20cfd1eb23efe904397aa8e3294120877a7bc2d334bb1",
+    "src/ProGPU.Rust/src/text/script_actions/khmer_syllables.rs": "722675bcac639b4f4949da59c2ceaf179b8dd18d63f2520aff000234ccdf5f44",
+    "src/ProGPU.Rust/src/text/script_actions/myanmar.rs": "2dcc42aa1364c3f6fa20cce076d0c3c1f058a8f56e334540d0053b12f436bb70",
+    "src/ProGPU.Rust/src/text/script_actions/myanmar_syllables.rs": "a878ae69d1e5ca104bf403364cf389128136aa04548972c5e8c8f837fd4d7c65",
+    "src/ProGPU.Rust/src/text/script_actions/myanmar_sort_storage.rs": "cd845241d596232873957c534e36fb2aba4f59ec4218b853cc375eff275587b0",
+    "src/ProGPU.Rust/src/text/script_actions/use_shaping.rs": "b81dd5b1965bd5f915adac28618960146d56cc9fad5916f195a3afd8c1d3379a",
+    "src/ProGPU.Rust/src/text/script_actions/use_syllables.rs": "02a4aad0d41fed11a7f96af2a1940f26eea7a2291bfab988fd964f5646c9beca",
+    "src/ProGPU.Rust/src/text/script_actions/use_indices.rs": "2b83977eddd7a6c3b3eac5615d1dfd55f3ed7b73ff7782feea37ff92b90105f8",
+    "src/ProGPU.Rust/src/text/preparation.rs": "c6263f53b7ca626bb49c9b79ad3a60a6fea608371f6c815b8a8aa504b139ef10",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "ecc9f39b003896bc515d84e473b698ee40aeab3cda7a2b68ea21bd79b4b20546",
+    "src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs": "44144ffd64468b3f6235496829550ef3bf1cbd9056ddd6739693994544fc8ebb",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "70b04da72a273f6f3a6cccbf13f3f191f9971db126b317c73cb5457e55be956c",
+    "src/ProGPU.Rust/src/text/script_actions/indic.rs": "dec77821a422fb5fd6db0138daed7e83fef5f0fdb92067a10303822483f4abe5",
+    "src/ProGPU.Rust/src/text/script_actions/indic_syllables.rs": "a7e6eb9f3b210fb1681fab10c5909f04f7986c4d8991bf433669bd32df17a15d"
+  },
+  "workloads": [
+    {
+      "font": "full",
+      "pattern": "indic-consonants",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 4.042,
+            "p50_us": 1.875,
+            "p95_us": 2.0,
+            "p99_us": 2.25
+          },
+          "csharp": {
+            "first_us": 1329.084,
+            "p50_us": 8.875,
+            "p95_us": 9.042,
+            "p99_us": 10.458,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.167,
+            "p50_us": 1.834,
+            "p95_us": 1.958,
+            "p99_us": 2.041
+          },
+          "csharp": {
+            "first_us": 1097.5,
+            "p50_us": 8.792,
+            "p95_us": 8.917,
+            "p99_us": 9.209,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.959,
+            "p50_us": 1.792,
+            "p95_us": 1.834,
+            "p99_us": 2.0
+          },
+          "csharp": {
+            "first_us": 1050.583,
+            "p50_us": 8.667,
+            "p95_us": 8.875,
+            "p99_us": 9.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-consonants",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 63.0,
+            "p50_us": 58.125,
+            "p95_us": 62.0,
+            "p99_us": 93.375
+          },
+          "csharp": {
+            "first_us": 347.333,
+            "p50_us": 136.375,
+            "p95_us": 170.666,
+            "p99_us": 218.709,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 57.125,
+            "p50_us": 56.167,
+            "p95_us": 56.542,
+            "p99_us": 59.333
+          },
+          "csharp": {
+            "first_us": 349.208,
+            "p50_us": 134.75,
+            "p95_us": 150.875,
+            "p99_us": 197.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 59.708,
+            "p50_us": 56.375,
+            "p95_us": 56.875,
+            "p99_us": 60.75
+          },
+          "csharp": {
+            "first_us": 336.917,
+            "p50_us": 129.792,
+            "p95_us": 142.417,
+            "p99_us": 192.792,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-vowels",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.042,
+            "p50_us": 2.209,
+            "p95_us": 2.25,
+            "p99_us": 2.292
+          },
+          "csharp": {
+            "first_us": 15.708,
+            "p50_us": 11.666,
+            "p95_us": 11.875,
+            "p99_us": 12.125,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.0,
+            "p50_us": 2.125,
+            "p95_us": 2.167,
+            "p99_us": 2.209
+          },
+          "csharp": {
+            "first_us": 15.541,
+            "p50_us": 11.667,
+            "p95_us": 12.292,
+            "p99_us": 13.958,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.166,
+            "p50_us": 2.167,
+            "p95_us": 2.209,
+            "p99_us": 2.25
+          },
+          "csharp": {
+            "first_us": 13.541,
+            "p50_us": 11.5,
+            "p95_us": 13.833,
+            "p99_us": 14.792,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-vowels",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 70.792,
+            "p50_us": 71.041,
+            "p95_us": 98.375,
+            "p99_us": 191.125
+          },
+          "csharp": {
+            "first_us": 169.917,
+            "p50_us": 158.292,
+            "p95_us": 177.208,
+            "p99_us": 182.708,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 67.916,
+            "p50_us": 68.333,
+            "p95_us": 71.041,
+            "p99_us": 83.75
+          },
+          "csharp": {
+            "first_us": 181.708,
+            "p50_us": 155.959,
+            "p95_us": 167.833,
+            "p99_us": 180.833,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 69.0,
+            "p50_us": 70.334,
+            "p95_us": 77.667,
+            "p99_us": 89.334
+          },
+          "csharp": {
+            "first_us": 165.584,
+            "p50_us": 156.25,
+            "p95_us": 179.458,
+            "p99_us": 288.0,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-standalone",
+      "records": 128,
+      "script": "knda",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.5,
+            "p50_us": 1.791,
+            "p95_us": 1.792,
+            "p99_us": 1.834
+          },
+          "csharp": {
+            "first_us": 15.875,
+            "p50_us": 11.917,
+            "p95_us": 12.167,
+            "p99_us": 12.375,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.792,
+            "p50_us": 1.667,
+            "p95_us": 1.75,
+            "p99_us": 1.792
+          },
+          "csharp": {
+            "first_us": 14.792,
+            "p50_us": 12.041,
+            "p95_us": 12.375,
+            "p99_us": 14.584,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.916,
+            "p50_us": 1.708,
+            "p95_us": 1.75,
+            "p99_us": 1.75
+          },
+          "csharp": {
+            "first_us": 14.542,
+            "p50_us": 11.583,
+            "p95_us": 12.042,
+            "p99_us": 13.792,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-standalone",
+      "records": 4096,
+      "script": "knda",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 55.333,
+            "p50_us": 55.958,
+            "p95_us": 61.625,
+            "p99_us": 96.958
+          },
+          "csharp": {
+            "first_us": 164.708,
+            "p50_us": 156.083,
+            "p95_us": 182.583,
+            "p99_us": 245.0,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 53.666,
+            "p50_us": 55.0,
+            "p95_us": 55.417,
+            "p99_us": 62.041
+          },
+          "csharp": {
+            "first_us": 160.583,
+            "p50_us": 152.417,
+            "p95_us": 167.792,
+            "p99_us": 187.083,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 54.25,
+            "p50_us": 55.0,
+            "p95_us": 58.292,
+            "p99_us": 66.333
+          },
+          "csharp": {
+            "first_us": 160.459,
+            "p50_us": 151.375,
+            "p95_us": 172.333,
+            "p99_us": 188.167,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-symbols",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.333,
+            "p50_us": 1.292,
+            "p95_us": 1.334,
+            "p99_us": 1.5
+          },
+          "csharp": {
+            "first_us": 15.25,
+            "p50_us": 10.917,
+            "p95_us": 11.208,
+            "p99_us": 11.75,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.75,
+            "p50_us": 1.083,
+            "p95_us": 1.375,
+            "p99_us": 1.458
+          },
+          "csharp": {
+            "first_us": 17.0,
+            "p50_us": 10.5,
+            "p95_us": 10.833,
+            "p99_us": 13.292,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.625,
+            "p50_us": 1.083,
+            "p95_us": 1.167,
+            "p99_us": 1.333
+          },
+          "csharp": {
+            "first_us": 14.166,
+            "p50_us": 10.167,
+            "p95_us": 10.334,
+            "p99_us": 10.541,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-symbols",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 43.291,
+            "p50_us": 35.5,
+            "p95_us": 57.084,
+            "p99_us": 86.042
+          },
+          "csharp": {
+            "first_us": 157.583,
+            "p50_us": 148.666,
+            "p95_us": 163.625,
+            "p99_us": 204.541,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 43.25,
+            "p50_us": 34.125,
+            "p95_us": 39.958,
+            "p99_us": 42.791
+          },
+          "csharp": {
+            "first_us": 154.25,
+            "p50_us": 146.292,
+            "p95_us": 154.541,
+            "p99_us": 156.166,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 34.0,
+            "p50_us": 36.125,
+            "p95_us": 44.667,
+            "p99_us": 96.667
+          },
+          "csharp": {
+            "first_us": 150.75,
+            "p50_us": 146.75,
+            "p95_us": 160.334,
+            "p99_us": 178.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-broken",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.042,
+            "p50_us": 1.333,
+            "p95_us": 1.375,
+            "p99_us": 1.375
+          },
+          "csharp": {
+            "first_us": 14.292,
+            "p50_us": 9.5,
+            "p95_us": 9.75,
+            "p99_us": 38.084,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.875,
+            "p50_us": 1.125,
+            "p95_us": 1.166,
+            "p99_us": 1.167
+          },
+          "csharp": {
+            "first_us": 12.125,
+            "p50_us": 9.458,
+            "p95_us": 11.834,
+            "p99_us": 31.208,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.0,
+            "p50_us": 1.167,
+            "p95_us": 1.208,
+            "p99_us": 1.209
+          },
+          "csharp": {
+            "first_us": 12.167,
+            "p50_us": 9.291,
+            "p95_us": 10.875,
+            "p99_us": 11.917,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-broken",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 37.959,
+            "p50_us": 39.083,
+            "p95_us": 39.625,
+            "p99_us": 40.416
+          },
+          "csharp": {
+            "first_us": 144.041,
+            "p50_us": 124.417,
+            "p95_us": 142.667,
+            "p99_us": 203.209,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 41.291,
+            "p50_us": 39.292,
+            "p95_us": 41.583,
+            "p99_us": 43.5
+          },
+          "csharp": {
+            "first_us": 138.666,
+            "p50_us": 122.333,
+            "p95_us": 139.791,
+            "p99_us": 146.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 37.916,
+            "p50_us": 38.167,
+            "p95_us": 39.959,
+            "p99_us": 42.75
+          },
+          "csharp": {
+            "first_us": 142.833,
+            "p50_us": 120.041,
+            "p95_us": 126.5,
+            "p99_us": 158.417,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-long-joiners",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.583,
+            "p50_us": 2.542,
+            "p95_us": 2.75,
+            "p99_us": 2.833
+          },
+          "csharp": {
+            "first_us": 78.833,
+            "p50_us": 61.542,
+            "p95_us": 65.75,
+            "p99_us": 68.375,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.583,
+            "p50_us": 2.625,
+            "p95_us": 2.833,
+            "p99_us": 2.958
+          },
+          "csharp": {
+            "first_us": 75.375,
+            "p50_us": 61.209,
+            "p95_us": 64.083,
+            "p99_us": 113.875,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.541,
+            "p50_us": 2.542,
+            "p95_us": 2.708,
+            "p99_us": 2.75
+          },
+          "csharp": {
+            "first_us": 66.25,
+            "p50_us": 59.541,
+            "p95_us": 60.542,
+            "p99_us": 64.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-long-joiners",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 82.667,
+            "p50_us": 83.125,
+            "p95_us": 113.375,
+            "p99_us": 140.542
+          },
+          "csharp": {
+            "first_us": 21996.333,
+            "p50_us": 22078.167,
+            "p95_us": 32940.833,
+            "p99_us": 36868.917,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 77.375,
+            "p50_us": 79.083,
+            "p95_us": 80.75,
+            "p99_us": 81.209
+          },
+          "csharp": {
+            "first_us": 21894.209,
+            "p50_us": 21920.167,
+            "p95_us": 22227.5,
+            "p99_us": 23909.209,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 79.875,
+            "p50_us": 81.792,
+            "p95_us": 96.458,
+            "p99_us": 98.333
+          },
+          "csharp": {
+            "first_us": 21523.333,
+            "p50_us": 21515.333,
+            "p95_us": 22050.167,
+            "p99_us": 23943.667,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-matras",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 1.625,
+            "p50_us": 0.875,
+            "p95_us": 0.917,
+            "p99_us": 1.0
+          },
+          "csharp": {
+            "first_us": 7.542,
+            "p50_us": 4.5,
+            "p95_us": 4.75,
+            "p99_us": 5.208,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.583,
+            "p50_us": 0.833,
+            "p95_us": 0.834,
+            "p99_us": 0.959
+          },
+          "csharp": {
+            "first_us": 7.833,
+            "p50_us": 4.583,
+            "p95_us": 4.792,
+            "p99_us": 5.416,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.375,
+            "p50_us": 0.833,
+            "p95_us": 0.916,
+            "p99_us": 0.959
+          },
+          "csharp": {
+            "first_us": 7.166,
+            "p50_us": 4.458,
+            "p95_us": 4.625,
+            "p99_us": 5.25,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-matras",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 30.875,
+            "p50_us": 29.792,
+            "p95_us": 31.834,
+            "p99_us": 44.583
+          },
+          "csharp": {
+            "first_us": 100.375,
+            "p50_us": 96.041,
+            "p95_us": 146.959,
+            "p99_us": 169.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 30.25,
+            "p50_us": 28.875,
+            "p95_us": 31.792,
+            "p99_us": 41.667
+          },
+          "csharp": {
+            "first_us": 100.917,
+            "p50_us": 95.916,
+            "p95_us": 100.25,
+            "p99_us": 111.417,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 28.625,
+            "p50_us": 28.625,
+            "p95_us": 29.584,
+            "p99_us": 33.417
+          },
+          "csharp": {
+            "first_us": 100.917,
+            "p50_us": 94.083,
+            "p95_us": 97.75,
+            "p99_us": 102.208,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-vedic",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 1.25,
+            "p50_us": 0.708,
+            "p95_us": 0.75,
+            "p99_us": 0.792
+          },
+          "csharp": {
+            "first_us": 7.125,
+            "p50_us": 4.208,
+            "p95_us": 4.542,
+            "p99_us": 5.458,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.917,
+            "p50_us": 0.708,
+            "p95_us": 0.75,
+            "p99_us": 0.75
+          },
+          "csharp": {
+            "first_us": 6.584,
+            "p50_us": 4.125,
+            "p95_us": 4.25,
+            "p99_us": 4.291,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.209,
+            "p50_us": 0.709,
+            "p95_us": 0.875,
+            "p99_us": 0.917
+          },
+          "csharp": {
+            "first_us": 6.25,
+            "p50_us": 4.041,
+            "p95_us": 4.167,
+            "p99_us": 4.25,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-vedic",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 27.041,
+            "p50_us": 24.875,
+            "p95_us": 27.417,
+            "p99_us": 31.083
+          },
+          "csharp": {
+            "first_us": 88.708,
+            "p50_us": 84.208,
+            "p95_us": 85.458,
+            "p99_us": 87.833,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 26.916,
+            "p50_us": 25.958,
+            "p95_us": 30.25,
+            "p99_us": 85.583
+          },
+          "csharp": {
+            "first_us": 86.833,
+            "p50_us": 83.291,
+            "p95_us": 87.958,
+            "p99_us": 88.542,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 29.083,
+            "p50_us": 26.167,
+            "p95_us": 28.458,
+            "p99_us": 30.125
+          },
+          "csharp": {
+            "first_us": 86.541,
+            "p50_us": 84.125,
+            "p95_us": 97.833,
+            "p99_us": 118.875,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-halant-nukta",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.292,
+            "p50_us": 1.75,
+            "p95_us": 1.75,
+            "p99_us": 1.792
+          },
+          "csharp": {
+            "first_us": 8.25,
+            "p50_us": 4.959,
+            "p95_us": 5.167,
+            "p99_us": 5.167,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.125,
+            "p50_us": 1.75,
+            "p95_us": 1.792,
+            "p99_us": 1.833
+          },
+          "csharp": {
+            "first_us": 7.667,
+            "p50_us": 4.959,
+            "p95_us": 6.5,
+            "p99_us": 16.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.916,
+            "p50_us": 1.709,
+            "p95_us": 1.791,
+            "p99_us": 1.958
+          },
+          "csharp": {
+            "first_us": 7.458,
+            "p50_us": 4.916,
+            "p95_us": 5.959,
+            "p99_us": 6.417,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-halant-nukta",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 53.875,
+            "p50_us": 56.666,
+            "p95_us": 65.125,
+            "p99_us": 96.333
+          },
+          "csharp": {
+            "first_us": 92.5,
+            "p50_us": 89.083,
+            "p95_us": 93.042,
+            "p99_us": 105.833,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 53.875,
+            "p50_us": 54.666,
+            "p95_us": 62.5,
+            "p99_us": 66.584
+          },
+          "csharp": {
+            "first_us": 93.875,
+            "p50_us": 89.083,
+            "p95_us": 119.791,
+            "p99_us": 149.875,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 53.917,
+            "p50_us": 55.292,
+            "p95_us": 62.5,
+            "p99_us": 63.333
+          },
+          "csharp": {
+            "first_us": 88.625,
+            "p50_us": 86.208,
+            "p95_us": 95.625,
+            "p99_us": 111.667,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-disabled",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        79
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.125,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.542,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.084,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.792,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.0,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.292,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "indic-disabled",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        79
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 1.083,
+            "p50_us": 0.083,
+            "p95_us": 0.084,
+            "p99_us": 0.084,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.041,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 1.417,
+            "p50_us": 0.042,
+            "p95_us": 0.084,
+            "p99_us": 0.125,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.083,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.166,
+            "p50_us": 0.083,
+            "p95_us": 0.125,
+            "p99_us": 0.25,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-consonants",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.25,
+            "p50_us": 1.834,
+            "p95_us": 1.917,
+            "p99_us": 2.166
+          },
+          "csharp": {
+            "first_us": 8.666,
+            "p50_us": 4.834,
+            "p95_us": 4.959,
+            "p99_us": 5.167,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.0,
+            "p50_us": 1.916,
+            "p95_us": 2.375,
+            "p99_us": 2.583
+          },
+          "csharp": {
+            "first_us": 7.709,
+            "p50_us": 4.791,
+            "p95_us": 4.916,
+            "p99_us": 5.0,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.125,
+            "p50_us": 1.917,
+            "p95_us": 1.959,
+            "p99_us": 2.208
+          },
+          "csharp": {
+            "first_us": 8.25,
+            "p50_us": 4.75,
+            "p95_us": 5.25,
+            "p99_us": 6.209,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-consonants",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 60.666,
+            "p50_us": 59.333,
+            "p95_us": 82.708,
+            "p99_us": 96.542
+          },
+          "csharp": {
+            "first_us": 94.791,
+            "p50_us": 88.625,
+            "p95_us": 92.334,
+            "p99_us": 214.0,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 58.084,
+            "p50_us": 59.292,
+            "p95_us": 61.125,
+            "p99_us": 73.917
+          },
+          "csharp": {
+            "first_us": 91.833,
+            "p50_us": 87.375,
+            "p95_us": 119.125,
+            "p99_us": 154.792,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 60.625,
+            "p50_us": 61.041,
+            "p95_us": 67.625,
+            "p99_us": 78.208
+          },
+          "csharp": {
+            "first_us": 89.958,
+            "p50_us": 86.291,
+            "p95_us": 96.875,
+            "p99_us": 100.667,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-vowels",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.916,
+            "p50_us": 2.209,
+            "p95_us": 2.333,
+            "p99_us": 2.375
+          },
+          "csharp": {
+            "first_us": 8.084,
+            "p50_us": 5.542,
+            "p95_us": 7.125,
+            "p99_us": 31.625,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.167,
+            "p50_us": 2.209,
+            "p95_us": 2.833,
+            "p99_us": 3.0
+          },
+          "csharp": {
+            "first_us": 7.875,
+            "p50_us": 5.375,
+            "p95_us": 5.625,
+            "p99_us": 5.791,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.25,
+            "p50_us": 2.166,
+            "p95_us": 2.208,
+            "p99_us": 2.209
+          },
+          "csharp": {
+            "first_us": 8.0,
+            "p50_us": 5.209,
+            "p95_us": 5.5,
+            "p99_us": 5.625,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-vowels",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 69.833,
+            "p50_us": 70.25,
+            "p95_us": 71.709,
+            "p99_us": 78.709
+          },
+          "csharp": {
+            "first_us": 100.458,
+            "p50_us": 92.416,
+            "p95_us": 127.5,
+            "p99_us": 178.958,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 70.458,
+            "p50_us": 70.917,
+            "p95_us": 75.125,
+            "p99_us": 76.917
+          },
+          "csharp": {
+            "first_us": 94.875,
+            "p50_us": 92.708,
+            "p95_us": 133.208,
+            "p99_us": 139.292,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 68.5,
+            "p50_us": 69.334,
+            "p95_us": 73.25,
+            "p99_us": 75.75
+          },
+          "csharp": {
+            "first_us": 93.125,
+            "p50_us": 90.375,
+            "p95_us": 103.0,
+            "p99_us": 114.958,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-standalone",
+      "records": 128,
+      "script": "knda",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.583,
+            "p50_us": 1.792,
+            "p95_us": 2.25,
+            "p99_us": 2.333
+          },
+          "csharp": {
+            "first_us": 9.417,
+            "p50_us": 5.458,
+            "p95_us": 5.709,
+            "p99_us": 5.75,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.792,
+            "p50_us": 1.75,
+            "p95_us": 1.833,
+            "p99_us": 1.917
+          },
+          "csharp": {
+            "first_us": 8.5,
+            "p50_us": 5.375,
+            "p95_us": 5.625,
+            "p99_us": 6.708,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.5,
+            "p50_us": 1.792,
+            "p95_us": 1.834,
+            "p99_us": 1.917
+          },
+          "csharp": {
+            "first_us": 7.583,
+            "p50_us": 5.458,
+            "p95_us": 5.75,
+            "p99_us": 6.875,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-standalone",
+      "records": 4096,
+      "script": "knda",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 56.625,
+            "p50_us": 57.083,
+            "p95_us": 89.5,
+            "p99_us": 122.375
+          },
+          "csharp": {
+            "first_us": 95.875,
+            "p50_us": 93.125,
+            "p95_us": 96.334,
+            "p99_us": 119.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 55.625,
+            "p50_us": 56.209,
+            "p95_us": 63.334,
+            "p99_us": 63.833
+          },
+          "csharp": {
+            "first_us": 96.291,
+            "p50_us": 91.75,
+            "p95_us": 98.292,
+            "p99_us": 129.917,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 57.25,
+            "p50_us": 56.542,
+            "p95_us": 66.5,
+            "p99_us": 75.875
+          },
+          "csharp": {
+            "first_us": 94.916,
+            "p50_us": 90.084,
+            "p95_us": 93.75,
+            "p99_us": 96.541,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-symbols",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.375,
+            "p50_us": 1.125,
+            "p95_us": 1.167,
+            "p99_us": 1.417
+          },
+          "csharp": {
+            "first_us": 7.75,
+            "p50_us": 4.959,
+            "p95_us": 5.167,
+            "p99_us": 5.292,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.0,
+            "p50_us": 1.166,
+            "p95_us": 1.5,
+            "p99_us": 1.542
+          },
+          "csharp": {
+            "first_us": 7.666,
+            "p50_us": 4.917,
+            "p95_us": 5.042,
+            "p99_us": 5.083,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.083,
+            "p50_us": 1.042,
+            "p95_us": 1.125,
+            "p99_us": 1.292
+          },
+          "csharp": {
+            "first_us": 7.0,
+            "p50_us": 4.792,
+            "p95_us": 4.917,
+            "p99_us": 5.0,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-symbols",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 35.625,
+            "p50_us": 36.458,
+            "p95_us": 36.875,
+            "p99_us": 40.0
+          },
+          "csharp": {
+            "first_us": 95.833,
+            "p50_us": 93.542,
+            "p95_us": 245.375,
+            "p99_us": 249.666,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 34.0,
+            "p50_us": 35.291,
+            "p95_us": 40.709,
+            "p99_us": 42.208
+          },
+          "csharp": {
+            "first_us": 92.125,
+            "p50_us": 89.667,
+            "p95_us": 94.5,
+            "p99_us": 151.542,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 34.375,
+            "p50_us": 34.625,
+            "p95_us": 36.834,
+            "p99_us": 41.0
+          },
+          "csharp": {
+            "first_us": 91.917,
+            "p50_us": 88.5,
+            "p95_us": 99.5,
+            "p99_us": 109.208,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-broken",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.25,
+            "p50_us": 1.291,
+            "p95_us": 1.583,
+            "p99_us": 2.25
+          },
+          "csharp": {
+            "first_us": 7.625,
+            "p50_us": 4.625,
+            "p95_us": 4.791,
+            "p99_us": 5.333,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.208,
+            "p50_us": 1.167,
+            "p95_us": 1.209,
+            "p99_us": 1.292
+          },
+          "csharp": {
+            "first_us": 8.083,
+            "p50_us": 4.708,
+            "p95_us": 4.875,
+            "p99_us": 4.959,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.667,
+            "p50_us": 1.208,
+            "p95_us": 1.25,
+            "p99_us": 1.25
+          },
+          "csharp": {
+            "first_us": 7.0,
+            "p50_us": 4.583,
+            "p95_us": 4.708,
+            "p99_us": 5.041,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-broken",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 55.5,
+            "p50_us": 38.334,
+            "p95_us": 69.375,
+            "p99_us": 88.0
+          },
+          "csharp": {
+            "first_us": 99.0,
+            "p50_us": 97.875,
+            "p95_us": 116.25,
+            "p99_us": 194.667,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 39.542,
+            "p50_us": 38.542,
+            "p95_us": 40.666,
+            "p99_us": 52.542
+          },
+          "csharp": {
+            "first_us": 100.458,
+            "p50_us": 97.5,
+            "p95_us": 104.292,
+            "p99_us": 115.667,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 39.166,
+            "p50_us": 37.625,
+            "p95_us": 40.625,
+            "p99_us": 49.5
+          },
+          "csharp": {
+            "first_us": 99.25,
+            "p50_us": 96.0,
+            "p95_us": 107.0,
+            "p99_us": 125.792,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-long-joiners",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.5,
+            "p50_us": 2.542,
+            "p95_us": 2.708,
+            "p99_us": 2.75
+          },
+          "csharp": {
+            "first_us": 66.625,
+            "p50_us": 52.791,
+            "p95_us": 53.625,
+            "p99_us": 59.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.292,
+            "p50_us": 2.5,
+            "p95_us": 2.667,
+            "p99_us": 2.75
+          },
+          "csharp": {
+            "first_us": 71.417,
+            "p50_us": 52.916,
+            "p95_us": 55.375,
+            "p99_us": 59.958,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.5,
+            "p50_us": 2.583,
+            "p95_us": 2.75,
+            "p99_us": 2.917
+          },
+          "csharp": {
+            "first_us": 69.167,
+            "p50_us": 52.25,
+            "p95_us": 53.458,
+            "p99_us": 55.709,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-long-joiners",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 78.625,
+            "p50_us": 82.75,
+            "p95_us": 87.834,
+            "p99_us": 89.875
+          },
+          "csharp": {
+            "first_us": 21901.041,
+            "p50_us": 21767.625,
+            "p95_us": 22220.625,
+            "p99_us": 22910.083,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 76.417,
+            "p50_us": 79.333,
+            "p95_us": 84.625,
+            "p99_us": 155.292
+          },
+          "csharp": {
+            "first_us": 21775.917,
+            "p50_us": 21048.583,
+            "p95_us": 21657.167,
+            "p99_us": 22199.541,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 89.167,
+            "p50_us": 82.333,
+            "p95_us": 92.792,
+            "p99_us": 123.917
+          },
+          "csharp": {
+            "first_us": 21303.958,
+            "p50_us": 20995.292,
+            "p95_us": 21263.292,
+            "p99_us": 21413.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-matras",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 1.417,
+            "p50_us": 0.834,
+            "p95_us": 0.958,
+            "p99_us": 0.959
+          },
+          "csharp": {
+            "first_us": 4.042,
+            "p50_us": 1.917,
+            "p95_us": 1.959,
+            "p99_us": 1.959,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.334,
+            "p50_us": 0.833,
+            "p95_us": 0.958,
+            "p99_us": 0.959
+          },
+          "csharp": {
+            "first_us": 3.292,
+            "p50_us": 1.917,
+            "p95_us": 1.959,
+            "p99_us": 2.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.75,
+            "p50_us": 0.875,
+            "p95_us": 1.0,
+            "p99_us": 1.0
+          },
+          "csharp": {
+            "first_us": 3.834,
+            "p50_us": 1.917,
+            "p95_us": 1.959,
+            "p99_us": 2.0,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-matras",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 29.291,
+            "p50_us": 29.375,
+            "p95_us": 30.541,
+            "p99_us": 53.708
+          },
+          "csharp": {
+            "first_us": 79.166,
+            "p50_us": 65.208,
+            "p95_us": 71.583,
+            "p99_us": 99.208,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 28.666,
+            "p50_us": 28.334,
+            "p95_us": 29.084,
+            "p99_us": 31.666
+          },
+          "csharp": {
+            "first_us": 71.208,
+            "p50_us": 65.5,
+            "p95_us": 74.417,
+            "p99_us": 78.125,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 30.375,
+            "p50_us": 28.167,
+            "p95_us": 32.042,
+            "p99_us": 60.042
+          },
+          "csharp": {
+            "first_us": 65.334,
+            "p50_us": 64.958,
+            "p95_us": 69.875,
+            "p99_us": 77.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-vedic",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 1.0,
+            "p50_us": 0.708,
+            "p95_us": 0.75,
+            "p99_us": 0.75
+          },
+          "csharp": {
+            "first_us": 2.791,
+            "p50_us": 1.625,
+            "p95_us": 1.875,
+            "p99_us": 1.916,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.917,
+            "p50_us": 0.708,
+            "p95_us": 0.709,
+            "p99_us": 0.75
+          },
+          "csharp": {
+            "first_us": 2.834,
+            "p50_us": 1.625,
+            "p95_us": 1.917,
+            "p99_us": 2.0,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.959,
+            "p50_us": 0.708,
+            "p95_us": 0.75,
+            "p99_us": 0.75
+          },
+          "csharp": {
+            "first_us": 3.583,
+            "p50_us": 1.625,
+            "p95_us": 1.875,
+            "p99_us": 1.916,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-vedic",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 27.208,
+            "p50_us": 26.625,
+            "p95_us": 29.292,
+            "p99_us": 29.917
+          },
+          "csharp": {
+            "first_us": 53.791,
+            "p50_us": 53.208,
+            "p95_us": 77.542,
+            "p99_us": 83.875,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 26.459,
+            "p50_us": 26.042,
+            "p95_us": 30.709,
+            "p99_us": 81.416
+          },
+          "csharp": {
+            "first_us": 52.0,
+            "p50_us": 52.334,
+            "p95_us": 57.166,
+            "p99_us": 59.334,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 27.459,
+            "p50_us": 25.959,
+            "p95_us": 26.75,
+            "p99_us": 26.875
+          },
+          "csharp": {
+            "first_us": 52.708,
+            "p50_us": 52.333,
+            "p95_us": 52.584,
+            "p99_us": 52.833,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-halant-nukta",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.917,
+            "p50_us": 1.75,
+            "p95_us": 1.792,
+            "p99_us": 1.875
+          },
+          "csharp": {
+            "first_us": 3.042,
+            "p50_us": 1.666,
+            "p95_us": 2.042,
+            "p99_us": 2.209,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.417,
+            "p50_us": 1.709,
+            "p95_us": 1.75,
+            "p99_us": 2.083
+          },
+          "csharp": {
+            "first_us": 2.542,
+            "p50_us": 1.625,
+            "p95_us": 1.666,
+            "p99_us": 1.667,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.75,
+            "p50_us": 1.75,
+            "p95_us": 1.875,
+            "p99_us": 2.084
+          },
+          "csharp": {
+            "first_us": 2.459,
+            "p50_us": 1.667,
+            "p95_us": 1.708,
+            "p99_us": 1.709,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-halant-nukta",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        80
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 54.459,
+            "p50_us": 55.458,
+            "p95_us": 89.542,
+            "p99_us": 102.709
+          },
+          "csharp": {
+            "first_us": 57.208,
+            "p50_us": 56.625,
+            "p95_us": 64.792,
+            "p99_us": 87.291,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 55.166,
+            "p50_us": 56.167,
+            "p95_us": 57.791,
+            "p99_us": 60.917
+          },
+          "csharp": {
+            "first_us": 56.792,
+            "p50_us": 55.542,
+            "p95_us": 55.959,
+            "p99_us": 60.708,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 53.416,
+            "p50_us": 54.25,
+            "p95_us": 55.5,
+            "p99_us": 58.292
+          },
+          "csharp": {
+            "first_us": 55.166,
+            "p50_us": 55.333,
+            "p95_us": 59.709,
+            "p99_us": 63.792,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-disabled",
+      "records": 128,
+      "script": "deva",
+      "actions": [
+        79
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.167,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.209,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.375,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.25,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.167,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.167,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "indic-disabled",
+      "records": 4096,
+      "script": "deva",
+      "actions": [
+        79
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.041,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.625,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.041,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.083
+          },
+          "csharp": {
+            "first_us": 0.208,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.083,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 1.125,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    }
+  ],
+  "measurement_limits": "New-stage matched baseline, not a before/after optimization or end-to-end shaping claim. Disabled preparation is a clock-limited no-op; no Rust allocator-event or GPU qualification.",
+  "receipt_note": "Benchmark began before adding the new output-name branch; its completed receipt was moved to the Indic path and the prior common-action receipt restored byte-for-byte. Indic source hashes added without rerunning measurements; no production algorithm changed."
+}

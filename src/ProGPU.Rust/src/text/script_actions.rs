@@ -10,6 +10,7 @@ use normalization::{ManagedNormalizationProfile, NormalizationForm};
 mod joining;
 pub use joining::{ManagedJoiningType, managed_joining_type};
 mod arabic_fallback;
+mod indic;
 mod khmer;
 mod myanmar;
 mod use_shaping;
@@ -96,6 +97,11 @@ pub enum ManagedScriptAction {
     VowelConstraints,
     /// Original Khmer category/syllable preparation, broken circles and reordering.
     Khmer,
+    /// Original Indic category/position, complete syllable and unsafe-break metadata.
+    IndicPreparation {
+        /// Actual planner admission, independent of raw script spelling.
+        enabled: bool,
+    },
     /// Assign original Myanmar categories/syllables before lookup stages.
     MyanmarPreparation {
         /// Actual planner admission, independent of raw script spelling.
@@ -286,6 +292,9 @@ impl ManagedGlyphBuffer {
             }
             ManagedScriptAction::MyanmarReordering => {
                 myanmar::reorder(&mut self.glyphs, font, options.buffer_flags)?;
+            }
+            ManagedScriptAction::IndicPreparation { enabled } => {
+                indic::prepare(&mut self.glyphs, enabled);
             }
             ManagedScriptAction::UseRecordRepha => use_shaping::record_repha(&mut self.glyphs),
             ManagedScriptAction::UsePreparation { enabled } => {

@@ -5,8 +5,8 @@
     {
       "id": 129148423751,
       "name": "portable (ubuntu-24.04)",
-      "status": "in_progress",
-      "conclusion": null
+      "status": "completed",
+      "conclusion": "cancelled"
     },
     {
       "id": 129148424060,
@@ -55,8 +55,8 @@
     "offscreen_pixels": 204800,
     "final_capture": "pass"
   },
-  "qualification": "Linux portable pending; macOS cancelled. Earlier original/diagnostic browser device losses remain unresolved.",
+  "qualification": "Source, browser, GPU and Windows passed. Linux portable and macOS cancelled. Earlier original/diagnostic browser device losses remain unresolved.",
   "utc": "2026-11-09 12:14:06 UTC",
-  "terminal": false,
-  "linux_portable": "Original C++/managed differential oracles still running at observation; not qualified."
+  "terminal": true,
+  "linux_portable": "Cancelled when the subsequent diagnostics commit was pushed; not a pass."
 }

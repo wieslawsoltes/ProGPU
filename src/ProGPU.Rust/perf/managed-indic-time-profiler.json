@@ -1,0 +1,271 @@
+{
+  "utc": "2026-11-09T12:46:41.661453+00:00",
+  "instrument": "Xcode Instruments Time Profiler",
+  "duration_seconds": 6,
+  "workload": "One actual 4096-record alternating ZWNJ/ZWJ Indic preparation case, 100000 repetitions with complete owned-buffer creation/restoration. Both processes terminate at the six-second window.",
+  "commands": {
+    "rust": "xcrun xctrace record --template Time Profiler --time-limit 6s --launch -- BINARY --profile INPUT 170",
+    "csharp": "xcrun xctrace record --template Time Profiler --time-limit 6s --target-stdin INPUT --env PROGPU_RUST_ACTIONS_BENCHMARK=1 --env PROGPU_RUST_ACTIONS_PROFILE=1 --launch -- dotnet Control.dll"
+  },
+  "exports": {
+    "managed-indic-rust-time-profile.xml.gz": {
+      "original_bytes": 1278971,
+      "original_sha256": "1e9489b585274ea0a5225ca070c11cb8f3be46ff1a8d2c0f3b6980d2c910faca",
+      "compressed_bytes": 87388
+    },
+    "managed-indic-csharp-time-profile.xml.gz": {
+      "original_bytes": 1506810,
+      "original_sha256": "21d062a7e358cfeb63302987117600167a0613423c6aa5a2fb982baa6bedce92",
+      "compressed_bytes": 106754
+    },
+    "managed-indic-profile-input.bin.gz": {
+      "original_bytes": 524712,
+      "original_sha256": "3a732a68d62c2a4d45c8477b32c602b70103365e4ce57be15dbbf0e61ae04d94",
+      "compressed_bytes": 30852
+    }
+  },
+  "runs": [
+    {
+      "implementation": "rust",
+      "binary_sha256": "bc8c0b8598af9570c156dd2025a29980db80863db1c9101712fadc2e69a8b6d2",
+      "xctrace_exit": 54,
+      "recording_completed": true,
+      "sample_count": 5995,
+      "missing_backtrace_samples": 0,
+      "core_samples": {
+        "CPU 10 (P Core)": 1255,
+        "CPU 8 (P Core)": 1261,
+        "CPU 6 (P Core)": 1023,
+        "CPU 9 (P Core)": 1123,
+        "CPU 7 (P Core)": 1329,
+        "CPU 1 (E Core)": 1,
+        "CPU 0 (E Core)": 1,
+        "CPU 5 (E Core)": 1,
+        "CPU 2 (E Core)": 1
+      },
+      "top_leaf_functions": [
+        {
+          "name": "progpu::text::script_actions::indic::prepare::h2b5f589e0d12d18c",
+          "leaf_samples": 1946,
+          "inclusive_samples": 4830
+        },
+        {
+          "name": "progpu::text::script_actions::indic::syllables::Scanner::next::h40328bca37a563cd",
+          "leaf_samples": 1277,
+          "inclusive_samples": 2966
+        },
+        {
+          "name": "progpu::text::script_actions::indic::syllables::Cursor$LT$F$GT$::tail::h422a8298fd7d6561",
+          "leaf_samples": 851,
+          "inclusive_samples": 851
+        },
+        {
+          "name": "progpu::text::preparation::append_mapped::h84368cbb0f724507",
+          "leaf_samples": 689,
+          "inclusive_samples": 689
+        },
+        {
+          "name": "progpu::text::script_actions::indic::syllables::Cursor$LT$F$GT$::nukta::hf49b1a150858f046",
+          "leaf_samples": 455,
+          "inclusive_samples": 455
+        },
+        {
+          "name": "progpu::text::script_actions::indic::syllables::Cursor$LT$F$GT$::signs::haa230690e1ca5b39",
+          "leaf_samples": 383,
+          "inclusive_samples": 383
+        },
+        {
+          "name": "_platform_memmove",
+          "leaf_samples": 211,
+          "inclusive_samples": 211
+        },
+        {
+          "name": "progpu::text::preparation::_$LT$impl$u20$progpu..font..layout..managed_gsub..buffer..ManagedGlyphBuffer$GT$::from_text::h73ad76e68039c2a3",
+          "leaf_samples": 167,
+          "inclusive_samples": 617
+        },
+        {
+          "name": "mach_absolute_time",
+          "leaf_samples": 7,
+          "inclusive_samples": 7
+        },
+        {
+          "name": "dyld_parse_boot_arg_int",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "kdebug_typefilter",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "progpu::text::unicode::normalization::Layout::parse::hd6b479ae52dbaa0f",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "progpu::text::script_actions::_$LT$impl$u20$progpu..font..layout..managed_gsub..buffer..ManagedGlyphBuffer$GT$::apply_script_action::h61bec10f6b3c0cff",
+          "leaf_samples": 1,
+          "inclusive_samples": 4913
+        },
+        {
+          "name": "clock_gettime_nsec_np",
+          "leaf_samples": 1,
+          "inclusive_samples": 6
+        },
+        {
+          "name": "_RNvCsj4CZ6flxxfE_7___rustc11___rdl_alloc",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "managed_script_actions_benchmark::main::hb8a51e78d53b6609",
+          "leaf_samples": 1,
+          "inclusive_samples": 5964
+        },
+        {
+          "name": "clock_gettime",
+          "leaf_samples": 1,
+          "inclusive_samples": 7
+        },
+        {
+          "name": "progpu::font::layout::managed_gsub::buffer::ManagedGlyphBuffer::with_mark_profile::h10ba8a73d1a2afde",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        }
+      ]
+    },
+    {
+      "implementation": "csharp",
+      "binary_sha256": "c7f6f880895d87b1617a60ab22c2ec9f5ed4a49cbb56c9aa700a002b8a70b00c",
+      "xctrace_exit": 54,
+      "recording_completed": true,
+      "sample_count": 5957,
+      "missing_backtrace_samples": 0,
+      "core_samples": {
+        "CPU 9 (P Core)": 1086,
+        "CPU 7 (P Core)": 1152,
+        "CPU 6 (P Core)": 1261,
+        "CPU 8 (P Core)": 974,
+        "CPU 10 (P Core)": 1368,
+        "CPU 1 (E Core)": 29,
+        "CPU 0 (E Core)": 22,
+        "CPU 3 (E Core)": 18,
+        "CPU 2 (E Core)": 17,
+        "CPU 4 (E Core)": 15,
+        "CPU 5 (E Core)": 15
+      },
+      "top_leaf_functions": [
+        {
+          "name": "0x10b541dd5",
+          "leaf_samples": 483,
+          "inclusive_samples": 483
+        },
+        {
+          "name": "0x10b541e0d",
+          "leaf_samples": 419,
+          "inclusive_samples": 419
+        },
+        {
+          "name": "0x10b541d01",
+          "leaf_samples": 402,
+          "inclusive_samples": 402
+        },
+        {
+          "name": "0x10b541d19",
+          "leaf_samples": 370,
+          "inclusive_samples": 370
+        },
+        {
+          "name": "0x10b541d4d",
+          "leaf_samples": 365,
+          "inclusive_samples": 365
+        },
+        {
+          "name": "0x10b541d91",
+          "leaf_samples": 354,
+          "inclusive_samples": 354
+        },
+        {
+          "name": "0x10b541d65",
+          "leaf_samples": 306,
+          "inclusive_samples": 306
+        },
+        {
+          "name": "0x10b541ded",
+          "leaf_samples": 255,
+          "inclusive_samples": 255
+        },
+        {
+          "name": "0x10b541da5",
+          "leaf_samples": 246,
+          "inclusive_samples": 246
+        },
+        {
+          "name": "0x10b541db5",
+          "leaf_samples": 202,
+          "inclusive_samples": 202
+        },
+        {
+          "name": "0x10b541d29",
+          "leaf_samples": 125,
+          "inclusive_samples": 125
+        },
+        {
+          "name": "0x10b541cf1",
+          "leaf_samples": 119,
+          "inclusive_samples": 119
+        },
+        {
+          "name": "0x10b541d0d",
+          "leaf_samples": 118,
+          "inclusive_samples": 118
+        },
+        {
+          "name": "0x10b541d59",
+          "leaf_samples": 99,
+          "inclusive_samples": 99
+        },
+        {
+          "name": "0x10b52f521",
+          "leaf_samples": 88,
+          "inclusive_samples": 88
+        },
+        {
+          "name": "0x10b52f5f5",
+          "leaf_samples": 87,
+          "inclusive_samples": 87
+        },
+        {
+          "name": "0x10b52f559",
+          "leaf_samples": 86,
+          "inclusive_samples": 86
+        },
+        {
+          "name": "0x10b52f59d",
+          "leaf_samples": 80,
+          "inclusive_samples": 80
+        },
+        {
+          "name": "0x10b52f5bd",
+          "leaf_samples": 71,
+          "inclusive_samples": 71
+        },
+        {
+          "name": "0x10b52f4e9",
+          "leaf_samples": 67,
+          "inclusive_samples": 67
+        }
+      ]
+    }
+  ],
+  "complete_output_validation": {
+    "complete_output_bytes": 508156,
+    "complete_output_sha256": "c4bdb0a72e1ef80682712ec3fd2726964ea17ac921f8bc7fe17972e9da82bdf7",
+    "source_runtime": ".NET 10.0.14 macOS 26.6.0",
+    "profile_source_assembly_sha256": "c7f6f880895d87b1617a60ab22c2ec9f5ed4a49cbb56c9aa700a002b8a70b00c"
+  },
+  "binary_provenance": "Rust executable matches the uninstrumented baseline binary. C# uses a fresh Release build of the same unchanged original source and harness; its exact assembly hash differs from the baseline and is recorded separately. The final Rust source adds only the cfg(test) category-visit bound after these measurements; production algorithm unchanged.",
+  "limits": "New-stage final Rust/C# CPU baseline, not historical Rust before/after. Samples include startup, buffer creation/restoration, JIT, runtime work and differing core distributions; sample counts are not latency. C# JIT frames may remain unresolved. Separate complete-output matched rotating trials retain latency and C# GC allocation counters in managed-indic-baseline.json. No allocator-event, process-footprint, GPU/Metal, full shaping or frame qualification."
+}

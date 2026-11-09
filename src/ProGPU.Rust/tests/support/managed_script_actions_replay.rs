@@ -64,6 +64,8 @@ pub fn action(code: u32) -> Option<ManagedScriptAction> {
         76 => UseRecordPrebase,
         77 => UseReordering { enabled: false },
         78 => UseReordering { enabled: true },
+        79 => IndicPreparation { enabled: false },
+        80 => IndicPreparation { enabled: true },
         22..=28 | 32..=63 => ArabicFallback {
             enabled: code != 22,
             features: fallback_features(code),

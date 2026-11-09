@@ -1,0 +1,314 @@
+{
+  "utc": "2026-11-09T12:26:10.682722+00:00",
+  "reason": "User requested cleanup for low disk space",
+  "cargo_clean": "Removed 3354 files, 1.6GiB total",
+  "removed": [
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/tests/ProGPU.Native.PackageConsumer/bin",
+      "logical_bytes": 149448114
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/tests/ProGPU.Native.PackageConsumer/obj",
+      "logical_bytes": 1986209
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Dxf/bin",
+      "logical_bytes": 5196325
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Dxf/obj",
+      "logical_bytes": 459003
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinUI.Charts/bin",
+      "logical_bytes": 8418447
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinUI.Charts/obj",
+      "logical_bytes": 678733
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Tests.Headless/bin",
+      "logical_bytes": 204398289
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Tests.Headless/obj",
+      "logical_bytes": 1420638
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.DirectX/bin",
+      "logical_bytes": 5880223
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.DirectX/obj",
+      "logical_bytes": 1443811
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Backend.Native/bin",
+      "logical_bytes": 2046756
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Backend.Native/obj",
+      "logical_bytes": 1476473
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Fonts.Inter/bin",
+      "logical_bytes": 20005139
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Fonts.Inter/obj",
+      "logical_bytes": 17101784
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Text.Shaping/bin",
+      "logical_bytes": 35407
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Text.Shaping/obj",
+      "logical_bytes": 111997
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Native.Sdk/bin",
+      "logical_bytes": 16489
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Native.Sdk/obj",
+      "logical_bytes": 79403
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Vector/bin",
+      "logical_bytes": 1636320
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Vector/obj",
+      "logical_bytes": 703603
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Samples.ActivityMonitor/bin",
+      "logical_bytes": 95383879
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Samples.ActivityMonitor/obj",
+      "logical_bytes": 937831
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Scene.Native/bin",
+      "logical_bytes": 6238070
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Scene.Native/obj",
+      "logical_bytes": 691263
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Linux.Media/bin",
+      "logical_bytes": 2150773
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Linux.Media/obj",
+      "logical_bytes": 625470
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Avalonia/bin",
+      "logical_bytes": 8537007
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Avalonia/obj",
+      "logical_bytes": 626044
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Tests/bin",
+      "logical_bytes": 212393825
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Tests/obj",
+      "logical_bytes": 10676365
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinUI.Themes.Fluent/bin",
+      "logical_bytes": 9582668
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinUI.Themes.Fluent/obj",
+      "logical_bytes": 1790694
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Compute/bin",
+      "logical_bytes": 3627723
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Compute/obj",
+      "logical_bytes": 794880
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Media.Scene/bin",
+      "logical_bytes": 5481979
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Media.Scene/obj",
+      "logical_bytes": 390737
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Fonts.Noto/bin",
+      "logical_bytes": 20846032
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Fonts.Noto/obj",
+      "logical_bytes": 17940569
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Text/bin",
+      "logical_bytes": 3138618
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Text/obj",
+      "logical_bytes": 2336248
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Browser/bin",
+      "logical_bytes": 43278680
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Browser/obj",
+      "logical_bytes": 976831
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Samples/bin",
+      "logical_bytes": 48951336
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Samples/obj",
+      "logical_bytes": 1865367
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Layout/bin",
+      "logical_bytes": 5112632
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Layout/obj",
+      "logical_bytes": 356643
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Direct2D/bin",
+      "logical_bytes": 2670896
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Direct2D/obj",
+      "logical_bytes": 635441
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Backend/bin",
+      "logical_bytes": 1135319
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Backend/obj",
+      "logical_bytes": 1567920
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Backend.Dawn/bin",
+      "logical_bytes": 1321690
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Backend.Dawn/obj",
+      "logical_bytes": 381383
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/SkiaSharp/bin",
+      "logical_bytes": 6172626
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/SkiaSharp/obj",
+      "logical_bytes": 1900014
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Media.Editing/bin",
+      "logical_bytes": 1678229
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Media.Editing/obj",
+      "logical_bytes": 320522
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Transpiler/bin",
+      "logical_bytes": 98765
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Transpiler/obj",
+      "logical_bytes": 177360
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinRT/bin",
+      "logical_bytes": 71502
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinRT/obj",
+      "logical_bytes": 180811
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Scene/bin",
+      "logical_bytes": 5075765
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Scene/obj",
+      "logical_bytes": 2008576
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinUI/bin",
+      "logical_bytes": 8262860
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.WinUI/obj",
+      "logical_bytes": 4544535
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Virtualization/bin",
+      "logical_bytes": 5143042
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Virtualization/obj",
+      "logical_bytes": 374424
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Media/bin",
+      "logical_bytes": 1505125
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Media/obj",
+      "logical_bytes": 689090
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Windows.Media/bin",
+      "logical_bytes": 2055371
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/src/ProGPU.Windows.Media/obj",
+      "logical_bytes": 491961
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-native/build-osx-arm64",
+      "logical_bytes": 88144382
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results-linux-arm64",
+      "logical_bytes": 38653
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results-linux-arm64-headed",
+      "logical_bytes": 144926
+    },
+    {
+      "scope": "obsolete /tmp/progpu-rust-*.log",
+      "files": 450,
+      "logical_bytes": 1871197
+    }
+  ],
+  "additional_logical_bytes": 1065937712,
+  "free_bytes_after": 14795718656,
+  "preserved": "Source, tracked fixtures and compact qualification evidence; active isolated Indic oracle; reusable .NET and wasm-bindgen/browser tools.",
+  "build_storage": {
+    "workspace_target": "/Users/wieslawsoltes/GitHub/ProGPU/target",
+    "ignored_symlink": "/Volumes/1TB-macOS/.progpu-rust-target-qdk564g1",
+    "external_free_bytes": 146545631232,
+    "purpose": "Subsequent Rust outputs use the available external volume while local disk space is constrained."
+  },
+  "verified_free_bytes": 15459540992
+}

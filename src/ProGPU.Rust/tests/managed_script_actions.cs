@@ -41,6 +41,7 @@ static class Control
         var reverse=typeof(B).GetMethod("Reverse",F)!.CreateDelegate<Action<B>>();
         var vowels=typeof(B).GetMethod("ApplyVowelConstraints",F)!.CreateDelegate<Action<B,string>>();
         var usePrepare=typeof(B).GetMethod("PrepareUseShaping",F)!.CreateDelegate<Action<B,bool,string>>();
+        var indicPrepare=typeof(B).GetMethod("PrepareIndicShaping",F)!.CreateDelegate<Action<B,bool>>();
         var useRepha=typeof(B).GetMethod("RecordUseRepha",F)!.CreateDelegate<Action<B>>();
         var usePrebase=typeof(B).GetMethod("RecordUsePrebase",F)!.CreateDelegate<Action<B>>();
         var useReorder=typeof(B).GetMethod("ReorderUseShaping",F)!.CreateDelegate<Action<B,bool>>();
@@ -170,6 +171,8 @@ static class Control
                             case 76:usePrebase(buffer);break;
                             case 77:useReorder(buffer,false);break;
                             case 78:useReorder(buffer,true);break;
+                            case 79:indicPrepare(buffer,false);break;
+                            case 80:indicPrepare(buffer,true);break;
                             default:throw new InvalidDataException("action");
                         }
                     }
