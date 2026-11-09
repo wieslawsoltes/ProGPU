@@ -42,6 +42,13 @@ const variationBytes=()=>{const n=variationU32(),b=variationBinary.subarray(vari
 const variationWords=()=>{const b=variationBytes();return Array.from({length:b.length/4},(_,i)=>b.readUInt32LE(i*4));},variationCases=[];
 for(let n=variationU32();n>0;n--)variationCases.push({font:[...variationBytes()],request:variationWords(),expected:variationWords()});
 assert.equal(variationCursor,variationBinary.length);
+const nameBinary=await readFile(new URL('./managed-names.bin',import.meta.url));
+assert.equal(nameBinary.subarray(0,4).toString(),'PNM1');let nameCursor=4;
+const nameU32=()=>{const n=nameBinary.readUInt32LE(nameCursor);nameCursor+=4;return n;};
+const nameBytes=()=>{const n=nameU32(),b=nameBinary.subarray(nameCursor,nameCursor+n);nameCursor+=n;return b;};
+const nameCases=[];
+for(let n=nameU32();n>0;n--){const font=[...nameBytes()],axes=nameU32()!==0,ids=Array.from({length:nameU32()},nameU32),raw=nameBytes();nameCases.push({font,axes,ids,expected:Array.from({length:raw.length/4},(_,i)=>raw.readUInt32LE(i*4))});}
+assert.equal(nameCursor,nameBinary.length);
 const reports = [];
 const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
 let activePage;
@@ -81,7 +88,7 @@ try {
       return app.exclusive(() => app.renderer.metrics().frames >= 4);
     }));
     entry.stage='source and offscreen controls';
-    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases}) => {
+    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases}) => {
       const app = await window.progpuReady;
       return app.exclusive(async () => {
         const r = app.renderer;
@@ -446,6 +453,8 @@ try {
         const indic=mg(10);indic[14]=3;d=dispatch(stageTable(gsubTable([[1,0,[singleSub]]]),[['pref',[0]]],0),[indic],4,overridePolicy([['pref',0]]));check(stageRecord(d,0)[0]===110,'WASM required feature bypasses per-glyph value and mask');
         const malformedReverse=[1,18,2,24,30,1,36,1,77,1,65535,10,1,1,9,1,1,8,1,1,20];const marked=mg(10);marked[16]=42;
         d=dispatch(stageTable(gsubTable([[8,16,[malformedReverse]]]),[['pref',[0]]]),[marked],4,overridePolicy([['pref',1]]),[['GDEF',gd]]);check(d[0]===4&&d[4]===54&&d[5]===0&&d[6]===1&&d[7]===1&&d[8]===42,'WASM original reverse failure retains mark/syllable/manual state');
+        let managedNameChecks=0;
+        for(const c of nameCases){const actual=[...app.managed_font_names(new Uint8Array(c.font),new Uint16Array(c.ids),c.axes)];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# names ${managedNameChecks}`);managedNameChecks++;}
         let managedVariationChecks=0;
         for(const c of variationCases){const actual=[...app.managed_variation_instance(new Uint8Array(c.font),new Uint32Array(c.request))];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# variation instance ${managedVariationChecks}`);managedVariationChecks++;}
         let managedPositioningChecks=0;
@@ -709,9 +718,9 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
-    },{gposCases,positioningCases,variationCases});
+    },{gposCases,positioningCases,variationCases,nameCases});
     Object.assign(entry,report);
     entry.stage='resize';
     assert.equal(report.before.draws, 1);

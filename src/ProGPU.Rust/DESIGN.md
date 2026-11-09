@@ -3056,3 +3056,49 @@ package, Windows, Vulkan/winit and original browser gates pass; macOS was cancel
 That passing browser run does not close the recorded intermittent device loss.
 All original platform/provider/package/source/application/pixel gates remain open
 where their complete scope has not been demonstrated.
+
+
+## Current managed name-table policy (2026-11-09)
+
+`SfntFace::managed_names` and `managed_name` port original `SfntFontFace.GetNames`
+and `TryGetName` over the selected immutable source face. Ordinary last-valid
+SFNT duplicate selection agrees with original managed ParseFace. The complete name
+header/record inventory and string-storage origin validate before any name query;
+individual wrong-ID or out-of-bounds payloads are skipped. Source format fields do
+not become new admission gates, and valid string offsets may point into records.
+
+UTF-16BE follows source replacement decoding, including isolated surrogates and
+an odd final byte. Windows and Unicode platforms use that route independently of
+encoding ID; Macintosh encoding zero deliberately retains original Latin-1 rather
+than a fabricated MacRoman mapping. Other platforms/encodings use UTF-8 replacement
+decoding. NUL removal precedes original whitespace trimming. Stable score ordering
+precedes ordinal duplicate removal. The original +10 score examines UTF-16 Char
+letters above U+024F, not decoded Runes; supplementary letters keep the bonus.
+Existing frozen Unicode 16 category data is used with an exhaustive source BMP
+witness; native Unicode categories and normalization/mark profiles are unchanged.
+Future runtime category changes require an explicit source witness.
+
+Returned Arc strings own their bytes. `ManagedVariationData::from_named_face`
+uses the selected face's actual name query and retains tag fallback for absent
+names; the explicit callback constructor remains unchanged. The independent source
+harness loads original SfntFontFace and executes its methods through typed delegates.
+Integration calls the actual TtfFont constructor and VariationAxes, including both
+ranked names and missing-name fallback. It does not fabricate the callback result.
+
+The 236,128-case / 12,151,088-byte corpus covers every UTF-16 code unit, every two-byte
+UTF-8 and Latin-1 sequence, all one-byte platform paths, selected supplementary/BOM/
+malformed prefix cases, 30,000 random strings, 8,000 metadata mutations, all original
+truncations, unknown format fields, record-relative storage, a 65,535-record inventory
+and duplicate tables. Full ordered names, selected value and actual axis names are
+compared. The 93-case / 61,979-byte browser fixture is actual captured source output,
+verified by mandatory CI and replayed at both DPRs alongside all original GPU gates.
+
+The initial matched baseline times GetNames and TryGetName separately at 1/8/64/512
+records across unique, mixed-encoding and duplicate configurations. Five warmups
+precede 40 rounds. Font construction, transport and complete output serialization
+remain untimed; production allocation, Rust replacement drops and C# delegates/GC
+remain timed. Actual timed outputs must match completely. No allocation reduction,
+optimization, full font-cache throughput or shaping/frame parity is claimed; future
+optimization still requires Instruments evidence. Full TtfFont root/FIFO identity
+and metadata, discovery, varied metrics/outlines and the complete text stack remain
+separate. Previous platform/provider/package/pixel and default-compiler gaps persist.

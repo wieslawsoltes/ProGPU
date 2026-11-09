@@ -15,6 +15,7 @@ mod horizontal;
 mod item_variation;
 pub mod layout;
 mod managed_variations;
+mod names;
 mod outline;
 mod variations;
 mod vertical;

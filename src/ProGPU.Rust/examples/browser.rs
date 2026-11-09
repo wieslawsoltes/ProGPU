@@ -15,6 +15,9 @@ mod managed_records;
 #[path = "../tests/support/managed_variation_replay.rs"]
 mod managed_variation_replay;
 #[cfg(target_arch = "wasm32")]
+#[path = "../tests/support/name_replay.rs"]
+mod name_replay;
+#[cfg(target_arch = "wasm32")]
 mod web {
     use super::sample;
     use js_sys::{
@@ -1073,6 +1076,21 @@ mod web {
     ) -> Result<Vec<u32>, JsValue> {
         let case = super::managed_variation_replay::decode(font, &request).map_err(error)?;
         let bytes = case.expected().map_err(error)?;
+        Ok(bytes
+            .chunks_exact(4)
+            .map(|v| u32::from_le_bytes(v.try_into().unwrap()))
+            .collect())
+    }
+    /// Replay original name decoding/ranking and actual variation-axis names.
+    #[wasm_bindgen]
+    pub fn managed_font_names(
+        font: Vec<u8>,
+        ids: Vec<u16>,
+        axes: bool,
+    ) -> Result<Vec<u32>, JsValue> {
+        let bytes = super::name_replay::Case { font, ids, axes }
+            .expected()
+            .map_err(error)?;
         Ok(bytes
             .chunks_exact(4)
             .map(|v| u32::from_le_bytes(v.try_into().unwrap()))

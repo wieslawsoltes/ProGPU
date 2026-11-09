@@ -1,0 +1,14 @@
+{
+  "captured_utc": "2026-11-09T04:28:05.707177+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "exact_source_resource_document_files": 335,
+  "original_manifest": "exact",
+  "temporary_bytes_removed": 583055885,
+  "final_archive_files": 343,
+  "final_exact_source_resource_document_files": 339,
+  "fresh_build_unchanged_source_resource_document_files": 263,
+  "final_bytes_match_worktree": true,
+  "post_build_changes": "Compact baseline, validation and cleanup receipts only; code, resources and documentation unchanged."
+}

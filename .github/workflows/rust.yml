@@ -72,6 +72,9 @@ on:
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gsub*
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_unicode_shaping.cpp
       - src/ProGPU.Text/OpenTypeTextShaper.cs
+      - src/ProGPU.Text/SfntFontFace.cs
+      - src/ProGPU.Text/OpenTypeVariationData.cs
+      - src/ProGPU.Text/TtfFont.Variations.cs
       - src/ProGPU.Text.Shaping/OpenTypeGdefPolicy.cs
       - src/ProGPU.Text/UnicodeNormalizationPlan.cs
       - src/ProGPU.Text/UnicodeNormalizationData.bin
@@ -202,6 +205,7 @@ jobs:
           cargo test --locked --test managed_gpos -- --ignored --nocapture
           cargo test --locked --test managed_positioning -- --ignored --nocapture
           cargo test --locked --test managed_variations -- --ignored --nocapture
+          cargo test --locked --test managed_names -- --ignored --nocapture
           cargo test --locked --test normalization -- --ignored --nocapture
           python3 eng/progpu-test-rust-normalization-conformance.py
           python3 eng/progpu-test-rust-normalization-profiles.py

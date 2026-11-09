@@ -48,6 +48,7 @@ cargo test --locked --test gsub -- --ignored --nocapture
 cargo test --locked --test managed_gpos -- --ignored --nocapture
 cargo test --locked --test managed_positioning -- --ignored --nocapture
 cargo test --locked --test managed_variations -- --ignored --nocapture
+cargo test --locked --test managed_names -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -68,6 +69,7 @@ python3 eng/progpu-benchmark-rust-managed-context.py
 python3 eng/progpu-benchmark-rust-managed-gpos.py
 python3 eng/progpu-benchmark-rust-managed-positioning.py
 python3 eng/progpu-benchmark-rust-managed-variations.py
+python3 eng/progpu-benchmark-rust-managed-names.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -163,7 +165,8 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Managed context and ordered matching | Owned raw managed format-3 contexts, exact weak coverage admission and original glyph/indexer/skip rules; 56,996 actual C# source records, 22,558,608 coverage queries and 1,191,586 ordered matches; 70 browser checks per DPR | Full lookup/GDEF execution, staged shaping, layout/text integration and large-query baseline gap |
 | Native GSUB execution | All eight lookup types; contextual formats 1–3; caller-owned 32-byte glyph records, original errors/tails, nested state, GDEF and metadata; 117,973 C++ records / 60,322,260 bytes and 3,968 actual C# shared-policy records / 975,232 bytes | Complete current managed mutation policy, GPOS, staged shaping, fallback, layout/GPU text and performance qualification |
 | Current managed positioning | All nine raw GPOS types, complete attachment state, owned feature/digest plan and layout variation dispatch; 32,008 complete C# plan cases and 760,086 exact delta queries; 151 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, metric/default-ignorable preparation, native device GPOS, fallback and full shaping/GPU text |
-| Current managed variation data | Complete original fvar/avar/gvar/HVAR/GDEF/MVAR admission, normalized immutable instances, lazy tuple cache, simple/component/phantom deltas and MVAR/HVAR/layout queries; 8,772 C# cases / 8,192,752 exact bytes; 96 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, source name resolution, full varied-outline/metrics integration and query/frame performance |
+| Current managed variation data | Complete original fvar/avar/gvar/HVAR/GDEF/MVAR admission, normalized immutable instances, lazy tuple cache, simple/component/phantom deltas and MVAR/HVAR/layout queries; 8,772 C# cases / 8,192,752 exact bytes; 96 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, full varied-outline/metrics integration and query/frame performance |
+| Current managed font names | Original name-table decoding, UTF-16 character ranking, stable ordinal deduplication and real axis-name resolution; 236,128 C# cases / 12,151,088 exact bytes; 93 browser controls per DPR | Full font identity/style/metric wrapper, broader discovery/source policies and end-to-end performance |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -530,9 +533,32 @@ all **32,008 original positioning cases** independently verify its computed
 coordinates against actual C# selection before comparing complete outputs.
 
 This ports the process-neutral variation component. Full `TtfFont` root/FIFO cache,
-instance metadata, source name decoding, hinted/varied outline construction and
+instance metadata, hinted/varied outline construction and
 metric preparation remain separate required work. Its default instance retains a
 complete zero-coordinate inventory; the full font wrapper still owns default-root
 selection and skipped variation application. The 48-workload admission/instance
 baseline retains allocation and original compiler/JIT behavior. Query throughput,
 full shaping/frame performance and previously recorded native FP gaps remain open.
+
+
+`SfntFace::managed_names` and `managed_name` preserve original `SfntFontFace`
+name selection: declared-table bounds, whole-record inventory admission, individual
+invalid-record skipping, UTF-16BE/Latin-1/UTF-8 replacement decoding, NUL removal,
+whitespace trimming, stable source ranking and ordinal deduplication. Platform 1,
+encoding 0 retains the original Latin-1 route. Ranking examines UTF-16 code units;
+supplementary letters do not lose the original ASCII/Latin score bonus. Character
+facts use the existing frozen Unicode 16 inventory, independently checked against
+all 65,536 original managed Char inputs; this does not infer a future runtime policy.
+Names own their bytes after the font is dropped.
+
+`ManagedVariationData::from_named_face` resolves axis names from that same selected
+face, retaining original decoded name selection and missing-name tag fallback. The
+explicit callback constructor remains independent. Actual C# `TtfFont.VariationAxes`
+controls cover the integration. **236,128 source cases / 12,151,088 exact bytes**
+include exhaustive two-byte UTF-8/Latin-1 input, odd/truncated UTF-16, malformed
+strings, duplicate inventories, header/record bounds and ranking. The **93-case /
+61,979-byte** browser fixture is captured from original C# and revalidated in CI.
+`eng/progpu-benchmark-rust-managed-names.py` measures complete `GetNames`/`TryGetName`
+queries against the source at 1/8/64/512 records. It excludes SFNT construction and
+serialization, retaining production allocations and original runtime behavior;
+this initial baseline does not qualify full font/shaping/frame performance.

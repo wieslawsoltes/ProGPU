@@ -86,6 +86,18 @@ fn allocate<T: Clone>(len: usize, value: T) -> Result<Vec<T>, FontError> {
     Ok(out)
 }
 impl ManagedVariationData {
+    /// Resolve axis names through the original managed name-table decoder and
+    /// stable ranking policy of the same selected face before parsing variation
+    /// data. The explicit callback constructor remains available independently.
+    pub fn from_named_face(source: SfntFace) -> Result<Option<Self>, FontError> {
+        let names = source.clone();
+        Self::from_face(source, |id| {
+            names
+                .managed_name(id)
+                .map(|name| name.encode_utf16().collect::<Vec<_>>().into())
+        })
+    }
+
     /// Execute original TryCreate admission. Missing/invalid source metadata
     /// yields None; allocation/capacity failures remain errors, like uncaught OOM.
     /// The original name-resolver dependency is explicit and called once per
