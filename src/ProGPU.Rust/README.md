@@ -53,6 +53,7 @@ cargo run --release --locked --no-default-features --example grapheme_benchmark 
 python3 eng/progpu-benchmark-rust-line-break.py
 python3 eng/progpu-benchmark-rust-normalization.py
 python3 eng/progpu-benchmark-rust-normalization-profiles.py
+python3 eng/progpu-benchmark-rust-digest.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -141,7 +142,8 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Grapheme segmentation | Original Unicode 17 state and separate managed compatibility; immutable source clusters and allocation-free UTF-16 starts; 1,888,801 native controls, 89,921 managed controls and 766 official fixtures | Word boundaries, fallback/shaping/layout integration and retained interaction |
 | Line breaking | Original Unicode 17 and separate native EDIT selection profile; owned source, caller buffers and exact failure/tail behavior; 2,262,599 C++ cases, 1,688,365 C# controls, 19,338 official cases and fourteen browser checks per DPR | Word selection, width fitting, hyphenation, shaping/layout integration and text pixels |
 | Canonical normalization | Original frozen plan plus explicit Unicode 15.1/16.0/17.0 source profiles; native source/tail semantics and original output metadata preserved; 3,668,863 native controls, 4,476,001 managed controls on both macOS and Ubuntu, 1,181,460 profile fixture checks, 36 browser controls per DPR | Source runtime selection and full shaping integration; performance and hosted/platform qualification |
-| OpenType common tables and GDEF | Borrowed/owned coverage, classes, lazy lookup validation, GDEF classification/mark sets and exact independent blocklist; 6,415,296 native and 5,374,312 actual C# queries; 26 browser controls per DPR | Feature selection, lookup accelerators, GSUB/GPOS execution, shaping plans and full text integration |
+| OpenType common tables and GDEF | Borrowed/owned coverage, classes, lazy lookup validation, GDEF classification/mark sets and exact independent blocklist; 6,415,296 native and 5,374,312 actual C# queries; 26 browser controls per DPR | Feature selection, GSUB/GPOS execution, shaping plans and full text integration |
+| Lookup accelerators | Original five-mask native and distinct three-mask managed filters; exact single coverage and owned format-3 context preparation; 39,859 C++ records / 57,233,864 bytes and 15,728,640 C# glyph queries / 201,347,072 bytes; 15 browser controls per DPR | Ordered glyph/GDEF traversal, plan integration and complete source lookup execution |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -254,7 +256,8 @@ Hosted normalization checkpoint `672d632b9` passes Windows, browser and GPU;
 Linux's actual managed comparison fails at U+105C9, while its native comparison
 passes. The frozen resource decomposes that scalar to U+105D2 U+0307, whereas
 that runtime returned its original two UTF-16 units. macOS was cancelled. This
-runtime-repertoire gap remains open; no oracle, runtime default or gate is changed.
+historical frozen-plan mismatch remains recorded; the additive profile API below
+addresses explicit source-data selection without changing that frozen API.
 
 A reproducible diagnostic, `python3 eng/progpu-audit-rust-normalization-runtime.py
 --output /tmp/progpu-normalization-runtime.json`, rebuilds the original managed
@@ -262,8 +265,8 @@ generator under the current runtime defaults. Local Ubuntu/ICU 74.2 lacks 20
 of the frozen plan's decomposition records and 20 composition pairs; macOS
 reproduces the frozen resource exactly. Compact `perf/normalization-runtime-*.json`
 receipts retain the differences. CI runs this audit after an oracle failure while
-preserving the failed result. Runtime profiles and full canonical ordering remain
-unqualified; no test input is excluded.
+preserving the failed result. The subsequent explicit profiles below receive full
+canonical comparisons; no original test input is excluded.
 
 Explicit source normalization uses `ManagedNormalizationProfile` with
 `NormalizedText::with_managed_profile`, `managed_profile_capacity`, or
@@ -286,3 +289,17 @@ implementation. The generator verifies every original canonical decomposition,
 the exact older runtime plan inventory, and the original Unicode 17 class table.
 The crate's code is MIT; the added Unicode facts carry the bundled
 `UNICODE-LICENSE.txt` notice. Cargo declares `MIT AND Unicode-3.0`.
+
+Lookup preparation preserves the original native five masks and the independent
+managed three masks; `GlyphSetDigest::managed()` projects the exact managed state.
+Their positive results remain approximate and can differ. Raw lookup digests keep
+the original offset interpretation and require independent executor eligibility.
+Exact single-coverage preparation and complete format-3 context preparation retain
+their own stricter coverage validation. Invalid lookup headers are errors; an
+unsupported optional accelerator is `None`, which never approves lookup execution.
+
+`LayoutTable::build_context_into` validates the entire inventory and both caller
+capacities before writing. `PreparedContext` owns the selected layout/font generation,
+ordered descriptors and coverage offsets/digests; its borrowed exact coverage queries
+do not reparse or copy font bytes. Full ordered glyph traversal and GDEF filtering
+remain with the future executor, rather than being inferred from these set filters.

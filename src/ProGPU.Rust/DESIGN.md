@@ -2120,3 +2120,95 @@ An additional package-specific release clean reports 27.8 MiB, excluded from tha
 exact total. The Ubuntu VM is restored to its initial suspended state; active
 dependency caches, current browser evidence and the distributable remain available.
 Compact validation and cleanup receipts are retained alongside the baseline.
+
+Hosted follow-up `1ff410d04`, Rust run 42537564226, passes the complete Linux
+portable lane with MSRV 1.90.0: the runtime witnesses select Unicode15_1 and all
+4,476,001 managed controls / 51,423,570 bytes match. The unchanged native gate,
+default conformance and all three official profile inventories also pass. Windows
+portable and Linux GPU/winit pass; original and diagnostic browser gates still
+fail with final DPR 2 device loss. macOS remains queued at observation. This
+qualifies the explicit source profile on that hosted lane; it does not change
+historical frozen-plan results, Windows managed admission or browser reliability.
+
+## Original OpenType lookup filter and context preparation
+
+The authoritative sources are
+`src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_digest.cpp`, its common
+layout implementation and `src/ProGPU.Text/OpenTypeTextShaper.cs`. The Rust port
+preserves native's five masks (shifts 2/4/0/6/10) and managed's independent three
+masks (4/0/6), including inclusive range wrapping, reversed-range no-op and
+short-circuit membership/intersection. `GlyphSetDigest::managed()` retains exact
+managed state; native can reject additional false positives, so query results
+from the two contracts must not be treated as interchangeable.
+
+The prior cross-engine CPU shaping/GPU realization research still applies. The
+[OpenType common formats](https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2)
+inform authored coverage/context fixtures, while the [HarfBuzz feature overview](https://harfbuzz.github.io/shaping-opentype-features.html)
+reinforces separating feature selection and script policy from lookup data.
+Foreign implementation is not imported. The port prepares reusable immutable CPU
+data; it introduces no new rendering, GPU fallback, font-runtime or platform bridge.
+
+Digest parsing deliberately retains the original weaker raw coverage admission:
+unordered format-1 values and noncontiguous/overlapping format-2 indices still
+contribute approximate sets. Reversed ranges disable the native optional digest.
+Exact leading coverage and context requirements use the independent strict
+coverage validator. The original raw offset-2 digest interpretation is preserved;
+successful preparation does not prove a lookup type has a semantic leading
+coverage or approve its use by an executor. Format-3 context preparation remains
+independent, as does full source shaping qualification.
+
+Each lookup resolves at most one extension, retaining raw type/flag values and
+original unsupported cases. Invalid lookup headers remain errors; malformed or
+unsupported optional payloads return absence. Context preparation validates every
+subtable, coverage and lookup-record extent before either caller buffer changes.
+It retains source backtrack/input/lookahead order, raw lookup-record contents,
+nonzero input sections, unused output tails and the original capacity error.
+No substituted glyphs or positioning records are fabricated at this stage.
+
+`PreparedContext` owns the selected `OwnedLayoutTable`, ordered spans and compact
+coverage offsets/digests. The actual selected `SfntFace` generation survives caller
+disposal without copying its table bytes. Borrowed exact coverages are reconstructed
+in constant time from privately validated immutable offsets, without reparsing.
+Caller-buffer preparation allocates nothing. Owned preparation uses O(S+C) storage
+for S subtables and C coverage requirements; it reserves both inventories before
+publication. Set insertion/query is O(1), raw collection and whole validation are
+linear in visited source records, and exact membership retains O(log R) coverage
+search. Overlapping source references retain the original repeated visits. These
+tiny per-glyph dependent mask reductions are not a whole-buffer compute fallback.
+Ordered glyph traversal, GDEF filtering, feature selection and GSUB/GPOS execution
+remain unfinished consumers.
+
+The original default-compiler C++ oracle passes **39,859 records / 1,683,424 glyph
+queries / 57,233,864 exact bytes**. Controls include 20,000 deterministic mutations,
+every fixture prefix, extension types, later malformed coverage, capacity failures,
+unchanged tails, full glyph inventories and direct intersection queries. The actual
+original managed assembly passes **240 records / 15,728,640 glyph queries /
+201,347,072 bytes**, comparing its three masks, membership/intersection and exact
+context membership on the complete admitted corpus. Test-only generic delegates
+invoke the compiled private implementations; reflection does not enter the crate.
+The C# parser's weaker malformed admission remains distinct from native validation.
+
+Additional tests compare all 65,536 singleton masks and boundary-spanning ranges
+against explicit sets, prove separate false-positive policies, preserve owners
+after clone/drop and exercise complete preflight. All-feature tests pass 63 with
+34 explicit source/GPU controls ignored by the aggregate; both new source controls
+run separately and pass. Strict native/WASM Clippy passes. Fifteen new controls per
+DPR pass in the real browser alongside 204,800 offscreen pixels, six canonical
+shaders, resize and both presented canvases. Fresh extracted native all-feature/
+all-target and WASM checks pass from empty targets, with exact production bytes.
+
+The baseline measures ten authored sparse/dense list/range inventories, each with
+65,536 permuted queries, five warmups and forty rounds. Rust/native and Rust/managed
+hashes match within each distinct contract. At 4,096 list records, p50 microseconds
+are 90.625 Rust-native / 90.625 C++, and 78.000 Rust-managed / 129.200 C#. For 4,096
+range records they are 86.667 / 89.584 and 73.000 / 140.800. Managed typed delegate
+overhead remains in each query, and the single cold preparation observation includes
+first JIT work; it is not a stable startup comparison. Background load was
+5.47/8.94/11.93 with compiler activity. These are diagnostic baselines, not an
+optimization, steady-state JIT, full-shaping or cross-platform performance claim.
+Future performance changes still require matched Instruments investigation.
+`eng/progpu-benchmark-rust-digest.py` and compact `perf/digest-*.json` receipts retain
+inputs, sources, binaries, timings, validation and cleanup. Source-oracle directories,
+the extracted package, temporary managed/native benchmark builds and unused local
+benchmark executables are removed; active dependencies and current browser/package
+evidence remain.

@@ -1,0 +1,58 @@
+{
+  "captured_utc": "2026-11-09T00:10:42.564589+00:00",
+  "native": {
+    "records": 39859,
+    "glyph_queries": 1683424,
+    "exact_bytes": 57233864,
+    "compiler_defaults": true,
+    "deterministic_mutations": 20000
+  },
+  "managed": {
+    "records": 240,
+    "glyph_queries": 15728640,
+    "exact_bytes": 201347072,
+    "actual_original_project": true,
+    "dotnet_sdk": "10.0.403"
+  },
+  "all_features": {
+    "passed": 63,
+    "ignored": 34
+  },
+  "strict_clippy": {
+    "native_all_targets": true,
+    "wasm_browser": true
+  },
+  "browser": {
+    "digest_checks_per_dpr": 15,
+    "dprs": [
+      1,
+      2
+    ],
+    "offscreen_pixels": 204800,
+    "shaders": 6,
+    "resize_and_actual_presented_canvases": true
+  },
+  "fresh_extracted_archive": {
+    "empty_target": true,
+    "native_all_features_all_targets": true,
+    "wasm_browser": true,
+    "exact_runtime_resource_license_bytes": true
+  },
+  "source_sha256": {
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_digest.cpp": "b685e3900e6ac034ec4f280904de652f89e4c87a5fcff0f771f1217f55315783",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp": "d78cd9aeb83731524fa4d52c765dc0b3ae22796f2765b72175ce6abb98259550",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/font/layout/digest.rs": "acc11795fd1d1c491307cf85e28bc354ad7c33b58dbda1ddd25614418486e922",
+    "src/ProGPU.Rust/tests/digest.rs": "a5629de8bf4a05b62770682cadc073a900ed31f13377a27d600dc345d69ce630",
+    "src/ProGPU.Rust/tests/native_digest.cpp": "c0f6b1772924276230c0d2e232c8f41c35c0c04b674309591b0949e3d96339c0",
+    "src/ProGPU.Rust/tests/managed_digest.cs": "f4122d5635a0aa6463a76613e37158e39318bbccad94a33bfac79eb0c7385861"
+  },
+  "qualification": [
+    "Native five-mask and managed three-mask contracts compared separately",
+    "Native malformed admission is stronger than original C#; full malformed parity is not claimed",
+    "Raw lookup digest interpretation does not prove executor eligibility",
+    "Ordered glyph/GDEF traversal, feature selection, GSUB/GPOS and shaping integration remain pending",
+    "Diagnostic baseline only; background load and typed managed delegate costs remain",
+    "Hosted browser device loss and original source/package/platform/pixel gates remain open"
+  ]
+}

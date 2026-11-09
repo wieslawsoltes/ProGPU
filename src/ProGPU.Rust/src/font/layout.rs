@@ -5,9 +5,14 @@
 use super::{FontError, SfntFace, Span, Tag, bytes};
 use std::sync::Arc;
 mod coverage;
+mod digest;
 mod gdef;
 mod table;
 pub use coverage::{ClassDefinition, Coverage};
+pub use digest::{
+    ContextCoverage, ContextRequirements, ContextSubtable, GlyphSetDigest, ManagedGlyphSetDigest,
+    PreparedContext,
+};
 pub use gdef::{Gdef, GlyphClass, OwnedGdef, is_gdef_blocklisted};
 pub use table::{LayoutTable, Lookup, OwnedLayoutTable};
 

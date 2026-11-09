@@ -315,6 +315,23 @@ try {
         for(const minor of [1,4]){const b=otGdef.slice();new DataView(b.buffer).setUint16(2,minor);otReject(b,3);}
         otReject(otGdef.subarray(0,otGdef.length-1),3);
         check(app.gdef_blocklisted(442,2874,42038)&&!app.gdef_blocklisted(442,2874,42039),'WASM exact GDEF blocklist tuple');layoutChecks++;
+        let digestChecks=0;
+        const digestTable=(kind,sub)=>otWords([1,0,10,12,14,0,0,1,4,kind,0,1,8,...sub]);
+        const digestCheck=(bytes,extension,glyph,expected)=>{const actual=[...app.layout_digest_query(bytes,0,extension,glyph)];check(JSON.stringify(actual)===JSON.stringify(expected),`WASM original digest ${JSON.stringify(actual)}`);digestChecks++;};
+        const digestSimple=digestTable(1,[1,6,0,1,1,0]);
+        digestCheck(digestSimple,7,0,[1,1,1,1,0,0]);
+        digestCheck(digestSimple,7,4096,[1,0,1,1,0xffffffff,0]);
+        digestCheck(digestSimple,7,1,[1,0,0,1,0xffffffff,0]);
+        digestCheck(digestTable(7,[1,1,0,8,1,6,0,1,1,0]),7,0,[1,1,1,1,0,0]);
+        digestCheck(digestTable(9,[1,1,0,8,1,6,0,1,1,0]),9,0,[1,1,1,1,0,0]);
+        digestCheck(digestTable(1,[1,6,0,1,2,11,10]),7,10,[1,1,1,0,0xffffffff,0]);
+        for(const [extension,kind] of [[7,5],[9,7]]){
+          const context=digestTable(kind,[3,2,0,10,16,1,1,10,1,1,64]);
+          digestCheck(context,extension,10,[1,0,0,0,0xffffffff,1,0,1,2,0,2,0,2,1,0]);
+          digestCheck(context,extension,64,[1,0,0,0,0xffffffff,1,0,1,2,0,2,0,2,0,1]);
+          digestCheck(context.subarray(0,context.length-1),extension,10,[1,0,0,0,0xffffffff,0]);
+        }
+        for(const bad of [new Uint8Array(),digestTable(1,[]),digestSimple.subarray(0,25)]){let caught=false;try{app.layout_digest_query(bad,0,7,0);}catch{caught=true;}check(caught,'WASM invalid digest header');digestChecks++;}
         let normalizationChecks=0;
         const normalizationCase=(source,form,managed,records,profile=null)=>{
           const result=profile===null?app.normalize_utf16(new Uint16Array(source),form,managed):app.normalize_utf16_profile(new Uint16Array(source),form,profile);
@@ -500,7 +517,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

@@ -183,6 +183,10 @@ path = "src/ProGPU.Rust/tests/normalization.rs"
 name = "layout"
 path = "src/ProGPU.Rust/tests/layout.rs"
 
+[[test]]
+name = "digest"
+path = "src/ProGPU.Rust/tests/digest.rs"
+
 [[example]]
 name = "normalization_conformance"
 path = "src/ProGPU.Rust/examples/normalization_conformance.rs"
@@ -194,3 +198,7 @@ path = "src/ProGPU.Rust/examples/normalization_benchmark.rs"
 [[example]]
 name = "layout_benchmark"
 path = "src/ProGPU.Rust/examples/layout_benchmark.rs"
+
+[[example]]
+name = "digest_benchmark"
+path = "src/ProGPU.Rust/examples/digest_benchmark.rs"

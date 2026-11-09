@@ -734,6 +734,54 @@ mod web {
     pub fn gdef_blocklisted(gdef: u32, gsub: u32, gpos: u32) -> bool {
         progpu::font::layout::is_gdef_blocklisted(gdef as usize, gsub as usize, gpos as usize)
     }
+    /// Exercise the exact original lookup preparation and retained owner in WASM.
+    #[wasm_bindgen]
+    pub fn layout_digest_query(
+        bytes: Vec<u8>,
+        index: u16,
+        extension: u16,
+        glyph: u16,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::layout::*;
+        let owner = OwnedLayoutTable::new(bytes).map_err(error)?;
+        let view = owner.view();
+        let digest = view.lookup_digest(index, extension).map_err(error)?;
+        let (_, coverage) = view
+            .single_subtable_coverage(index, extension)
+            .map_err(error)?;
+        let mut result = vec![
+            u32::from(digest.is_some()),
+            u32::from(digest.is_some_and(|d| d.may_have(glyph))),
+            u32::from(digest.is_some_and(|d| d.managed().may_have(glyph))),
+            u32::from(coverage.is_some()),
+            coverage
+                .and_then(|c| c.find(glyph))
+                .map_or(u32::MAX, u32::from),
+        ];
+        let prepared = PreparedContext::new(owner, index, extension).map_err(error)?;
+        result.push(u32::from(prepared.is_some()));
+        if let Some(prepared) = prepared {
+            let retained = prepared.clone();
+            drop(prepared);
+            result.extend([
+                u32::from(retained.lookup_flags()),
+                retained.subtables().len() as u32,
+                retained.coverage_count() as u32,
+            ]);
+            for s in retained.subtables() {
+                result.extend([
+                    s.coverage_offset,
+                    s.coverage_count,
+                    u32::from(s.backtrack_count),
+                    u32::from(s.input_count),
+                ]);
+            }
+            for i in 0..retained.coverage_count() {
+                result.push(u32::from(retained.coverage(i).unwrap().contains(glyph)));
+            }
+        }
+        Ok(result)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

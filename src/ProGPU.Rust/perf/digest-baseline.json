@@ -1,0 +1,308 @@
+{
+  "captured_utc": "2026-11-09T00:10:47.892537+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    5.46533203125,
+    8.9423828125,
+    11.92626953125
+  ],
+  "method": "Two distinct native five-mask and managed three-mask contracts, matched separately. 5 warmups + 40 serial rounds, 65536 permuted glyph queries, allocation/construction/hash outside timing. One cold preparation observation includes first managed JIT; not a stable startup comparison. Managed typed delegate overhead per query. Not complete shaping or optimization evidence.",
+  "background_compilers": [
+    "32153  28.5 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32154   8.4 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32185  50.6 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32186  10.2 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32193 326.8 /private/tmp/progpu-rust-dotnet/sdk/10.0.403/Roslyn/bincore/VBCSCompiler",
+    "33946  97.5 /Users/wieslawsoltes/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+  ],
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "cpp": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "dotnet": "10.0.403",
+  "source_sha256": {
+    "src/ProGPU.Rust/tests/native_digest_benchmark.cpp": "8a0e157c597cd7cbfe5994ec1b1cdd69eac99e475255c8e511a840fe53f2387a",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp": "d78cd9aeb83731524fa4d52c765dc0b3ae22796f2765b72175ce6abb98259550",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_digest.cpp": "b685e3900e6ac034ec4f280904de652f89e4c87a5fcff0f771f1217f55315783",
+    "src/ProGPU.Rust/src/font/layout/digest.rs": "acc11795fd1d1c491307cf85e28bc354ad7c33b58dbda1ddd25614418486e922",
+    "src/ProGPU.Rust/examples/digest_benchmark.rs": "5d9d4a92655c55bc8cc4a0e77dc0eac01d631981fcaa2065d4fbef8483dcb026",
+    "src/ProGPU.Rust/tests/managed_digest_benchmark.cs": "5e4d33af98ed3a4bf7fbbf00783d412fe3d28e71542f1e0ec8fe8ba9fafb24b0",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1"
+  },
+  "binary_sha256": {
+    "rust": "1d7485d9be83151f38f15003237b36a103a6ec9fa779bf3a47df992bd9f07eaf",
+    "cpp": "48ce053f167e158f56132dd96724afd34989809ddbf3206a82dc8b0273db7ca9",
+    "managed": "794f783528595927bccc09a78791d276ae6c291eec37ef9f11abbe802f95ce72"
+  },
+  "inputs": [
+    {
+      "records": 1,
+      "ranges": false,
+      "input_sha256": "21e09a262f1c51d572ee05594deac7704f65de0954869214230ff0672dacb9a7",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=0.083 queries=65536 checksum=246193604 p50_us=76.708 p95_us=79.750 p99_us=83.042"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=0.375 queries=65536 checksum=246193604 p50_us=74.084 p95_us=74.209 p99_us=74.250"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=0.417 queries=65536 checksum=4135493061 p50_us=75.584 p95_us=110.417 p99_us=127.833"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=697.200 queries=65536 checksum=4135493061 p50_us=112.200 p95_us=112.400 p99_us=115.700"
+        }
+      ]
+    },
+    {
+      "records": 1,
+      "ranges": true,
+      "input_sha256": "32a41c2a3e22d074f4a420207f9e6a9fa152fe29c5b0f6d64c67445ac58666c4",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=0.459 queries=65536 checksum=1170043625 p50_us=74.333 p95_us=79.375 p99_us=124.875"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=0.416 queries=65536 checksum=1170043625 p50_us=73.959 p95_us=74.083 p99_us=76.042"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=0.667 queries=65536 checksum=1689382917 p50_us=72.708 p95_us=72.791 p99_us=72.834"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=319.100 queries=65536 checksum=1689382917 p50_us=108.900 p95_us=109.000 p99_us=114.600"
+        }
+      ]
+    },
+    {
+      "records": 8,
+      "ranges": false,
+      "input_sha256": "0fdb0cd973ce5eb1f6a800f982c58ba02b0745b903d9ad2353dbae92d6f21208",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=0.333 queries=65536 checksum=2821756101 p50_us=97.625 p95_us=102.875 p99_us=107.375"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=0.625 queries=65536 checksum=2821756101 p50_us=92.791 p95_us=96.084 p99_us=100.042"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=0.458 queries=65536 checksum=301993413 p50_us=78.916 p95_us=79.000 p99_us=79.333"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=294.900 queries=65536 checksum=301993413 p50_us=155.600 p95_us=163.200 p99_us=174.500"
+        }
+      ]
+    },
+    {
+      "records": 8,
+      "ranges": true,
+      "input_sha256": "36d4d829f33b4e4bf3913e8d9aeb3df97fe6e8e1616e19a0b1d7988e2fccd4d8",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=0.333 queries=65536 checksum=1388341989 p50_us=96.125 p95_us=101.917 p99_us=102.834"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=0.625 queries=65536 checksum=1388341989 p50_us=93.500 p95_us=102.083 p99_us=113.666"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=0.375 queries=65536 checksum=2304187845 p50_us=80.500 p95_us=86.208 p99_us=93.458"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=342.300 queries=65536 checksum=2304187845 p50_us=120.700 p95_us=130.600 p99_us=135.600"
+        }
+      ]
+    },
+    {
+      "records": 64,
+      "ranges": false,
+      "input_sha256": "545f87318f2a5728031623a3b64b5da3681022e5c2d21ec9b8e1192401b4c786",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=0.417 queries=65536 checksum=3242991045 p50_us=100.667 p95_us=100.792 p99_us=100.833"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=0.666 queries=65536 checksum=3242991045 p50_us=98.208 p95_us=105.416 p99_us=110.958"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=0.417 queries=65536 checksum=659299781 p50_us=75.083 p95_us=81.667 p99_us=85.583"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=297.700 queries=65536 checksum=659299781 p50_us=129.300 p95_us=139.700 p99_us=219.200"
+        }
+      ]
+    },
+    {
+      "records": 64,
+      "ranges": true,
+      "input_sha256": "5c15f0334b870f8af42c4bbb7ce5fd440342872dcaa24216bb9eeb2397522eaa",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=0.667 queries=65536 checksum=747191813 p50_us=99.833 p95_us=102.167 p99_us=111.000"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=0.708 queries=65536 checksum=747191813 p50_us=97.542 p95_us=105.583 p99_us=121.459"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=0.500 queries=65536 checksum=2320164293 p50_us=72.958 p95_us=73.042 p99_us=76.750"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=329.200 queries=65536 checksum=2320164293 p50_us=140.800 p95_us=144.000 p99_us=144.200"
+        }
+      ]
+    },
+    {
+      "records": 256,
+      "ranges": false,
+      "input_sha256": "32cd47d321a5f2115c4b7dc7c8fb0c1c72c34a6e2ca3bda677977b83a0d58722",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=0.583 queries=65536 checksum=440311237 p50_us=90.667 p95_us=95.625 p99_us=98.208"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=0.750 queries=65536 checksum=440311237 p50_us=82.959 p95_us=99.208 p99_us=116.708"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=0.708 queries=65536 checksum=2990448069 p50_us=74.708 p95_us=75.084 p99_us=83.417"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=295.000 queries=65536 checksum=2990448069 p50_us=129.900 p95_us=139.700 p99_us=149.200"
+        }
+      ]
+    },
+    {
+      "records": 256,
+      "ranges": true,
+      "input_sha256": "9face4c91b45606a83afe06053c6c4dbf621be17fb797e7a161a99f603a2ca99",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=1.208 queries=65536 checksum=1734750549 p50_us=87.875 p95_us=91.125 p99_us=94.417"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=1.375 queries=65536 checksum=1734750549 p50_us=84.750 p95_us=95.125 p99_us=104.417"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=1.417 queries=65536 checksum=162192837 p50_us=76.083 p95_us=82.834 p99_us=89.708"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=332.100 queries=65536 checksum=162192837 p50_us=140.800 p95_us=148.700 p99_us=154.700"
+        }
+      ]
+    },
+    {
+      "records": 4096,
+      "ranges": false,
+      "input_sha256": "bb1ec145cfd9436b4ad27f5352e1869ef1080cc0c1f430a7888d9982a8dbc972",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=4.167 queries=65536 checksum=2990448069 p50_us=90.625 p95_us=92.750 p99_us=95.583"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=3.583 queries=65536 checksum=2990448069 p50_us=90.625 p95_us=94.000 p99_us=97.000"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=4.333 queries=65536 checksum=2990448069 p50_us=78.000 p95_us=96.584 p99_us=111.083"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=311.700 queries=65536 checksum=2990448069 p50_us=129.200 p95_us=137.200 p99_us=139.700"
+        }
+      ]
+    },
+    {
+      "records": 4096,
+      "ranges": true,
+      "input_sha256": "eb0d4de1c7d8e5d990ea9031e6e069ace971717d27c219cd088fc31049bcba92",
+      "runs": [
+        {
+          "implementation": "rust_native",
+          "masks": 5,
+          "output": "prepare_us=13.500 queries=65536 checksum=162192837 p50_us=86.667 p95_us=93.375 p99_us=99.792"
+        },
+        {
+          "implementation": "cpp",
+          "masks": 5,
+          "output": "prepare_us=14.208 queries=65536 checksum=162192837 p50_us=89.584 p95_us=93.417 p99_us=102.084"
+        },
+        {
+          "implementation": "rust_managed",
+          "masks": 3,
+          "output": "prepare_us=13.500 queries=65536 checksum=162192837 p50_us=73.000 p95_us=83.667 p99_us=86.834"
+        },
+        {
+          "implementation": "managed",
+          "masks": 3,
+          "output": "prepare_us=410.100 queries=65536 checksum=162192837 p50_us=140.800 p95_us=147.200 p99_us=155.100"
+        }
+      ]
+    }
+  ],
+  "temporary_bytes_removed": 74174299
+}
