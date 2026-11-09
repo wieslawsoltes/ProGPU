@@ -5,6 +5,7 @@ use super::*;
 pub(super) struct Region {
     pub origin: [u32; 2],
     pub size: [u32; 2],
+    pub color: bool,
 }
 pub(super) struct Shelf {
     y: u32,
@@ -16,21 +17,36 @@ impl GlyphAtlas {
         &mut self,
         size: [u32; 2],
         prefer: bool,
+        color: bool,
     ) -> Result<Option<Region>, Error> {
         if size.contains(&0) {
             return Ok(None);
         }
         loop {
-            let atlas_size = self.size();
+            let atlas_size = if color {
+                self.color_size()
+            } else {
+                self.size()
+            };
             if size.iter().any(|&v| v > atlas_size - 4) {
-                if self.grow(size).await? {
+                if self.grow(size, color).await? {
                     continue;
                 }
                 self.statistics.capacity_exceeded = true;
                 return Ok(None);
             }
             let allocation = size.map(|v| ((v.max(8) + 7) & !7).min(atlas_size - 4));
-            for shelf in &mut self.shelves {
+            let shelves = if color {
+                &mut self.color_shelves
+            } else {
+                &mut self.shelves
+            };
+            let next_y = if color {
+                &mut self.next_color_shelf_y
+            } else {
+                &mut self.next_shelf_y
+            };
+            for shelf in &mut *shelves {
                 if shelf.height == allocation[1]
                     && u64::from(shelf.next_x) + u64::from(allocation[0]) + 2
                         <= u64::from(atlas_size)
@@ -38,39 +54,50 @@ impl GlyphAtlas {
                     let region = Region {
                         origin: [shelf.next_x, shelf.y],
                         size: allocation,
+                        color,
                     };
                     shelf.next_x += allocation[0] + 2;
                     return Ok(Some(region));
                 }
             }
-            if u64::from(self.next_shelf_y) + u64::from(allocation[1]) + 2 > u64::from(atlas_size) {
-                if self.grow(size).await? {
+            if u64::from(*next_y) + u64::from(allocation[1]) + 2 > u64::from(atlas_size) {
+                if self.grow(size, color).await? {
                     continue;
                 }
-                if prefer && let Some(region) = self.evict(allocation) {
+                if prefer && let Some(region) = self.evict(allocation, color) {
                     self.statistics.capacity_exceeded = false;
                     return Ok(Some(region));
                 }
                 self.statistics.capacity_exceeded = true;
                 return Ok(None);
             }
-            self.shelves.try_reserve(1).map_err(|_| Error::Capacity)?;
+            shelves.try_reserve(1).map_err(|_| Error::Capacity)?;
             let region = Region {
-                origin: [2, self.next_shelf_y],
+                origin: [2, *next_y],
                 size: allocation,
+                color,
             };
-            self.shelves.push(Shelf {
-                y: self.next_shelf_y,
+            shelves.push(Shelf {
+                y: *next_y,
                 height: allocation[1],
                 next_x: allocation[0] + 4,
             });
-            self.next_shelf_y += allocation[1] + 2;
+            *next_y += allocation[1] + 2;
             return Ok(Some(region));
         }
     }
-    async fn grow(&mut self, size: [u32; 2]) -> Result<bool, Error> {
-        let current = self.size();
-        if current >= self.options.maximum_size {
+    async fn grow(&mut self, size: [u32; 2], color: bool) -> Result<bool, Error> {
+        let current = if color {
+            self.color_size()
+        } else {
+            self.size()
+        };
+        let maximum = if color {
+            self.maximum_color_size()
+        } else {
+            self.maximum_size()
+        };
+        if current >= maximum {
             return Ok(false);
         }
         let required = size[0].max(size[1]).checked_add(4).ok_or(Error::Capacity)?;
@@ -80,9 +107,9 @@ impl GlyphAtlas {
                 .checked_add(1)
                 .ok_or(Error::Capacity)?
                 .checked_next_power_of_two()
-                .unwrap_or(self.options.maximum_size)
-                .min(self.options.maximum_size);
-            if next >= required || next >= self.options.maximum_size {
+                .unwrap_or(maximum)
+                .min(maximum);
+            if next >= required || next >= maximum {
                 break;
             }
         }
@@ -91,13 +118,19 @@ impl GlyphAtlas {
         }
         // Raster writes must precede the base-level copy on the same queue.
         self.flush_batch().await?;
-        let texture = self
-            .rasterizer
-            .grow_coverage_texture(&self.coverage, [next; 2])
-            .await?;
-        self.coverage = texture;
+        if color {
+            self.color = self
+                .rasterizer
+                .grow_color_texture(&self.color, [next; 2])
+                .await?;
+        } else {
+            self.coverage = self
+                .rasterizer
+                .grow_coverage_texture(&self.coverage, [next; 2])
+                .await?;
+        }
         for cached in self.cache.iter_mut() {
-            if cached.info.size.contains(&0) {
+            if cached.info.is_color_bitmap != color || cached.info.size.contains(&0) {
                 continue;
             }
             cached.info.update_uv(next);
@@ -106,13 +139,16 @@ impl GlyphAtlas {
         self.statistics.capacity_exceeded = false;
         Ok(true)
     }
-    fn evict(&mut self, size: [u32; 2]) -> Option<Region> {
+    fn evict(&mut self, size: [u32; 2], color: bool) -> Option<Region> {
         let mut candidate: Option<(&CachedGlyph, u64)> = None;
         for entry in self.cache.iter() {
-            let Some(region) = entry.info.region else {
-                continue;
-            };
-            if entry.frame == self.frame || region.size[0] < size[0] || region.size[1] < size[1] {
+            let region = legacy_region(entry.info);
+            if entry.frame == self.frame
+                || entry.info.is_color_bitmap != color
+                || region.size.contains(&0)
+                || region.size[0] < size[0]
+                || region.size[1] < size[1]
+            {
                 continue;
             }
             let waste = u64::from(region.size[0]) * u64::from(region.size[1])
@@ -125,22 +161,22 @@ impl GlyphAtlas {
         }
         let (candidate, _) = candidate?;
         let key = candidate.key.clone();
-        let region = candidate.info.region;
+        let region = legacy_region(candidate.info);
         self.cache.remove(&key);
         self.statistics.eviction_count = self.statistics.eviction_count.wrapping_add(1);
         self.statistics.generation = self.statistics.generation.wrapping_add(1);
-        region
+        Some(region)
     }
     pub(super) fn return_failed(&mut self, region: Region) {
         if !self.failed.contains(&region) {
             self.failed.push(region);
         }
     }
-    pub(super) fn reuse_failed(&mut self, size: [u32; 2]) -> Option<Region> {
+    pub(super) fn reuse_failed(&mut self, size: [u32; 2], color: bool) -> Option<Region> {
         let mut candidate = None;
         let mut best = u64::MAX;
         for (index, region) in self.failed.iter().enumerate() {
-            if region.size[0] < size[0] || region.size[1] < size[1] {
+            if region.color != color || region.size[0] < size[0] || region.size[1] < size[1] {
                 continue;
             }
             let waste = u64::from(region.size[0]) * u64::from(region.size[1])
@@ -154,4 +190,13 @@ impl GlyphAtlas {
         self.statistics.capacity_exceeded = false;
         Some(region)
     }
+}
+fn legacy_region(info: GlyphInfo) -> Region {
+    // Preserve the original LRU's fallback dimensions separately from strict
+    // retained-residency admission, which requires an actual allocated region.
+    info.region.unwrap_or(Region {
+        origin: info.origin,
+        size: info.size,
+        color: info.is_color_bitmap,
+    })
 }

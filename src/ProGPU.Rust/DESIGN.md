@@ -4876,3 +4876,106 @@ platform/provider/source/application/package gates. Color atlases/decoders,
 hinted generation/selection owners, source raster policies, CPU raster modes and
 final shaped-text draw integration remain unfinished. No performance claim follows
 from static compilation or this implementation milestone.
+
+## Original embedded color glyphs and RGBA atlas routing (2026-11-09)
+
+This connected implementation batch adds original font image selection/metrics,
+legacy COLR palette layers, bounded SVG document extraction and the separate
+color atlas route. The requested implementation-first cadence remains in force:
+strict native/browser-target Clippy, CPU-only compilation, formatting and diff
+checks are the current evidence. Full source differential, runtime browser/GPU,
+codec, performance, profiling and package controls remain deferred, not waived.
+
+| Original repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Text/TtfFont.cs` | `7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b` | BitmapGlyphData/DecodedBitmapGlyphData; TryGetBitmapGlyph, sbix strike/duplicate selection, all owned CBLC index/CBDT PNG-image formats, TryDecodeBitmapGlyph presentation arithmetic, legacy COLR base/layers and TryReadSvgGlyphDocument/bounded decompression |
+| `src/ProGPU.Text/GlyphAtlas.cs` | `5fb66ddeba150535a48c760b18a584dd161af38c6fc3ed46accc8e35f3f64582` | TryCreateColorBitmapGlyph, bitmap/COLR/outline acquisition order, separate RGBA budgets/shelves/growth/UV refresh, color-domain LRU filtering and shared residency/counters |
+| `src/ProGPU.Backend/GpuTexture.cs` | `0b5e89412acd16e86ae2f86c7e85e8bfa880b85dea196a79c2014cc1928bdb25` | Exact bitmap subrect dimensions, unpadded RGBA row pitch and queue texture-write semantics; generic GpuTexture API remains separate |
+
+Original ProGPU algorithms are directly ported; no external source text or
+implementation structure was read/transcribed. Codec libraries are normal
+Cargo dependencies, not copied implementations. `image` 0.25.10 (MIT OR Apache-2.0,
+MSRV 1.88) is locked with only png/jpeg/bmp/gif/hdr/pnm/tga features; default
+formats, Rayon, native codecs and assembly features are not requested. `flate2`
+1.1.11 (MIT OR Apache-2.0, MSRV 1.67) is locked with its Rust backend. Package
+metadata was checked with `cargo info`; both fit the crate's Rust 1.90 floor.
+Only public APIs/features were consulted: [image API](https://docs.rs/image/0.25.10/image/),
+[image feature inventory](https://docs.rs/crate/image/0.25.10/features),
+[image resource limits](https://docs.rs/image/0.25.10/image/struct.Limits.html) and
+[flate2 multi-member gzip API](https://docs.rs/flate2/latest/flate2/read/struct.MultiGzDecoder.html).
+The source itself uses an external image codec (StbImageSharp); this dependency
+boundary is not a substitute rendering, shaping or font engine.
+
+Embedded selection retains the actual immutable font with a zero-copy encoded
+range. sbix precedes CBDT; every table scans its complete ordered strike inventory,
+chooses the nearest valid ppem and favors larger ppem at equal distance. Raw
+selection retains NaN/infinity comparison behavior. sbix preserves original
+strike bounds, the 16-depth duplicate rule, original-glyph cycle rejection and
+outermost duplicate origin; its three admitted graphic tags remain PNG/JPEG/TIFF.
+CBLC retains all index formats 1–5, original first matching subtable behavior,
+sparse order/next-offset rules and fixed-size metrics. CBDT retains images 17–19,
+format-17 horizontal admission, signed bearings, nonzero metric dimensions and
+actual encoded byte ranges. Unsupported/malformed inventories reject rather than
+selecting a substitute outline or nearby record inside these readers. Mapped and
+glyph-resident file providers are still unported.
+
+Decoding uses the actual selected payload, never a resized image or tag-based
+assumption about its bytes. A failed decode does not try a second strike/table.
+The wrapper preserves original positive finite target admission, actual decoded
+dimensions, tight straight RGBA output, source sbix/CBDT bearing arithmetic,
+ppem-zero scale default and original optional outline-framed sbix presentation.
+No ICC/EXIF transform, premultiplication or CPU glyph coverage is introduced.
+The unrelated decoder default allocation cap is disabled; managed output-array
+capacity remains bounded, and explicit codec resource failures remain Capacity.
+Compressed decoding/pixel conversion stays inside the normal codec dependency;
+owned strike lookup/metadata traversal has dependent early exits and no per-pixel
+loop. Native/WASM codec output, truncation/error behavior, large-image admission,
+JPEG reconstruction, 16-bit reduction, HDR conversion and CPU SIMD/performance
+remain independent required gates. PSD payload decoding remains unimplemented;
+TIFF selection remains metadata and does not imply TIFF decode support. These
+differences must not be hidden by weakening the source image corpus.
+
+COLR reads preserve original version-0 base/layer lists, including legacy lists
+inside version 1, binary-search selection and whole-font read bounds. A matching
+zero-layer base remains distinct from no base; layer order/glyph IDs remain exact.
+Each layer uses the actual selected CPAL palette, with original white fallback
+for absent/foreground indices. This does not implement COLR-v1 paint programs or
+SVG layers. SVG extraction preserves the first matching glyph range, original
+offset/length guards, 16 MiB encoded/decoded limits, 8192-byte read chunks, gzip
+member expansion and strict UTF-8. XML/path/brush parsing and its cache are still
+pending. Atlas use explicitly rejects an available SVG document until that route
+is connected; an absent/invalid document can continue to ordinary outlines.
+
+The atlas no longer rejects a whole font merely because color tables exist.
+It tries bitmap decode/allocation first, then the original COLR vector sentinel,
+then ordinary geometry. A color allocation miss continues the original fallback
+sequence without shrinking pixels or adding a new color-capacity sentinel. RGBA
+starts at 64 square and grows to 512 by default, independently of R8 coverage.
+Both domains use the same original packing algorithm with separate shelves and
+matching-color cache filtering. Growth flushes pending raster work before copying
+the selected actual texture; only that domain's cached UVs refresh. Global texture
+revision and cache generation remain independent. The original LRU fallback to
+GlyphInfo dimensions remains separate from strict retained-residency admission;
+vector sentinels do not manufacture residency claims. Original mixed sentinel/LRU
+source traces are required before qualification.
+
+`GlyphColorTexture` is an opaque RGBA wrapper that cannot be supplied to grayscale
+or binary dispatch. Its queue writes use original four-byte pixels/tight rows;
+actual write calls/bytes are counted before async validation completion, including
+cancellation. Existing clear/copy ownership is shared without exposing color as
+coverage. Both textures retain real submission owners and are cleared in place.
+Failure tickets include texture domain so equal coordinates in R8/RGBA cannot
+alias during unwind/reuse. No image upload synthesizes a glyph compute submission
+or increments the original new-outline count. Completed color entries participate
+in the same source-instance/frame residency rules as coverage entries.
+
+Remaining consolidated controls include full encoded-range/strike/duplicate/index
+and metric bytes; malformed/overlapping/sparse tables; selected palette/variation
+identity and resource retention; all codec outputs/errors/limits; original SVG
+gzip headers/CRC/members/trailing data and Unicode errors; exact source acquisition
+order; bitmap misses, vector sentinels and both atlas live sets; growth/UV/clear/
+eviction/cancellation/device loss; actual cold/warm upload counters; source images
+and final text pixels on native/browser backends; allocation/memory/performance;
+and every original platform/provider/source/application/package gate. Full hinted
+owners, SVG geometry/brushes, color-layer drawing, CPU raster modes, final shaped
+text rendering and the rest of the full rendering stack remain unfinished.

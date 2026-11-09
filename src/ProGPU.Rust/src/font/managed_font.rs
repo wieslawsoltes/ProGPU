@@ -9,9 +9,14 @@ use std::{
     hash::{Hash, Hasher},
     sync::{Arc, Mutex, OnceLock},
 };
+mod bitmap;
+mod color;
 mod metadata;
 mod metrics;
 mod outline;
+mod svg;
+pub use bitmap::{DecodedBitmapGlyph, ManagedBitmapGlyph};
+pub use color::ColrGlyphLayer;
 use metadata::Raw;
 pub use outline::{ManagedGlyphOutline, ManagedOutlineFigure};
 

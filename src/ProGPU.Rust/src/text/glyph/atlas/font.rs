@@ -5,8 +5,8 @@ use crate::font::ManagedGlyphOutline;
 impl GlyphAtlas {
     /// Map the original code point, preserving the source's four explicit
     /// whitespace shortcuts (space, tab, LF, CR) and selected-font advance.
-    /// Sizes currently require finite positive em; color-bearing fonts require
-    /// their still-unconnected original bitmap/layer route.
+    /// Sizes currently require finite positive em. Bitmap/legacy COLR routing
+    /// precedes ordinary outlines; SVG geometry remains a separate pending port.
     pub async fn get_or_create_glyph(
         &mut self,
         font: &ManagedFont,
@@ -40,11 +40,6 @@ impl GlyphAtlas {
         prefer_atlas: bool,
     ) -> Result<GlyphInfo, GlyphGpuError> {
         validate_size(size)?;
-        // Table presence is not equivalent to monochrome fallback. Until the
-        // source's exact per-glyph color routing is connected, reject explicitly.
-        if font.metadata().has_bitmap_glyphs || font.metadata().has_color_glyphs {
-            return Err(GlyphGpuError::UnsupportedColorFont);
-        }
         let key = Key::new(font, glyph, size, subpixel_x);
         if let Some(cached) = self.cache.get(&key) {
             if !cached.capacity_fallback || !prefer_atlas || cached.frame == self.frame {
@@ -56,6 +51,35 @@ impl GlyphAtlas {
                 return Ok(info);
             }
             self.cache.remove(&key);
+        }
+        if let Some(info) = self
+            .try_bitmap(font, glyph, size, &key, prefer_atlas)
+            .await?
+        {
+            return Ok(info);
+        }
+        if font.has_colr_glyph(glyph)? {
+            // Original vector-layer sentinel, deliberately not atlas residency.
+            let info = GlyphInfo {
+                size: [size as u32; 2],
+                bearing: [0.0, -size * 0.8],
+                advance: size,
+                ..Default::default()
+            };
+            self.reserve_acquisition()?;
+            if self.batch_depth != 0 && !info.size.contains(&0) {
+                self.pending_keys.push(key.clone());
+            }
+            self.cache.insert_reserved(CachedGlyph {
+                key,
+                info,
+                frame: self.frame,
+                capacity_fallback: false,
+            });
+            return Ok(info);
+        }
+        if font.svg_glyph_document(glyph)?.is_some() {
+            return Err(GlyphGpuError::UnsupportedSvgGlyph);
         }
         let advance = font.advance_width(glyph, size)?;
         let scale = size / f32::from(font.metadata().units_per_em);
@@ -84,9 +108,9 @@ impl GlyphAtlas {
         };
         // Original hinted failure-ticket best fit also handles Rust async
         // cancellation of ordinary uploads: no abandoned region leaks its shelf.
-        let region = match self.reuse_failed(bounds.size) {
+        let region = match self.reuse_failed(bounds.size, false) {
             Some(region) => Some(region),
-            None => self.allocate(bounds.size, prefer_atlas).await?,
+            None => self.allocate(bounds.size, prefer_atlas, false).await?,
         };
         let Some(region) = region else {
             let info = GlyphInfo {
@@ -147,6 +171,67 @@ impl GlyphAtlas {
         guard.atlas.record_usage(&key, info);
         guard.committed = true;
         Ok(info)
+    }
+    async fn try_bitmap(
+        &mut self,
+        font: &ManagedFont,
+        glyph: u16,
+        size: f32,
+        key: &Key,
+        prefer: bool,
+    ) -> Result<Option<GlyphInfo>, GlyphGpuError> {
+        let Some(decoded) = font.decode_bitmap_glyph(glyph, size)? else {
+            return Ok(None);
+        };
+        let advance = font.advance_width(glyph, size)?;
+        self.reserve_acquisition()?;
+        let region = match self.reuse_failed(decoded.size, true) {
+            Some(region) => Some(region),
+            None => self.allocate(decoded.size, prefer, true).await?,
+        };
+        // Original bitmap allocation failure continues into COLR/outline policy,
+        // rather than caching a new color-only sentinel or resizing the bitmap.
+        let Some(region) = region else {
+            return Ok(None);
+        };
+        let mut guard = Acquisition {
+            atlas: self,
+            key: key.clone(),
+            region,
+            committed: false,
+        };
+        guard
+            .atlas
+            .rasterizer
+            .write_color_glyph(
+                &guard.atlas.color,
+                region.origin,
+                decoded.size,
+                decoded.pixels(),
+            )
+            .await?;
+        let mut info = GlyphInfo {
+            origin: region.origin,
+            size: decoded.size,
+            bearing: decoded.bearing,
+            render_size: decoded.render_size,
+            advance,
+            raster_scale: decoded.raster_scale,
+            is_color_bitmap: true,
+            region: Some(region),
+            ..Default::default()
+        };
+        info.update_uv(guard.atlas.color_size());
+        let frame = guard.atlas.frame;
+        guard.atlas.cache.insert_reserved(CachedGlyph {
+            key: key.clone(),
+            info,
+            frame,
+            capacity_fallback: false,
+        });
+        guard.atlas.record_usage(key, info);
+        guard.committed = true;
+        Ok(Some(info))
     }
 }
 fn validate_size(size: f32) -> Result<(), Error> {

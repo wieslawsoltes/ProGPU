@@ -25,8 +25,9 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Styled paragraph writer | Strict source/style/inline-box admission, actual font runs, width/tracking/baseline shifts, safe wrapping, indents/spacing, four tab alignments, justification and atomic reflow | Complete styled source/browser/performance corpus, platform fallback and GPU text integration |
 | Retained text interaction | Original advance boxes, carets/affinities, hits, selection, row/vertical navigation and explicit EDIT grapheme ownership | Source controls for empty/wrapped/bidi/multi-font/malformed input and lifetime/error cases |
 | Source font metadata | Whole-inventory VDMX/gasp readers, raw-directory validation, independent raster recommendation flags and exact immutable source line-frame ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
-| GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, R8 target growth | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes, color and final text drawing remain unfinished |
-| Dynamic glyph coverage atlas | Original shelves/size classes, growth-before-LRU, exact font-instance cache, capacity retry, nested batches, retained residency, failed-region reuse and async cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; color and native hinted-source integration remain unfinished |
+| GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, typed R8/RGBA targets and bitmap uploads | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes and final text drawing remain unfinished |
+| Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
+| Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
 
 At the user's request, implementation proceeds in connected batches with
@@ -67,16 +68,21 @@ standalone route. Grayscale supports canonical compute and fragment entries;
 binary retains native compute, both ordered passes and its 256-segment bound.
 Unsupported forced CPU modes fail explicitly. Target textures and record slots
 carry owner/generation identity, and diagnostics count actual writes/passes.
-`text::glyph::GlyphAtlas` now connects ordinary managed font outlines to this
-engine with original coverage packing, growth, LRU reuse, nested frame batches
-and opaque retained residency. Call `flush_pending` before submitting a draw that
+`text::glyph::GlyphAtlas` now connects managed font outlines and decoded embedded
+bitmap glyphs to independent R8/RGBA atlases with original packing, growth, LRU
+reuse, nested frame batches and opaque retained residency. Call `flush_pending` before submitting a draw that
 samples the atlas; `end_batch` also flushes at the outermost boundary. Consumers
 must track texture revisions when retaining normalized UVs. Actual wgpu texture
 owners survive growth, while failed/cancelled raster claims return their reserved
 regions and invalidate upload-cache identities. The current entry points require
-finite positive size and reject color-bearing fonts until their original bitmap/
-layer route is connected. Native hinted-source owners, color, CPU raster modes
-and **final text draw replay remain unfinished**. These connected batches have
+finite positive size. Bitmap decoding/allocation precedes the original COLR vector
+sentinel and outline route. `ManagedFont::bitmap_glyph`, `decode_bitmap_glyph`,
+`colr_glyph_layers` and `svg_glyph_document` expose the original font-data boundaries.
+SVG documents currently reject at atlas geometry use until their parser/brush route
+is connected. The normal `image`/`flate2` dependencies have independent codec parity
+gates; JPEG/16-bit/HDR/error behavior is not certified against StbImageSharp, and PSD
+payload decoding is not implemented. Native hinted-source owners, SVG geometry,
+CPU raster modes and **final text draw replay remain unfinished**. These connected batches have
 compile/static checks only; exhaustive validation is deferred as requested.
 
 Run `cargo test --locked` and `cargo clippy --all-targets -- -D warnings`.

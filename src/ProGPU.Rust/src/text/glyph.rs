@@ -16,8 +16,8 @@ pub use atlas::{
 };
 #[cfg(feature = "gpu")]
 pub use raster::{
-    GlyphCoverageTexture, GlyphExecutionPath, GlyphGpuError, GlyphGpuMetrics, GlyphGpuSlot,
-    GlyphRasterMode, GlyphRasterRequest, GlyphRasterizer, GlyphRasterizerOptions,
+    GlyphColorTexture, GlyphCoverageTexture, GlyphExecutionPath, GlyphGpuError, GlyphGpuMetrics,
+    GlyphGpuSlot, GlyphRasterMode, GlyphRasterRequest, GlyphRasterizer, GlyphRasterizerOptions,
 };
 
 /// Original 32-byte glyph record consumed by both canonical glyph kernels.

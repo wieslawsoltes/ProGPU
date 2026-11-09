@@ -8,9 +8,9 @@ mod upload;
 /// Connected font/raster failure without erasing the original font error.
 #[derive(Debug, thiserror::Error)]
 pub enum GlyphGpuError {
-    /// Color/bitmap font routing requires its original decoder/layer consumer.
-    #[error("color/bitmap font glyph routing is not yet connected")]
-    UnsupportedColorFont,
+    /// SVG color geometry requires its original path/brush consumer.
+    #[error("SVG color-glyph geometry is not yet connected")]
+    UnsupportedSvgGlyph,
     /// Original font outline failure.
     #[error(transparent)]
     Font(#[from] FontError),
@@ -57,6 +57,10 @@ impl Default for GlyphRasterizerOptions {
 /// Actual cumulative upload and submission counters, not estimated performance.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GlyphGpuMetrics {
+    /// Actual tightly packed RGBA bitmap texture writes.
+    pub bitmap_upload_writes: u64,
+    /// Actual RGBA bytes uploaded, without row repacking.
+    pub bitmap_upload_bytes: u64,
     /// Contiguous original record/segment upload writes.
     pub outline_upload_writes: u64,
     /// Actual record/segment payload bytes.
@@ -124,6 +128,20 @@ pub struct GlyphCoverageTexture {
     owner: Arc<()>,
     texture: wgpu::Texture,
     size: [u32; 2],
+}
+/// Separate straight-alpha RGBA8 atlas generation. Its private typed wrapper
+/// cannot be supplied to a grayscale/binary coverage dispatch.
+#[derive(Clone, Debug)]
+pub struct GlyphColorTexture(GlyphCoverageTexture);
+impl GlyphColorTexture {
+    /// Actual RGBA8 texture, retained independently through growth/submission.
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.0.texture
+    }
+    /// Actual physical width and height.
+    pub fn size(&self) -> [u32; 2] {
+        self.0.size
+    }
 }
 impl GlyphCoverageTexture {
     /// Actual R8 texture. Consumers must not explicitly destroy it while retained.

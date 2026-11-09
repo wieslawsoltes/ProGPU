@@ -42,6 +42,20 @@ impl GlyphRasterizer {
         &self,
         size: [u32; 2],
     ) -> Result<GlyphCoverageTexture, Error> {
+        self.create_target(size, wgpu::TextureFormat::R8Unorm).await
+    }
+    /// Create and clear the original separate RGBA color atlas attachment.
+    pub async fn create_color_texture(&self, size: [u32; 2]) -> Result<GlyphColorTexture, Error> {
+        Ok(GlyphColorTexture(
+            self.create_target(size, wgpu::TextureFormat::Rgba8Unorm)
+                .await?,
+        ))
+    }
+    async fn create_target(
+        &self,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+    ) -> Result<GlyphCoverageTexture, Error> {
         if size.contains(&0)
             || size
                 .iter()
@@ -60,7 +74,7 @@ impl GlyphRasterizer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST
@@ -111,7 +125,7 @@ impl GlyphRasterizer {
         if size[0] < previous.size[0] || size[1] < previous.size[1] {
             return Err(Error::InvalidInput);
         }
-        let next = self.create_coverage_texture(size).await?;
+        let next = self.create_target(size, previous.texture.format()).await?;
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut encoder = self
             .device
@@ -132,6 +146,74 @@ impl GlyphRasterizer {
             return Err(error.into());
         }
         Ok(next)
+    }
+    /// Grow color storage with the same original GPU-only clear/base-level copy.
+    pub async fn grow_color_texture(
+        &self,
+        previous: &GlyphColorTexture,
+        size: [u32; 2],
+    ) -> Result<GlyphColorTexture, Error> {
+        Ok(GlyphColorTexture(
+            self.grow_coverage_texture(&previous.0, size).await?,
+        ))
+    }
+    /// Clear the same actual color attachment without replacing its identity.
+    pub async fn clear_color_texture(&self, target: &GlyphColorTexture) -> Result<(), Error> {
+        self.clear_coverage_texture(&target.0).await
+    }
+    /// Write exact tight straight-alpha RGBA bytes into a selected color region.
+    /// Queue texture writes retain the original unpadded row pitch; no readback,
+    /// premultiplication, resizing or synthetic GPU raster submission is added.
+    pub async fn write_color_glyph(
+        &mut self,
+        target: &GlyphColorTexture,
+        origin: [u32; 2],
+        size: [u32; 2],
+        pixels: &[u8],
+    ) -> Result<(), Error> {
+        if !Arc::ptr_eq(&target.0.owner, &self.owner) {
+            return Err(Error::ResourceDomain);
+        }
+        let row = size[0].checked_mul(4).ok_or(Error::Capacity)?;
+        if size.contains(&0) || u64::from(row) * u64::from(size[1]) != pixels.len() as u64 {
+            return Err(Error::InvalidInput);
+        }
+        for axis in 0..2 {
+            if origin[axis] > target.0.size[axis] || size[axis] > target.0.size[axis] - origin[axis]
+            {
+                return Err(Error::InvalidInput);
+            }
+        }
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target.0.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: origin[0],
+                    y: origin[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(size[1]),
+            },
+            wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
+        );
+        self.metrics.bitmap_upload_writes += 1;
+        self.metrics.bitmap_upload_bytes += pixels.len() as u64;
+        if let Some(error) = scope.pop().await {
+            return Err(error.into());
+        }
+        Ok(())
     }
     /// Rasterize a complete request inventory with bounded reusable staging.
     /// Admission precedes GPU mutation. Normal groups share one pass/submission;

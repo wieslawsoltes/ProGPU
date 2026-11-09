@@ -52,6 +52,10 @@ pub struct GlyphAtlasOptions {
     pub initial_size: u32,
     /// Maximum square coverage size (2048).
     pub maximum_size: u32,
+    /// Initial square RGBA color atlas size (64).
+    pub initial_color_size: u32,
+    /// Maximum square RGBA color atlas size (512).
+    pub maximum_color_size: u32,
     /// Bounded original uniform/coverage rings and selected execution preference.
     pub rasterizer: GlyphRasterizerOptions,
 }
@@ -60,6 +64,8 @@ impl Default for GlyphAtlasOptions {
         Self {
             initial_size: 260,
             maximum_size: 2048,
+            initial_color_size: 64,
+            maximum_color_size: 512,
             rasterizer: GlyphRasterizerOptions::default(),
         }
     }
@@ -101,7 +107,7 @@ impl GlyphAtlasResidency {
         self.keys.capacity() * size_of::<Key>()
     }
 }
-/// Dynamic original grayscale glyph atlas with bounded GPU staging. Call
+/// Dynamic original grayscale/color glyph atlas with bounded GPU staging. Call
 /// `begin_batch`, acquire glyphs, then `flush_pending` before submitting consumers
 /// that sample its texture; `end_batch` completes the outermost batch.
 ///
@@ -109,17 +115,20 @@ impl GlyphAtlasResidency {
 /// consumers must rebuild their UVs when it changes. A residency set protects
 /// actual cached entries from current-frame LRU reuse, independently of growth.
 ///
-/// Color/bitmap font routing and native captured hinted-source ownership remain
-/// separate integration work. Color-bearing fonts currently return an explicit
-/// error. No CPU coverage, surrogate shaping or source raster-policy inference.
+/// SVG geometry, final color-layer drawing and native captured hinted-source
+/// ownership remain separate integration work. No CPU coverage, surrogate
+/// shaping or source raster-policy inference is introduced by bitmap decoding.
 pub struct GlyphAtlas {
     owner: Arc<()>,
     options: GlyphAtlasOptions,
     rasterizer: GlyphRasterizer,
     coverage: GlyphCoverageTexture,
+    color: GlyphColorTexture,
     cache: Cache,
     shelves: Vec<Shelf>,
     next_shelf_y: u32,
+    color_shelves: Vec<Shelf>,
+    next_color_shelf_y: u32,
     frame: u64,
     batch_depth: u32,
     new_glyphs: u64,
@@ -142,6 +151,9 @@ impl GlyphAtlas {
         if options.initial_size <= 4
             || options.initial_size > options.maximum_size
             || options.maximum_size > device.limits().max_texture_dimension_2d
+            || options.initial_color_size <= 4
+            || options.initial_color_size > options.maximum_color_size
+            || options.maximum_color_size > device.limits().max_texture_dimension_2d
         {
             return Err(Error::InvalidInput);
         }
@@ -149,14 +161,20 @@ impl GlyphAtlas {
         let coverage = rasterizer
             .create_coverage_texture([options.initial_size; 2])
             .await?;
+        let color = rasterizer
+            .create_color_texture([options.initial_color_size; 2])
+            .await?;
         Ok(Self {
             owner: Arc::new(()),
             options,
             rasterizer,
             coverage,
+            color,
             cache: Cache::default(),
             shelves: Vec::new(),
             next_shelf_y: 2,
+            color_shelves: Vec::new(),
+            next_color_shelf_y: 2,
             frame: 0,
             batch_depth: 0,
             new_glyphs: 0,
@@ -173,6 +191,18 @@ impl GlyphAtlas {
     pub fn coverage(&self) -> &GlyphCoverageTexture {
         &self.coverage
     }
+    /// Actual separate RGBA8 texture generation, with retained growth lifetime.
+    pub fn color(&self) -> &GlyphColorTexture {
+        &self.color
+    }
+    /// Actual current square RGBA dimension.
+    pub fn color_size(&self) -> u32 {
+        self.color.size()[0]
+    }
+    /// Configured maximum square RGBA dimension.
+    pub fn maximum_color_size(&self) -> u32 {
+        self.options.maximum_color_size
+    }
     /// Actual current square coverage dimension.
     pub fn size(&self) -> u32 {
         self.coverage.size()[0]
@@ -181,9 +211,9 @@ impl GlyphAtlas {
     pub fn maximum_size(&self) -> u32 {
         self.options.maximum_size
     }
-    /// Actual coverage allocation bytes; ring/outline allocations are separate.
+    /// Actual R8 plus RGBA texture bytes; ring/outline allocations are separate.
     pub fn persistent_texture_bytes(&self) -> u64 {
-        u64::from(self.size()).pow(2)
+        u64::from(self.size()).pow(2) + u64::from(self.color_size()).pow(2) * 4
     }
     /// Current original atlas state/counters.
     pub fn statistics(&self) -> GlyphAtlasStatistics {
@@ -215,7 +245,9 @@ impl GlyphAtlas {
     }
     /// Original proactive fullness signal, evaluated only at the maximum size.
     pub fn is_almost_full(&self) -> bool {
-        self.size() >= self.maximum_size() && self.next_shelf_y as f32 > self.size() as f32 * 0.85
+        (self.size() >= self.maximum_size() && self.next_shelf_y as f32 > self.size() as f32 * 0.85)
+            || (self.color_size() >= self.maximum_color_size()
+                && self.next_color_shelf_y as f32 > self.color_size() as f32 * 0.85)
     }
     /// Begin/nest a frame batch. Outline trimming occurs only at the outer
     /// boundary, before any current-frame raster request can retain a slot.
@@ -291,10 +323,15 @@ impl GlyphAtlas {
         self.failed.clear();
         self.shelves.clear();
         self.next_shelf_y = 2;
+        self.color_shelves.clear();
+        self.next_color_shelf_y = 2;
         self.statistics.capacity_exceeded = false;
         self.statistics.clear_count = self.statistics.clear_count.wrapping_add(1);
         self.statistics.generation = self.statistics.generation.wrapping_add(1);
-        self.rasterizer.clear_coverage_texture(&self.coverage).await
+        self.rasterizer
+            .clear_coverage_texture(&self.coverage)
+            .await?;
+        self.rasterizer.clear_color_texture(&self.color).await
     }
     /// Capture distinct actual keys since a compilation cursor, optionally
     /// reusing the caller's previous allocation. Invalid cursors mutate nothing.

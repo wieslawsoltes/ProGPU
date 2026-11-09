@@ -14,6 +14,9 @@ pub(super) struct Raw {
     pub palettes: u16,
     pub colors: u16,
     pub color_records: u32,
+    pub colr_base_count: u16,
+    pub colr_base_records: u32,
+    pub colr_layer_records: u32,
 }
 pub(super) fn word(source: &SfntFace, at: u32) -> Result<u16, FontError> {
     if at > i32::MAX as u32 {
@@ -155,9 +158,9 @@ pub(super) fn parse(source: &SfntFace) -> Result<(ManagedFontMetadata, Raw), Fon
     if let Some((at, _)) = span(source, *b"COLR")
         && word(source, at)? <= 1
     {
-        word(source, at.wrapping_add(2))?;
-        long(source, at.wrapping_add(4))?;
-        long(source, at.wrapping_add(8))?;
+        raw.colr_base_count = word(source, at.wrapping_add(2))?;
+        raw.colr_base_records = at.wrapping_add(long(source, at.wrapping_add(4))?);
+        raw.colr_layer_records = at.wrapping_add(long(source, at.wrapping_add(8))?);
         word(source, at.wrapping_add(12))?;
     }
     if let Some((at, _)) = span(source, *b"CPAL") {
