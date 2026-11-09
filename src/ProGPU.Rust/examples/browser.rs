@@ -8,6 +8,9 @@ mod font_scene;
 #[path = "support/image_scene.rs"]
 mod image_sample;
 #[cfg(target_arch = "wasm32")]
+#[path = "support/mask_scene.rs"]
+mod mask_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/material_scene.rs"]
 mod material_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1654,6 +1657,7 @@ mod web {
         material_scene: bool,
         text_font: Option<progpu::font::ManagedFont>,
         image_scene: bool,
+        mask_scene: bool,
         validation: Option<Renderer>,
         frames: u32,
         capture_complete: Option<Arc<AtomicBool>>,
@@ -1726,6 +1730,7 @@ mod web {
             material_scene: false,
             text_font: None,
             image_scene: false,
+            mask_scene: false,
             validation: None,
             frames: 0,
             capture_complete: None,
@@ -1754,6 +1759,7 @@ mod web {
         pub fn select_material_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.material_scene = enabled;
+            self.mask_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1772,8 +1778,17 @@ mod web {
         pub fn select_image_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.image_scene = enabled;
+            self.mask_scene = false;
             self.material_scene = false;
             self.text_font = None;
+            Ok(())
+        }
+        /// Select the shared mask gallery; an explicitly loaded font also exercises text.
+        pub fn select_mask_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.mask_scene = enabled;
+            self.image_scene = false;
+            self.material_scene = false;
             Ok(())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
@@ -1783,7 +1798,9 @@ mod web {
                 self.scene = None;
                 return Ok(());
             }
-            let source = if let Some(font) = &self.text_font {
+            let source = if self.mask_scene {
+                super::mask_sample::mask_scene(self.text_font.clone())
+            } else if let Some(font) = &self.text_font {
                 super::text_sample::text_scene(font.clone())
             } else if self.image_scene {
                 super::image_sample::image_scene()
@@ -1897,6 +1914,9 @@ mod web {
                     ("imageUploadBytes", m.image_upload_bytes as f64),
                     ("imageTextureBytes", m.image_texture_bytes as f64),
                     ("imageMipPasses", m.image_mip_passes as f64),
+                    ("maskUploadBytes", m.mask_upload_bytes as f64),
+                    ("maskTextureBytes", m.mask_texture_bytes as f64),
+                    ("maskBindings", m.mask_bindings as f64),
                     ("width", f.width as f64),
                     ("height", f.height as f64),
                     ("dpi", f.dpi_scale as f64),

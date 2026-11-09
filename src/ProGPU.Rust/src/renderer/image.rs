@@ -61,13 +61,15 @@ async fn pipeline(
         attributes: &attributes,
     });
     let buffers = [layout];
+    let pipeline_layout =
+        (!mip).then(|| super::layout::pipeline(device, super::layout::Family::Image, None));
     let result = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(if mip {
             "ProGPU linear mip generation"
         } else {
             "ProGPU retained image"
         }),
-        layout: None,
+        layout: pipeline_layout.as_ref(),
         vertex: wgpu::VertexState {
             module: &module,
             entry_point: Some("vs_main"),

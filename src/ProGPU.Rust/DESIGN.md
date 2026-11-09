@@ -6139,3 +6139,128 @@ real native/browser pixels, cold/warm upload counts and matched allocator/proces
 Instruments measurements. Color matrices, complete image effects/interception, clips,
 layers/masks, capture/cache-source policy, codecs, full mutable texture/resource APIs,
 platform/provider/application/package and original Microsoft qualification stay open.
+
+
+## Retained direct mask chains and binary clips (2026-11-09)
+
+This connected implementation batch ports original native per-draw coverage
+records and canonical shader consumers. It does not substitute per-draw masking
+for source isolated-layer opacity, byte-AA layer composition or Clear semantics.
+Only original ProGPU sources were read for implementation; no external engine
+source was inspected or included.
+
+| Original repository source | SHA-256 |
+| --- | --- |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_layer_mask.cpp | 6c3b0b22d2e7aac8a1e9d17b4d774d1dc7c8ae090f90766653581bc1003a370a |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_state.cpp | 2b801e9cc4673fa49092bdee28ac7c6275672c000f635798ba5767d759b30dd5 |
+| src/ProGPU.Native/src/Backend/progpu_native_draw_state.cpp | 2c59e9107eb66374a7d939f95a7d03c78f7e78ad25e3a84ecf06281227021816 |
+| src/ProGPU.Native/src/Backend/progpu_native_layer_resource_execution.cpp | 7ba451a122e78d4c60b02bd5f984091485067683ddcf8883522fc558d729a6d3 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_layer_mask_resources.cpp | 66fcc7bc64d8b908788571c31f1bd0b6b671fdea2d25484be2ca22a4091a1158 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_mask_chain_pipeline.cpp | adb675667452729483eba70f80c4f1d1f5c5c3ddb306dc5aeec438c06b5712d1 |
+| src/ProGPU.Backend/Shaders/Vector.wgsl | 6d2d92d59341ea91dc33f851c08467f4b4dcd7f270b5f1f638b9f45006e481ed |
+| src/ProGPU.Backend/Shaders/TextMaskCommon.wgsl | 197a780d70286a4ddcccd4edfb522e08a0702298827203098fd768b4e142e2f3 |
+| src/ProGPU.Backend/Shaders/Text.wgsl | 432bcabab2d670297ceba2a720de8ca2351ffb4609bd619f62ead1fd7cf84d4a |
+| src/ProGPU.Backend/Shaders/SampledMaskCommon.wgsl | 4799e7646ac1cebbef3237ec248edebf3359880159ecdd098b4c9215ad995c79 |
+| src/ProGPU.Backend/Shaders/Texture.wgsl | 5f9c663cdc9eac166506c93a1add5ec058c3d68f9a766253aee895afe4adda51 |
+
+### Records and physical mapping
+
+`mask::Mask` retains either native rounded/axis-area metadata or original owned,
+strided R8 pixels. Descriptor validation preserves positive finite bounds,
+nonnegative independent TL/TR/BR/BL radii, opacity 0..1, finite transforms and
+the original double determinant/inverse admission. The `Image` owner can retain
+extra trailing bytes; only the exact native row-stride*(height-1)+width prefix
+is uploaded. This Rust owner is not an encoded native wire record.
+
+`Mask::uniforms` emits the original 96-byte six-vector layout. Ordinary masks
+normalize all eight radii with the original shared four-edge ratio, multiply the
+complete transform by actual DPI in double, and preserve the original reciprocal
+and scalar inverse arithmetic before narrowing. Radius multiplication uses safe
+four-lane SIMD. Coverage UV mapping retains the semantic legacy route's double
+divisions and the original float DPI*width/height products before widening.
+No shader math, sampling, derivatives, root/curve/event logic or GPU constants
+change. Uniform publication rejects nonfinite output before GPU mutation.
+
+Axis-area records require exact identity transform, zero radii and opacity one.
+They project the original near/far float edges directly with independent SIMD
+multiply/add lanes into physical coordinates and keep identity/unit-pixel mask
+coordinates. No DPI divide/multiply round trip or rounded-distance substitution
+is introduced. The current renderer exposes a scalar-DPI root target; nonzero
+viewport/local capture origins and separate X/Y presentation DPI remain unported.
+This direct coverage API does not claim the conditional nested AA-group policy
+or original Microsoft raster qualification documented in
+`docs/native-axis-clip-coverage.md`.
+
+`Scene::push_clip_rect` is explicitly a target-axis binary pixel-center clip.
+It preserves the native aliased-composite rule ceil(double(projectedEdge)-.5),
+clamps to the u32 domain, intersects original integer half-open intervals and
+clips to actual frame dimensions before WebGPU scissor binding. It does not
+infer rotated geometry from an envelope or silently select managed rectangle
+clip policy. Zero/empty intersections skip draws; pop restores the original
+parent state, including the full target scissor. The initial attachment clear
+remains outside these scopes; target-storage Clear is separate unfinished work.
+
+### Recording, ordering and ownership
+
+Recording is O(1) per push/pop and shares actual source pixel owners. Underflow
+and invalid descriptors leave the recorder unchanged; compilation requires
+balanced scopes. `Scene::append` copies a balanced command inventory in O(C),
+retaining original owners and painter order. Full scope topology and physical
+mapping/device-size admission precede text atlas mutation, including no-ink
+text. The renderer's existing `TextPaintContext::clip` rejection remains: scene
+coverage scopes are real render controls, not an early text-culling substitute.
+
+Compilation is O(C) for C commands with scopes and O(S) fixed-size states for S
+pushes. Pop restores a captured state index in O(1); draw coalescing never crosses
+state boundaries. Ordinary recordings take an O(1) scope fast path without an
+extra command walk or per-command state allocation. Text expansion preserves
+every original scope command around its ordered glyph/vector output.
+
+Direct chains admit four analytic masks, or a primary coverage bitmap followed
+by three analytic masks. Coverage after an analytic mask, multiple sampled masks,
+and deeper chains reject with UnsupportedExecution; there is no multiplication
+reorder or approximate envelope fallback. These limits describe this explicit
+bounded consumer, not completion of original composite/offscreen masks.
+
+The renderer lazily creates only the canonical chain pipelines required by
+actual masked vector, text or image ranges. Original unmasked entry points remain
+in use outside mask scopes. Explicit frame/source layouts are shared structurally
+between masked/unmasked variants; image output retains premultiplied blending,
+while text/vector retain their original straight-alpha blend. Primary and chain
+uniforms remain 96 and 288 bytes and use a common group-2 layout. Clip-only state
+changes share immutable mask bindings by exact uniform bits and source/sampler
+identity. Fragments evaluate the original ordered primary * continuation product;
+there is no CPU raster, offscreen allocation, readback or per-mask submission.
+
+R8 uploads cache by actual immutable CPU owner using weak references, preserving
+source stride and nearest/linear clamp sampling. Pruning removes only dead owner
+entries; prepared scenes and submissions retain actual views/buffers/pipelines.
+Candidate caches are exclusively held during async preparation; errors or
+cancellation cannot publish half-prepared state. Old prepared masks retain their
+actual pipeline independently of a replaced cache. No destructor submits, polls,
+unmaps or explicitly destroys a texture held by live work. Metrics separately
+report actual R8 upload/storage bytes, distinct mask bindings and emitted draw
+ranges (excluding state records and empty scissors). Replay uploads nothing.
+
+### Samples and deferred qualification
+
+Native `--masks` and browser `?scene=masks` select the same authored gallery:
+independent radii, affine masks, nearest/linear padded R8, four-mask chains,
+axis-area coverage, nested binary/empty clips, mixed images/vector overlays and
+restored unmasked draws. Native `--masks --text FONT_PATH`, or the browser's
+explicit font chooser while in mask mode, adds the existing text/vector gallery
+under sampled/rounded/binary coverage. Tiny patterns are generated in memory;
+there are no new external assets or runtime traces.
+
+Per the implementation-first request, this batch uses native all-target/all-
+feature, browser-target and CPU-only strict Clippy plus formatting/whitespace/JS
+syntax checks. No shader was changed; the prior nine-module offline Naga result
+retains its exact earlier scope. New pipeline runtime creation, original matched
+uniform/clip/radius/UV bytes, native/browser full-frame pixels, coverage ordering,
+invalid/overflow/cancellation/retirement and cache/performance controls are
+explicitly deferred. Required controls include unequal/overflowed radii, tiny
+DPI/determinants, adjacent pixel-center edges, repeated scope restore, no-ink text,
+odd stride, nearest/linear out-of-bounds samples, mixed draw transitions and warm
+replay. Full composite/path/brush/picture masks, layers/effects/ROP/Clear, managed
+atlas recovery, resource archives, original provider/package/application pixels
+and all prior reliability/performance gates remain open.

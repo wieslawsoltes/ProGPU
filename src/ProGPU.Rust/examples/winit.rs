@@ -14,6 +14,8 @@ mod sample;
 use sample::sample_scene;
 #[path = "support/image_scene.rs"]
 mod image_sample;
+#[path = "support/mask_scene.rs"]
+mod mask_sample;
 #[path = "support/material_scene.rs"]
 mod material_sample;
 #[path = "support/text_scene.rs"]
@@ -33,6 +35,7 @@ struct WindowRenderer {
     material_scene: bool,
     text_font: Option<progpu::font::ManagedFont>,
     image_scene: bool,
+    mask_scene: bool,
 }
 
 impl WindowRenderer {
@@ -41,6 +44,7 @@ impl WindowRenderer {
         material_scene: bool,
         text_font: Option<progpu::font::ManagedFont>,
         image_scene: bool,
+        mask_scene: bool,
     ) -> Result<Self> {
         let window = Arc::new(
             event_loop.create_window(
@@ -98,6 +102,7 @@ impl WindowRenderer {
             material_scene,
             text_font,
             image_scene,
+            mask_scene,
         };
         state.resize()?;
         state.window.set_visible(true);
@@ -117,7 +122,9 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
-        let source = if let Some(font) = &self.text_font {
+        let source = if self.mask_scene {
+            mask_sample::mask_scene(self.text_font.clone())?
+        } else if let Some(font) = &self.text_font {
             text_sample::text_scene(font.clone())?
         } else if self.image_scene {
             image_sample::image_scene()?
@@ -188,6 +195,7 @@ struct App {
     material_scene: bool,
     text_font: Option<progpu::font::ManagedFont>,
     image_scene: bool,
+    mask_scene: bool,
 }
 
 impl App {
@@ -205,6 +213,7 @@ impl ApplicationHandler for App {
                 self.material_scene,
                 self.text_font.clone(),
                 self.image_scene,
+                self.mask_scene,
             )) {
                 Ok(state) => self.state = Some(state),
                 Err(error) => self.fail(event_loop, error),
@@ -259,6 +268,7 @@ fn main() -> Result<()> {
         match argument.as_str() {
             "--materials" => app.material_scene = true,
             "--images" => app.image_scene = true,
+            "--masks" => app.mask_scene = true,
             "--text" => {
                 let path = args.next().ok_or("--text requires a font file path")?;
                 app.text_font = Some(progpu::font::ManagedFont::new(std::fs::read(path)?, 0)?);
@@ -275,7 +285,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

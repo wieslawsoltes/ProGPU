@@ -26,7 +26,7 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Retained text interaction | Original advance boxes, carets/affinities, hits, selection, row/vertical navigation and explicit EDIT grapheme ownership | Source controls for empty/wrapped/bidi/multi-font/malformed input and lifetime/error cases |
 | Source font metadata | Whole-inventory VDMX/gasp readers, raw-directory validation, independent raster recommendation flags and exact immutable source line-frame ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
 | GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, typed R8/RGBA targets and bitmap uploads | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes and full text compositor integration remain unfinished |
-| Text paint and rendering | Original planning/placement, integer-origin preflight, 96/32-byte instances/styles, COLR/SVG/vector fallback, positioned-outline cache, atlas realization and mixed painter-ordered Text/Vector shader execution; shared native/browser text gallery | Late camera/MVP, clips/masks, hinted owners, full managed atlas recovery and source/browser/pixel/lifetime/performance controls remain open |
+| Text paint and rendering | Original planning/placement, integer-origin preflight, 96/32-byte instances/styles, COLR/SVG/vector fallback, positioned-outline cache, atlas realization and mixed painter-ordered Text/Vector shader execution; shared native/browser text gallery | Late camera/MVP, full clip/layer/mask composition, hinted owners, full managed atlas recovery and source/browser/pixel/lifetime/performance controls remain open |
 | Text path placement | Original per-axis scale, exponent-based quantization, phase-grid rounding, padded integer bounds, local quad expressions, aliasing and explicit coverage transfer; owned per-frame source deduplication | Complete managed PathAtlas caching/recovery, viewport figure culling, original float/pixel/performance controls |
 | Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/SVG/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and complete retained recovery remain unfinished |
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, COLR paint programs and complete text compositor integration |
@@ -42,7 +42,26 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
 | Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, color matrices/effects and complete compositor integration |
 | Image resources and mips | Immutable strided RGBA/BGRA/R8 owners, device-bound GPU handles, weak-owner upload cache, actual sampler policy, canonical GPU mip generation and occupied-tile/brush mapping; native/browser gallery | Runtime/source/browser validation; full mutable generation, subresource, capture, codec and provider ownership APIs |
+| Direct masks and binary clips | Original 96/288-byte analytic/R8 chains, independent radii and physical mappings, exact axis-area branch, binary pixel-center scissors, balanced retained scopes and shared vector/text/image execution; native/browser mask gallery | Matched source bytes/pixels/lifetime/cache/performance controls; full path/brush/picture/composite masks, isolated layers, AA group composition and Clear remain unfinished |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
+
+
+`Scene::push_mask`, `push_clip_rect` and `pop_scope` retain direct coverage across
+vector/text/image commands. Four analytic masks, or one primary R8 source followed
+by three analytic masks, use the unchanged canonical chain shaders. Other mask
+compositions reject pending the separate offscreen path. These are per-draw
+controls; source isolated-layer opacity, AA group composition and target-storage
+Clear remain separate. Binary target-axis clips use exact physical pixel-center
+admission. `Mask::uniforms` and compiled coverage state transitions are inspectable
+without a GPU; complete scopes are validated before text atlas work.
+
+Run the shared gallery with `cargo run --locked --example winit --features window
+-- --masks`, or `?scene=masks` in the browser. Add `--text FONT_PATH` or select an
+explicit local font in browser mask mode for masked text. Prepared scenes retain
+actual mask/pipeline resources, exact uniform/source bindings are shared within
+the frame, and weak-owner coverage uploads are reused across preparation. Metrics
+report actual mask uploads/storage/bindings and exclude empty-scissor draws.
+Runtime and original-source qualification remain deferred.
 
 At the user's request, implementation proceeds in connected batches with
 compile/static checks; exhaustive differential/browser/performance/package

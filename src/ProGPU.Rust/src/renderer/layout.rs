@@ -1,0 +1,92 @@
+//! Explicit original bindings shared by masked and unmasked pipeline variants.
+use super::*;
+
+#[derive(Clone, Copy)]
+pub(super) enum Family {
+    Vector,
+    Text,
+    Image,
+}
+
+fn buffer(binding: u32, storage: bool, size: u64) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: if storage {
+                wgpu::BufferBindingType::Storage { read_only: true }
+            } else {
+                wgpu::BufferBindingType::Uniform
+            },
+            has_dynamic_offset: false,
+            min_binding_size: std::num::NonZeroU64::new(size),
+        },
+        count: None,
+    }
+}
+fn sampler() -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding: 0,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    }
+}
+fn texture(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+pub(super) fn mask(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    let mut primary = buffer(2, false, 96);
+    let mut chain = buffer(3, false, 288);
+    primary.visibility = wgpu::ShaderStages::FRAGMENT;
+    chain.visibility = wgpu::ShaderStages::FRAGMENT;
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ProGPU common four-mask layout"),
+        entries: &[sampler(), texture(1), primary, chain],
+    })
+}
+pub(super) fn pipeline(
+    device: &wgpu::Device,
+    family: Family,
+    mask: Option<&wgpu::BindGroupLayout>,
+) -> wgpu::PipelineLayout {
+    let mut frame = vec![buffer(0, false, size_of::<Uniforms>() as u64)];
+    match family {
+        Family::Vector => {
+            frame.push(buffer(1, true, 256));
+            frame.push(buffer(2, true, 32));
+        }
+        Family::Text => frame.push(buffer(1, true, 32)),
+        Family::Image => (),
+    }
+    let frame = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ProGPU retained frame/material layout"),
+        entries: &frame,
+    });
+    let mut sources = vec![sampler(), texture(1)];
+    if matches!(family, Family::Text) {
+        sources.push(texture(2));
+    }
+    let sources = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ProGPU retained source layout"),
+        entries: &sources,
+    });
+    let mut layouts = vec![Some(&frame), Some(&sources)];
+    if let Some(mask) = mask {
+        layouts.push(Some(mask));
+    }
+    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("ProGPU explicit retained pipeline layout"),
+        bind_group_layouts: &layouts,
+        immediate_size: 0,
+    })
+}

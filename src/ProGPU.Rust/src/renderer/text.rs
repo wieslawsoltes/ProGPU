@@ -31,9 +31,10 @@ impl TextState {
         });
         let attributes = wgpu::vertex_attr_array![0=>Float32x2, 1=>Float32x2, 2=>Float32x2,
             3=>Float32x4, 4=>Float32x4, 5=>Float32x4, 6=>Float32x4, 7=>Float32];
+        let pipeline_layout = layout::pipeline(device, layout::Family::Text, None);
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ProGPU retained text"),
-            layout: None,
+            layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &module,
                 entry_point: Some("vs_main"),
@@ -247,9 +248,6 @@ impl Renderer {
             + (after.bitmap_upload_bytes - before.bitmap_upload_bytes);
         prepared.metrics.rasterized_glyphs = after.rasterized_glyphs - before.rasterized_glyphs;
         prepared.metrics.glyph_atlas_bytes = state.atlas.persistent_texture_bytes();
-        prepared.draws = compiled.draws.clone();
-        prepared.metrics.draws =
-            u32::try_from(prepared.draws.len()).map_err(|_| Error::Capacity)?;
         if !compiled.glyphs.is_empty() {
             prepared.metrics.geometry_bytes +=
                 std::mem::size_of_val(compiled.glyphs.as_slice()) as u64;

@@ -275,7 +275,10 @@ impl Scene {
             });
         }
         atlas.begin_batch().await?;
-        let mut scene = Scene::default();
+        let mut scene = Scene {
+            has_scopes: self.has_scopes,
+            ..Default::default()
+        };
         let mut styles = Vec::new();
         let mut paths = HashMap::new();
         for (command, plan) in self.commands.iter().zip(plans) {

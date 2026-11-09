@@ -24,12 +24,16 @@ use crate::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod mask;
 mod text;
+#[cfg(feature = "gpu")]
+pub(crate) use mask::CompiledDrawState;
 #[cfg(feature = "gpu")]
 pub(crate) use text::ResolvedSceneText;
 
 #[derive(Clone, Debug)]
 pub(crate) enum DrawRange {
+    State(usize),
     Vector(std::ops::Range<u32>),
     #[cfg(feature = "gpu")]
     Text(std::ops::Range<u32>),
@@ -132,6 +136,9 @@ impl MaterialPaint {
 #[derive(Clone, Debug)]
 enum Command {
     Empty,
+    PushMask(Box<crate::mask::Mask>),
+    PushClip([f32; 4]),
+    PopScope,
     Analytic(AnalyticPrimitive),
     Path(PathDraw),
     MaterialAnalytic(AnalyticPrimitive, MaterialPaint),
@@ -150,9 +157,25 @@ enum Command {
 #[derive(Clone, Debug, Default)]
 pub struct Scene {
     commands: Vec<Command>,
+    scope_depth: usize,
+    has_scopes: bool,
 }
 
 impl Scene {
+    /// Append a balanced retained recording in source order. Source owners stay
+    /// shared; O(C) command copies perform no geometry, font or GPU work. Nested
+    /// coverage capacity is checked during whole-scene compilation.
+    pub fn append(&mut self, source: &Scene) -> Result<(), Error> {
+        if source.scope_depth != 0 {
+            return Err(Error::InvalidInput);
+        }
+        self.commands
+            .try_reserve(source.commands.len())
+            .map_err(|_| Error::Capacity)?;
+        self.commands.extend(source.commands.iter().cloned());
+        self.has_scopes |= source.has_scopes;
+        Ok(())
+    }
     /// Retain an original image/patch draw after whole-inventory admission.
     pub fn draw_image(&mut self, draw: ImageDraw) -> Result<(), Error> {
         draw.validate()?;
@@ -276,6 +299,8 @@ impl Scene {
     /// Release recorded generations while retaining command capacity.
     pub fn clear(&mut self) {
         self.commands.clear();
+        self.scope_depth = 0;
+        self.has_scopes = false;
     }
 
     /// Compile one immutable generation at the actual target DPI. Geometry takes
@@ -314,6 +339,7 @@ impl Scene {
         if self.has_text() {
             return Err(Error::UnsupportedExecution);
         }
+        let (states, state_changes) = self.compile_states(dpi_scale)?;
         let mut commands = Vec::new();
         commands
             .try_reserve_exact(self.commands.len())
@@ -373,6 +399,9 @@ impl Scene {
         for command in &commands {
             match command.as_ref() {
                 Command::Empty
+                | Command::PushMask(_)
+                | Command::PushClip(_)
+                | Command::PopScope
                 | Command::Analytic(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
@@ -429,8 +458,12 @@ impl Scene {
         } else {
             0
         };
-        for (command, placement) in commands.iter().zip(placements) {
+        for (command_index, (command, placement)) in commands.iter().zip(placements).enumerate() {
             let command = command.as_ref();
+            if let Some(index) = state_changes.get(command_index).copied().flatten() {
+                draws.push(DrawRange::State(index));
+                continue;
+            }
             let brush_index = match command {
                 Command::MaterialAnalytic(_, paint)
                 | Command::MaterialPath(_, paint)
@@ -446,7 +479,10 @@ impl Scene {
             } as f32;
             let first_index = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             match command {
-                Command::Empty => {}
+                Command::Empty
+                | Command::PushMask(_)
+                | Command::PushClip(_)
+                | Command::PopScope => {}
                 Command::Image(draw) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
@@ -551,6 +587,7 @@ impl Scene {
             materials: materials.snapshot()?,
             glyphs,
             draws,
+            states,
             image_mesh,
             images,
             image_sampling,
@@ -573,6 +610,7 @@ pub struct CompiledScene {
     materials: MaterialPage,
     pub(crate) glyphs: Vec<GlyphInstance>,
     pub(crate) draws: Vec<DrawRange>,
+    pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,
     pub(crate) images: Vec<ImageBinding>,
     pub(crate) image_sampling: ImageSamplingPath,
@@ -610,7 +648,25 @@ impl CompiledScene {
     }
     /// Ordered vector/text pipeline ranges after compilation.
     pub fn draw_count(&self) -> usize {
-        self.draws.len()
+        self.draws
+            .iter()
+            .filter(|d| !matches!(d, DrawRange::State(_)))
+            .count()
+    }
+    /// Frozen mask/clip state records, including the unmasked root record.
+    pub fn coverage_state_count(&self) -> usize {
+        self.states.len()
+    }
+    /// Ordered range-stream offset and frozen state index at every coverage
+    /// transition. State transitions are not counted as GPU draws.
+    pub fn coverage_state_changes(&self) -> impl Iterator<Item = (usize, usize)> {
+        self.draws
+            .iter()
+            .enumerate()
+            .filter_map(|(offset, draw)| match draw {
+                DrawRange::State(index) => Some((offset, *index)),
+                _ => None,
+            })
     }
     /// Actual glyph instance inventory; atlas resolution is a GPU operation.
     pub fn glyph_instances(&self) -> &[GlyphInstance] {

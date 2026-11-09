@@ -17,6 +17,8 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod image;
+mod layout;
+mod mask;
 mod text;
 
 /// Physical target dimensions and scalar logical-to-physical DPI.
@@ -118,6 +120,12 @@ pub struct UploadMetrics {
     pub image_texture_bytes: u64,
     /// Actual GPU mip-generation render passes during preparation.
     pub image_mip_passes: u32,
+    /// Original strided R8 payload uploaded for retained coverage masks.
+    pub mask_upload_bytes: u64,
+    /// Distinct actual R8 mask texture bytes referenced by this scene.
+    pub mask_texture_bytes: u64,
+    /// Immutable mask/chain bind groups uploaded for this scene.
+    pub mask_bindings: u32,
 }
 
 /// GPU resources for a frozen scene and physical frame.
@@ -130,11 +138,29 @@ pub struct PreparedScene {
     draws: Vec<DrawRange>,
     text: Option<text::PreparedText>,
     images: Option<image::PreparedImages>,
+    masks: Option<mask::PreparedMasks>,
     frame: Frame,
     metrics: UploadMetrics,
 }
 
 impl PreparedScene {
+    fn draw_count(&self) -> Result<u32, Error> {
+        let mut drawable = true;
+        let mut count = 0u32;
+        for draw in &self.draws {
+            if let DrawRange::State(index) = draw {
+                let state = self
+                    .masks
+                    .as_ref()
+                    .and_then(|m| m.states.get(*index))
+                    .ok_or(Error::ResourceDomain)?;
+                drawable = state.scissor[2] != 0 && state.scissor[3] != 0;
+            } else if drawable {
+                count = count.checked_add(1).ok_or(Error::Capacity)?;
+            }
+        }
+        Ok(count)
+    }
     /// Physical frame used when preparing this scene.
     pub fn frame(&self) -> Frame {
         self.frame
@@ -160,6 +186,7 @@ pub struct Renderer {
     text: Option<text::TextState>,
     text_options: crate::text::glyph::GlyphAtlasOptions,
     images: Option<image::ImageState>,
+    masks: Option<mask::MaskState>,
     image_sampling: Option<crate::image::ImageSamplingPath>,
     image_preference: crate::image::ImageSamplingPreference,
 }
@@ -190,9 +217,10 @@ impl Renderer {
         });
         let attributes = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x4, 2 => Float32x2,
             3 => Float32, 4 => Float32x2, 5 => Float32, 6 => Float32, 7 => Float32];
+        let pipeline_layout = layout::pipeline(device, layout::Family::Vector, None);
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ProGPU analytic vector"),
-            layout: None,
+            layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &module,
                 entry_point: Some("vs_main"),
@@ -285,6 +313,7 @@ impl Renderer {
             text: None,
             text_options: Default::default(),
             images: None,
+            masks: None,
             image_sampling: None,
             image_preference: Default::default(),
         })
@@ -317,6 +346,9 @@ impl Renderer {
     ) -> Result<PreparedScene, Error> {
         frame.uniforms(self.device.limits().max_texture_dimension_2d)?;
         if scene.has_text() {
+            // Reject complete scope topology/mapping errors before atlas work.
+            let (states, _) = scene.compile_states(frame.dpi_scale)?;
+            self.validate_mask_states(&states)?;
             return self.prepare_text_scene(scene, frame).await;
         }
         let compiled = scene.compile_with_sampling(
@@ -352,6 +384,7 @@ impl Renderer {
             return Err(Error::InvalidInput);
         }
         self.validate_geometry(&compiled.mesh, frame)?;
+        self.validate_masks(compiled)?;
         self.validate_materials(&compiled.mesh, Some(compiled.materials()))?;
         if compiled.atlas_size() > self.device.limits().max_texture_dimension_2d {
             return Err(Error::Capacity);
@@ -386,9 +419,9 @@ impl Renderer {
             )?
         };
         self.prepare_images(compiled, frame, &mut prepared).await?;
+        self.prepare_masks(compiled, &mut prepared).await?;
         prepared.draws = compiled.draws.clone();
-        prepared.metrics.draws =
-            u32::try_from(prepared.draws.len()).map_err(|_| Error::Capacity)?;
+        prepared.metrics.draws = prepared.draw_count()?;
         Ok(prepared)
     }
 
@@ -568,6 +601,7 @@ impl Renderer {
             },
             text: None,
             images: None,
+            masks: None,
             frame,
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
@@ -628,12 +662,54 @@ impl Renderer {
                 })],
                 ..Default::default()
             });
+            let mut draw_state = None;
             for draw in &scene.draws {
+                if let DrawRange::State(index) = draw {
+                    draw_state = Some(
+                        scene
+                            .masks
+                            .as_ref()
+                            .ok_or(Error::ResourceDomain)?
+                            .states
+                            .get(*index)
+                            .ok_or(Error::ResourceDomain)?,
+                    );
+                    continue;
+                }
+                if let Some(state) = draw_state {
+                    let [x, y, width, height] = state.scissor;
+                    if width == 0 || height == 0 {
+                        continue;
+                    }
+                    pass.set_scissor_rect(x, y, width, height);
+                }
+                let masked = draw_state.and_then(|state| state.binding.as_ref());
+                let masked_pipeline = if masked.is_some() {
+                    let index = match draw {
+                        DrawRange::Vector(_) => 0,
+                        DrawRange::Text(_) => 1,
+                        DrawRange::Image(..) => 2,
+                        _ => unreachable!(),
+                    };
+                    Some(
+                        scene
+                            .masks
+                            .as_ref()
+                            .and_then(|m| m.pipelines[index].as_ref())
+                            .ok_or(Error::ResourceDomain)?,
+                    )
+                } else {
+                    None
+                };
                 match draw {
+                    DrawRange::State(_) => unreachable!(),
                     DrawRange::Vector(range) => {
-                        pass.set_pipeline(&self.pipeline);
+                        pass.set_pipeline(masked_pipeline.unwrap_or(&self.pipeline));
                         pass.set_bind_group(0, &scene.bindings, &[]);
                         pass.set_bind_group(1, &scene.atlas, &[]);
+                        if let Some(mask) = masked {
+                            pass.set_bind_group(2, mask, &[]);
+                        }
                         pass.set_vertex_buffer(0, scene.vertices.slice(..));
                         pass.set_index_buffer(scene.indices.slice(..), wgpu::IndexFormat::Uint32);
                         pass.draw_indexed(range.clone(), 0, 0..1);
@@ -641,18 +717,24 @@ impl Renderer {
                     DrawRange::Text(range) => {
                         let state = self.text.as_ref().ok_or(Error::ResourceDomain)?;
                         let text = scene.text.as_ref().ok_or(Error::ResourceDomain)?;
-                        pass.set_pipeline(&state.pipeline);
+                        pass.set_pipeline(masked_pipeline.unwrap_or(&state.pipeline));
                         pass.set_bind_group(0, &text.bindings, &[]);
                         pass.set_bind_group(1, &text.atlas, &[]);
+                        if let Some(mask) = masked {
+                            pass.set_bind_group(2, mask, &[]);
+                        }
                         pass.set_vertex_buffer(0, text.instances.slice(..));
                         pass.draw(0..6, range.clone());
                     }
                     DrawRange::Image(range, binding) => {
                         let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
                         let binding = images.bindings.get(*binding).ok_or(Error::ResourceDomain)?;
-                        pass.set_pipeline(&images.pipeline);
+                        pass.set_pipeline(masked_pipeline.unwrap_or(&images.pipeline));
                         pass.set_bind_group(0, &images.uniforms, &[]);
                         pass.set_bind_group(1, binding, &[]);
+                        if let Some(mask) = masked {
+                            pass.set_bind_group(2, mask, &[]);
+                        }
                         pass.set_vertex_buffer(0, images.vertices.slice(..));
                         pass.set_index_buffer(images.indices.slice(..), wgpu::IndexFormat::Uint32);
                         pass.draw_indexed(range.clone(), 0, 0..1);

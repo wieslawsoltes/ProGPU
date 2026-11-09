@@ -1,0 +1,38 @@
+{
+  "observed_utc": "2026-11-09T18:40:44.436463+00:00",
+  "previous_head": "aceb17a8a5777fa6e4647575f1261af83ff8e974",
+  "scope": "Owned obsolete duplicate external incremental directories; retain newest per crate and every inventory modified within one hour; skip deletion while compilers are active",
+  "cleanup_status": "skipped_or_stopped_for_active_compilers",
+  "removed_incremental_directories": 0,
+  "removed_logical_bytes": 0,
+  "areas": {
+    "debug/incremental": {
+      "removed_directories": 0,
+      "removed_logical_bytes": 0
+    },
+    "wasm32-unknown-unknown/debug/incremental": {
+      "removed_directories": 0,
+      "removed_logical_bytes": 0
+    }
+  },
+  "retained": [
+    "Newest incremental inventory per crate and all recently modified state",
+    "Reusable external Cargo dependencies",
+    "Original source and compact validation evidence"
+  ],
+  "static_checks": {
+    "native_all_targets_all_features_clippy": "passed",
+    "wasm_browser_clippy": "passed",
+    "cpu_only_strict_clippy": "passed",
+    "format": "passed",
+    "diff_whitespace": "passed",
+    "javascript_syntax": "passed",
+    "canonical_modules": "unchanged; prior nine-module offline Naga receipt retained, not rerun"
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "runtime_differential_browser_performance_qualification": "deferred until connected stack assembly",
+  "free_gib": {
+    "internal": 35.22,
+    "external": 219.38
+  }
+}
