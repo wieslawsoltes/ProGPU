@@ -14,7 +14,8 @@ pub struct ReplayMetrics {
     /// Original independent uniform buffer allocation per executed Clear.
     pub uniform_buffer_allocations: u32,
     /// Exact explicit texture-copy bytes used to load an existing destination
-    /// into an owned advanced root. Shader-based copies remain draw commands.
+    /// into an owned root and initialize retained AA children at painter position.
+    /// Shader-based copies remain draw commands.
     pub texture_copy_bytes: u64,
 }
 
@@ -191,13 +192,20 @@ impl PreparedScene {
             .clears
             .as_ref()
             .map_or(0, |c| c.operations.len() as u32);
-        ReplayMetrics {
+        let mut metrics = ReplayMetrics {
             draws: self.metrics.draws,
             target_clears: clears,
             uniform_upload_bytes: u64::from(clears) * 16,
             uniform_buffer_allocations: clears,
-            texture_copy_bytes: 0,
+            texture_copy_bytes: self.groups.metrics.background_copy_bytes,
+        };
+        for child in &self.groups.children {
+            let replay = child.scene.replay_metrics();
+            metrics.target_clears += replay.target_clears;
+            metrics.uniform_upload_bytes += replay.uniform_upload_bytes;
+            metrics.uniform_buffer_allocations += replay.uniform_buffer_allocations;
         }
+        metrics
     }
 }
 impl Renderer {
@@ -312,35 +320,66 @@ impl Renderer {
         range: std::ops::Range<usize>,
         mut initial_state: Option<usize>,
     ) -> Result<(), Error> {
-        let Some(clears) = &scene.clears else {
+        if scene.clears.is_none() && scene.groups.children.is_empty() {
             return self.encode_draw_span(encoder, scene, target, load, range, initial_state);
-        };
+        }
         let mut first = range.start;
-        let start = clears
-            .operations
-            .partition_point(|op| op.draw_index < first);
-        for operation in &clears.operations[start..] {
-            if operation.draw_index >= range.end {
-                break;
+        let mut state = initial_state;
+        for index in range.clone() {
+            match &scene.draws[index] {
+                DrawRange::State(i) => {
+                    state = Some(*i);
+                    continue;
+                }
+                DrawRange::Clear(_) => {
+                    let Some(clears) = &scene.clears else {
+                        continue;
+                    };
+                    let Ok(i) = clears
+                        .operations
+                        .binary_search_by_key(&index, |o| o.draw_index)
+                    else {
+                        continue;
+                    };
+                    let operation = &clears.operations[i];
+                    self.encode_draw_span(
+                        encoder,
+                        scene,
+                        target,
+                        load,
+                        first..index,
+                        initial_state,
+                    )?;
+                    clears.pipeline.encode(
+                        &self.device,
+                        &self.queue,
+                        encoder,
+                        target,
+                        [scene.frame.width, scene.frame.height],
+                        operation.request,
+                    )?;
+                    state = operation.state_index;
+                }
+                DrawRange::Axis(i) => {
+                    let child = scene.groups.children.get(*i).ok_or(Error::ResourceDomain)?;
+                    self.encode_draw_span(
+                        encoder,
+                        scene,
+                        target,
+                        load,
+                        first..index,
+                        initial_state,
+                    )?;
+                    if let Some(mut pass) = child.clip.begin(encoder) {
+                        let (encoder, target) = pass.parts();
+                        self.encode_loaded(encoder, &child.scene, target)?;
+                        pass.finish();
+                    }
+                }
+                _ => continue,
             }
-            self.encode_draw_span(
-                encoder,
-                scene,
-                target,
-                load,
-                first..operation.draw_index,
-                initial_state,
-            )?;
-            clears.pipeline.encode(
-                &self.device,
-                &self.queue,
-                encoder,
-                target,
-                [scene.frame.width, scene.frame.height],
-                operation.request,
-            )?;
-            first = operation.draw_index + 1;
-            initial_state = operation.state_index;
+            first = index + 1;
+            initial_state = state;
             load = wgpu::LoadOp::Load;
         }
         if first < range.end || first == range.start {

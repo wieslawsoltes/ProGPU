@@ -45,12 +45,17 @@ pub struct LayerMetrics {
     pub source_replay_uniform_bytes: u64,
     /// Actual source Clear uniform allocations during capture.
     pub source_replay_uniform_allocations: u64,
+    /// Exact background copies executed while capturing source subtrees.
+    pub source_replay_texture_copy_bytes: u64,
+    /// AA resources/work prepared inside ordinary captures, separate from live replay.
+    /// Its source upload/advanced fields are also included in the totals above.
+    pub source_aa: RetainedAaMetrics,
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct RenderFrame {
     pub frame: Frame,
-    root: Frame,
+    pub(super) root: Frame,
     pub origin: [u32; 2],
 }
 impl std::ops::Deref for RenderFrame {
@@ -97,10 +102,10 @@ impl RenderFrame {
         }
         Ok(uniforms)
     }
-    fn empty(self) -> bool {
+    pub(super) fn empty(self) -> bool {
         self.width == 0 || self.height == 0
     }
-    fn child(self, layer: &LayerDraw) -> Result<Self, Error> {
+    pub(super) fn child(self, layer: &LayerDraw) -> Result<Self, Error> {
         layer.validate()?;
         let Some([x, y, width, height]) = layer.bounds else {
             return Ok(self);
@@ -149,26 +154,35 @@ impl RenderFrame {
 
 impl Renderer {
     pub(super) fn preflight_layers(&self, scene: &Scene, frame: RenderFrame) -> Result<(), Error> {
-        let mut count = 0u32;
-        let mut bytes = 0u64;
-        let mut passes = 0u32;
-        self.preflight_layer_tree(scene, frame, &mut count, &mut bytes, &mut passes)
+        let mut count = 0;
+        let mut bytes = 0;
+        let mut passes = 0;
+        self.preflight_layer_tree(scene, frame, None, &mut count, &mut bytes, &mut passes)
     }
     fn preflight_layer_tree(
         &self,
         scene: &Scene,
         frame: RenderFrame,
+        ancestor: Option<&crate::composition::AxisClipPlan>,
         count: &mut u32,
         bytes: &mut u64,
         passes: &mut u32,
     ) -> Result<(), Error> {
-        let (states, _) = scene.compile_states(frame.dpi_scale)?;
+        use crate::scene::GroupRef;
+        let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         self.validate_mask_states(&states)?;
         if scene.layer_depth() > 16 {
             return Err(Error::Capacity);
         }
+        let mut current = 0;
+        let mut cursor = 0;
         let mut advanced_source = [0u32; 2];
-        for layer in scene.layers() {
+        let mut has_axis = false;
+        for (index, group) in scene.groups() {
+            for next in changes.get(cursor..index).unwrap_or(&[]).iter().flatten() {
+                current = *next;
+            }
+            cursor = index + 1;
             *count = count.checked_add(1).ok_or(Error::Capacity)?;
             if *count > 16 * 1024 {
                 return Err(Error::Capacity);
@@ -176,54 +190,90 @@ impl Renderer {
             if self.image_sampling.is_none() {
                 return Err(Error::UnsupportedExecution);
             }
-            let target = frame.child(layer)?;
-            let effect = layer
-                .effects
-                .as_ref()
-                .map(|chain| chain.plan([frame.dpi_scale; 2]))
-                .transpose()?;
-            if let Some(effect) = &effect {
-                *passes = passes
-                    .checked_add(effect.pass_count())
-                    .ok_or(Error::Capacity)?;
-                if *passes > 16 * 1024 {
-                    return Err(Error::Capacity);
+            let clip = states[current].clip;
+            match group {
+                GroupRef::Layer(layer) => {
+                    let target = frame.child(layer)?;
+                    let effect = layer
+                        .effects
+                        .as_ref()
+                        .map(|c| c.plan([frame.dpi_scale; 2]))
+                        .transpose()?;
+                    if let Some(effect) = &effect {
+                        *passes = passes
+                            .checked_add(effect.pass_count())
+                            .ok_or(Error::Capacity)?;
+                    }
+                    if !target.empty() {
+                        if !layer.blend.is_fixed() {
+                            advanced_source[0] = advanced_source[0].max(target.width);
+                            advanced_source[1] = advanced_source[1].max(target.height);
+                        }
+                        target.uniforms(self.device.limits().max_texture_dimension_2d)?;
+                        let allocation = u64::from(target.width) * u64::from(target.height) * 4;
+                        if allocation > 256 * 1024 * 1024 {
+                            return Err(Error::Capacity);
+                        }
+                        let effects = effect
+                            .as_ref()
+                            .map(|p| p.required_texture_bytes([target.width, target.height]))
+                            .transpose()?
+                            .unwrap_or(0);
+                        *bytes = bytes
+                            .checked_add(allocation)
+                            .and_then(|b| b.checked_add(effects))
+                            .ok_or(Error::Capacity)?;
+                    }
+                    let source = if ancestor.is_some() || layer.scene.has_axis_clips() {
+                        std::borrow::Cow::Owned(layer.scene.with_binary_clip(clip))
+                    } else {
+                        std::borrow::Cow::Borrowed(layer.scene.as_ref())
+                    };
+                    self.preflight_layer_tree(&source, target, None, count, bytes, passes)?;
+                }
+                GroupRef::Axis(axis) => {
+                    if states[current].count != 0 {
+                        return Err(Error::UnsupportedExecution);
+                    }
+                    let plan = Self::resolve_axis(axis, frame, ancestor, clip)?;
+                    let target = frame.at(plan.extent());
+                    let source = axis.scene().with_binary_clip(clip);
+                    if target.clip_intersects(clip) {
+                        has_axis = true;
+                        target.uniforms(self.device.limits().max_texture_dimension_2d)?;
+                        let source_bytes = u64::from(target.width) * u64::from(target.height) * 4;
+                        let parent_bytes = u64::from(frame.width) * u64::from(frame.height) * 4;
+                        if source_bytes > 256 * 1024 * 1024 || parent_bytes > 256 * 1024 * 1024 {
+                            return Err(Error::Capacity);
+                        }
+                        // Conservative linear/background coverage/output plus actual child.
+                        *bytes = bytes
+                            .checked_add(source_bytes * 2)
+                            .and_then(|b| b.checked_add(parent_bytes))
+                            .ok_or(Error::Capacity)?;
+                        *passes = passes.checked_add(3).ok_or(Error::Capacity)?;
+                    }
+                    self.preflight_layer_tree(&source, target, Some(&plan), count, bytes, passes)?;
                 }
             }
-            if !target.empty() {
-                if !layer.blend.is_fixed() {
-                    advanced_source[0] = advanced_source[0].max(target.width);
-                    advanced_source[1] = advanced_source[1].max(target.height);
-                }
-                target.uniforms(self.device.limits().max_texture_dimension_2d)?;
-                let allocation = u64::from(target.width) * u64::from(target.height) * 4;
-                if allocation > 256 * 1024 * 1024 {
-                    return Err(Error::Capacity);
-                }
-                let effects = effect
-                    .as_ref()
-                    .map(|p| p.required_texture_bytes([target.width, target.height]))
-                    .transpose()?
-                    .unwrap_or(0);
-                *bytes = bytes
-                    .checked_add(allocation)
-                    .and_then(|v| v.checked_add(effects))
-                    .ok_or(Error::Capacity)?;
-                // Conservative complete compilation allocation budget. Reusable
-                // native pool residency is a separate optimization, not assumed.
-                if *bytes > 512 * 1024 * 1024 {
-                    return Err(Error::Capacity);
-                }
-            }
-            self.preflight_layer_tree(&layer.scene, target, count, bytes, passes)?;
-        }
-        if advanced_source != [0; 2] {
-            let advanced_bytes =
-                advanced::advanced_texture_bytes([frame.width, frame.height], advanced_source)?;
-            *bytes = bytes.checked_add(advanced_bytes).ok_or(Error::Capacity)?;
-            if *bytes > 512 * 1024 * 1024 {
+            if *bytes > 512 * 1024 * 1024 || *passes > 16 * 1024 {
                 return Err(Error::Capacity);
             }
+        }
+        if advanced_source != [0; 2] {
+            *bytes = bytes
+                .checked_add(advanced::advanced_texture_bytes(
+                    [frame.width, frame.height],
+                    advanced_source,
+                )?)
+                .ok_or(Error::Capacity)?;
+        } else if has_axis {
+            *bytes = bytes
+                .checked_add(u64::from(frame.width) * u64::from(frame.height) * 4)
+                .ok_or(Error::Capacity)?;
+        }
+        if *bytes > 512 * 1024 * 1024 {
+            return Err(Error::Capacity);
         }
         Ok(())
     }
@@ -231,62 +281,203 @@ impl Renderer {
         &mut self,
         scene: &Scene,
         frame: RenderFrame,
+        ancestor: Option<&crate::composition::AxisClipPlan>,
+        fixed_root: Option<crate::image::GpuImage>,
     ) -> Result<PreparedScene, Error> {
-        if scene.layer_depth() == 0 {
-            return self.prepare_flat_scene(scene, frame).await;
+        use crate::scene::{GroupOutput, GroupRef};
+        let mut groups = PreparedGroups::default();
+        if let Some(root) = fixed_root {
+            groups.root = Some(GroupTarget::new(root, true));
         }
+        if scene.layer_depth() == 0 {
+            return self.prepare_flat_scene(scene, frame, groups).await;
+        }
+        let (states, changes) = scene.compile_states(frame.dpi_scale)?;
+        let mut current = 0;
+        let mut cursor = 0;
         let mut outputs = Vec::new();
         let mut metrics = LayerMetrics::default();
-        for layer in scene.layers() {
-            outputs.try_reserve(1).map_err(|_| Error::Capacity)?;
-            let target = frame.child(layer)?;
-            if target.empty() {
-                outputs.push(None);
-                continue;
+        for (index, group) in scene.groups() {
+            for next in changes.get(cursor..index).unwrap_or(&[]).iter().flatten() {
+                current = *next;
             }
-            // Render each complete child before preparing parent glyphs. A later
-            // atlas growth cannot invalidate an already materialized texture.
-            let source = Box::pin(self.prepare_layer_tree(&layer.scene, target)).await?;
-            let capture = self.capture(&source, layer.effects.as_ref()).await?;
-            metrics.add_source(&source, &capture)?;
-            let [x, y] = target.origin.map(|v| v as f32 / frame.dpi_scale);
-            let mut draw = ImageDraw::new(
-                capture.into_image(),
-                [
-                    x,
-                    y,
-                    target.width as f32 / frame.dpi_scale,
-                    target.height as f32 / frame.dpi_scale,
-                ],
-            );
-            draw.opacity = layer.opacity;
-            // Original advanced source resolve always uses the linear layer binding.
-            draw.sampling = if layer.linear_sampling || !layer.blend.is_fixed() {
-                ImageSampling::Linear
-            } else {
-                ImageSampling::Nearest
-            };
-            draw.validate()?;
-            outputs.push(Some((
-                draw,
-                [
-                    target.origin[0],
-                    target.origin[1],
-                    target.width,
-                    target.height,
-                ],
-            )));
+            cursor = index + 1;
+            let clip = states[current].clip;
+            outputs.try_reserve(1).map_err(|_| Error::Capacity)?;
+            match group {
+                GroupRef::Layer(layer) => {
+                    let target = frame.child(layer)?;
+                    if target.empty() {
+                        outputs.push(GroupOutput::Layer(None));
+                        continue;
+                    }
+                    let scoped = if ancestor.is_some() || layer.scene.has_axis_clips() {
+                        std::borrow::Cow::Owned(layer.scene.with_binary_clip(clip))
+                    } else {
+                        std::borrow::Cow::Borrowed(layer.scene.as_ref())
+                    };
+                    let source =
+                        Box::pin(self.prepare_layer_tree(&scoped, target, None, None)).await?;
+                    let capture = self.capture(&source, layer.effects.as_ref()).await?;
+                    metrics.add_source(&source, &capture)?;
+                    let [x, y] = target.origin.map(|v| v as f32 / frame.dpi_scale);
+                    let mut draw = ImageDraw::new(
+                        capture.into_image(),
+                        [
+                            x,
+                            y,
+                            target.width as f32 / frame.dpi_scale,
+                            target.height as f32 / frame.dpi_scale,
+                        ],
+                    );
+                    draw.opacity = layer.opacity;
+                    draw.sampling = if layer.linear_sampling || !layer.blend.is_fixed() {
+                        ImageSampling::Linear
+                    } else {
+                        ImageSampling::Nearest
+                    };
+                    draw.validate()?;
+                    outputs.push(GroupOutput::Layer(Some((
+                        Box::new(draw),
+                        [
+                            target.origin[0],
+                            target.origin[1],
+                            target.width,
+                            target.height,
+                        ],
+                    ))));
+                }
+                GroupRef::Axis(axis) => {
+                    let plan = Self::resolve_axis(axis, frame, ancestor, clip)?;
+                    if plan.is_empty() || !frame.at(plan.extent()).clip_intersects(clip) {
+                        outputs.push(GroupOutput::Axis(None));
+                        continue;
+                    }
+                    if groups.root.is_none() {
+                        groups.root =
+                            Some(GroupTarget::new(self.create_group_target(frame)?, false));
+                        groups.metrics.texture_bytes =
+                            u64::from(frame.width) * u64::from(frame.height) * 4;
+                    }
+                    let parent = &groups.root.as_ref().ok_or(Error::ResourceDomain)?.image;
+                    let prepared = self.prepare_axis_clip(parent, &plan).await?;
+                    let scoped = axis.scene().with_binary_clip(clip);
+                    let child = prepared.source().ok_or(Error::ResourceDomain)?.clone();
+                    let source = Box::pin(self.prepare_layer_tree(
+                        &scoped,
+                        frame.at(plan.extent()),
+                        Some(&plan),
+                        Some(child),
+                    ))
+                    .await?;
+                    groups.metrics.add(&prepared, &source)?;
+                    metrics.add_nested(source.layers)?;
+                    groups
+                        .children
+                        .try_reserve(1)
+                        .map_err(|_| Error::Capacity)?;
+                    outputs.push(GroupOutput::Axis(Some(groups.children.len())));
+                    groups.children.push(PreparedGroup {
+                        clip: prepared,
+                        scene: source,
+                    });
+                }
+            }
         }
-        let resolved = scene.replace_layers(outputs)?;
-        let mut prepared = self.prepare_flat_scene(&resolved, frame).await?;
+        let resolved = scene.replace_groups(outputs)?;
+        let mut prepared = self.prepare_flat_scene(&resolved, frame, groups).await?;
         prepared.layers = metrics;
+        self.refresh_private_text_tree(&mut prepared)?;
         Ok(prepared)
     }
 }
 impl LayerMetrics {
+    pub(super) fn add_nested(&mut self, other: Self) -> Result<(), Error> {
+        self.source_aa.merge(other.source_aa)?;
+        self.source_replay_texture_copy_bytes = self
+            .source_replay_texture_copy_bytes
+            .checked_add(other.source_replay_texture_copy_bytes)
+            .ok_or(Error::Capacity)?;
+        self.captures = self
+            .captures
+            .checked_add(other.captures)
+            .ok_or(Error::Capacity)?;
+        self.capture_bytes = self
+            .capture_bytes
+            .checked_add(other.capture_bytes)
+            .ok_or(Error::Capacity)?;
+        self.effect_texture_bytes = self
+            .effect_texture_bytes
+            .checked_add(other.effect_texture_bytes)
+            .ok_or(Error::Capacity)?;
+        self.effect_uniform_bytes = self
+            .effect_uniform_bytes
+            .checked_add(other.effect_uniform_bytes)
+            .ok_or(Error::Capacity)?;
+        self.effect_passes = self
+            .effect_passes
+            .checked_add(other.effect_passes)
+            .ok_or(Error::Capacity)?;
+        self.geometry_bytes = self
+            .geometry_bytes
+            .checked_add(other.geometry_bytes)
+            .ok_or(Error::Capacity)?;
+        self.uniform_bytes = self
+            .uniform_bytes
+            .checked_add(other.uniform_bytes)
+            .ok_or(Error::Capacity)?;
+        self.glyph_upload_bytes = self
+            .glyph_upload_bytes
+            .checked_add(other.glyph_upload_bytes)
+            .ok_or(Error::Capacity)?;
+        self.image_mask_upload_bytes = self
+            .image_mask_upload_bytes
+            .checked_add(other.image_mask_upload_bytes)
+            .ok_or(Error::Capacity)?;
+        self.source_draws = self
+            .source_draws
+            .checked_add(other.source_draws)
+            .ok_or(Error::Capacity)?;
+        self.advanced_operations = self
+            .advanced_operations
+            .checked_add(other.advanced_operations)
+            .ok_or(Error::Capacity)?;
+        self.advanced_passes = self
+            .advanced_passes
+            .checked_add(other.advanced_passes)
+            .ok_or(Error::Capacity)?;
+        self.advanced_texture_bytes = self
+            .advanced_texture_bytes
+            .checked_add(other.advanced_texture_bytes)
+            .ok_or(Error::Capacity)?;
+        self.advanced_uniform_bytes = self
+            .advanced_uniform_bytes
+            .checked_add(other.advanced_uniform_bytes)
+            .ok_or(Error::Capacity)?;
+        self.advanced_geometry_bytes = self
+            .advanced_geometry_bytes
+            .checked_add(other.advanced_geometry_bytes)
+            .ok_or(Error::Capacity)?;
+        self.source_target_clears = self
+            .source_target_clears
+            .checked_add(other.source_target_clears)
+            .ok_or(Error::Capacity)?;
+        self.source_replay_uniform_bytes = self
+            .source_replay_uniform_bytes
+            .checked_add(other.source_replay_uniform_bytes)
+            .ok_or(Error::Capacity)?;
+        self.source_replay_uniform_allocations = self
+            .source_replay_uniform_allocations
+            .checked_add(other.source_replay_uniform_allocations)
+            .ok_or(Error::Capacity)?;
+        Ok(())
+    }
     fn add_source(&mut self, scene: &PreparedScene, capture: &CapturedScene) -> Result<(), Error> {
         let child = scene.layers;
         let source = scene.metrics;
+        let aa = scene.retained_aa_metrics();
+        self.source_aa.merge(child.source_aa)?;
+        self.source_aa.merge(aa)?;
         self.captures = self
             .captures
             .checked_add(child.captures)
@@ -302,22 +493,50 @@ impl LayerMetrics {
             };
         }
         add!(capture_bytes, capture.capture_bytes());
-        add!(geometry_bytes, source.geometry_bytes);
-        add!(uniform_bytes, source.uniform_bytes);
-        add!(glyph_upload_bytes, source.glyph_upload_bytes);
+        add!(
+            geometry_bytes,
+            source.geometry_bytes + aa.source_geometry_bytes
+        );
+        add!(
+            uniform_bytes,
+            source.uniform_bytes + aa.source_uniform_bytes
+        );
+        add!(
+            glyph_upload_bytes,
+            source.glyph_upload_bytes + aa.source_glyph_upload_bytes
+        );
         let image_mask_bytes = source
             .image_upload_bytes
             .checked_add(source.mask_upload_bytes)
             .ok_or(Error::Capacity)?;
-        add!(image_mask_upload_bytes, image_mask_bytes);
+        add!(
+            image_mask_upload_bytes,
+            image_mask_bytes + aa.source_image_mask_upload_bytes
+        );
         add!(source_draws, u64::from(source.draws));
         let advanced = scene.advanced_blend_metrics();
-        add!(advanced_operations, u64::from(advanced.operations));
-        add!(advanced_passes, u64::from(advanced.render_passes));
-        add!(advanced_texture_bytes, advanced.texture_bytes);
-        add!(advanced_uniform_bytes, advanced.uniform_bytes);
-        add!(advanced_geometry_bytes, advanced.geometry_bytes);
+        add!(
+            advanced_operations,
+            u64::from(advanced.operations) + aa.source_advanced_operations
+        );
+        add!(
+            advanced_passes,
+            u64::from(advanced.render_passes) + aa.source_advanced_passes
+        );
+        add!(
+            advanced_texture_bytes,
+            advanced.texture_bytes + aa.source_advanced_texture_bytes
+        );
+        add!(
+            advanced_uniform_bytes,
+            advanced.uniform_bytes + aa.source_advanced_uniform_bytes
+        );
+        add!(
+            advanced_geometry_bytes,
+            advanced.geometry_bytes + aa.source_advanced_geometry_bytes
+        );
         let replay = capture.source_replay_metrics();
+        add!(source_replay_texture_copy_bytes, replay.texture_copy_bytes);
         add!(source_target_clears, u64::from(replay.target_clears));
         add!(source_replay_uniform_bytes, replay.uniform_upload_bytes);
         add!(

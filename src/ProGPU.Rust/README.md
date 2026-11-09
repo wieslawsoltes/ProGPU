@@ -4,11 +4,11 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
-Latest connected batch: explicit source AA execution now owns actual parent/child
-textures, painter-ordered background copies, independent floating coverage and
-original linear-byte/sRGB resolves. A shared native/browser gallery exercises
-nested clips and loaded advanced scenes. Automatic retained source scope recording,
-whole-tree text residency and full qualification remain unfinished.
+Latest connected batch: immutable retained source AA groups now connect painter-
+ordered replay, inherited binary clips and Clear background propagation inward of
+the nearest ordinary owner. Deferred child text retains one protected atlas batch
+and final texture bindings. Both native and browser samples share the retained
+AA gallery. Full source transport and original qualification remain unfinished.
 
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
@@ -48,12 +48,13 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
 | Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, color matrices/effects and complete compositor integration |
 | Image resources and mips | Immutable strided RGBA/BGRA/R8 owners, device-bound GPU handles, weak-owner upload cache, actual sampler policy, canonical GPU mip generation and occupied-tile/brush mapping; native/browser gallery | Runtime/source/browser validation; full mutable generation, subresource, capture, codec and provider ownership APIs |
-| Direct masks and binary clips | Original 96/288-byte analytic/R8 chains, independent radii and physical mappings, exact axis-area branch, binary pixel-center scissors, balanced retained scopes and shared vector/text/image execution; native/browser mask gallery | Matched source bytes/pixels/lifetime/cache/performance controls; full path/brush/picture/composite masks, conditional AA group composition and source Clear background policy remain unfinished |
+| Direct masks and binary clips | Original 96/288-byte analytic/R8 chains, independent radii and physical mappings, exact axis-area branch, binary pixel-center scissors, balanced retained scopes and shared vector/text/image execution; native/browser mask gallery | Matched source bytes/pixels/lifetime/cache/performance controls; full path/brush/picture/composite masks and complete original source transport remain unfinished |
 | Owned captures and group effects | Complete eight-node native Gaussian/box/drop-shadow plan, original physical parameters and canonical GPU passes, owned job resources, same-submission scene capture and final image composition; shared effect gallery | Whole-source/runtime/browser/lifetime/performance controls; alternate execution routes, output caches, shader/image filters and source-specific compositing remain unfinished |
 | Bounded nested layers | Immutable source scenes, 16-target depth, native outward target bounds, original managed projection/render-origin mapping, nested captures before parent text, final group opacity and all 29 native destination blends; native/browser gallery | Original target/float/pixel/ownership/performance controls; source-specific AA/Clear/opacity policies, revision caches/pools and complete scene compiler remain unfinished |
 | Destination-aware blend passes | All fifteen advanced modes use canonical AdvancedBlend.wgsl, exact 96-byte records/256-byte slots, bounded source resolution, actual destination reads and ordered parent/root copies; immutable prepared resources and lazy pipelines | Original bytes/float/pixel/performance/retirement controls; uniform-backdrop fast path, caches, source-specific ROP/AA/Clear and complete semantic transport remain unfinished |
-| Target-storage Clear | Original straight colors, target-local binary scissors, canonical replace pass, fresh 16-byte upload per occurrence, bounded/advanced-target ordering and replay counters; shared native/browser gallery | Automatic source AA recorder/scene integration, scene Ignore-alpha targets and nested picture transport remain unfinished; original whole-frame/runtime/performance gates deferred |
-| Explicit source AA execution | Original independent-axis projection, outward allocation, exact area masks, consecutive-parent ratios, real background copies, canonical linear-byte/sRGB composition and loaded-scene replay; shared gallery | Automatic nearest-owner/background/depth recording, inherited binary scopes, deferred whole-tree text residency, complete scene transport and original pixels/performance remain unfinished |
+| Target-storage Clear | Original straight colors, target-local binary scissors, canonical replace pass, fresh 16-byte upload per occurrence, bounded/advanced-target ordering and replay counters; shared native/browser gallery | Native open-scope/semantic transport, scene Ignore-alpha targets and nested picture transport remain unfinished; original whole-frame/runtime/performance gates deferred |
+| Explicit source AA execution | Original independent-axis projection, outward allocation, exact area masks, consecutive-parent ratios, real background copies, canonical linear-byte/sRGB composition and loaded-scene replay; shared gallery | Complete native open-scope/scene transport, Ignore-alpha targets, original pixels and performance remain unfinished |
+| Retained source AA scenes | Immutable typed subtrees, complete closed depth preflight, actual binary-scoped Clear propagation, shared live parent targets and ordered resolves; whole-tree text pinning/final bindings; native/browser gallery | Original builder streams and pixels, small-atlas stress/cancellation/device-loss, replay/resource/performance controls and full source transport remain unqualified |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
 
 
@@ -135,9 +136,9 @@ Run `cargo run --locked --example winit --features window -- --clears`, or
 `?scene=clears` in the browser. The twelve authored panels cover opaque/transparent/
 partial clears, fractional/half/adjacent binary edges, nested/empty clips, bounded
 masked layers, advanced-blend interleaving, shadows and optional explicit-font
-text. Source AA background preservation, native scene Ignore-alpha transport,
-independent axis viewport/DPI and nested picture Clear remain separate unfinished
-policies. This gallery has static checks only at this checkpoint.
+text. Retained AA background preservation is connected below; native scene
+Ignore-alpha transport, independent axis viewport/DPI scene transport and nested
+picture Clear remain separate unfinished policies. This gallery has static checks only at this checkpoint.
 
 `composition::AxisClipPlan` retains original source bounds, independent DPI axes,
 viewport, semantic scalar DPI and actual parent domain. `child` retains all
@@ -162,9 +163,9 @@ sample executes twelve explicit groups, including nested ratios, transparent
 Clear, independent axes/viewport and loaded advanced layers, then displays the
 owned result. Counters describe actual preparation and encoded AA work separately
 from the displayed root image. It is an execution gallery, not the automatic
-retained AA command compiler. Whole-tree text residency, original nearest-owner
-isolation/background preflight, SAVE/binary ancestor transport and complete
-source-group policies remain to be integrated. Static checks do not qualify
+retained AA command compiler. The separate retained integration below connects
+immutable subtrees, nearest-owner Clear marking, binary inheritance and text
+ownership; full native open scopes/transport remain unfinished. Static checks do not qualify
 original source pixels, all target formats, browser reliability or performance.
 
 At the user's request, implementation proceeds in connected batches with
@@ -1314,3 +1315,25 @@ device loss during final presentation; the diagnostic rerun also lost its device
 The bounded process inventory found a packed GPU marker but no eligible separate
 GPU argument, so there is no backtrace or established crash attribution. A later
 local/hosted pass does not by itself resolve this reliability gate.
+
+`Scene::draw_axis_clip(bounds, source)` records a balanced immutable AA subtree.
+Bounds retain original logical bits; preparation projects against the actual target.
+Clear initializes only consecutive AA ancestors with live clipped Clear, stopping
+at an ordinary `LayerDraw` owner. Binary clip scopes inherit through AA boundaries.
+Direct masks around this typed AA group reject; an ordinary layer may independently
+mask/composite the result. The full native open-scope builder and semantic archive
+are separate unfinished ports.
+
+Use `--retained-aa` (optionally `--text FONT_PATH`) or browser
+`?scene=retained-aa`; selecting a local font file adds deferred child and root text.
+The twelve-panel shared gallery includes fractional/nested AA, transparent and
+partial Clear, disjoint closed children, inherited binary clips, offset ordinary
+captures, opacity/masks and advanced blends. It replays the retained tree each
+frame. `--axis-clips` remains the separate low-level execution gallery.
+
+`PreparedScene::retained_aa_metrics()` reports live deferred AA resources and child
+uploads/advanced work. `layer_metrics().source_aa` reports AA work inside eager
+ordinary captures; child upload and advanced totals are also included in the
+existing capture counters. `replay_metrics()` reports actual Clear uploads and
+background copy bytes on every replay. These counters are implementation diagnostics,
+not pixel, performance or package qualification. All original deferred gates remain.

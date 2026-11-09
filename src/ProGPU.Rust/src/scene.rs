@@ -24,6 +24,10 @@ use crate::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod axis_clip;
+pub use axis_clip::AxisClipDraw;
+#[cfg(feature = "gpu")]
+pub(crate) use axis_clip::{GroupOutput, GroupRef};
 mod clear;
 pub use clear::{ClearColor, TargetAlpha};
 mod layer;
@@ -39,6 +43,8 @@ pub(crate) use text::ResolvedSceneText;
 pub(crate) enum DrawRange {
     State(usize),
     Clear(ClearColor),
+    #[cfg(feature = "gpu")]
+    Axis(usize),
     Vector(std::ops::Range<u32>),
     #[cfg(feature = "gpu")]
     Text(std::ops::Range<u32>),
@@ -155,6 +161,9 @@ enum Command {
     Empty,
     Clear(ClearColor),
     Layer(Box<LayerDraw>),
+    AxisClip(Box<AxisClipDraw>),
+    #[cfg(feature = "gpu")]
+    ResolvedAxis(usize),
     PushMask(Box<crate::mask::Mask>),
     PushClip([f32; 4]),
     PopScope,
@@ -179,6 +188,10 @@ pub struct Scene {
     scope_depth: usize,
     has_scopes: bool,
     layer_depth: u8,
+    has_axis: bool,
+    storage_clear: bool,
+    tree_text: bool,
+    inherited_clip: Option<[u32; 4]>,
 }
 
 impl Scene {
@@ -194,6 +207,9 @@ impl Scene {
             .map_err(|_| Error::Capacity)?;
         self.commands.extend(source.commands.iter().cloned());
         self.has_scopes |= source.has_scopes;
+        self.has_axis |= source.has_axis;
+        self.storage_clear |= source.storage_clear;
+        self.tree_text |= source.tree_text;
         self.layer_depth = self.layer_depth.max(source.layer_depth);
         Ok(())
     }
@@ -221,6 +237,7 @@ impl Scene {
         text::validate_context(context)?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
         self.commands.push(Command::Text(Box::new((draw, context))));
+        self.tree_text = true;
         Ok(())
     }
 
@@ -324,6 +341,10 @@ impl Scene {
         self.scope_depth = 0;
         self.has_scopes = false;
         self.layer_depth = 0;
+        self.has_axis = false;
+        self.storage_clear = false;
+        self.tree_text = false;
+        self.inherited_clip = None;
     }
 
     /// Compile one immutable generation at the actual target DPI. Geometry takes
@@ -433,8 +454,10 @@ impl Scene {
                 | Command::Image(..)
                 | Command::TileImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
-                Command::Glyph(_) => placements.push(None),
-                Command::Text(_) | Command::Layer(_) => return Err(Error::UnsupportedExecution),
+                Command::Glyph(_) | Command::ResolvedAxis(_) => placements.push(None),
+                Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
+                    return Err(Error::UnsupportedExecution);
+                }
                 Command::Path(draw)
                 | Command::MaterialPath(draw, _)
                 | Command::TextPath(draw, _, _) => {
@@ -469,6 +492,9 @@ impl Scene {
         #[cfg(feature = "gpu")]
         let mut glyphs = glyphs;
         let mut draws = Vec::new();
+        if self.inherited_clip.is_some() {
+            draws.push(DrawRange::State(0));
+        }
         let mut exact_loads = 0;
         let legacy_solid = Brush::default();
         // A mixed native scene reserves its existing unit-opacity vertex-color
@@ -509,6 +535,8 @@ impl Scene {
                 | Command::PushClip(_)
                 | Command::PopScope => {}
                 Command::Clear(color) => draws.push(DrawRange::Clear(*color)),
+                #[cfg(feature = "gpu")]
+                Command::ResolvedAxis(index) => draws.push(DrawRange::Axis(*index)),
                 Command::Image(draw, blend, bounds) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
@@ -571,7 +599,9 @@ impl Scene {
                         ),
                     );
                 }
-                Command::Text(_) | Command::Layer(_) => return Err(Error::UnsupportedExecution),
+                Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
+                    return Err(Error::UnsupportedExecution);
+                }
                 #[cfg(feature = "gpu")]
                 Command::Glyph(instance) => {
                     let index = u32::try_from(glyphs.len()).map_err(|_| Error::Capacity)?;

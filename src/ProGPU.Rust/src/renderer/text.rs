@@ -79,6 +79,40 @@ impl TextState {
             && self.atlas.contains_residency(&text.residency)
     }
 
+    fn atlas_binding(
+        &self,
+        device: &wgpu::Device,
+        coverage_texture: &wgpu::Texture,
+        color_texture: &wgpu::Texture,
+    ) -> wgpu::BindGroup {
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("ProGPU glyph atlas sampler"),
+            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let coverage = coverage_texture.create_view(&Default::default());
+        let color = color_texture.create_view(&Default::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ProGPU final glyph atlas generations"),
+            layout: &self.pipeline.get_bind_group_layout(1),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&coverage),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&color),
+                },
+            ],
+        })
+    }
+
     fn upload(
         &self,
         renderer: &Renderer,
@@ -161,32 +195,11 @@ impl TextState {
                 },
             ],
         });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("ProGPU glyph atlas sampler"),
-            min_filter: wgpu::FilterMode::Linear,
-            mag_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        let coverage = resolved.coverage.texture().create_view(&Default::default());
-        let color = resolved.color.texture().create_view(&Default::default());
-        let atlas = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ProGPU final glyph atlas generations"),
-            layout: &self.pipeline.get_bind_group_layout(1),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&coverage),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&color),
-                },
-            ],
-        });
+        let atlas = self.atlas_binding(
+            device,
+            resolved.coverage.texture(),
+            resolved.color.texture(),
+        );
         Ok(PreparedText {
             instances,
             bindings,
@@ -216,12 +229,18 @@ impl Renderer {
                 .text
                 .as_ref()
                 .is_none_or(|text| self.text.as_ref().is_some_and(|state| state.current(text)))
+            && scene
+                .groups
+                .children
+                .iter()
+                .all(|child| self.is_scene_current(&child.scene))
     }
 
     pub(super) async fn prepare_text_scene(
         &mut self,
         scene: &Scene,
         frame: RenderFrame,
+        groups: PreparedGroups,
     ) -> Result<PreparedScene, Error> {
         // Exclusive transaction ownership: cancellation or error drops this
         // state. No Drop implementation submits, polls, destroys live textures,
@@ -230,6 +249,9 @@ impl Renderer {
             Some(state) => state,
             None => TextState::new(self).await?,
         };
+        if self.text_tree_active && !state.atlas.is_batch_active() {
+            state.atlas.begin_batch().await?;
+        }
         let before = state.atlas.gpu_metrics();
         let resolved = scene
             .resolve_text(&mut state.painter, &mut state.atlas, frame.dpi_scale)
@@ -240,7 +262,9 @@ impl Renderer {
             self.image_sampling
                 .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
         )?;
-        let mut prepared = self.prepare_compiled_geometry(&compiled, frame).await?;
+        let mut prepared = self
+            .prepare_compiled_geometry(&compiled, frame, groups)
+            .await?;
         let after = state.atlas.gpu_metrics();
         prepared.metrics.glyph_upload_bytes = (after.outline_upload_bytes
             - before.outline_upload_bytes)
@@ -260,5 +284,76 @@ impl Renderer {
         }
         self.text = Some(state);
         Ok(prepared)
+    }
+}
+
+/// Private exclusive tree transaction. Cancellation invalidates the actual active
+/// text owner without queue work, preventing a half-open atlas batch from escaping.
+pub(super) struct TreePreparation<'a> {
+    pub renderer: &'a mut Renderer,
+    protected: bool,
+    complete: bool,
+}
+impl<'a> TreePreparation<'a> {
+    pub fn new(renderer: &'a mut Renderer, protected: bool) -> Self {
+        Self {
+            renderer,
+            protected,
+            complete: false,
+        }
+    }
+    pub fn start(&mut self) {
+        // No font/pipeline work until the first actually prepared text scene.
+        self.renderer.text_tree_active = self.protected;
+    }
+    pub async fn finish(mut self, scene: &mut PreparedScene) -> Result<(), Error> {
+        self.renderer.refresh_private_text_tree(scene)?;
+        if self.protected
+            && let Some(mut state) = self.renderer.text.take()
+        {
+            state.atlas.end_batch().await?;
+            self.renderer.text = Some(state);
+        }
+        self.renderer.text_tree_active = false;
+        self.complete = true;
+        Ok(())
+    }
+}
+impl Drop for TreePreparation<'_> {
+    fn drop(&mut self) {
+        self.renderer.text_tree_active = false;
+        if self.protected && !self.complete {
+            self.renderer.text.take();
+        }
+    }
+}
+impl Renderer {
+    pub(super) fn refresh_private_text_tree(&self, scene: &mut PreparedScene) -> Result<(), Error> {
+        if let Some(text) = &mut scene.text {
+            let state = self.text.as_ref().ok_or(Error::ResourceDomain)?;
+            if state.atlas.is_batch_active() {
+                // Only a fresh unpublished tree in this exact pinned batch may
+                // share the final texture. Instances retain original pixel
+                // coordinates, so growth copies their actual texels unchanged.
+                if !state.atlas.residency_is_pinned(&text.residency) {
+                    return Err(Error::ResourceDomain);
+                }
+                let current = state.atlas.statistics();
+                if current.texture_revision != text.statistics.texture_revision {
+                    text.atlas = state.atlas_binding(
+                        &self.device,
+                        state.atlas.coverage().texture(),
+                        state.atlas.color().texture(),
+                    );
+                }
+                text.statistics = current;
+            } else if !state.current(text) {
+                return Err(Error::ResourceDomain);
+            }
+        }
+        for child in &mut scene.groups.children {
+            self.refresh_private_text_tree(&mut child.scene)?;
+        }
+        Ok(())
     }
 }

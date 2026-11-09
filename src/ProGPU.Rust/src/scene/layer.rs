@@ -190,6 +190,8 @@ impl Scene {
             return Err(Error::Capacity);
         }
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.has_axis |= draw.scene.has_axis;
+        self.tree_text |= draw.scene.tree_text;
         self.commands.push(Command::Layer(Box::new(draw)));
         self.layer_depth = self.layer_depth.max(depth);
         Ok(())
@@ -205,35 +207,5 @@ impl Scene {
             Command::Layer(layer) => Some(layer.as_ref()),
             _ => None,
         })
-    }
-    #[cfg(feature = "gpu")]
-    pub(crate) fn replace_layers(
-        &self,
-        images: Vec<Option<(ImageDraw, [u32; 4])>>,
-    ) -> Result<Self, Error> {
-        let mut images = images.into_iter();
-        let mut scene = Self {
-            has_scopes: self.has_scopes,
-            ..Default::default()
-        };
-        scene
-            .commands
-            .try_reserve_exact(self.commands.len())
-            .map_err(|_| Error::Capacity)?;
-        for command in &self.commands {
-            scene.commands.push(match command {
-                Command::Layer(layer) => match images.next().ok_or(Error::ResourceDomain)? {
-                    Some((image, bounds)) => {
-                        Command::Image(Box::new(image), layer.blend, Some(bounds))
-                    }
-                    None => Command::Empty,
-                },
-                _ => command.clone(),
-            });
-        }
-        if images.next().is_some() {
-            return Err(Error::ResourceDomain);
-        }
-        Ok(scene)
     }
 }

@@ -6879,3 +6879,126 @@ background. Full masks/filters/caches/archives and platform qualification remain
 separate required work. The original source gates in
 `docs/native-target-storage-clear.md` and `docs/native-axis-clip-coverage.md` remain
 mandatory; this implementation is not parity or package qualification.
+
+
+## Retained source AA trees and deferred text ownership (2026-11-09)
+
+This batch connects the preceding explicit compositor to immutable Rust scene
+commands. It ports original ProGPU behavior; canonical C++/C# and WGSL remain
+unchanged and authoritative. The existing cross-engine public-contract research
+ledger still applies: reusable CPU shaping/layout, immutable source generations,
+actual GPU ownership and target-dependent realization remain separate. No foreign
+source or new dependency is introduced. The C++/C# applicability audit is additive:
+this supplies their existing behavior to Rust, without modifying or qualifying
+those providers, source adapters or packages.
+
+| Original source consulted | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Native/src/Scene/Builder/progpu_native_scene_builder_layer.cpp` | `7436958d7065afd34b6b602cf480a211e9705184db6db62fed6df28653df3077` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_render_execution.cpp` | `c0325d3d72f30d79f386cfc0619f84213090b67a3a203e9e69ac4e4add4a9dae` |
+| `src/ProGPU.Text/GlyphAtlas.cs` | `5fb66ddeba150535a48c760b18a584dd161af38c6fc3ed46accc8e35f3f64582` |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` |
+
+The preceding AA execution ledger retains exact target/mask/backdrop/shader hashes.
+`docs/native-target-storage-clear.md` and `docs/native-axis-clip-coverage.md` retain
+the original source, provider, package and whole-frame qualification requirements.
+
+### Immutable recording and complete preflight
+
+`Scene::draw_axis_clip` retains one `Arc<Scene>` and original finite logical bounds
+in O(1), checking the child's balanced scopes and complete closed subtree depth
+before mutation. Combined ordinary/AA depth stays bounded at sixteen. Clear and
+text candidate metadata propagate at recording time; Clear propagation stops at
+an ordinary owner. Original signed-zero bounds and source command ownership remain
+unchanged. Ordinary layers already own independent captures in this typed model;
+no synthetic elided owner, native wire flags or source transform history is inferred.
+
+Before GPU/font preparation, the whole tree validates scopes, mask admission,
+actual bounded frames, original physical plans and conservative resource limits.
+Direct masked AA commands reject even under empty binary clips. Active Clear
+selection walks only consecutive AA descendants, using actual target extents and
+binary-scoped pixel centers; disjoint children do not mark background. Ordinary
+owners stop that walk. Both empty and live child trees retain depth/admission
+validation. Bounds drive allocation; they never replace unsnapped coverage edges.
+
+Binary states are inherited as exact original physical integer rectangles, including
+an initial state for children without their own scopes. Ordinary captures retain
+source clip state when carrying these AA children. Geometry, brushes and glyph
+positions stay in their original root frame; only the actual target mapping changes.
+Scalar traversal follows dependent painter/owner order; existing projection SIMD
+and GPU coverage/shader arithmetic remain unchanged. Walks are bounded by sixteen
+levels; metadata scans are O(commands times bounded depth), not pixel work.
+
+### Painter-ordered owned targets
+
+Preparation retains live AA children and their actual parent attachment. Ordinary
+layers continue their eager isolated capture path, retaining independent opacity,
+mask, blend and effect policy. A public root allocates owned storage only for a
+live AA operation. Advanced blends share that exact root rather than allocating a
+second parent; an AA child's advanced operations target its already-owned source.
+No final root copy is added inside an AA child. Public root presentation reuses a
+lazy Src pipeline and actual local-frame uniforms/quad coordinates.
+
+Replay splits ordinary spans at Clear and AA commands. The original child clear
+and optional bounded parent copy execute at that exact painter position, then
+loaded source drawing, then original AA resolve. Source content, advanced blends
+and subsequent draws share the same attachment and original state ordering.
+The caller's initial frame clear remains outside source scopes. Empty or binary-
+disjoint AA commands allocate no target and encode no resolve. Fixed child targets
+must match their actual retained texture identity; their existing views are reused
+without per-child replay view creation. All wgpu owners remain retained through
+submission. Replay adds no submit, CPU readback, polling or explicit destruction.
+Original per-occurrence storage Clear still allocates/uploads its 16-byte uniform.
+
+### Complete deferred text frame
+
+Trees containing AA and text use an exclusive preparation transaction. The outer
+atlas batch starts lazily at the first actually prepared text source, preserving
+empty-subtree laziness. Nested text resolution captures only its own usage range
+and flushes pending glyph work before a capture can sample it, while the outer
+frame remains pinned. Later siblings/root text may grow textures without evicting
+current-frame keys. Glyph instances keep original pixel atlas coordinates.
+
+Before publication, private candidates validate exact owner/keys/current-frame
+protection and rebuild only texture bindings whose revision changed. Final
+statistics and bindings refer to the actual final textures; no coordinate rewrite,
+key substitution or old public scene revival is permitted. Already-published
+scenes retain the original generation/revision/residency rejection on every replay,
+including all deferred children. Failure/cancellation removes the actual active
+text owner; Drop performs no GPU work and cannot leave a half-open batch reusable.
+Atlas algorithms, packing, eviction, fallback policies and shader bytes are unchanged.
+
+### Diagnostics, samples and remaining validation
+
+`RetainedAaMetrics` counts live AA child/coverage/output/root resources, resolve
+draws, actual background-copy bytes and deferred child upload/advanced resources.
+Shared roots are counted once. `LayerMetrics::source_aa` separates AA work executed
+inside eager captures; source upload/advanced fields also contribute to the existing
+capture totals. `ReplayMetrics` includes all live child Clears and background copies;
+ordinary captured work remains preparation cost. Counters describe cumulative actual
+resources/work, not peak residency, completion, pixels or measured performance.
+
+Winit `--retained-aa` and browser `?scene=retained-aa` share twelve authored panels:
+fractional/nested AA, transparent/partial Clear, disjoint closed children, inherited
+binary scopes, offset ordinary captures, masks/opacity, advanced blends and optional
+owned-font child/root text. The existing `--axis-clips` sample remains an independent
+low-level execution exercise. Native diagnostics and browser metrics expose both
+live replay and captured preparation costs.
+
+Seven focused CPU controls check historical mixed depth and atomic rejection,
+unbalanced/nonfinite sources, immutable owner/original coordinate bits, masked-AA
+rejection under empty binary clips, nearest-owner Clear propagation, disjoint
+closed children and actual offset binary intersections. Strict native all-target/
+all-feature, browser/WASM and CPU-only lint plus formatting/JS/whitespace checks
+are the implementation gates. Existing canonical Naga validation remains unchanged.
+No new original GPU pixel, browser runtime or performance evidence is claimed.
+
+The user's implementation-first order defers matched original source streams/pixels,
+all formats, fractional/small-atlas stress, cancellation/stale generation, device
+loss, repeated and abandoned encodes, allocation/retirement, whole-frame timing,
+Instruments and package/application qualification. The full native open-scope builder,
+live-versus-historical elision/promotion transport, semantic archives/pictures,
+Ignore-alpha scene owners and independent-axis scene presentation remain unfinished.
+Other full-stack masks, shader effects/filters, caches and source providers remain
+separate ports. The historical Windows/ARM64/browser/float/performance gates remain
+mandatory and unchanged; this checkpoint is not parity or release qualification.

@@ -23,6 +23,9 @@ pub use axis_clip::{AxisClipMetrics, AxisClipPass, AxisClipReplayMetrics, Prepar
 mod capture;
 mod clear;
 pub use clear::{RenderSubmission, ReplayMetrics, TargetClearRequest};
+mod groups;
+pub use groups::RetainedAaMetrics;
+use groups::{GroupTarget, PreparedGroup, PreparedGroups};
 mod image;
 mod layer;
 pub use layer::LayerMetrics;
@@ -153,6 +156,7 @@ pub struct PreparedScene {
     frame: Frame,
     origin: [u32; 2],
     layers: LayerMetrics,
+    groups: PreparedGroups,
     advanced: Option<advanced::PreparedAdvanced>,
     clears: Option<clear::PreparedClears>,
     metrics: UploadMetrics,
@@ -171,8 +175,22 @@ impl PreparedScene {
                     .ok_or(Error::ResourceDomain)?;
                 drawable = state.scissor[2] != 0 && state.scissor[3] != 0;
             } else if drawable && !matches!(draw, DrawRange::Advanced(_)) {
-                count = count.checked_add(1).ok_or(Error::Capacity)?;
+                let draws = if let DrawRange::Axis(i) = draw {
+                    let child = self.groups.children.get(*i).ok_or(Error::ResourceDomain)?;
+                    child
+                        .scene
+                        .metrics
+                        .draws
+                        .checked_add(child.clip.metrics().resolve_draws)
+                        .ok_or(Error::Capacity)?
+                } else {
+                    1
+                };
+                count = count.checked_add(draws).ok_or(Error::Capacity)?;
             }
+        }
+        if self.advanced.is_none() && self.groups.root.as_ref().is_some_and(|r| !r.fixed) {
+            count = count.checked_add(1).ok_or(Error::Capacity)?;
         }
         count
             .checked_add(self.advanced_blend_metrics().render_passes)
@@ -212,6 +230,7 @@ pub struct Renderer {
     path_rasterizer: Option<PathRasterizer>,
     materials: MaterialTable,
     text: Option<text::TextState>,
+    text_tree_active: bool,
     text_options: crate::text::glyph::GlyphAtlasOptions,
     images: Option<image::ImageState>,
     masks: Option<mask::MaskState>,
@@ -220,6 +239,7 @@ pub struct Renderer {
     axis_clip: Option<axis_clip::AxisClipState>,
     clear: Option<clear::ClearPipeline>,
     image_sampling: Option<crate::image::ImageSamplingPath>,
+    group_copy: Option<wgpu::RenderPipeline>,
     image_preference: crate::image::ImageSamplingPreference,
 }
 
@@ -343,6 +363,7 @@ impl Renderer {
             path_rasterizer: None,
             materials: MaterialTable::default(),
             text: None,
+            text_tree_active: false,
             text_options: Default::default(),
             images: None,
             masks: None,
@@ -351,6 +372,7 @@ impl Renderer {
             axis_clip: None,
             clear: None,
             image_sampling: None,
+            group_copy: None,
             image_preference: Default::default(),
         })
     }
@@ -385,18 +407,27 @@ impl Renderer {
         if scene.layer_depth() != 0 {
             self.preflight_layers(scene, target)?;
         }
-        self.prepare_layer_tree(scene, target).await
+        let mut transaction =
+            text::TreePreparation::new(self, scene.has_axis_clips() && scene.has_tree_text());
+        transaction.start();
+        let mut prepared = transaction
+            .renderer
+            .prepare_layer_tree(scene, target, None, None)
+            .await?;
+        transaction.finish(&mut prepared).await?;
+        Ok(prepared)
     }
 
     async fn prepare_flat_scene(
         &mut self,
         scene: &Scene,
         frame: RenderFrame,
+        groups: PreparedGroups,
     ) -> Result<PreparedScene, Error> {
         if scene.has_text() {
             let (states, _) = scene.compile_states(frame.dpi_scale)?;
             self.validate_mask_states(&states)?;
-            return self.prepare_text_scene(scene, frame).await;
+            return self.prepare_text_scene(scene, frame, groups).await;
         }
         let compiled = scene.compile_with_sampling(
             frame.dpi_scale,
@@ -404,7 +435,8 @@ impl Renderer {
             self.image_sampling
                 .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
         )?;
-        self.prepare_compiled_geometry(&compiled, frame).await
+        self.prepare_compiled_geometry(&compiled, frame, groups)
+            .await
     }
 
     /// Upload a CPU-compiled immutable generation. Exact DPI must match the
@@ -419,13 +451,15 @@ impl Renderer {
         if !compiled.glyphs.is_empty() {
             return Err(Error::ResourceDomain);
         }
-        self.prepare_compiled_geometry(compiled, frame.into()).await
+        self.prepare_compiled_geometry(compiled, frame.into(), PreparedGroups::default())
+            .await
     }
 
     async fn prepare_compiled_geometry(
         &mut self,
         compiled: &CompiledScene,
         frame: RenderFrame,
+        groups: PreparedGroups,
     ) -> Result<PreparedScene, Error> {
         if compiled.dpi_scale().to_bits() != frame.dpi_scale.to_bits() {
             return Err(Error::InvalidInput);
@@ -465,11 +499,13 @@ impl Renderer {
                 Some(compiled.materials()),
             )?
         };
+        prepared.groups = groups;
         self.prepare_images(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, &mut prepared).await?;
         self.prepare_clears(compiled, &mut prepared).await?;
         self.prepare_advanced(compiled, frame, &mut prepared)
             .await?;
+        self.finish_groups(&mut prepared).await?;
         prepared.draws = compiled.draws.clone();
         prepared.metrics.draws = prepared.draw_count()?;
         Ok(prepared)
@@ -655,6 +691,7 @@ impl Renderer {
             frame: frame.frame,
             origin: frame.origin,
             layers: LayerMetrics::default(),
+            groups: PreparedGroups::default(),
             advanced: None,
             clears: None,
             metrics: UploadMetrics {
@@ -733,7 +770,7 @@ impl Renderer {
         target: &wgpu::TextureView,
         clear: wgpu::Color,
     ) -> Result<ReplayMetrics, Error> {
-        if !Arc::ptr_eq(&self.owner, &scene.owner) {
+        if scene.fixed_target() || !Arc::ptr_eq(&self.owner, &scene.owner) {
             return Err(Error::ResourceDomain);
         }
         if !self.is_scene_current(scene) {
@@ -748,14 +785,18 @@ impl Renderer {
         if let Some(advanced) = &scene.advanced {
             self.encode_advanced(encoder, scene, advanced, target, wgpu::LoadOp::Clear(clear))?;
         } else {
+            let actual = scene.groups.root.as_ref().map_or(target, |r| &r.view);
             self.encode_span(
                 encoder,
                 scene,
-                target,
+                actual,
                 wgpu::LoadOp::Clear(clear),
                 0..scene.draws.len(),
                 None,
             )?;
+            if let Some(root) = &scene.groups.root {
+                root.copy(encoder, target)?;
+            }
         }
         Ok(scene.replay_metrics())
     }
@@ -786,31 +827,61 @@ impl Renderer {
         {
             return Err(Error::InvalidInput);
         }
-        let view = target.create_view(&Default::default());
-        if let Some(advanced) = &scene.advanced {
+        if let Some(root) = &scene.groups.root
+            && root.fixed
+            && root.image.texture() != target
+        {
+            return Err(Error::ResourceDomain);
+        }
+        // Deferred AA children already own this exact attachment view. Keep
+        // replay free of per-child view creation; public loaded targets retain
+        // their separate caller-owned texture boundary.
+        let caller_view = (!scene.fixed_target()).then(|| target.create_view(&Default::default()));
+        let view = caller_view
+            .as_ref()
+            .or_else(|| scene.groups.root.as_ref().map(|r| &r.view))
+            .ok_or(Error::ResourceDomain)?;
+        let copy_target = scene
+            .advanced
+            .as_ref()
+            .map(|a| &a.root_texture)
+            .or_else(|| scene.groups.root.as_ref().map(|r| r.image.texture()));
+        let copy = copy_target.filter(|t| *t != target);
+        if let Some(copy) = copy {
+            if !target.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+                return Err(Error::InvalidInput);
+            }
             encoder.copy_texture_to_texture(
                 target.as_image_copy(),
-                advanced.root_texture.as_image_copy(),
+                copy.as_image_copy(),
                 wgpu::Extent3d {
                     width: scene.frame.width,
                     height: scene.frame.height,
                     depth_or_array_layers: 1,
                 },
             );
-            self.encode_advanced(encoder, scene, advanced, &view, wgpu::LoadOp::Load)?;
+        }
+        if let Some(advanced) = &scene.advanced {
+            self.encode_advanced(encoder, scene, advanced, view, wgpu::LoadOp::Load)?;
         } else {
+            let actual = scene.groups.root.as_ref().map_or(view, |r| &r.view);
             self.encode_span(
                 encoder,
                 scene,
-                &view,
+                actual,
                 wgpu::LoadOp::Load,
                 0..scene.draws.len(),
                 None,
             )?;
+            if let Some(root) = &scene.groups.root
+                && !root.fixed
+            {
+                root.copy(encoder, view)?;
+            }
         }
         let mut metrics = scene.replay_metrics();
-        if scene.advanced.is_some() {
-            metrics.texture_copy_bytes =
+        if copy.is_some() {
+            metrics.texture_copy_bytes +=
                 u64::from(scene.frame.width) * u64::from(scene.frame.height) * 4;
         }
         Ok(metrics)
@@ -864,7 +935,10 @@ impl Renderer {
                 }
                 // Live advanced draws are separate ordered passes. Entries left
                 // inside a span were proven disjoint from their actual scissor.
-                if matches!(draw, DrawRange::Advanced(_) | DrawRange::Clear(_)) {
+                if matches!(
+                    draw,
+                    DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_)
+                ) {
                     continue;
                 }
                 if let Some(state) = draw_state {
@@ -894,7 +968,9 @@ impl Renderer {
                 };
                 match draw {
                     DrawRange::State(_) => unreachable!(),
-                    DrawRange::Advanced(_) | DrawRange::Clear(_) => unreachable!(),
+                    DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_) => {
+                        unreachable!()
+                    }
                     DrawRange::Vector(range) => {
                         pass.set_pipeline(masked_pipeline.unwrap_or(&self.pipeline));
                         pass.set_bind_group(0, &scene.bindings, &[]);

@@ -398,6 +398,17 @@ impl GlyphAtlas {
                     .is_some_and(|entry| !entry.capacity_fallback && entry.info.region.is_some())
             })
     }
+    /// Internal fresh-tree proof: every exact owner/key remains at a location
+    /// protected by this active original frame. Not a lease for old generations.
+    pub(crate) fn residency_is_pinned(&self, residency: &GlyphAtlasResidency) -> bool {
+        self.is_batch_active()
+            && self.contains_residency(residency)
+            && residency.keys.iter().all(|key| {
+                self.cache
+                    .get(key)
+                    .is_some_and(|entry| entry.frame == self.frame)
+            })
+    }
     fn record_usage(&mut self, key: &Key, info: GlyphInfo) {
         if self.batch_depth != 0 && info.region.is_some() {
             self.usages.push(key.clone());

@@ -33,6 +33,11 @@ pub struct AxisClipPlan {
     ancestor_count: u8,
 }
 impl AxisClipPlan {
+    #[cfg(feature = "gpu")]
+    pub(crate) fn with_background(mut self, enabled: bool) -> Self {
+        self.background = enabled;
+        self
+    }
     /// Plan one explicit unit-opacity identity rectangle after an ordinary
     /// storage boundary. No ordinary layer opacity/mask/background is inferred.
     pub fn new(

@@ -54,6 +54,7 @@ impl Scene {
         let color = ClearColor::new(color)?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
         self.commands.push(Command::Clear(color));
+        self.storage_clear = true;
         Ok(())
     }
     /// Original direct clear commands in source order, without traversing child

@@ -301,7 +301,10 @@ impl Renderer {
         let limits = self.device.limits();
         let count = u32::try_from(pending.len()).map_err(|_| Error::Capacity)?;
         let uniform_bytes = u64::from(count) * ALIGNMENT;
-        let texture_bytes = advanced_texture_bytes([frame.width, frame.height], source_size)?;
+        let mut texture_bytes = advanced_texture_bytes([frame.width, frame.height], source_size)?;
+        if prepared.groups.root.is_some() {
+            texture_bytes -= u64::from(frame.width) * u64::from(frame.height) * 4;
+        }
         if count > 16 * 1024
             || uniform_bytes > limits.max_buffer_size
             || limits.min_uniform_buffer_offset_alignment == 0
@@ -335,6 +338,7 @@ impl Renderer {
             source_size,
             texture_bytes,
             uniform_bytes,
+            prepared.groups.root.as_ref(),
         );
         if let Some(error) = scope.pop().await {
             return Err(error.into());
@@ -344,6 +348,7 @@ impl Renderer {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)] // Exact root owner and original bounded pass inventories.
     fn populate_advanced(
         &self,
         state: &AdvancedState,
@@ -352,6 +357,7 @@ impl Renderer {
         source_size: [u32; 2],
         texture_bytes: u64,
         uniform_bytes: u64,
+        root_owner: Option<&GroupTarget>,
     ) -> Result<PreparedAdvanced, Error> {
         let device = &self.device;
         let create = |size: [u32; 2], label| -> Result<GpuImage, Error> {
@@ -374,10 +380,13 @@ impl Renderer {
             });
             GpuImage::from_texture(device, &texture, ImageAlpha::Premultiplied)
         };
-        let root = create(
-            [frame.width, frame.height],
-            "ProGPU owned destination-aware root",
-        )?;
+        let root = match root_owner {
+            Some(owner) => owner.image.clone(),
+            None => create(
+                [frame.width, frame.height],
+                "ProGPU owned destination-aware root",
+            )?,
+        };
         let output = create([frame.width, frame.height], "ProGPU owned advanced output")?;
         let source = create(source_size, "ProGPU bounded advanced source")?;
         let root_texture = root.texture().clone();
@@ -513,7 +522,7 @@ impl Renderer {
         let count = operations.len() as u32;
         let metrics = AdvancedBlendMetrics {
             operations: count,
-            render_passes: count * 3 + 1,
+            render_passes: count * 3 + u32::from(!root_owner.is_some_and(|r| r.fixed)),
             texture_bytes,
             uniform_bytes: uniform_bytes + (u64::from(count) + 1) * 224,
             geometry_bytes: vertices.size() + indices.size(),
@@ -631,12 +640,14 @@ impl Renderer {
                 initial_state,
             )?;
         }
-        advanced.copy(
-            encoder,
-            target,
-            &advanced.root_copy,
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-        );
+        if !scene.fixed_target() {
+            advanced.copy(
+                encoder,
+                target,
+                &advanced.root_copy,
+                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            );
+        }
         Ok(())
     }
 }

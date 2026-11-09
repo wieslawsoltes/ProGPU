@@ -75,7 +75,10 @@ impl Scene {
         if !dpi.is_finite() || dpi <= 0.0 || self.scope_depth != 0 {
             return Err(Error::InvalidInput);
         }
-        let mut states = vec![CompiledDrawState::default()];
+        let mut states = vec![CompiledDrawState {
+            clip: self.inherited_clip,
+            ..Default::default()
+        }];
         if !self.has_scopes {
             return Ok((states, Vec::new()));
         }
@@ -86,7 +89,9 @@ impl Scene {
         let mut stack = Vec::new();
         let mut current = 0;
         for command in &self.commands {
-            if matches!(command, Command::Clear(_)) && states[current].count != 0 {
+            if matches!(command, Command::Clear(_) | Command::AxisClip(_))
+                && states[current].count != 0
+            {
                 return Err(Error::UnsupportedExecution);
             }
             if matches!(command, Command::PopScope) {

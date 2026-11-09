@@ -1,0 +1,51 @@
+{
+  "observed_utc": "2026-11-09T20:33:11.286842+00:00",
+  "previous_head": "3bf29bee3f5ff39180d1b3d1678a051ed5e0e6d2",
+  "scope": "Owned obsolete duplicate external incremental directories; retain newest per crate and all modified within one hour; skip while compilers are active",
+  "removed_incremental_directories": 0,
+  "removed_logical_bytes": 0,
+  "areas": {
+    "debug/incremental": {
+      "removed_directories": 0,
+      "removed_logical_bytes": 0
+    },
+    "wasm32-unknown-unknown/debug/incremental": {
+      "removed_directories": 0,
+      "removed_logical_bytes": 0
+    }
+  },
+  "cleanup_status": "completed",
+  "retained": [
+    "Newest incremental inventory per crate and recent state",
+    "Reusable external Cargo dependencies",
+    "Original source and compact validation evidence"
+  ],
+  "static_checks": {
+    "native_all_targets_all_features_clippy": "passed",
+    "wasm_browser_clippy": "passed",
+    "cpu_only_strict_clippy": "passed",
+    "format": "passed",
+    "diff_whitespace": "passed",
+    "javascript_syntax": "passed",
+    "canonical_modules": {
+      "passed": 14,
+      "test": "cargo test --locked --all-features --test shader_validation",
+      "runtime_gpu_qualification": false
+    }
+  },
+  "focused_cpu_controls": {
+    "passed": 7,
+    "failed": 0,
+    "groups": [
+      "scene::axis_clip::tests",
+      "renderer::groups::tests"
+    ],
+    "source_differential_qualification": false
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "runtime_differential_browser_performance_qualification": "deferred until connected stack assembly",
+  "free_gib": {
+    "internal": 34.03,
+    "external": 216.77
+  }
+}

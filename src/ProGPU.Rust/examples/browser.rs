@@ -26,6 +26,9 @@ mod mask_sample;
 #[path = "support/material_scene.rs"]
 mod material_sample;
 #[cfg(target_arch = "wasm32")]
+#[path = "support/retained_aa_scene.rs"]
+mod retained_aa_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/sample_scene.rs"]
 mod sample;
 #[cfg(target_arch = "wasm32")]
@@ -1674,6 +1677,7 @@ mod web {
         layer_scene: bool,
         clear_scene: bool,
         axis_clip_scene: bool,
+        retained_aa_scene: bool,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
         validation: Option<Renderer>,
@@ -1754,6 +1758,7 @@ mod web {
             layer_scene: false,
             clear_scene: false,
             axis_clip_scene: false,
+            retained_aa_scene: false,
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
             validation: None,
@@ -1790,6 +1795,7 @@ mod web {
             self.layer_scene = false;
             self.clear_scene = false;
             self.axis_clip_scene = false;
+            self.retained_aa_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1813,6 +1819,7 @@ mod web {
             self.layer_scene = false;
             self.clear_scene = false;
             self.axis_clip_scene = false;
+            self.retained_aa_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1825,6 +1832,7 @@ mod web {
             self.layer_scene = false;
             self.clear_scene = false;
             self.axis_clip_scene = false;
+            self.retained_aa_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1836,6 +1844,7 @@ mod web {
             self.layer_scene = false;
             self.clear_scene = false;
             self.axis_clip_scene = false;
+            self.retained_aa_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1847,6 +1856,7 @@ mod web {
             self.layer_scene = enabled;
             self.clear_scene = false;
             self.axis_clip_scene = false;
+            self.retained_aa_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1858,6 +1868,7 @@ mod web {
             self.ensure_live()?;
             self.clear_scene = enabled;
             self.axis_clip_scene = false;
+            self.retained_aa_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1869,6 +1880,20 @@ mod web {
         pub fn select_axis_clip_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.axis_clip_scene = enabled;
+            self.retained_aa_scene = false;
+            self.clear_scene = false;
+            self.layer_scene = false;
+            self.effect_scene = false;
+            self.mask_scene = false;
+            self.image_scene = false;
+            self.material_scene = false;
+            Ok(())
+        }
+        /// Select the shared retained AA tree, including optional owned-font text.
+        pub fn select_retained_aa_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.retained_aa_scene = enabled;
+            self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -1927,7 +1952,9 @@ mod web {
             Ok(())
         }
         fn record_scene(&self) -> Result<progpu::scene::Scene, Box<dyn std::error::Error>> {
-            if self.clear_scene {
+            if self.retained_aa_scene {
+                super::retained_aa_sample::retained_aa_scene(self.text_font.clone())
+            } else if self.clear_scene {
                 super::clear_sample::clear_scene(self.text_font.clone())
             } else if self.layer_scene {
                 super::layer_sample::layer_scene(self.text_font.clone())
@@ -2051,8 +2078,63 @@ mod web {
                 let m = scene.metrics();
                 let layers = scene.layer_metrics();
                 let advanced = scene.advanced_blend_metrics();
+                let aa = scene.retained_aa_metrics();
                 let f = scene.frame();
                 for (name, value) in [
+                    ("retainedAaGroups", aa.groups as f64),
+                    ("retainedAaTextureBytes", aa.texture_bytes as f64),
+                    ("retainedAaUniformBytes", aa.uniform_bytes as f64),
+                    ("retainedAaGeometryBytes", aa.geometry_bytes as f64),
+                    ("retainedAaResolveDraws", aa.resolve_draws as f64),
+                    (
+                        "retainedAaBackgroundCopyBytes",
+                        aa.background_copy_bytes as f64,
+                    ),
+                    (
+                        "retainedAaSourceGeometryBytes",
+                        aa.source_geometry_bytes as f64,
+                    ),
+                    (
+                        "retainedAaSourceUniformBytes",
+                        aa.source_uniform_bytes as f64,
+                    ),
+                    (
+                        "retainedAaGlyphUploadBytes",
+                        aa.source_glyph_upload_bytes as f64,
+                    ),
+                    (
+                        "retainedAaImageMaskUploadBytes",
+                        aa.source_image_mask_upload_bytes as f64,
+                    ),
+                    (
+                        "retainedAaAdvancedOperations",
+                        aa.source_advanced_operations as f64,
+                    ),
+                    ("retainedAaAdvancedPasses", aa.source_advanced_passes as f64),
+                    (
+                        "retainedAaAdvancedTextureBytes",
+                        aa.source_advanced_texture_bytes as f64,
+                    ),
+                    (
+                        "retainedAaAdvancedUniformBytes",
+                        aa.source_advanced_uniform_bytes as f64,
+                    ),
+                    (
+                        "retainedAaAdvancedGeometryBytes",
+                        aa.source_advanced_geometry_bytes as f64,
+                    ),
+                    ("layerAaGroups", layers.source_aa.groups as f64),
+                    ("layerAaTextureBytes", layers.source_aa.texture_bytes as f64),
+                    ("layerAaUniformBytes", layers.source_aa.uniform_bytes as f64),
+                    (
+                        "layerAaGeometryBytes",
+                        layers.source_aa.geometry_bytes as f64,
+                    ),
+                    ("layerAaResolveDraws", layers.source_aa.resolve_draws as f64),
+                    (
+                        "layerReplayTextureCopyBytes",
+                        layers.source_replay_texture_copy_bytes as f64,
+                    ),
                     ("geometryBytes", m.geometry_bytes as f64),
                     ("uniformBytes", m.uniform_bytes as f64),
                     ("materialBytes", m.material_bytes as f64),

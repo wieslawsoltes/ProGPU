@@ -275,7 +275,7 @@ impl Renderer {
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
         self.trim_mask_cache();
-        if compiled.states.len() == 1 {
+        if compiled.states.len() == 1 && compiled.states[0].clip.is_none() {
             return Ok(());
         }
         let mut required = [false; 3];
@@ -285,7 +285,10 @@ impl Renderer {
                 current = *index;
                 continue;
             }
-            if matches!(draw, DrawRange::Advanced(_) | DrawRange::Clear(_)) {
+            if matches!(
+                draw,
+                DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_)
+            ) {
                 continue;
             }
             if compiled.states[current].count != 0 {

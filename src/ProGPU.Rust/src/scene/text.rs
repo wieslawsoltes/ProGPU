@@ -275,8 +275,10 @@ impl Scene {
             });
         }
         atlas.begin_batch().await?;
+        let residency_start = atlas.batch_usage_count();
         let mut scene = Scene {
             has_scopes: self.has_scopes,
+            inherited_clip: self.inherited_clip,
             ..Default::default()
         };
         let mut styles = Vec::new();
@@ -341,12 +343,13 @@ impl Scene {
             }
         }
         atlas.end_batch().await?;
+        atlas.flush_pending().await?;
         // A later command can grow either atlas. Capture the FINAL textures and
         // revision once, after every pixel-coordinate instance is assembled.
         Ok(ResolvedSceneText {
             scene,
             styles,
-            residency: atlas.capture_batch_residency(0, None)?,
+            residency: atlas.capture_batch_residency(residency_start, None)?,
             statistics: atlas.statistics(),
             coverage: atlas.coverage().clone(),
             color: atlas.color().clone(),
