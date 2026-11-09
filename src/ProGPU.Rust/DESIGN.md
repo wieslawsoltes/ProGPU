@@ -3188,3 +3188,99 @@ Vulkan/winit passed; macOS was cancelled. Prior d4d56c4f9 original browser passe
 but Linux/macOS were cancelled. Both compact hosted receipts retain these limits.
 No original shader/compiler flags, deadlines, provider/package/source/application
 or pixel gates are relaxed.
+
+## Current managed nominal mapping and variation selectors (2026-11-09)
+
+`ManagedCharacterMap` ports original `SfntFontFace.TryGetGlyphIndex` and
+`TtfFont.TryGetVariationGlyph` over the same immutable selected source. It is
+separate from native `SfntFace` mapping because the source contracts differ.
+Format 12 keeps lazy visited-record bounds, original closed binary-search slots,
+checked group-count conversion and wrapping glyph addition; format 13 retains its
+whole-inventory gate. Zero-result fallback depends on actual format-4 presence.
+The existing proven immutable format-4 endpoint ordering optimization is reused;
+unsorted inventories keep first-contact traversal and exact original endpoints.
+No selected source bytes or original native policy change.
+
+Microsoft symbol maps retain original precedence over Unicode subtables. Only
+OS/2 version zero and complete original 64-byte storage select a legacy page.
+Page zero retains byte-to-F000 remapping; B2/B3 use their independent exact mapping
+inventories. Other pages do not silently select the generic byte rule. A direct
+nominal hit wins before any remapping. The two immutable data inventories are
+captured through original `TtfFont.GetGlyphIndex` using authored identity-PUA fonts
+and complete BMP queries, not transcribed from source tables. Every PUA code is
+independently removed and re-queried to expose otherwise-hidden fallback. The
+66,304 observations per page yield 240/285 sorted entries. Source and output hashes
+are retained; mandatory CI reproduces the actual API observations. No foreign
+implementation text or table-source structure is introduced.
+
+Format 14 retains the complete cmap span once, as the source's cached table lookup
+does. It scans original cmap records and selector records in source order,
+including nonstandard platform IDs, duplicates and unsorted selectors. Reads use
+whole cmap bounds rather than declared format-14 length. Original signed address
+wrapping and query-time rejection remain. The first selected nondefault mapping
+can explicitly return glyph zero; default ranges invoke actual nominal mapping
+and require a nonzero result. Malformed matching entries keep their original
+early exit, while absent matching selectors permit later source subtables. The
+independent native format-14 binary-search/zero-rejection contract is unchanged.
+
+`ManagedFont` retains a lazy per-instance ASCII cache, initialized only for codes
+below 128. The immutable `State` owns a OnceLock with 128 atomic u32 slots. Bit 16
+marks publication; the low 16 bits retain every glyph including zero. One atomic
+word owns value and publication, so relaxed access needs no second data race or
+release flag. Source failure leaves a slot empty; concurrent duplicate computation
+is harmless over immutable source. The payload is 512 bytes instead of the source's
+384 bytes across its separate glyph/state arrays; this explicit space tradeoff
+avoids unsafe access and uses one atomic read on hits. Rust allocator/header costs
+are uninstrumented. Root views and ordinary clones keep the same cache; recreated
+or varied instances own new lazy caches. Independent owned character-map views
+retain source bytes beyond font retirement without an Arc cycle.
+
+Original query complexity is retained: format-12/13 and symbol searches are
+logarithmic, format-4 uses the existing ordered proof or original linear route,
+and variation selectors retain ordered linear record scans plus original mapping
+search. Warm ASCII lookup is constant-time and allocation-free. Map queries are
+dependent byte-address traversals, not independent raster lanes; GPU/SIMD staging
+would not replace this original single-query policy. Shaping remains reusable CPU
+state, with future glyph visibility, upload, raster and compositor work on the GPU.
+
+The actual compiled C# control exercises the font and its retained source face,
+using typed delegates for raw calls. The 8,436 cases / 5,143,568 queries compare
+61,756,560 complete bytes: status, original exceptions, glyphs, nominal coverage,
+symbol flags and selectors. The corpus covers every BMP value for all original
+format-4 inventories, complete legacy-page domains, all 1,536 paired PUA holes,
+6,000 cmap mutations, every original seed truncation, malformed counts/offsets,
+overflowing glyph sums, whole/partial OS/2, duplicate/overlapping groups and ordered
+UVS admission and 1,024/4,096 extra directory records. Eight-thread controls prove concurrent zero/nonzero cache values,
+failed-query nonpublication and source retirement. The 88-case / 455,992-byte
+browser capture is actual source output and retains all original shader, pixel,
+resize and actual-presentation gates.
+
+The 42-workload diagnostic baseline compares actual complete outputs at 128 and
+4,096 queries across seven authored sources and three paths: raw nominal, cached
+font and selectors. First call includes lazy ASCII state; five warmups precede 40
+measured rounds. Construction, request/result allocation and serialization are
+outside timing, while actual query work and source first-use allocation remain
+inside. No performance optimization or complete shaping/frame claim is made.
+Future optimization retains the mandatory Instruments requirement.
+
+The preceding font-ownership research matrix remains in force for Skia/SkParagraph,
+DirectWrite/Direct2D/Win2D, WebRender, Vello/Parley and HarfBuzz. This change keeps
+font mapping independent of size, device, DPI, phase and atlas generations; it does
+not introduce discovery, upload or GPU initialization. Additional primary references
+are [OpenType cmap](https://learn.microsoft.com/en-us/typography/opentype/spec/cmap),
+[DirectWrite nominal mapping](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontface-getglyphindices),
+[HarfBuzz font function contracts](https://harfbuzz.github.io/fonts-and-faces-custom-functions.html)
+and [Skia font mapping](https://api.skia.org/classSkFont.html). Their separation of
+nominal mapping, variation mapping, shaping and glyph drawing informs API placement;
+the original ProGPU code remains authoritative for exact behavior. No external
+implementation is copied. The existing Win2D/Direct2D, retained WebRender and
+Vello/Parley ownership/cache conclusions remain unchanged.
+
+Hosted e9d85adc1 Linux full source/package, Windows portable, Vulkan/winit and the
+original browser gate pass. That Linux run verifies the unchanged published
+variation fixture after the explicit NaN-input repair, retaining all original
+host-generated requests. macOS was cancelled. These
+results do not resolve historical intermittent browser device loss or qualify
+this later mapping implementation. Complete script preparation, varied outlines,
+vertical origins, hinting, discovery/fallback, paragraphs, interaction and GPU text
+remain required alongside the independent rendering/provider/package/pixel gates.

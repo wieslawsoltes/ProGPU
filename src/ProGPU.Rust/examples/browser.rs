@@ -12,6 +12,9 @@ mod sample;
 #[path = "../tests/support/managed_font_replay.rs"]
 mod managed_font_replay;
 #[cfg(target_arch = "wasm32")]
+#[path = "../tests/support/managed_mapping_replay.rs"]
+mod managed_mapping_replay;
+#[cfg(target_arch = "wasm32")]
 #[path = "../tests/support/managed_glyph_fixture.rs"]
 mod managed_records;
 #[cfg(target_arch = "wasm32")]
@@ -1079,6 +1082,22 @@ mod web {
     ) -> Result<Vec<u32>, JsValue> {
         let case = super::managed_variation_replay::decode(font, &request).map_err(error)?;
         let bytes = case.expected().map_err(error)?;
+        Ok(bytes
+            .chunks_exact(4)
+            .map(|v| u32::from_le_bytes(v.try_into().unwrap()))
+            .collect())
+    }
+    /// Replay original nominal/symbol/UVS mapping and font-cache queries.
+    #[wasm_bindgen]
+    pub fn managed_font_mapping(font: Vec<u8>, requests: Vec<u32>) -> Result<Vec<u32>, JsValue> {
+        if !requests.len().is_multiple_of(3) {
+            return Err(error("incomplete mapping request"));
+        }
+        let queries = requests
+            .chunks_exact(3)
+            .map(|v| [v[0], v[1], v[2]])
+            .collect();
+        let bytes = super::managed_mapping_replay::Case { font, queries }.expected();
         Ok(bytes
             .chunks_exact(4)
             .map(|v| u32::from_le_bytes(v.try_into().unwrap()))

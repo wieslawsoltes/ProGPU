@@ -1,8 +1,9 @@
 //! Original owned TtfFont construction, metadata and variation-instance identity.
 use super::{
-    FontError, ManagedVariationAxis, ManagedVariationData, ManagedVariationInstance,
-    ManagedVariationSetting, SfntFace, Tag,
+    FontError, ManagedCharacterMap, ManagedVariationAxis, ManagedVariationData,
+    ManagedVariationInstance, ManagedVariationSetting, SfntFace, Tag,
 };
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     collections::{HashMap, VecDeque},
     hash::{Hash, Hasher},
@@ -71,6 +72,7 @@ pub struct ManagedFontMetadata {
 struct State {
     metadata: ManagedFontMetadata,
     instance: Option<ManagedVariationInstance>,
+    ascii: OnceLock<Box<[AtomicU32; 128]>>,
 }
 #[derive(Debug, Default)]
 struct Cache {
@@ -80,7 +82,7 @@ struct Cache {
 }
 #[derive(Debug)]
 struct Root {
-    source: SfntFace,
+    cmap: ManagedCharacterMap,
     raw: Raw,
     base: Arc<State>,
     data: OnceLock<Option<ManagedVariationData>>,
@@ -124,10 +126,11 @@ impl ManagedFont {
         let state = Arc::new(State {
             metadata,
             instance: None,
+            ascii: OnceLock::new(),
         });
         Ok(Self {
             root: Arc::new(Root {
-                source,
+                cmap: ManagedCharacterMap::new(source)?,
                 raw,
                 base: state.clone(),
                 data: OnceLock::new(),
@@ -138,7 +141,45 @@ impl ManagedFont {
     }
     /// Actual retained immutable selected SFNT face.
     pub fn source(&self) -> &SfntFace {
-        &self.root.source
+        self.root.cmap.source()
+    }
+    /// Original selected character map, independent of font size and variation
+    /// instance metadata. This immutable mapping retains the actual source.
+    pub fn character_map(&self) -> &ManagedCharacterMap {
+        &self.root.cmap
+    }
+    /// Original nominal glyph with a lazy per-instance 128-entry ASCII cache.
+    /// Cached zero remains distinct from an uninitialized slot. Failed original
+    /// queries publish no entry; non-ASCII queries retain the original direct path.
+    pub fn glyph_index(&self, code: u32) -> Result<u16, FontError> {
+        if code >= 128 {
+            return Ok(self.root.cmap.glyph_index(code)?.unwrap_or(0));
+        }
+        let cache = self
+            .state
+            .ascii
+            .get_or_init(|| Box::new(std::array::from_fn(|_| AtomicU32::new(0))));
+        let slot = &cache[code as usize];
+        let value = slot.load(Ordering::Relaxed);
+        if value != 0 {
+            return Ok(value as u16);
+        }
+        let value = self.root.cmap.glyph_index(code)?.unwrap_or(0);
+        // One atomic word owns both publication and value; the source is immutable.
+        // Concurrent identical computations do not require a second publication flag.
+        slot.store(0x1_0000 | u32::from(value), Ordering::Relaxed);
+        Ok(value)
+    }
+    /// Original nonzero nominal-coverage predicate; no fallback or shaping.
+    pub fn has_glyph(&self, code: u32) -> Result<bool, FontError> {
+        Ok(self.glyph_index(code)? != 0)
+    }
+    /// Original variation-selector query, preserving explicit glyph zero and the
+    /// instance's ASCII cache when a default sequence selects nominal coverage.
+    pub fn variation_glyph(&self, code: u32, selector: u32) -> Result<Option<u16>, FontError> {
+        self.root
+            .cmap
+            .variation_with(code, selector, || self.glyph_index(code))
     }
     /// Complete immutable original metadata for this selected instance.
     pub fn metadata(&self) -> &ManagedFontMetadata {
@@ -202,6 +243,7 @@ impl ManagedFont {
         let state = Arc::new(State {
             metadata,
             instance: Some(instance),
+            ascii: OnceLock::new(),
         });
         cache.instances.insert(key.clone(), state.clone());
         cache.order.push_back(key);
@@ -324,6 +366,7 @@ impl ManagedFont {
         let state = Arc::new(State {
             metadata,
             instance: clone.state.instance.clone(),
+            ascii: OnceLock::new(),
         });
         // This root is still private to the candidate. Replace the same snapshot
         // in its cache before publication, matching the source's private mutation.

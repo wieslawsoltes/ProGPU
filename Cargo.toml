@@ -290,3 +290,11 @@ path = "src/ProGPU.Rust/tests/managed_font.rs"
 [[example]]
 name = "managed_font_benchmark"
 path = "src/ProGPU.Rust/examples/managed_font_benchmark.rs"
+
+[[test]]
+name = "managed_mapping"
+path = "src/ProGPU.Rust/tests/managed_mapping.rs"
+
+[[example]]
+name = "managed_mapping_benchmark"
+path = "src/ProGPU.Rust/examples/managed_mapping_benchmark.rs"

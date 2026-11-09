@@ -73,6 +73,7 @@ on:
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_unicode_shaping.cpp
       - src/ProGPU.Text/OpenTypeTextShaper.cs
       - src/ProGPU.Text/SfntFontFace.cs
+      - eng/progpu-generate-rust-symbol-maps.py
       - src/ProGPU.Text/OpenTypeVariationData.cs
       - src/ProGPU.Text/TtfFont.Variations.cs
       - src/ProGPU.Text/TtfFont.cs
@@ -208,6 +209,8 @@ jobs:
           cargo test --locked --test managed_variations -- --ignored --nocapture
           cargo test --locked --test managed_names -- --ignored --nocapture
           cargo test --locked --test managed_font -- --ignored --nocapture
+          cargo test --locked --test managed_mapping -- --ignored --nocapture
+          python3 eng/progpu-generate-rust-symbol-maps.py --check
           cargo test --locked --test normalization -- --ignored --nocapture
           python3 eng/progpu-test-rust-normalization-conformance.py
           python3 eng/progpu-test-rust-normalization-profiles.py

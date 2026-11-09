@@ -1,0 +1,58 @@
+{
+  "commit": "e9d85adc11ffcadc65e0da5eb4a2feb797d8fe27",
+  "run_id": 42565080371,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42565080371",
+  "jobs": [
+    {
+      "id": 128989737657,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128989737867,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128989737928,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128989738005,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 128989738119,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "original_managed_font": {
+    "cases": 10369,
+    "exact_bytes": 81025616
+  },
+  "variation_fixture_revalidation": {
+    "cases": 8796,
+    "exact_bytes": 8221712,
+    "published_browser_fixture": "unchanged, exact x64 source equality passed",
+    "retained_host_generated_NaN_controls": 24
+  },
+  "browser": {
+    "original_gate": "pass",
+    "diagnostic": "skipped",
+    "font_checks_per_dpr": 104,
+    "actual_presentation_dprs": [
+      1,
+      2
+    ]
+  },
+  "package_files": 358,
+  "scope": "Linux full source/package, Windows portable, Vulkan/winit and original browser pass. macOS cancelled and unqualified. This does not resolve historical intermittent browser device loss or qualify the later mapping implementation."
+}

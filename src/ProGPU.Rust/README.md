@@ -589,3 +589,29 @@ in CI and replayed at both DPRs. Run `cargo test --locked --no-default-features
 with .NET 10; `PROGPU_RUST_DOTNET` selects its executable. The initial diagnostic
 benchmark is `python3 eng/progpu-benchmark-rust-managed-font.py`; it compares
 construction, cache hits, FIFO rotation and owned palette clones with original C#.
+
+`font::ManagedCharacterMap` retains original managed nominal mapping separately
+from the native `SfntFace` policy. It preserves format 12/13/4 precedence, original
+checked counts and wrapping arithmetic, legacy version-zero symbol pages, and
+ordered whole-cmap variation-selector reads. `Some(0)` from `variation_glyph`
+means an explicit nondefault glyph-zero mapping; `None` means unsupported. Default
+sequences require nonzero nominal coverage. The source's first matching selector
+and malformed-read behavior remain intact, including duplicate/unsorted records.
+
+`ManagedFont::glyph_index`, `has_glyph` and `variation_glyph` use that same immutable
+source. ASCII lookup lazily allocates the original per-instance 128-slot cache;
+one atomic word per slot holds both initialized state and glyph, including zero.
+Clones retain the instance cache; new variation instances have independent caches.
+Failed queries never publish a value. Non-ASCII mapping stays on its original
+direct path. These APIs perform nominal mapping, not shaping or fallback discovery.
+
+The source oracle compares **8,436 cases / 5,143,568 queries / 61,756,560 exact
+bytes**, including complete BMP inventories, both legacy pages, every PUA coverage
+hole, malformed maps and selector ordering. **88 source-captured browser cases**
+run at both DPRs. Run `cargo test --locked --no-default-features --test
+managed_mapping -- --include-ignored --nocapture` with .NET 10. The legacy mapping
+data are regenerated from actual API observations by
+`eng/progpu-generate-rust-symbol-maps.py`; CI verifies them with `--check`.
+`eng/progpu-benchmark-rust-managed-mapping.py` records matched nominal, cached-font
+and selector batches, including first-call cache costs. Complete script
+preparation, varied outlines, hinting, fallback/layout and GPU text remain pending.
