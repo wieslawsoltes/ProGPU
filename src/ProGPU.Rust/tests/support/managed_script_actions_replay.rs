@@ -2,7 +2,10 @@
 use progpu::{
     font::{
         ManagedFont,
-        layout::{ManagedFeatureSetting, ManagedGlyphBuffer},
+        layout::{
+            ManagedFeatureOptions, ManagedFeatureSetting, ManagedGlyphBuffer,
+            ManagedSubstitutionPlan,
+        },
     },
     text::{
         ManagedShapingGlyph,
@@ -66,12 +69,65 @@ pub fn action(code: u32) -> Option<ManagedScriptAction> {
         78 => UseReordering { enabled: true },
         79 => IndicPreparation { enabled: false },
         80 => IndicPreparation { enabled: true },
+        81 => IndicFinalReordering {
+            continuation: ManagedIndicContinuationProfile::Unicode16_0,
+        },
         22..=28 | 32..=63 => ArabicFallback {
             enabled: code != 22,
             features: fallback_features(code),
         },
         _ => return None,
     })
+}
+pub fn initial_action(code: u32) -> bool {
+    (82..=92).contains(&code)
+}
+pub fn apply_initial(buffer: &mut ManagedGlyphBuffer, code: u32) -> Result<(), PreparationError> {
+    let source = buffer
+        .preparation()
+        .ok_or(PreparationError::MissingPreparation)?;
+    let layout: Vec<u16> = match code {
+        82 => resolve_managed_layout_script(source.font(), source.script())
+            .layout_script
+            .encode_utf16()
+            .collect(),
+        84 => vec![],
+        85 => "abc3".encode_utf16().collect(),
+        86 => vec![0x64, 0x65, 0xd800, 0x32],
+        _ => "dev2".encode_utf16().collect(),
+    };
+    let mut settings = Vec::new();
+    for tag in [*b"rphf", *b"blwf", *b"vatu", *b"pstf", *b"pref"] {
+        if code == 90 || code == 91 && tag != *b"rphf" || code == 92 && tag != *b"pref" {
+            continue;
+        }
+        if code == 88 {
+            settings.push(ManagedFeatureSetting::new(tag.map(u16::from), 0)?);
+        }
+        let tag = if code == 89 {
+            tag.map(|b| b.to_ascii_uppercase())
+        } else {
+            tag
+        };
+        settings.push(ManagedFeatureSetting::new(
+            tag.map(u16::from),
+            if code == 87 {
+                0
+            } else if code == 88 {
+                i32::MIN
+            } else {
+                1
+            },
+        )?);
+    }
+    let plan = ManagedSubstitutionPlan::from_face(
+        source.font().source().clone(),
+        ManagedFeatureOptions::new(&settings, None, None, &[])?,
+        &layout,
+        None,
+        &[],
+    )?;
+    buffer.initial_reorder_indic(&layout, plan.as_ref())
 }
 fn fallback_features(code: u32) -> ManagedArabicFallbackFeatures {
     let mut settings = Vec::new();
@@ -147,7 +203,7 @@ impl Case {
         let actions = request.get(at..end)?.to_vec();
         if actions
             .iter()
-            .any(|&c| action(c).is_none() && !(64..=67).contains(&c))
+            .any(|&c| action(c).is_none() && !(64..=67).contains(&c) && !initial_action(c))
         {
             return None;
         }
@@ -258,11 +314,15 @@ pub fn execute(
             buffer.set_state(state);
             continue;
         }
-        let Some(action) = action(code) else {
+        let result = if initial_action(code) {
+            apply_initial(&mut buffer, code)
+        } else if let Some(action) = action(code) {
+            buffer.apply_script_action(action)
+        } else {
             error = 5;
             break;
         };
-        if let Err(e) = buffer.apply_script_action(action) {
+        if let Err(e) = result {
             error = match e {
                 PreparationError::Font(_) => 4,
                 _ => 2,

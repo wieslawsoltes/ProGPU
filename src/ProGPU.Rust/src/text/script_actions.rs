@@ -11,6 +11,7 @@ mod joining;
 pub use joining::{ManagedJoiningType, managed_joining_type};
 mod arabic_fallback;
 mod indic;
+pub use indic::ManagedIndicContinuationProfile;
 mod khmer;
 mod myanmar;
 mod use_shaping;
@@ -102,6 +103,11 @@ pub enum ManagedScriptAction {
         /// Actual planner admission, independent of raw script spelling.
         enabled: bool,
     },
+    /// Original final Indic reordering after basic font substitutions.
+    IndicFinalReordering {
+        /// Independently witnessed Rune category repertoire for init boundaries.
+        continuation: ManagedIndicContinuationProfile,
+    },
     /// Assign original Myanmar categories/syllables before lookup stages.
     MyanmarPreparation {
         /// Actual planner admission, independent of raw script spelling.
@@ -127,6 +133,30 @@ pub enum ManagedScriptAction {
     Reverse,
 }
 impl ManagedGlyphBuffer {
+    /// Original initial Indic reordering with the actual selected raw GSUB plan.
+    /// `None` represents missing GSUB. Layout-script UTF-16 selects the original
+    /// old/new policy independently of the prepared Unicode script. Source
+    /// failures retain preceding writes; this does not run the shaping sequence.
+    pub fn initial_reorder_indic(
+        &mut self,
+        layout_script: &[u16],
+        plan: Option<&crate::font::layout::ManagedSubstitutionPlan>,
+    ) -> Result<(), PreparationError> {
+        let source = self
+            .preparation
+            .as_ref()
+            .ok_or(PreparationError::MissingPreparation)?
+            .clone();
+        indic::initial(
+            &mut self.glyphs,
+            source.font(),
+            source.options(),
+            source.script(),
+            layout_script,
+            plan,
+        )?;
+        Ok(())
+    }
     /// Apply one original action to this live prepared generation. Missing source
     /// metadata rejects before mutation. Original failures retain earlier writes;
     /// font/text/context owners, lookup state and unrelated record fields survive.
@@ -295,6 +325,9 @@ impl ManagedGlyphBuffer {
             }
             ManagedScriptAction::IndicPreparation { enabled } => {
                 indic::prepare(&mut self.glyphs, enabled);
+            }
+            ManagedScriptAction::IndicFinalReordering { continuation } => {
+                indic::final_reorder(&mut self.glyphs, font, script, continuation)?;
             }
             ManagedScriptAction::UseRecordRepha => use_shaping::record_repha(&mut self.glyphs),
             ManagedScriptAction::UsePreparation { enabled } => {

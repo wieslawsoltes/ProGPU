@@ -73,7 +73,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let actions: Vec<_> = case
             .actions
             .iter()
-            .map(|&code| replay::action(code).ok_or("invalid action"))
+            .map(|&code| {
+                let action = replay::action(code);
+                (action.is_some() || replay::initial_action(code))
+                    .then_some((code, action))
+                    .ok_or("invalid action")
+            })
             .collect::<Result<_, _>>()?;
         let rounds = if profiling { 100000 } else { 45 };
         let mut times = Vec::with_capacity(rounds - 5);
@@ -89,8 +94,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 buffer.glyphs_mut().copy_from_slice(raw);
             }
             let started = Instant::now();
-            for &action in &actions {
-                buffer.apply_script_action(black_box(action))?;
+            for &(code, action) in &actions {
+                if let Some(action) = action {
+                    buffer.apply_script_action(black_box(action))?;
+                } else {
+                    replay::apply_initial(&mut buffer, black_box(code))?;
+                }
             }
             let elapsed = started.elapsed().as_secs_f64() * 1e6;
             black_box(buffer.glyphs());

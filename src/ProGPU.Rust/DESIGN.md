@@ -4303,3 +4303,38 @@ does not suppress the existing process samples. No original workload, deadline,
 shader, browser flag, driver or compiler policy changes; a diagnostic pass cannot
 replace the original failure. Owned executable/ancestry/start-tick revalidation
 still precedes debugger attachment, and no other browser process is admitted.
+
+## Original Indic initial and final reordering
+
+The approved original `OpenTypeTextShaper.cs` methods `InitialReorderIndic`,
+`UpdateIndicConsonantPositions`, `WouldSubstitute`, `InsertBrokenIndicDottedCircles`,
+`InitialReorderIndicSyllable` and their mark/sort/cluster/mask helpers now share
+the Rust selected GSUB plan. A probe retains one mutable original record buffer
+across all selected matching lookups; count/first-glyph changes, typed source
+errors and allocation order remain observable. Actual Unicode and UTF-16 layout
+scripts remain separate. Raw positions, stable order, byte saturation, old/new
+cluster merging, Kannada swaps and complete original dotted-circle defaults
+survive. Sorting and repeated source merges retain O(N²) worst-case behavior.
+
+`FinalReorderIndicSyllable` and its reph destination helpers retain original
+virama restoration, substitution/ligation/multiplication flags, Malayalam base
+selection, matra/reph/prebase movement and copy-versus-merge ordering. Init-form
+continuation uses an explicit original Unicode 16 Rune profile, independently
+matching every raw query and rejecting invalid scalars at the actual query.
+All previously recorded public Indic and cross-engine research remains applicable.
+No generated machine source or foreign implementation is used.
+
+The complete original-action corpus now matches **1,882,608 cases /
+2,194,696,960 bytes** on macOS Unicode 17, retaining all prior 1,657,647 cases.
+The four-property control matches 1,114,113 raw points / 17,825,808 bytes. Sixteen
+authored GSUB fonts exercise persistent probe mutation, no-change lookup results,
+deletion, required/disabled features, extensions and actual GDEF filtering.
+The frozen browser corpus contains 4,022 cases; its expanded browser execution
+has not yet run. A 66-workload, three-trial complete-output baseline completed
+before the implementation-first workflow request; original samples are retained
+without claiming optimization or full performance qualification.
+
+At the user's request, remaining exhaustive browser, profiling, fresh-package
+and platform validation is deferred until the complete stack is assembled.
+Implementation proceeds in larger connected batches with quick compile checks.
+This changes work ordering, not parity requirements or the final release gates.

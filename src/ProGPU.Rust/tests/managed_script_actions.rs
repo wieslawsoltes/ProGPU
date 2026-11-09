@@ -21,6 +21,8 @@ use replay::Case;
 mod fallback;
 #[path = "support/managed_indic_cases.rs"]
 mod indic;
+#[path = "support/managed_indic_reorder_cases.rs"]
+mod indic_reorder;
 #[path = "support/managed_khmer_cases.rs"]
 mod khmer;
 #[path = "support/managed_myanmar_cases.rs"]
@@ -35,6 +37,10 @@ fn script_actions_require_source_and_keep_source_owners() {
     let mut mapped = ManagedGlyphBuffer::new(font.source().clone(), vec![]).unwrap();
     assert_eq!(
         mapped.apply_script_action(ManagedScriptAction::Reverse),
+        Err(PreparationError::MissingPreparation)
+    );
+    assert_eq!(
+        mapped.initial_reorder_indic(&[100, 101, 118, 50], None),
         Err(PreparationError::MissingPreparation)
     );
     let mut options = ManagedPreparationOptions::new(
@@ -332,7 +338,8 @@ fn corpus(mut emit: impl FnMut(Case, bool)) {
     khmer::corpus(&mut emit);
     myanmar::corpus(&mut emit);
     use_cases::corpus(&mut emit);
-    indic::corpus(emit);
+    indic::corpus(&mut emit);
+    indic_reorder::corpus(emit);
 }
 
 fn joining_corpus(mut emit: impl FnMut(Case, bool)) {
@@ -519,10 +526,18 @@ fn complete_original_managed_script_actions() {
             managed_joining_type(cp) as u32,
             "joining type U+{cp:x}"
         );
+        assert_eq!(
+            word(&mut facts),
+            ManagedIndicContinuationProfile::Unicode16_0
+                .is_continuation(cp)
+                .map(u32::from)
+                .unwrap_or(u32::MAX),
+            "Indic init continuation U+{cp:x}"
+        );
     }
     assert_eq!(facts.read(&mut [0]).unwrap(), 0);
     eprintln!(
-        "Original modified classes, Rune digits and joining types: 1114113 complete raw scalar queries / 13369356 exact bytes"
+        "Original modified classes, Rune digits, joining types and Indic continuation: 1114113 complete raw scalar queries / 17825808 exact bytes"
     );
     let font_bytes = fixture::fonts();
     let fonts: Vec<_> = font_bytes

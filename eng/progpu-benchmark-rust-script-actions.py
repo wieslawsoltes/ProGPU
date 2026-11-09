@@ -234,6 +234,8 @@ def main():
                  'src/ProGPU.Rust/src/text/script_actions/use_indices.rs',
                  'src/ProGPU.Rust/src/text/script_actions/indic.rs',
                  'src/ProGPU.Rust/src/text/script_actions/indic_syllables.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/indic_final.rs',
+                 'src/ProGPU.Rust/src/font/layout/managed_gsub/dispatch.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
@@ -248,6 +250,9 @@ def main():
             receipt['measurement_limits'] = 'New-stage matched baseline, not a before/after optimization or end-to-end shaping claim. Disabled preparation is a clock-limited no-op; no Rust allocator-event or GPU qualification.'
         name = 'managed-indic-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_INDIC_ONLY') == '1' else 'managed-use-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1' else 'managed-myanmar-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1' else 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
         output = ROOT / 'src/ProGPU.Rust/perf' / name
+        if os.environ.get('PROGPU_RUST_ACTIONS_INDIC_REORDER_ONLY') == '1':
+            output = ROOT / 'src/ProGPU.Rust/perf/managed-indic-reorder-baseline.json'
+            receipt['measurement_limits'] = 'New-stage matched baseline. Initial-action timing includes original GSUB plan construction with identical authored features/layout; full prepared-record restoration remains outside the timer. Final-only stages use original raw metadata. No intervening GSUB sequence, full shaping, GPU or allocator-event qualification.'
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')
 

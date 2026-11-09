@@ -15,14 +15,16 @@ static class Control
     delegate B Create<B>(string text, TtfFont font, string script, ShapingClusterLevel level,
                          ShapingBufferFlags flags, ReadOnlyMemory<char> pre, ReadOnlyMemory<char> post);
     delegate bool Select(TtfFont font, string script, out string layout);
+    delegate P CreatePlan<P,T>(TtfFont font, T? table, TextShapingOptions options, string script) where T : class;
     static void Main()
     {
         var shaper = typeof(TtfFont).Assembly.GetType("ProGPU.Text.OpenTypeTextShaper", true)!;
         typeof(Control).GetMethod(nameof(Run), F)!.MakeGenericMethod(
-            shaper.GetNestedType("GlyphSubstitutionBuffer", F)!, shaper.GetNestedType("GlyphRecord", F)!)
+            shaper.GetNestedType("GlyphSubstitutionBuffer", F)!, shaper.GetNestedType("GlyphRecord", F)!,
+            shaper.GetNestedType("SubstitutionPlan", F)!, shaper.GetMethod("CreateSubstitutionPlan", F)!.GetParameters()[1].ParameterType)
             .Invoke(null, new object[] { shaper });
     }
-    static void Run<B, G>(Type shaper) where B : class where G : struct
+    static void Run<B, G, P, T>(Type shaper) where B : class where G : struct where T : class
     {
         var create = typeof(B).GetMethod("Create", F)!.CreateDelegate<Create<B>>();
         var select = shaper.GetMethod("ResolveLayoutScript", F)!.CreateDelegate<Select>();
@@ -42,6 +44,10 @@ static class Control
         var vowels=typeof(B).GetMethod("ApplyVowelConstraints",F)!.CreateDelegate<Action<B,string>>();
         var usePrepare=typeof(B).GetMethod("PrepareUseShaping",F)!.CreateDelegate<Action<B,bool,string>>();
         var indicPrepare=typeof(B).GetMethod("PrepareIndicShaping",F)!.CreateDelegate<Action<B,bool>>();
+        var indicInitial=typeof(B).GetMethod("InitialReorderIndic",F)!.CreateDelegate<Action<B,string,string,P>>();
+        var indicFinal=typeof(B).GetMethod("FinalReorderIndic",F)!.CreateDelegate<Action<B,string>>();
+        var indicContinuation=typeof(B).GetMethod("IsIndicInitContinuation",F)!.CreateDelegate<Func<uint,bool>>();
+        var createPlan=shaper.GetMethod("CreateSubstitutionPlan",F)!.CreateDelegate<CreatePlan<P,T>>();
         var useRepha=typeof(B).GetMethod("RecordUseRepha",F)!.CreateDelegate<Action<B>>();
         var usePrebase=typeof(B).GetMethod("RecordUsePrebase",F)!.CreateDelegate<Action<B>>();
         var useReorder=typeof(B).GetMethod("ReorderUseShaping",F)!.CreateDelegate<Action<B,bool>>();
@@ -100,6 +106,7 @@ static class Control
                 output.Write((uint)modified(point));
                 try {output.Write(digit(point)?1u:0u);}catch(ArgumentException){output.Write(uint.MaxValue);}
                 output.Write(joiningType(point));
+                try {output.Write(indicContinuation(point)?1u:0u);}catch(ArgumentException){output.Write(uint.MaxValue);}
             }
             return;
         }
@@ -173,6 +180,17 @@ static class Control
                             case 78:useReorder(buffer,true);break;
                             case 79:indicPrepare(buffer,false);break;
                             case 80:indicPrepare(buffer,true);break;
+                            case 81:indicFinal(buffer,script);break;
+                            case >=82 and <=92:
+                                string target=action switch {82=>layout,84=>"",85=>"abc3",86=>"de\ud8002",_=>"dev2"};
+                                var settings=new List<OpenTypeFeatureSetting>();
+                                foreach(string tag in new[]{"rphf","blwf","vatu","pstf","pref"}) {
+                                    if(action==90 || action==91 && tag!="rphf" || action==92 && tag!="pref")continue;
+                                    if(action==88)settings.Add(new OpenTypeFeatureSetting(tag,0));
+                                    settings.Add(new OpenTypeFeatureSetting(action==89?tag.ToUpperInvariant():tag,action==87?0:action==88?int.MinValue:1));
+                                }
+                                indicInitial(buffer,script,target,createPlan(font,null,new TextShapingOptions{Features=settings},target));
+                                break;
                             default:throw new InvalidDataException("action");
                         }
                     }

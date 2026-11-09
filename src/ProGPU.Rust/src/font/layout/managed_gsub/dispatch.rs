@@ -13,6 +13,44 @@ pub struct ManagedSubstitutionPlan {
     table: ManagedGsubTable,
 }
 impl ManagedSubstitutionPlan {
+    // Original Indic probe: one mutable buffer survives all matching lookups.
+    // Feature values, digests and per-cluster stage admission do not apply here.
+    pub(crate) fn indic_would_substitute(
+        &self,
+        font: &crate::font::ManagedFont,
+        marks: crate::text::unicode::ManagedMarkProfile,
+        tag: [u8; 4],
+        glyphs: &[u16],
+    ) -> Result<bool, FontError> {
+        if self.table.bytes().is_empty() {
+            return Ok(false);
+        }
+        let mut records = Vec::new();
+        records
+            .try_reserve_exact(glyphs.len())
+            .map_err(|_| FontError::Capacity)?;
+        records.extend(
+            glyphs
+                .iter()
+                .enumerate()
+                .map(|(i, &g)| ManagedShapingGlyph::new(g, i as i32, 0)),
+        );
+        let mut probe =
+            ManagedGlyphBuffer::with_mark_profile(font.source().clone(), records, marks)?;
+        for lookup in self.selection.lookups() {
+            if lookup.tag != tag {
+                continue;
+            }
+            let before_count = probe.glyphs.len();
+            let before_glyph = probe.glyph_at(0)?;
+            if self.table.apply_lookup_at(&mut probe, lookup.index, 0)?
+                && (probe.glyphs.len() != before_count || probe.glyph_at(0)? != before_glyph)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     /// Build original selection and optional context filters from raw owned bytes.
     pub fn new(
         bytes: impl Into<Arc<[u8]>>,

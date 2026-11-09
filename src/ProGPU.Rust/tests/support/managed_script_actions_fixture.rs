@@ -1,5 +1,7 @@
 //! Authored full-record action controls, never a foreign shaping implementation.
 #![allow(dead_code)]
+#[path = "managed_indic_reorder_fixture.rs"]
+pub mod indic_reorder;
 #[path = "managed_preparation_fixture.rs"]
 pub mod preparation;
 use preparation::mapping::font;
@@ -37,6 +39,7 @@ pub fn fonts() -> Vec<Vec<u8>> {
         fonts.push(font::sfnt(&font::tables(font::cmap(&[(0, 4, cmap)])), 0));
     }
     fonts.extend(fallback_fonts());
+    fonts.extend(indic_reorder::fonts());
     fonts
 }
 
