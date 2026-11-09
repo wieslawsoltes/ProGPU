@@ -24,6 +24,8 @@ impl Default for ManagedGlyphState {
 /// This is reusable shaping state, not a published paragraph or GPU text object.
 #[derive(Clone, Debug)]
 pub struct ManagedGlyphBuffer {
+    pub(crate) preparation:
+        Option<std::sync::Arc<crate::text::preparation::ManagedPreparationSource>>,
     pub(super) glyphs: Vec<ManagedShapingGlyph>,
     font: SfntFace,
     use_gdef: bool,
@@ -57,6 +59,7 @@ impl ManagedGlyphBuffer {
             len(Tag::new(*b"GPOS")),
         );
         Ok(Self {
+            preparation: None,
             glyphs,
             font,
             use_gdef,
@@ -66,6 +69,11 @@ impl ManagedGlyphBuffer {
             mark_filtering_coverage: -1,
             nested_depth: 0,
         })
+    }
+    /// Original text/context/font generation when created through `from_text`.
+    /// Already-mapped record constructors intentionally retain no fabricated text.
+    pub fn preparation(&self) -> Option<&crate::text::preparation::ManagedPreparationSource> {
+        self.preparation.as_deref()
     }
     /// Original independent fraction-action marker set by the preparation stage.
     /// This is not inferred from record bytes: retained source state may differ.
@@ -105,8 +113,10 @@ impl ManagedGlyphBuffer {
         self.nested_depth
     }
     /// Consume the buffer and return its complete current records.
-    pub fn into_glyphs(self) -> Vec<ManagedShapingGlyph> {
-        self.glyphs
+    pub fn into_glyphs(mut self) -> Vec<ManagedShapingGlyph> {
+        // Explicit transfer owns these records; no empty replacement is pooled.
+        self.preparation = None;
+        std::mem::take(&mut self.glyphs)
     }
     pub(super) fn gdef(&self) -> &[u8] {
         if self.use_gdef {
@@ -425,5 +435,12 @@ impl ManagedGlyphBuffer {
             self.glyphs.remove(i);
         }
         Ok(())
+    }
+}
+impl Drop for ManagedGlyphBuffer {
+    fn drop(&mut self) {
+        if self.preparation.is_some() {
+            crate::text::preparation::pool::retire(std::mem::take(&mut self.glyphs));
+        }
     }
 }

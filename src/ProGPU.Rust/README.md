@@ -649,3 +649,30 @@ facts with `python3 eng/progpu-generate-rust-grapheme-profile.py --check`.
 walks with C#; `PROGPU_RUST_GRAPHEME_BEFORE` adds a retained before binary and three
 rotating-order process trials. Source parity here does not establish complete
 shaping, layout, fallback or GPU text parity.
+
+`font::layout::ManagedGlyphBuffer::from_text` performs the complete original
+managed text preparation before script-specific shaping stages. Pass an owned
+`ManagedFont`, UTF-16 source, original script and
+`text::preparation::ManagedPreparationOptions`. The options explicitly select
+normalization, mark and grapheme profiles, cluster level, flags and retained
+pre/post UTF-16 context. `buffer.preparation()` exposes the immutable original
+source generation; `glyphs()` / `glyphs_mut()` use the same complete records as
+the existing GSUB executor. Already-mapped buffer constructors remain separate.
+
+Preparation includes conditional NFC, malformed-unit replacement, source cluster
+rules, UVS including explicit glyph zero, Indic/Khmer splits, missing-glyph NFD,
+space/hyphen fallback and original unsafe-interior flags. Input and output retain
+the original 1,048,576-record bound. Owned prepared buffers recycle up to four
+4,096-capacity record arrays per thread; font/text/context owners retire normally.
+`into_glyphs` transfers records without pooling them. Full script stages, shaping
+sequencing, positioning preparation and layout remain separate unfinished work.
+
+Run `cargo test --locked --release --no-default-features --test managed_preparation
+-- --include-ignored --nocapture` with .NET 10 (`PROGPU_RUST_DOTNET` selects it).
+The complete source comparison covers 312,627 cases / 873,278,732 bytes; browser
+controls replay 110 source captures under all three normalization profiles.
+`python3 eng/progpu-capture-rust-preparation.py --check` rechecks every original
+Khmer predicate observation. `python3 eng/progpu-benchmark-rust-preparation.py`
+compares creation/retirement and complete output with C#; optional
+`PROGPU_RUST_PREPARATION_BEFORE` includes a retained unpooled binary. The driver
+selects a normalization profile from actual source behavior, never an OS name.

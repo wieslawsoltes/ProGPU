@@ -3410,3 +3410,113 @@ Rust/C# median ratios reach 1.28. System load was 20.93/21.13/17.56. This is a
 local workload observation with all trial distributions retained, not a stable
 cross-machine speedup or completed performance-parity claim. The independent
 source, native, Unicode conformance and browser gates pass after the change.
+
+## Complete original managed text preparation
+
+`ManagedGlyphBuffer::from_text` ports the complete original
+`OpenTypeTextShaper.GlyphSubstitutionBuffer.Create` path and its original
+`ResolveLayoutScript`, normalization, mapping and interior-flag helpers. It is the
+input stage for the existing managed GSUB machinery, not a complete shaper.
+The buffer retains an immutable `ManagedPreparationSource`: exact selected
+`ManagedFont`, original UTF-16, original script, all four cluster levels, all
+eight independent flag bits, caller-owned pre/post context, and separately
+selected normalization, mark and grapheme profiles. Clones own independent
+mutable records and share immutable source owners. Already-mapped constructors
+remain metadata-free; no source text is fabricated for them.
+
+The original printable-ASCII route remains separate. Non-ASCII preparation
+preserves whole-input UTF-16 admission and NFC testing before script policy;
+malformed input disables the whole-input/grapheme normalization route while each
+unpaired unit decodes as its original one-unit replacement. U+FFFE therefore
+retains the original distinction between well-formed normalization rejection and
+malformed-run mapping. Per-grapheme NFC keeps the original null-versus-present
+normalized-string decision, including unchanged output: prepend/Hangul character
+clusters depend on that decision. Indic composite exceptions, exact viramas,
+ZWNJ/ZWJ and following-scalar tests, cross-grapheme USE mark ownership, source
+space coverage and previous-glyph ZWJ clusters retain original ordering.
+
+A successful variation selector can publish explicit glyph zero and consume the
+selector without updating the preceding-code-point state. Khmer split matras,
+Indic mark-first NFD splits and their first-versus-later CharacterCluster flags,
+missing-glyph NFD, nonbreaking-hyphen fallback and all original space-fallback
+values retain their separate routes. Every appended record keeps the original
+GraphemeCluster. Character-level unsafe flags skip only the actual minimum
+shaping cluster in each original grapheme range. Both input and emitted records
+keep the 1,048,576 bound; a failure publishes no partially prepared buffer.
+
+Raw layout-script selection examines original visited six-byte GSUB records,
+without requiring script bodies or lookup lists to be valid. Third-generation
+Indic tags take precedence over second-generation tags; the complete original
+USE script inventory remains independent. This deliberately does not substitute
+the stricter validated layout-plan parser for the source's narrow query.
+
+The Khmer base predicate is captured by executing the original preparation
+helper over all 1,112,064 valid scalars: 848 positive observations, encoded as
+111 contiguous ranges. The capture harness neither reads nor transcribes a
+foreign property table. Mandatory regeneration executes the actual original
+helper again and checks the complete generated result. Other preparation rules
+are direct ports of original ProGPU-owned functions; public Unicode facts and
+original behavioral captures retain their existing provenance boundaries.
+
+The original per-thread list pool is also retained: at most four empty record
+arrays, each with actual capacity at most 4,096. Only complete prepared buffers
+return storage on drop. Mapped buffers, oversized arrays, failed candidates and
+explicit `into_glyphs` transfers keep ordinary ownership. The pool never contains
+font, text, context or GPU owners. Thread-local teardown or reentrant borrowing
+falls back to normal retirement without locks or callbacks. Tests prove LIFO
+reuse, exact capacity/count admission, independent cloned records and source
+owner retirement while record storage remains cached.
+
+The full original C# comparison covers 312,627 cases and 873,278,732 exact bytes.
+It checks all 31 fields, private lookup state, selected script, actual font
+identity and original context. Four full Unicode inventories exercise mapped and
+missing glyphs through actual preparation; every UTF-16 unit appears in four
+malformed/mark/joiner contexts, followed by script/level/tag, class-triple, mutation
+and original input/decomposition-limit controls. Runtime normalization witnesses
+select a candidate profile, followed by complete output comparison. The 110-case
+83,636-byte frozen browser inventory uses profile-invariant original requests and
+replays all three explicit normalization profiles, plus invalid-profile and
+truncated-request controls. Earlier GSUB, full-stage and positioning comparisons
+remain mandatory. This does not qualify script reordering, full stage sequencing,
+position-buffer preparation, fallback, paragraphs, interaction or GPU text.
+
+This extends the preceding cross-engine research decisions. The [HarfBuzz cluster
+contract](https://harfbuzz.github.io/working-with-harfbuzz-clusters.html) reinforces
+keeping source/grapheme/shaping coordinates distinct; its implementation is not
+ported. [String.IsNormalized](https://learn.microsoft.com/en-us/dotnet/api/system.string.isnormalized?view=net-10.0)
+and [Unicode normalization](https://www.unicode.org/reports/tr15/) define the
+external canonical-form contract, while actual ProGPU observations determine
+runtime data identity and admission. The preceding Skia/SkParagraph,
+DirectWrite/Direct2D/Win2D, WebRender and Vello/Parley reviews still apply: prepared
+CPU text and font identity remain reusable independently of GPU visibility,
+upload, batching, device loss, DPI/phase/hinting and atlas invalidation. Ordered
+normalization, preceding-glyph and cross-grapheme state remain CPU work; no
+parallel raster work is moved from the GPU. The simple ASCII admission scan is
+not a substitute for the subsequent original mapping/preparation algorithm.
+
+Matched benchmarks time real owned generation creation and retirement separately.
+Font/input construction, explicit normalization witnesses and complete output
+serialization are outside timers; creation includes all actual output allocation,
+normalization and retained ownership. First-call values follow the necessary
+profile witnesses and are not full cold-process startup measurements. Original
+C# Dispose and Rust RAII retirement have distinct collector semantics; source GC
+allocation counters do not charge deferred collection time. Instruments Time
+Profiler compares exact unpooled/pooled Rust binaries with the same workload.
+The Allocations template stalled before launched-process entry; both bounded
+attach attempts also failed to start recording. Those attempts are retained as
+diagnostic failures, not allocation evidence. Complete source outputs are
+compared independently, retaining timing distributions and compact CPU profiling
+exports. Rust allocation-event, full shaping, scroll-frame, process-memory and
+GPU performance qualification remains open.
+
+The initial 36-workload, three-process-trial capture matches complete source
+output. Rust creation medians are lower than C# in 21 workloads and higher in 15,
+with missing-glyph normalization reaching 2.41 times the C# median. Load was
+3.45/3.45/7.94. Pooled/unpooled creation differences are small and mixed
+(before/after ratios 0.918–1.081), including timer-resolution effects; no general
+pooling speedup is claimed. The pool preserves the original bounded reuse
+contract. Allocation recording failed before executing the launched target;
+Developer Mode was already enabled. Two subsequent attach attempts also failed
+to start within their diagnostic bounds. CPU exports and complete failed-start
+observations are retained; no security, compiler, driver or production gate was
+changed to obtain a passing result.

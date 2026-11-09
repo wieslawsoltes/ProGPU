@@ -4,6 +4,7 @@
 mod managed_shaping;
 mod shaping;
 pub use managed_shaping::ManagedShapingGlyph;
+pub mod preparation;
 mod simple;
 pub use shaping::ShapingGlyph;
 pub mod unicode;

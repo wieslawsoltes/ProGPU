@@ -1,0 +1,188 @@
+{
+  "utc": "2026-11-09T07:35:23.473840+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "scope": "Complete original GlyphSubstitutionBuffer.Create and raw script selection only. Full script stages, shaping, layout, rendering and platform qualification remain open.",
+  "tests": {
+    "all_features": {
+      "passed": 96,
+      "failed": 0,
+      "ignored": 50
+    },
+    "cpu_only": {
+      "passed": 94,
+      "failed": 0,
+      "ignored": 43
+    }
+  },
+  "original_managed": {
+    "cases": 312627,
+    "exact_bytes": 873278732,
+    "runtime": ".NET 10.0.14 macOS 26.6.0",
+    "normalization_profile": 170,
+    "fixture_updated_in_final_run": false,
+    "coverage": "Complete valid scalar repertoire and every UTF-16 unit across selected mapped/missing/script contexts, class triples, all four cluster levels, all flag combinations, 12000 mutations, script generations, malformed fonts, source contexts, one-million-input and decomposition-overflow gates. All 31 record fields and complete retained/state metadata."
+  },
+  "captured_khmer_predicate": {
+    "valid_scalar_queries": 1112064,
+    "positive_observations": 848,
+    "ranges": 111,
+    "captured_output_sha256": "631ac750877806e6915f1c5808aa512aea312c5e26c574396e53c0f0dd75885e",
+    "provenance": "Actual original helper API observations; no foreign source-array transcription."
+  },
+  "regressions": {
+    "managed_gsub_cases": 74981,
+    "managed_gsub_exact_bytes": 80999436,
+    "feature_queries": 262144,
+    "stage_filters": 1974,
+    "complete_stages": 26753,
+    "stage_exact_bytes": 46818828,
+    "positioning_cases": 32008,
+    "delta_queries": 760086,
+    "positioning_exact_bytes": 44353296
+  },
+  "lints": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "format": "pass",
+    "diff_whitespace": "pass"
+  },
+  "ownership": "Actual selected font/text/context retained; independent clone records; mapped constructors keep absent metadata; explicit record transfer bypasses pool. Four empty record lists/thread, each actual capacity <=4096; LIFO/overflow/TLS-safe retirement controls pass.",
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "headless": true,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache"
+    ],
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": [],
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": [],
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ],
+    "receipt_sha256": "fd32625fe2b337afa23680fc85d36c5aa95c5bb7b504ce2eb218e6686154b081"
+  },
+  "browser_fixture": {
+    "cases": 110,
+    "bytes": 83636,
+    "sha256": "495eae295b1377b503b8f02fd64b1b41b7f71c2554c10b6ea28ae9bac812a895",
+    "checks_per_dpr": 332,
+    "profiles": [
+      151,
+      160,
+      170
+    ]
+  },
+  "performance": {
+    "workloads": 36,
+    "process_trials": 3,
+    "rotating_order": true,
+    "complete_before_after_source_outputs": "exact",
+    "rust_lower_creation_medians": 21,
+    "rust_higher_creation_medians": 15,
+    "largest_rust_over_csharp_ratio": 2.4095,
+    "instruments": "Matched six-second CPU profiles retained; final benchmark binary hash matches after profile. Allocations launch and two bounded attach attempts failed to start; allocation-event and process-memory qualification remain open. No general pooling speedup or memory-reduction claim."
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/preparation.rs": "8061b42c5720b1de5aef59c4a92b87742bfea061af7de6572806488c20530bc0",
+    "src/ProGPU.Rust/src/text/preparation/pool.rs": "9f18e5c93a451e6484cc78e9a451ce3ce1e0696ffa14d91a6f4c150bbb5b6943",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "41f8769c54f2e6cf1814de5933732f128e9ec8ffa25ccf4a56243a060d00e2f7",
+    "src/ProGPU.Rust/examples/managed_preparation_benchmark.rs": "4edaa554e896ae9f324a7d2d3caeb1c4aec5e501d849c831f8c746d59ccfd539",
+    "src/ProGPU.Rust/tests/managed_preparation.cs": "42cbd625c10506024ac25b82dd762941cf39905be7456e8a3df63febc5422858",
+    "src/ProGPU.Rust/src/text/preparation/script.rs": "fc3bc292aa104c7530c0c213b7d1a2aeeafa35940223b69cf8cb69c299c2e3a7",
+    "src/ProGPU.Rust/src/text/preparation/khmer_facts.rs": "816fd23f3315e05073741eabb4af8423f94a461a67ea11ccc56665a7d1f35116",
+    "src/ProGPU.Rust/tests/managed_preparation.rs": "ae5a683e147a6cf9b45748db70b175c44998096bee33548fe35890fddb16e490",
+    "src/ProGPU.Rust/tests/managed_preparation_facts.cs": "8ac8aa66c07dc152d3a70a2244bb50f72c19e68afcb0d182f27d631e32b7a06c",
+    "src/ProGPU.Rust/tests/support/managed_preparation_replay.rs": "679af1e7918b0e918504fa4ca0492d2787897feafeb2356a79806f863d2bed78",
+    "src/ProGPU.Rust/tests/support/managed_preparation_fixture.rs": "2e97b867b4f9133180225c91155fb50d9034b1dea9a799270a5a3b0c5ac38cf2"
+  },
+  "log_hashes": {
+    "tests": "5a7d9d7d3ff28dfa5a45002ee233b92b3b2a6fb67794b9a572ee9a22c9ba2012",
+    "cpu": "f6e55d1c8d9c28ee9d157e923dab0ead80dc0a079296c3ecc057b83faf465de0",
+    "final-source": "64654e4fdbbb6c61485507e29a191efc1c1d4fbd281922e5f65cf0ef740d1c65",
+    "final-facts": "42c55fc2ef3fedebcf1794998aa0ee5e44e87cad2e277b481e13aa4517305695",
+    "regressions": "5d98f3871481f62c26d4be059bdd7795528a9f4afa23e5203b6d4ceec11edafd",
+    "final-clippy": "2834224b42fba5e362e82b52ee687250a7a8374efea9c38e8ee295b896375e81",
+    "wasm": "11b5cf9d4db419e4182a3a1298ae75c3bea71a0dc0da99290cc9e42659e41244",
+    "browser": "90d65ae30977954e80e41174c169b620d13e9036405a71294e4fd3c9d0d25336"
+  },
+  "provenance_audit": {
+    "status": "pass",
+    "scope": "Current preparation production/helpers/oracle/generator and branch-reachable Rust history reviewed. Search hits for ported-from identify only original ProGPU geometry/composite sources. Original source and generated observations retain exact hashes; no foreign implementation/source-table transcription introduced."
+  }
+}

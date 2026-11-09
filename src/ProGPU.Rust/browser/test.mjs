@@ -71,6 +71,14 @@ const graphemeU32=()=>{const n=graphemeBinary.readUInt32LE(graphemeCursor);graph
 const managedGraphemeCases=[];
 for(let n=graphemeU32();n>0;n--){const source=Array.from({length:graphemeU32()},()=>{const unit=graphemeBinary.readUInt16LE(graphemeCursor);graphemeCursor+=2;return unit;});const expected=Array.from({length:graphemeU32()/4},graphemeU32);managedGraphemeCases.push({source,expected});}
 assert.equal(graphemeCursor,graphemeBinary.length);
+const preparationBinary=await readFile(new URL('./managed-preparation.bin',import.meta.url));
+assert.equal(preparationBinary.subarray(0,4).toString(),'PTP1');let preparationCursor=4;
+const preparationU32=()=>{const n=preparationBinary.readUInt32LE(preparationCursor);preparationCursor+=4;return n;};
+const preparationFonts=[];
+for(let n=preparationU32();n>0;n--){const size=preparationU32();preparationFonts.push([...preparationBinary.subarray(preparationCursor,preparationCursor+size)]);preparationCursor+=size;}
+const preparationCases=[];
+for(let n=preparationU32();n>0;n--){const font=preparationU32(),request=Array.from({length:preparationU32()},preparationU32),expected=Array.from({length:preparationU32()/4},preparationU32);preparationCases.push({font,request,expected});}
+assert.equal(preparationCursor,preparationBinary.length);
 const reports = [];
 const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
 let activePage;
@@ -111,7 +119,7 @@ try {
       return app.exclusive(() => app.renderer.metrics().frames >= 4);
     }));
     entry.stage='source and offscreen controls';
-    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases}) => {
+    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases}) => {
       const app = await window.progpuReady;
       return app.exclusive(async () => {
         const r = app.renderer;
@@ -615,6 +623,16 @@ try {
         lineCase([0xd83d,0xdc4d,0xd83c,0xdffd],false,[16,17],[0,2],[0,2],[2,2]);
         lineCase([0x1100,0x1161,0x11a8],false,[28,30,29],[0,0,2]);
         for(const source of [[0xd800],[0xdc00],[0x41,0xd800,0x41]]){rejected=false;try{app.resolve_line_breaks_utf16(new Uint16Array(source),false);}catch{rejected=true;}check(rejected,'WASM line-break strict invalid source');lineBreakChecks++;}
+        let managedPreparationChecks=0;
+        for(const {font,request,expected} of preparationCases){for(const profile of [151,160,170]){
+          const actual=app.managed_prepare_text(new Uint8Array(preparationFonts[font]),new Uint32Array(request),profile);
+          check(actual.length===expected.length&&actual.every((value,i)=>value===expected[i]),'WASM original complete preparation records and context');
+          managedPreparationChecks++;
+        }}
+        rejected=false;try{app.managed_prepare_text(new Uint8Array([]),new Uint32Array([]),999);}catch{rejected=true;}
+        check(rejected,'WASM unsupported preparation profile');managedPreparationChecks++;
+        rejected=false;try{app.managed_prepare_text(new Uint8Array([]),new Uint32Array([1]),170);}catch{rejected=true;}
+        check(rejected,'WASM truncated preparation request');managedPreparationChecks++;
         let managedGraphemeChecks=0;
         for(const {source,expected} of managedGraphemeCases){
           const actual=app.managed_grapheme_utf16(new Uint16Array(source),160);
@@ -755,9 +773,9 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, managedGraphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedFontChecks, managedMappingChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, managedGraphemeChecks, managedPreparationChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedFontChecks, managedMappingChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
-    },{gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases});
+    },{gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases});
     Object.assign(entry,report);
     entry.stage='resize';
     assert.equal(report.before.draws, 1);

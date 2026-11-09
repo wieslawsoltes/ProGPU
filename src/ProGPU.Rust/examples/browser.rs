@@ -18,8 +18,11 @@ mod managed_grapheme_replay;
 #[path = "../tests/support/managed_mapping_replay.rs"]
 mod managed_mapping_replay;
 #[cfg(target_arch = "wasm32")]
-#[path = "../tests/support/managed_glyph_fixture.rs"]
-mod managed_records;
+#[path = "../tests/support/managed_preparation_replay.rs"]
+#[allow(dead_code)]
+mod managed_preparation_replay;
+#[cfg(target_arch = "wasm32")]
+use managed_preparation_replay::records as managed_records;
 #[cfg(target_arch = "wasm32")]
 #[path = "../tests/support/managed_variation_replay.rs"]
 mod managed_variation_replay;
@@ -575,6 +578,22 @@ mod web {
             .chunks_exact(4)
             .map(|word| u32::from_le_bytes(word.try_into().expect("complete replay word")))
             .collect())
+    }
+    /// Complete original text preparation records and source context state.
+    #[wasm_bindgen]
+    pub fn managed_prepare_text(
+        font: Vec<u8>,
+        request: Vec<u32>,
+        profile: u16,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::text::unicode::normalization::ManagedNormalizationProfile;
+        let profile = ManagedNormalizationProfile::try_from(profile).map_err(error)?;
+        let case = super::managed_preparation_replay::Case::from_request(0, &request)
+            .ok_or_else(|| error("invalid preparation request"))?;
+        let font = progpu::font::ManagedFont::new(font, 0).ok();
+        let mut result = Vec::new();
+        super::managed_preparation_replay::execute(font.as_ref(), &case, profile, &mut result);
+        Ok(result)
     }
     /// Original logical line opportunities with strict retained source ownership.
     #[wasm_bindgen]

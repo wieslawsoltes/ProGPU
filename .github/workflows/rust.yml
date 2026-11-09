@@ -63,6 +63,7 @@ on:
       - eng/progpu-generate-rust-normalization-profiles.py
       - eng/progpu-generate-rust-mark-profiles.py
       - eng/progpu-generate-rust-grapheme-profile.py
+      - eng/progpu-capture-rust-preparation.py
       - eng/progpu-audit-rust-normalization-runtime.py
       - eng/ProGPU.UnicodeNormalizationGenerator/Program.cs
       - src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp
@@ -108,7 +109,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  managed-graphemes:
+  managed-text-source:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -122,6 +123,10 @@ jobs:
         run: |
           python3 eng/progpu-generate-rust-grapheme-profile.py --check
           cargo test --locked --release --no-default-features --test managed_grapheme -- --include-ignored --nocapture
+      - name: Verify complete original text preparation and captured Khmer decisions
+        run: |
+          python3 eng/progpu-capture-rust-preparation.py --check
+          cargo test --locked --release --no-default-features --test managed_preparation -- --include-ignored --nocapture
 
   browser:
     runs-on: ubuntu-24.04
