@@ -1,7 +1,7 @@
 //! Original OpenType coverage, class, GSUB/GPOS lookup and GDEF data boundaries.
 //! These views prepare immutable shaping data with explicit native/managed feature
-//! policies. Native GSUB execution mutates caller-owned shaping records; positioning
-//! and full shaping remain separate. Unknown lookup flags/types retain
+//! policies. Native GSUB and GPOS execution mutate caller-owned shaping records;
+//! full shaping orchestration and source raster policy remain separate. Unknown lookup flags/types retain
 //! their raw values, and compatibility blocklists remain explicit caller policy.
 use super::{FontError, SfntFace, Span, Tag, bytes};
 use std::sync::Arc;
@@ -12,6 +12,11 @@ mod gsub;
 mod managed_context;
 pub(crate) use managed_context::default_ignorable;
 mod managed_gpos;
+mod native_gpos;
+pub use native_gpos::{
+    GposArithmetic, GposAttachment, GposAttachmentKind, GposDeviceFrame, GposDeviceSource,
+    GposDirection, GposOptions, GposState, NativePositioningPlan, resolve_gpos_attachments,
+};
 mod managed_gsub;
 mod managed_selection;
 mod selection;

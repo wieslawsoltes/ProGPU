@@ -14,6 +14,7 @@ pub mod path;
 #[cfg(feature = "gpu")]
 pub mod renderer;
 pub mod scene;
+pub mod shader_effect;
 pub mod shaders;
 pub mod text;
 pub mod vector;

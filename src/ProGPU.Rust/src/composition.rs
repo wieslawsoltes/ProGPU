@@ -2,6 +2,9 @@
 use crate::{Error, mask::MaskUniforms};
 use bytemuck::Zeroable;
 
+mod raster_operation;
+pub use raster_operation::{RasterOperation, RasterPattern};
+
 /// Actual source presentation and current parent storage domain.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AxisClipFrame {

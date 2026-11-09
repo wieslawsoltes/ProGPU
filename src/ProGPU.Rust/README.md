@@ -4,16 +4,29 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
-Latest connected batch: original native signed-winding and staged Boolean path
-programs now connect to retained painting and clip masks. The port includes bounded
-postfix input, original split classification, inline/linear signed evaluation,
-ordered leaf submissions, signed-row evaluation and R8 packing. Native/browser
-hosts share a 24-panel direct/inline-clip/staged-clip gallery.
+Latest parallel implementation batch: native PNG decoding, all nine native GPOS
+families and connected native Latin shaping; immutable color filters and five
+original GPU filter kernels; programmable shader translation, v1–v6 resources,
+owned captures/final-device draws; retained ROP3 operations and uniform-backdrop
+blending. Winit/browser selectors author 40 compositor and 12 shader-effect panels.
 
 **Mandatory implementation-first workflow:** complete the remaining code before
-validation. This latest batch is unvalidated; no native/WASM build, lint, shader,
-source-differential, browser or performance pass is claimed for it. The preceding
-`9393eb4f5` materialized-mask checkpoint retains its 18-module static evidence.
+validation. This entire batch is unvalidated; no compilation, lint, test, shader,
+source-differential, browser or performance pass is claimed. Original gates remain
+open. Three subagents port independent production stacks while the primary agent
+connects retained rendering, samples and package source inventory.
+
+| Latest parallel slice | Implemented | Remaining integration |
+| --- | --- | --- |
+| Native GPOS and shaping | All nine lookup families, GDEF filtering, device deltas, attachments, feature planner, design/device legacy kern and owned printable-ASCII/LTR Latin pipeline | Native complex-script orchestration and actual hinted-device producer |
+| PNG codec | Original chunks/CRC, zlib/DEFLATE, color/depth inventory, Adam7, filters, palette/transparency and caller-owned scratch | Color-font/provider integration and all source/error/performance controls |
+| Color filters | Immutable graph/factories, CPU brush colors, exact matrix packets, bounded planner and five owned GPU kernels | Texture matrix drawing, constant captures and complete graph execution |
+| Programmable shader effects | Original bytecode translator, v1–v6 readers/frames, bounded exact-byte cache, legacy capture and painter-ordered final-device draws | Managed multi-sampler/WGSL, nested source capture/revision ownership and source transport |
+| Destination operations | Retained all-code ROP3 with solid/tile/texture patterns, canonical source/compose/copy passes and explicit uniform-backdrop engine | Automatic uniform-target selection/cache, complete source commands and platform policies |
+| Host samples | Shared --compositor / ?scene=compositor and --shader-effects / ?scene=shader-effects | Authored only; compilation and execution deferred |
+
+Exact sources, ownership and gaps are recorded in [implementation notes](notes/)
+and the [design ledger](DESIGN.md). No existing evidence qualifies this checkpoint.
 
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
@@ -51,13 +64,13 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction; retained fill preparation fallback | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and complete compositor integration |
 | Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, images/effects/interception and full stroke/render pixels |
 | Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
-| Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, color matrices/effects and complete compositor integration |
+| Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, retained color matrices/filter graphs and complete compositor integration |
 | Image resources and mips | Immutable strided RGBA/BGRA/R8 owners, device-bound GPU handles, weak-owner upload cache, actual sampler policy, canonical GPU mip generation and occupied-tile/brush mapping; native/browser gallery | Runtime/source/browser validation; full mutable generation, subresource, capture, codec and provider ownership APIs |
 | Native signed/staged path programs | Original 63-instruction/16-stack model, raw winding/predicate distinction, native XOR/translated-leaf splitting, explicit inline/staged signed policy, ordered original GPU phases and shared painting/clip gallery | **Unvalidated:** compilation, source bytes/float/dispatch/pixels/lifetime/performance; full native scene/archive transport and managed atlas recovery remain unfinished |
 | Direct and materialized masks | Original direct 96/288-byte analytic/texture chains and binary clips, actual GPU red/alpha sources, native clip atlas/transfer, explicit brush/picture producers and automatic 64-component mixed/difference composition; native/browser gallery | Original bytes/float/pixels/replay/retirement/performance controls; source-scene recording/invalidation, native semantic/picture transport and complete source policies remain unfinished |
 | Owned captures and group effects | Complete eight-node native Gaussian/box/drop-shadow plan, original physical parameters and canonical GPU passes, owned job resources, same-submission scene capture and final image composition; shared effect gallery | Whole-source/runtime/browser/lifetime/performance controls; alternate execution routes, output caches, shader/image filters and source-specific compositing remain unfinished |
 | Bounded nested layers | Immutable source scenes, 16-target depth, native outward target bounds, original managed projection/render-origin mapping, nested captures before parent text, final group opacity and all 29 native destination blends; native/browser gallery | Original target/float/pixel/ownership/performance controls; source-specific AA/Clear/opacity policies, revision caches/pools and complete scene compiler remain unfinished |
-| Destination-aware blend passes | All fifteen advanced modes use canonical AdvancedBlend.wgsl, exact 96-byte records/256-byte slots, bounded source resolution, actual destination reads and ordered parent/root copies; immutable prepared resources and lazy pipelines | Original bytes/float/pixel/performance/retirement controls; uniform-backdrop fast path, caches, source-specific ROP/AA/Clear and complete semantic transport remain unfinished |
+| Destination-aware blend passes | All fifteen advanced modes use canonical AdvancedBlend.wgsl, exact 96-byte records/256-byte slots, bounded source resolution, actual destination reads and ordered parent/root copies; immutable prepared resources and lazy pipelines | Original bytes/float/pixel/performance/retirement controls; automatic uniform-backdrop selection/caches and complete semantic transport remain unfinished; explicit uniform-backdrop and retained ROP3 implementations are newly unvalidated |
 | Target-storage Clear | Original straight colors, target-local binary scissors, canonical replace pass, fresh 16-byte upload per occurrence, bounded/advanced-target ordering and replay counters; shared native/browser gallery | Native open-scope/semantic transport, scene Ignore-alpha targets and nested picture transport remain unfinished; original whole-frame/runtime/performance gates deferred |
 | Explicit source AA execution | Original independent-axis projection, outward allocation, exact area masks, consecutive-parent ratios, real background copies, canonical linear-byte/sRGB composition and loaded-scene replay; shared gallery | Complete native open-scope/scene transport, Ignore-alpha targets, original pixels and performance remain unfinished |
 | Retained source AA scenes | Immutable typed subtrees, complete closed depth preflight, actual binary-scoped Clear propagation, shared live parent targets and ordered resolves; whole-tree text pinning/final bindings; native/browser gallery | Original builder streams and pixels, small-atlas stress/cancellation/device-loss, replay/resource/performance controls and full source transport remain unqualified |

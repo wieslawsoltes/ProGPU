@@ -90,8 +90,17 @@ pub const PATH_SIGNED_LEAF: &str = concat!(
 pub const PATH_SIGNED_ROWS: &str = shader!("PathSignedWindingEvaluate");
 /// Original staged signed coverage packing.
 pub const PATH_SIGNED_PACK: &str = shader!("PathSignedWindingCoverage");
+/// Original uniform-backdrop group blending.
+pub const GROUP_BLEND: &str = shader!("GroupBlend");
+/// Original legacy bytecode-effect wrapper; validated body is inserted at preparation.
+pub const WPF_BYTECODE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl");
+/// Original final-device sample wrapper, with an independent complete input lattice.
+pub const WPF_BYTECODE_SAMPLE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl");
+/// Original affine final-device sample wrapper, retaining both cross terms.
+pub const WPF_BYTECODE_AFFINE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl");
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("group_blend", GROUP_BLEND),
     ("path_signed_leaf", PATH_SIGNED_LEAF),
     ("path_signed_rows", PATH_SIGNED_ROWS),
     ("path_signed_pack", PATH_SIGNED_PACK),

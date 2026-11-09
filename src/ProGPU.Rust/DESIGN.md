@@ -7401,3 +7401,35 @@ negative/even winding, overlap, mutation/retirement/device loss, browser and ful
 performance/allocator evidence. Full native scene/archive transport, source group
 lowering, managed PathAtlas recovery and original platform/provider/package gates
 remain incomplete. No historical evidence or failure is superseded.
+
+
+## Parallel production stack increment (2026-11-09; unvalidated)
+
+Three subagents ported native PNG, native positioning/shaping and programmable
+shader/color-filter stacks while the primary agent connected retained drawing,
+destination operations and hosts. The user's mandatory order defers compilation,
+lint/tests, shader/browser execution, source/performance and package qualification
+until all implementation is complete. Only source formatting ran.
+
+| Production slice | Exact provenance and ownership ledger |
+| --- | --- |
+| Native PNG and original DEFLATE | [PNG port](notes/native-png-port.md) |
+| All nine native GPOS lookup families | [GPOS port](notes/native-gpos-port.md) |
+| Native feature planning, metrics, kern and Latin shaping | [Native pipeline](notes/native-shaping-pipeline-port.md) |
+| Immutable color filters, matrix records and five GPU kernels | [Color-filter port](notes/color-filter-port.md) |
+| Bytecode translator, v1–v6 frames and owned GPU shaders | [Shader-effect port](notes/shader-effect-port.md) |
+| Retained ROP3, uniform backdrop and final-device shaders | [Compositor port](notes/retained-compositor-port.md) |
+
+Only original ProGPU sources were ported. Existing architecture references apply;
+individual notes record source hashes, SIMD/scalar boundaries and pending routes.
+Five compute sources and three bytecode templates are included unchanged.
+GroupBlend raises the standalone module inventory to 22. Inclusion is not
+validation: latest successful offline shader evidence still covers 18 modules at
+`9393eb4f5`. Bytecode wrappers require translated bodies and are not standalone.
+
+The 40-panel compositor and 12-panel shader galleries are authored for winit and
+browser, without compilation/execution. Full native complex shaping/hinted
+providers, filter graph execution/matrix draws, managed multi-sampler shaders,
+source capture/revision ownership, semantic transport, atlas recovery and all
+release gates remain unfinished. Historical float/performance/browser/platform
+failures are unchanged. The cleanup receipt records current disk state.

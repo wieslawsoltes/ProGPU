@@ -54,6 +54,14 @@ window.progpuReady = (async () => {
     renderer.select_path_program_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'compositor') {
+    renderer.select_compositor_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
+  if (new URLSearchParams(location.search).get('scene') === 'shader-effects') {
+    renderer.select_shader_effect_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   // Serialize mutable WASM borrows across asynchronous preparation and tests.
   let tail = Promise.resolve();
   const exclusive = action => {

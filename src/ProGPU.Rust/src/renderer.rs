@@ -17,7 +17,11 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod advanced;
+mod uniform_backdrop;
 pub use advanced::AdvancedBlendMetrics;
+pub use uniform_backdrop::{
+    PreparedUniformBackdrop, UniformBackdropEngine, UniformBackdropMetrics, UniformBackdropUniforms,
+};
 mod axis_clip;
 pub use axis_clip::{AxisClipMetrics, AxisClipPass, AxisClipReplayMetrics, PreparedAxisClip};
 mod capture;
@@ -36,6 +40,7 @@ mod layout;
 mod mask;
 mod materialized_mask;
 pub use materialized_mask::{CapturedMask, MaskBrushFrame};
+mod shader_effect;
 mod text;
 pub use capture::CapturedScene;
 
@@ -162,6 +167,7 @@ pub struct PreparedScene {
     layers: LayerMetrics,
     groups: PreparedGroups,
     image_effects: Option<image_effect::PreparedImageEffects>,
+    shaders: Option<shader_effect::PreparedShaders>,
     advanced: Option<advanced::PreparedAdvanced>,
     clears: Option<clear::PreparedClears>,
     metrics: UploadMetrics,
@@ -241,6 +247,7 @@ pub struct Renderer {
     text_options: crate::text::glyph::GlyphAtlasOptions,
     images: Option<image::ImageState>,
     image_effects: Option<image_effect::ImageEffectState>,
+    shader_engine: Option<crate::shader_effect::ShaderEffectEngine>,
     masks: Option<mask::MaskState>,
     materialized_masks: Option<materialized_mask::MaterialMaskState>,
     effects: Option<crate::effects::EffectEngine>,
@@ -377,6 +384,7 @@ impl Renderer {
             text_options: Default::default(),
             images: None,
             image_effects: None,
+            shader_engine: None,
             masks: None,
             materialized_masks: None,
             effects: None,
@@ -424,6 +432,7 @@ impl Renderer {
     ) -> Result<PreparedScene, Error> {
         let target = RenderFrame::from(frame);
         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
+        self.preflight_shaders(scene, target)?;
         if scene.layer_depth() != 0 {
             self.preflight_layers(scene, target)?;
         } else {
@@ -496,6 +505,7 @@ impl Renderer {
         }
         self.validate_geometry(&compiled.mesh, frame)?;
         self.validate_masks(compiled)?;
+        self.validate_shaders(compiled, frame)?;
         let (mask_bytes, mask_passes) = self.compiled_mask_cost(compiled, frame)?;
         let (effect_bytes, effect_passes) = self.validate_image_effects(compiled)?;
         if mask_bytes + effect_bytes > 512 * 1024 * 1024 || mask_passes + effect_passes > 16384 {
@@ -539,6 +549,7 @@ impl Renderer {
         self.prepare_clears(compiled, &mut prepared).await?;
         self.prepare_image_effects(compiled, frame, &mut prepared)
             .await?;
+        self.prepare_shaders(compiled, frame, &mut prepared).await?;
         self.prepare_advanced(compiled, frame, &mut prepared)
             .await?;
         self.finish_groups(&mut prepared).await?;
@@ -729,6 +740,7 @@ impl Renderer {
             layers: LayerMetrics::default(),
             groups: PreparedGroups::default(),
             image_effects: None,
+            shaders: None,
             advanced: None,
             clears: None,
             metrics: UploadMetrics {
@@ -991,6 +1003,14 @@ impl Renderer {
                     }
                     pass.set_scissor_rect(x, y, width, height);
                 }
+                if let DrawRange::ShaderEffect(index) = draw {
+                    scene.shaders.as_ref().ok_or(Error::ResourceDomain)?.draw(
+                        &mut pass,
+                        *index,
+                        draw_state.map(|s| s.scissor),
+                    )?;
+                    continue;
+                }
                 if let DrawRange::ImageEffect(index) = draw {
                     scene
                         .image_effects
@@ -1018,7 +1038,9 @@ impl Renderer {
                     None
                 };
                 match draw {
-                    DrawRange::State(_) | DrawRange::ImageEffect(_) => unreachable!(),
+                    DrawRange::State(_)
+                    | DrawRange::ImageEffect(_)
+                    | DrawRange::ShaderEffect(_) => unreachable!(),
                     DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_) => {
                         unreachable!()
                     }

@@ -16,6 +16,8 @@ use sample::sample_scene;
 mod axis_clip_sample;
 #[path = "support/clear_scene.rs"]
 mod clear_sample;
+#[path = "support/compositor_scene.rs"]
+mod compositor_sample;
 #[path = "support/effect_scene.rs"]
 mod effect_sample;
 #[path = "support/image_effect_scene.rs"]
@@ -34,6 +36,8 @@ mod materialized_mask_sample;
 mod path_program_sample;
 #[path = "support/retained_aa_scene.rs"]
 mod retained_aa_sample;
+#[path = "support/shader_effect_scene.rs"]
+mod shader_effect_sample;
 #[path = "support/text_scene.rs"]
 mod text_sample;
 
@@ -50,6 +54,8 @@ enum CompositeGallery {
     ImageEffects,
     MaterializedMasks,
     PathPrograms,
+    Compositor,
+    ShaderEffects,
 }
 
 struct WindowRenderer {
@@ -177,6 +183,21 @@ impl WindowRenderer {
                 metrics.loaded_copy_bytes
             );
             scene
+        } else if self.composite_gallery == CompositeGallery::Compositor {
+            pollster::block_on(compositor_sample::compositor_scene(
+                &mut self.renderer,
+                &self.device,
+                &self.queue,
+                dpi,
+            ))?
+        } else if self.composite_gallery == CompositeGallery::ShaderEffects {
+            pollster::block_on(shader_effect_sample::shader_effect_scene(
+                &mut self.renderer,
+                &self.device,
+                &self.queue,
+                dpi,
+                [frame.width, frame.height],
+            ))?
         } else if self.composite_gallery == CompositeGallery::PathPrograms {
             pollster::block_on(path_program_sample::path_program_scene(
                 &self.device,
@@ -385,6 +406,8 @@ fn main() -> Result<()> {
             "--clears" => app.composite_gallery = CompositeGallery::Clears,
             "--axis-clips" => app.composite_gallery = CompositeGallery::AxisClips,
             "--retained-aa" => app.composite_gallery = CompositeGallery::RetainedAa,
+            "--compositor" => app.composite_gallery = CompositeGallery::Compositor,
+            "--shader-effects" => app.composite_gallery = CompositeGallery::ShaderEffects,
             "--path-programs" => app.composite_gallery = CompositeGallery::PathPrograms,
             "--materialized-masks" => app.composite_gallery = CompositeGallery::MaterializedMasks,
             "--image-effects" => app.composite_gallery = CompositeGallery::ImageEffects,
@@ -404,7 +427,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

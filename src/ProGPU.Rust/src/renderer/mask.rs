@@ -339,6 +339,7 @@ impl Renderer {
                     | DrawRange::Clear(_)
                     | DrawRange::Axis(_)
                     | DrawRange::ImageEffect(_)
+                    | DrawRange::ShaderEffect(_)
             ) {
                 continue;
             }

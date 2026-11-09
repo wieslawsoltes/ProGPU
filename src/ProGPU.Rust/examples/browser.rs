@@ -7,6 +7,8 @@ mod axis_clip_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/clear_scene.rs"]
 mod clear_sample;
+#[path = "support/compositor_scene.rs"]
+mod compositor_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/effect_scene.rs"]
 mod effect_sample;
@@ -39,6 +41,8 @@ mod retained_aa_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/sample_scene.rs"]
 mod sample;
+#[path = "support/shader_effect_scene.rs"]
+mod shader_effect_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/text_scene.rs"]
 mod text_sample;
@@ -1689,6 +1693,8 @@ mod web {
         image_effect_scene: bool,
         materialized_mask_scene: bool,
         path_program_scene: bool,
+        compositor_scene: bool,
+        shader_effect_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
@@ -1774,6 +1780,8 @@ mod web {
             image_effect_scene: false,
             materialized_mask_scene: false,
             path_program_scene: false,
+            compositor_scene: false,
+            shader_effect_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
@@ -1815,6 +1823,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1842,6 +1852,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1858,6 +1870,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1873,6 +1887,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1888,6 +1904,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1903,6 +1921,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1918,6 +1938,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -1933,6 +1955,8 @@ mod web {
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -1948,6 +1972,8 @@ mod web {
             self.image_effect_scene = enabled;
             self.materialized_mask_scene = false;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -1963,6 +1989,8 @@ mod web {
             self.ensure_live()?;
             self.materialized_mask_scene = enabled;
             self.path_program_scene = false;
+            self.compositor_scene = false;
+            self.shader_effect_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -1978,6 +2006,18 @@ mod web {
         pub fn select_path_program_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.path_program_scene = enabled;
+            Ok(())
+        }
+        /// Select original raster operations and uniform-backdrop group blending.
+        pub fn select_compositor_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.compositor_scene = enabled;
+            Ok(())
+        }
+        /// Select original bytecode and actual-target shader-effect drawing.
+        pub fn select_shader_effect_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.shader_effect_scene = enabled;
             Ok(())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
@@ -2000,6 +2040,31 @@ mod web {
                 .map_err(error)?;
                 axis_clip_metrics = metrics;
                 (source, Default::default())
+            } else if self.compositor_scene {
+                (
+                    super::compositor_sample::compositor_scene(
+                        &mut self.renderer,
+                        &self.device,
+                        &self.queue,
+                        dpi,
+                    )
+                    .await
+                    .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.shader_effect_scene {
+                (
+                    super::shader_effect_sample::shader_effect_scene(
+                        &mut self.renderer,
+                        &self.device,
+                        &self.queue,
+                        dpi,
+                        [width, height],
+                    )
+                    .await
+                    .map_err(error)?,
+                    Default::default(),
+                )
             } else if self.path_program_scene {
                 (
                     super::path_program_sample::path_program_scene(&self.device, &self.queue, dpi)

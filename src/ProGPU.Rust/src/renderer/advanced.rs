@@ -54,6 +54,7 @@ pub(super) struct AdvancedState {
     pub(super) pipeline: wgpu::RenderPipeline,
     pub(super) copy: wgpu::RenderPipeline,
     masked: Option<wgpu::RenderPipeline>,
+    raster: [Option<wgpu::RenderPipeline>; 2],
 }
 impl AdvancedState {
     pub(super) async fn new(
@@ -132,6 +133,7 @@ impl AdvancedState {
             pipeline,
             copy,
             masked: None,
+            raster: [None, None],
         })
     }
 }
@@ -143,6 +145,7 @@ struct Operation {
     blend_binding: wgpu::BindGroup,
     scissor: [u32; 4],
     first_vertex: u64,
+    source_range: Option<std::ops::Range<u32>>,
 }
 pub(super) struct PreparedAdvanced {
     state: AdvancedState,
@@ -241,17 +244,28 @@ impl Renderer {
         frame: RenderFrame,
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
-        let mut pending = Vec::<(usize, Option<usize>, &AdvancedImage, [u32; 4])>::new();
+        let mut pending = Vec::<(usize, Option<usize>, &AdvancedImage, [u32; 4], [u32; 4])>::new();
         let mut mask_index = None;
         let mut source_size = [0u32; 2];
         for (index, draw) in compiled.draws.iter().enumerate() {
             match draw {
                 DrawRange::State(index) => mask_index = Some(*index),
                 DrawRange::Advanced(draw) => {
-                    if draw.blend.is_fixed() {
+                    if draw.blend.is_fixed() && draw.raster_operation.is_none() {
                         return Err(Error::ResourceDomain);
                     }
-                    let [x, y, w, h] = draw.bounds;
+                    let bounds = match draw.bounds {
+                        Some(bounds) => bounds,
+                        None => raster_bounds(
+                            compiled,
+                            draw.source_range.as_ref().ok_or(Error::ResourceDomain)?,
+                            frame,
+                        )?,
+                    };
+                    let [x, y, w, h] = bounds;
+                    if w == 0 || h == 0 {
+                        continue;
+                    }
                     let [ox, oy] = frame.origin;
                     if w == 0
                         || h == 0
@@ -290,7 +304,7 @@ impl Renderer {
                     source_size[0] = source_size[0].max(w);
                     source_size[1] = source_size[1].max(h);
                     pending.try_reserve(1).map_err(|_| Error::Capacity)?;
-                    pending.push((index, mask_index, draw, scissor));
+                    pending.push((index, mask_index, draw, scissor, bounds));
                 }
                 _ => {}
             }
@@ -313,13 +327,14 @@ impl Renderer {
         {
             return Err(Error::Capacity);
         }
-        let needs_mask = pending.iter().any(|(_, index, _, _)| {
-            index.is_some_and(|i| {
-                prepared
-                    .masks
-                    .as_ref()
-                    .is_some_and(|m| m.states[i].binding.is_some())
-            })
+        let needs_mask = pending.iter().any(|(_, index, draw, _, _)| {
+            draw.raster_operation.is_none()
+                && index.is_some_and(|i| {
+                    prepared
+                        .masks
+                        .as_ref()
+                        .is_some_and(|m| m.states[i].binding.is_some())
+                })
         });
         let mut state = match self.advanced.take() {
             Some(state) => state,
@@ -330,6 +345,29 @@ impl Renderer {
                 image::pipeline(&self.device, self.format, false, LayerBlend::Src, true).await?,
             );
         }
+        for masked in [false, true] {
+            if pending.iter().any(|(_, index, draw, _, _)| {
+                draw.raster_operation.is_some()
+                    && index.is_some_and(|i| {
+                        prepared
+                            .masks
+                            .as_ref()
+                            .is_some_and(|m| m.states[i].binding.is_some())
+                    }) == masked
+            }) && state.raster[usize::from(masked)].is_none()
+            {
+                state.raster[usize::from(masked)] = Some(
+                    image::pipeline(
+                        &self.device,
+                        self.format,
+                        false,
+                        LayerBlend::SrcOver,
+                        masked,
+                    )
+                    .await?,
+                );
+            }
+        }
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let result = self.populate_advanced(
             &state,
@@ -339,6 +377,7 @@ impl Renderer {
             texture_bytes,
             uniform_bytes,
             prepared.groups.root.as_ref(),
+            prepared.images.as_ref().ok_or(Error::ResourceDomain)?,
         );
         if let Some(error) = scope.pop().await {
             return Err(error.into());
@@ -353,11 +392,12 @@ impl Renderer {
         &self,
         state: &AdvancedState,
         frame: RenderFrame,
-        pending: Vec<(usize, Option<usize>, &AdvancedImage, [u32; 4])>,
+        pending: Vec<(usize, Option<usize>, &AdvancedImage, [u32; 4], [u32; 4])>,
         source_size: [u32; 2],
         texture_bytes: u64,
         uniform_bytes: u64,
         root_owner: Option<&GroupTarget>,
+        images: &image::PreparedImages,
     ) -> Result<PreparedAdvanced, Error> {
         let device = &self.device;
         let create = |size: [u32; 2], label| -> Result<GpuImage, Error> {
@@ -429,9 +469,9 @@ impl Renderer {
         data.try_reserve_exact(uniform_bytes as usize)
             .map_err(|_| Error::Capacity)?;
         data.resize(uniform_bytes as usize, 0u8);
-        for (index, (_, _, draw, _)) in pending.iter().enumerate() {
-            let [x, y, w, h] = draw.bounds;
-            let uniforms = SamplingUniforms {
+        for (index, (_, _, draw, _, bounds)) in pending.iter().enumerate() {
+            let [x, y, w, h] = *bounds;
+            let mut uniforms = SamplingUniforms {
                 // Preserve native subtraction AFTER each integer-to-float conversion.
                 source_origin: [
                     x as f32 - frame.origin[0] as f32,
@@ -441,6 +481,9 @@ impl Renderer {
                 blend_mode: draw.blend as u32,
                 ..SamplingUniforms::zeroed()
             };
+            if let Some(operation) = &draw.raster_operation {
+                raster_uniforms(&mut uniforms, operation, frame)?;
+            }
             data[index * 256..index * 256 + 96].copy_from_slice(bytemuck::bytes_of(&uniforms));
         }
         let uniform_buffer = buffer(
@@ -457,8 +500,10 @@ impl Renderer {
         operations
             .try_reserve_exact(pending.len())
             .map_err(|_| Error::Capacity)?;
-        for (index, (draw_index, state_index, draw, scissor)) in pending.into_iter().enumerate() {
-            let [x, y, w, h] = draw.bounds;
+        for (index, (draw_index, state_index, draw, scissor, bounds)) in
+            pending.into_iter().enumerate()
+        {
+            let [x, y, w, h] = bounds;
             let mut uniforms = Frame {
                 width: source_size[0],
                 height: source_size[1],
@@ -466,6 +511,35 @@ impl Renderer {
             }
             .uniforms(device.limits().max_texture_dimension_2d)?;
             uniforms.render_origin = [x as f32, y as f32];
+            if draw.raster_operation.is_some() {
+                // Original managed bounded-source frame. Keep multiplication
+                // before division and original global source pixel origin.
+                let sw = source_size[0] as f32;
+                let sh = source_size[1] as f32;
+                let projection = [
+                    2.0 * frame.dpi_scale / sw,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    -2.0 * frame.dpi_scale / sh,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    -1.0 - (2.0 * x as f32 / sw),
+                    1.0 + (2.0 * y as f32 / sh),
+                    0.0,
+                    1.0,
+                ];
+                uniforms.projection = projection;
+                uniforms.mvp = projection;
+                uniforms.canvas_size = [x as f32, y as f32];
+                uniforms.pad0 = 2.0;
+                uniforms.render_origin = [0.0; 2];
+            }
             let resolve_frame = frame_binding(device, &state.copy, uniforms);
             let blend_binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ProGPU immutable original advanced blend binding"),
@@ -481,7 +555,10 @@ impl Renderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&source),
+                        resource: wgpu::BindingResource::TextureView(match draw.pattern_binding {
+                            Some(index) => images.views.get(index).ok_or(Error::ResourceDomain)?,
+                            None => &source,
+                        }),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
@@ -503,6 +580,7 @@ impl Renderer {
                 blend_binding,
                 scissor,
                 first_vertex,
+                source_range: draw.source_range.clone(),
             });
         }
         let copy_vertex = vertices.len() as u64 * size_of::<VectorVertex>() as u64;
@@ -579,7 +657,11 @@ impl Renderer {
                 );
                 let [x, y, w, h] = operation.scissor;
                 pass.set_scissor_rect(x, y, w, h);
-                pass.set_pipeline(if mask.is_some() {
+                pass.set_pipeline(if operation.source_range.is_some() {
+                    advanced.state.raster[usize::from(mask.is_some())]
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                } else if mask.is_some() {
                     advanced
                         .state
                         .masked
@@ -600,14 +682,20 @@ impl Renderer {
                 if let Some(mask) = mask {
                     pass.set_bind_group(2, mask, &[]);
                 }
-                pass.set_vertex_buffer(
-                    0,
-                    advanced
-                        .vertices
-                        .slice(operation.first_vertex..operation.first_vertex + 224),
-                );
-                pass.set_index_buffer(advanced.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..6, 0, 0..1);
+                if let Some(range) = &operation.source_range {
+                    pass.set_vertex_buffer(0, images.vertices.slice(..));
+                    pass.set_index_buffer(images.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(range.clone(), 0, 0..1);
+                } else {
+                    pass.set_vertex_buffer(
+                        0,
+                        advanced
+                            .vertices
+                            .slice(operation.first_vertex..operation.first_vertex + 224),
+                    );
+                    pass.set_index_buffer(advanced.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..6, 0, 0..1);
+                }
             }
             {
                 let mut pass = begin(
@@ -697,4 +785,105 @@ pub(super) fn advanced_texture_bytes(frame: [u32; 2], source: [u32; 2]) -> Resul
         return Err(Error::Capacity);
     }
     Ok(total)
+}
+
+fn raster_bounds(
+    compiled: &CompiledScene,
+    range: &std::ops::Range<u32>,
+    frame: RenderFrame,
+) -> Result<[u32; 4], Error> {
+    let indices = compiled
+        .image_mesh
+        .indices()
+        .get(range.start as usize..range.end as usize)
+        .ok_or(Error::ResourceDomain)?;
+    if indices.is_empty() {
+        return Ok([0; 4]);
+    }
+    let mut extent = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
+    // Original ordered finite index inventory. Independent XY extent updates
+    // retain source min/max order; physical XY projection uses independent SIMD lanes.
+    for index in indices {
+        let [x, y] = compiled
+            .image_mesh
+            .vertices()
+            .get(*index as usize)
+            .ok_or(Error::ResourceDomain)?
+            .position;
+        if !x.is_finite() || !y.is_finite() {
+            return Err(Error::InvalidInput);
+        }
+        extent[0] = extent[0].min(x);
+        extent[1] = extent[1].min(y);
+        extent[2] = extent[2].max(x);
+        extent[3] = extent[3].max(y);
+    }
+    let physical = (wide::f32x4::from(extent) * wide::f32x4::splat(frame.dpi_scale)).to_array();
+    if physical.iter().any(|v| !v.is_finite()) {
+        return Err(Error::InvalidInput);
+    }
+    let [ox, oy] = frame.origin;
+    let left = (physical[0].floor().clamp(0.0, frame.root.width as f32) as u32).max(ox);
+    let top = (physical[1].floor().clamp(0.0, frame.root.height as f32) as u32).max(oy);
+    let right =
+        (physical[2].ceil().clamp(0.0, frame.root.width as f32) as u32).min(ox + frame.width);
+    let bottom =
+        (physical[3].ceil().clamp(0.0, frame.root.height as f32) as u32).min(oy + frame.height);
+    Ok([
+        left,
+        top,
+        right.saturating_sub(left),
+        bottom.saturating_sub(top),
+    ])
+}
+fn raster_uniforms(
+    uniforms: &mut SamplingUniforms,
+    operation: &crate::composition::RasterOperation,
+    frame: RenderFrame,
+) -> Result<(), Error> {
+    use crate::composition::RasterPattern;
+    operation.validate()?;
+    uniforms.operation_kind = 1;
+    uniforms.raster_operation_code = u32::from(operation.code);
+    let origin = match &operation.pattern {
+        RasterPattern::Solid(color) => {
+            uniforms.pattern_color = *color;
+            return Ok(());
+        }
+        RasterPattern::Tile {
+            bits,
+            foreground,
+            background,
+            origin,
+        } => {
+            uniforms.pattern_kind = 1;
+            uniforms.pattern_color = *foreground;
+            uniforms.pattern_background_color = *background;
+            uniforms.pattern_mask_low = *bits as u32;
+            uniforms.pattern_mask_high = (*bits >> 32) as u32;
+            uniforms.pattern_flags = u32::from(background[3] <= 0.0);
+            *origin
+        }
+        RasterPattern::Texture { image, origin } => {
+            uniforms.pattern_kind = 2;
+            uniforms.pattern_texture_extent = image.size().map(|v| v as f32);
+            *origin
+        }
+    };
+    let original = (wide::f32x4::from([origin[0], origin[1], 0.0, 0.0])
+        * wide::f32x4::splat(frame.dpi_scale))
+    .to_array();
+    uniforms.pattern_origin = [
+        original[0] - frame.origin[0] as f32,
+        original[1] - frame.origin[1] as f32,
+    ];
+    if uniforms.pattern_origin.iter().any(|v| !v.is_finite()) {
+        return Err(Error::InvalidInput);
+    }
+    Ok(())
 }

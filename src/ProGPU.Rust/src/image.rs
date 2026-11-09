@@ -5,6 +5,21 @@ use crate::{
     geometry::{Affine, Mesh, VectorVertex},
 };
 use std::sync::Arc;
+mod color_filter;
+pub use color_filter::{
+    ColorFilter, ColorFilterKind, ColorFilterOperation, ColorFilterPlan, ColorFilterStep,
+    ColorTableLayout, ColorTables, HighContrast, ImageColorMatrix, ImageColorUniforms, InvertStyle,
+    NativeImageColorMatrix, NonlinearColorUniforms, OverdrawColorUniforms,
+};
+#[cfg(feature = "gpu")]
+pub use color_filter::{
+    ColorFilterComputeEngine, ColorFilterComputeMetrics, PreparedColorFilterCompute,
+};
+mod png;
+pub use png::{
+    PngDecodeError, PngDecodeExecution, PngDecodeRequirements, PngDecoder, PngImageError,
+    decode_png_rgba, png_decode_requirements,
+};
 mod vertices;
 pub use vertices::{ImageBrush, TileImageDraw, TileImageSampling};
 #[cfg(feature = "gpu")]

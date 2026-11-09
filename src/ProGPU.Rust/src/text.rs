@@ -1,11 +1,13 @@
-//! Original ProGPU text contracts. Simple runs retain UTF-16 source positions;
-//! they do not substitute for OpenType shaping, bidi or paragraph layout.
+//! Original ProGPU text contracts and independent native/managed shaping routes.
+//! Simple runs retain UTF-16 source positions; their admission remains separate
+//! from OpenType shaping, bidi and paragraph layout.
 
 mod font_face;
 pub mod glyph;
 pub mod layout;
 pub mod managed_pipeline;
 mod managed_shaping;
+pub mod native_pipeline;
 pub mod paint;
 pub use font_face::{ManagedShapingFontFace, ShapingFontFace, ShapingGlyphExtents};
 mod shaping;

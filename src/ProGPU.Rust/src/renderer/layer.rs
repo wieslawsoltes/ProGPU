@@ -54,6 +54,8 @@ pub struct LayerMetrics {
     pub source_image_effects: ImageEffectMetrics,
     /// Materialized masks prepared inside captured subtrees.
     pub source_masks: crate::mask::MaskCompositionMetrics,
+    /// Actual final-device programmable shader resources/draws in child targets.
+    pub source_shaders: crate::shader_effect::ShaderEffectMetrics,
 }
 
 #[derive(Clone, Copy)]
@@ -173,6 +175,7 @@ impl Renderer {
         passes: &mut u32,
     ) -> Result<(), Error> {
         use crate::scene::GroupRef;
+        self.preflight_shaders(scene, frame)?;
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         self.validate_mask_states(&states)?;
         let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
@@ -409,6 +412,7 @@ impl Renderer {
 impl LayerMetrics {
     pub(super) fn add_nested(&mut self, other: Self) -> Result<(), Error> {
         self.source_masks.merge(other.source_masks)?;
+        shader_effect::merge_metrics(&mut self.source_shaders, other.source_shaders)?;
         self.source_aa.merge(other.source_aa)?;
         self.source_image_effects
             .merge(other.source_image_effects)?;
@@ -497,6 +501,9 @@ impl LayerMetrics {
         self.source_masks.merge(child.source_masks)?;
         self.source_masks.merge(scene.mask_composition_metrics())?;
         self.source_masks.merge(aa.source_masks)?;
+        shader_effect::merge_metrics(&mut self.source_shaders, child.source_shaders)?;
+        shader_effect::merge_metrics(&mut self.source_shaders, scene.shader_effect_metrics())?;
+        shader_effect::merge_metrics(&mut self.source_shaders, aa.source_shaders)?;
         self.source_image_effects
             .merge(child.source_image_effects)?;
         self.source_image_effects

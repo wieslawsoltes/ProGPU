@@ -35,6 +35,7 @@ pub(super) struct PreparedImages {
     pub indices: wgpu::Buffer,
     pub uniforms: wgpu::BindGroup,
     pub bindings: Vec<wgpu::BindGroup>,
+    pub views: Vec<wgpu::TextureView>,
 }
 
 pub(super) async fn pipeline(
@@ -413,6 +414,7 @@ impl Renderer {
             .ok_or(Error::ResourceDomain)?
             .clone();
         let mut bindings = Vec::new();
+        let mut views = Vec::new();
         bindings
             .try_reserve_exact(compiled.images.len())
             .map_err(|_| Error::Capacity)?;
@@ -457,6 +459,7 @@ impl Renderer {
                     address: binding.key.address,
                 },
             );
+            views.push(view.clone());
             bindings.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ProGPU retained image source"),
                 layout: &layout,
@@ -511,6 +514,7 @@ impl Renderer {
             indices,
             uniforms,
             bindings,
+            views,
         });
         Ok(())
     }

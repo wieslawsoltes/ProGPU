@@ -135,7 +135,7 @@ impl Scene {
             result.commands.push(match c {
                 Command::Layer(l) => match outputs.next().ok_or(Error::ResourceDomain)? {
                     GroupOutput::Layer(Some((image, bounds))) => {
-                        Command::Image(image, l.blend, Some(bounds))
+                        Command::Image(image, l.blend, Some(bounds), None)
                     }
                     GroupOutput::Layer(None) => Command::Empty,
                     _ => return Err(Error::ResourceDomain),

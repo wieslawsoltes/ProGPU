@@ -33,9 +33,13 @@ pub use clear::{ClearColor, TargetAlpha};
 mod layer;
 mod mask;
 pub use layer::{LayerBlend, LayerDraw};
+#[cfg(feature = "gpu")]
+mod shader_effect;
 mod text;
 #[cfg(feature = "gpu")]
 pub(crate) use mask::CompiledDrawState;
+#[cfg(feature = "gpu")]
+pub use shader_effect::ShaderEffectDraw;
 #[cfg(feature = "gpu")]
 pub(crate) use text::ResolvedSceneText;
 
@@ -44,6 +48,8 @@ pub(crate) enum DrawRange {
     State(usize),
     Clear(ClearColor),
     ImageEffect(usize),
+    #[cfg(feature = "gpu")]
+    ShaderEffect(usize),
     #[cfg(feature = "gpu")]
     Axis(usize),
     Vector(std::ops::Range<u32>),
@@ -59,8 +65,11 @@ pub(crate) enum DrawRange {
 pub(crate) struct AdvancedImage {
     pub binding: usize,
     pub blend: LayerBlend,
-    pub bounds: [u32; 4],
+    pub bounds: Option<[u32; 4]>,
     pub opacity: f32,
+    pub raster_operation: Option<crate::composition::RasterOperation>,
+    pub source_range: Option<std::ops::Range<u32>>,
+    pub pattern_binding: Option<usize>,
 }
 
 fn append_draw(draws: &mut Vec<DrawRange>, draw: DrawRange) {
@@ -163,6 +172,8 @@ enum Command {
     Clear(ClearColor),
     Layer(Box<LayerDraw>),
     ImageEffect(Box<crate::image_effect::ImageEffectDraw>),
+    #[cfg(feature = "gpu")]
+    ShaderEffect(Box<ShaderEffectDraw>),
     AxisClip(Box<AxisClipDraw>),
     #[cfg(feature = "gpu")]
     ResolvedAxis(usize),
@@ -179,7 +190,12 @@ enum Command {
     TextPath(PathDraw, MaterialPaint, TextPathPolicy),
     #[cfg(feature = "gpu")]
     Glyph(GlyphInstance),
-    Image(Box<ImageDraw>, LayerBlend, Option<[u32; 4]>),
+    Image(
+        Box<ImageDraw>,
+        LayerBlend,
+        Option<[u32; 4]>,
+        Option<crate::composition::RasterOperation>,
+    ),
     TileImage(Box<TileImageDraw>),
 }
 
@@ -239,8 +255,34 @@ impl Scene {
     pub fn draw_image(&mut self, draw: ImageDraw) -> Result<(), Error> {
         draw.validate()?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
-        self.commands
-            .push(Command::Image(Box::new(draw), LayerBlend::SrcOver, None));
+        self.commands.push(Command::Image(
+            Box::new(draw),
+            LayerBlend::SrcOver,
+            None,
+            None,
+        ));
+        Ok(())
+    }
+    /// Retain an original image ROP3 operation in painter order. Source alpha
+    /// follows the canonical device-color path; masks/clips retain geometry
+    /// coverage. Fixed-color/atlas patch composites are separate commands.
+    pub fn draw_raster_operation(
+        &mut self,
+        draw: ImageDraw,
+        operation: crate::composition::RasterOperation,
+    ) -> Result<(), Error> {
+        draw.validate()?;
+        operation.validate()?;
+        if draw.patches.is_some() {
+            return Err(Error::UnsupportedExecution);
+        }
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::Image(
+            Box::new(draw),
+            LayerBlend::SrcOver,
+            None,
+            Some(operation),
+        ));
         Ok(())
     }
     /// Retain an explicit occupied tile-page draw. This primitive always uses
@@ -478,7 +520,9 @@ impl Scene {
                 | Command::TileImage(_)
                 | Command::ImageEffect(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
-                Command::Glyph(_) | Command::ResolvedAxis(_) => placements.push(None),
+                Command::Glyph(_) | Command::ResolvedAxis(_) | Command::ShaderEffect(_) => {
+                    placements.push(None)
+                }
                 Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
                 }
@@ -520,6 +564,8 @@ impl Scene {
             draws.push(DrawRange::State(0));
         }
         let mut image_effects = Vec::new();
+        #[cfg(feature = "gpu")]
+        let mut shader_effects = Vec::new();
         let mut exact_loads = 0;
         let legacy_solid = Brush::default();
         // A mixed native scene reserves its existing unit-opacity vertex-color
@@ -568,11 +614,18 @@ impl Scene {
                     image_effects.push(draw.as_ref().clone());
                 }
                 #[cfg(feature = "gpu")]
+                Command::ShaderEffect(draw) => {
+                    draw.validate()?;
+                    shader_effects.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    draws.push(DrawRange::ShaderEffect(shader_effects.len()));
+                    shader_effects.push(draw.as_ref().clone());
+                }
+                #[cfg(feature = "gpu")]
                 Command::ResolvedAxis(index) => draws.push(DrawRange::Axis(*index)),
-                Command::Image(draw, blend, bounds) => {
+                Command::Image(draw, blend, bounds, raster_operation) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
-                    if blend.is_fixed() {
+                    if blend.is_fixed() || raster_operation.is_some() {
                         draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
                     }
                     let key = draw.binding_key();
@@ -584,14 +637,43 @@ impl Scene {
                         });
                         next
                     });
-                    if !blend.is_fixed() {
+                    if !blend.is_fixed() || raster_operation.is_some() {
                         #[cfg(feature = "gpu")]
-                        draws.push(DrawRange::Advanced(AdvancedImage {
-                            binding,
-                            blend: *blend,
-                            bounds: bounds.ok_or(Error::ResourceDomain)?,
-                            opacity: draw.opacity,
-                        }));
+                        {
+                            let mut pattern_binding = None;
+                            if let Some(crate::composition::RasterOperation {
+                                pattern: crate::composition::RasterPattern::Texture { image, .. },
+                                ..
+                            }) = raster_operation
+                            {
+                                let key = ImageBindingKey {
+                                    source: image.identity(),
+                                    sampling: crate::image::ImageSampling::Nearest,
+                                    anisotropy: 1,
+                                    address: [crate::image::ImageAddress::Clamp; 2],
+                                };
+                                let next = images.len();
+                                pattern_binding =
+                                    Some(*image_bindings.entry(key).or_insert_with(|| {
+                                        images.push(ImageBinding {
+                                            image: image.clone(),
+                                            key,
+                                        });
+                                        next
+                                    }));
+                            }
+                            draws.push(DrawRange::Advanced(AdvancedImage {
+                                binding,
+                                blend: *blend,
+                                bounds: *bounds,
+                                opacity: draw.opacity,
+                                raster_operation: raster_operation.clone(),
+                                source_range: raster_operation
+                                    .as_ref()
+                                    .map(|_| start..image_mesh.indices().len() as u32),
+                                pattern_binding,
+                            }));
+                        }
                         #[cfg(not(feature = "gpu"))]
                         {
                             let _ = bounds;
@@ -600,7 +682,7 @@ impl Scene {
                     }
                     let end =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
-                    if end != start {
+                    if end != start && raster_operation.is_none() {
                         append_draw(&mut draws, DrawRange::Image(start..end, binding, *blend));
                     }
                 }
@@ -695,6 +777,8 @@ impl Scene {
             states,
             image_mesh,
             image_effects,
+            #[cfg(feature = "gpu")]
+            shader_effects,
             images,
             image_sampling,
             has_tile_images: self
@@ -719,6 +803,8 @@ pub struct CompiledScene {
     pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,
     pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
+    #[cfg(feature = "gpu")]
+    pub(crate) shader_effects: Vec<ShaderEffectDraw>,
     pub(crate) images: Vec<ImageBinding>,
     pub(crate) image_sampling: ImageSamplingPath,
     pub(crate) has_tile_images: bool,

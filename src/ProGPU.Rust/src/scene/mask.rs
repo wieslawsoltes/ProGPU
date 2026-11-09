@@ -206,6 +206,10 @@ impl Scene {
             {
                 return Err(Error::UnsupportedExecution);
             }
+            #[cfg(feature = "gpu")]
+            if matches!(command, Command::ShaderEffect(_)) && states[current].count != 0 {
+                return Err(Error::UnsupportedExecution);
+            }
             if matches!(command, Command::PopScope) {
                 current = stack.pop().ok_or(Error::InvalidInput)?;
                 changes.push(Some(current));
