@@ -6005,3 +6005,137 @@ must include vector/text/vector alpha order, shared and legacy flags, empty/no-i
 slots, style indexing, color/coverage growth after earlier runs, exact per-axis scale
 and phase boundaries, repeated-path identities, source transfer, malformed inputs,
 real device loss and both cold/warm counters. No runtime or parity pass is claimed.
+
+
+## Retained images, sampler policy and GPU mip generation (2026-11-09)
+
+The original native retained image contract is the primary draw/admission source;
+managed code supplies its separate projective, tile-page, brush-map, sampling-policy
+and mip-generator contracts. Original repository sources inspected directly:
+
+| Original source | SHA-256 |
+| --- | --- |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_image.cpp | 0fba76f13ece2b5a6b726429951c014997303f0fd2a73c8cd90fffad12c056d4 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp | 3b49e72ee4a6d3d6d413f3e5f6eb3772d3894e730a0ec4f1926e6b0642449c32 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_image_resources.cpp | 3d4dcfd1105259210d9482160a0a7dbde5f9dca4d186efa84847eb4adb896859 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_render_execution.cpp | c0325d3d72f30d79f386cfc0619f84213090b67a3a203e9e69ac4e4add4a9dae |
+| src/ProGPU.Native/src/Backend/progpu_native_geometry_base.hpp | 85f794649c452e40c177d06aedd341098f0c73cbb56bfe1aabed4b907128a672 |
+| src/ProGPU.Native/src/Backend/progpu_native_image_layer_resources.cpp | 8d8fb8816f1db86563b5ab1551446f928bf4915021f095cfc1b8737d2c16d523 |
+| src/ProGPU.Native/src/Backend/progpu_native_image_execution.cpp | 09135c8ead728a45d4e2a65ab9196b2a2a3fbff535b65d8f01816ef37c6b547e |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_state.cpp | 2b801e9cc4673fa49092bdee28ac7c6275672c000f635798ba5767d759b30dd5 |
+| src/ProGPU.Scene/Compositor.cs | a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd |
+| src/ProGPU.Scene/RenderCommand.cs | dff6b8f8c375dcb8b2a2bae357145416bd48d05a5c12ebdbbbe0710dd98858f8 |
+| src/ProGPU.Scene/TexturePaintMapping.cs | 6b037db5ab3d705909016b0e62a91dc2dc342ce5c25b4a8d30289f7f348049c0 |
+| src/ProGPU.Scene/GpuTextureBrush.cs | 5b25fb14f425758a0523d5b5cc05e16a378b180dc3b561d5b39b400009c68040 |
+| src/ProGPU.Vector/TileImageVertices.cs | e40ac2ffa6a38d48fc447cf8361107d4ca0ec5bc565b38cab2522e7c009c5e90 |
+| src/ProGPU.Backend/GpuImageSamplingPolicy.cs | 288764ddb3dc20bb782c00b76b46898a310c7803907e34d1b9497f13957794e7 |
+| src/ProGPU.Backend/GpuTexture.cs | 0b5e89412acd16e86ae2f86c7e85e8bfa880b85dea196a79c2014cc1928bdb25 |
+| src/ProGPU.Backend/Shaders/Texture.wgsl | 5f9c663cdc9eac166506c93a1add5ec058c3d68f9a766253aee895afe4adda51 |
+| src/ProGPU.Backend/Shaders/TextureImageSamplingCommon.wgsl | 7f8849f2aa74fcb65d99465d87591d839dd2ae92488abb6382d5cc8788ac629a |
+| src/ProGPU.Backend/Shaders/MipGenerator.wgsl | 872a81b4bb8c49834f291ea37d6b606f9ecdd27c0213dca5b8351d515d60203c |
+
+No external implementation, new dependency, shader edit, driver replacement or
+compiler-flag change is introduced. Texture and TextureImageSamplingCommon remain
+canonical, and the original MipGenerator is embedded as the ninth validation module.
+
+Image retains immutable actual strided pixels, dimensions, format and alpha policy.
+Native positive extent <=16384, complete last-row byte admission and untouched caller
+padding are preserved. RGBA8/BGRA8/R8 uploads do not swizzle, premultiply, decode or
+resample pixels. ImageSource distinguishes CPU generations from actual device-bound
+GpuImage handles. Wrapping a texture retains its wgpu handle and an independent opaque
+identity; it does not acquire explicit destruction ownership or invent a content
+snapshot. The producer owns external pixel mutation and must retain valid storage
+through consumers. The supplied creating device is checked by renderer identity and
+independently by wgpu binding validation. Non-2D, multisample, array and unsupported
+format resources reject. This is not the full mutable GpuTexture generation/view,
+subresource update, external-provider callback or image-decoder API.
+
+ImageDraw retains native positive source/destination admission, actual complete affine
+frame, effective opacity, source alpha-ignore, extended source/address restrictions,
+original cubic coefficient bounds and all eleven separate reconstruction modes. Zero
+anisotropy canonicalizes to one; only LinearMipmap admits 2..16. Patch batches validate
+all 1..65536 records before recording, retaining bounded sample domains, local frames,
+fixed colors and all 29 original atlas color blends. Native patch color/opacity rules
+are unchanged, including ordinary sampled-patch V metadata one. Those bytes are not
+silently rewritten to make an expected clamp picture. Managed command-opacity versus
+ancestor-opacity and its other recording admissions remain a distinct adapter gate;
+this port does not pretend both producers have the same input policy.
+
+Patch transforms use the native composed-affine expressions. Four transformed point
+lanes use safe wide SIMD with separate multiplies/adds; original endpoint additions,
+source-normalized UV divisions and ties-to-even physical snapping remain ordered.
+The native repeated triangle corners are represented by the identical indexed
+0/1/2,0/2/3 inventory. Complete vertex finite/index admission precedes publication.
+ImageQuad retains the managed four explicit destination points and original projective
+weights, including the shader's unchanged near-zero policy. It does not reconstruct
+an inferred homography or change a projective draw into an affine envelope.
+
+ImageBrush ports the original axis-preserving extended fill map, preserving source
+origin/scales and GPU clamp/repeat/mirror addressing without CPU tiling. Nonextended
+mapping retains the original destination and transform. Its returned command also
+passes the native draw admission boundary, which can be narrower than managed raw
+recording. TileImageDraw implements original premultiplied zero-origin occupied-page
+vertices, actual extent <=2^24, independent per-tap addressing and explicit nearest,
+linear or bounded Fant coefficients. It never includes texture-pool padding as source
+content or downgrades cubic/mip filters. Full captured-page re-encoding and snapped
+hinted-source storage-extension adapters remain separate work.
+
+ImageSamplingPreference uses actual adapter facts: Automatic selects explicit taps
+for the original Parallels Display Adapter D3D12 exclusion; forced native rejects
+there. ExplicitShader changes only base nearest/linear/Fant coefficients. Mip and
+cubic algorithms stay independent. Forced native also rejects occupied-tile draws.
+Renderer image preparation requires configure_image_sampling with an actual adapter
+receipt; existing CPU-only compile defaults merely encode native sampling and do not
+qualify any adapter. Native and browser hosts pass their actual adapter information.
+
+Scene retains an independent image mesh and source/sampler binding table. Only adjacent
+ranges with identical actual source and sampler merge; vector/text/image transitions
+stay in painter order within one render pass. Texture's canonical retained entry
+normalizes straight/premultiplied colors once for One/SrcOver blending. Prepared images
+retain their own original pipeline, inferred layouts, uniform/vertex/index buffers,
+bindings and texture handles, so another preparation or cache reset cannot substitute
+new layouts/resources. No mask/camera/effect/ROP semantics are inferred from an image.
+
+CPU generation identity plus requested mip inventory keys the upload cache. Cache entries
+hold weak CPU owners and actual GPU handles; all compiled source owners remain live
+through lookup, preventing address-reuse aliasing. Dead uploads prune on subsequent
+preparation or trim_image_cache. Prepared/submitted dependencies stay independently
+owned. Separate base/full-mip allocations preserve earlier immutable texture generations;
+no later draw mutates their content. Samplers retain complete mode/anisotropy/address
+identity, including native base clamp versus addressed LOD rules.
+
+Mip filters on CPU inputs lazily allocate the full real chain. The unchanged MipGenerator
+samples each previous level into the next using the original fullscreen triangle,
+linear sampler, exact floor-halved dimensions, clear/store attachments and one ordered
+submission per image chain. No CPU readback, repacking, color conversion or resampling
+is added. GPU sources expose their actual existing mip inventory without pretending
+missing levels were generated. Per-format pipelines are cached. CPU upload payload,
+unique retained texture bytes and actual mip pass counts are reported independently
+of vector/text geometry/uniform counters. Warm image replay performs no uploads or
+mip generation; full performance claims still require measured controls.
+
+Image preparation takes its complete state into a private candidate and captures GPU
+validation through the final publication boundary. Failure or cancellation drops it;
+no destructor submits, polls, unmaps or explicitly destroys live textures. Prior image
+scenes still own their original pipelines/bindings. GPU error scope completion occurs
+before warmed state is restored. Full lost-device/recovery/provider qualification is
+not established by these ownership types or static compilation.
+
+The shared native --images/browser ?scene=images gallery uses tiny generated patterns
+and covers eleven filters, vector overlays, patch/fixed/atlas-color draws, projective
+placement, repeated/mirrored brush mapping and all three occupied-tile modes. It stores
+no image assets, traces or benchmark output. Browser metrics expose actual image uploads,
+texture bytes and mip passes. Native/all-target/all-feature, WASM browser and CPU-only
+strict Clippy, formatting/whitespace/JavaScript syntax checks pass. The existing offline
+Naga test validates all nine canonical compositions. This is static shader evidence,
+not GPU execution or source pixel qualification.
+
+Consolidated validation remains deferred under the implementation-first request. It
+must include original bytes/admission/float controls, every patch blend/filter/address
+combination, strided/alpha-zero/premultiplied inputs, projective/snap boundaries, odd and
+one-pixel mip extents, poisoned pool padding, batch atomic failure, old-scene replay
+after cache replacement, borrowed source mutation/retirement, both sampling paths,
+real native/browser pixels, cold/warm upload counts and matched allocator/process/frame/
+Instruments measurements. Color matrices, complete image effects/interception, clips,
+layers/masks, capture/cache-source policy, codecs, full mutable texture/resource APIs,
+platform/provider/application/package and original Microsoft qualification stay open.

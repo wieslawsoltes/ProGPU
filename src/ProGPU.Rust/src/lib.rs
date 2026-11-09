@@ -5,6 +5,7 @@
 
 pub mod font;
 pub mod geometry;
+pub mod image;
 pub mod path;
 #[cfg(feature = "gpu")]
 pub mod renderer;

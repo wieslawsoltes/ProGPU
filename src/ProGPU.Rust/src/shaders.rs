@@ -47,6 +47,8 @@ pub const TEXTURE: &str = concat!(
     "\n",
     shader!("Texture")
 );
+/// Original linear previous-level mip generation, without CPU resampling.
+pub const MIP_GENERATOR: &str = shader!("MipGenerator");
 /// Original pairwise segment splitting/classification for Boolean reconstruction.
 pub const PATH_OPERATION: &str = shader!("PathOpGeometry");
 /// Original separate ordered output-record finalizer.
@@ -59,6 +61,7 @@ pub const MODULES: &[(&str, &str)] = &[
     ("binary_glyph", BINARY_GLYPH),
     ("text", TEXT),
     ("texture", TEXTURE),
+    ("mip_generator", MIP_GENERATOR),
     ("path_operation", PATH_OPERATION),
     ("path_operation_finalizer", PATH_OPERATION_FINALIZER),
 ];

@@ -40,6 +40,8 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction; retained fill preparation fallback | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and complete compositor integration |
 | Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, images/effects/interception and full stroke/render pixels |
 | Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
+| Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, color matrices/effects and complete compositor integration |
+| Image resources and mips | Immutable strided RGBA/BGRA/R8 owners, device-bound GPU handles, weak-owner upload cache, actual sampler policy, canonical GPU mip generation and occupied-tile/brush mapping; native/browser gallery | Runtime/source/browser validation; full mutable generation, subresource, capture, codec and provider ownership APIs |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
 
 At the user's request, implementation proceeds in connected batches with
@@ -225,6 +227,43 @@ build artifacts. Metrics report actual instance/style bytes, glyph uploads,
 raster requests, atlas residency and ordered draw counts. These are integration
 samples, not original-source pixel or performance qualification.
 
+`image::Image` owns an immutable strided RGBA/BGRA/R8 pixel generation and its
+alpha interpretation. `ImageDraw` retains the original native effective-opacity,
+source/domain, patch, sampling, addressing and pixel-snapping contracts; `ImageQuad`
+adds the original managed explicit destination/projective transport. `ImageBrush`
+lowers axis-preserving fill mapping, and `TileImageDraw` explicitly preserves the
+occupied premultiplied tile extent independently of texture-pool padding.
+`Scene::draw_image` / `draw_tile_image` preserve order between image, text and vector
+commands. CPU compilation can select `compile_with_sampling` using the resolved
+native or explicit-shader path; cubic/mip algorithms are never downgraded.
+
+Before preparing images, call `Renderer::configure_image_sampling` with the actual
+adapter info and requested `ImageSamplingPreference`. Automatic retains the original
+Parallels D3D12 policy; forced native sampling rejects that adapter and explicit
+occupied-tile primitives. The native/browser hosts supply this receipt. CPU-owned
+images upload without changing channel or alpha bytes, and mip filters lazily build
+the original GPU-only linear chain. `GpuImage::from_texture` retains an actual
+same-device 2D handle and caller-selected alpha interpretation; it does not snapshot
+external pixel mutations or take explicit destruction ownership.
+
+Prepared image scenes retain their exact pipeline/layouts, bindings and textures.
+Clearing an upload cache or cancelling another preparation cannot replace those
+resources. Upload cache keys retain weak CPU generation owners; `trim_image_cache`
+retires dead owners without affecting live submitted bindings. Failed/cancelled
+preparation drops its private candidate, with no destructor submission or explicit
+texture destruction. Metrics count actual upload payload, texture bytes and mip
+passes; replay performs no uploads. The renderer currently uses the original native
+patch opacity/admission/attribute route, preserving its sampled-patch V metadata.
+This is not qualification of the separate managed command-opacity behavior.
+
+`cargo run --locked --features window --example winit -- --images` and browser
+`?scene=images` select the shared authored image gallery. Eleven filters, patch
+colors/blends, projective placement, repeat/mirror brush mapping and occupied tiles
+use generated tiny input patterns, with no external image assets. The ninth
+canonical shader composition, MipGenerator, passes the offline Naga inventory.
+Live native/browser pixels, warm-cache/cancellation, source differential controls,
+full codec/mutable/subresource/capture ownership and image effects remain open.
+
 `MaterialTable` ports original managed brush registration, including ordered
 first-equal lookup, unchanged stop order, source capacity fallbacks, independent
 opacity, exact hatch/path/tile packing and a bounded retained Perlin table cache.
@@ -355,7 +394,7 @@ Add `?scene=materials` to select the same authored gallery as winit's `--materia
 It exposes material upload/record counts and uses the same retained renderer.
 Its source comparisons and native/browser runtime execution are deferred.
 
-The current browser harness includes all eight canonical shader compositions;
+The current browser harness includes all nine canonical shader compositions, including the original mip generator;
 expanded runtime compilation is deferred. Earlier six-module checkpoints checked
 204,800 authored pixels across DPR 1 and 2, including three physical scene DPIs,
 all thirteen grayscale contrast values, cold/warm equality, later-generation
@@ -420,7 +459,7 @@ those additions.
 | Myanmar preparation/reordering | Separate original stages; independent syllable parser, kinzi/base positions, stable whole-record sorting, matra ordering and bounded scratch reuse; 12,981,319 parser cases and full action controls | Full shaping-plan sequencing, font GSUB/GPOS integration and GPU text |
 | USE stages | Original filtered-index preparation, repha/pre-base recording, topographical forms, dotted circles and full-record reordering; independent parser matches 5,870,757 cases | Full shaping-plan orchestration, Indic stages, font integration and GPU text |
 | Indic stages | Original preparation, actual selected-font GSUB probes, initial/final whole-record reordering, clusters, masks and init boundaries; 4,768,385 parser cases and complete action controls | Complete shaping-plan sequencing and GPU text; expanded browser and package validation deferred to whole-stack validation |
-| Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
+| Images, brushes, clips, layers and effects | Image/patch/tile drawing, GPU mips and non-image brushes connected in later batches | Full clip/layer/effect, capture, resource and compositing contracts remain unfinished |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
 

@@ -16,6 +16,7 @@
 use crate::{
     Error,
     geometry::{Affine, AnalyticPrimitive, Mesh, VectorVertex},
+    image::{ImageBindingKey, ImageDraw, ImageSamplingPath, ImageSource, TileImageDraw},
     path::{Path, RasterRequest},
     text::paint::{GlyphInstance, TextDraw, TextPaintContext, TextPathPolicy, VectorGlyphPaint},
     vector::{Brush, BrushKind, MaterialPage, MaterialTable, PreparedStroke, StrokeDraw},
@@ -32,6 +33,7 @@ pub(crate) enum DrawRange {
     Vector(std::ops::Range<u32>),
     #[cfg(feature = "gpu")]
     Text(std::ops::Range<u32>),
+    Image(std::ops::Range<u32>, usize),
 }
 
 fn append_draw(draws: &mut Vec<DrawRange>, draw: DrawRange) {
@@ -41,6 +43,11 @@ fn append_draw(draws: &mut Vec<DrawRange>, draw: DrawRange) {
         }
         #[cfg(feature = "gpu")]
         (Some(DrawRange::Text(last)), DrawRange::Text(next)) if last.end == next.start => {
+            last.end = next.end;
+        }
+        (Some(DrawRange::Image(last, binding)), DrawRange::Image(next, next_binding))
+            if binding == next_binding && last.end == next.start =>
+        {
             last.end = next.end;
         }
         _ => draws.push(draw),
@@ -134,6 +141,8 @@ enum Command {
     TextPath(PathDraw, MaterialPaint, TextPathPolicy),
     #[cfg(feature = "gpu")]
     Glyph(GlyphInstance),
+    Image(Box<ImageDraw>),
+    TileImage(Box<TileImageDraw>),
 }
 
 /// Ordered retained commands; recording and CPU compilation perform no GPU work.
@@ -144,6 +153,21 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// Retain an original image/patch draw after whole-inventory admission.
+    pub fn draw_image(&mut self, draw: ImageDraw) -> Result<(), Error> {
+        draw.validate()?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::Image(Box::new(draw)));
+        Ok(())
+    }
+    /// Retain an explicit occupied tile-page draw. This primitive always uses
+    /// its original shader taps, independently of ordinary image sampling policy.
+    pub fn draw_tile_image(&mut self, draw: TileImageDraw) -> Result<(), Error> {
+        draw.vertices()?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::TileImage(Box::new(draw)));
+        Ok(())
+    }
     /// Record original text without shaping, loading outlines, or allocating GPU
     /// resources. The actual preparation frame supplies DPI. This renderer's
     /// current direct target accepts affine placement and semantic opacity;
@@ -273,6 +297,17 @@ impl Scene {
         dpi_scale: f32,
         materials: &mut MaterialTable,
     ) -> Result<CompiledScene, Error> {
+        self.compile_with_sampling(dpi_scale, materials, ImageSamplingPath::NativeSampler)
+    }
+
+    /// Compile image reconstruction metadata for the actual resolved sampling
+    /// route. This policy does not change cubic, mip or occupied-tile algorithms.
+    pub fn compile_with_sampling(
+        &self,
+        dpi_scale: f32,
+        materials: &mut MaterialTable,
+        image_sampling: ImageSamplingPath,
+    ) -> Result<CompiledScene, Error> {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
         }
@@ -340,7 +375,9 @@ impl Scene {
                 Command::Empty
                 | Command::Analytic(_)
                 | Command::MaterialAnalytic(..)
-                | Command::Stroke(_) => placements.push(None),
+                | Command::Stroke(_)
+                | Command::Image(_)
+                | Command::TileImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
                 Command::Glyph(_) => placements.push(None),
                 Command::Text(_) => return Err(Error::UnsupportedExecution),
@@ -371,6 +408,9 @@ impl Scene {
         }
         let layout = AtlasLayout::new(rasters.iter().map(|(_, request)| request.size))?;
         let mut mesh = Mesh::default();
+        let mut image_mesh = Mesh::default();
+        let mut images = Vec::new();
+        let mut image_bindings = HashMap::new();
         let glyphs = Vec::new();
         #[cfg(feature = "gpu")]
         let mut glyphs = glyphs;
@@ -407,6 +447,51 @@ impl Scene {
             let first_index = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             match command {
                 Command::Empty => {}
+                Command::Image(draw) => {
+                    let start =
+                        u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
+                    draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
+                    let key = draw.binding_key();
+                    let next = images.len();
+                    let binding = *image_bindings.entry(key).or_insert_with(|| {
+                        images.push(ImageBinding {
+                            image: draw.image.clone(),
+                            key,
+                        });
+                        next
+                    });
+                    let end =
+                        u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
+                    if end != start {
+                        append_draw(&mut draws, DrawRange::Image(start..end, binding));
+                    }
+                }
+                Command::TileImage(draw) => {
+                    let start =
+                        u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
+                    image_mesh.push_quad(draw.vertices()?)?;
+                    let key = ImageBindingKey {
+                        source: draw.image.identity(),
+                        sampling: crate::image::ImageSampling::Linear,
+                        anisotropy: 1,
+                        address: [crate::image::ImageAddress::Clamp; 2],
+                    };
+                    let next = images.len();
+                    let binding = *image_bindings.entry(key).or_insert_with(|| {
+                        images.push(ImageBinding {
+                            image: draw.image.clone(),
+                            key,
+                        });
+                        next
+                    });
+                    append_draw(
+                        &mut draws,
+                        DrawRange::Image(
+                            start..start.checked_add(6).ok_or(Error::Capacity)?,
+                            binding,
+                        ),
+                    );
+                }
                 Command::Text(_) => return Err(Error::UnsupportedExecution),
                 #[cfg(feature = "gpu")]
                 Command::Glyph(instance) => {
@@ -466,6 +551,13 @@ impl Scene {
             materials: materials.snapshot()?,
             glyphs,
             draws,
+            image_mesh,
+            images,
+            image_sampling,
+            has_tile_images: self
+                .commands
+                .iter()
+                .any(|c| matches!(c, Command::TileImage(_))),
         })
     }
 }
@@ -481,9 +573,41 @@ pub struct CompiledScene {
     materials: MaterialPage,
     pub(crate) glyphs: Vec<GlyphInstance>,
     pub(crate) draws: Vec<DrawRange>,
+    pub(crate) image_mesh: Mesh,
+    pub(crate) images: Vec<ImageBinding>,
+    pub(crate) image_sampling: ImageSamplingPath,
+    pub(crate) has_tile_images: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct ImageBinding {
+    pub image: ImageSource,
+    pub key: ImageBindingKey,
 }
 
 impl CompiledScene {
+    /// Original image vertices in their independent shader stream.
+    pub fn image_mesh(&self) -> &Mesh {
+        &self.image_mesh
+    }
+    /// Distinct source/sampler bindings retained by image ranges.
+    pub fn image_binding_count(&self) -> usize {
+        self.images.len()
+    }
+    /// Actual image reconstruction route encoded by CPU compilation.
+    pub fn image_sampling_path(&self) -> ImageSamplingPath {
+        self.image_sampling
+    }
+    /// Whether an explicit occupied-tile primitive requires shader sampling.
+    pub fn has_tile_images(&self) -> bool {
+        self.has_tile_images
+    }
+    /// Actual retained image sources and their original sampler selections.
+    pub fn image_sources(
+        &self,
+    ) -> impl Iterator<Item = (&ImageSource, crate::image::ImageSampling)> {
+        self.images.iter().map(|i| (&i.image, i.key.sampling))
+    }
     /// Ordered vector/text pipeline ranges after compilation.
     pub fn draw_count(&self) -> usize {
         self.draws.len()

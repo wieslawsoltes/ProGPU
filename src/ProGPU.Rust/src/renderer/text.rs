@@ -233,9 +233,12 @@ impl Renderer {
         let resolved = scene
             .resolve_text(&mut state.painter, &mut state.atlas, frame.dpi_scale)
             .await?;
-        let compiled = resolved
-            .scene
-            .compile_with_materials(frame.dpi_scale, &mut self.materials)?;
+        let compiled = resolved.scene.compile_with_sampling(
+            frame.dpi_scale,
+            &mut self.materials,
+            self.image_sampling
+                .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
+        )?;
         let mut prepared = self.prepare_compiled_geometry(&compiled, frame).await?;
         let after = state.atlas.gpu_metrics();
         prepared.metrics.glyph_upload_bytes = (after.outline_upload_bytes

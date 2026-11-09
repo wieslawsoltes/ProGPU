@@ -1,7 +1,7 @@
 //! Retained wgpu execution of ProGPU's canonical vector and path shaders.
 //!
 //! CPU geometry is prepared once, uploaded once and retained by an immutable
-//! scene. Frames submit ordered vector/text ranges with no geometry/uniform re-upload.
+//! scene. Frames submit ordered vector/text/image ranges without re-upload.
 //! wgpu retains encoded dependencies through submission; dropping this renderer
 //! never explicitly destroys a buffer still referenced by a submitted frame.
 
@@ -16,6 +16,7 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod image;
 mod text;
 
 /// Physical target dimensions and scalar logical-to-physical DPI.
@@ -111,6 +112,12 @@ pub struct UploadMetrics {
     pub rasterized_glyphs: u64,
     /// Shared grayscale and color atlas residency, counted once per scene.
     pub glyph_atlas_bytes: u64,
+    /// Original strided pixel payload supplied to actual image uploads.
+    pub image_upload_bytes: u64,
+    /// Distinct actual image texture storage, including generated mip levels.
+    pub image_texture_bytes: u64,
+    /// Actual GPU mip-generation render passes during preparation.
+    pub image_mip_passes: u32,
 }
 
 /// GPU resources for a frozen scene and physical frame.
@@ -122,6 +129,7 @@ pub struct PreparedScene {
     atlas: wgpu::BindGroup,
     draws: Vec<DrawRange>,
     text: Option<text::PreparedText>,
+    images: Option<image::PreparedImages>,
     frame: Frame,
     metrics: UploadMetrics,
 }
@@ -137,7 +145,7 @@ impl PreparedScene {
     }
 }
 
-/// A single-device vector/text renderer with immutable prepared generations.
+/// A single-device vector/text/image renderer with immutable prepared generations.
 pub struct Renderer {
     owner: Arc<()>,
     device: wgpu::Device,
@@ -151,6 +159,9 @@ pub struct Renderer {
     materials: MaterialTable,
     text: Option<text::TextState>,
     text_options: crate::text::glyph::GlyphAtlasOptions,
+    images: Option<image::ImageState>,
+    image_sampling: Option<crate::image::ImageSamplingPath>,
+    image_preference: crate::image::ImageSamplingPreference,
 }
 
 impl Renderer {
@@ -273,6 +284,9 @@ impl Renderer {
             materials: MaterialTable::default(),
             text: None,
             text_options: Default::default(),
+            images: None,
+            image_sampling: None,
+            image_preference: Default::default(),
         })
     }
 
@@ -305,7 +319,12 @@ impl Renderer {
         if scene.has_text() {
             return self.prepare_text_scene(scene, frame).await;
         }
-        let compiled = scene.compile_with_materials(frame.dpi_scale, &mut self.materials)?;
+        let compiled = scene.compile_with_sampling(
+            frame.dpi_scale,
+            &mut self.materials,
+            self.image_sampling
+                .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
+        )?;
         self.prepare_compiled(&compiled, frame).await
     }
 
@@ -337,34 +356,40 @@ impl Renderer {
         if compiled.atlas_size() > self.device.limits().max_texture_dimension_2d {
             return Err(Error::Capacity);
         }
-        if compiled.rasters.is_empty() {
-            return self.prepare_geometry(&compiled.mesh, frame, None, Some(compiled.materials()));
-        }
-        if self.path_rasterizer.is_none() {
-            let rasterizer =
-                PathRasterizer::new(&self.device, &self.queue, ExecutionPreference::Automatic)
-                    .await?;
-            self.path_rasterizer = Some(rasterizer);
-        }
-        let requests: Vec<_> = compiled
-            .rasters
-            .iter()
-            .map(|(path, request)| (path, *request))
-            .collect();
-        let rasterizer = self
-            .path_rasterizer
-            .as_mut()
-            .ok_or(Error::UnsupportedExecution)?;
-        if requests.iter().any(|(path, _)| path.is_boolean()) {
-            rasterizer.prepare_boolean().await?;
-        }
-        let atlas = rasterizer.rasterize_atlas(&requests)?;
-        self.prepare_geometry(
-            &compiled.mesh,
-            frame,
-            Some(&atlas),
-            Some(compiled.materials()),
-        )
+        let mut prepared = if compiled.rasters.is_empty() {
+            self.prepare_geometry(&compiled.mesh, frame, None, Some(compiled.materials()))?
+        } else {
+            if self.path_rasterizer.is_none() {
+                let rasterizer =
+                    PathRasterizer::new(&self.device, &self.queue, ExecutionPreference::Automatic)
+                        .await?;
+                self.path_rasterizer = Some(rasterizer);
+            }
+            let requests: Vec<_> = compiled
+                .rasters
+                .iter()
+                .map(|(path, request)| (path, *request))
+                .collect();
+            let rasterizer = self
+                .path_rasterizer
+                .as_mut()
+                .ok_or(Error::UnsupportedExecution)?;
+            if requests.iter().any(|(path, _)| path.is_boolean()) {
+                rasterizer.prepare_boolean().await?;
+            }
+            let atlas = rasterizer.rasterize_atlas(&requests)?;
+            self.prepare_geometry(
+                &compiled.mesh,
+                frame,
+                Some(&atlas),
+                Some(compiled.materials()),
+            )?
+        };
+        self.prepare_images(compiled, frame, &mut prepared).await?;
+        prepared.draws = compiled.draws.clone();
+        prepared.metrics.draws =
+            u32::try_from(prepared.draws.len()).map_err(|_| Error::Capacity)?;
+        Ok(prepared)
     }
 
     fn validate_materials(&self, mesh: &Mesh, page: Option<&MaterialPage>) -> Result<(), Error> {
@@ -542,6 +567,7 @@ impl Renderer {
                 vec![DrawRange::Vector(0..index_count)]
             },
             text: None,
+            images: None,
             frame,
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
@@ -590,7 +616,7 @@ impl Renderer {
             });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ProGPU vector pass"),
+                label: Some("ProGPU ordered scene pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
                     depth_slice: None,
@@ -620,6 +646,16 @@ impl Renderer {
                         pass.set_bind_group(1, &text.atlas, &[]);
                         pass.set_vertex_buffer(0, text.instances.slice(..));
                         pass.draw(0..6, range.clone());
+                    }
+                    DrawRange::Image(range, binding) => {
+                        let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
+                        let binding = images.bindings.get(*binding).ok_or(Error::ResourceDomain)?;
+                        pass.set_pipeline(&images.pipeline);
+                        pass.set_bind_group(0, &images.uniforms, &[]);
+                        pass.set_bind_group(1, binding, &[]);
+                        pass.set_vertex_buffer(0, images.vertices.slice(..));
+                        pass.set_index_buffer(images.indices.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(range.clone(), 0, 0..1);
                     }
                 }
             }

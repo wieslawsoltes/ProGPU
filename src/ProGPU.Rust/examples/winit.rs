@@ -12,6 +12,8 @@ use winit::{
 #[path = "support/sample_scene.rs"]
 mod sample;
 use sample::sample_scene;
+#[path = "support/image_scene.rs"]
+mod image_sample;
 #[path = "support/material_scene.rs"]
 mod material_sample;
 #[path = "support/text_scene.rs"]
@@ -30,6 +32,7 @@ struct WindowRenderer {
     scene: Option<PreparedScene>,
     material_scene: bool,
     text_font: Option<progpu::font::ManagedFont>,
+    image_scene: bool,
 }
 
 impl WindowRenderer {
@@ -37,6 +40,7 @@ impl WindowRenderer {
         event_loop: &ActiveEventLoop,
         material_scene: bool,
         text_font: Option<progpu::font::ManagedFont>,
+        image_scene: bool,
     ) -> Result<Self> {
         let window = Arc::new(
             event_loop.create_window(
@@ -80,7 +84,8 @@ impl WindowRenderer {
             config.format = format;
         }
         config.present_mode = wgpu::PresentMode::Fifo;
-        let renderer = Renderer::new(&device, &queue, config.format).await?;
+        let mut renderer = Renderer::new(&device, &queue, config.format).await?;
+        renderer.configure_image_sampling(Default::default(), &adapter.get_info())?;
         let mut state = Self {
             window,
             instance,
@@ -92,6 +97,7 @@ impl WindowRenderer {
             scene: None,
             material_scene,
             text_font,
+            image_scene,
         };
         state.resize()?;
         state.window.set_visible(true);
@@ -113,6 +119,8 @@ impl WindowRenderer {
         };
         let source = if let Some(font) = &self.text_font {
             text_sample::text_scene(font.clone())?
+        } else if self.image_scene {
+            image_sample::image_scene()?
         } else if self.material_scene {
             material_sample::material_scene()?
         } else {
@@ -179,6 +187,7 @@ struct App {
     failure: Option<String>,
     material_scene: bool,
     text_font: Option<progpu::font::ManagedFont>,
+    image_scene: bool,
 }
 
 impl App {
@@ -195,6 +204,7 @@ impl ApplicationHandler for App {
                 event_loop,
                 self.material_scene,
                 self.text_font.clone(),
+                self.image_scene,
             )) {
                 Ok(state) => self.state = Some(state),
                 Err(error) => self.fail(event_loop, error),
@@ -248,6 +258,7 @@ fn main() -> Result<()> {
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--materials" => app.material_scene = true,
+            "--images" => app.image_scene = true,
             "--text" => {
                 let path = args.next().ok_or("--text requires a font file path")?;
                 app.text_font = Some(progpu::font::ManagedFont::new(std::fs::read(path)?, 0)?);
@@ -264,7 +275,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

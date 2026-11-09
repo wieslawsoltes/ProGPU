@@ -5,6 +5,9 @@
 #[path = "support/font_scene.rs"]
 mod font_scene;
 #[cfg(target_arch = "wasm32")]
+#[path = "support/image_scene.rs"]
+mod image_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/material_scene.rs"]
 mod material_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1650,6 +1653,7 @@ mod web {
         scene: Option<PreparedScene>,
         material_scene: bool,
         text_font: Option<progpu::font::ManagedFont>,
+        image_scene: bool,
         validation: Option<Renderer>,
         frames: u32,
         capture_complete: Option<Arc<AtomicBool>>,
@@ -1704,8 +1708,11 @@ mod web {
         {
             config.format = format;
         }
-        let renderer = Renderer::new(&device, &queue, config.format)
+        let mut renderer = Renderer::new(&device, &queue, config.format)
             .await
+            .map_err(error)?;
+        renderer
+            .configure_image_sampling(Default::default(), &adapter.get_info())
             .map_err(error)?;
         let mut result = WebRenderer {
             canvas,
@@ -1718,6 +1725,7 @@ mod web {
             scene: None,
             material_scene: false,
             text_font: None,
+            image_scene: false,
             validation: None,
             frames: 0,
             capture_complete: None,
@@ -1747,6 +1755,7 @@ mod web {
             self.ensure_live()?;
             self.material_scene = enabled;
             self.text_font = None;
+            self.image_scene = false;
             Ok(())
         }
         /// Select an explicit owned font for the shared text gallery. No system
@@ -1756,6 +1765,15 @@ mod web {
             let font = progpu::font::ManagedFont::new(data, face_index).map_err(error)?;
             self.text_font = Some(font);
             self.material_scene = false;
+            self.image_scene = false;
+            Ok(())
+        }
+        /// Select the shared authored image/patch/mip/occupied-tile gallery.
+        pub fn select_image_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.image_scene = enabled;
+            self.material_scene = false;
+            self.text_font = None;
             Ok(())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
@@ -1767,6 +1785,8 @@ mod web {
             }
             let source = if let Some(font) = &self.text_font {
                 super::text_sample::text_scene(font.clone())
+            } else if self.image_scene {
+                super::image_sample::image_scene()
             } else if self.material_scene {
                 super::material_sample::material_scene()
             } else {
@@ -1874,6 +1894,9 @@ mod web {
                     ("glyphUploadBytes", m.glyph_upload_bytes as f64),
                     ("rasterizedGlyphs", m.rasterized_glyphs as f64),
                     ("glyphAtlasBytes", m.glyph_atlas_bytes as f64),
+                    ("imageUploadBytes", m.image_upload_bytes as f64),
+                    ("imageTextureBytes", m.image_texture_bytes as f64),
+                    ("imageMipPasses", m.image_mip_passes as f64),
                     ("width", f.width as f64),
                     ("height", f.height as f64),
                     ("dpi", f.dpi_scale as f64),
