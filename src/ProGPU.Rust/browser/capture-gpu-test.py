@@ -42,6 +42,24 @@ class ProcessTreeTests(unittest.TestCase):
                                            start_ticks=10197))
             self.assertFalse(capture.descendant(105, 101, root))
             self.assertFalse(capture.descendant(999, 101, root))
+            # Classification diagnostics retain neither full argv nor unrelated
+            # process identities, and never relax exact GPU target selection.
+            process(110, 102, b'chrome --type=gpu-process --user-data-dir=private\0')
+            process(111, 102, b'chrome\0--type=utility\0private-value\0')
+            process(112, 102, b'chrome\0')
+            (root / '112' / 'cmdline').unlink()
+            inventory = capture.owned_process_inventory(101, root)
+            self.assertFalse(inventory['truncated'])
+            by_id = {v['pid']: v for v in inventory['processes']}
+            self.assertNotIn(104, by_id)
+            self.assertEqual(by_id[103]['process_types'], ['gpu-process'])
+            self.assertEqual(by_id[110]['process_types'], [])
+            self.assertTrue(by_id[110]['embedded_gpu_marker'])
+            self.assertEqual(by_id[112]['command_line_status'], 'FileNotFoundError')
+            self.assertNotIn('private', str(inventory))
+            self.assertEqual([v['pid'] for v in capture.gpu_processes(101, root)], [103])
+            self.assertEqual(len(capture.owned_process_inventory(101, root, 2)['processes']), 2)
+            self.assertTrue(capture.owned_process_inventory(101, root, 2)['truncated'])
             # Reparenting an existing PID cannot keep its previous admission.
             text = (root / '103' / 'stat').read_text().replace(' S 102 ', ' S 1 ')
             (root / '103' / 'stat').write_text(text)

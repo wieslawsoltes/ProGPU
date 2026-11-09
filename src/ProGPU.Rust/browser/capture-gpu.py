@@ -57,6 +57,39 @@ def gpu_processes(parent, root=Path('/proc')):
     return sorted(result, key=lambda value: value['pid'])
 
 
+def owned_process_inventory(parent, root=Path('/proc'), limit=128):
+    """Bounded identity/type observations only; never retain full argv or paths."""
+    result = []
+    for directory in sorted(root.iterdir(), key=lambda value: value.name):
+        if not directory.name.isdecimal():
+            continue
+        pid = int(directory.name)
+        if pid == parent or not descendant(pid, parent, root):
+            continue
+        try:
+            value = process_stat(pid, root)
+            try:
+                raw = (directory / 'cmdline').read_bytes()
+                args = [part for part in raw.split(b'\0') if part]
+                # Preserve only fixed process-kind flags. An embedded marker is
+                # evidence for argv packing, never permission to attach to it.
+                kinds = [kind for kind in ('gpu-process', 'renderer', 'zygote', 'utility')
+                         if ('--type=' + kind).encode() in args]
+                value.update(argument_count=len(args), process_types=kinds,
+                             embedded_gpu_marker=b'--type=gpu-process' in raw,
+                             command_line_status='read')
+            except OSError as error:
+                value.update(command_line_status=type(error).__name__)
+            if not descendant(pid, parent, root):
+                continue
+            result.append(value)
+            if len(result) == limit:
+                return dict(processes=result, truncated=True)
+        except (OSError, ValueError, IndexError):
+            continue
+    return dict(processes=result, truncated=False)
+
+
 def same_generation(source, parent):
     try:
         current = process_stat(source['pid'])
@@ -132,6 +165,7 @@ def main():
         receipt['candidates'] = candidates
         if len(candidates) != 1:
             receipt['status'] = 'no unique live descendant GPU process'
+            receipt['owned_process_inventory'] = owned_process_inventory(args.parent)
         else:
             source = candidates[0]
             for index in range(3):
