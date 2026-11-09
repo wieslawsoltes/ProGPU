@@ -4,6 +4,13 @@ use crate::{Error, shaders};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
+mod program;
+struct EncodedBatch {
+    encoder: wgpu::CommandEncoder,
+    output: wgpu::Buffer,
+    preceding: Vec<wgpu::CommandBuffer>,
+}
+
 /// Submission-owned R8 coverage, ready for GPU sampling without CPU readback.
 pub struct CoverageMask {
     texture: wgpu::Texture,
@@ -34,7 +41,7 @@ pub struct AtlasTile {
     pub request: RasterRequest,
 }
 
-/// One device-owned R8 atlas generation, populated by a single batched submission.
+/// One device-owned R8 atlas generation, populated by the original ordered path phases.
 pub struct CoverageAtlas {
     pub(crate) device: wgpu::Device,
     texture: wgpu::Texture,
@@ -81,13 +88,15 @@ struct Dispatch {
 /// Native-compute path rasterization. Optional and created only on demand.
 ///
 /// Uses the canonical operation-zero kernel for all six segment kinds. Boolean
-/// batches use the separate original ordinary evaluator, prepared explicitly
-/// on demand. No segment inventory is relabeled linear to select another kernel.
+/// batches keep their separate original evaluators and explicit staged policy.
+/// Linear signed admission requires the complete original inventory to contain only lines.
 pub struct PathRasterizer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     boolean_pipeline: Option<wgpu::ComputePipeline>,
+    programs: program::Pipelines,
+    signed_policy: super::SignedWindingPolicy,
 }
 
 impl PathRasterizer {
@@ -130,6 +139,8 @@ impl PathRasterizer {
             queue: queue.clone(),
             pipeline,
             boolean_pipeline: None,
+            programs: Default::default(),
+            signed_policy: Default::default(),
         })
     }
 
@@ -164,6 +175,28 @@ impl PathRasterizer {
         Ok(())
     }
 
+    /// Select the original native signed execution policy for future batches.
+    /// Already submitted resources retain their original execution and owners.
+    pub fn set_signed_winding_policy(&mut self, policy: super::SignedWindingPolicy) {
+        self.signed_policy = policy;
+    }
+    /// Lazily prepare only the program families needed by the complete batch.
+    /// Call again after changing signed policy or introducing a new program kind.
+    pub async fn prepare_programs(
+        &mut self,
+        paths: &[(&Path, RasterRequest)],
+    ) -> Result<(), Error> {
+        if program::Plan::needed(paths) {
+            self.programs
+                .prepare(&self.device, paths, self.signed_policy)
+                .await
+        } else if paths.iter().any(|(p, _)| p.is_boolean()) {
+            self.prepare_boolean().await
+        } else {
+            Ok(())
+        }
+    }
+
     /// Resolved implementation for performance and quality receipts.
     pub fn execution_path(&self) -> ExecutionPath {
         ExecutionPath::NativeCompute
@@ -184,7 +217,14 @@ impl PathRasterizer {
         if layout.size > self.device.limits().max_texture_dimension_2d {
             return Err(Error::Capacity);
         }
-        let (mut encoder, output, uniforms) = self.encode_batch(paths)?;
+        let (
+            EncodedBatch {
+                mut encoder,
+                output,
+                preceding,
+            },
+            uniforms,
+        ) = self.encode_batch(paths)?;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ProGPU immutable path atlas"),
             size: wgpu::Extent3d {
@@ -227,6 +267,9 @@ impl PathRasterizer {
             );
             tiles.push(AtlasTile { origin, request });
         }
+        for phase in preceding {
+            self.queue.submit([phase]);
+        }
         self.queue.submit([encoder.finish()]);
         Ok(CoverageAtlas {
             device: self.device.clone(),
@@ -235,11 +278,12 @@ impl PathRasterizer {
         })
     }
 
-    /// Rasterize independent paths in one compute pass and one submission.
+    /// Rasterize independent paths, retaining original native staged submission boundaries.
     ///
     /// The complete batch is validated before any GPU mutation. Dispatches group
-    /// actual extents with exact 48-byte records and 256-byte binding alignment,
-    /// matching `progpu_native_path_dispatch.hpp`. Coverage remains in original
+    /// actual extents for ordinary batches with exact 48-byte records and 256-byte binding alignment,
+    /// matching `progpu_native_path_dispatch.hpp`. Staged programs retain native phase
+    /// dimensions and leaf submission boundaries. Coverage remains in original
     /// request order. Compute writes four R8 pixels per word; GPU copies preserve
     /// 256-byte row pitch and 512-byte source offsets. No CPU coverage is computed.
     pub fn rasterize_batch(
@@ -249,7 +293,14 @@ impl PathRasterizer {
         if paths.is_empty() {
             return Ok(Vec::new());
         }
-        let (mut encoder, output, uniforms) = self.encode_batch(paths)?;
+        let (
+            EncodedBatch {
+                mut encoder,
+                output,
+                preceding,
+            },
+            uniforms,
+        ) = self.encode_batch(paths)?;
         let masks: Vec<_> = paths
             .iter()
             .zip(&uniforms)
@@ -285,6 +336,9 @@ impl PathRasterizer {
                 CoverageMask { texture, request }
             })
             .collect();
+        for phase in preceding {
+            self.queue.submit([phase]);
+        }
         self.queue.submit([encoder.finish()]);
         Ok(masks)
     }
@@ -292,17 +346,12 @@ impl PathRasterizer {
     fn encode_batch(
         &self,
         paths: &[(&Path, RasterRequest)],
-    ) -> Result<(wgpu::CommandEncoder, wgpu::Buffer, Vec<Uniforms>), Error> {
+    ) -> Result<(EncodedBatch, Vec<Uniforms>), Error> {
         if paths.len() > 1 << 20 {
             return Err(Error::Capacity);
         }
-        let pipeline = if paths.iter().any(|(path, _)| path.is_boolean()) {
-            self.boolean_pipeline
-                .as_ref()
-                .ok_or(Error::UnsupportedExecution)?
-        } else {
-            &self.pipeline
-        };
+        let mut program_plan =
+            program::Plan::needed(paths).then(|| program::Plan::new(paths, self.signed_policy));
         let limits = self.device.limits();
         let binding_limit = limits
             .max_storage_buffer_binding_size
@@ -397,7 +446,7 @@ impl PathRasterizer {
                 (0, 0)
             };
             segments.extend_from_slice(&path.segments);
-            uniforms.push(Uniforms {
+            let uniform = Uniforms {
                 origin: request.origin,
                 scale: request.scale,
                 path_index,
@@ -408,7 +457,11 @@ impl PathRasterizer {
                 sample_grid: request.sample_grid,
                 path_index_b,
                 path_op_kind,
-            });
+            };
+            if let Some(plan) = &mut program_plan {
+                plan.append(path, uniform, &mut output_size)?;
+            }
+            uniforms.push(uniform);
         }
         if output_size > binding_limit
             || std::mem::size_of_val(records.as_slice()) as u64 > binding_limit
@@ -416,6 +469,20 @@ impl PathRasterizer {
         {
             return Err(Error::Capacity);
         }
+        if let Some(plan) = &program_plan {
+            return Ok((
+                self.programs
+                    .encode(&self.device, plan, &records, &segments, output_size)?,
+                uniforms,
+            ));
+        }
+        let pipeline = if paths.iter().any(|(path, _)| path.is_boolean()) {
+            self.boolean_pipeline
+                .as_ref()
+                .ok_or(Error::UnsupportedExecution)?
+        } else {
+            &self.pipeline
+        };
         let (uniform_bytes, dispatches) = group_dispatches(
             &uniforms,
             limits.max_compute_workgroups_per_dimension,
@@ -494,7 +561,14 @@ impl PathRasterizer {
                 pass.dispatch_workgroups(dispatch.size[0], dispatch.size[1], dispatch.size[2]);
             }
         }
-        Ok((encoder, output, uniforms))
+        Ok((
+            EncodedBatch {
+                encoder,
+                output,
+                preceding: Vec::new(),
+            },
+            uniforms,
+        ))
     }
 }
 

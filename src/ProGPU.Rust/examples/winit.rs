@@ -30,6 +30,8 @@ mod mask_sample;
 mod material_sample;
 #[path = "support/materialized_mask_scene.rs"]
 mod materialized_mask_sample;
+#[path = "support/path_program_scene.rs"]
+mod path_program_sample;
 #[path = "support/retained_aa_scene.rs"]
 mod retained_aa_sample;
 #[path = "support/text_scene.rs"]
@@ -47,6 +49,7 @@ enum CompositeGallery {
     RetainedAa,
     ImageEffects,
     MaterializedMasks,
+    PathPrograms,
 }
 
 struct WindowRenderer {
@@ -174,6 +177,12 @@ impl WindowRenderer {
                 metrics.loaded_copy_bytes
             );
             scene
+        } else if self.composite_gallery == CompositeGallery::PathPrograms {
+            pollster::block_on(path_program_sample::path_program_scene(
+                &self.device,
+                &self.queue,
+                dpi,
+            ))?
         } else if self.composite_gallery == CompositeGallery::MaterializedMasks {
             let (scene, metrics) =
                 pollster::block_on(materialized_mask_sample::materialized_mask_scene(
@@ -376,6 +385,7 @@ fn main() -> Result<()> {
             "--clears" => app.composite_gallery = CompositeGallery::Clears,
             "--axis-clips" => app.composite_gallery = CompositeGallery::AxisClips,
             "--retained-aa" => app.composite_gallery = CompositeGallery::RetainedAa,
+            "--path-programs" => app.composite_gallery = CompositeGallery::PathPrograms,
             "--materialized-masks" => app.composite_gallery = CompositeGallery::MaterializedMasks,
             "--image-effects" => app.composite_gallery = CompositeGallery::ImageEffects,
             "--text" => {
@@ -394,7 +404,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

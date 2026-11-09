@@ -4,6 +4,9 @@
 use crate::Error;
 use bytemuck::{Pod, Zeroable};
 
+mod program;
+pub use program::{PathInstruction, SignedWindingPolicy};
+
 /// Original physical raster origin, scale and sample-grid request.
 #[derive(Clone, Copy, Debug)]
 pub struct RasterRequest {
@@ -155,6 +158,7 @@ pub(crate) struct RasterProgram {
     pub tokens: Box<[crate::vector::GpuPathRecord]>,
     pub operation: u32,
     pub index_b: u32,
+    pub split: bool,
 }
 impl RasterProgram {
     fn validate(&self) -> Result<(), Error> {
@@ -172,10 +176,11 @@ impl RasterProgram {
         if self.records.is_empty()
             || self.index_b as usize != self.records.len()
             || !(1..=63).contains(&self.tokens.len())
-            || (self.operation & 0x7fff_ffff) as usize != self.tokens.len()
+            || (self.operation & 0x3fff_ffff) as usize != self.tokens.len()
         {
             return Err(Error::InvalidInput);
         }
+        let signed = self.operation & program::SIGNED != 0;
         let mut depth = 0usize;
         for record in &self.tokens {
             if record.segment_count != 0
@@ -187,13 +192,27 @@ impl RasterProgram {
             }
             let token = record.start_segment;
             if token & 0x8000_0000 != 0 {
-                if depth < 2 || !(1..=5).contains(&(token & 0x7fff_ffff)) {
-                    return Err(Error::InvalidInput);
+                let operation = token & 0x7fff_ffff;
+                if signed && operation == 8 {
+                    if depth == 0 {
+                        return Err(Error::InvalidInput);
+                    }
+                } else {
+                    if depth < 2 || !((1..=5).contains(&operation) || signed && operation == 7) {
+                        return Err(Error::InvalidInput);
+                    }
+                    depth -= 1;
                 }
-                depth -= 1;
             } else {
-                if token != 0x4000_0000 && token as usize >= self.records.len() {
-                    return Err(Error::InvalidInput);
+                if token != program::SIGNED {
+                    let index = (token & program::VALUE) as usize;
+                    if index >= self.records.len()
+                        || token & program::SIGNED != 0
+                        || token & program::WINDING != 0 && !signed
+                        || self.records[index].pad != u32::from(token & program::WINDING != 0)
+                    {
+                        return Err(Error::InvalidInput);
+                    }
                 }
                 depth += 1;
                 if depth > 16 {
@@ -244,6 +263,9 @@ impl Path {
         program: RasterProgram,
     ) -> Result<Self, Error> {
         program.validate()?;
+        if program.operation & program::SIGNED != 0 && fill_rule != FillRule::NonZero {
+            return Err(Error::InvalidInput);
+        }
         let mut path = Self::new(segments, bounds, fill_rule)?;
         for record in &program.records {
             if record.segment_count == 0
@@ -252,7 +274,8 @@ impl Path {
                     .checked_add(record.segment_count)
                     .is_none_or(|end| end as usize > path.segments.len())
                 || record.fill_rule > 1
-                || record.pad != 0
+                || record.pad > u32::from(program.operation & program::SIGNED != 0)
+                || record.pad != 0 && record.fill_rule != FillRule::NonZero as u32
                 || record.bounds.iter().any(|v| !v.is_finite())
                 || record.bounds[0] > record.bounds[2]
                 || record.bounds[1] > record.bounds[3]

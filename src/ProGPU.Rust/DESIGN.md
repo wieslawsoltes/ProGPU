@@ -7296,3 +7296,108 @@ independent-axis presentation/guidelines, signed/staged vector clip programs,
 source-specific input policy and provider/package/application qualification remain
 open. Historical browser DPR-2, Windows/ARM64, float, performance and Instruments
 gates remain mandatory and unchanged.
+
+
+## Native signed and staged path programs (2026-11-09; unvalidated)
+
+The user made the implementation-first order mandatory during this batch: port
+all remaining code before validation. This section records implementation and
+provenance only. No successful build, lint, source comparison, shader validation,
+GPU/browser execution, performance measurement or release qualification is claimed.
+The early CPU compile attempt preceded that instruction and failed on enum casing;
+the spelling was corrected without another compiler run. Formatting is an edit.
+
+### Original source inventory
+
+This is a direct port of original ProGPU algorithms. The architecture references
+at the start of this ledger remain applicable: immutable source generations and
+explicit device domains (Skia/Direct2D), retained scene ownership (WebRender),
+GPU raster versus reusable CPU data (Vello/Parley), and independent reusable text
+(HarfBuzz/DirectWrite). No new external engine algorithm or source is imported.
+
+| Original source | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Native/src/Scene/progpu_native_path_boolean_validation.hpp` | `c050de5041ea92350f99e94dcedcc542e9eb539a9cfd9ea74c2b99dd4f3384eb` |
+| `src/ProGPU.Native/src/Backend/progpu_native_path_boolean_gpu.hpp` | `c1a35d79fc18b1a7391aadb3120409f6464ed5b8425ac850a2542659e7453652` |
+| `src/ProGPU.Native/src/Backend/progpu_native_path_execution.cpp` | `98ea51e80ad1e816396dad9e6c7baf0bd57cb62a086801f7676633c95168d6b5` |
+| `src/ProGPU.Native/src/Backend/progpu_native_path_text_resources.cpp` | `85dd78f7fa95fdca3f52ea01029e98a43a1845aba45eb35bfe493873f9d87989` |
+| `src/ProGPU.Backend/Shaders/PathRasterizerCommon.wgsl` | `b7f0599f533e799c44b11ba1d565e055bd971b80999648511128ad7624002601` |
+| `src/ProGPU.Backend/Shaders/PathRasterizer.wgsl` | `b5e6df242fb18d0799ac326de0d4763a0c5cedfd7a5f4f9be9c4045eccc0a362` |
+| `src/ProGPU.Backend/Shaders/PathSignedWindingLeaf.wgsl` | `80ac896b682634ecf43def96d1a53256176d48c89a0285c47a378371c51d1b15` |
+| `src/ProGPU.Backend/Shaders/PathSignedWindingEvaluate.wgsl` | `4cddcd1c225aa37440d7ee1193dfa95e54de7999ae62e9f2d0fc34cad2141841` |
+| `src/ProGPU.Backend/Shaders/PathSignedWindingCoverage.wgsl` | `7e45f460427e59195ee6269710c58727f3de3153d6677ccfb2de1893558e7e56` |
+
+### Immutable CPU program and route selection
+
+`PathInstruction` expresses ordinary predicate leaves, raw winding leaves, empty,
+the original five Boolean operators, signed addition and unary negation. Whole
+program validation retains the original 63-instruction and 16-stack bounds,
+positive leaf extents, distinct fill rules, raw nonzero admission and nonzero
+signed root. The existing retained Path contract additionally requires a nonempty
+leaf and limits copied segments to 2^20. Nested source programs must be flattened
+explicitly into the original postfix sequence; no output-contour reconstruction
+or fabricated predicate replaces signed magnitude.
+
+Records retain 32-byte layout, exact bounds and raw/predicate pad identity. Tokens
+retain original operation, empty and raw-leaf flag bits and local leaf indices;
+only segment offsets and the program base change when batching. Copies preserve
+original segment and parameter bytes. Existing managed direct/postfix compilation
+keeps its independent policy; the new constructor selects the native classifier.
+
+The pure left-fold XOR classifier and bounded overlapping translated-equivalent
+classifier preserve original leaf traversal, positive area overlap, near-equality
+threshold, kind-specific invariant coordinates, first mismatch and 2^20 segment
+comparison budget. Exhausting that budget selects split evaluation. This is
+bounded scalar structural work: comparisons depend on preceding admission and
+segment kind, so vectorizing unrelated fields would change the original contract.
+Raster and all per-sample work remain in the canonical GPU shaders.
+
+Signed programs retain the original Inline default. The linear-winding entry is
+selected only when the complete batch inventory contains lines. Explicit Staged
+retains original 64-word signed leaf samples; ordinary split programs retain two
+sample-mask words. No approximate contour/rectangle classification or alternate
+shader compiler flags select a supposedly equivalent route.
+
+### GPU phases, admission and ownership
+
+`prepare_programs` lazily creates only requested original families. Ordinary
+operation-zero and existing managed Boolean batches retain their separate paths.
+The new executor uses the original five storage bindings, 48-byte leaf uniforms
+and 40-byte combine uniforms. Device storage, dimension and dispatch admission
+precedes allocation and queue submission; native staged storage additionally
+retains the original four-GiB byte-address bound. Failed candidates publish no
+coverage atlas.
+
+The shared output buffer retains per-path packed R8 destinations and original
+aligned leaf scratch regions. Staged signed leaves reserve all 64 samples and
+an independent two-word predicate result per texel. Every phase owns immutable
+records/bindings. Original leaf-index phases remain separate queue submissions;
+inline work precedes the first leaf, followed by Boolean leaves, signed leaves,
+signed-row evaluation, Boolean coverage packing and signed coverage packing.
+The final encoder performs the original ordered atlas/texture copies. Commands
+retain their actual buffers; no forced destruction, host polling or CPU readback
+is introduced. Original bounds, sample positions, winding sign, even magnitudes
+and R8 packing remain shader-owned.
+
+Renderer and MaskComposer expose signed policy for future preparations and share
+the new path executor. Previously prepared scenes and masks keep their actual
+atlas/output owners. The original cache identity now includes complete program
+ownership from the prior materialized-mask batch.
+
+### Authored host integration and deferred work
+
+The shared `path_program_scene` has 24 panels: direct painting and inline/staged
+clip production for eight programs (double winding, opposed winding, negation,
+raw plus predicate, curved subtraction, XOR, translated overlap, empty operand).
+Winit `--path-programs` and browser `?scene=path-programs` select it. It has not been
+compiled or executed. Three canonical staged shader compositions are added to
+the validation inventory, bringing inclusion to 21; the latest observed successful
+shader check remains the prior 18-module checkpoint, not this head.
+
+Pending checks include compilation/lint, complete original validation rejection
+and record/token bytes, default-runtime classifier floats, dispatch/allocation
+and submission transcripts, inline/staged/source pixels at every grid and DPI,
+negative/even winding, overlap, mutation/retirement/device loss, browser and full
+performance/allocator evidence. Full native scene/archive transport, source group
+lowering, managed PathAtlas recovery and original platform/provider/package gates
+remain incomplete. No historical evidence or failure is superseded.

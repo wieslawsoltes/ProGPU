@@ -234,6 +234,7 @@ pub struct Renderer {
     stops: wgpu::Buffer,
     atlas: wgpu::BindGroup,
     path_rasterizer: Option<PathRasterizer>,
+    signed_winding_policy: crate::path::SignedWindingPolicy,
     materials: MaterialTable,
     text: Option<text::TextState>,
     text_tree_active: bool,
@@ -369,6 +370,7 @@ impl Renderer {
             stops,
             atlas,
             path_rasterizer: None,
+            signed_winding_policy: Default::default(),
             materials: MaterialTable::default(),
             text: None,
             text_tree_active: false,
@@ -400,6 +402,14 @@ impl Renderer {
         self.prepare_geometry(mesh, frame.into(), None, None)
     }
 
+    /// Select original inline/staged signed-path execution for future scene preparation.
+    /// Existing prepared scenes retain their original atlas generations.
+    pub fn set_signed_winding_policy(&mut self, policy: crate::path::SignedWindingPolicy) {
+        self.signed_winding_policy = policy;
+        if let Some(rasterizer) = &mut self.path_rasterizer {
+            rasterizer.set_signed_winding_policy(policy);
+        }
+    }
     /// Whether the optional path compute pipeline has been initialized.
     pub fn path_pipeline_is_initialized(&self) -> bool {
         self.path_rasterizer.is_some()
@@ -499,9 +509,10 @@ impl Renderer {
             self.prepare_geometry(&compiled.mesh, frame, None, Some(compiled.materials()))?
         } else {
             if self.path_rasterizer.is_none() {
-                let rasterizer =
+                let mut rasterizer =
                     PathRasterizer::new(&self.device, &self.queue, ExecutionPreference::Automatic)
                         .await?;
+                rasterizer.set_signed_winding_policy(self.signed_winding_policy);
                 self.path_rasterizer = Some(rasterizer);
             }
             let requests: Vec<_> = compiled
@@ -513,9 +524,7 @@ impl Renderer {
                 .path_rasterizer
                 .as_mut()
                 .ok_or(Error::UnsupportedExecution)?;
-            if requests.iter().any(|(path, _)| path.is_boolean()) {
-                rasterizer.prepare_boolean().await?;
-            }
+            rasterizer.prepare_programs(&requests).await?;
             let atlas = rasterizer.rasterize_atlas(&requests)?;
             self.prepare_geometry(
                 &compiled.mesh,

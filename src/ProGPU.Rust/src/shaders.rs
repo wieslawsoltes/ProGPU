@@ -80,8 +80,21 @@ pub const CLIP_COMPOSE: &str = concat!(
     "\n",
     shader!("ClipCompose")
 );
+/// Original staged signed-winding leaf supersamples.
+pub const PATH_SIGNED_LEAF: &str = concat!(
+    shader!("PathRasterizerCommon"),
+    "\n",
+    shader!("PathSignedWindingLeaf")
+);
+/// Original staged signed-row postfix evaluation.
+pub const PATH_SIGNED_ROWS: &str = shader!("PathSignedWindingEvaluate");
+/// Original staged signed coverage packing.
+pub const PATH_SIGNED_PACK: &str = shader!("PathSignedWindingCoverage");
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("path_signed_leaf", PATH_SIGNED_LEAF),
+    ("path_signed_rows", PATH_SIGNED_ROWS),
+    ("path_signed_pack", PATH_SIGNED_PACK),
     ("clip_compose", CLIP_COMPOSE),
     ("image_effect", IMAGE_EFFECT),
     ("image_blur", IMAGE_BLUR),

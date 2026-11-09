@@ -4,11 +4,16 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
-Latest connected batch: original path-atlas transfer, brush-alpha capture, direct
-picture-alpha sampling and mixed retained-mask composition now connect to the
-renderer. Simple masks retain direct bindings; larger/mixed/difference scopes
-materialize up to 64 components with bounded scratch storage. Native/browser hosts
-share a sixteen-panel gallery. Source transport and original qualification remain open.
+Latest connected batch: original native signed-winding and staged Boolean path
+programs now connect to retained painting and clip masks. The port includes bounded
+postfix input, original split classification, inline/linear signed evaluation,
+ordered leaf submissions, signed-row evaluation and R8 packing. Native/browser
+hosts share a 24-panel direct/inline-clip/staged-clip gallery.
+
+**Mandatory implementation-first workflow:** complete the remaining code before
+validation. This latest batch is unvalidated; no native/WASM build, lint, shader,
+source-differential, browser or performance pass is claimed for it. The preceding
+`9393eb4f5` materialized-mask checkpoint retains its 18-module static evidence.
 
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
@@ -38,7 +43,7 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, COLR paint programs and complete text compositor integration |
 | SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic, whole-layer source controls and native/browser layer pixels |
 | Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls and final retained GPU lowering |
-| Source fill and Boolean painting | Original all-six-family fill/ordinary/stroke-query compiler, open-fill closure, bounded direct/postfix Boolean raster input, explicit GPU reconstruction fallback, lazy general evaluator and retained material drawing; shared gallery | Original record/float/admission/pixel/lifetime/performance controls; full managed atlas cache/recovery, signed programs and complete stroke/compositor integration remain unfinished |
+| Source fill and Boolean painting | Original all-six-family fill/ordinary/stroke-query compiler, open-fill closure, bounded direct/postfix Boolean raster input, explicit GPU reconstruction fallback, lazy general evaluator and retained material drawing; shared gallery | Original record/float/admission/pixel/lifetime/performance controls; full managed atlas cache/recovery, complete stroke/compositor integration remain unfinished; new native signed/staged routes are unvalidated |
 | Stroke geometry | Original bounded cap/join writers, separate generic/clipped-Miter/WPF semantics, solid/dashed line-only widening, gap/closed-seam traversal and matching triangle hit tests | Source float/topology/capacity/rejection/performance controls and complete owning API integration |
 | Solid stroke painting | Original retained figure/gap/seam traversal; analytic line/quadratic/cubic/arc bodies, bounded affine sections, source-local/legacy/fixed/hairline widths, cap/join topology descriptors and retained material drawing; shared gallery | Original descriptor/float/pixel/lifetime/performance controls; clips and full compositor remain unfinished |
 | Dashed stroke painting | Original analytic line/Bezier/arc run construction, gap resets, endpoint overrides, closed seams, bounded linear coverage/bounds, directed terminal-cap filled unions and immutable preparation caches; retained rendering and shared gallery | Original state/topology/float/cache/pixel/lifetime/performance controls; full compositor and release qualification remain unfinished |
@@ -48,7 +53,8 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
 | Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, color matrices/effects and complete compositor integration |
 | Image resources and mips | Immutable strided RGBA/BGRA/R8 owners, device-bound GPU handles, weak-owner upload cache, actual sampler policy, canonical GPU mip generation and occupied-tile/brush mapping; native/browser gallery | Runtime/source/browser validation; full mutable generation, subresource, capture, codec and provider ownership APIs |
-| Direct and materialized masks | Original direct 96/288-byte analytic/texture chains and binary clips, actual GPU red/alpha sources, native clip atlas/transfer, explicit brush/picture producers and automatic 64-component mixed/difference composition; native/browser gallery | Original bytes/float/pixels/replay/retirement/performance controls; source-scene recording/invalidation, signed/staged clip programs, native semantic/picture transport and complete source policies remain unfinished |
+| Native signed/staged path programs | Original 63-instruction/16-stack model, raw winding/predicate distinction, native XOR/translated-leaf splitting, explicit inline/staged signed policy, ordered original GPU phases and shared painting/clip gallery | **Unvalidated:** compilation, source bytes/float/dispatch/pixels/lifetime/performance; full native scene/archive transport and managed atlas recovery remain unfinished |
+| Direct and materialized masks | Original direct 96/288-byte analytic/texture chains and binary clips, actual GPU red/alpha sources, native clip atlas/transfer, explicit brush/picture producers and automatic 64-component mixed/difference composition; native/browser gallery | Original bytes/float/pixels/replay/retirement/performance controls; source-scene recording/invalidation, native semantic/picture transport and complete source policies remain unfinished |
 | Owned captures and group effects | Complete eight-node native Gaussian/box/drop-shadow plan, original physical parameters and canonical GPU passes, owned job resources, same-submission scene capture and final image composition; shared effect gallery | Whole-source/runtime/browser/lifetime/performance controls; alternate execution routes, output caches, shader/image filters and source-specific compositing remain unfinished |
 | Bounded nested layers | Immutable source scenes, 16-target depth, native outward target bounds, original managed projection/render-origin mapping, nested captures before parent text, final group opacity and all 29 native destination blends; native/browser gallery | Original target/float/pixel/ownership/performance controls; source-specific AA/Clear/opacity policies, revision caches/pools and complete scene compiler remain unfinished |
 | Destination-aware blend passes | All fifteen advanced modes use canonical AdvancedBlend.wgsl, exact 96-byte records/256-byte slots, bounded source resolution, actual destination reads and ordered parent/root copies; immutable prepared resources and lazy pipelines | Original bytes/float/pixel/performance/retirement controls; uniform-backdrop fast path, caches, source-specific ROP/AA/Clear and complete semantic transport remain unfinished |
@@ -1380,3 +1386,31 @@ ordinary captures; child upload and advanced totals are also included in the
 existing capture counters. `replay_metrics()` reports actual Clear uploads and
 background copy bytes on every replay. These counters are implementation diagnostics,
 not pixel, performance or package qualification. All original deferred gates remain.
+
+## Native signed and staged path programs
+
+`Path::from_program` retains `PathInstruction` leaves, empty values, the five
+original Boolean operations and signed Add/Negate. Signed roots and raw winding
+leaves require NonZero; predicate leaves retain their independent fill rule.
+The original native limit remains 63 instructions and 16 stack entries. The
+retained `Path` contract requires at least one nonempty leaf. Source bounds are
+caller-owned; no contours, segment coordinates or signs are reconstructed.
+
+`PathRasterizer::prepare_programs` prepares the families required by an actual
+batch. `SignedWindingPolicy::Inline` is the original default; `Staged` selects the
+original explicit signed flag. Renderer and MaskComposer expose the same policy
+for future preparation. Prepared scenes retain their existing atlas generations.
+The original pure left-fold XOR and overlapping translated-equivalent classifiers
+independently select staged ordinary Boolean coverage. Existing managed Boolean
+lowering keeps its prior independent route.
+
+The staged route retains 64 signed words per leaf pixel (or two Boolean mask
+words), original 40-byte combine records and 48-byte leaf uniforms. Each original
+leaf phase keeps its own queue submission boundary; signed row evaluation, Boolean
+packing, signed packing and final texture copies preserve their original order.
+There is no CPU raster, readback, perturbed geometry or compiler-flag change.
+
+Winit `--path-programs` and browser `?scene=path-programs` select 24 authored
+panels: eight input programs, each painted directly and through inline/staged clip
+factories. This sample has been authored, **not compiled or executed**. Validation
+is deferred until the complete port implementation, as explicitly requested.

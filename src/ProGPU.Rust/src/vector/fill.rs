@@ -161,6 +161,7 @@ impl PathGeometry {
                     bounds,
                     self.fill_rule.raster_rule(),
                     RasterProgram {
+                        split: false,
                         records: vec![first, second].into_boxed_slice(),
                         tokens: Box::default(),
                         operation: deferred.operation() as u32 + 1,
@@ -481,6 +482,7 @@ fn boolean_program(root: &PathGeometry) -> Result<Option<(Vec<Segment>, RasterPr
     Ok(Some((
         segments,
         RasterProgram {
+            split: false,
             index_b: records.len() as u32,
             operation: OPERATION | tokens.len() as u32,
             records: records.into_boxed_slice(),

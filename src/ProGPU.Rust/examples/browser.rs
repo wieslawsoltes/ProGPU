@@ -31,6 +31,8 @@ mod material_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/materialized_mask_scene.rs"]
 mod materialized_mask_sample;
+#[path = "support/path_program_scene.rs"]
+mod path_program_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/retained_aa_scene.rs"]
 mod retained_aa_sample;
@@ -1686,6 +1688,7 @@ mod web {
         retained_aa_scene: bool,
         image_effect_scene: bool,
         materialized_mask_scene: bool,
+        path_program_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
@@ -1770,6 +1773,7 @@ mod web {
             retained_aa_scene: false,
             image_effect_scene: false,
             materialized_mask_scene: false,
+            path_program_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
@@ -1810,6 +1814,7 @@ mod web {
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1836,6 +1841,7 @@ mod web {
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1851,6 +1857,7 @@ mod web {
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1865,6 +1872,7 @@ mod web {
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1879,6 +1887,7 @@ mod web {
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1893,6 +1902,7 @@ mod web {
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1907,6 +1917,7 @@ mod web {
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -1921,6 +1932,7 @@ mod web {
             self.retained_aa_scene = enabled;
             self.image_effect_scene = false;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -1935,6 +1947,7 @@ mod web {
             self.ensure_live()?;
             self.image_effect_scene = enabled;
             self.materialized_mask_scene = false;
+            self.path_program_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -1949,6 +1962,7 @@ mod web {
         pub fn select_materialized_mask_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.materialized_mask_scene = enabled;
+            self.path_program_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -1958,6 +1972,12 @@ mod web {
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
+            Ok(())
+        }
+        /// Select original signed/staged path programs through painting and clips.
+        pub fn select_path_program_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.path_program_scene = enabled;
             Ok(())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
@@ -1980,6 +2000,13 @@ mod web {
                 .map_err(error)?;
                 axis_clip_metrics = metrics;
                 (source, Default::default())
+            } else if self.path_program_scene {
+                (
+                    super::path_program_sample::path_program_scene(&self.device, &self.queue, dpi)
+                        .await
+                        .map_err(error)?,
+                    Default::default(),
+                )
             } else if self.materialized_mask_scene {
                 let (source, metrics) = super::materialized_mask_sample::materialized_mask_scene(
                     &mut self.renderer,

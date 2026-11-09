@@ -150,6 +150,7 @@ pub struct MaskComposer {
     pipelines: Option<Pipelines>,
     rasterizer: Option<PathRasterizer>,
     path_preference: ExecutionPreference,
+    signed_winding_policy: crate::path::SignedWindingPolicy,
 }
 impl MaskComposer {
     /// Retain the device/queue without compiling shaders; incompatible forced routes reject.
@@ -171,6 +172,7 @@ impl MaskComposer {
             pipelines: None,
             rasterizer: None,
             path_preference: ExecutionPreference::Automatic,
+            signed_winding_policy: Default::default(),
         })
     }
     /// Original fragment-stage composition route; path rasterization uses native compute.
@@ -194,6 +196,13 @@ impl MaskComposer {
         }
         self.path_preference = preference;
         Ok(())
+    }
+    /// Select original inline/staged signed execution for future clip generations.
+    pub fn set_signed_winding_policy(&mut self, policy: crate::path::SignedWindingPolicy) {
+        self.signed_winding_policy = policy;
+        if let Some(rasterizer) = &mut self.rasterizer {
+            rasterizer.set_signed_winding_policy(policy);
+        }
     }
     /// Actual path-raster route, absent until a clip atlas has been requested.
     pub fn path_execution_path(&self) -> Option<ExecutionPath> {
@@ -341,14 +350,13 @@ impl MaskComposer {
             Some(r) => r,
             None => PathRasterizer::new(&self.device, &self.queue, self.path_preference).await?,
         };
-        if plan.rasters.iter().any(|(p, _)| p.is_boolean()) {
-            rasterizer.prepare_boolean().await?;
-        }
         let requests = plan
             .rasters
             .iter()
             .map(|(p, r)| (p, *r))
             .collect::<Vec<_>>();
+        rasterizer.set_signed_winding_policy(self.signed_winding_policy);
+        rasterizer.prepare_programs(&requests).await?;
         let atlas = rasterizer.rasterize_atlas(&requests)?;
         self.rasterizer = Some(rasterizer);
         let d = &self.device;
