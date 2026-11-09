@@ -364,6 +364,35 @@ try {
         const stale=gsub(gsubTable([[7,0,[[1,5,0,8,...oneContext],[1,2,0,8,...multiSub]]],[2,0,[deleteSub]]]),[sg(10),sg(900),sg(901)],[1,0xffffffff,0,1,0,0,0,0]);check(stale[0]===0&&stale[1]===2&&stale[2]===1&&glyphResult(stale,2)[0]===102,'WASM original-slot continuation after nested deletion');
         const gd=otWords([1,2,14,0,0,32,46,1,10,6,1,2,3,4,5,0,1,10,4,0,0,2,7,1,1,0,8,1,1,12]);
         for(const flags of [0x700,0x710]){const r=gsub(gsubTable([[1,flags,[[1,6,100,1,1,12]]]]),[sg(12,0,0,0x301)],[1,0,0,1,0,0,0,0],gd);check(r[0]===0&&r[2]===+(flags===0x710)&&glyphResult(r,0)[0]===(flags===0x710?112:12),'WASM original mark-set versus attachment admission');}
+        let managedGsubChecks=0;
+        const mg=(id,cluster=0,cp=65)=>[id,cluster>>>0,(-700)>>>0,900,cp,0,101,(-202)>>>0,(-303)>>>0,404,7,0,0,0,0,0,0,0,0,0,0,0,0,37,9,42,255,0,1,5,10123];
+        const mopts=(patch={})=>Object.assign([0,0xffffffff,0,0,0,0,0,0xdeadbeef,160,65536],patch);
+        const managedGsub=(table,records,options=mopts(),source=font,index=0)=>{managedGsubChecks++;return [...app.apply_managed_gsub(source,table,index,new Uint32Array(records.flat()),new Uint32Array(options))];};
+        const mrecord=(r,i)=>r.slice(7+r[2]+i*31,7+r[2]+(i+1)*31);
+        const equalRecord=(r,i,expected,label)=>check(JSON.stringify(mrecord(r,i))===JSON.stringify(expected),label);
+        for(const wrapped of [false,true]){
+          const tab=(kind,sub,flags=0)=>gsubTable([[wrapped?7:kind,flags,[wrapped?[1,kind,0,8,...sub]:sub]]]);
+          const base=mg(10,-8),expected=base.slice();expected[0]=110;expected[21]=1;
+          let r=managedGsub(tab(1,singleSub),[base]);check(r[0]===0&&r[1]===1&&r[4]===0xdeadbeef&&r[5]===0xffffffff&&r[6]===0,'WASM managed original state restoration');equalRecord(r,0,expected,'WASM all 31 managed fields');
+          r=managedGsub(tab(3,multiSub),[base]);expected[0]=100;equalRecord(r,0,expected,'WASM nested first alternate leaves random state');check(r[4]===0xdeadbeef,'WASM nested alternate random independence');
+          base[22]=7;const mark=mg(12,-8,0x301);mark[26]=0;const tail=mg(20,9);
+          r=managedGsub(tab(2,multiSub),[base,mark,tail]);check(r[0]===0&&r[2]===5&&r[3]===4,'WASM managed ligated expansion boundary');equalRecord(r,1,mark,'WASM expansion retains skipped mark');equalRecord(r,4,tail,'WASM expansion retains trailing record');
+          for(const [slot,component] of [[0,0],[2,1],[3,2]]){const e=base.slice();e[0]=100+component;e[21]=1;e[23]=component;e[24]=1;equalRecord(r,slot,e,'WASM original ligated expansion metadata');}
+          r=managedGsub(tab(2,deleteSub),[mg(10),mg(20)]);check(r[2]===1&&r[1]===1,'WASM managed zero replacement');equalRecord(r,0,mg(20),'WASM managed deletion keeps record');
+          r=managedGsub(tab(4,ligSub,8),[mg(10,8),mg(12,-3,0x301),mg(20,7),mg(30,7)]);check(r[2]===3&&mrecord(r,0)[1]===0xfffffffd&&mrecord(r,0)[22]===1&&mrecord(r,0)[24]===0&&mrecord(r,1)[26]===0&&mrecord(r,2)[1]===0xfffffffd,'WASM managed full ligature metadata');
+        }
+        for(const [kind,sub,pos,records] of [...contextRules,[5,contextSub([[0,1]]),0,[sg(10,0),sg(20,1)]]]){
+          for(const wrapped of [false,true]){const b=gsubTable([[wrapped?7:kind,0,[wrapped?[1,kind,0,8,...sub]:sub]],[1,0,[singleSub]]]);const r=managedGsub(b,records.map(g=>mg(g[0],g[2],g[1])),mopts({0:pos}));check(r[0]===0&&r[1]===1&&r[3]===pos+2&&mrecord(r,pos)[0]===110,'WASM managed all context formats');}
+        }
+        for(const [cp,manual,changed] of [[0x34f,0,false],[0x200c,0,false],[0x200d,0,true],[0x200d,1,false],[0xad,0,true],[0x301,0,true]]){const r=managedGsub(gsubTable([[4,8,[ligSub]]]),[mg(10),mg(99,1,cp),mg(20,2)],mopts({3:manual}));check(r[0]===0&&r[1]===+changed,'WASM managed explicit ligature joiner boundary');}
+        const beyond=managedGsub(gsubTable([[5,0,[contextSub([[0,1],[2,1]])]],[1,0,[singleSub]]]),[mg(10),mg(20,1)]);check(beyond[0]===0&&beyond[1]===1&&beyond[3]===2&&mrecord(beyond,0)[0]===110,'WASM managed missing later target preserves success');
+        const recursive=managedGsub(gsubTable([[5,16,[contextSub([[0,0],[0,0]])]]]),[mg(10),mg(20,1)],mopts({9:128}));check(recursive[0]===7&&recursive[1]===0&&recursive[5]===0xffffffff&&recursive[6]===0&&mrecord(recursive,1)[5]===3,'WASM managed explicit work budget and retained dependency');
+        const revTable=gsubTable([[8,0,[[1,18,2,24,30,1,36,1,77,1,1,10,1,1,9,1,1,8,1,1,20]]]]);
+        const reversed=managedGsub(revTable,[mg(8,0),mg(9,1),mg(10,2),mg(20,3)],mopts({0:2,1:26}));check(reversed[0]===0&&reversed[1]===1&&mrecord(reversed,2)[0]===77&&mrecord(reversed,3)[5]===3,'WASM managed independent reverse subtable');
+        for(const [profile,classes] of [[151,[1,1]],[160,[3,1]],[170,[3,3]]]){const r=managedGsub(new Uint8Array(),[mg(10,0,0x897),mg(20,1,0x1acf)],mopts({8:profile}));check(r[7]===classes[0]&&r[8]===classes[1],'WASM explicit Rune category profiles');}
+        for(const rawClass of [0,3,256,257,259,65535]){const data=gd.slice();new DataView(data.buffer).setUint16(24,rawClass);const source=makeVertical([['GDEF',data]]);const r=managedGsub(new Uint8Array(),[mg(12,0,0x110000)],mopts(),source);check(r[7]===((rawClass&255)||0x80000006),'WASM managed byte GDEF cast before invalid Rune fallback');}
+        for(const flags of [0x200,0x210,0x710]){const r=managedGsub(gsubTable([[4,flags,[[1,18,1,8,1,4,88,2,12,1,1,10]]]]),[mg(10),mg(12,1,0x301)],mopts(),makeVertical([['GDEF',gd]]));check(r[1]===+(flags!==0x710),'WASM managed mark set and attachment both apply');}
+        let malformed=false;try{app.apply_managed_gsub(font,new Uint8Array(),0,new Uint32Array(1),new Uint32Array(mopts()));}catch{malformed=true;}check(malformed,'WASM incomplete managed record rejection');managedGsubChecks++;
         let managedContextChecks=0;
         const contextGlyph=(id,cp=65,sub=0,shaper=0,mask=0,syllable=0)=>[id,cp,sub,shaper,mask,syllable];
         const contextCheck=(bytes,extension,glyphs,expected,options=[0,0,0])=>{const actual=[...app.managed_context_query(bytes,0,extension,new Uint16Array(),new Uint32Array(glyphs.flat()),new Uint32Array(options))];check(actual[0]===1&&actual.at(-1)===+expected,`WASM managed ordered context ${JSON.stringify(actual)}`);managedContextChecks++;return actual;};
@@ -620,7 +649,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

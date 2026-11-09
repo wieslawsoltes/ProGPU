@@ -8,8 +8,10 @@ pub mod bidi;
 mod data;
 pub mod grapheme;
 pub mod line_break;
+mod mark_profile;
 pub mod normalization;
 mod properties;
+pub use mark_profile::ManagedMarkProfile;
 mod types;
 pub use properties::{
     bidi_bracket, bidi_class, canonical_combining_class, decimal_digit_value, general_category,

@@ -394,3 +394,35 @@ complete state/storage byte must match. Native and managed policies still differ
 in default ignorables, already-ligated expansion, one-component ligature flags,
 malformed-table admission and staged feature handling. The current managed source
 comparison qualifies only their explicitly shared mutation contracts.
+
+
+`ManagedGsubTable` and `ManagedGlyphBuffer` provide the separate current C# nested
+executor and reverse-chaining subtable. `ManagedShapingGlyph` retains all 31
+original fields, including independent grapheme/character clusters, signed
+advances/offsets, script metadata and attachment state. Raw managed coverage,
+class lookup, joiner filtering, syllable admission, ligature merging and
+already-ligated expansion follow the original ordered operations. Errors retain
+previous mutations; private nesting depth and mark coverage restore on return.
+
+`ManagedMarkProfile` explicitly selects the source Rune mark repertoire. It is
+independent of canonical normalization and defaults to Unicode 16, matching the
+frozen native mark inventory. A complete actual-runtime probe selects the
+source profile in differential tests; no operating-system inference is used.
+GDEF classes narrow through the original byte enum before zero-class fallback.
+Invalid Unicode scalars reject only when original Rune classification is reached.
+
+The original 64-level nested lookup rule remains. Rust additionally bounds
+extension chains at 64 hops and nested lookup attempts at 65,536 per operation.
+`apply_lookup_at_with_limits` accepts an explicit `ManagedGsubLimits` budget.
+Exhaustion returns `FontError::Capacity` with preceding mutations retained; this
+is a separate safety policy, not original source equivalence. Two branching
+mutation witnesses exceed the original C# control's three-second observation;
+they are reported separately from the 74,981 exact-output source cases.
+
+Forty-four browser controls per DPR exercise these current managed contracts.
+Run `python3 eng/progpu-benchmark-rust-managed-gsub.py` for 24 full-record matched
+C#/Rust nested/reverse execution baselines. Five warmups precede 40 measured
+rounds; source font construction, buffer reset/preallocation and serialization
+are untimed, while production allocations remain timed. This core does not yet
+provide the source top-level feature-valued alternate dispatch, staged script
+shaping, GPOS, fallback, paragraph layout or GPU text rendering.

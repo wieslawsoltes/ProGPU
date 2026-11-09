@@ -2608,3 +2608,99 @@ this run. No stable speedup or performance parity is claimed. Cleanup removed
 **539,368,324 measured logical bytes** of package/benchmark
 scratch, unused executables and the temporary helper; source-oracle scratch
 removal is additional. Active dependency caches and compact evidence remain.
+
+
+## Current managed GSUB execution and complete records
+
+This milestone ports the original C# `ApplyNestedLookup` and separate
+`ApplyReverseChainingSubtable`, with their original buffer operations. It does
+not route through the native executor: their malformed reads, first-alternate
+behavior, default-ignorable filtering and mutation metadata differ.
+`ManagedShapingGlyph` retains every original field rather than projecting into
+native packed flags. The buffer owns the selected font generation and raw GDEF
+admission, including the original table-length blocklist. A table can own raw
+bytes or retain its actual selected GSUB generation.
+
+The raw current managed parser keeps inclusive binary search and selected-record
+reads, including original unsorted/range behavior, partial arrays and typed
+source failures. Context formats 1–3 preserve ordered matching/preflight,
+sequence indices beyond the original input count, no-op dependency writes and
+successful earlier records when a later target is unavailable. Reverse
+subtables preserve backtrack/input/lookahead dependency and later read ordering.
+The original mark filtering set and attachment class both apply. Depth and mark
+coverage restore after source errors; prior public record/state writes remain.
+One-component ligatures still set Ligated and clear Multiplied. Already-ligated
+multiple substitutions insert later outputs after the actual skipped marks.
+Ordinary expansion retains the original reverse insertion order. Adjacent
+clusters merge using original signed values; all other private metadata survives.
+
+The actual C# class enum uses byte storage. Raw GDEF classes narrow before the
+zero fallback test, so 256 falls back while 259 becomes Mark. Rune fallback
+rejects invalid scalars, while the native frozen classifier treats them as
+unassigned. The no-filter fast path still avoids classification. The new
+`ManagedMarkProfile` has explicit Unicode 15.1/16/17 facts, generated from
+hash-pinned UnicodeData inventories. The complete frozen category mark inventory
+matches Unicode 16. This runtime's 1,114,129 original classifications match 16,
+independently of its witnessed Unicode 17 normalization behavior. CI probes its
+actual original runtime and requires a complete unique profile match.
+
+The unchanged current source passes **74,981 cases / 80,999,436 exact bytes** of
+return values, live count, context/random/mark/depth state, every live class and
+all 31 record fields. The corpus includes all nested types, separate reverse
+subtables, all context formats, extensions, truncations, 25,000 byte mutations,
+12,000 mixed-record cases, all GDEF prefixes, blocklisted lengths and raw classes.
+Original private methods execute through typed delegates; reflection is only
+field transport and setup. No foreign shaping implementation supplies results.
+
+Two additional mutations create branching recursion. The original source limits
+depth to 64 but does not limit total calls. Both actual C# controls remain in the
+original operation after a three-second observation, and their owned processes
+are terminated and reaped. These are **not counted as exact-output comparisons**.
+Rust adds a caller-selectable nested-call budget, default 65,536, returning
+Capacity on exhaustion with earlier writes retained and private state restored.
+The ordinary single-branch 64-depth no-op is independently tested. Extensions
+have a separate 64-hop safety bound; illegal self-extensions reject rather than
+recursing until stack failure. Neither bound modifies the original C# producer.
+These are scoped safety differences, not full adversarial-workload qualification.
+
+**44 browser controls per DPR** cover full field retention, already-ligated
+expansion/deletion, first alternates, all context formats/extensions, joiners,
+reverse substitutions, missing later targets, mark-set-plus-attachment policy,
+byte GDEF narrowing, invalid scalars, explicit mark profiles and work-budget
+restoration. Existing 37 native GSUB controls, all six canonical shaders,
+204,800 offscreen pixels, actual DPR 1/2 presentation and resize still pass.
+
+The current execution baseline has 24 workloads, 32/512/4,096 records and eight
+operations. Original glyph-10 positions are visited in descending order so both
+executors receive identical operations despite expansion/deletion. Full records,
+classes and final state match for each workload. Buffer allocation/reset and
+source parsing are untimed; actual mutation allocations remain timed. C# typed
+delegate overhead is inside its timer and its default JIT behavior is unchanged.
+These are diagnostic measurements, not optimization or complete shaper/frame
+qualification. Top-level required/feature-value/random-alternate dispatch,
+staged script policy, GPOS, fallback, full layout, hinting and GPU text remain.
+
+The preceding `20aac151c` checkpoint passed hosted Linux source/package,
+Windows portable, Vulkan/winit and the original browser gate (run 42546692435).
+macOS remained queued at observation. Earlier intermittent hosted browser device
+loss remains unresolved; these managed changes require their own hosted result.
+
+The 4,096-record baselines below use microseconds (median / p95 / p99);
+load average at capture was 6.43 / 7.71 / 14.11.
+
+| Operation | Rust | Original C# |
+| --- | --- | --- |
+| single | 13.250 / 15.375 / 25.833 | 83.792 / 106.959 / 110.042 |
+| multiple | 11,038.084 / 11,651.625 / 11,989.292 | 11,031.166 / 11,295.042 / 11,395.625 |
+| delete | 1,176.917 / 1,321.584 / 1,406.250 | 1,371.458 / 1,738.000 / 2,010.708 |
+| ligature | 1,233.416 / 1,358.334 / 1,411.333 | 1,494.959 / 1,584.834 / 1,598.875 |
+| context | 87.750 / 102.041 / 123.542 | 345.042 / 385.458 / 401.833 |
+| chain | 132.917 / 154.625 / 200.250 | 413.041 / 634.250 / 771.750 |
+| reverse | 94.375 / 94.750 / 127.375 | 243.959 / 269.625 / 318.458 |
+| alternate | 11.083 / 11.125 / 11.125 | 64.625 / 74.250 / 74.458 |
+
+Large multiple expansion remains roughly tied and its Rust p95/p99 are higher.
+Original C# measured 32,768 allocated bytes for this workload and 24,576 for
+deletion; other listed operations measured zero. Rust allocation counts are not
+instrumented here: its production multiple replacement allocates the temporary
+`Vec<u16>` for nonempty sequences. No allocation-free expansion claim is made.

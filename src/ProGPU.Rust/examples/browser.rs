@@ -9,6 +9,9 @@ mod font_scene;
 mod sample;
 
 #[cfg(target_arch = "wasm32")]
+#[path = "../tests/support/managed_glyph_fixture.rs"]
+mod managed_records;
+#[cfg(target_arch = "wasm32")]
 mod web {
     use super::sample;
     use js_sys::{
@@ -869,6 +872,92 @@ mod web {
                     out.extend([mask as u32, (mask >> 32) as u32]);
                 }
             }
+        }
+        Ok(out)
+    }
+    /// Current C# GSUB with all 31 record fields and retained source ownership.
+    /// Options: position, reverse offset (u32::MAX for nested lookup), flags,
+    /// manual joiners, syllable restriction, syllable, context end, random state,
+    /// explicit Rune profile, maximum nested lookup attempts.
+    #[wasm_bindgen]
+    pub fn apply_managed_gsub(
+        font: Vec<u8>,
+        bytes: Vec<u8>,
+        index: u16,
+        records: Vec<u32>,
+        options: Vec<u32>,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::{
+            font::{FontError, SfntFace, layout::*},
+            text::unicode::ManagedMarkProfile,
+        };
+        if !records.len().is_multiple_of(31)
+            || options.len() != 10
+            || options[2] > 65535
+            || options[3] > 1
+            || options[4] > 1
+            || options[5] > 255
+            || options[8] > 65535
+        {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let face = SfntFace::new(font, 0).map_err(error)?;
+        let mut buffer = ManagedGlyphBuffer::with_mark_profile(
+            face.clone(),
+            records
+                .chunks_exact(31)
+                .map(super::managed_records::from_words)
+                .collect(),
+            ManagedMarkProfile::try_from(options[8] as u16).map_err(error)?,
+        )
+        .map_err(error)?;
+        drop(face);
+        buffer.set_state(ManagedGlyphState {
+            traversal: ManagedContextState {
+                manual_joiners: options[3] != 0,
+                restrict_to_syllable: options[4] != 0,
+                lookup_syllable: options[5] as u8,
+            },
+            context_match_end: options[6] as i32,
+            random_state: options[7],
+        });
+        let table = ManagedGsubTable::new(bytes).map_err(error)?;
+        let result = if options[1] == u32::MAX {
+            table.apply_lookup_at_with_limits(
+                &mut buffer,
+                index,
+                options[0] as usize,
+                ManagedGsubLimits {
+                    max_lookup_calls: options[9],
+                },
+            )
+        } else {
+            table.apply_reverse_at(
+                &mut buffer,
+                options[1] as usize,
+                options[0] as usize,
+                options[2] as u16,
+            )
+        };
+        drop(table);
+        let mut out = vec![
+            result.err().map_or(0, |e| e as u32),
+            u32::from(result.unwrap_or(false)),
+            buffer.glyphs().len() as u32,
+            buffer.state().context_match_end as u32,
+            buffer.state().random_state,
+            buffer.mark_filtering_coverage() as u32,
+            buffer.nested_lookup_depth(),
+        ];
+        for i in 0..buffer.glyphs().len() {
+            out.push(
+                buffer
+                    .glyph_class(i)
+                    .map_or_else(|e| 0x80000000 | e as u32, u32::from),
+            );
+        }
+        for &g in buffer.glyphs() {
+            out.extend(super::managed_records::words(g));
         }
         Ok(out)
     }

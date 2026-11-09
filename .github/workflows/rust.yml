@@ -61,6 +61,7 @@ on:
       - eng/progpu-test-rust-normalization-conformance.py
       - eng/progpu-test-rust-normalization-profiles.py
       - eng/progpu-generate-rust-normalization-profiles.py
+      - eng/progpu-generate-rust-mark-profiles.py
       - eng/progpu-audit-rust-normalization-runtime.py
       - eng/ProGPU.UnicodeNormalizationGenerator/Program.cs
       - src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp
@@ -171,6 +172,7 @@ jobs:
         run: |
           python3 eng/progpu-generate-rust-unicode.py --check
           python3 eng/progpu-generate-rust-normalization-profiles.py --check
+          python3 eng/progpu-generate-rust-mark-profiles.py --check
           cargo test --locked --test native_geometry -- --ignored --nocapture
           cargo test --locked --test font -- --ignored --nocapture
           cargo test --locked --test outline -- --ignored --nocapture
@@ -195,6 +197,7 @@ jobs:
           cargo test --locked --test managed_feature_selection -- --ignored --nocapture
           cargo test --locked --test managed_context -- --ignored --nocapture
           cargo test --locked --test gsub -- --ignored --nocapture
+          cargo test --locked --test managed_gsub_execution -- --ignored --nocapture
           cargo test --locked --test normalization -- --ignored --nocapture
           python3 eng/progpu-test-rust-normalization-conformance.py
           python3 eng/progpu-test-rust-normalization-profiles.py
