@@ -44,6 +44,10 @@ name = "script_property_control"
 path = "src/ProGPU.Rust/examples/script_property_control.rs"
 
 [[example]]
+name = "myanmar_syllable_control"
+path = "src/ProGPU.Rust/examples/myanmar_syllable_control.rs"
+
+[[example]]
 name = "khmer_syllable_control"
 path = "src/ProGPU.Rust/examples/khmer_syllable_control.rs"
 

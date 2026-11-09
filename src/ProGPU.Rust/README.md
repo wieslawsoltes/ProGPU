@@ -168,9 +168,10 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Current managed variation data | Complete original fvar/avar/gvar/HVAR/GDEF/MVAR admission, normalized immutable instances, lazy tuple cache, simple/component/phantom deltas and MVAR/HVAR/layout queries; 8,772 C# cases / 8,192,752 exact bytes; 96 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, full varied-outline/metrics integration and query/frame performance |
 | Current managed font names | Original name-table decoding, UTF-16 character ranking, stable ordinal deduplication and real axis-name resolution; 236,128 C# cases / 12,151,088 exact bytes; 93 browser controls per DPR | Full font identity/style/metric wrapper, broader discovery/source policies and end-to-end performance |
 | Current managed font and preparation | Owned font/cache/metadata, nominal/symbol/UVS mapping, explicit runtime grapheme and normalization profiles, complete original buffer creation | Varied outlines, source raster policies, fallback and complete shaping orchestration |
-| Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions, Arabic joining, presentation fallback, vowel constraints, Khmer preparation and stage-state actions; 1,163,438 complete C# cases plus complete raw property queries | Remaining Indic/Myanmar/USE stages, full plan sequencing, positioning initialization and full text pixels |
+| Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions, Arabic joining, presentation fallback, vowel constraints, Khmer preparation, Myanmar preparation/reordering and stage-state actions; 1,324,919 complete C# cases plus complete raw property queries | Remaining Indic/USE stages, full plan sequencing, positioning initialization and full text pixels |
 | Indic/Khmer/Myanmar/USE properties | Typed original Indic category/position and USE classification; 2,228,228 actual C# queries plus all 65,536 raw words match native and browser output | Syllable analysis, reordering and complete script stages |
 | Khmer preparation | Independent syllable parser; original unsafe flags, broken circles, full-record reordering, cluster merging and feature masks; 1,398,562 private parser observations plus full action controls | Complete shaping-plan sequencing, font GSUB/GPOS integration and GPU text |
+| Myanmar preparation/reordering | Separate original stages; independent syllable parser, kinzi/base positions, stable whole-record sorting, matra ordering and bounded scratch reuse; 12,981,319 parser cases and full action controls | Full shaping-plan sequencing, font GSUB/GPOS integration and GPU text |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -697,7 +698,7 @@ composition/decomposition and Jamo masks, modified combining-class ordering,
 Hebrew presentation composition, USE diacritic decomposition, Thai/Lao expansion,
 fraction masks, substitution/syllable clearing, Arabic stretch recording and
 whole-record reversal. They do not implement a complete shaping pipeline.
-Complex Indic/Khmer/Myanmar/USE syllables,
+Remaining Indic/USE syllables and reordering,
 ordered stage orchestration, positioning initialization, paragraphs and GPU text
 remain required work.
 
@@ -797,7 +798,7 @@ source-output SHA-256 at both DPRs without bundling the 13.5 MB response.
 `python3 eng/progpu-benchmark-rust-script-properties.py` runs 36 matched C#/Rust
 lookup workloads in three rotating trials. This capture has 33 lower Rust medians
 and three higher ones; it is a new-feature baseline, not complete shaping or
-allocation-event qualification. Remaining Indic/Myanmar/USE stages are pending.
+allocation-event qualification. Remaining Indic/USE stages and full plan sequencing are pending.
 
 `ManagedScriptAction::Khmer` performs the original `PrepareKhmerShaping` operation
 on the actual prepared `khmr` generation. Exact other script spellings are no-ops.
@@ -820,5 +821,36 @@ selects 28 matched workloads across full/missing glyph coverage and short/long
 runs. All complete outputs match in three rotating process trials. The 24 active
 workloads have lower Rust medians; four disabled-script cases are clock-limited.
 This is a new-stage baseline, not an allocation-event or full shaping/frame
-qualification. Indic, Myanmar and USE stages and full source orchestration remain
+qualification. Remaining Indic/USE stages and full source orchestration remain
 unfinished.
+
+
+`ManagedScriptAction::MyanmarPreparation { enabled }` classifies the original
+code points, assigns syllable bytes and marks unsafe breaks. It preserves the
+original position bytes. `MyanmarReordering` is a separate later operation over
+the current records: it inserts admitted broken-cluster circles, assigns kinzi,
+base, medial and vowel positions, merges clusters, stably sorts complete records
+and restores original pre-base vowel/selector grouping. Neither operation infers
+planner admission from script spelling. The planner must supply the original
+stage order around substitutions.
+
+`python3 eng/progpu-test-rust-myanmar-syllables.py` compares 12,981,319 sequences /
+75,858,807 exact bytes with the actual original API. The independent parser uses
+public grammar and observed source behavior, without foreign transition tables.
+The full action corpus retains every earlier case and now matches 1,324,919 cases /
+1,481,007,028 bytes on the witnessed Unicode 17 runtime. Its 1,398 frozen source
+cases run under all three profiles, giving 4,197 checks per browser DPR including
+invalid requests. Reordering controls include all raw category pairs, ligated
+records, arbitrary syllable/position bytes, neighboring cluster extension, flags,
+missing dotted glyphs, repeated stages and long selector-bearing vowel sequences.
+
+`PROGPU_RUST_ACTIONS_MYANMAR_ONLY=1 python3 eng/progpu-benchmark-rust-script-actions.py`
+selects 32 matched workloads in three rotating trials. All 28 active workloads
+have lower Rust median times; four disabled-preparation no-ops remain clock-limited.
+This new-stage baseline does not qualify allocator events or complete shaping.
+The stable counting sort uses owned O(N) scratch and retains at most one empty
+allocation of capacity 4,096 per thread, independently of prepared-buffer storage.
+Nested leases, thread teardown and oversized storage retire without source owners.
+Original repeated cluster merges and dotted insertions retain their worst-case
+quadratic cost. Remaining script families, full orchestration, paragraph/layout,
+GPU text and original provider/package/source/pixel gates remain unfinished.

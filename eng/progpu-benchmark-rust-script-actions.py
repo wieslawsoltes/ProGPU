@@ -35,13 +35,19 @@ def font(space_only, identity=False):
     return result
 
 
-def request(script, points, count, actions, fallback=False):
+def request(script, points, count, actions, fallback=False, myanmar=False):
     records=[]
     for i in range(count):
         values=[((i+1)*(n+3)*7) & 255 for n in range(31)]
         values[0]=7;values[1]=i;values[2]=(i//len(points))*len(points);values[3]=i;values[4]=points[i%len(points)]
         if fallback:
             values[0]=values[4];values[10]=6
+        if myanmar:
+            values[22] = 0
+            if actions == [72]:
+                categories = {0x1000:1,0x1004:15,0x103a:32,0x1039:4,0x103c:36,0x1031:22,0xfe00:40,0x102f:21,0x1036:9}
+                values[17] = categories[values[4]]
+                values[16] = 0x10 if len(points) <= 2 else (((i // len(points)) % 15 + 1) << 4)
         records.extend(values)
     script=list(script.encode('ascii'))
     values=[len(script),*script,1,1,count,*([65]*count),0,0,len(actions),*actions,count,*records]
@@ -51,6 +57,7 @@ def request(script, points, count, actions, fallback=False):
 def corpus():
     fallback_only = os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1'
     vowel_only = os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1'
+    myanmar_only = os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1'
     khmer_only = os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1'
     fonts=[font(False, fallback_only),font(True)]
     header=word(len(fonts))+b''.join(word(len(f))+f for f in fonts)
@@ -99,15 +106,26 @@ def corpus():
             ('khmer-joined-marks', 'khmr', [0x1780]+[0x200d]*15+[0x17c6, 0x17c1], [69]),
             ('khmer-disabled-script', 'latn', [0x1780, 0x17d2, 0x179a, 0x17c1], [69]),
         ]
+    if myanmar_only:
+        patterns = [
+            ('myanmar-prepare', 'mymr', [0x1004,0x103a,0x1039,0x1000,0x103c,0x1031,0x102f,0x1036], [71]),
+            ('myanmar-base', 'mymr', [0x1000,0x102f,0x1036,0x1038], [71,72]),
+            ('myanmar-kinzi', 'mymr', [0x1004,0x103a,0x1039,0x1000,0x103c,0x1031,0xfe00,0x102f,0x1036], [71,72]),
+            ('myanmar-broken', 'mymr', [0x1031,0xfe00,0x102f,0x1036], [71,72]),
+            ('myanmar-long-prevowels', 'mymr', [0x1031,0xfe00], [71,72]),
+            ('myanmar-sort-kinzi', 'mymr', [0x1004,0x103a,0x1039,0x1000,0x103c,0x1031,0xfe00,0x102f,0x1036], [72]),
+            ('myanmar-sort-long-prevowels', 'mymr', [0x1031,0xfe00], [72]),
+            ('myanmar-disabled', 'mymr', [0x1004,0x103a,0x1039,0x1000], [70]),
+        ]
     if joining_only:
         patterns = [pattern for pattern in patterns if pattern[0].startswith('joining-')]
     for index in range(len(fonts)):
         for name,script,points,actions in patterns:
             for count in [128,4096]:
-                data+=word(index)+request(script,points,count,actions,fallback_only)
+                data+=word(index)+request(script,points,count,actions,fallback_only,myanmar_only)
                 cases.append(dict(font='space-only' if index else ('identity-bmp' if fallback_only else 'full'),pattern=name,records=count,script=script,actions=actions))
-    selected = patterns[0 if joining_only or fallback_only or vowel_only or khmer_only else 4]
-    profile_input=header+(word(0)+request(selected[1],selected[2],4096,selected[3],fallback_only))*20
+    selected = patterns[0 if joining_only or fallback_only or vowel_only or khmer_only or myanmar_only else 4]
+    profile_input=header+(word(0)+request(selected[1],selected[2],4096,selected[3],fallback_only,myanmar_only))*20
     return data,cases,profile_input
 
 
@@ -173,13 +191,18 @@ def main():
                  'src/ProGPU.Rust/src/text/script_actions/vowel_data.rs',
                  'src/ProGPU.Rust/src/text/script_actions/khmer.rs',
                  'src/ProGPU.Rust/src/text/script_actions/khmer_syllables.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/myanmar.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/myanmar_syllables.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/myanmar_sort_storage.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
             receipt['rust_before_binary_sha256'] = hashlib.sha256(Path(before).read_bytes()).hexdigest()
         if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1':
             receipt['measurement_limits'] = 'Four disabled-script no-op workloads are at the observed 0..0.042 microsecond clock/format resolution; their relative latency is not qualified. Retain original samples and complete outputs.'
-        name = 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
+        if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1':
+            receipt['measurement_limits'] = 'New-stage matched baseline, not an optimization or end-to-end shaping claim. Disabled preparation is a near-clock-resolution no-op; relative latency is not qualified.'
+        name = 'managed-myanmar-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1' else 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
         output = ROOT / 'src/ProGPU.Rust/perf' / name
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')

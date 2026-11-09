@@ -1,8 +1,9 @@
 //! Original source glyph actions surrounding managed OpenType lookup stages.
 //! These explicit operations preserve full records and original partial writes
 //! on source errors. They do not select a reduced complete-shaping pipeline.
-//! Linear traversals use O(1) scratch except normalization; original stable
-//! insertion/reordering and Vec shifts retain worst-case O(N²) work.
+//! Linear traversals use O(1) scratch except normalization and Myanmar sorting;
+//! original cluster merging, insertion/reordering and Vec shifts retain O(N²)
+//! worst-case work. Myanmar stable counting sort uses O(N) owned scratch.
 use super::{ManagedShapingGlyph, preparation::*, unicode::*};
 use crate::font::{FontError, ManagedFont, layout::ManagedGlyphBuffer};
 use normalization::{ManagedNormalizationProfile, NormalizationForm};
@@ -10,6 +11,7 @@ mod joining;
 pub use joining::{ManagedJoiningType, managed_joining_type};
 mod arabic_fallback;
 mod khmer;
+mod myanmar;
 mod vowel;
 pub use arabic_fallback::ManagedArabicFallbackFeatures;
 
@@ -93,6 +95,13 @@ pub enum ManagedScriptAction {
     VowelConstraints,
     /// Original Khmer category/syllable preparation, broken circles and reordering.
     Khmer,
+    /// Assign original Myanmar categories/syllables before lookup stages.
+    MyanmarPreparation {
+        /// Actual planner admission, independent of raw script spelling.
+        enabled: bool,
+    },
+    /// Insert original broken-syllable circles and reorder the current records.
+    MyanmarReordering,
     /// Reverse complete original records without reconstructing clusters.
     Reverse,
 }
@@ -256,6 +265,12 @@ impl ManagedGlyphBuffer {
             ManagedScriptAction::VowelConstraints => vowel::apply(self, font, script)?,
             ManagedScriptAction::Khmer => {
                 khmer::prepare(&mut self.glyphs, font, options.buffer_flags, script)?;
+            }
+            ManagedScriptAction::MyanmarPreparation { enabled } => {
+                myanmar::prepare(&mut self.glyphs, enabled);
+            }
+            ManagedScriptAction::MyanmarReordering => {
+                myanmar::reorder(&mut self.glyphs, font, options.buffer_flags)?;
             }
             ManagedScriptAction::ArabicFallback { enabled, features } => {
                 if enabled {

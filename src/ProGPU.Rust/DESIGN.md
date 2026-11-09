@@ -3962,3 +3962,93 @@ recorded; Rust allocation events, a before/after optimization claim and complete
 shaping/layout/frame qualification remain outside this evidence. Full Indic,
 Myanmar and USE stages, ordered shaping plans, positioning initialization and
 all original provider/package/source/pixel gates remain mandatory.
+
+
+## Original Myanmar preparation and reordering
+
+The approved original ProGPU-owned `OpenTypeTextShaper.GlyphSubstitutionBuffer`
+methods `PrepareMyanmarShaping`, `AssignMyanmarSyllable`,
+`MarkSyllablesUnsafeToBreak`, `ReorderMyanmar`, `InsertBrokenMyanmarDottedCircles`,
+`ReorderMyanmarSyllable`, `StableSortMyanmarPositions`, `IsMyanmarConsonant` and
+`MergeCluster` supply the stage behavior. The source identity is recorded in
+`perf/managed-myanmar-validation.json`; no source/shader/compiler policy changes
+are made. The foreign-derived `MyanmarSyllableMachineData` arrays and lexer
+implementation are not implementation inputs. The shared source-only harness
+calls `FindMyanmarSyllables` on an actual original font/buffer and returns only
+syllable results. A fixed named list of scalar category/position constants is
+also observed; no arrays or machine structure are reflected. Production is
+reflection-free safe Rust.
+
+[Microsoft's Myanmar shaping specification](https://learn.microsoft.com/en-us/typography/script-development/myanmar)
+informs the independent ordered grammar: optional kinzi, bases, stacked letters,
+asat/medial sections, vowels, signs and terminal joiners. Observable original
+behavior takes precedence over the document's simplified grammar and Unicode
+6.0 scope. In particular, an incomplete kinzi can be broken, explicit stacker
+prefixes require a base, terminal halant ends before a joiner, the final medial
+group shares one optional asat, and original tone/visarga sections can intermix.
+Category 57 has contextual suffix admission even though its single-record token
+is non-cluster; arbitrary unknown categories retain original single-record
+behavior. No public 31-character cap or foreign engine state numbering is used.
+The prior Skia/SkParagraph, DirectWrite/Direct2D/Win2D, WebRender, Vello/Parley and
+HarfBuzz research ledger remains applicable to text ownership and later GPU replay;
+none supplies implementation text or generated tables here.
+
+The independent parser compares at most three candidate extents: a broken suffix,
+a bare base and an optional kinzi/stacker-prefixed base. Every unbounded lookahead
+belongs to a consumed candidate; there is no repeated scan of a failed long run.
+A complete run uses O(N) work and O(1) scratch, with original serials 1..15.
+The source oracle compares all 26-category sequences through length five, all
+256-category pairs, every raw category in all three positions around admitted
+neighbors, long sections through 4,096 repetitions and 30,000 deterministic random
+runs. All 12,981,319 cases / 75,858,807 syllable bytes match. The unchanged Khmer
+corpus also passes through the expanded shared transport.
+
+Preparation remains separate from reordering. A false enabled flag is a no-op;
+true sets the shaper/category and syllable metadata, leaves positions unchanged,
+and ORs unsafe bits only for clusters differing from the signed syllable minimum.
+Reordering consumes current post-substitution records, including arbitrary raw
+categories, ligated bytes and syllable kinds; it adds no script-spelling check.
+Dotted-circle suppression precedes font access, and an unsuppressed query still
+runs for empty or non-broken buffers. Original constructor fields and the source
+cluster/syllable are retained. Kinzi recognition uses the actual first three
+categories; base selection excludes ligated records. Original position state,
+variation-selector inheritance, below-vowel/anusvara ordering and complete-record
+pre-base reversals are preserved. Cluster merging retains its original equal-
+neighbor extension beyond the sorted range.
+
+The stable counting sort retains 16 buckets and original position clamping,
+stability and record copies. Its safe O(N) scratch lease replaces the managed
+ArrayPool lease without retaining font/text/context generations. A separate
+per-thread cache keeps at most one empty allocation with capacity at most 4,096;
+it never consumes prepared-buffer pool slots. No RefCell borrow spans shaping,
+font callbacks or another lease. Growth occurs at the original sort point after
+position changes and cluster merging, so allocation failure does not move ahead
+of source mutations. Nested leases remain independent; oversized storage,
+reentrant cache borrowing and thread teardown fall back to ordinary retirement.
+The ownership test exercises nested leases, preserved records, reuse, reentrant
+borrowing and oversized retirement. Sorting itself is linear; repeated original
+dotted insertions and neighbor-extended merges retain O(N²) worst-case work.
+Sequential grammar, position state and record movement are genuinely dependent;
+there is no independent per-lane raster workload being moved off the GPU.
+
+The action corpus adds 161,481 complete-record controls and retains all earlier
+1,163,438 cases. It checks 31 record fields, eight private states, actual
+font/text/context ownership and mutation/error continuation. It covers raw
+category pairs, all syllable kinds, ligation and position bytes, malformed and
+high code points, four levels, every buffer flag, source preparation, repeated
+and reversed operations, no-ink font coverage, long runs and 16,000 randomized
+record mutations. The 1,324,919 cases match 1,481,007,028 bytes on the actual
+Unicode 17 macOS runtime; 1,398 frozen cases are shared by native and browser
+replay under all three explicit profiles.
+
+The new-stage baseline times 32 workloads in three rotating process trials,
+with first action, five warmups and forty samples. Creation, raw restoration and
+serialization remain outside timers; complete output/state bytes match in every
+trial. Reorder-only workloads receive identical explicitly authored category and
+syllable records outside the timer. All 28 active workloads have lower Rust median
+times; four disabled no-ops sit at 0.041..0.042 microseconds and do not qualify a
+relative speed claim. Host load is 4.71/3.70/3.54. Source GC counters are observed;
+Rust allocation events, a before/after optimization claim and full shaping/frame
+performance remain open. Full Indic/USE stages, actual plan orchestration,
+position initialization, fallback/layout/interaction, GPU text and all original
+provider/package/source/pixel qualification remain mandatory.
