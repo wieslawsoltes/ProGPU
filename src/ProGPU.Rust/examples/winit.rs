@@ -14,6 +14,8 @@ mod sample;
 use sample::sample_scene;
 #[path = "support/material_scene.rs"]
 mod material_sample;
+#[path = "support/text_scene.rs"]
+mod text_sample;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -27,10 +29,15 @@ struct WindowRenderer {
     renderer: Renderer,
     scene: Option<PreparedScene>,
     material_scene: bool,
+    text_font: Option<progpu::font::ManagedFont>,
 }
 
 impl WindowRenderer {
-    async fn new(event_loop: &ActiveEventLoop, material_scene: bool) -> Result<Self> {
+    async fn new(
+        event_loop: &ActiveEventLoop,
+        material_scene: bool,
+        text_font: Option<progpu::font::ManagedFont>,
+    ) -> Result<Self> {
         let window = Arc::new(
             event_loop.create_window(
                 Window::default_attributes()
@@ -84,6 +91,7 @@ impl WindowRenderer {
             renderer,
             scene: None,
             material_scene,
+            text_font,
         };
         state.resize()?;
         state.window.set_visible(true);
@@ -103,7 +111,9 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
-        let source = if self.material_scene {
+        let source = if let Some(font) = &self.text_font {
+            text_sample::text_scene(font.clone())?
+        } else if self.material_scene {
             material_sample::material_scene()?
         } else {
             sample_scene()?
@@ -168,6 +178,7 @@ struct App {
     frames: u64,
     failure: Option<String>,
     material_scene: bool,
+    text_font: Option<progpu::font::ManagedFont>,
 }
 
 impl App {
@@ -180,7 +191,11 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
-            match pollster::block_on(WindowRenderer::new(event_loop, self.material_scene)) {
+            match pollster::block_on(WindowRenderer::new(
+                event_loop,
+                self.material_scene,
+                self.text_font.clone(),
+            )) {
                 Ok(state) => self.state = Some(state),
                 Err(error) => self.fail(event_loop, error),
             }
@@ -233,6 +248,10 @@ fn main() -> Result<()> {
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--materials" => app.material_scene = true,
+            "--text" => {
+                let path = args.next().ok_or("--text requires a font file path")?;
+                app.text_font = Some(progpu::font::ManagedFont::new(std::fs::read(path)?, 0)?);
+            }
             "--frames" => {
                 let frames: u64 = args
                     .next()
@@ -245,7 +264,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials for the material gallery or --frames N for a bounded smoke run"
+                    "unknown argument {argument}; use --materials, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

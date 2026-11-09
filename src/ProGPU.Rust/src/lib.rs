@@ -28,6 +28,9 @@ pub enum Error {
     /// The explicitly selected execution route is unavailable.
     #[error("requested execution path is not supported")]
     UnsupportedExecution,
+    /// Original font planning or glyph realization failed before publication.
+    #[error("text preparation failed: {0}")]
+    Text(Box<text::paint::TextPaintError>),
     /// wgpu rejected a shader or pipeline.
     #[cfg(feature = "gpu")]
     #[error("WebGPU validation failed: {0}")]

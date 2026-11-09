@@ -1,7 +1,7 @@
 //! Retained wgpu execution of ProGPU's canonical vector and path shaders.
 //!
 //! CPU geometry is prepared once, uploaded once and retained by an immutable
-//! scene. Frames submit one ordered draw with no geometry/uniform re-upload.
+//! scene. Frames submit ordered vector/text ranges with no geometry/uniform re-upload.
 //! wgpu retains encoded dependencies through submission; dropping this renderer
 //! never explicitly destroys a buffer still referenced by a submitted frame.
 
@@ -9,13 +9,14 @@ use crate::{
     Error,
     geometry::{Mesh, VectorVertex},
     path::{CoverageAtlas, ExecutionPreference, PathRasterizer},
-    scene::{CompiledScene, Scene},
+    scene::{CompiledScene, DrawRange, Scene},
     shaders,
     vector::{GpuBrush, GpuGradientStop, MaterialPage, MaterialTable},
 };
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod text;
 
 /// Physical target dimensions and scalar logical-to-physical DPI.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -94,12 +95,22 @@ pub struct UploadMetrics {
     pub material_brushes: u32,
     /// Actual auxiliary records, excluding an empty binding placeholder.
     pub material_records: u32,
-    /// Ordered indexed draw count (zero for empty scenes).
+    /// Ordered vector/text draw count (zero for empty scenes).
     pub draws: u32,
     /// Distinct path masks rasterized when this generation was prepared.
     pub rasterized_paths: u32,
     /// Owned R8 atlas bytes; zero for analytic-only generations.
     pub atlas_bytes: u64,
+    /// Actual 96-byte glyph instances retained by this scene.
+    pub glyph_instances: u32,
+    /// Actual text style storage uploaded, including its required placeholder.
+    pub text_style_bytes: u64,
+    /// Actual outline, raster uniform and color bitmap upload bytes during preparation.
+    pub glyph_upload_bytes: u64,
+    /// Actual submitted glyph coverage requests during preparation.
+    pub rasterized_glyphs: u64,
+    /// Shared grayscale and color atlas residency, counted once per scene.
+    pub glyph_atlas_bytes: u64,
 }
 
 /// GPU resources for a frozen scene and physical frame.
@@ -109,7 +120,8 @@ pub struct PreparedScene {
     indices: wgpu::Buffer,
     bindings: wgpu::BindGroup,
     atlas: wgpu::BindGroup,
-    index_count: u32,
+    draws: Vec<DrawRange>,
+    text: Option<text::PreparedText>,
     frame: Frame,
     metrics: UploadMetrics,
 }
@@ -125,17 +137,20 @@ impl PreparedScene {
     }
 }
 
-/// A single-device vector renderer with immutable prepared generations.
+/// A single-device vector/text renderer with immutable prepared generations.
 pub struct Renderer {
     owner: Arc<()>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    format: wgpu::TextureFormat,
     brush: wgpu::Buffer,
     stops: wgpu::Buffer,
     atlas: wgpu::BindGroup,
     path_rasterizer: Option<PathRasterizer>,
     materials: MaterialTable,
+    text: Option<text::TextState>,
+    text_options: crate::text::glyph::GlyphAtlasOptions,
 }
 
 impl Renderer {
@@ -250,18 +265,25 @@ impl Renderer {
             device: device.clone(),
             queue: queue.clone(),
             pipeline,
+            format,
             brush,
             stops,
             atlas,
             path_rasterizer: None,
             materials: MaterialTable::default(),
+            text: None,
+            text_options: Default::default(),
         })
     }
 
     /// Freeze and upload geometry for a physical target. On failure no scene is
     /// published. All byte/index/device limits are checked before allocation.
     pub fn prepare(&self, mesh: &Mesh, frame: Frame) -> Result<PreparedScene, Error> {
-        if mesh.vertices().iter().any(|v| v.shape_type == 4.0) {
+        if mesh
+            .vertices()
+            .iter()
+            .any(|v| matches!(v.shape_type, 4.0 | 1004.0))
+        {
             return Err(Error::InvalidInput);
         }
         self.prepare_geometry(mesh, frame, None, None)
@@ -279,6 +301,10 @@ impl Renderer {
         scene: &Scene,
         frame: Frame,
     ) -> Result<PreparedScene, Error> {
+        frame.uniforms(self.device.limits().max_texture_dimension_2d)?;
+        if scene.has_text() {
+            return self.prepare_text_scene(scene, frame).await;
+        }
         let compiled = scene.compile_with_materials(frame.dpi_scale, &mut self.materials)?;
         self.prepare_compiled(&compiled, frame).await
     }
@@ -288,6 +314,17 @@ impl Renderer {
     /// Paths are deduplicated and populated in one atlas/compute submission,
     /// then mixed with analytic commands in one painter-ordered indexed draw.
     pub async fn prepare_compiled(
+        &mut self,
+        compiled: &CompiledScene,
+        frame: Frame,
+    ) -> Result<PreparedScene, Error> {
+        if !compiled.glyphs.is_empty() {
+            return Err(Error::ResourceDomain);
+        }
+        self.prepare_compiled_geometry(compiled, frame).await
+    }
+
+    async fn prepare_compiled_geometry(
         &mut self,
         compiled: &CompiledScene,
         frame: Frame,
@@ -499,7 +536,12 @@ impl Renderer {
             indices: index_buffer,
             bindings,
             atlas,
-            index_count,
+            draws: if index_count == 0 {
+                Vec::new()
+            } else {
+                vec![DrawRange::Vector(0..index_count)]
+            },
+            text: None,
             frame,
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
@@ -514,6 +556,7 @@ impl Renderer {
                 atlas_bytes: coverage.map_or(0, |a| {
                     u64::from(a.texture().width()) * u64::from(a.texture().height())
                 }),
+                ..Default::default()
             },
         })
     }
@@ -529,6 +572,9 @@ impl Renderer {
         clear: wgpu::Color,
     ) -> Result<wgpu::SubmissionIndex, Error> {
         if !Arc::ptr_eq(&self.owner, &scene.owner) {
+            return Err(Error::ResourceDomain);
+        }
+        if !self.is_scene_current(scene) {
             return Err(Error::ResourceDomain);
         }
         if ![clear.r, clear.g, clear.b, clear.a]
@@ -556,13 +602,26 @@ impl Renderer {
                 })],
                 ..Default::default()
             });
-            if scene.index_count != 0 {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &scene.bindings, &[]);
-                pass.set_bind_group(1, &scene.atlas, &[]);
-                pass.set_vertex_buffer(0, scene.vertices.slice(..));
-                pass.set_index_buffer(scene.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..scene.index_count, 0, 0..1);
+            for draw in &scene.draws {
+                match draw {
+                    DrawRange::Vector(range) => {
+                        pass.set_pipeline(&self.pipeline);
+                        pass.set_bind_group(0, &scene.bindings, &[]);
+                        pass.set_bind_group(1, &scene.atlas, &[]);
+                        pass.set_vertex_buffer(0, scene.vertices.slice(..));
+                        pass.set_index_buffer(scene.indices.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(range.clone(), 0, 0..1);
+                    }
+                    DrawRange::Text(range) => {
+                        let state = self.text.as_ref().ok_or(Error::ResourceDomain)?;
+                        let text = scene.text.as_ref().ok_or(Error::ResourceDomain)?;
+                        pass.set_pipeline(&state.pipeline);
+                        pass.set_bind_group(0, &text.bindings, &[]);
+                        pass.set_bind_group(1, &text.atlas, &[]);
+                        pass.set_vertex_buffer(0, text.instances.slice(..));
+                        pass.draw(0..6, range.clone());
+                    }
+                }
             }
         }
         Ok(self.queue.submit([encoder.finish()]))

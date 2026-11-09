@@ -5908,3 +5908,100 @@ browser pixels and matched allocator/frame/Instruments baselines. The shared
 Renderer/text PathAtlas consumer, retained GPU outline-instance builder, hinted
 sources, full text masks/clips, styled owning APIs and all original source/provider/
 application/package qualification remain unfinished.
+
+
+## Ordered text renderer and source path placement (2026-11-09)
+
+This batch connects the preceding preparation port to the existing Rust renderer;
+its earlier statement that the shared consumer is missing is superseded here.
+Original sources inspected directly (SHA-256):
+
+| Original repository source | SHA-256 |
+| --- | --- |
+| ProGPU.Scene/Compositor.cs | a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd |
+| ProGPU.Vector/PathAtlas.cs | 8b0c65142b0156f505374f1d20a6feff3eea1ed7bec23a1b8ce6f405e7414ccd |
+| ProGPU.Scene/PathAtlasPixelMapping.cs | 31693992e9902b45bf393ba93fc9b3aa10300041eb5148a49f122b0866b52827 |
+| ProGPU.Scene/GlyphCoverageFramePolicy.cs | fb2e5f8ee657b299abcbb5a7775f386f980af75050752590852d2073e17e0518 |
+| ProGPU.Backend/Shaders/Text.wgsl | 432bcabab2d670297ceba2a720de8ca2351ffb4609bd619f62ead1fd7cf84d4a |
+| ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl | 321a1eed489c77c51c04fb89b5fa96769ad96afd142b4edcef1a492d93f19f25 |
+
+No foreign implementation source, new dependency, shader modification, compiler
+flag or driver change is part of this port. Source Compositor RegisterTextStyle
+appends one original style per eligible command; the renderer preserves this order
+and rebases instances into the complete style page without deduplicating records.
+
+Scene records text in O(1), retaining its actual source/context. Actual target DPI
+is supplied during preparation. Every text plan, including full integer-origin
+range preflight, completes before atlas acquisition. CPU-only compilation rejects
+unresolved text explicitly; text_commands exposes its unchanged inputs. Existing
+native analytic/path/stroke commands remain independent. Completed commands form
+one vector mesh plus one 96-byte instance stream and ordered contiguous pipeline
+ranges. Only adjacent ranges of the same pipeline coalesce. Canonical Text uses
+six original vertex-index corners, shared 32-byte styles and both actual atlas
+textures; Vector uses its unchanged indexed geometry and material page. One render
+pass preserves all interleaving, including source color layers and capacity fallback.
+
+Source text paths keep the original complete affine input, per-axis column lengths,
+0.0001 axis admission, conservative rotated scale and explicit raster scale.
+Exponent/step quantization reproduces ILogB/ScaleB buckets, including subnormal
+steps, without logarithm approximations. Device phases clamp the requested grid
+1..64 and use original ties-to-even rounding. Four-pixel padding is computed in
+integer space after original float bounds multiplication/double floor/ceiling;
+invalid or unsupported capacities reject before publication. Quad far edges use
+min/scale + width/scale rather than end/scale. Source local brush coordinates and
+original UV additions remain paired. Aliased paths encode shape 1004 and one sample;
+explicit transfer stays independent of legacy gamma. Exact texel loads require the
+actual direct unit-DPI frame and all four integer-lattice corners. Existing native
+power-of-two DPI placement is unchanged. Independent column-length and quad-point
+lanes use safe wide SIMD, retaining separate multiplies/adds. Source runtime float
+bit compatibility remains an explicit gate.
+
+Within a preparation, repeated actual positioned-geometry owners share one compiled
+Path (including negative empty results), allowing mask deduplication by source,
+both scale axes, phase and sampling. Owners stay rooted throughout this map; an
+allocator-reused pointer cannot alias. This is not the complete managed content-hash
+cache/recovery or raster-viewport figure culler. The existing native 4092 tile and
+8192 atlas limits remain; unsupported capacity fails instead of changing pixels.
+
+Multiple text plans now enqueue into one owning glyph batch. Existing bounded rings,
+oversized requests and growth retain their original flush rules, while scene-level
+final publication flushes once after the last plan. The public TextPainter::resolve
+still flushes before publishing its standalone resolved generation. Pixel-coordinate
+instances survive growth; final texture handles/revisions and whole-scene residency
+are captured only after all requests. Replay checks actual atlas identity, generation,
+texture revision and every key; same-key reacquisition cannot revive an older slot.
+Reprepare after invalidation. Rendering performs no uploads or rasterization.
+
+A renderer preparation takes exclusive ownership of its text state. Cancellation or
+failure drops that private candidate, leaving no half-open atlas in the renderer;
+wgpu handles retain submitted dependencies without explicit texture destruction.
+Previously prepared text then fails its ownership/residency check until recompiled.
+Successful publication restores the warmed state. Cache loss on failure is deliberate
+and conservative; full retained recovery and per-frame scheduling are later work.
+
+The direct target currently accepts finite 2D affine text and semantic opacity.
+Late camera/MVP, non-default retained zoom and clip contexts reject; early clip
+culling never pretends to implement a clip. The renderer's existing projection is
+not changed to manufacture the separate GlyphCoverageFramePolicy certificate and
+its uniform tag stays zero. Hinted/system-source owners, complete text masks/layers,
+retained outline-instance builders, styled owning APIs and full managed atlas recovery
+remain separate missing subsystems. CPU raster preferences retain explicit unsupported
+errors through the existing typed glyph options.
+
+The native --text FONT_PATH and browser local-font selector share one authored
+shaped/positioned gallery with vector overlays between text draws. It includes
+atlas/vector/gradient, contrast, synthetic styles, affine and eligible integer-origin
+rows. Explicit Unicode profiles are sample inputs, never inferred from host names.
+No sample fonts or generated binaries are added to the crate. The browser bridge
+exposes actual instance/style bytes, glyph upload bytes, raster request counts and
+atlas residency, alongside the existing vector metrics.
+
+Native all-target/all-feature, CPU-only and WASM browser strict Clippy plus formatting
+and diff checks cover this implementation batch. Full tests, source differential
+records/pixels, live native/browser rendering, failures/cancellation/eviction/growth,
+default-runtime arithmetic, allocator/frame/performance/Instruments and package gates
+remain deferred under the requested implementation-first workflow. Required controls
+must include vector/text/vector alpha order, shared and legacy flags, empty/no-ink
+slots, style indexing, color/coverage growth after earlier runs, exact per-axis scale
+and phase boundaries, repeated-path identities, source transfer, malformed inputs,
+real device loss and both cold/warm counters. No runtime or parity pass is claimed.

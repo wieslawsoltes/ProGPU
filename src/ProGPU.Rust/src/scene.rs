@@ -1,6 +1,6 @@
 //! CPU-only retained scene recording and native-compatible path placement.
 //! Recording owns immutable path generations. Compilation preserves painter
-//! order in one vector mesh and deduplicates raster identities within a frame.
+//! order across vector/text ranges and deduplicates raster identities within a frame.
 //!
 //! ```
 //! use progpu::{geometry::AnalyticPrimitive, scene::Scene};
@@ -17,10 +17,35 @@ use crate::{
     Error,
     geometry::{Affine, AnalyticPrimitive, Mesh, VectorVertex},
     path::{Path, RasterRequest},
+    text::paint::{GlyphInstance, TextDraw, TextPaintContext, TextPathPolicy, VectorGlyphPaint},
     vector::{Brush, BrushKind, MaterialPage, MaterialTable, PreparedStroke, StrokeDraw},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+
+mod text;
+#[cfg(feature = "gpu")]
+pub(crate) use text::ResolvedSceneText;
+
+#[derive(Clone, Debug)]
+pub(crate) enum DrawRange {
+    Vector(std::ops::Range<u32>),
+    #[cfg(feature = "gpu")]
+    Text(std::ops::Range<u32>),
+}
+
+fn append_draw(draws: &mut Vec<DrawRange>, draw: DrawRange) {
+    match (draws.last_mut(), &draw) {
+        (Some(DrawRange::Vector(last)), DrawRange::Vector(next)) if last.end == next.start => {
+            last.end = next.end;
+        }
+        #[cfg(feature = "gpu")]
+        (Some(DrawRange::Text(last)), DrawRange::Text(next)) if last.end == next.start => {
+            last.end = next.end;
+        }
+        _ => draws.push(draw),
+    }
+}
 
 /// Native path sampling and optional explicit source grayscale contrast.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -105,15 +130,54 @@ enum Command {
     MaterialAnalytic(AnalyticPrimitive, MaterialPaint),
     MaterialPath(PathDraw, MaterialPaint),
     Stroke(StrokeDraw),
+    Text(Box<(TextDraw, TextPaintContext)>),
+    TextPath(PathDraw, MaterialPaint, TextPathPolicy),
+    #[cfg(feature = "gpu")]
+    Glyph(GlyphInstance),
 }
 
-/// Ordered retained commands; no GPU work occurs while recording or compiling.
+/// Ordered retained commands; recording and CPU compilation perform no GPU work.
+/// Text realization is explicitly owned by `Renderer::prepare_scene`.
 #[derive(Clone, Debug, Default)]
 pub struct Scene {
     commands: Vec<Command>,
 }
 
 impl Scene {
+    /// Record original text without shaping, loading outlines, or allocating GPU
+    /// resources. The actual preparation frame supplies DPI. This renderer's
+    /// current direct target accepts affine placement and semantic opacity;
+    /// late camera/MVP transforms and clips require their separate consumers.
+    pub fn draw_text(&mut self, draw: TextDraw, context: TextPaintContext) -> Result<(), Error> {
+        text::validate_context(context)?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::Text(Box::new((draw, context))));
+        Ok(())
+    }
+
+    /// Append a positioned text outline with its original per-axis raster scale,
+    /// phase grid and coverage transfer. A missing brush is an unpainted path.
+    pub fn draw_text_path(&mut self, paint: VectorGlyphPaint) -> Result<(), Error> {
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        if let Some(command) = text::path_command(paint)? {
+            self.commands.push(command);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn has_text(&self) -> bool {
+        self.commands
+            .iter()
+            .any(|command| matches!(command, Command::Text(_)))
+    }
+    /// Recorded text and its source context, in original scene order. CPU-only
+    /// consumers can inspect/plan these records without any GPU dependency.
+    pub fn text_commands(&self) -> impl Iterator<Item = (&TextDraw, TextPaintContext)> {
+        self.commands.iter().filter_map(|command| match command {
+            Command::Text(record) => Some((&record.0, record.1)),
+            _ => None,
+        })
+    }
     /// Retain an original path stroke and its actual pen/material frame.
     /// Curves remain analytic except for the source's explicit affine sections.
     /// Dash preparation is deferred and cached until compilation. Directed
@@ -193,7 +257,8 @@ impl Scene {
     /// Compile one immutable generation at the actual target DPI. Geometry takes
     /// expected O(C + P) work for C commands and P distinct raster requests;
     /// materials add the original first-equal registration cost. Source segment
-    /// arrays remain shared. Native atlas limits remain in force.
+    /// arrays remain shared. Native atlas limits remain in force. Unresolved
+    /// text requires the GPU renderer and returns `UnsupportedExecution` here.
     pub fn compile(&self, dpi_scale: f32) -> Result<CompiledScene, Error> {
         self.compile_with_materials(dpi_scale, &mut MaterialTable::default())
     }
@@ -210,6 +275,9 @@ impl Scene {
     ) -> Result<CompiledScene, Error> {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
+        }
+        if self.has_text() {
+            return Err(Error::UnsupportedExecution);
         }
         let mut commands = Vec::new();
         commands
@@ -258,7 +326,10 @@ impl Scene {
         let has_materials = commands.iter().any(|command| {
             matches!(
                 command.as_ref(),
-                Command::MaterialAnalytic(..) | Command::MaterialPath(..) | Command::Stroke(_)
+                Command::MaterialAnalytic(..)
+                    | Command::MaterialPath(..)
+                    | Command::TextPath(..)
+                    | Command::Stroke(_)
             )
         });
         let mut rasters = Vec::new();
@@ -270,13 +341,22 @@ impl Scene {
                 | Command::Analytic(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_) => placements.push(None),
-                Command::Path(draw) | Command::MaterialPath(draw, _) => {
-                    let placement = Placement::new(draw, dpi_scale)?;
+                #[cfg(feature = "gpu")]
+                Command::Glyph(_) => placements.push(None),
+                Command::Text(_) => return Err(Error::UnsupportedExecution),
+                Command::Path(draw)
+                | Command::MaterialPath(draw, _)
+                | Command::TextPath(draw, _, _) => {
+                    let placement = if let Command::TextPath(_, _, policy) = command.as_ref() {
+                        text::placement(draw, *policy)?
+                    } else {
+                        Placement::new(draw, dpi_scale)?
+                    };
                     let key = RasterKey {
                         source: draw.path.identity(),
                         bounds: draw.path.bounds().map(f32::to_bits),
                         fill_rule: draw.path.fill_rule() as u32,
-                        scale: placement.request.scale[0].to_bits(),
+                        scale: placement.request.scale.map(f32::to_bits),
                         phase: placement.phase.map(f32::to_bits),
                         sampling: draw.sampling.0,
                     };
@@ -291,6 +371,10 @@ impl Scene {
         }
         let layout = AtlasLayout::new(rasters.iter().map(|(_, request)| request.size))?;
         let mut mesh = Mesh::default();
+        let glyphs = Vec::new();
+        #[cfg(feature = "gpu")]
+        let mut glyphs = glyphs;
+        let mut draws = Vec::new();
         let mut exact_loads = 0;
         let legacy_solid = Brush::default();
         // A mixed native scene reserves its existing unit-opacity vertex-color
@@ -308,7 +392,9 @@ impl Scene {
         for (command, placement) in commands.iter().zip(placements) {
             let command = command.as_ref();
             let brush_index = match command {
-                Command::MaterialAnalytic(_, paint) | Command::MaterialPath(_, paint) => {
+                Command::MaterialAnalytic(_, paint)
+                | Command::MaterialPath(_, paint)
+                | Command::TextPath(_, paint, _) => {
                     materials.register(Some(&paint.brush), paint.semantic_opacity)?
                 }
                 Command::Stroke(draw) if draw.is_renderable()? => {
@@ -318,8 +404,18 @@ impl Scene {
                 // when material zero happens to be a non-solid source brush.
                 _ => legacy_index,
             } as f32;
+            let first_index = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             match command {
                 Command::Empty => {}
+                Command::Text(_) => return Err(Error::UnsupportedExecution),
+                #[cfg(feature = "gpu")]
+                Command::Glyph(instance) => {
+                    let index = u32::try_from(glyphs.len()).map_err(|_| Error::Capacity)?;
+                    let end = index.checked_add(1).ok_or(Error::Capacity)?;
+                    glyphs.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    glyphs.push(*instance);
+                    append_draw(&mut draws, DrawRange::Text(index..end));
+                }
                 Command::Stroke(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
@@ -332,16 +428,25 @@ impl Scene {
                     }
                     mesh.push_quad(vertices)?;
                 }
-                Command::Path(draw) | Command::MaterialPath(draw, _) => {
+                Command::Path(draw)
+                | Command::MaterialPath(draw, _)
+                | Command::TextPath(draw, _, _) => {
                     let (index, placement) = placement.ok_or(Error::InvalidInput)?;
-                    let mut vertices =
-                        placement.vertices(draw, layout.origins[index], dpi_scale)?;
+                    let mut vertices = if let Command::TextPath(_, _, policy) = command {
+                        text::vertices(&placement, draw, *policy, layout.origins[index], dpi_scale)
+                    } else {
+                        placement.vertices(draw, layout.origins[index], dpi_scale)?
+                    };
                     for vertex in &mut vertices {
                         vertex.brush_index = brush_index;
                     }
                     exact_loads += u32::from(vertices[0].stroke_thickness < 0.0);
                     mesh.push_quad(vertices)?;
                 }
+            }
+            let end = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
+            if end != first_index {
+                append_draw(&mut draws, DrawRange::Vector(first_index..end));
             }
         }
         // Reject finite-input overflow before publishing the CPU generation.
@@ -359,6 +464,8 @@ impl Scene {
             dpi_scale,
             exact_loads,
             materials: materials.snapshot()?,
+            glyphs,
+            draws,
         })
     }
 }
@@ -372,9 +479,19 @@ pub struct CompiledScene {
     dpi_scale: f32,
     exact_loads: u32,
     materials: MaterialPage,
+    pub(crate) glyphs: Vec<GlyphInstance>,
+    pub(crate) draws: Vec<DrawRange>,
 }
 
 impl CompiledScene {
+    /// Ordered vector/text pipeline ranges after compilation.
+    pub fn draw_count(&self) -> usize {
+        self.draws.len()
+    }
+    /// Actual glyph instance inventory; atlas resolution is a GPU operation.
+    pub fn glyph_instances(&self) -> &[GlyphInstance] {
+        &self.glyphs
+    }
     /// Original painter-ordered vector records.
     pub fn mesh(&self) -> &Mesh {
         &self.mesh
@@ -406,7 +523,7 @@ struct RasterKey {
     source: usize,
     bounds: [u32; 4],
     fill_rule: u32,
-    scale: u32,
+    scale: [u32; 2],
     phase: [u32; 2],
     sampling: u32,
 }

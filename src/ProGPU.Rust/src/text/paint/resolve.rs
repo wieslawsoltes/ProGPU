@@ -78,6 +78,31 @@ impl TextPainter {
             return Err(Error::InvalidInput.into());
         }
         let start = atlas.batch_usage_count();
+        let context = plan.context;
+        let (commands, styles) = self.resolve_pending(atlas, plan).await?;
+        atlas.flush_pending().await?;
+        let residency = atlas.capture_batch_residency(start, None)?;
+        Ok(ResolvedTextPaint {
+            commands,
+            styles,
+            residency,
+            statistics: atlas.statistics(),
+            coverage: atlas.coverage().clone(),
+            color: atlas.color().clone(),
+            context,
+        })
+    }
+
+    // The owning scene transaction batches multiple plans before one final
+    // flush. These unpublished records carry no texture/revision certificate.
+    pub(crate) async fn resolve_pending(
+        &mut self,
+        atlas: &mut GlyphAtlas,
+        plan: TextPaintPlan,
+    ) -> Result<(Vec<ResolvedTextCommand>, Vec<GpuTextStyle>)> {
+        if !atlas.is_batch_active() {
+            return Err(Error::InvalidInput.into());
+        }
         let mut commands = Vec::new();
         commands
             .try_reserve(plan.commands.len())
@@ -137,17 +162,7 @@ impl TextPainter {
                 }
             }
         }
-        atlas.flush_pending().await?;
-        let residency = atlas.capture_batch_residency(start, None)?;
-        Ok(ResolvedTextPaint {
-            commands,
-            styles: plan.styles,
-            residency,
-            statistics: atlas.statistics(),
-            coverage: atlas.coverage().clone(),
-            color: atlas.color().clone(),
-            context: plan.context,
-        })
+        Ok((commands, plan.styles))
     }
 }
 impl From<GlyphInfo> for GlyphImageMetrics {

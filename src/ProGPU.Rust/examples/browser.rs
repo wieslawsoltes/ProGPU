@@ -10,6 +10,9 @@ mod material_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/sample_scene.rs"]
 mod sample;
+#[cfg(target_arch = "wasm32")]
+#[path = "support/text_scene.rs"]
+mod text_sample;
 
 #[path = "../tests/support/script_property_replay.rs"]
 #[cfg(target_arch = "wasm32")]
@@ -1646,6 +1649,7 @@ mod web {
         renderer: Renderer,
         scene: Option<PreparedScene>,
         material_scene: bool,
+        text_font: Option<progpu::font::ManagedFont>,
         validation: Option<Renderer>,
         frames: u32,
         capture_complete: Option<Arc<AtomicBool>>,
@@ -1713,6 +1717,7 @@ mod web {
             renderer,
             scene: None,
             material_scene: false,
+            text_font: None,
             validation: None,
             frames: 0,
             capture_complete: None,
@@ -1741,6 +1746,16 @@ mod web {
         pub fn select_material_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.material_scene = enabled;
+            self.text_font = None;
+            Ok(())
+        }
+        /// Select an explicit owned font for the shared text gallery. No system
+        /// discovery, network access or shaping occurs in this setter.
+        pub fn load_text_scene(&mut self, data: Vec<u8>, face_index: u32) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            let font = progpu::font::ManagedFont::new(data, face_index).map_err(error)?;
+            self.text_font = Some(font);
+            self.material_scene = false;
             Ok(())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
@@ -1750,7 +1765,9 @@ mod web {
                 self.scene = None;
                 return Ok(());
             }
-            let source = if self.material_scene {
+            let source = if let Some(font) = &self.text_font {
+                super::text_sample::text_scene(font.clone())
+            } else if self.material_scene {
                 super::material_sample::material_scene()
             } else {
                 sample::sample_scene()
@@ -1852,6 +1869,11 @@ mod web {
                     ("draws", m.draws as f64),
                     ("pathRasters", m.rasterized_paths as f64),
                     ("atlasBytes", m.atlas_bytes as f64),
+                    ("glyphInstances", m.glyph_instances as f64),
+                    ("textStyleBytes", m.text_style_bytes as f64),
+                    ("glyphUploadBytes", m.glyph_upload_bytes as f64),
+                    ("rasterizedGlyphs", m.rasterized_glyphs as f64),
+                    ("glyphAtlasBytes", m.glyph_atlas_bytes as f64),
                     ("width", f.width as f64),
                     ("height", f.height as f64),
                     ("dpi", f.dpi_scale as f64),

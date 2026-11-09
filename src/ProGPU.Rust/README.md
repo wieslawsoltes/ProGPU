@@ -25,11 +25,12 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Styled paragraph writer | Strict source/style/inline-box admission, actual font runs, width/tracking/baseline shifts, safe wrapping, indents/spacing, four tab alignments, justification and atomic reflow | Complete styled source/browser/performance corpus, platform fallback and GPU text integration |
 | Retained text interaction | Original advance boxes, carets/affinities, hits, selection, row/vertical navigation and explicit EDIT grapheme ownership | Source controls for empty/wrapped/bidi/multi-font/malformed input and lifetime/error cases |
 | Source font metadata | Whole-inventory VDMX/gasp readers, raw-directory validation, independent raster recommendation flags and exact immutable source line-frame ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
-| GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, typed R8/RGBA targets and bitmap uploads | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes and final text drawing remain unfinished |
-| Text paint preparation | Original layout/positioned command planning, physical placement, integer-origin preflight, 96/32-byte instance/style records, COLR/SVG paths, bounded positioned-outline cache, atlas realization and capacity fallback | Shared Renderer consumption and source text-specific PathAtlas policy still need integration; original source/browser/pixel/lifetime/performance controls deferred |
-| Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/SVG/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
-| Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
-| SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic and whole-layer source controls; final layer rendering and native/browser pixels |
+| GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, typed R8/RGBA targets and bitmap uploads | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes and full text compositor integration remain unfinished |
+| Text paint and rendering | Original planning/placement, integer-origin preflight, 96/32-byte instances/styles, COLR/SVG/vector fallback, positioned-outline cache, atlas realization and mixed painter-ordered Text/Vector shader execution; shared native/browser text gallery | Late camera/MVP, clips/masks, hinted owners, full managed atlas recovery and source/browser/pixel/lifetime/performance controls remain open |
+| Text path placement | Original per-axis scale, exponent-based quantization, phase-grid rounding, padded integer bounds, local quad expressions, aliasing and explicit coverage transfer; owned per-frame source deduplication | Complete managed PathAtlas caching/recovery, viewport figure culling, original float/pixel/performance controls |
+| Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/SVG/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and complete retained recovery remain unfinished |
+| Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, COLR paint programs and complete text compositor integration |
+| SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic, whole-layer source controls and native/browser layer pixels |
 | Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls and final retained GPU lowering |
 | Source fill and Boolean painting | Original all-six-family fill/ordinary/stroke-query compiler, open-fill closure, bounded direct/postfix Boolean raster input, explicit GPU reconstruction fallback, lazy general evaluator and retained material drawing; shared gallery | Original record/float/admission/pixel/lifetime/performance controls; full managed atlas cache/recovery, signed programs and complete stroke/compositor integration remain unfinished |
 | Stroke geometry | Original bounded cap/join writers, separate generic/clipped-Miter/WPF semantics, solid/dashed line-only widening, gap/closed-seam traversal and matching triangle hit tests | Source float/topology/capacity/rejection/performance controls and complete owning API integration |
@@ -39,7 +40,7 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction; retained fill preparation fallback | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and complete compositor integration |
 | Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, images/effects/interception and full stroke/render pixels |
 | Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
-| Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
+| Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
 
 At the user's request, implementation proceeds in connected batches with
 compile/static checks; exhaustive differential/browser/performance/package
@@ -93,11 +94,11 @@ sentinel and outline route. `ManagedFont::bitmap_glyph`, `decode_bitmap_glyph`,
 geometry/brush parsing and its per-selected-font positive/negative cache. A matching
 legacy COLR base keeps precedence, including an empty base. Successful SVG layers
 use the original vector sentinel in the atlas; missing/invalid SVG can proceed to
-ordinary outlines. Layer drawing remains a separate consumer. The normal
+ordinary outlines. The shared renderer now consumes ordered layer draws. The normal
 `image`/`flate2`/`roxmltree` dependencies have independent codec/XML parity
 gates; JPEG/16-bit/HDR/error behavior is not certified against StbImageSharp, and PSD
-payload decoding is not implemented. Native hinted-source owners, color-layer drawing,
-CPU raster modes and **final text draw replay remain unfinished**. These connected batches have
+payload decoding is not implemented. Native hinted-source owners, CPU raster modes,
+late text transforms, masks and **complete text compositing remain unfinished**. These connected batches have
 compile/static checks only; exhaustive validation is deferred as requested.
 
 `vector` now provides the original managed ordinary `PathGeometry`, typed
@@ -109,8 +110,7 @@ subcurve spans with exact source dash state and independent stroke flags.
 `Brush`/`Pen` retain the non-image source material families, original constructor
 admission, independent join policies and double dash intervals. These are
 production input records/utilities, not yet a complete vector renderer. Boolean
-paint integration, final SVG layer replay, complete compositing and image/effect
-contracts remain unfinished. Matched source/default-
+signed programs, complete compositing and image/effect contracts remain unfinished. Matched source/default-
 runtime floating-point, runtime/browser, quality and performance gates are
 deferred. Explicit nonprogress rejection replaces malformed source loops; see
 the source/ownership/difference ledger in DESIGN.md.
@@ -191,9 +191,39 @@ acquires actual atlas entries inside a caller-owned active batch, flushes before
 publication and retains both texture generations and exact residency. Callers
 must end or abandon their batch on failure/cancellation and check `is_current`
 before replay. `GlyphInstance` and `GpuTextStyle` retain the original 96/32-byte
-shader records. The shared Renderer still needs to consume these ordered records
-and the original text-specific path-raster policy; ordinary `PathDraw` defaults
-are not a substitute. Runtime/source/pixel/performance qualification is deferred.
+shader records. `Scene::draw_text` now records these source draws for
+`Renderer::prepare_scene`; the actual frame supplies DPI. The renderer interleaves
+canonical Text/Vector draws in one pass, batches glyph coverage across all runs,
+rebases original style indices, and retains the final R8/RGBA atlas generations.
+`Scene::draw_text_path` preserves original per-axis raster scale, exponent-based
+scale quantization, ties-to-even phase rounding, integer padding, local quad
+arithmetic, aliasing and coverage transfer. Ordinary native path defaults stay
+independent. CPU-only `Scene::compile` rejects unresolved text; `text_commands`
+allows CPU hosts to inspect and plan recorded inputs.
+
+Prepared text replay checks actual owner, generation, texture revision and every
+residency key. Call `Renderer::is_scene_current` and reprepare a stale scene.
+Failure/cancellation retires the privately taken text state; no destructor submits,
+polls or explicitly destroys live resources. `configure_text_atlas` selects typed
+execution/budgets before first text use. The current direct renderer accepts
+finite affine placement and semantic opacity; late MVP/camera, clips and retained
+zoom contexts reject until their owning consumers are connected. Its existing
+projection does not receive the distinct source root glyph-frame certificate.
+Full managed path-atlas caching/recovery and viewport figure culling remain open.
+Runtime/source/pixel/performance qualification is deferred.
+
+Run the authored shared text gallery with
+`cargo run --locked --features window --example winit -- --text FONT_PATH`.
+The browser page's **Text font** input selects a local TTF/OTF/TTC (face zero);
+the test bridge also exposes `load_text_scene(bytes, face_index)` followed by
+`resize`. Both hosts exercise shaping, grayscale atlas text, vector/gradient
+outlines, explicit contrast, synthetic styles, affine placement and interleaved
+vector overlays. Eligible TrueType inputs additionally exercise integer-origin
+positioned aliased text; other font families use a separately labeled fixed row.
+Unicode profiles are explicit authored sample inputs. No fonts are copied into
+build artifacts. Metrics report actual instance/style bytes, glyph uploads,
+raster requests, atlas residency and ordered draw counts. These are integration
+samples, not original-source pixel or performance qualification.
 
 `MaterialTable` ports original managed brush registration, including ordered
 first-equal lookup, unchanged stop order, source capacity fallbacks, independent

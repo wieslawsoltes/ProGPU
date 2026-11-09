@@ -21,6 +21,16 @@ window.progpuReady = (async () => {
     tail = next.catch(e => { errors.push(String(e)); status.textContent = String(e); });
     return next;
   };
+  document.querySelector('#text-font').addEventListener('change', event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    exclusive(async () => {
+      renderer.load_text_scene(new Uint8Array(await file.arrayBuffer()), 0);
+      const next = dimensions();
+      await renderer.resize(next.width, next.height, next.dpi);
+      size = next;
+    }).catch(() => {}); // The serialized queue reports errors in the status line.
+  });
   let stopped = false;
   async function frame() {
     if (stopped) return;
@@ -32,7 +42,7 @@ window.progpuReady = (async () => {
       }
       renderer.draw();
       const m = renderer.metrics();
-      status.textContent = `${m.width} × ${m.height} · ${m.draws} draw · ${m.pathRasters} shared paths · ${m.materialBrushes} materials`;
+      status.textContent = `${m.width} × ${m.height} · ${m.draws} draws · ${m.glyphInstances} glyphs · ${m.pathRasters} paths · ${m.materialBrushes} materials`;
     });
     requestAnimationFrame(frame);
   }
