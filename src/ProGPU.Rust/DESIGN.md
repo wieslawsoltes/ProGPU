@@ -4685,3 +4685,110 @@ gasp version/range/duplicate/extent/fvar/missing-versus-zero source inventories.
 Browser, GPU text pixels, performance, original source/application/provider and
 package/release gates remain open, together with earlier compiler-float and
 hosted-browser reliability failures.
+
+## Original glyph GPU transport and raster engine (2026-11-09)
+
+This connected production batch ports the shared GPU engine underneath GlyphAtlas.
+It does not substitute generic filled-path rendering for the original glyph
+algorithms. The implementation-first workflow continues: all native targets and
+features compile under strict Clippy; full source/GPU/browser/performance/profile
+and package validation is deferred. No new runtime or pixel qualification follows.
+
+| Original in-repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Text/TtfFont.cs` | `7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b` | Exact GPU records/uniforms and CompileGpuOutlineData/AppendGpuOutlineData/bounds methods, lines 2922 onward; existing owned outline route |
+| `src/ProGPU.Text/GlyphAtlas.cs` | `5fb66ddeba150535a48c760b18a584dd161af38c6fc3ed46accc8e35f3f64582` | Original upload/ring capacities, sparse EnsureGpuGlyph/AppendGpuGlyph, growth/copy/trim, contiguous upload chunks, selected binding contracts, raster pass and texture-copy ownership |
+| `src/ProGPU.Text/GlyphAtlas.GpuRasterizer.cs` | `f19bcc92ca35244e967b06a8e39c8740ed92936081e2fc0ad5451e8a1e798c10` | Bounded uniform/coverage slices, oversized immediate route, original compute dispatch/fragment viewport and packed-coverage copies |
+| `src/ProGPU.Text/GlyphAtlas.BinaryRasterizer.cs` | `5e23141a06f6fbad83bbf0ad53dfc1edbfd1e42179f5d5ab18065053ef5075ff` | Compute-only admission, 256-segment bound, exact five bindings and ordered horizontal/vertical dispatch |
+| `src/ProGPU.Text/GlyphAtlas.HintedGeometry.cs` | `fab0c90753583197b3f057ea8eb9ea98e952e22d78e1576b557d7023dcd8adcc` | Shared selected-record range transport, physical scale/phase boundary and finite record/frame admission; complete hinted-geometry owner/failure-ticket/atlas integration remains pending |
+| `src/ProGPU.Backend/GpuCoverageUpload.cs` | `c01cb5c0aad517480e81d6a1df56550d384eb00cddd6a45d4444ab9cbc874648` | Separate 256-byte row and 512-byte placement alignments, exact R8 copy extents and checked source/destination capacities |
+| `src/ProGPU.Backend/Shaders/GlyphRasterizer.wgsl` | `50a30bf25cbfdc410b4350ec5a58b436cd5607f0b3326a391f5f87a1b2318971` | Existing canonical module, unchanged, through cs_main/vs_raster_fallback/fs_raster_fallback |
+| `src/ProGPU.Backend/Shaders/BinaryGlyphRasterizer.wgsl` | `1545b475dfa1076d39e02830f3a18606535ea0c7da7f94a93b6af3d47243cd61` | Existing canonical module, unchanged, through both original binary compute entries |
+
+Only original ProGPU-owned implementation and existing repository wgpu API usage
+were used. No external engine source or structure, generated shaping machine,
+driver replacement, compiler-default alteration or shader rewrite was introduced.
+Original binary events, scalar positions, source root parameters, lane visit
+order, shared memory, atomics, barriers and explicit smart-curve endpoints remain
+in the unchanged canonical module. This does not close the original ARM64 WARP,
+Windows/source/application/provider or package/pixel gates.
+
+CPU transport retains exact 32-byte glyph descriptors, 48-byte uniforms and
+existing 48-byte segment records. Original managed outline compilation skips
+move-only figures, emits lines/quadratics/cubics in order and adds a closing line
+only when the actual last point differs from the original start. Empty glyphs
+return an all-zero descriptor, even after a preceding destination prefix. Bounds
+keep original endpoint comparisons, 1e-6 quadratic extrema and operation order;
+cubics retain the original control-point envelope. NaN comparisons and separate
+Math.Min/Max propagation are not replaced by a generic path-bounds algorithm.
+Whole-font compilation is an explicit API; normal atlas use compiles only the
+visible requested glyph and reuses segment scratch.
+
+`GlyphRasterizer` retains exact selected-font reference identity independently
+of normalized variation-key equality. Cache keys hold original font owners,
+preventing address reuse; record handles carry rasterizer identity and cache
+generation. Foreign or trimmed handles fail before encoding. Raw outline upload
+copies the selected original segment range and rebases only its descriptor start;
+all coordinate and metadata words survive unchanged. Empty records retain actual
+slots but cannot be rasterized as fabricated ink.
+
+Original 48-record/896-segment initial capacities grow by 50 percent. Pending
+record/segment writes remain contiguous and flush before growth copies and at
+the original 256 KiB chunk boundary. Oversized staging is released after use.
+Actual payload write counts/bytes, copy submissions, uniform writes, bind-group
+creation and raster passes/submissions are exposed as diagnostics, not estimates.
+The original 4 MiB allocated-outline budget is trimmed explicitly at the frame
+boundary before collecting requests. That reset invalidates source slot handles
+without destroying coverage already held by an atlas generation.
+
+The API receives complete physical request batches and preflights all slots,
+frames, atlas ranges, packed-byte arithmetic and actual device capacities before
+GPU raster mutation. It then streams requests through the original bounded
+64 KiB uniform/256 KiB coverage rings with constant staging storage; it does not
+allocate a second per-glyph CPU coverage array or a complete-batch uniform copy.
+Each normal group uses one compute/render pass and one submission. Uniform slices
+remain 256 bytes, with original 48-byte payloads; coverage rows remain 256-byte
+aligned, while slice bases independently align to 512. A glyph exceeding the
+coverage ring uses its original standalone compute route with one 48-byte uniform,
+one exact output buffer and a binary scratch buffer only if needed.
+
+The typed execution preference uses native compute where device limits admit it,
+then the original identical per-pixel fragment entry when compute limits are not
+admitted. Explicit forced paths fail closed. CPU SIMD/scalar modes are not yet
+implemented by this engine and return UnsupportedExecution rather than selecting
+another route. Compilation or structural device limits are not original adapter
+profile qualification. Binary compilation is lazy; its request requires native
+compute, the original bounded segment inventory and prepared physical scale-one,
+phase-zero/integer-origin framing. Both horizontal and vertical pipelines are
+dispatched in original order with a separate horizontal scratch buffer; binary
+never selects the grayscale fragment route.
+
+Compute writes original packed words and performs GPU-only R8 copies after the
+pass. The fragment route uses exact atlas-local viewport/scissor and its three-
+vertex primitive, with no blending or coverage resampling. Target creation clears
+the actual R8 attachment; growth copies the previous base-level region on GPU.
+Old textures/buffers/bind groups are dropped as Rust handles without explicit
+destroy calls, leaving real encoded dependencies under wgpu submission ownership.
+There is no finalizer polling, GPU wait, unmap, readback or RenderLock behavior.
+Atlas callers must publish requested residency only after a successful raster
+batch; full cache failure-ticket retirement remains their pending integration.
+
+CPU work is O(S) for emitted outline segments plus original lazy font expansion,
+O(G) for batch preflight/encoding, bounded by ring capacity for staging. Sparse
+font lookup is expected O(1); upload growth has the original geometric behavior.
+Curve bounds, source traversal and queue ordering carry dependencies; independent
+pixel coverage stays in the unchanged GPU shaders. No CPU fallback or per-pixel
+CPU effect was introduced, and no measured latency/throughput/allocation claim
+is made for this new engine.
+
+Deferred controls include original complete record/segment/bounds bytes; selected
+font identity/variation/palette/cache lifetime; empty glyphs and closing edges;
+growth/trim/stale-handle/foreign-owner rejection; all ring/chunk boundaries,
+oversized and mixed grayscale/binary batches; 512-byte copy placement; default
+compiler float behavior; unchanged binary/source inventories; native-compute and
+fragment full pixels; asynchronous failure/device-loss/publication; retained
+resource lifetime; cold/warm counters; browser/WASM and full original platform,
+provider, source/application and package gates. Dynamic atlas packing, LRU and
+residency sets, hinted source generations/failure tickets, color glyph paths,
+CPU implementations, final text draw replay and full engine integration remain
+unfinished.

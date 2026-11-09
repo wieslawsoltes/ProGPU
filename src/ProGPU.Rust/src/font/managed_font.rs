@@ -205,6 +205,13 @@ impl ManagedFont {
     pub fn same_instance(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.root, &other.root) && Arc::ptr_eq(&self.state, &other.state)
     }
+    #[cfg(feature = "gpu")]
+    pub(crate) fn instance_identity(&self) -> (usize, usize) {
+        (
+            Arc::as_ptr(&self.root) as usize,
+            Arc::as_ptr(&self.state) as usize,
+        )
+    }
     /// Original active variation predicate. Default selection reuses the root.
     pub fn has_active_variations(&self) -> bool {
         self.state.instance.is_some()
