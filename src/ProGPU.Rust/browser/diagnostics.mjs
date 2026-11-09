@@ -16,6 +16,7 @@ export function installWebGpuDiagnostics() {
   // A plain-data snapshot can be recovered after a device loss. It does not
   // expose or retain a device, queue, surface, buffer or command generation.
   window.progpuGpuDiagnostics=()=>({elapsedMs:stamp(),totals:{...totals},events:[...events],slow:[...slow]});
+  window.progpuGpuDiagnosticsMark=stage=>record('host-stage',{stage});
   if(!globalThis.GPUQueue){record('WebGPU-unavailable');return;}
   const queues=new WeakMap();
   const submit=GPUQueue.prototype.submit;

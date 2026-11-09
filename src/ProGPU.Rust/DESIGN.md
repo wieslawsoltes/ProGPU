@@ -3284,3 +3284,36 @@ results do not resolve historical intermittent browser device loss or qualify
 this later mapping implementation. Complete script preparation, varied outlines,
 vertical origins, hinting, discovery/fallback, paragraphs, interaction and GPU text
 remain required alongside the independent rendering/provider/package/pixel gates.
+
+## Bounded hosted browser process observation
+
+At mapping checkpoint 490835d4b, hosted Windows and Vulkan/winit pass, while both
+the original and separately instrumented browser runs lose the device during
+final DPR 2 queue completion. Chromium exits its GPU process with code 512 before
+the WebGPU loss message. The retained diagnostic artifact shows 160 completed
+submissions followed by 18 pending submissions, all issued within 34.3 ms. None
+of those 18 completes before device loss 22.3 seconds later. Initial DPR 2 canvas
+submissions have multi-second completion latency, while the last offscreen
+submissions complete in about 2.6 ms. This identifies outstanding canvas/resize
+work; it does not prove a driver fault, shader defect, lifetime defect or queue
+policy cause. Full source/fixture results are tracked separately.
+
+The original ten-draw burst, subsequent suspend/resume/resize, final completion,
+compositor pixels and 30/180-second deadlines remain intact. Optional diagnostic
+stage markers correlate the existing queue observations with those operations.
+A second Linux-only observer captures three per-thread CPU/wait-channel snapshots
+and one 24-frame-per-thread GDB backtrace. It selects only the spawning test's
+unique current descendant GPU process and rechecks its original start-time
+identity before attachment. A five-second root-owned timeout bounds GDB; only a
+one-MiB text prefix is retained, without a heap/core dump. Missing tools, retired
+processes and permission failures are explicit observations, never a pass.
+
+The [WebGPU queue completion contract](https://www.w3.org/TR/webgpu/#dom-gpuqueue-onsubmittedworkdone)
+defines which prior submissions the existing completion observer covers.
+[GDB attachment](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Attach.html)
+and [thread backtraces](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Threads.html)
+define the new diagnostic. Attachment stops the process temporarily and therefore
+can perturb timing; its result is not performance or original-gate qualification.
+No external implementation is copied and no renderer architecture, shader,
+compiler/driver setting or existing success criterion changes. The prior required
+cross-engine architecture decisions remain unchanged.

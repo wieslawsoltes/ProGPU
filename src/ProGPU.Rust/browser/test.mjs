@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { installWebGpuDiagnostics } from './diagnostics.mjs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 const tools = path.resolve(process.env.PROGPU_RUST_BROWSER_TOOLS ?? 'artifacts/progpu-rust/browser-tools');
 const { chromium } = createRequire(path.join(tools, 'package.json'))('playwright');
 const { PNG } = createRequire(path.join(tools, 'package.json'))('pngjs');
@@ -67,6 +69,7 @@ const reports = [];
 const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
 let activePage;
 let activeEntry;
+let gpuProcessCapture;
 // Playwright's waitForFunction treats a returned Promise as truthy. Await each
 // serialized WASM query explicitly so a false result cannot pass the gate.
 async function waitFor(check) {
@@ -727,10 +730,12 @@ try {
           }
         }
         const before = r.metrics();
+        window.progpuGpuDiagnosticsMark?.('warm canvas burst: ten original draws');
         for(let i=0;i<10;++i) check(r.draw(), 'warm canvas presentation');
         const after = r.metrics();
         check(after.frames===before.frames+10, 'presentation count');
         for(const key of ['geometryBytes','uniformBytes','draws','pathRasters','atlasBytes']) check(after[key]===before[key],`warm ${key}`);
+        window.progpuGpuDiagnosticsMark?.('zero extent and original resume');
         await r.resize(0,0,1);
         check(r.draw()===false,'zero extent suspension');
         const size=app.dimensions();
@@ -766,8 +771,22 @@ try {
     entry.resized=resized.metrics;
     entry.stage='final capture completion';
     console.log(`[DPR ${dpr}] resize verified; capturing final presented frame`);
+    // Optional failure-only observation. The original gate never starts a
+    // debugger. This child samples only our live descendant GPU process and
+    // records that debugger attachment itself can perturb timing.
+    if(dpr===2&&diagnosticsEnabled&&process.platform==='linux'&&
+       process.env.PROGPU_RUST_BROWSER_GPU_STACKS==='1'){
+      const capture=spawn('python3',[fileURLToPath(new URL('./capture-gpu.py',import.meta.url)),
+        '--parent',String(process.pid),'--output',path.join(output,'gpu-process.json')],
+        {stdio:['ignore','inherit','inherit']});
+      gpuProcessCapture=new Promise(resolve=>{
+        capture.on('error',e=>{console.error(`GPU process observation unavailable: ${e}`);resolve();});
+        capture.on('exit',()=>resolve());
+      });
+    }
     await page.evaluate(async () => {
       const app=await window.progpuReady;
+      window.progpuGpuDiagnosticsMark?.('final capture submission');
       await app.pause();
     });
     await waitFor(() => page.evaluate(async () => {
@@ -811,4 +830,4 @@ try {
     browser: browser.version(), platform: process.platform, architecture: process.arch,
     headless, flags, reports, error: String(error) },null,2)+'\n');
   throw error;
-} finally { await browser.close(); }
+} finally { await browser.close(); if(gpuProcessCapture)await gpuProcessCapture; }

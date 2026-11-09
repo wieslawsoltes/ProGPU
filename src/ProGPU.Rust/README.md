@@ -246,6 +246,15 @@ that observation cannot replace the failed result. `DEBUG=pw:browser` retains
 Chromium process-exit evidence in the job log. Compiler settings, launch flags,
 shaders, pixel checks and deadlines are unchanged.
 
+On Linux the separate diagnostic can additionally set
+`PROGPU_RUST_BROWSER_GPU_STACKS=1`. It samples CPU counters/wait channels three
+times for the test's unique live descendant GPU process and captures one bounded
+GDB thread backtrace during final DPR 2 completion. `gpu-process.json` records
+actual process generations and any unavailable debugger/permissions. Attachment
+briefly pauses the process and can perturb timing; this observation never
+qualifies performance or replaces the original gate. No heap/core dump or browser
+profile is retained. CI enables it only in the failure-only diagnostic run.
+
 The line-break module exposes logical scalar boundaries and resolved classes,
 with the original context-sensitive rule order and separate EDIT projection.
 It preserves scratch-prefix writes on a later invalid scalar while never

@@ -123,7 +123,11 @@ jobs:
       - name: Install Chromium system libraries
         run: npx --yes playwright@1.62.1 install-deps chromium
       - name: Strict WebAssembly lints
-        run: cargo clippy --locked --target wasm32-unknown-unknown --features browser --example browser -- -D warnings
+        run: |
+          cargo clippy --locked --target wasm32-unknown-unknown --features browser --example browser -- -D warnings
+          python3 src/ProGPU.Rust/browser/capture-gpu-test.py
+          node --check src/ProGPU.Rust/browser/diagnostics.mjs
+          node --check src/ProGPU.Rust/browser/test.mjs
       - name: Real browser WebGPU pixels and presentation
         id: browser-gate
         env:
@@ -135,6 +139,7 @@ jobs:
         env:
           PROGPU_RUST_BROWSER_HEADED: '1'
           PROGPU_RUST_BROWSER_DIAGNOSTICS: '1'
+          PROGPU_RUST_BROWSER_GPU_STACKS: '1'
           PROGPU_RUST_BROWSER_RESULTS: artifacts/progpu-rust/browser-results/diagnostic-rerun
           DEBUG: pw:browser
         run: xvfb-run -a node src/ProGPU.Rust/browser/serve-test.mjs artifacts/progpu-rust/browser
