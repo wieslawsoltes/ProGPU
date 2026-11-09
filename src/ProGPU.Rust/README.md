@@ -26,8 +26,9 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Retained text interaction | Original advance boxes, carets/affinities, hits, selection, row/vertical navigation and explicit EDIT grapheme ownership | Source controls for empty/wrapped/bidi/multi-font/malformed input and lifetime/error cases |
 | Source font metadata | Whole-inventory VDMX/gasp readers, raw-directory validation, independent raster recommendation flags and exact immutable source line-frame ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
 | GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, typed R8/RGBA targets and bitmap uploads | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes and final text drawing remain unfinished |
-| Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
+| Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/SVG/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
+| SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic and whole-layer source controls; final layer rendering and native/browser pixels |
 | Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls, Boolean reconstruction, stroke expansion and final GPU lowering |
 | Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, material compilation, images/effects/interception and full stroke/render pixels |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
@@ -80,10 +81,14 @@ regions and invalidate upload-cache identities. The current entry points require
 finite positive size. Bitmap decoding/allocation precedes the original COLR vector
 sentinel and outline route. `ManagedFont::bitmap_glyph`, `decode_bitmap_glyph`,
 `colr_glyph_layers` and `svg_glyph_document` expose the original font-data boundaries.
-SVG documents currently reject at atlas geometry use until their parser/brush route
-is connected. The normal `image`/`flate2` dependencies have independent codec parity
+`color_layers`, `svg_color_layers` and `has_color_layers` now connect original SVG
+geometry/brush parsing and its per-selected-font positive/negative cache. A matching
+legacy COLR base keeps precedence, including an empty base. Successful SVG layers
+use the original vector sentinel in the atlas; missing/invalid SVG can proceed to
+ordinary outlines. Layer drawing remains a separate consumer. The normal
+`image`/`flate2`/`roxmltree` dependencies have independent codec/XML parity
 gates; JPEG/16-bit/HDR/error behavior is not certified against StbImageSharp, and PSD
-payload decoding is not implemented. Native hinted-source owners, SVG geometry,
+payload decoding is not implemented. Native hinted-source owners, color-layer drawing,
 CPU raster modes and **final text draw replay remain unfinished**. These connected batches have
 compile/static checks only; exhaustive validation is deferred as requested.
 
@@ -96,7 +101,7 @@ subcurve spans with exact source dash state and independent stroke flags.
 `Brush`/`Pen` retain the non-image source material families, original constructor
 admission, independent join policies and double dash intervals. These are
 production input records/utilities, not yet a complete vector renderer. Boolean
-queries, stroke body/cap/join expansion, SVG XML/cache integration, material GPU
+queries, stroke body/cap/join expansion, final SVG layer replay, material GPU
 compilation and image/effect contracts remain unfinished. Matched source/default-
 runtime floating-point, runtime/browser, quality and performance gates are
 deferred. Explicit nonprogress rejection replaces malformed source loops; see

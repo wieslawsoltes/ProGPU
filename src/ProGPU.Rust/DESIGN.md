@@ -5098,3 +5098,88 @@ and GPU throughput, bounded allocations and compiler SIMD behavior; final browse
 native pixels; and every original source/provider/application/package gate.
 SVG XML/cache, Boolean solvers, stroke expansion, material rendering, images,
 clips/layers/masks/effects and the rest of the full-stack port remain unfinished.
+
+## Original SVG color layer parsing and font cache (2026-11-09)
+
+The next connected batch uses the shared vector inputs to port SVG glyph layers
+and the actual selected-font cache. Native/browser-target strict Clippy, CPU-only
+compilation, formatting and whitespace are the current checks. Broad source/XML/
+runtime/pixel/performance/package validation remains deferred as requested.
+
+| Original repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Text/OpenTypeSvgGlyphParser.cs` | `3231d7cb780b162238ce7a7b8cac9094059f6f30a3e2277a649589a2cbd5e28c` | Complete original ID/ancestor/reference traversal, supported shapes, source state, material/stop/coordinate/color parsing and transform-list policy |
+| `src/ProGPU.Text/TtfFont.cs` | `7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b` | FontColorLayer, HasColorLayers/GetColorLayers COLR precedence and selected-font GetSvgColorLayers positive/negative cache |
+| `src/ProGPU.Text/GlyphAtlas.cs` | `5fb66ddeba150535a48c760b18a584dd161af38c6fc3ed46accc8e35f3f64582` | Original HasColorLayers route now includes successful SVG, retaining the vector sentinel before ordinary outlines |
+
+XML DOM parsing consumes the normal locked `roxmltree` 0.21.2 dependency, licensed
+MIT OR Apache-2.0 with MSRV 1.60. Only its std feature is enabled, reusing the
+existing memchr lock entry; positions/default features are disabled. Package
+metadata was reviewed with cargo info. Public documentation only was consulted:
+[DOM API](https://docs.rs/roxmltree/latest/roxmltree/struct.Document.html),
+[node traversal](https://docs.rs/roxmltree/latest/roxmltree/struct.Node.html) and
+[parser options](https://docs.rs/roxmltree/latest/roxmltree/struct.ParsingOptions.html).
+No dependency implementation or external SVG renderer was read/copied. The DOM
+does not implement ProGPU geometry/material policies.
+
+DTD processing and external entity resolution are disabled. Because the DOM's
+documented policy permits an empty DTD even when allow_dtd is false, an owned
+lexical declaration check preserves the original unconditional Prohibit rule;
+comments, CDATA and processing instructions do not become false declarations.
+The original 16 Mi UTF-16-character cap is retained independently of the earlier
+encoded/decoded byte cap. XML errors become the original negative cached result;
+source reads outside original guards and allocation failures remain errors.
+Exact XML normalization, namespace/name/attribute, character/entity, invalid-input
+and resource behavior remain independent differential gates.
+
+Traversal retains the first nonempty ordinal ID, exact glyph-number selection,
+root-to-parent inherited state, per-element local-before-parent composition,
+source order and the original depth >64 stop. Definitions render only through
+their admitted routes. Use resolves the first local-name href and retains actual
+node identity in its active-reference set, removing it on success or error. No
+external resource loading is introduced. Supported original path/circle/ellipse/
+rect/polygon geometry shares the owned vector parser/builders. Rect ignores rx/ry
+as the original does; polygon retains its implicit final edge. Source fill-rule
+handling and shape-level parse rejection stay distinct from inherited state.
+
+Fill, opacity and fill-opacity retain original inheritance/override/multiplication
+order. Solid color names, short/long hex and the original var fallback spelling
+remain limited to the source inventory. Gradient references retain actual units-
+per-em coordinate defaults, percent arithmetic, original transformed endpoints/
+centers/radii, independent spread and stable stop ordering. NaNs compare before
+ordinary offsets and equal signed zeros retain source order. Shape/stop alpha
+is multiplied exactly at the original stages; brush opacity stays one. Unsupported
+SVG families/styles are ignored under the original parser policy, not substituted
+with a general external renderer.
+
+Complete 4x4 row-vector composition retains all components and the original
+transform-list multiplication order. Public System.Numerics
+[Z-rotation contract](https://learn.microsoft.com/en-us/dotnet/api/system.numerics.matrix4x4.createrotationz?view=net-10.0)
+was consulted without reading runtime implementation. Rotation/skew use ordinary
+host trigonometry with source degree conversion and center composition. This is
+explicitly **not original primitive arithmetic proof**: default-runtime matrix,
+Vector2 transform, Sin/Cos/Tan, FMA/SIMD, special angles and nonfinite results must
+be compared against the original runtime before source admission. No source
+transform-history or platform/package qualification flag is enabled. Numeric
+parsing/casing and XML library behavior also remain unqualified rather than
+relabelled as exact BCL equivalence.
+
+FontColorLayer retains independent glyph/color/optional geometry/optional brush/
+SVG-coordinate fields, including zero SVG glyph/color defaults. SVG geometry and
+materials own immutable Arc generations; no DOM/string borrow escapes parsing.
+Cache scope follows the exact selected immutable font state, with new caches for
+variation/palette construction and shared caches for clones of that state. The
+original lock encloses lookup, parse and publication; absent SVG tables create no
+entries, negative results are retained, and failed reads/allocations publish none.
+There is no back-reference cycle into the font root. Legacy COLR still returns
+before SVG, including a matching empty layer list; HasColorLayers still recognizes
+that empty base. Successful SVG now takes the original atlas vector sentinel,
+while missing/invalid SVG can continue to ordinary outlines. Final vector color-
+layer drawing remains unfinished; the sentinel does not claim atlas coverage.
+
+Remaining controls include full original XML/UTF-16/resource errors, ID order,
+references/cycles/depth/ancestor state, complete geometry/brush/stop bytes, numeric
+and named-transform arithmetic, real-font SVG inventories, cache identity and
+negative reuse, variation/palette/thread/retention behavior, source atlas routing,
+actual final color-layer/text pixels on native/browser backends, allocation and
+cold/warm performance, and all original source/provider/application/package gates.

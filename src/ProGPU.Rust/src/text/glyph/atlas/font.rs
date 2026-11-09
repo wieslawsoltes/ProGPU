@@ -5,8 +5,8 @@ use crate::font::ManagedGlyphOutline;
 impl GlyphAtlas {
     /// Map the original code point, preserving the source's four explicit
     /// whitespace shortcuts (space, tab, LF, CR) and selected-font advance.
-    /// Sizes currently require finite positive em. Bitmap/legacy COLR routing
-    /// precedes ordinary outlines; SVG geometry remains a separate pending port.
+    /// Sizes currently require finite positive em. Bitmap/COLR/SVG routing
+    /// precedes ordinary outlines; final vector-layer drawing is separate.
     pub async fn get_or_create_glyph(
         &mut self,
         font: &ManagedFont,
@@ -58,7 +58,7 @@ impl GlyphAtlas {
         {
             return Ok(info);
         }
-        if font.has_colr_glyph(glyph)? {
+        if font.has_color_layers(glyph)? {
             // Original vector-layer sentinel, deliberately not atlas residency.
             let info = GlyphInfo {
                 size: [size as u32; 2],
@@ -77,9 +77,6 @@ impl GlyphAtlas {
                 capacity_fallback: false,
             });
             return Ok(info);
-        }
-        if font.svg_glyph_document(glyph)?.is_some() {
-            return Err(GlyphGpuError::UnsupportedSvgGlyph);
         }
         let advance = font.advance_width(glyph, size)?;
         let scale = size / f32::from(font.metadata().units_per_em);

@@ -15,8 +15,9 @@ mod metadata;
 mod metrics;
 mod outline;
 mod svg;
+mod svg_parser;
 pub use bitmap::{DecodedBitmapGlyph, ManagedBitmapGlyph};
-pub use color::ColrGlyphLayer;
+pub use color::{ColrGlyphLayer, FontColorLayer};
 use metadata::Raw;
 pub use outline::{ManagedGlyphOutline, ManagedOutlineFigure};
 
@@ -82,6 +83,7 @@ struct State {
     ascii: OnceLock<Box<[AtomicU32; 128]>>,
     outlines: Mutex<outline::OutlineCache>,
     flipped: Mutex<HashMap<u16, Option<Arc<ManagedGlyphOutline>>>>,
+    svg_layers: Mutex<HashMap<u16, Option<Arc<[FontColorLayer]>>>>,
 }
 #[derive(Debug, Default)]
 struct Cache {
@@ -139,6 +141,7 @@ impl ManagedFont {
             ascii: OnceLock::new(),
             outlines: Mutex::new(outline::OutlineCache::default()),
             flipped: Mutex::new(HashMap::new()),
+            svg_layers: Mutex::new(HashMap::new()),
         });
         Ok(Self {
             root: Arc::new(Root {
@@ -266,6 +269,7 @@ impl ManagedFont {
             ascii: OnceLock::new(),
             outlines: Mutex::new(outline::OutlineCache::default()),
             flipped: Mutex::new(HashMap::new()),
+            svg_layers: Mutex::new(HashMap::new()),
         });
         cache.instances.insert(key.clone(), state.clone());
         cache.order.push_back(key);
@@ -391,6 +395,7 @@ impl ManagedFont {
             ascii: OnceLock::new(),
             outlines: Mutex::new(outline::OutlineCache::default()),
             flipped: Mutex::new(HashMap::new()),
+            svg_layers: Mutex::new(HashMap::new()),
         });
         // This root is still private to the candidate. Replace the same snapshot
         // in its cache before publication, matching the source's private mutation.

@@ -58,6 +58,23 @@ impl Default for Matrix4 {
         Self::IDENTITY
     }
 }
+impl std::ops::Mul for Matrix4 {
+    type Output = Self;
+    /// Compose complete source row-vector matrices, preserving all sixteen
+    /// components. Default-runtime SIMD/FMA bit qualification remains separate.
+    fn mul(self, rhs: Self) -> Self {
+        let mut result = [[0.0; 4]; 4];
+        for (row, output) in result.iter_mut().enumerate() {
+            for (column, value) in output.iter_mut().enumerate() {
+                *value = self.0[row][0] * rhs.0[0][column]
+                    + self.0[row][1] * rhs.0[1][column]
+                    + self.0[row][2] * rhs.0[2][column]
+                    + self.0[row][3] * rhs.0[3][column];
+            }
+        }
+        Self(result)
+    }
+}
 
 /// Original managed fill-rule values, distinct from the native shader wire.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -8,9 +8,6 @@ mod upload;
 /// Connected font/raster failure without erasing the original font error.
 #[derive(Debug, thiserror::Error)]
 pub enum GlyphGpuError {
-    /// SVG color geometry requires its original path/brush consumer.
-    #[error("SVG color-glyph geometry is not yet connected")]
-    UnsupportedSvgGlyph,
     /// Original font outline failure.
     #[error(transparent)]
     Font(#[from] FontError),

@@ -35,8 +35,8 @@ pub use horizontal::{HorizontalAdvanceInstance, HorizontalMetricsInstance};
 pub use item_variation::{DeltaSetIndexMap, ItemVariationStore};
 pub use managed_cmap::ManagedCharacterMap;
 pub use managed_font::{
-    ColrGlyphLayer, DecodedBitmapGlyph, ManagedBitmapGlyph, ManagedFont, ManagedFontMetadata,
-    ManagedGlyphOutline, ManagedOutlineFigure,
+    ColrGlyphLayer, DecodedBitmapGlyph, FontColorLayer, ManagedBitmapGlyph, ManagedFont,
+    ManagedFontMetadata, ManagedGlyphOutline, ManagedOutlineFigure,
 };
 pub use managed_variations::{
     ManagedVariationAxis, ManagedVariationData, ManagedVariationInstance, ManagedVariationSetting,
