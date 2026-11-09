@@ -1,0 +1,32 @@
+{
+  "utc": "2026-11-09T10:38:26.622511+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-script-properties-package-vii6nsut",
+      "logical_bytes": 403323196
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2656976
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148725
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/package/progpu-0.1.0.crate",
+      "logical_bytes": 1680753
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/eng/__pycache__/progpu-capture-rust-script-properties.cpython-314.pyc",
+      "logical_bytes": 11225
+    },
+    {
+      "path": "/tmp/progpu-rust-script-properties",
+      "logical_bytes": 81015042
+    }
+  ],
+  "crate_only_cargo_clean": "Removed 24943 files, 1.8GiB total",
+  "additional_logical_bytes": 488835917,
+  "preserved": "Reusable dependency build cache, .NET/wasm-bindgen tools and browser tools/downloads; compact source/browser/benchmark/package receipts retained."
+}

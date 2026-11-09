@@ -8,6 +8,10 @@ mod font_scene;
 #[path = "support/sample_scene.rs"]
 mod sample;
 
+#[path = "../tests/support/script_property_replay.rs"]
+#[cfg(target_arch = "wasm32")]
+mod script_property_replay;
+
 #[cfg(target_arch = "wasm32")]
 #[path = "../tests/support/managed_font_replay.rs"]
 mod managed_font_replay;
@@ -478,6 +482,18 @@ mod web {
             })
             .collect();
         Uint32Array::from(values.as_slice())
+    }
+    /// Exact raw/public script classifications and caller-authored word extraction.
+    #[wasm_bindgen]
+    pub fn script_properties(code_points: Vec<u32>, raw_properties: Vec<u16>) -> Vec<u8> {
+        let mut result = Vec::new();
+        for raw in raw_properties {
+            result.extend_from_slice(&super::script_property_replay::extraction(raw));
+        }
+        for point in code_points {
+            result.extend_from_slice(&super::script_property_replay::record(point));
+        }
+        result
     }
     fn unicode_records(text: progpu::text::unicode::DecodedText) -> Result<Object, JsValue> {
         let runs = text.script_runs().map_err(error)?;

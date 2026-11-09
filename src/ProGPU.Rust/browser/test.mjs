@@ -87,6 +87,7 @@ for(let n=actionU32();n>0;n--){const size=actionU32();actionFonts.push([...actio
 const actionCases=[];
 for(let n=actionU32();n>0;n--){const font=actionU32(),request=Array.from({length:actionU32()},actionU32),expected=Array.from({length:actionU32()/4},actionU32);actionCases.push({font,request,expected});}
 assert.equal(actionCursor,actionBinary.length);
+const scriptPropertyFacts=JSON.parse(await readFile(new URL('./script-properties.json',import.meta.url),'utf8'));
 const reports = [];
 const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
 let activePage;
@@ -141,7 +142,7 @@ try {
       return app.exclusive(() => app.renderer.metrics().frames >= 4);
     }));
     entry.stage='source and offscreen controls';
-    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases}) => {
+    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases,scriptPropertyFacts}) => {
       const app = await window.progpuReady;
       return app.exclusive(async () => {
         const r = app.renderer;
@@ -353,6 +354,28 @@ try {
         check(properties[0]===0x6b616e61 && properties[10]===0x6c616f20 && properties[21]===230,'WASM script aliases and combining class');unicodeChecks++;
         check(properties[35]===0x29 && properties[36]===0x28 && properties[37]===1 && properties[38]===0x29 && properties[39]===1 && properties[66]===0xfe35,'WASM original directional/bracket mappings');unicodeChecks++;
         check(properties[40]===defaultTag && properties[43]===29 && properties[44]===0xffffffff && properties[54]===2,'WASM invalid scalar category and mathematical decimal digit');unicodeChecks++;
+        // Compare every output byte with the original managed capture digest,
+        // including all raw words, surrogates and every high-bit scalar alias.
+        const propertyPoints=new Uint32Array(scriptPropertyFacts.raw_queries);
+        let propertyIndex=0;
+        for(let cp=0;cp<=scriptPropertyFacts.raw_domain_end_inclusive;cp++)propertyPoints[propertyIndex++]=cp;
+        for(let cp=0;cp<scriptPropertyFacts.high_alias_end_exclusive;cp++)propertyPoints[propertyIndex++]=cp|scriptPropertyFacts.high_alias_or;
+        for(const cp of scriptPropertyFacts.extra_points)propertyPoints[propertyIndex++]=cp;
+        check(propertyIndex===propertyPoints.length,'WASM full property request inventory');
+        const propertyBytes=new Uint8Array(scriptPropertyFacts.response_bytes);
+        const rawWords=Uint16Array.from({length:65536},(_,i)=>i);
+        const wordBytes=app.script_properties(new Uint32Array(),rawWords);
+        check(wordBytes.length===131072,'WASM property extraction inventory');
+        propertyBytes.set(wordBytes);let propertyOffset=wordBytes.length;
+        for(let start=0;start<propertyPoints.length;start+=16384){
+          const result=app.script_properties(propertyPoints.subarray(start,start+16384),new Uint16Array());
+          check(result.length===Math.min(16384,propertyPoints.length-start)*6,'WASM property response width');
+          propertyBytes.set(result,propertyOffset);propertyOffset+=result.length;
+        }
+        check(propertyOffset===propertyBytes.length,'WASM complete property response');
+        const propertyDigest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',propertyBytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
+        check(propertyDigest===scriptPropertyFacts.output_sha256,'WASM full original script property digest');
+        const scriptPropertyQueries=propertyPoints.length,scriptPropertyExtractions=rawWords.length;
         let bidiChecks=0;
         const bidiCase=(source,requested,paragraph,levels,indices=source.map((_,i)=>i),lengths=levels.map(()=>1))=>{
           const result=app.resolve_bidi_utf16(new Uint16Array(source),requested);
@@ -807,9 +830,9 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, managedGraphemeChecks, managedPreparationChecks, managedScriptActionChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedFontChecks, managedMappingChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, scriptPropertyQueries, scriptPropertyExtractions, propertyDigest, bidiChecks, graphemeChecks, managedGraphemeChecks, managedPreparationChecks, managedScriptActionChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedFontChecks, managedMappingChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
-    },{gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases});
+    },{gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases,scriptPropertyFacts});
     Object.assign(entry,report);
     entry.stage='resize';
     assert.equal(report.before.draws, 1);

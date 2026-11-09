@@ -169,6 +169,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Current managed font names | Original name-table decoding, UTF-16 character ranking, stable ordinal deduplication and real axis-name resolution; 236,128 C# cases / 12,151,088 exact bytes; 93 browser controls per DPR | Full font identity/style/metric wrapper, broader discovery/source policies and end-to-end performance |
 | Current managed font and preparation | Owned font/cache/metadata, nominal/symbol/UVS mapping, explicit runtime grapheme and normalization profiles, complete original buffer creation | Varied outlines, source raster policies, fallback and complete shaping orchestration |
 | Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions, Arabic joining, presentation fallback, vowel constraints and stage-state actions; 1,064,105 complete C# cases plus complete raw property queries | Complex-script stages, full plan sequencing, positioning initialization and full text pixels |
+| Indic/Khmer/Myanmar/USE properties | Typed original Indic category/position and USE classification; 2,228,228 actual C# queries plus all 65,536 raw words match native and browser output | Syllable analysis, reordering and complete script stages |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -695,7 +696,7 @@ composition/decomposition and Jamo masks, modified combining-class ordering,
 Hebrew presentation composition, USE diacritic decomposition, Thai/Lao expansion,
 fraction masks, substitution/syllable clearing, Arabic stretch recording and
 whole-record reversal. They do not implement a complete shaping pipeline.
-Complex Indic/Khmer/Myanmar/USE syllables, vowel constraints,
+Complex Indic/Khmer/Myanmar/USE syllables,
 ordered stage orchestration, positioning initialization, paragraphs and GPU text
 remain required work.
 
@@ -776,3 +777,23 @@ browser cases also run in ordinary native CI under three explicit profiles.
 selects 20 matched workloads. This is a new-action baseline, not complete shaping
 or rendered-text qualification. Complex syllable analysis/reordering, full source
 stage orchestration and positioning initialization remain required.
+
+`unicode::ManagedIndicProperties` retains exact source category/position bits.
+`managed_indic_properties` preserves the public Unicode query's zero result for
+invalid scalars; `ManagedIndicProperties::for_raw_code_point` preserves the raw
+script-stage default word `0x0e00`. `managed_use_category` preserves the original
+numeric USE classification, including zero for invalid/unclassified values.
+These are immutable point queries, independent of runtime normalization profiles.
+
+The generator observes actual original public/raw APIs without reading their
+foreign generated arrays. Its independent packed ranges occupy 11,176 bytes.
+`python3 eng/progpu-capture-rust-script-properties.py --check --rust` compares all
+13,500,440 original output bytes, including every Unicode-domain raw value, every
+high-bit alias and all 16-bit extraction inputs. Ordinary native tests replay
+5,672 captured boundary/interior records. Browser tests compare the complete
+source-output SHA-256 at both DPRs without bundling the 13.5 MB response.
+
+`python3 eng/progpu-benchmark-rust-script-properties.py` runs 36 matched C#/Rust
+lookup workloads in three rotating trials. This capture has 33 lower Rust medians
+and three higher ones; it is a new-feature baseline, not complete shaping or
+allocation-event qualification. Complex-script syllables/reordering are pending.

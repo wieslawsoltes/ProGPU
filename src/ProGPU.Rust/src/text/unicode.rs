@@ -11,7 +11,12 @@ pub mod line_break;
 mod mark_profile;
 pub mod normalization;
 mod properties;
+mod script_properties;
+mod script_property_data;
 pub use mark_profile::ManagedMarkProfile;
+pub use script_properties::{
+    ManagedIndicProperties, managed_indic_properties, managed_use_category,
+};
 mod types;
 pub use properties::{
     bidi_bracket, bidi_class, canonical_combining_class, decimal_digit_value, general_category,

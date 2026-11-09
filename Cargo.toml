@@ -35,6 +35,18 @@ web-sys = { version = "0.3.107", features = ["HtmlCanvasElement", "console"], op
 naga = { version = "30.0.0", features = ["wgsl-in"] }
 pollster = "0.4"
 
+[[test]]
+name = "script_properties"
+path = "src/ProGPU.Rust/tests/script_properties.rs"
+
+[[example]]
+name = "script_property_control"
+path = "src/ProGPU.Rust/examples/script_property_control.rs"
+
+[[example]]
+name = "script_property_benchmark"
+path = "src/ProGPU.Rust/examples/script_property_benchmark.rs"
+
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"

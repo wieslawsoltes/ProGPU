@@ -3827,3 +3827,66 @@ commit now records bounded owned process identities and fixed process-kind flags
 on that path, without broadening debugger target admission or changing original
 workloads, flags or deadlines. This records missing evidence, not a root cause or
 a browser qualification pass; `perf/browser-24f605-hosted.json` retains the reports.
+
+## Original Indic and USE property observations
+
+The next complex-script dependency is the original raw Indic category/position
+and USE classification contract. Its approved consumers are
+`OpenTypeTextShaper.GlyphSubstitutionBuffer.PrepareIndicShaping`,
+`PrepareKhmerShaping`, `PrepareMyanmarShaping` and `PrepareUseShaping`.
+The public boundary is `UnicodeShapingProperties.GetIndicProperties` and
+`GetUseCategory`. The existing generated providers are HarfBuzz-derived and
+are **not** sources for translation: only their provenance headers were read.
+No generated arrays, compressed lookup layout, syllable automaton tables or
+foreign implementation methods are transcribed.
+
+`managed_script_property_facts.cs` invokes the actual original APIs through
+strongly typed delegates. Its complete byte transcript supplies classification
+facts and arbitrary-word extraction behavior. Reflection is confined to this
+source-only harness, never used by the Rust library. The Rust generator designs
+its own sorted non-default ranges with 21-bit start, 21-bit end and a 16-bit
+observed value. The 340 Indic and 1,057 USE rows occupy 11,176 static bytes;
+point queries use O(log R) time, O(1) scratch, no allocation and no mutable cache.
+These are single point queries used by dependent script-stage traversal, not a
+new whole-buffer scalar fallback. GPU execution/CPU SIMD policies are unchanged.
+
+`ManagedIndicProperties` is an immutable transparent word with lossless
+`from_bits`, `bits`, `category` and `position`. Exhaustive observations establish
+the low/high-byte extraction even for unknown caller-authored values. Original
+raw Indic queries return category zero/position fourteen (`0x0e00`) for invalid
+code points, while the public Unicode query returns zero. Those contracts remain
+separate. USE returns zero in both cases. Full-width comparisons reject high-bit
+aliases before narrowing; no surrogate becomes an ordinary assigned character.
+This module does not infer syllables or mutate glyphs, owners, shaping state,
+normalization policy, font caches, device/DPI identity or GPU resources.
+
+The existing Skia/SkParagraph, DirectWrite/Direct2D/Win2D, WebRender,
+Vello/Parley and HarfBuzz architecture matrix remains applicable. Additional
+primary research is [Microsoft USE character classification](https://learn.microsoft.com/en-us/typography/script-development/use),
+[Microsoft Devanagari processing](https://learn.microsoft.com/en-us/typography/script-development/devanagari)
+and [Unicode property definitions](https://www.unicode.org/reports/tr44/#IndicSyllabicCategory.txt).
+Adopt the separation of classification, syllable validation and later reordering;
+retain original ProGPU numeric outcomes instead of relabeling Unicode property
+enums or silently adopting the current documentation's Unicode 18 repertoire.
+These sources inform contracts only. Future syllable analysis must use original
+ProGPU-owned logic or independent public grammar/behavior, not foreign state tables.
+
+The source check compares 2,228,228 raw requests: the complete Unicode domain
+including surrogates, the first excluded value, every high-bit domain alias and
+three additional unsigned extremes. All 65,536 raw word extractions precede
+those records. Native Rust matches all 13,500,440 bytes. The frozen 5,672-case
+fixture samples every non-default range boundary, interior and neighboring
+value, plus high aliases; it deliberately uses a different record encoding.
+The browser repeats the entire source transcript at DPR 1 and 2 and compares
+SHA-256, while retaining all previous rendering and text controls. CI rebuilds
+and invokes the original source rather than trusting the frozen digest alone.
+
+The 36-workload baseline uses immutable inputs, reused outputs and identical
+indirect typed calls, with five warmups and forty samples in three rotating
+process trials. All complete outputs match. Rust has 33 lower medians and three
+higher: mixed USE raw Indic at 4,096 points is 1.028x; invalid USE at 256/4,096
+points is 1.355x/1.356x (about 3.8 ns versus 2.8 ns). Source allocation counters
+are zero; Rust allocator events are not measured. Host load is
+10.61/8.83/8.15. This is a new-feature observation, not an optimization or full
+shaping/layout/frame qualification. Full syllable machines, script reordering,
+source plan orchestration and all original provider/package/pixel gates remain.
