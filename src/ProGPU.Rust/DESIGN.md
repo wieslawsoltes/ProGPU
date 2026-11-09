@@ -5810,3 +5810,101 @@ allocator/frame/Instruments baselines and all original provider/application/pack
 gates. Full managed atlas caching/recovery, signed programs, remaining primitive
 coverage APIs, images/clips/layers/masks/effects, final SVG/text drawing, complete
 scene invalidation/archives and platform release qualification remain unfinished.
+
+## Original text compositor preparation (2026-11-09)
+
+This batch ports the ordinary layout/positioned text compositor into an owned
+CPU plan and same-device atlas realization API. It does not yet connect that
+ordered output to the shared Renderer. Original text-specific path raster scale,
+phase, aliasing and coverage-transfer metadata remains explicit; replacing it
+with ordinary native PathDraw defaults would lose source behavior. Final mixed
+text/vector submission is the next integration work, not completed qualification.
+
+| Original repository source | SHA-256 | Scope |
+| --- | --- | --- |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` | CompileTextCommand/CompileGlyphRunCommand ordinary paths, placement/raster-size/flags/styles, color-layer/vector fallback, bounded positioned-path cache, gamma policy and conservative clip admission |
+| `src/ProGPU.Scene/IntegerGlyphRasterOrigin.cs` | `31977e52b6250b3d02fe3270d4c18593d31f532a4f39e1a68f564c282e981aa4` | Explicit descriptor and complete selected-occurrence physical-origin preflight; half ties toward positive infinity |
+| `src/ProGPU.Scene/GlyphCoverageTransferPolicy.cs` | `070dd2deceac1b25048607203674b21c2c6eb1e3208a342e29de760832ef8a47` | Grayscale-only raw contrast admission and independent negative vector encoding |
+| `src/ProGPU.Vector/GlyphInstance.cs` | `31b22cbe71451dab0008b4d0fbae5db8ccec542281f34e488f0848d3013e60fe` | Original 96-byte instance layout and physical atlas texel payload |
+| `src/ProGPU.Text/TtfFont.cs` | `7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b` | Bitmap record capability selection before atlas acquisition; no eager pixel decoding in command planning |
+| `src/ProGPU.Vector/TransformMetrics.cs` | `12271082b95c438ed47d041e961e757e5a0b94bc56334a978f5acc2f17a838de` | Existing original singular-scale helper and failed-scale fallback of one |
+| `src/ProGPU.Backend/Shaders/Text.wgsl` | `432bcabab2d670297ceba2a720de8ca2351ffb4609bd619f62ead1fd7cf84d4a` | Existing unchanged 32-byte shared-style contract and text entry points |
+| `src/ProGPU.Backend/Shaders/TextGlyphGeometryCommon.wgsl` | `321a1eed489c77c51c04fb89b5fa96769ad96afd142b4edcef1a492d93f19f25` | Existing unchanged instance/flag/physical-tile consumer |
+
+Only original ProGPU source was read and translated. Earlier owned font, layout,
+color/SVG, vector and glyph-atlas implementations remain shared. No new dependency
+or shader/compiler/driver change is introduced. Independent outline coordinates
+use the existing safe wide f32x4 API, preserving separate source multiplication,
+addition, final zero offset and Y-sign order. Predecessor-dependent source traversal,
+cache decisions and finite fixed-size transform composition remain ordered.
+Default-runtime SIMD/FMA, trigonometric and signed-zero qualification remains open;
+Rust trigonometry is not relabeled as proof of original named primitive construction.
+
+TextDraw retains an actual completed ManagedTextLayout or a metadata-free original
+font/indices/positions generation. It never synthesizes shaping records, changes
+the selected font or rewrites source positions. Explicit range selection keeps
+the original positive-count versus minimum-array-length semantics. Descriptor
+validation is O(1). IntegerPixel requires the original aliased/atlas-backed,
+positive-diagonal complete frame and font capabilities, with no bold, italic,
+font transform, rotation or logical/vector raster override. Every selected position,
+including no-ink occurrences, preflights before style/path-cache/atlas mutation.
+Physical rounding uses floor and a fractional half comparison, avoiding addition
+of 0.5 to already integral large floats. Native hinted sources remain separate.
+
+Ordinary placement retains Animated continuous coordinates, quarter-pixel X phase
+and ties-even Y at size <=24, integral ties-even placement for larger unrotated
+text, and continuous rotated placement. Raster sizing preserves 4..128 clamping,
+independent actual DPI/static zoom, original logical-resolution policy and the
+complete active transform. Font horizontal scale/skew fall back independently on
+nonfinite components. Synthetic italic, two-pass bold, atlas upscale selection,
+cached ClearType suppression and size/transformation-dependent vector gamma retain
+their original distinctions. Explicit source contrast is immutable and admitted
+only for grayscale; its flags and vector encoding remain separate from legacy gamma.
+
+Plans keep ordered atlas requests and vector/color-layer commands. COLR/SVG layers
+precede bitmap/ordinary outlines and retain actual layer owners and coordinate
+policy; no synthetic bold is added to the separate color-layer route. Bitmap
+selection checks the original embedded record without decoding pixels. Layout and
+positioned commands retain their different PreferGlyphAtlas/CFF/upscale fallback
+rules. Conservative source clipping precedes atlas residency; the complete clip
+context also survives in the plan because culling is not a rendering clip.
+
+Vector fallback retains original font outlines, 1/128 local phases, exact source
+point expressions and the 4096-entry cache-clear policy. Keys retain actual source
+owners and all em/phase/skew/scale/SVG inputs, with original NaN/zero equality.
+Arc sizes, rotation/sweep and source flags follow the original specialized glyph
+writer, not generic affine arc transformation. SVG brush positioning separately
+handles solid/linear/radial materials, opacity, spreads and interpolation; it does
+not infer the geometry's italic/horizontal scale as a brush transform. Generic
+materials retain their original owner. Retained plans outlive cache eviction.
+
+GlyphInstance and GpuTextStyle have compile-time size/offset checks. Atlas output
+uses actual physical texels, bitmap render extents/raster scale, source bearing,
+independent basis vectors, bold/italic offsets and original flags. Solid commands
+outside retained MVP compilation use shared styles; retained/non-solid commands
+keep legacy instance color/mode behavior. GlyphImageMetrics allows CPU emission
+without a GPU dependency. Complete destination capacity is checked before writes.
+
+With gpu enabled, TextPainter::resolve runs inside the caller's existing batch.
+It preserves atlas/vector transitions, delegates original cache/acquisition to
+GlyphAtlas and carries the already resolved integer origin through capacity
+fallback without inverse-transform recomposition. It flushes pending coverage
+before publishing ResolvedTextPaint, then retains actual R8/RGBA generations,
+complete residency and generation/revision counters. Read-only residency admission
+shares the original all-or-nothing replay validation. Generation comparison is
+required in addition to key presence: eviction and reacquisition of the same key
+cannot revive instances containing an older physical slot. The caller still owns
+batch end/abandonment on error or cancellation. No finalizer submits, polls, unmaps
+an unrelated resource or destroys a submitted texture.
+
+Strict native/all-target/all-feature, WASM browser and CPU-only lint/format checks
+cover this preparation batch. Full runtime validation remains deferred under the
+implementation-first workflow. Required controls include original command/instance/
+style bytes, all physical placement and overflow cases, whole-range no-ink/integer
+admission, bitmap failure versus outline selection, color-layer ordering and brush
+domains, exact positioned outlines/cache identity, default-runtime SIMD/trig bits,
+capacity fallback origins, residency/growth/eviction/cancellation, actual native/
+browser pixels and matched allocator/frame/Instruments baselines. The shared
+Renderer/text PathAtlas consumer, retained GPU outline-instance builder, hinted
+sources, full text masks/clips, styled owning APIs and all original source/provider/
+application/package qualification remain unfinished.

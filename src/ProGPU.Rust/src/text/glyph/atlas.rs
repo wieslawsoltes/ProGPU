@@ -243,6 +243,10 @@ impl GlyphAtlas {
     pub fn batch_usage_count(&self) -> usize {
         self.usages.len()
     }
+    /// Whether the caller currently owns an outer or nested acquisition batch.
+    pub fn is_batch_active(&self) -> bool {
+        self.batch_depth != 0
+    }
     /// Original proactive fullness signal, evaluated only at the maximum size.
     pub fn is_almost_full(&self) -> bool {
         (self.size() >= self.maximum_size() && self.next_shelf_y as f32 > self.size() as f32 * 0.85)
@@ -368,17 +372,8 @@ impl GlyphAtlas {
         &mut self,
         residency: &GlyphAtlasResidency,
     ) -> Result<bool, Error> {
-        if !Arc::ptr_eq(&self.owner, &residency.owner) {
+        if !self.contains_residency(residency) {
             return Ok(false);
-        }
-        for key in &residency.keys {
-            if self
-                .cache
-                .get(key)
-                .is_none_or(|entry| entry.capacity_fallback || entry.info.region.is_none())
-            {
-                return Ok(false);
-            }
         }
         self.usages
             .try_reserve(residency.keys.len())
@@ -391,6 +386,17 @@ impl GlyphAtlas {
             self.usages.push(key.clone());
         }
         Ok(true)
+    }
+    /// Read-only exact owner/key admission. Consumers also compare the captured
+    /// generation/revision so eviction followed by reacquisition cannot revive
+    /// vertices carrying an older physical atlas location.
+    pub fn contains_residency(&self, residency: &GlyphAtlasResidency) -> bool {
+        Arc::ptr_eq(&self.owner, &residency.owner)
+            && residency.keys.iter().all(|key| {
+                self.cache
+                    .get(key)
+                    .is_some_and(|entry| !entry.capacity_fallback && entry.info.region.is_some())
+            })
     }
     fn record_usage(&mut self, key: &Key, info: GlyphInfo) {
         if self.batch_depth != 0 && info.region.is_some() {

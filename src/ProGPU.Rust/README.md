@@ -26,6 +26,7 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Retained text interaction | Original advance boxes, carets/affinities, hits, selection, row/vertical navigation and explicit EDIT grapheme ownership | Source controls for empty/wrapped/bidi/multi-font/malformed input and lifetime/error cases |
 | Source font metadata | Whole-inventory VDMX/gasp readers, raw-directory validation, independent raster recommendation flags and exact immutable source line-frame ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
 | GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, typed R8/RGBA targets and bitmap uploads | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes and final text drawing remain unfinished |
+| Text paint preparation | Original layout/positioned command planning, physical placement, integer-origin preflight, 96/32-byte instance/style records, COLR/SVG paths, bounded positioned-outline cache, atlas realization and capacity fallback | Shared Renderer consumption and source text-specific PathAtlas policy still need integration; original source/browser/pixel/lifetime/performance controls deferred |
 | Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/SVG/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
 | SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic and whole-layer source controls; final layer rendering and native/browser pixels |
@@ -180,6 +181,19 @@ original separate width frames. Standalone `StrokeDraw::compile` accepts dashed
 spines but rejects unions requiring atlas coverage; use the scene API for those.
 The shared native/browser gallery includes all these routes. Consolidated original
 source, default-runtime, browser, pixel and performance controls remain deferred.
+
+`text::paint::TextPainter` now plans original layout and explicit positioned glyph
+commands without reshaping or changing source positions. `TextDraw`,
+`TextPaintContext` and `TextPathPolicy` retain the actual frame, clip, rendering,
+contrast, physical origin and vector-raster contracts. Plans preserve painter
+order between atlas requests and COLR/SVG/outline paths. With `gpu`, `resolve`
+acquires actual atlas entries inside a caller-owned active batch, flushes before
+publication and retains both texture generations and exact residency. Callers
+must end or abandon their batch on failure/cancellation and check `is_current`
+before replay. `GlyphInstance` and `GpuTextStyle` retain the original 96/32-byte
+shader records. The shared Renderer still needs to consume these ordered records
+and the original text-specific path-raster policy; ordinary `PathDraw` defaults
+are not a substitute. Runtime/source/pixel/performance qualification is deferred.
 
 `MaterialTable` ports original managed brush registration, including ordered
 first-equal lookup, unchanged stop order, source capacity fallbacks, independent

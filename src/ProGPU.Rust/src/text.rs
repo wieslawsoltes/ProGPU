@@ -6,6 +6,7 @@ pub mod glyph;
 pub mod layout;
 pub mod managed_pipeline;
 mod managed_shaping;
+pub mod paint;
 pub use font_face::{ManagedShapingFontFace, ShapingFontFace, ShapingGlyphExtents};
 mod shaping;
 pub use managed_shaping::ManagedShapingGlyph;
