@@ -3,6 +3,7 @@
 //! See the crate README for the parity ledger. Unported families are not silently
 //! approximated. GPU programs are embedded from the canonical production WGSL.
 
+pub mod composition;
 pub mod effects;
 pub mod font;
 pub mod geometry;

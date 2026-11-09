@@ -4,10 +4,11 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
-Latest connected batch: original target-storage Clear now preserves painter order
-through ordinary draws, bounded captures and all 29 destination blend modes.
-Native/browser hosts share an authored Clear gallery and report actual per-replay
-uploads separately from preparation. Full compositor and validation remain unfinished.
+Latest connected batch: explicit source AA execution now owns actual parent/child
+textures, painter-ordered background copies, independent floating coverage and
+original linear-byte/sRGB resolves. A shared native/browser gallery exercises
+nested clips and loaded advanced scenes. Automatic retained source scope recording,
+whole-tree text residency and full qualification remain unfinished.
 
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
@@ -51,7 +52,8 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Owned captures and group effects | Complete eight-node native Gaussian/box/drop-shadow plan, original physical parameters and canonical GPU passes, owned job resources, same-submission scene capture and final image composition; shared effect gallery | Whole-source/runtime/browser/lifetime/performance controls; alternate execution routes, output caches, shader/image filters and source-specific compositing remain unfinished |
 | Bounded nested layers | Immutable source scenes, 16-target depth, native outward target bounds, original managed projection/render-origin mapping, nested captures before parent text, final group opacity and all 29 native destination blends; native/browser gallery | Original target/float/pixel/ownership/performance controls; source-specific AA/Clear/opacity policies, revision caches/pools and complete scene compiler remain unfinished |
 | Destination-aware blend passes | All fifteen advanced modes use canonical AdvancedBlend.wgsl, exact 96-byte records/256-byte slots, bounded source resolution, actual destination reads and ordered parent/root copies; immutable prepared resources and lazy pipelines | Original bytes/float/pixel/performance/retirement controls; uniform-backdrop fast path, caches, source-specific ROP/AA/Clear and complete semantic transport remain unfinished |
-| Target-storage Clear | Original straight colors, target-local binary scissors, canonical replace pass, fresh 16-byte upload per occurrence, bounded/advanced-target ordering and replay counters; shared native/browser gallery | Source AA background initialization/resolve, independent per-axis viewport, scene Ignore-alpha targets and nested picture transport remain unfinished; original whole-frame/runtime/performance gates deferred |
+| Target-storage Clear | Original straight colors, target-local binary scissors, canonical replace pass, fresh 16-byte upload per occurrence, bounded/advanced-target ordering and replay counters; shared native/browser gallery | Automatic source AA recorder/scene integration, scene Ignore-alpha targets and nested picture transport remain unfinished; original whole-frame/runtime/performance gates deferred |
+| Explicit source AA execution | Original independent-axis projection, outward allocation, exact area masks, consecutive-parent ratios, real background copies, canonical linear-byte/sRGB composition and loaded-scene replay; shared gallery | Automatic nearest-owner/background/depth recording, inherited binary scopes, deferred whole-tree text residency, complete scene transport and original pixels/performance remain unfinished |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
 
 
@@ -136,6 +138,34 @@ masked layers, advanced-blend interleaving, shadows and optional explicit-font
 text. Source AA background preservation, native scene Ignore-alpha transport,
 independent axis viewport/DPI and nested picture Clear remain separate unfinished
 policies. This gallery has static checks only at this checkpoint.
+
+`composition::AxisClipPlan` retains original source bounds, independent DPI axes,
+viewport, semantic scalar DPI and actual parent domain. `child` retains all
+consecutive AA ancestors; a new plan starts after an ordinary layer. Exact
+projected edges, outward allocation, area-mask records and parent/child ratio
+bounds are inspectable without a GPU. Background initialization is an explicit
+source flag, never an inference from ordinary opacity or masks.
+
+`Renderer::prepare_axis_clip` retains an actual sampled parent and fresh child
+storage without reading or painting either during preparation. `begin` clears the
+child and optionally copies the parent's current bytes; callers paint into the
+actual child via `parts` and consume the token with `finish`. Linear RGBA8/BGRA8
+uses the original independent R32Float coverage and byte resolve; initialized
+sRGB uses floating replacement, while ordinary sRGB keeps masked source-over.
+An unfinished token requires discarding its encoder; dropping it submits nothing.
+`Renderer::encode_loaded` draws a prepared scene into initialized storage, including
+copying it into an advanced scene's owned root before destination-aware operations.
+Original text owner/generation/residency admission remains mandatory.
+
+Run `--axis-clips` in winit or `?scene=axis-clips` in the browser. This shared authored
+sample executes twelve explicit groups, including nested ratios, transparent
+Clear, independent axes/viewport and loaded advanced layers, then displays the
+owned result. Counters describe actual preparation and encoded AA work separately
+from the displayed root image. It is an execution gallery, not the automatic
+retained AA command compiler. Whole-tree text residency, original nearest-owner
+isolation/background preflight, SAVE/binary ancestor transport and complete
+source-group policies remain to be integrated. Static checks do not qualify
+original source pixels, all target formats, browser reliability or performance.
 
 At the user's request, implementation proceeds in connected batches with
 compile/static checks; exhaustive differential/browser/performance/package

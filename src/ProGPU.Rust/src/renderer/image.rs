@@ -43,7 +43,21 @@ pub(super) async fn pipeline(
     blend: LayerBlend,
     masked: bool,
 ) -> Result<wgpu::RenderPipeline, Error> {
-    let blend_state = if mip { None } else { Some(blend.fixed()?) };
+    pipeline_entry(device, format, mip, blend, masked, None).await
+}
+pub(super) async fn pipeline_entry(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    mip: bool,
+    blend: LayerBlend,
+    masked: bool,
+    entry: Option<&'static str>,
+) -> Result<wgpu::RenderPipeline, Error> {
+    let blend_state = if mip || entry == Some("fs_layer_coverage") {
+        None
+    } else {
+        Some(blend.fixed()?)
+    };
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(if mip {
@@ -89,18 +103,22 @@ pub(super) async fn pipeline(
         multisample: wgpu::MultisampleState::default(),
         fragment: Some(wgpu::FragmentState {
             module: &module,
-            entry_point: Some(if mip {
+            entry_point: Some(entry.unwrap_or(if mip {
                 "fs_main"
             } else if masked {
                 "fs_retained_image_chain"
             } else {
                 "fs_retained_image_unmasked"
-            }),
+            })),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
                 blend: blend_state,
-                write_mask: wgpu::ColorWrites::ALL,
+                write_mask: if entry == Some("fs_layer_coverage") {
+                    wgpu::ColorWrites::RED
+                } else {
+                    wgpu::ColorWrites::ALL
+                },
             })],
         }),
         multiview_mask: None,

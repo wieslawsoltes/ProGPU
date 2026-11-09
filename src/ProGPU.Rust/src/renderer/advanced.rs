@@ -25,21 +25,21 @@ pub struct AdvancedBlendMetrics {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct SamplingUniforms {
-    source_origin: [f32; 2],
-    source_extent: [f32; 2],
-    blend_mode: u32,
-    operation_kind: u32,
-    raster_operation_code: u32,
-    pattern_kind: u32,
-    pattern_color: [f32; 4],
-    pattern_background_color: [f32; 4],
-    pattern_origin: [f32; 2],
-    pattern_mask_low: u32,
-    pattern_mask_high: u32,
-    pattern_flags: u32,
-    padding: u32,
-    pattern_texture_extent: [f32; 2],
+pub(super) struct SamplingUniforms {
+    pub(super) source_origin: [f32; 2],
+    pub(super) source_extent: [f32; 2],
+    pub(super) blend_mode: u32,
+    pub(super) operation_kind: u32,
+    pub(super) raster_operation_code: u32,
+    pub(super) pattern_kind: u32,
+    pub(super) pattern_color: [f32; 4],
+    pub(super) pattern_background_color: [f32; 4],
+    pub(super) pattern_origin: [f32; 2],
+    pub(super) pattern_mask_low: u32,
+    pub(super) pattern_mask_high: u32,
+    pub(super) pattern_flags: u32,
+    pub(super) padding: u32,
+    pub(super) pattern_texture_extent: [f32; 2],
 }
 const _: () = {
     assert!(size_of::<SamplingUniforms>() == 96);
@@ -50,13 +50,16 @@ const _: () = {
 
 #[derive(Clone)]
 pub(super) struct AdvancedState {
-    layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::RenderPipeline,
-    copy: wgpu::RenderPipeline,
+    pub(super) layout: wgpu::BindGroupLayout,
+    pub(super) pipeline: wgpu::RenderPipeline,
+    pub(super) copy: wgpu::RenderPipeline,
     masked: Option<wgpu::RenderPipeline>,
 }
 impl AdvancedState {
-    async fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Result<Self, Error> {
+    pub(super) async fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, Error> {
         let copy = image::pipeline(device, format, false, LayerBlend::Src, false).await?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut entries: Vec<_> = (0..3)
@@ -144,6 +147,7 @@ struct Operation {
 pub(super) struct PreparedAdvanced {
     state: AdvancedState,
     root: wgpu::TextureView,
+    pub(super) root_texture: wgpu::Texture,
     source: wgpu::TextureView,
     output: wgpu::TextureView,
     root_copy: wgpu::BindGroup,
@@ -156,7 +160,7 @@ pub(super) struct PreparedAdvanced {
     pub metrics: AdvancedBlendMetrics,
 }
 
-fn buffer(
+pub(super) fn buffer(
     device: &wgpu::Device,
     label: &str,
     contents: &[u8],
@@ -168,7 +172,7 @@ fn buffer(
         usage,
     })
 }
-fn frame_binding(
+pub(super) fn frame_binding(
     device: &wgpu::Device,
     pipeline: &wgpu::RenderPipeline,
     uniforms: Uniforms,
@@ -188,7 +192,7 @@ fn frame_binding(
         }],
     })
 }
-fn quad(size: [u32; 2], dpi: f32, opacity: f32) -> [VectorVertex; 4] {
+pub(super) fn quad(size: [u32; 2], dpi: f32, opacity: f32) -> [VectorVertex; 4] {
     // Original append_semantic_layer_quad for source == target. Preserve its
     // zero origin, separate width/DPI expressions and explicit premult flag.
     let x0 = 0.0 / dpi;
@@ -209,7 +213,7 @@ fn quad(size: [u32; 2], dpi: f32, opacity: f32) -> [VectorVertex; 4] {
         ..VectorVertex::zeroed()
     })
 }
-fn begin<'a>(
+pub(super) fn begin<'a>(
     encoder: &'a mut wgpu::CommandEncoder,
     target: &wgpu::TextureView,
     load: wgpu::LoadOp<wgpu::Color>,
@@ -376,6 +380,7 @@ impl Renderer {
         )?;
         let output = create([frame.width, frame.height], "ProGPU owned advanced output")?;
         let source = create(source_size, "ProGPU bounded advanced source")?;
+        let root_texture = root.texture().clone();
         let root = root.texture().create_view(&Default::default());
         let output = output.texture().create_view(&Default::default());
         let source = source.texture().create_view(&Default::default());
@@ -516,6 +521,7 @@ impl Renderer {
         Ok(PreparedAdvanced {
             state: state.clone(),
             root,
+            root_texture,
             source,
             output,
             root_copy,
@@ -535,12 +541,11 @@ impl Renderer {
         scene: &PreparedScene,
         advanced: &PreparedAdvanced,
         target: &wgpu::TextureView,
-        clear: wgpu::Color,
+        mut load: wgpu::LoadOp<wgpu::Color>,
     ) -> Result<(), Error> {
         let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
         let mut first = 0;
         let mut initial_state = None;
-        let mut load = wgpu::LoadOp::Clear(clear);
         for operation in &advanced.operations {
             self.encode_span(
                 encoder,

@@ -12,6 +12,8 @@ use winit::{
 #[path = "support/sample_scene.rs"]
 mod sample;
 use sample::sample_scene;
+#[path = "support/axis_clip_scene.rs"]
+mod axis_clip_sample;
 #[path = "support/clear_scene.rs"]
 mod clear_sample;
 #[path = "support/effect_scene.rs"]
@@ -35,6 +37,7 @@ enum CompositeGallery {
     None,
     Layers,
     Clears,
+    AxisClips,
 }
 
 struct WindowRenderer {
@@ -142,7 +145,27 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
-        let source = if self.composite_gallery == CompositeGallery::Clears {
+        let source = if self.composite_gallery == CompositeGallery::AxisClips {
+            let (scene, metrics) = pollster::block_on(axis_clip_sample::axis_clip_scene(
+                &mut self.renderer,
+                &self.device,
+                &self.queue,
+                dpi,
+            ))?;
+            eprintln!(
+                "AA groups: {}; textures: {}; uniforms: {}; geometry: {}; resolve draws: {}; background copies: {}; source draws: {}; source uniforms: {}; loaded copies: {}",
+                metrics.groups,
+                metrics.texture_bytes,
+                metrics.uniform_bytes,
+                metrics.geometry_bytes,
+                metrics.resolve_draws,
+                metrics.background_copy_bytes,
+                metrics.source_draws,
+                metrics.source_uniform_bytes,
+                metrics.loaded_copy_bytes
+            );
+            scene
+        } else if self.composite_gallery == CompositeGallery::Clears {
             clear_sample::clear_scene(self.text_font.clone())?
         } else if self.composite_gallery == CompositeGallery::Layers {
             layer_sample::layer_scene(self.text_font.clone())?
@@ -321,6 +344,7 @@ fn main() -> Result<()> {
             "--effects" => app.effect_scene = true,
             "--layers" => app.composite_gallery = CompositeGallery::Layers,
             "--clears" => app.composite_gallery = CompositeGallery::Clears,
+            "--axis-clips" => app.composite_gallery = CompositeGallery::AxisClips,
             "--text" => {
                 let path = args.next().ok_or("--text requires a font file path")?;
                 app.text_font = Some(progpu::font::ManagedFont::new(std::fs::read(path)?, 0)?);
@@ -337,7 +361,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

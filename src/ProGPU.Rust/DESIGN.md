@@ -6764,3 +6764,118 @@ API. Independent per-axis DPI/viewport, scene Ignore-alpha owners, nested pictur
 transport, full source depth/semantic budgets and source opacity/Clear policies
 also remain separate work. The surrounding full mask/filter/cache/archive and
 platform port remains incomplete.
+
+
+## Explicit source AA execution and loaded targets (2026-11-09)
+
+This batch ports the actual AA target/coverage execution dependency. It does not
+claim the automatic retained AA scene builder is complete. The original recorder
+requires nearest-ordinary-owner isolation, exact clip identity, atomic background
+flags and historical/open-depth accounting; those rules remain explicit pending
+scene integration. Existing cross-engine public-contract research continues to
+separate original geometry/clip state, immutable source ownership, device domains
+and deferred GPU realization. No foreign implementation is introduced.
+
+| Original source consulted | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_state.cpp` | `2b801e9cc4673fa49092bdee28ac7c6275672c000f635798ba5767d759b30dd5` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_render_execution.cpp` | `c0325d3d72f30d79f386cfc0619f84213090b67a3a203e9e69ac4e4add4a9dae` |
+| `src/ProGPU.Native/src/Backend/progpu_native_advanced_blend_execution.cpp` | `44578984717579eb89a2c38ac62f097b5219211b963e8790dcc88092753e7446` |
+| `src/ProGPU.Native/src/Backend/progpu_native_backdrop_execution.cpp` | `6c516aaa3b38b1e3987d5320d8a6e0c140e1113b5face5df8eb3b0709a0acc90` |
+| `src/ProGPU.Native/src/Backend/progpu_native_layer_resource_execution.cpp` | `7ba451a122e78d4c60b02bd5f984091485067683ddcf8883522fc558d729a6d3` |
+| `src/ProGPU.Native/src/Backend/progpu_native_image_layer_resources.cpp` | `8d8fb8816f1db86563b5ab1551446f928bf4915021f095cfc1b8737d2c16d523` |
+| `src/ProGPU.Native/src/Scene/Builder/progpu_native_scene_builder_layer.cpp` | `7436958d7065afd34b6b602cf480a211e9705184db6db62fed6df28653df3077` |
+| `src/ProGPU.Backend/Shaders/AdvancedBlend.wgsl` | `f4143798b7172e117c7e838efe6e5e87bbed7010f6cb619b1a64693d6adcdb8e` |
+| `src/ProGPU.Backend/Shaders/Texture.wgsl` | `5f9c663cdc9eac166506c93a1add5ec058c3d68f9a766253aee895afe4adda51` |
+
+### Physical source plan
+
+`AxisClipFrame` retains original root dimensions, actual parent storage domain,
+independent positive source DPI, physical viewport and independent renderer scalar
+DPI. `AxisClipPlan` preserves the four original logical values and each projected
+float edge. Four SIMD lanes perform original multiplication then viewport addition;
+no divide/multiply round trip, inferred scalar DPI, flattened geometry or CPU
+pixel evaluation is introduced. Allocation uses original target-domain clipping,
+near-integer snapping and outward rounding, followed by actual viewport/parent
+intersection. Empty intersections retain metadata and allocate no GPU resources.
+
+Exact geometric coverage keeps the unsnapped edges. Each edge subtracts actual
+integer target origin in double before float narrowing. The area mask remains the
+original 96-byte identity/zero-radius/unit-opacity kind-five record. A bounded
+fixed ancestor inventory retains up to sixteen consecutive AA targets. Immediate
+parent comes first, followed by original ancestors in native reverse-stack order;
+localization happens before ordered intersection, including original first-equal
+signed-zero choices. Parent area and child intersection feed the existing shader
+ratio branch, preventing compounded coverage at consecutive source AA boundaries.
+A fresh plan explicitly stops that chain after an ordinary layer.
+
+### Actual storage and composition
+
+`prepare_axis_clip` validates the actual same-device sampled alpha-preserving
+parent's format, extent, mip inventory and attachment/copy usages. It owns a fresh
+single-sample child and, for advanced resolution, independent R32Float coverage and
+parent-sized output. Each texture has a 256 MiB cap and the actual aggregate a
+512 MiB cap; existing device dimensions and shader resource limits remain checked.
+Original pipeline families initialize lazily; shared advanced pipeline handles are
+reused without replacing existing prepared owners. Failure/cancellation cannot
+publish a partially prepared AA resource set. The background flag stays explicit;
+ordinary source opacity/mask/alpha ownership is never inferred from pixels.
+
+At `begin`, the original transparent child clear precedes an optional exact bounded
+parent-to-child texture copy. This happens at the actual painter position, never
+during preparation. Caller content then loads that initialized attachment. At
+`finish`, linear RGBA8/BGRA8 uses the original `fs_layer_coverage` entry point,
+R32Float red-only/no-blend target and independent kind-five mask. The existing
+96-byte/256-slot sampling record selects operation kind three for initialized
+background replacement or four for ordinary source-over. Source color and alpha
+are sampled separately from geometric coverage; unchanged WGSL retains exact
+stored-byte rounding and source-alpha terms. Initialized sRGB selects kind two
+floating replacement. Ordinary sRGB retains the original masked fixed SrcOver
+route. No alternative unorm approximation is applied to sRGB targets.
+
+Advanced resolution paints to independent output before replacing the actual
+parent with the original Src quad. No sampled attachment aliases its consumer.
+The fixed sRGB quad uses original parent-local origin and separate width/DPI
+expressions; masks localize to the same actual target. GPU resources survive via
+actual wgpu handles. Neither begin/finish nor resource destruction submits, waits,
+reads back or explicitly destroys a consumer's texture. An unfinished explicit
+pass token requires discarding the unfinished encoder; Drop performs no queue or
+GPU work. Caller binary/source scopes remain a separate recording obligation.
+
+`encode_loaded` adds the required retained content boundary without replacing
+initialized pixels with a new frame clear. For destination-aware scenes it copies
+actual existing storage to that scene's owned advanced root, then starts the
+original ordered spans with Load. Ordinary scenes directly load the actual target.
+Actual extent/format/sample/mip/usages and original text owner/generation/residency
+are checked before encoding. Replay counters now report explicit texture-copy
+bytes independently of draws and original Clear uniform uploads. Shader-based
+copies remain draw work. No old text residency is relabeled as current.
+
+### Shared execution gallery and pending integration
+
+Both winit `--axis-clips` and browser `?scene=axis-clips` execute the same twelve
+explicit groups: ordinary versus background-initialized AA, transparent Clear,
+consecutive nested ratios, independent DPI/viewport and loaded advanced layers.
+The gallery first materializes its background, then encodes ordered AA work in
+one further submission and displays the owned result. Its root image replay is
+not described as a retained AA group replay. Counters expose actual source,
+coverage/output storage, uniform/geometry payload, resolve draws, copied background,
+source Clear uploads and loaded advanced-root copies. No new benchmark or runtime
+pixel evidence is claimed.
+
+Strict native all-target/all-feature, browser/WASM and CPU-only checks plus format,
+whitespace, JS syntax and existing offline canonical shader validation are the
+implementation-first checks. Shaders/dependencies/compiler defaults/drivers remain
+unchanged. Original source AA pixels, all formats, repeated and unfinished encodes,
+resource retirement, browser/device-loss, allocator/frame/Instruments and complete
+provider/package/application qualification remain deferred.
+
+Automatic retained AA scope recording, nearest ordinary-owner/background promotion,
+historical/live depth accounting, original SAVE/binary ancestor transport, scene
+Ignore-alpha owners and full native transport remain unfinished. Deferred scene
+children must retain a complete text atlas batch and final texture/residency
+identity; existing eager ordinary captures cannot stand in for live parent
+background. Full masks/filters/caches/archives and platform qualification remain
+separate required work. The original source gates in
+`docs/native-target-storage-clear.md` and `docs/native-axis-clip-coverage.md` remain
+mandatory; this implementation is not parity or package qualification.

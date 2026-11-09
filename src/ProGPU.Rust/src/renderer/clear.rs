@@ -13,6 +13,9 @@ pub struct ReplayMetrics {
     pub uniform_upload_bytes: u64,
     /// Original independent uniform buffer allocation per executed Clear.
     pub uniform_buffer_allocations: u32,
+    /// Exact explicit texture-copy bytes used to load an existing destination
+    /// into an owned advanced root. Shader-based copies remain draw commands.
+    pub texture_copy_bytes: u64,
 }
 
 /// Actual queue submission and the work encoded for it; completion is independent.
@@ -152,6 +155,7 @@ impl ClearPipeline {
             target_clears: 1,
             uniform_upload_bytes: 16,
             uniform_buffer_allocations: 1,
+            texture_copy_bytes: 0,
         })
     }
 }
@@ -192,6 +196,7 @@ impl PreparedScene {
             target_clears: clears,
             uniform_upload_bytes: u64::from(clears) * 16,
             uniform_buffer_allocations: clears,
+            texture_copy_bytes: 0,
         }
     }
 }

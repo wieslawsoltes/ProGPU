@@ -18,6 +18,8 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod advanced;
 pub use advanced::AdvancedBlendMetrics;
+mod axis_clip;
+pub use axis_clip::{AxisClipMetrics, AxisClipPass, AxisClipReplayMetrics, PreparedAxisClip};
 mod capture;
 mod clear;
 pub use clear::{RenderSubmission, ReplayMetrics, TargetClearRequest};
@@ -215,6 +217,7 @@ pub struct Renderer {
     masks: Option<mask::MaskState>,
     effects: Option<crate::effects::EffectEngine>,
     advanced: Option<advanced::AdvancedState>,
+    axis_clip: Option<axis_clip::AxisClipState>,
     clear: Option<clear::ClearPipeline>,
     image_sampling: Option<crate::image::ImageSamplingPath>,
     image_preference: crate::image::ImageSamplingPreference,
@@ -345,6 +348,7 @@ impl Renderer {
             masks: None,
             effects: None,
             advanced: None,
+            axis_clip: None,
             clear: None,
             image_sampling: None,
             image_preference: Default::default(),
@@ -742,7 +746,7 @@ impl Renderer {
             return Err(Error::InvalidInput);
         }
         if let Some(advanced) = &scene.advanced {
-            self.encode_advanced(encoder, scene, advanced, target, clear)?;
+            self.encode_advanced(encoder, scene, advanced, target, wgpu::LoadOp::Clear(clear))?;
         } else {
             self.encode_span(
                 encoder,
@@ -754,6 +758,62 @@ impl Renderer {
             )?;
         }
         Ok(scene.replay_metrics())
+    }
+
+    /// Replay into actual existing target storage without clearing it. This is
+    /// the source-paint boundary for initialized AA groups. Destination-aware
+    /// scenes first copy those exact bytes to their owned root, then preserve
+    /// existing painter order. Target must be same-device and alpha-preserving.
+    pub fn encode_loaded(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &PreparedScene,
+        target: &wgpu::Texture,
+    ) -> Result<ReplayMetrics, Error> {
+        if !self.is_scene_current(scene) {
+            return Err(Error::ResourceDomain);
+        }
+        if target.dimension() != wgpu::TextureDimension::D2
+            || target.depth_or_array_layers() != 1
+            || target.sample_count() != 1
+            || target.mip_level_count() != 1
+            || target.format() != self.format
+            || [target.width(), target.height()] != [scene.frame.width, scene.frame.height]
+            || !target
+                .usage()
+                .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+            || (scene.advanced.is_some() && !target.usage().contains(wgpu::TextureUsages::COPY_SRC))
+        {
+            return Err(Error::InvalidInput);
+        }
+        let view = target.create_view(&Default::default());
+        if let Some(advanced) = &scene.advanced {
+            encoder.copy_texture_to_texture(
+                target.as_image_copy(),
+                advanced.root_texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width: scene.frame.width,
+                    height: scene.frame.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.encode_advanced(encoder, scene, advanced, &view, wgpu::LoadOp::Load)?;
+        } else {
+            self.encode_span(
+                encoder,
+                scene,
+                &view,
+                wgpu::LoadOp::Load,
+                0..scene.draws.len(),
+                None,
+            )?;
+        }
+        let mut metrics = scene.replay_metrics();
+        if scene.advanced.is_some() {
+            metrics.texture_copy_bytes =
+                u64::from(scene.frame.width) * u64::from(scene.frame.height) * 4;
+        }
+        Ok(metrics)
     }
 
     #[allow(clippy::too_many_arguments)] // One immutable painter span and its original attachment/scope state.

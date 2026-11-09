@@ -2,6 +2,9 @@
 //! This example uses the same production renderer and shared scene as winit.
 
 #[cfg(target_arch = "wasm32")]
+#[path = "support/axis_clip_scene.rs"]
+mod axis_clip_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/clear_scene.rs"]
 mod clear_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1670,6 +1673,8 @@ mod web {
         effect_scene: bool,
         layer_scene: bool,
         clear_scene: bool,
+        axis_clip_scene: bool,
+        axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
         validation: Option<Renderer>,
         frames: u32,
@@ -1748,6 +1753,8 @@ mod web {
             effect_scene: false,
             layer_scene: false,
             clear_scene: false,
+            axis_clip_scene: false,
+            axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
             validation: None,
             frames: 0,
@@ -1782,6 +1789,7 @@ mod web {
             self.effect_scene = false;
             self.layer_scene = false;
             self.clear_scene = false;
+            self.axis_clip_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1804,6 +1812,7 @@ mod web {
             self.effect_scene = false;
             self.layer_scene = false;
             self.clear_scene = false;
+            self.axis_clip_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1815,6 +1824,7 @@ mod web {
             self.effect_scene = false;
             self.layer_scene = false;
             self.clear_scene = false;
+            self.axis_clip_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1825,6 +1835,7 @@ mod web {
             self.effect_scene = enabled;
             self.layer_scene = false;
             self.clear_scene = false;
+            self.axis_clip_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1835,6 +1846,7 @@ mod web {
             self.ensure_live()?;
             self.layer_scene = enabled;
             self.clear_scene = false;
+            self.axis_clip_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1845,6 +1857,19 @@ mod web {
         pub fn select_clear_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.clear_scene = enabled;
+            self.axis_clip_scene = false;
+            self.layer_scene = false;
+            self.effect_scene = false;
+            self.mask_scene = false;
+            self.image_scene = false;
+            self.material_scene = false;
+            Ok(())
+        }
+        /// Select the shared explicit source AA execution gallery.
+        pub fn select_axis_clip_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.axis_clip_scene = enabled;
+            self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1859,7 +1884,19 @@ mod web {
                 self.scene = None;
                 return Ok(());
             }
-            let (source, effect_metrics) = if self.effect_scene {
+            let mut axis_clip_metrics = Default::default();
+            let (source, effect_metrics) = if self.axis_clip_scene {
+                let (source, metrics) = super::axis_clip_sample::axis_clip_scene(
+                    &mut self.renderer,
+                    &self.device,
+                    &self.queue,
+                    dpi,
+                )
+                .await
+                .map_err(error)?;
+                axis_clip_metrics = metrics;
+                (source, Default::default())
+            } else if self.effect_scene {
                 super::effect_sample::effect_scene(&mut self.renderer, dpi, self.text_font.clone())
                     .await
                     .map_err(error)?
@@ -1886,6 +1923,7 @@ mod web {
             self.surface.configure(&self.device, &self.config);
             self.scene = Some(scene);
             self.effect_metrics = effect_metrics;
+            self.axis_clip_metrics = axis_clip_metrics;
             Ok(())
         }
         fn record_scene(&self) -> Result<progpu::scene::Scene, Box<dyn std::error::Error>> {
@@ -1971,6 +2009,27 @@ mod web {
         pub fn metrics(&self) -> Result<Object, JsValue> {
             let result = Object::new();
             field(&result, "frames", self.frames as f64)?;
+            let aa = self.axis_clip_metrics;
+            for (name, value) in [
+                ("axisClipGroups", aa.groups as f64),
+                ("axisClipTextureBytes", aa.texture_bytes as f64),
+                ("axisClipUniformBytes", aa.uniform_bytes as f64),
+                ("axisClipGeometryBytes", aa.geometry_bytes as f64),
+                ("axisClipResolveDraws", aa.resolve_draws as f64),
+                (
+                    "axisClipBackgroundCopyBytes",
+                    aa.background_copy_bytes as f64,
+                ),
+                ("axisClipSourceDraws", aa.source_draws as f64),
+                ("axisClipSourceUniformBytes", aa.source_uniform_bytes as f64),
+                ("axisClipLoadedCopyBytes", aa.loaded_copy_bytes as f64),
+                (
+                    "lastReplayTextureCopyBytes",
+                    self.last_replay.texture_copy_bytes as f64,
+                ),
+            ] {
+                field(&result, name, value)?;
+            }
             for (name, value) in [
                 ("lastReplayDraws", self.last_replay.draws as f64),
                 (
