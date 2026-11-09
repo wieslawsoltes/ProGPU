@@ -250,3 +250,11 @@ path = "src/ProGPU.Rust/tests/managed_dispatch.rs"
 [[example]]
 name = "managed_dispatch_benchmark"
 path = "src/ProGPU.Rust/examples/managed_dispatch_benchmark.rs"
+
+[[test]]
+name = "managed_gpos"
+path = "src/ProGPU.Rust/tests/managed_gpos.rs"
+
+[[example]]
+name = "managed_gpos_benchmark"
+path = "src/ProGPU.Rust/examples/managed_gpos_benchmark.rs"

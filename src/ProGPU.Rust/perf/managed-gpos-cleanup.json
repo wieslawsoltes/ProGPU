@@ -1,0 +1,18 @@
+{
+  "captured_utc": "2026-11-09T03:05:23.268874+00:00",
+  "cargo_clean_package": "Removed 19639 files, 1.4GiB total",
+  "fresh_package_temporary_bytes_removed": 560506021,
+  "benchmark_temporary_bytes_removed": 74127741,
+  "additional_removed": [
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2355678
+    },
+    {
+      "path": "/tmp/progpu-gpos-package-check.py",
+      "logical_bytes": 1756
+    }
+  ],
+  "exact_explicit_logical_bytes_removed": 636991196,
+  "scope": "Task-owned outputs only. Compact validation/baseline receipts, actual C# browser fixtures and relevant browser failure evidence retained; dependency/tool caches preserved. Logical sizes do not claim APFS physical reclamation."
+}

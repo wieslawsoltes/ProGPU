@@ -10,6 +10,7 @@ mod digest;
 mod gdef;
 mod gsub;
 mod managed_context;
+mod managed_gpos;
 mod managed_gsub;
 mod managed_selection;
 mod selection;
@@ -24,6 +25,9 @@ pub use gsub::{GsubOptions, GsubState};
 pub use managed_context::{
     ManagedContextGlyph, ManagedContextInput, ManagedContextRecord, ManagedContextState,
     ManagedContextView, ManagedCoverageMatcher, PreparedManagedContext,
+};
+pub use managed_gpos::{
+    ManagedGposLimits, ManagedGposTable, ManagedPositionBuffer, ManagedPositionDirection,
 };
 pub use managed_gsub::{
     ManagedGlyphBuffer, ManagedGlyphState, ManagedGsubLimits, ManagedGsubTable,

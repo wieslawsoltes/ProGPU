@@ -45,6 +45,7 @@ cargo test --locked --test selection -- --ignored --nocapture
 cargo test --locked --test managed_feature_selection -- --ignored --nocapture
 cargo test --locked --test managed_context -- --ignored --nocapture
 cargo test --locked --test gsub -- --ignored --nocapture
+cargo test --locked --test managed_gpos -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -62,6 +63,7 @@ python3 eng/progpu-benchmark-rust-digest.py
 python3 eng/progpu-benchmark-rust-selection.py
 python3 eng/progpu-benchmark-rust-managed-features.py
 python3 eng/progpu-benchmark-rust-managed-context.py
+python3 eng/progpu-benchmark-rust-managed-gpos.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -459,3 +461,16 @@ retained state output. The initial diagnostic capture had high host contention;
 its timings are not performance qualification. This API executes already-prepared
 metadata; it does not supply full script preparation, reordering or complete
 paragraph shaping.
+
+
+`font::layout::ManagedGposTable` executes all nine current managed raw positioning
+lookup types on an owned `ManagedPositionBuffer`. It retains all 31 record fields,
+original per-add saturation, filtering, partial error state and actual source
+ownership. `resolve_attachments()` and `zero_mark_advances()` preserve original
+attachment cycles, direction and late-zero policy. Contextual and attachment
+traversals use explicit stacks; the separate per-root work budget is configurable.
+Inputs are already-prepared design-unit records. Feature/variation dispatch,
+metric initialization, fallback, native device GPOS and complete shaping remain
+separate work. The original C# oracle verifies 63,557 full cases; browser validation
+replays 80 exact C# fixtures plus a cyclic-work control at both DPRs. See the design
+ledger and `perf/managed-gpos-baseline.json` for scope and matched baseline evidence.

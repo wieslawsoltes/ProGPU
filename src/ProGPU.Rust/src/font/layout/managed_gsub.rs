@@ -116,17 +116,17 @@ impl ManagedGsubTable {
         .reverse(offset as i64, position, flags)
     }
 }
-fn fits_at(data: &[u8], at: i64, n: usize) -> bool {
+pub(super) fn fits_at(data: &[u8], at: i64, n: usize) -> bool {
     at >= 0 && at <= i64::from(i32::MAX) && fits(data, at as usize, n)
 }
-fn word(data: &[u8], at: i64) -> Result<u16, FontError> {
+pub(super) fn word(data: &[u8], at: i64) -> Result<u16, FontError> {
     if fits_at(data, at, 2) {
         Ok(u16_at(data, at as usize))
     } else {
         Err(FontError::InvalidFace)
     }
 }
-fn coverage_at(data: &[u8], at: i64, glyph: u16) -> Result<Option<u32>, FontError> {
+pub(super) fn coverage_at(data: &[u8], at: i64, glyph: u16) -> Result<Option<u32>, FontError> {
     if !fits_at(data, at, 4) {
         return Ok(None);
     }
@@ -162,7 +162,7 @@ fn coverage_at(data: &[u8], at: i64, glyph: u16) -> Result<Option<u32>, FontErro
     }
     Ok(None)
 }
-fn class_at(data: &[u8], at: i64, glyph: u16) -> u16 {
+pub(super) fn class_at(data: &[u8], at: i64, glyph: u16) -> u16 {
     if !fits_at(data, at, 4) {
         return 0;
     }

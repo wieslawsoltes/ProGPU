@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { installWebGpuDiagnostics } from './diagnostics.mjs';
 const tools = path.resolve(process.env.PROGPU_RUST_BROWSER_TOOLS ?? 'artifacts/progpu-rust/browser-tools');
@@ -20,6 +20,14 @@ if (process.platform === 'linux') {
 }
 const headless = process.env.PROGPU_RUST_BROWSER_HEADED !== '1';
 const browser = await chromium.launch({ headless, channel: 'chromium', args: flags });
+// Compact original C# output fixture, revalidated by the mandatory source oracle.
+const gposBinary=await readFile(new URL('./managed-gpos.bin',import.meta.url));
+assert.equal(gposBinary.subarray(0,4).toString(),'PGP1');let gposCursor=4;
+const gposU32=()=>{const n=gposBinary.readUInt32LE(gposCursor);gposCursor+=4;return n;};
+const gposBytes=()=>{const n=gposU32(),b=[...gposBinary.subarray(gposCursor,gposCursor+n)];gposCursor+=n;return b;};
+const gposFonts=Array.from({length:gposU32()},gposBytes),gposCases=[];
+for(let n=gposU32();n>0;n--){const raw=Buffer.from(gposBytes());let p=0;const u=()=>{const v=raw.readUInt32LE(p);p+=4;return v;};const length=u(),font=u(),lookup=u(),position=u(),direction=u(),mode=u(),count=u();const bytes=[...raw.subarray(p,p+length)];p+=length;const records=Array.from({length:count*31},u);assert.equal(p,raw.length);const expected=Buffer.from(gposBytes());gposCases.push({font:gposFonts[font],bytes,records,options:[lookup,position,direction,mode,65536],expected:Array.from({length:expected.length/4},(_,i)=>expected.readUInt32LE(i*4))});}
+assert.equal(gposCursor,gposBinary.length);
 const reports = [];
 const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
 let activePage;
@@ -59,7 +67,7 @@ try {
       return app.exclusive(() => app.renderer.metrics().frames >= 4);
     }));
     entry.stage='source and offscreen controls';
-    const report = await page.evaluate(async () => {
+    const report = await page.evaluate(async gposCases => {
       const app = await window.progpuReady;
       return app.exclusive(async () => {
         const r = app.renderer;
@@ -424,6 +432,9 @@ try {
         const indic=mg(10);indic[14]=3;d=dispatch(stageTable(gsubTable([[1,0,[singleSub]]]),[['pref',[0]]],0),[indic],4,overridePolicy([['pref',0]]));check(stageRecord(d,0)[0]===110,'WASM required feature bypasses per-glyph value and mask');
         const malformedReverse=[1,18,2,24,30,1,36,1,77,1,65535,10,1,1,9,1,1,8,1,1,20];const marked=mg(10);marked[16]=42;
         d=dispatch(stageTable(gsubTable([[8,16,[malformedReverse]]]),[['pref',[0]]]),[marked],4,overridePolicy([['pref',1]]),[['GDEF',gd]]);check(d[0]===4&&d[4]===54&&d[5]===0&&d[6]===1&&d[7]===1&&d[8]===42,'WASM original reverse failure retains mark/syllable/manual state');
+        let managedGposChecks=0;
+        for(const c of gposCases){const actual=[...app.apply_managed_gpos(new Uint8Array(c.font),new Uint8Array(c.bytes),new Uint32Array(c.records),new Uint32Array(c.options))];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# full GPOS case ${managedGposChecks}`);managedGposChecks++;}
+        const cyc=app.apply_managed_gpos(font,gsubTable([[7,0,[contextSub([[0,0]])]]]),new Uint32Array([mg(10),mg(20,1)].flat()),new Uint32Array([0,0,1,0,128]));check(cyc[0]===7&&cyc[2]===0xffffffff,'WASM bounded GPOS restores private state');managedGposChecks++;
         let managedContextChecks=0;
         const contextGlyph=(id,cp=65,sub=0,shaper=0,mask=0,syllable=0)=>[id,cp,sub,shaper,mask,syllable];
         const contextCheck=(bytes,extension,glyphs,expected,options=[0,0,0])=>{const actual=[...app.managed_context_query(bytes,0,extension,new Uint16Array(),new Uint32Array(glyphs.flat()),new Uint32Array(options))];check(actual[0]===1&&actual.at(-1)===+expected,`WASM managed ordered context ${JSON.stringify(actual)}`);managedContextChecks++;return actual;};
@@ -680,9 +691,9 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
-    });
+    },gposCases);
     Object.assign(entry,report);
     entry.stage='resize';
     assert.equal(report.before.draws, 1);

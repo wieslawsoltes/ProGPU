@@ -2813,3 +2813,95 @@ The hosted original Rune probe also matches Unicode 16 independently of Linux's
 Unicode 15.1 normalization repertoire. Earlier browser device losses/stalls and
 all default-compiler/font/provider/pixel gaps remain open. This new dispatch
 checkpoint still requires its own hosted qualification.
+
+
+## Current managed raw GPOS and attachment execution (2026-11-09)
+
+`ManagedGposTable` owns exact raw bytes or an actual selected `SfntFace` GPOS
+generation. `ManagedPositionBuffer` owns already-prepared full managed records,
+its original font/GDEF generation, independently selected Rune mark repertoire
+and original direction (including Unspecified). It intentionally does not infer
+metric initialization, glyph removal, script preparation or source placement.
+The earlier cross-engine CPU shaping/GPU realization research remains applicable:
+these are reusable CPU positioning records; no third-party engine implementation
+or foreign shaping runtime is incorporated.
+
+All nine original raw lookup types are implemented: single formats 1/2, pair
+formats 1/2, cursive, mark-to-base/ligature/mark, contextual and chained contextual
+formats 1/2/3, and the original one-level extension route. Shared original weak
+coverage/class reads remain separate from strict native table admission. The
+complete 31-field records, exact ordered filtering, original byte GDEF class cast,
+non-ignorable Rune fallback, mark set and attachment class interaction, zero
+value formats, ignored reserved bits, ordered subtable/record dispatch and partial
+mutation/error state are preserved. Context success marks its entire original
+dependency range; an empty positioning-record list succeeds. Invalid positions
+retain the original no-match result. Every exit restores private mark coverage.
+
+GPOS has no original GSUB-style 64-level recursion rule. The Rust executor uses
+an explicit contextual call stack and matches actual C# execution through 257
+nested lookups. A leaf keeps its frame on the stack without a heap allocation.
+An independent default budget of 65,536 lookup attempts per root rejects cyclic
+or excessive work with `Capacity`, preserving earlier record/dependency writes;
+callers can select a different explicit budget. It is a Rust untrusted-input
+boundary, not a claim that the original C# producer has the same limit. The
+source corpus contains no budget-excluded comparisons. Context work retains the
+original ordered scans, with O(depth) explicit call storage.
+
+Attachments preserve the separate run direction and lookup RTL flag, original
+major/minor-axis adjustment order, ligature component identity and every signed
+short saturation. Cursive reversal clears each original edge before descent and
+reverses saved offsets in unwind order. Resolution retains the original three-state
+cycle rule, source iteration order and each individual advance addition; it does
+not combine saturated sums. Explicit paths avoid recursive stack overflow and
+reuse owned scratch; allocation failure precedes attachment mutation. The original
+range scans can be quadratic for mark graphs; no complexity or arithmetic shortcut
+is substituted. A 100,000-record Rust chain and original cyclic-state controls pass.
+Late mark advance clearing preserves its separate optional offset adjustment.
+
+Validation invokes the actual unchanged C# `ApplyRawPositionLookupAt`,
+`ResolveAttachmentOffsets`, `ZeroMarkAdvancesLate` and classification methods via
+typed delegates. Reflection performs setup and transport only. The real empty
+position-buffer constructor establishes original GDEF policy; then the supplied
+already-prepared records are installed without executing metric initialization.
+**63,557 cases / 72,241,212 full record/state bytes** match, including 30,000
+mutated/truncated leaf tables, 5,000 cursive topologies, 10,000 independent
+attachment/late-zero cases, every contextual format and all direction values.
+The fixed browser inventory contains **80 original C# outputs**, serialized from
+the actual oracle and rechecked byte-for-byte on every source-oracle run. Chromium
+WASM additionally checks bounded cyclic execution and private-state restoration:
+**81 checks per DPR**, alongside all existing shader, text, GSUB, resize and actual
+presentation controls. This is CPU GPOS in the browser; GPU text remains pending.
+
+`eng/progpu-benchmark-rust-managed-gpos.py` captures 30 complete-output matched
+workloads at 32, 512 and 4,096 records. Five warmups precede 40 rounds. Raw lookups
+execute at every position, followed by attachment resolution where applicable;
+separate resolve and late-zero workloads execute their original buffer methods.
+Font/table construction, buffer resets and serialization are untimed. Production
+allocation and C# typed delegate overhead remain timed; reusable scratch is warm.
+This is a diagnostic initial baseline, not an optimization or complete shaping/
+frame qualification. Rust allocation counts are not instrumented; contextual
+call stacks allocate, while cursive/resolution scratch is retained by the buffer.
+
+| 4,096-record workload | Rust median / p95 / p99 (µs) | Original C# median / p95 / p99 (µs) |
+| --- | --- | --- |
+| single | 88.708 / 158.333 / 235.875 | 558.334 / 685.125 / 810.167 |
+| pair | 149.084 / 181.417 / 211.625 | 759.292 / 844.667 / 981.166 |
+| cursive | 202.083 / 268.125 / 273.125 | 847.375 / 983.208 / 1,118.291 |
+| base | 112.000 / 135.334 / 160.416 | 541.083 / 617.750 / 669.500 |
+| ligature | 119.333 / 311.334 / 320.875 | 626.334 / 772.917 / 1,350.458 |
+| mark | 107.583 / 259.042 / 278.792 | 498.625 / 755.417 / 951.709 |
+| context | 228.667 / 567.542 / 590.125 | 895.250 / 969.875 / 975.459 |
+| chain | 276.667 / 285.000 / 306.709 | 912.333 / 962.708 / 1,007.250 |
+| resolve | 46.042 / 48.459 / 93.334 | 135.916 / 619.333 / 1,547.875 |
+| zero | 38.291 / 38.667 / 38.750 | 87.625 / 259.625 / 1,722.500 |
+
+Capture load average: 4.10 / 5.25 / 11.85. All measured C# steady-state
+workloads report zero allocated bytes. Compact source/binary hashes and all
+quantiles are retained in `perf/managed-gpos-baseline.json`.
+
+Feature selection/whole-GPOS dispatch, layout variation adjustments, actual
+metric/default-ignorable initialization, fallback/legacy kerning, native device
+GPOS and hinted point anchors remain separate implementation work. Full script
+preparation/reordering, layout, GPU text and remaining rendering subsystems remain
+in scope. Original Windows/application/provider/package/pixel gates, all recorded
+default-compiler arithmetic gaps and intermittent hosted browser loss remain open.

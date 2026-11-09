@@ -1061,6 +1061,76 @@ mod web {
         }
         Ok(out)
     }
+    /// Execute the actual managed GPOS/attachment controls with retained owners.
+    /// Options: lookup, position, direction, mode (raw/resolve/both/zero), call budget.
+    #[wasm_bindgen]
+    pub fn apply_managed_gpos(
+        font: Vec<u8>,
+        bytes: Vec<u8>,
+        records: Vec<u32>,
+        options: Vec<u32>,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{FontError, SfntFace, layout::*};
+        if options.len() != 5
+            || options[0] > 65535
+            || options[2] > 4
+            || options[3] > 4
+            || !records.len().is_multiple_of(31)
+        {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let source = SfntFace::new(font, 0).map_err(error)?;
+        let table = ManagedGposTable::new(bytes).map_err(error)?;
+        let mut buffer = ManagedPositionBuffer::new(
+            source.clone(),
+            records
+                .chunks_exact(31)
+                .map(super::managed_records::from_words)
+                .collect(),
+            ManagedPositionDirection::try_from(options[2] as u8).map_err(error)?,
+        )
+        .map_err(error)?;
+        drop(source);
+        let retained = table.clone();
+        drop(table);
+        let mut changed = false;
+        let result = (|| {
+            if options[3] < 2 {
+                changed = retained.apply_lookup_at_with_limits(
+                    &mut buffer,
+                    options[0] as u16,
+                    options[1] as usize,
+                    ManagedGposLimits {
+                        max_lookup_calls: options[4],
+                    },
+                )?;
+            }
+            if options[3] == 1 || options[3] == 2 {
+                buffer.resolve_attachments()?;
+            }
+            if options[3] >= 3 {
+                buffer.zero_mark_advances(options[3] == 4)?;
+            }
+            Ok::<_, FontError>(())
+        })();
+        drop(retained);
+        let mut out = vec![
+            result.err().map_or(0, |e| e as u32),
+            u32::from(changed),
+            buffer.mark_filtering_coverage() as u32,
+        ];
+        for i in 0..buffer.glyphs().len() {
+            out.push(
+                buffer
+                    .glyph_class(i)
+                    .map_or_else(|e| 0x80000000 | e as u32, u32::from),
+            );
+        }
+        for &g in buffer.glyphs() {
+            out.extend(super::managed_records::words(g));
+        }
+        Ok(out)
+    }
     /// Current C# GSUB with all 31 record fields and retained source ownership.
     /// Options: position, reverse offset (u32::MAX for nested lookup), flags,
     /// manual joiners, syllable restriction, syllable, context end, random state,
