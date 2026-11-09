@@ -303,6 +303,14 @@ fn original_managed_variation_instances_and_queries() {
         }
         cases.push(Case::new(bytes, 0.5));
     }
+    // Browser requests are authored bit patterns, not host-dependent results of
+    // NaN arithmetic. ARM64 and x64 can choose different signs for -NaN / 2.
+    // Keep every original native-generated case as an additional source control;
+    // freeze only these 24 browser requests to their already-published input bits.
+    for n in (15..384).step_by(16) {
+        cases.push(cases[n].clone());
+        cases[n].settings[1].value = f32::from_bits(0xffc0_0000);
+    }
     let mut input = Vec::new();
     let mut expected = Vec::new();
     let mut ends = Vec::new();
@@ -383,11 +391,19 @@ fn original_managed_variation_instances_and_queries() {
     if std::env::var_os("PROGPU_RUST_UPDATE_VARIATION_FIXTURE").is_some() {
         std::fs::write(&path, &binary).unwrap();
     }
-    assert_eq!(
-        std::fs::read(path).unwrap(),
-        binary,
-        "browser bytes must match actual C# output"
-    );
+    let frozen = std::fs::read(path).unwrap();
+    if frozen != binary {
+        let at = frozen
+            .iter()
+            .zip(&binary)
+            .position(|(a, b)| a != b)
+            .unwrap_or(frozen.len().min(binary.len()));
+        panic!(
+            "browser bytes must match actual C# output: first differing byte {at}, frozen length {}, captured length {}",
+            frozen.len(),
+            binary.len()
+        );
+    }
     eprintln!(
         "Original managed variation browser: {} cases / {} bytes",
         selected.len(),
