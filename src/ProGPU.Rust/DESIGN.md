@@ -3520,3 +3520,28 @@ Developer Mode was already enabled. Two subsequent attach attempts also failed
 to start within their diagnostic bounds. CPU exports and complete failed-start
 observations are retained; no security, compiler, driver or production gate was
 changed to obtain a passing result.
+
+### Hosted preparation gate and earlier process observation
+
+At `6838e6023`, the complete managed preparation oracle also passes on hosted
+Ubuntu 24.04.5 / .NET 10.0.14: its observed normalization profile is Unicode 15.1,
+with 312,627 cases / 873,271,168 exact bytes. The same 110 browser captures remain
+unchanged across hosts. Windows portable checks and Vulkan/winit pass separately.
+
+Both hosted browser runs pass their preparation fixtures and all 204,800 offscreen
+pixels, then lose the device at DPR 2. The original fails during final capture;
+the diagnostic fails earlier during resize, with 160 completed submissions and
+15 pending. Its GPU process exits with code 512. Because the observer previously
+started only after successful resize, no process/backtrace capture was produced.
+The complete receipts and failure timeline are retained in
+`perf/browser-6838e-hosted.json`. They do not identify the root cause.
+
+The optional diagnostic now emits a single console marker at the existing warm
+canvas burst. Only the separate Linux DPR-2 failure observer consumes it; the
+original gate never installs this marker or starts an observer. Observation is
+asynchronous and starts at most once, with final capture retained as a fallback.
+The existing three CPU/wait-channel samples, same-process-generation checks and
+bounded GDB attachment remain unchanged. Attaching can perturb timing, so this
+evidence cannot replace original success, performance or pixel gates. No shader,
+driver, compiler, draw count, queue sequence or deadline changes. Actual hosted
+process/backtrace observation remains pending until that path executes.

@@ -16,7 +16,12 @@ export function installWebGpuDiagnostics() {
   // A plain-data snapshot can be recovered after a device loss. It does not
   // expose or retain a device, queue, surface, buffer or command generation.
   window.progpuGpuDiagnostics=()=>({elapsedMs:stamp(),totals:{...totals},events:[...events],slow:[...slow]});
-  window.progpuGpuDiagnosticsMark=stage=>record('host-stage',{stage});
+  window.progpuGpuDiagnosticsMark=stage=>{
+    record('host-stage',{stage});
+    // The separate observer must arm before resize: a lost device can prevent
+    // the host from reaching final capture. Console delivery never awaits GPU work.
+    if(stage==='warm canvas burst: ten original draws')console.info('ProGPU diagnostic: warm canvas burst');
+  };
   if(!globalThis.GPUQueue){record('WebGPU-unavailable');return;}
   const queues=new WeakMap();
   const submit=GPUQueue.prototype.submit;

@@ -84,6 +84,18 @@ const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
 let activePage;
 let activeEntry;
 let gpuProcessCapture;
+function observeGpuProcess(dpr,stage) {
+  if(gpuProcessCapture||dpr!==2||!diagnosticsEnabled||process.platform!=='linux'||
+     process.env.PROGPU_RUST_BROWSER_GPU_STACKS!=='1')return;
+  console.log(`[DPR ${dpr}] arming failure-only GPU process observation: ${stage}`);
+  const capture=spawn('python3',[fileURLToPath(new URL('./capture-gpu.py',import.meta.url)),
+    '--parent',String(process.pid),'--output',path.join(output,'gpu-process.json')],
+    {stdio:['ignore','inherit','inherit']});
+  gpuProcessCapture=new Promise(resolve=>{
+    capture.on('error',e=>{console.error(`GPU process observation unavailable: ${e}`);resolve();});
+    capture.on('exit',()=>resolve());
+  });
+}
 // Playwright's waitForFunction treats a returned Promise as truthy. Await each
 // serialized WASM query explicitly so a false result cannot pass the gate.
 async function waitFor(check) {
@@ -107,6 +119,8 @@ try {
     const errors = [];
     page.on('pageerror', e => { errors.push(String(e));entry.consoleErrors.push(String(e)); });
     page.on('console', m => {
+      if(m.type()==='info'&&m.text()==='ProGPU diagnostic: warm canvas burst')
+        observeGpuProcess(dpr,'warm canvas burst');
       if (m.type() === 'error') {errors.push(m.text());entry.consoleErrors.push(m.text());}
       if(m.type()==='info'&&m.text().startsWith('validating '))entry.stage=m.text();
       if (m.type() === 'info' || m.type() === 'error') console.log(`[DPR ${dpr}] ${m.text()}`);
@@ -806,16 +820,7 @@ try {
     // Optional failure-only observation. The original gate never starts a
     // debugger. This child samples only our live descendant GPU process and
     // records that debugger attachment itself can perturb timing.
-    if(dpr===2&&diagnosticsEnabled&&process.platform==='linux'&&
-       process.env.PROGPU_RUST_BROWSER_GPU_STACKS==='1'){
-      const capture=spawn('python3',[fileURLToPath(new URL('./capture-gpu.py',import.meta.url)),
-        '--parent',String(process.pid),'--output',path.join(output,'gpu-process.json')],
-        {stdio:['ignore','inherit','inherit']});
-      gpuProcessCapture=new Promise(resolve=>{
-        capture.on('error',e=>{console.error(`GPU process observation unavailable: ${e}`);resolve();});
-        capture.on('exit',()=>resolve());
-      });
-    }
+    observeGpuProcess(dpr,'final capture fallback');
     await page.evaluate(async () => {
       const app=await window.progpuReady;
       window.progpuGpuDiagnosticsMark?.('final capture submission');
