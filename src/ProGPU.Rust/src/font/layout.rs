@@ -22,11 +22,12 @@ pub use digest::{
 pub use gdef::{Gdef, GlyphClass, OwnedGdef, is_gdef_blocklisted};
 pub use gsub::{GsubOptions, GsubState};
 pub use managed_context::{
-    ManagedContextGlyph, ManagedContextInput, ManagedContextState, ManagedContextView,
-    ManagedCoverageMatcher, PreparedManagedContext,
+    ManagedContextGlyph, ManagedContextInput, ManagedContextRecord, ManagedContextState,
+    ManagedContextView, ManagedCoverageMatcher, PreparedManagedContext,
 };
 pub use managed_gsub::{
     ManagedGlyphBuffer, ManagedGlyphState, ManagedGsubLimits, ManagedGsubTable,
+    ManagedSubstitutionPlan,
 };
 pub use managed_selection::{
     ManagedEnabledLookup, ManagedFeatureSetting, ManagedLookupSelection, ManagedSelectionRequest,
@@ -71,3 +72,9 @@ impl Storage {
         }
     }
 }
+
+mod managed_features;
+pub use managed_features::{ManagedFeatureOptions, ManagedFeatureRange};
+
+mod managed_stage;
+pub use managed_stage::ManagedSubstitutionStage;

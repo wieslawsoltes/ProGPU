@@ -423,6 +423,39 @@ Forty-four browser controls per DPR exercise these current managed contracts.
 Run `python3 eng/progpu-benchmark-rust-managed-gsub.py` for 24 full-record matched
 C#/Rust nested/reverse execution baselines. Five warmups precede 40 measured
 rounds; source font construction, buffer reset/preallocation and serialization
-are untimed, while production allocations remain timed. This core does not yet
-provide the source top-level feature-valued alternate dispatch, staged script
-shaping, GPOS, fallback, paragraph layout or GPU text rendering.
+are untimed, while production allocations remain timed. The complete raw stage dispatcher described below builds on this core. Script
+preparation/reordering, GPOS, fallback, paragraph layout and GPU text rendering
+remain separate work.
+
+
+`ManagedFeatureOptions` freezes the complete current managed baseline, ranged
+feature values and explicit-tag policy. UTF-16 tags retain exact ordinal identity;
+ranges retain byte tags, unsigned values and half-open input intervals. Default
+list identity remains distinct from a custom list with null explicit tags. The
+original signed-cluster and last-applicable-range rules are shared by per-record
+script admission and feature-valued alternate execution.
+
+`ManagedSubstitutionPlan` owns original selection, optional context filters,
+feature options and exact raw GSUB/font bytes. `apply_stage` executes any of the
+42 `ManagedSubstitutionStage` values using original lookup/filter order. It
+retains required-feature bypass, already-inserted output skipping, original
+forward deletion progress, context continuation, accumulated buffer digests,
+reverse order and wrapping random-alternate state. Full records feed context
+filters directly through the sealed `ManagedContextRecord` interface; matching
+adds no intermediate glyph inventory or allocation.
+
+The nested-call budget applies independently to each root invocation. The source
+comparison includes a 131,073-glyph run, which must not fail merely because its
+ordinary root calls exceed one recursive lookup's budget. Top-level source
+errors preserve their actual partial writes and traversal state; reverse errors
+can retain selected mark coverage, unlike nested calls' finally restoration.
+The independent original fraction-preparation marker is explicit buffer state.
+
+The source dispatcher passes 262,144 feature queries, 1,974 stage-policy queries
+and 26,753 complete stages / 46,818,828 bytes. Browser validation adds 145 controls
+per DPR. `python3 eng/progpu-benchmark-rust-managed-dispatch.py` compares 24 full
+raw-stage workloads against the original C# executor, including all record and
+retained state output. The initial diagnostic capture had high host contention;
+its timings are not performance qualification. This API executes already-prepared
+metadata; it does not supply full script preparation, reordering or complete
+paragraph shaping.

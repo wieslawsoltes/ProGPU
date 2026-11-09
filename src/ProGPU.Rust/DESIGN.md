@@ -2704,3 +2704,112 @@ Original C# measured 32,768 allocated bytes for this workload and 24,576 for
 deletion; other listed operations measured zero. Rust allocation counts are not
 instrumented here: its production multiple replacement allocates the temporary
 `Vec<u16>` for nonempty sequences. No allocation-free expansion claim is made.
+
+
+## Current managed feature ranges and complete raw stage dispatch
+
+`ManagedFeatureOptions` owns the source feature inventory, optional baseline,
+explicit set and ranged requests. It preserves default-list identity separately
+from a custom list with null explicit tags. The source's ResolveExplicitFeatureTags
+and IsFeatureExplicitAt are intentionally different operations. Baseline selection
+uses the last matching setting; if absent, any range for that tag suppresses
+fallback to Features, even outside that range. Negative clusters map to zero;
+ordered matching half-open ranges overwrite earlier values and clamp unsigned
+values only at the original i32 boundary. Ordinary admission rejects zero, while
+alternate dispatch rejects nonpositive values. Four UTF-16 units retain ordinal
+identity; ranged tag bytes decode independently to Latin-1 units.
+
+Per-record admission retains separate early Hangul and Indic branches before
+fraction, Khmer, USE and Arabic-action policy. Explicitness does not bypass
+original script masks. The independent _hasFractionActions marker remains buffer
+state rather than being inferred from record bytes. WithFeatures preserves the
+original default order, last override value and explicit override tag set.
+
+All 42 original UseSubstitutionStage identities are ported. Feature membership,
+manual joiners and syllable restriction remain independent queries: a tag can
+have a syllable policy even when it does not belong to a particular stage.
+The complete original raw ApplySubstitutions route now runs through
+`ManagedSubstitutionPlan`: actual immutable selection, owned options and shared
+GSUB/font generation, with no copied table or foreign engine bridge. The source
+production plan already selects this raw route. Script preparation and the
+ordered sequence of script stages are still separate work.
+
+Stage execution preserves source order: stage/MayEnable filters, optional lookup
+digest and context filter, then manual-joiner selection. Reverse classification
+and alternate classification inspect the first extension only. Reverse visits
+are descending and restore mark/syllable state only on success, following the
+original absence of a top-level finally. Nested calls keep their independent
+finally restoration. Forward dispatch selects each original syllable, checks
+per-position digest and feature policy, resets the context boundary, skips only
+positive inserted counts, then honors the returned context continuation. Deletion
+retains its original forward index progression. The buffer digest accumulates
+new IDs without removing old ones after each selected lookup. Required features
+bypass optional per-glyph feature/mask checks.
+
+Alternate traversal keeps subtable order outside glyph order, signed values,
+per-cluster ranges and independent required values. Random mode is selected by
+original rand/65535 metadata. It marks the whole dependency before checking
+subtables and advances the wrapping PRNG before checking the selected output's
+bounds. Failure to read that output does not rewind random state. Alternate
+lookup flags do not acquire ordinary glyph filtering. Neither top-level extension
+route recursively unwraps extension chains.
+
+The sealed `ManagedContextRecord` trait permits the exact same generic matcher
+to borrow compact projections or complete ManagedShapingGlyph records, with no
+intermediate vector or virtual dispatch. The actual original context regression
+still passes **56,996 records / 22,558,608 coverage queries / 1,191,586 ordered
+matches / 95,829,796 bytes**. The separate original managed nested executor still
+passes **74,981 cases / 80,999,436 bytes**, plus its complete Rune inventory and
+two separately reported work-bound witnesses.
+
+The new actual C# oracle builds the original plan and invokes the original raw
+stage method. It passes **262,144 feature-policy queries, 1,974 stage-policy
+queries and 26,753 complete stage executions / 46,818,828 bytes**. All live record
+fields and actual context/random/mark/depth/manual/syllable/fraction state are
+compared, including error returns. Inventories cover all stage identities,
+baseline/explicit/range variants, all lookup forms, overlapping feature-selected
+lookup sequences, default-ignorable and script metadata, required bypass,
+12,000 payload mutations and a 131,073-glyph run. No work-bound cases were excluded
+from this dispatch corpus. The extra Rust budget remains per root invocation,
+so ordinary large buffers are independent of the recursion-work bound.
+
+**145 additional browser checks per DPR** exercise all stage memberships,
+independent syllable policies, full stage results, original UTF-16 tag identity,
+ranged/explicit precedence, signed ordinary/alternate values, newly inserted
+output skipping, forward deletion, random state, accumulated buffer digests,
+Hangul and fraction policy, required masks and retained reverse failure state.
+The previous 44 managed and 37 native GSUB controls, all six canonical shaders,
+204,800 offscreen pixels and actual DPR 1/2 presentation/resize still pass.
+
+The full-stage diagnostic baseline compares 24 workloads (32, 512 and 4,096
+records; single, multiple, delete, ligature, context, chain, reverse and random
+alternate) against original cached C# plans. Five warmups precede 40 rounds.
+Plan/font construction, buffer reset/preallocation and serialization are untimed;
+actual production allocations and typed delegate overhead remain timed. Every
+record/state output matches. Capture load average was **128.46 / 47.94 / 27.65**:
+host contention makes these diagnostic observations unsuitable for comparative
+performance qualification. No optimization or full shaping/frame claim follows.
+
+| 4,096-record operation | Rust median / p95 / p99 (µs) | Original C# median / p95 / p99 (µs) |
+| --- | --- | --- |
+| single | 83.583 / 88.333 / 100.708 | 750.541 / 808.500 / 885.750 |
+| multiple | 6,886.000 / 6,966.583 / 6,986.667 | 7,075.167 / 7,548.083 / 7,618.375 |
+| delete | 1,745.459 / 1,785.084 / 1,811.709 | 2,098.583 / 2,194.208 / 2,228.417 |
+| ligature | 1,911.708 / 2,045.500 / 2,100.125 | 2,246.167 / 2,280.084 / 2,488.125 |
+| context | 29.958 / 30.334 / 30.375 | 237.125 / 269.666 / 282.917 |
+| chain | 272.666 / 282.792 / 326.042 | 986.209 / 1,072.875 / 1,109.542 |
+| reverse | 161.333 / 198.167 / 204.208 | 644.875 / 687.417 / 730.250 |
+| alternate | 54.250 / 54.334 / 54.458 | 627.417 / 661.875 / 688.625 |
+
+Actual C# measured allocation is 32,768 bytes for the large multiple workload and
+24,576 for deletion; the other listed operations measure zero. Rust allocation
+counts remain uninstrumented; nonempty multiple substitutions still allocate
+replacement vectors. Full script preparation/reordering, GPOS, hinting, fallback,
+paragraph layout, GPU text and the other rendering subsystems remain in scope.
+
+The preceding 3224d543e commit passed original hosted Linux source/package,
+Windows portable, Vulkan/winit and browser (run 42549809545); macOS was cancelled.
+The hosted original Rune probe also matches Unicode 16 independently of Linux's
+Unicode 15.1 normalization repertoire. Earlier browser device losses/stalls and
+all default-compiler/font/provider/pixel gaps remain open. This new dispatch
+checkpoint still requires its own hosted qualification.

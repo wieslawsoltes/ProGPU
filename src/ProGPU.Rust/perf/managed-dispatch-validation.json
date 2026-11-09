@@ -1,0 +1,97 @@
+{
+  "captured_utc": "2026-11-09T02:39:18.075617+00:00",
+  "rust": "1.90.0",
+  "original_managed_dispatch": {
+    "feature_policy_queries": 262144,
+    "stage_policy_queries": 1974,
+    "complete_stage_cases": 26753,
+    "exact_record_and_state_bytes": 46818828,
+    "stages": 42,
+    "large_run_glyphs": 131073,
+    "work_bound_cases_excluded": 0,
+    "source": "Actual original plan builder and complete raw ApplySubstitutions; typed execution delegates, reflection only setup/transport"
+  },
+  "regressions": {
+    "managed_context_records": 56996,
+    "managed_context_coverage_queries": 22558608,
+    "managed_context_ordered_matches": 1191586,
+    "managed_context_bytes": 95829796,
+    "managed_nested_cases": 74981,
+    "managed_nested_bytes": 80999436,
+    "rune_classifications": 1114129
+  },
+  "tests": {
+    "all_features": {
+      "passed": 82,
+      "ignored": 42
+    },
+    "cpu_only": {
+      "passed": 80,
+      "ignored": 35
+    },
+    "focused_and_source": {
+      "passed": 4,
+      "ignored": 0
+    },
+    "original_context_and_nested": {
+      "passed": 9,
+      "ignored": 0
+    }
+  },
+  "clippy": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass"
+  },
+  "browser": {
+    "dprs": [
+      1,
+      2
+    ],
+    "managed_dispatch_checks_per_dpr": 145,
+    "previous_managed_gsub_checks_per_dpr": 44,
+    "native_gsub_checks_per_dpr": 37,
+    "offscreen_pixels": 204800,
+    "canonical_shaders": 6,
+    "resize_and_actual_presented_pixels": "pass",
+    "original_flags_and_deadlines": "unchanged"
+  },
+  "benchmark": {
+    "workloads": 24,
+    "complete_outputs_match": true,
+    "load_average": [
+      128.4619140625,
+      47.935546875,
+      27.65234375
+    ],
+    "qualification": "High host contention. Diagnostic full raw-stage baseline, not comparative performance, script preparation, complete shaping or frame qualification."
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/layout/managed_features.rs": "2d36a815652088dfad65479dc76fc8e3d44040c83b3fadc2d241e9bb2d49c5fe",
+    "src/ProGPU.Rust/src/font/layout/managed_stage.rs": "158191f018947b5f21589ec40de866855afa19d2c3c7ae5f8f3a6cab6bb0fdef",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/dispatch.rs": "378cc801439098d0ced2b49a3fad226d102025436a29cc560afe1ce780429e0d",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "4d2591d634f87ecfd5bbd2074cd1046b91e2bed721bf4a1b866ac09df5c083f1",
+    "src/ProGPU.Rust/src/font/layout/managed_context.rs": "7a51bc64270aa59fa675d2abaf84a1b86fb17c6e15409a3bfd739a3f725cc8e4",
+    "src/ProGPU.Rust/src/font/layout/managed_selection.rs": "fe2dd6d15d2593885623288a7cbf61dabd9f308ee1544584d51d081fadc76e63",
+    "src/ProGPU.Rust/tests/managed_dispatch.rs": "0b4e0a90e7c85be0b57e535a34d66ed39f2c26a4b790f3b6176c4fb8c4c4fe77",
+    "src/ProGPU.Rust/tests/managed_dispatch.cs": "eca92cac858fb873dd4c323e692124cade8300cb28fa828876fd5679bed802ac",
+    "src/ProGPU.Rust/tests/support/managed_dispatch_fixture.rs": "56406dcbc4d4754ceaa0e80314bd9ccc8082986265efe5e91fd9e02fad475557",
+    "src/ProGPU.Rust/examples/managed_dispatch_benchmark.rs": "9b6f88744717237bae8c01b6da74120d7c037897f6425be6004b90555468cf2a",
+    "src/ProGPU.Rust/examples/browser.rs": "777ea18142cc9a4d9a376724298b5c1cb0b56b5b32a73ba3de437d9f3d2b7c60",
+    "src/ProGPU.Rust/browser/test.mjs": "eb9ddd5e6794e063ca17072dc727f49c9245f09dfaa84292198fa19bee727903",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Text.Shaping/ShapingContracts.cs": "8bd4b48f1871847167732490bfe450b82cd30ad4567325ebf9283cc6751a5f4d"
+  },
+  "package": {
+    "captured_utc": "2026-11-09T02:38:22.275141+00:00",
+    "fresh_independent_empty_target": true,
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "exact_source_resource_document_files": 282,
+    "original_manifest": "exact",
+    "temporary_bytes_removed": 553658788,
+    "final_archive_files": 290,
+    "final_exact_source_resource_document_files": 285,
+    "verified_compiled_code_resource_hashes": 218,
+    "final_code_resources_match_fresh_build": true
+  }
+}

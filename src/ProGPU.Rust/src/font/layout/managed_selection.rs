@@ -92,6 +92,9 @@ fn copy<T: Copy>(v: &[T]) -> Result<Vec<T>, FontError> {
     Ok(out)
 }
 impl ManagedLookupSelection {
+    pub(super) fn retained_storage(&self) -> Storage {
+        self.storage.clone()
+    }
     /// Select from immutable raw table bytes with the original managed admission.
     pub fn new(
         data: impl Into<Arc<[u8]>>,

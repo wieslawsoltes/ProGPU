@@ -393,6 +393,37 @@ try {
         for(const rawClass of [0,3,256,257,259,65535]){const data=gd.slice();new DataView(data.buffer).setUint16(24,rawClass);const source=makeVertical([['GDEF',data]]);const r=managedGsub(new Uint8Array(),[mg(12,0,0x110000)],mopts(),source);check(r[7]===((rawClass&255)||0x80000006),'WASM managed byte GDEF cast before invalid Rune fallback');}
         for(const flags of [0x200,0x210,0x710]){const r=managedGsub(gsubTable([[4,flags,[[1,18,1,8,1,4,88,2,12,1,1,10]]]]),[mg(10),mg(12,1,0x301)],mopts(),makeVertical([['GDEF',gd]]));check(r[1]===+(flags!==0x710),'WASM managed mark set and attachment both apply');}
         let malformed=false;try{app.apply_managed_gsub(font,new Uint8Array(),0,new Uint32Array(1),new Uint32Array(mopts()));}catch{malformed=true;}check(malformed,'WASM incomplete managed record rejection');managedGsubChecks++;
+        let managedDispatchChecks=0;
+        const stageUnits=s=>[0,1,2,3].map(i=>s.charCodeAt(i));
+        const stageTag=s=>stageUnits(s).reduce((a,c)=>(a*256+c)>>>0,0);
+        const featurePolicy=(features=[],base=null,explicit=null,ranges=[],mode=0)=>new Uint32Array([mode,features.length,base===null?0xffffffff:base.length,explicit===null?0xffffffff:explicit.length,ranges.length,...features.flatMap(([t,v])=>[...stageUnits(t),v>>>0]),...(base??[]).flatMap(([t,v])=>[...stageUnits(t),v>>>0]),...(explicit??[]).flatMap(stageUnits),...ranges.flatMap(([t,v,start,end])=>[stageTag(t),v>>>0,start>>>0,end>>>0])]);
+        const defaultPolicy=featurePolicy([],null,null,[],1),overridePolicy=features=>featurePolicy(features,null,null,[],2);
+        const stageTable=(raw,features=[['liga',[0]]],required=65535)=>{const b=[...raw],put=(p,v)=>{b[p]=v>>>8;b[p+1]=v&255;},words=w=>b.push(...otWords(w));put(4,b.length);words([1,0x4446,0x4c54,8,4,0,0,required,features.length,...features.map((_,i)=>i)]);const list=b.length;put(6,list);words([features.length]);for(const [t] of features)words([stageTag(t)>>>16,stageTag(t)&65535,0]);for(let i=0;i<features.length;i++){const ids=features[i][1];put(list+6+i*6,b.length-list);words([0,ids.length,...ids]);}return new Uint8Array(b);};
+        const stageRecord=(r,i)=>r.slice(10+i*31,10+(i+1)*31);
+        const dispatch=(table,records,stage=0,policy=defaultPolicy,extra=[],patch={})=>{managedDispatchChecks++;return [...app.apply_managed_stage(makeVertical([['GSUB',table],...extra]),new Uint32Array(records.flat()),policy,new Uint32Array(Object.assign([stage,1,1,77,99,0xdeadbeef,0,65536],patch)))];};
+        const featureQuery=(policy,t,record,stage=0)=>{managedDispatchChecks++;return [...app.managed_feature_query(policy,new Uint16Array(stageUnits(t)),new Uint32Array(record),stage)];};
+        const ligaStages=new Set([0,7,18,20,26,38,39,40]),manualStages=new Set([3,4,9,10,11,12,13,14,15,16,17,18,19,20,22,23,24,25,26]);
+        for(let stage=0;stage<42;stage++){
+          const q=featureQuery(defaultPolicy,'liga',mg(10),stage);check(q[4]===+ligaStages.has(stage)&&q[5]===+manualStages.has(stage)&&q[6]===0,'WASM all original stage policies');
+          const pref=featureQuery(overridePolicy([['pref',1]]),'pref',mg(10),stage);check(pref[6]===+![0,20,26].includes(stage),'WASM independent stage syllable admission');
+          const r=dispatch(stageTable(gsubTable([[1,0,[singleSub]]])),[mg(10)],stage);check(r[0]===0&&stageRecord(r,0)[0]===(ligaStages.has(stage)?110:10)&&r[6]===0,'WASM all full raw stage filters');
+        }
+        const ranged=featurePolicy([['liga',9],['rand',65535]],[],['liga'],[['liga',1,3,8],['liga',0xffffffff,5,7]]);
+        for(const [cluster,value,explicit] of [[-7,0,0],[3,1,1],[5,0x7fffffff,1],[7,1,1],[8,0,0]]){const q=featureQuery(ranged,'liga',mg(10,cluster));check(q[0]===value&&q[1]===explicit,'WASM exact baseline/ranged/explicit precedence');}
+        const wide=String.fromCharCode(0xd800,0xdfff,0x212a,0x100);const widePolicy=featurePolicy([[wide,-9]],null,[wide]);const wideQuery=featureQuery(widePolicy,wide,mg(10));check(wideQuery[0]===0xfffffff7&&wideQuery[1]===1&&wideQuery[3]===1,'WASM ordinal UTF-16 feature identity');
+        const fullSingle=stageTable(gsubTable([[1,0,[singleSub]]]));
+        let d=dispatch(fullSingle,[mg(10)],0,overridePolicy([['liga',-9]]));check(stageRecord(d,0)[0]===110,'WASM negative ordinary feature value remains enabled');
+        d=dispatch(stageTable(gsubTable([[3,0,[multiSub]]])),[mg(10)],0,overridePolicy([['liga',-9]]));check(stageRecord(d,0)[0]===10,'WASM negative alternate remains disabled');
+        const sameMulti=[1,16,1,8,3,10,10,10,1,1,10];d=dispatch(stageTable(gsubTable([[2,0,[sameMulti]]])),[mg(10),mg(20)]);check(d[1]===4&&stageRecord(d,2)[0]===10&&stageRecord(d,3)[0]===20,'WASM stage skips newly inserted output');
+        d=dispatch(stageTable(gsubTable([[2,0,[deleteSub]]])),[mg(10),mg(10),mg(20)]);check(d[1]===2&&stageRecord(d,0)[0]===10,'WASM original forward deletion index progression');
+        const rangedAlt=featurePolicy([['liga',9]],null,['liga'],[['liga',2,0,1]]);d=dispatch(stageTable(gsubTable([[3,0,[multiSub]]])),[mg(10,-5),mg(10,5)],0,rangedAlt);check(stageRecord(d,0)[0]===101&&stageRecord(d,1)[0]===102,'WASM cluster-based alternate values and clamping');
+        d=dispatch(stageTable(gsubTable([[3,0,[multiSub]]]),[['rand',[0]]]),[mg(10),mg(20,1)]);const rng=(Math.imul(0xdeadbeef,48271)>>>0)%2147483647;check(d[3]===rng&&stageRecord(d,0)[0]===100+rng%3&&stageRecord(d,1)[5]===3,'WASM full random alternate state/dependency');
+        const nextSingle=[1,6,100,1,1,110];d=dispatch(stageTable(gsubTable([[1,0,[singleSub]],[1,0,[nextSingle]]]),[['liga',[1,0,1]]]),[mg(10)]);check(stageRecord(d,0)[0]===210,'WASM accumulated buffer digest and sorted unique lookup order');
+        const hangul=mg(10);hangul[14]=4;const calt=stageTable(gsubTable([[1,0,[singleSub]]]),[['calt',[0]]]);d=dispatch(calt,[hangul]);check(stageRecord(d,0)[0]===10,'WASM default Hangul calt admission');d=dispatch(calt,[hangul],0,overridePolicy([['calt',1]]));check(stageRecord(d,0)[0]===110,'WASM explicit Hangul calt admission');
+        const fraction=mg(10);fraction[12]=1;const frac=stageTable(gsubTable([[1,0,[singleSub]]]),[['frac',[0]]]);d=dispatch(frac,[fraction]);check(stageRecord(d,0)[0]===10,'WASM independent fraction preparation marker');d=dispatch(frac,[fraction],0,defaultPolicy,[],{6:1});check(stageRecord(d,0)[0]===110&&d[9]===1,'WASM retained fraction stage marker');
+        const indic=mg(10);indic[14]=3;d=dispatch(stageTable(gsubTable([[1,0,[singleSub]]]),[['pref',[0]]],0),[indic],4,overridePolicy([['pref',0]]));check(stageRecord(d,0)[0]===110,'WASM required feature bypasses per-glyph value and mask');
+        const malformedReverse=[1,18,2,24,30,1,36,1,77,1,65535,10,1,1,9,1,1,8,1,1,20];const marked=mg(10);marked[16]=42;
+        d=dispatch(stageTable(gsubTable([[8,16,[malformedReverse]]]),[['pref',[0]]]),[marked],4,overridePolicy([['pref',1]]),[['GDEF',gd]]);check(d[0]===4&&d[4]===54&&d[5]===0&&d[6]===1&&d[7]===1&&d[8]===42,'WASM original reverse failure retains mark/syllable/manual state');
         let managedContextChecks=0;
         const contextGlyph=(id,cp=65,sub=0,shaper=0,mask=0,syllable=0)=>[id,cp,sub,shaper,mask,syllable];
         const contextCheck=(bytes,extension,glyphs,expected,options=[0,0,0])=>{const actual=[...app.managed_context_query(bytes,0,extension,new Uint16Array(),new Uint32Array(glyphs.flat()),new Uint32Array(options))];check(actual[0]===1&&actual.at(-1)===+expected,`WASM managed ordered context ${JSON.stringify(actual)}`);managedContextChecks++;return actual;};
@@ -649,7 +680,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

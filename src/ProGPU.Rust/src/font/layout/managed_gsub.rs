@@ -8,7 +8,9 @@ use super::{
 use crate::text::ManagedShapingGlyph;
 mod buffer;
 mod context;
+mod dispatch;
 pub use buffer::{ManagedGlyphBuffer, ManagedGlyphState};
+pub use dispatch::ManagedSubstitutionPlan;
 type Applied = Result<bool, FontError>;
 
 /// Per-operation work limit for untrusted managed lookup graphs. The original

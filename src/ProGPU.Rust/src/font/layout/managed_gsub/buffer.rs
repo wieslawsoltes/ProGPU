@@ -28,7 +28,8 @@ pub struct ManagedGlyphBuffer {
     font: SfntFace,
     use_gdef: bool,
     mark_profile: ManagedMarkProfile,
-    state: ManagedGlyphState,
+    pub(super) state: ManagedGlyphState,
+    pub(super) has_fraction_actions: bool,
     pub(super) mark_filtering_coverage: i32,
     pub(super) nested_depth: u32,
 }
@@ -61,9 +62,19 @@ impl ManagedGlyphBuffer {
             use_gdef,
             mark_profile,
             state: ManagedGlyphState::default(),
+            has_fraction_actions: false,
             mark_filtering_coverage: -1,
             nested_depth: 0,
         })
+    }
+    /// Original independent fraction-action marker set by the preparation stage.
+    /// This is not inferred from record bytes: retained source state may differ.
+    pub fn has_fraction_actions(&self) -> bool {
+        self.has_fraction_actions
+    }
+    /// Retain an explicit original preparation marker for already-prepared records.
+    pub fn set_fraction_actions_present(&mut self, present: bool) {
+        self.has_fraction_actions = present;
     }
     /// Exact retained selected source generation.
     pub fn font(&self) -> &SfntFace {

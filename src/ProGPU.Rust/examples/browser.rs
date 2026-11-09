@@ -875,6 +875,192 @@ mod web {
         }
         Ok(out)
     }
+    fn managed_feature_options(
+        words: &[u32],
+    ) -> Result<progpu::font::layout::ManagedFeatureOptions, JsValue> {
+        use progpu::font::{FontError, layout::*};
+        if words.len() < 5 {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let mut at = 5usize;
+        let mut take = |n: usize| -> Result<&[u32], JsValue> {
+            let end = at
+                .checked_add(n)
+                .ok_or_else(|| error(FontError::InvalidArgument))?;
+            let values = words
+                .get(at..end)
+                .ok_or_else(|| error(FontError::InvalidArgument))?;
+            at = end;
+            Ok(values)
+        };
+        let read_tag = |values: &[u32]| -> Result<[u16; 4], JsValue> {
+            if values.iter().any(|&v| v > 65535) {
+                return Err(error(FontError::InvalidArgument));
+            }
+            Ok([
+                values[0] as u16,
+                values[1] as u16,
+                values[2] as u16,
+                values[3] as u16,
+            ])
+        };
+        let mut features = Vec::new();
+        for _ in 0..words[1] {
+            let f = take(5)?;
+            features
+                .push(ManagedFeatureSetting::new(read_tag(&f[..4])?, f[4] as i32).map_err(error)?);
+        }
+        let mut baseline = (words[2] != u32::MAX).then(Vec::new);
+        if let Some(b) = &mut baseline {
+            for _ in 0..words[2] {
+                let f = take(5)?;
+                b.push(ManagedFeatureSetting::new(read_tag(&f[..4])?, f[4] as i32).map_err(error)?);
+            }
+        }
+        let mut explicit = (words[3] != u32::MAX).then(Vec::new);
+        if let Some(e) = &mut explicit {
+            for _ in 0..words[3] {
+                e.push(read_tag(take(4)?)?);
+            }
+        }
+        let mut ranges = Vec::new();
+        for _ in 0..words[4] {
+            let r = take(4)?;
+            ranges.push(
+                ManagedFeatureRange::new(r[0].to_be_bytes(), r[1], r[2], r[3]).map_err(error)?,
+            );
+        }
+        if at != words.len() {
+            return Err(error(FontError::InvalidArgument));
+        }
+        match words[0] {
+            0 => ManagedFeatureOptions::new(
+                &features,
+                baseline.as_deref(),
+                explicit.as_deref(),
+                &ranges,
+            )
+            .map_err(error),
+            1 if features.is_empty()
+                && baseline.is_none()
+                && explicit.is_none()
+                && ranges.is_empty() =>
+            {
+                Ok(ManagedFeatureOptions::default())
+            }
+            2 if baseline.is_none() && explicit.is_none() && ranges.is_empty() => {
+                ManagedFeatureOptions::with_overrides(&features).map_err(error)
+            }
+            _ => Err(error(FontError::InvalidArgument)),
+        }
+    }
+    /// Full source feature and stage policy using exact UTF-16 tags and records.
+    #[wasm_bindgen]
+    pub fn managed_feature_query(
+        policy: Vec<u32>,
+        tag: Vec<u16>,
+        record: Vec<u32>,
+        stage: u8,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{FontError, layout::*};
+        let tag: [u16; 4] = tag
+            .try_into()
+            .map_err(|_| error(FontError::InvalidArgument))?;
+        if record.len() != 31 {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let g = super::managed_records::from_words(&record);
+        let p = managed_feature_options(&policy)?;
+        let s = ManagedSubstitutionStage::try_from(stage).map_err(error)?;
+        Ok(vec![
+            p.value_at(tag, g.cluster) as u32,
+            u32::from(p.explicit_at(tag, g.cluster)),
+            u32::from(p.resolves_explicit(tag)),
+            u32::from(p.enabled(g, tag)),
+            u32::from(s.enables(tag)),
+            u32::from(s.manual_joiners()),
+            u32::from(s.restricts_syllable(tag)),
+        ])
+    }
+    /// Apply an original raw stage after source owner retirement. Options: stage,
+    /// manual joiners, restrict, syllable, context end, random, fraction marker,
+    /// per-root nested-call limit. Result retains typed errors and all 31 fields.
+    #[wasm_bindgen]
+    pub fn apply_managed_stage(
+        font: Vec<u8>,
+        records: Vec<u32>,
+        policy: Vec<u32>,
+        options: Vec<u32>,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{FontError, SfntFace, layout::*};
+        if options.len() != 8
+            || options[0] > 255
+            || options[1] > 1
+            || options[2] > 1
+            || options[3] > 255
+            || options[6] > 1
+            || !records.len().is_multiple_of(31)
+        {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let stage = ManagedSubstitutionStage::try_from(options[0] as u8).map_err(error)?;
+        let face = SfntFace::new(font, 0).map_err(error)?;
+        let plan = ManagedSubstitutionPlan::from_face(
+            face.clone(),
+            managed_feature_options(&policy)?,
+            &[68, 70, 76, 84],
+            None,
+            &[],
+        )
+        .map_err(error)?
+        .ok_or_else(|| error("missing GSUB"))?;
+        let mut buffer = ManagedGlyphBuffer::new(
+            face.clone(),
+            records
+                .chunks_exact(31)
+                .map(super::managed_records::from_words)
+                .collect(),
+        )
+        .map_err(error)?;
+        drop(face);
+        let retained = plan.clone();
+        drop(plan);
+        buffer.set_state(ManagedGlyphState {
+            traversal: ManagedContextState {
+                manual_joiners: options[1] != 0,
+                restrict_to_syllable: options[2] != 0,
+                lookup_syllable: options[3] as u8,
+            },
+            context_match_end: options[4] as i32,
+            random_state: options[5],
+        });
+        buffer.set_fraction_actions_present(options[6] != 0);
+        let result = retained.apply_stage_with_limits(
+            &mut buffer,
+            stage,
+            ManagedGsubLimits {
+                max_lookup_calls: options[7],
+            },
+        );
+        drop(retained);
+        let state = buffer.state();
+        let mut out = vec![
+            result.err().map_or(0, |e| e as u32),
+            buffer.glyphs().len() as u32,
+            state.context_match_end as u32,
+            state.random_state,
+            buffer.mark_filtering_coverage() as u32,
+            buffer.nested_lookup_depth(),
+            u32::from(state.traversal.manual_joiners),
+            u32::from(state.traversal.restrict_to_syllable),
+            u32::from(state.traversal.lookup_syllable),
+            u32::from(buffer.has_fraction_actions()),
+        ];
+        for &g in buffer.glyphs() {
+            out.extend(super::managed_records::words(g));
+        }
+        Ok(out)
+    }
     /// Current C# GSUB with all 31 record fields and retained source ownership.
     /// Options: position, reverse offset (u32::MAX for nested lookup), flags,
     /// manual joiners, syllable restriction, syllable, context end, random state,

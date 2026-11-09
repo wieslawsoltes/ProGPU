@@ -21,6 +21,35 @@ pub struct ManagedContextGlyph {
     /// Original USE syllable byte.
     pub use_syllable: u8,
 }
+mod sealed {
+    pub trait Record {}
+    impl Record for super::ManagedContextGlyph {}
+    impl Record for crate::text::ManagedShapingGlyph {}
+}
+/// Original context fields from either compact or complete managed records.
+/// Sealed implementations let matching borrow full shaping state without copying
+/// an intermediate glyph inventory or adding allocation to ordered traversal.
+pub trait ManagedContextRecord: sealed::Record + Copy {
+    /// Read the exact original fields consumed by the context accelerator.
+    fn context_glyph(self) -> ManagedContextGlyph;
+}
+impl ManagedContextRecord for ManagedContextGlyph {
+    fn context_glyph(self) -> ManagedContextGlyph {
+        self
+    }
+}
+impl ManagedContextRecord for crate::text::ManagedShapingGlyph {
+    fn context_glyph(self) -> ManagedContextGlyph {
+        ManagedContextGlyph {
+            glyph_index: self.glyph_index,
+            code_point: self.code_point,
+            substituted: self.substituted,
+            script_shaper: self.script_shaper,
+            script_feature_mask: self.script_feature_mask,
+            use_syllable: self.use_syllable,
+        }
+    }
+}
 /// Original active lookup state needed for context traversal.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ManagedContextState {
@@ -33,17 +62,17 @@ pub struct ManagedContextState {
 }
 /// Immutable original glyph records, active state and reusable buffer digest.
 #[derive(Clone, Copy, Debug)]
-pub struct ManagedContextInput<'a> {
-    glyphs: &'a [ManagedContextGlyph],
+pub struct ManagedContextInput<'a, G: ManagedContextRecord = ManagedContextGlyph> {
+    glyphs: &'a [G],
     state: ManagedContextState,
     digest: ManagedGlyphSetDigest,
 }
-impl<'a> ManagedContextInput<'a> {
+impl<'a, G: ManagedContextRecord> ManagedContextInput<'a, G> {
     /// Build the original all-glyph digest once, in O(N) with no allocation.
-    pub fn new(glyphs: &'a [ManagedContextGlyph], state: ManagedContextState) -> Self {
+    pub fn new(glyphs: &'a [G], state: ManagedContextState) -> Self {
         let mut digest = ManagedGlyphSetDigest::default();
         for glyph in glyphs {
-            digest.add(glyph.glyph_index);
+            digest.add(glyph.context_glyph().glyph_index);
         }
         Self {
             glyphs,
@@ -54,7 +83,7 @@ impl<'a> ManagedContextInput<'a> {
     /// Retain an existing source buffer filter. It must cover every current glyph
     /// for sound negative rejection; an overapproximation remains permitted.
     pub fn with_digest(
-        glyphs: &'a [ManagedContextGlyph],
+        glyphs: &'a [G],
         state: ManagedContextState,
         digest: ManagedGlyphSetDigest,
     ) -> Self {
@@ -65,7 +94,7 @@ impl<'a> ManagedContextInput<'a> {
         }
     }
     /// Exact original records, borrowed for this immutable generation.
-    pub fn glyphs(&self) -> &'a [ManagedContextGlyph] {
+    pub fn glyphs(&self) -> &'a [G] {
         self.glyphs
     }
     /// Frozen source traversal state.
@@ -80,7 +109,7 @@ impl<'a> ManagedContextInput<'a> {
         !self.state.restrict_to_syllable || glyph.use_syllable == self.state.lookup_syllable
     }
     fn glyph_at(&self, index: usize) -> u16 {
-        let glyph = self.glyphs[index];
+        let glyph = self.glyphs[index].context_glyph();
         if self.admitted(glyph) {
             glyph.glyph_index
         } else {
@@ -101,6 +130,7 @@ impl<'a> ManagedContextInput<'a> {
     }
     fn next(&self, start: usize, context: bool) -> Option<usize> {
         for (i, &glyph) in self.glyphs.iter().enumerate().skip(start) {
+            let glyph = glyph.context_glyph();
             if !self.admitted(glyph) {
                 return None;
             }
@@ -112,6 +142,7 @@ impl<'a> ManagedContextInput<'a> {
     }
     fn previous(&self, end: usize) -> Option<usize> {
         for (i, &glyph) in self.glyphs[..end].iter().enumerate().rev() {
+            let glyph = glyph.context_glyph();
             if !self.admitted(glyph) {
                 return None;
             }
@@ -236,7 +267,7 @@ impl<'a> ManagedContextView<'a> {
     /// Original negative-only filter. True still requires the exact lookup
     /// executor. Flags requiring GDEF skip ordered traversal only after all
     /// coverage digests intersect, exactly as in the source accelerator.
-    pub fn may_match(&self, input: ManagedContextInput<'_>) -> bool {
+    pub fn may_match<G: ManagedContextRecord>(&self, input: ManagedContextInput<'_, G>) -> bool {
         for sub in &self.context.subtables {
             let start = sub.coverage_offset as usize;
             let count = sub.coverage_count as usize;
@@ -257,9 +288,9 @@ impl<'a> ManagedContextView<'a> {
         }
         false
     }
-    fn matches_at(
+    fn matches_at<G: ManagedContextRecord>(
         &self,
-        input: ManagedContextInput<'_>,
+        input: ManagedContextInput<'_, G>,
         sub: ContextSubtable,
         position: usize,
     ) -> bool {

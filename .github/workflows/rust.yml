@@ -198,6 +198,7 @@ jobs:
           cargo test --locked --test managed_context -- --ignored --nocapture
           cargo test --locked --test gsub -- --ignored --nocapture
           cargo test --locked --test managed_gsub_execution -- --ignored --nocapture
+          cargo test --locked --test managed_dispatch -- --ignored --nocapture
           cargo test --locked --test normalization -- --ignored --nocapture
           python3 eng/progpu-test-rust-normalization-conformance.py
           python3 eng/progpu-test-rust-normalization-profiles.py
