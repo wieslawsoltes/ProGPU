@@ -3321,3 +3321,92 @@ can perturb timing; its result is not performance or original-gate qualification
 No external implementation is copied and no renderer architecture, shader,
 compiler/driver setting or existing success criterion changes. The prior required
 cross-engine architecture decisions remain unchanged.
+
+## Explicit managed grapheme repertoire and first-element traversal
+
+The original `src/ProGPU.Text/OriginalGraphemePolicy.cs` delegates first-element
+length to `StringInfo` and separately rejects malformed UTF-16 for whole-text
+capture. Rust now exposes `ManagedGraphemeProfile::Unicode16_0`, independent of
+normalization and Rune-category profiles. `GraphemePolicy::ManagedRuntime` retains
+that identity in the owned generation. The existing native `ManagedCompatible`
+policy still means native Unicode 17 facts with GB9c omitted; it is not an alias
+for actual managed runtime data. No operating-system or SDK-name inference selects
+a profile. Unknown serialized profile values reject.
+
+The source policy uses Unicode 16 grapheme and Extended_Pictographic facts and
+omits GB9c. It is explicitly not full Unicode 16 UAX #29 conformance. The generator
+pins all four Unicode 16/17 source-file hashes, verifies the complete existing
+native Unicode 17 inventory and checks every reconstructed code point. There are
+43 grapheme-class and 689 Extended_Pictographic differences between the inventories.
+The facts include reserved emoji ranges. No runtime implementation or external
+engine table encoding is copied. Public facts retain the Unicode license.
+
+`managed_next_grapheme_length` walks only the first original cluster and its
+following scalar. Unpaired surrogates participate as U+FFFD, each consuming its
+original single UTF-16 unit; input bytes are never rewritten. Strict whole-text
+capture remains separate and rejects malformed input atomically. Existing owned
+text retains the exact original source, logical coordinates, capacity behavior
+and policy. The state machine is the original ProGPU native algorithm with the
+explicit managed property selection and GB9c omission. CPU traversal has genuine
+ordered RI/emoji/preceding-class dependencies and produces reusable text state;
+there is no GPU resource, synchronization or readback to amortize. Independent
+rendering/upload/raster work retains its original GPU policies.
+
+Initial range-based property selection was slower than original C# in all 14
+boundary-walk workloads. The measured optimization uses an authored representation
+of exact public facts: 8,704 byte indices select 156 deduplicated 128-byte pages,
+with GCB in the low four bits and Extended_Pictographic in bit four. The complete
+read-only payload is 28,672 bytes. Managed traversal skips unused GB9c state;
+native state updates remain unchanged. This gives O(K) first-cluster traversal
+and O(N) complete segmentation, O(1) scratch and no query allocation. It increases
+read-only data rather than claiming a memory reduction. Safe slice indexing and
+compile-time byte-array size retain bounds checks; no unsafe code is introduced.
+
+The exhaustive original C# control compares 22,256,392 cases / 899,691,464 exact
+bytes: every valid scalar in 16 contexts, all 4,194,304 surrogate-unit pairs,
+every UTF-16 unit in malformed/mark/prepend contexts, class triples and long
+RI/mark/prepend/ZWJ chains. It compares first length, complete strict capture and
+every UTF-16 suffix, including starts inside surrogate pairs. The 49-case frozen
+browser capture is 2,664 bytes, with one additional unsupported-profile rejection
+per DPR. The original native 1,888,801-case, managed 89,921-case and Unicode 17
+766-case controls remain mandatory. A separate hosted source job preserves the
+existing full-source suite's original deadline. Browser shader, pixel, burst,
+resize and actual-presentation gates remain intact.
+
+Matched Release Time Profiler runs use identical 4,096-unit mixed inputs and
+six-second windows. Compact complete exported tables, exact binary hashes,
+before-source/fact exports and workload are retained in `perf/managed-grapheme-*`.
+The first-element traversal dominates both traces; sampling includes core
+migration and startup. Separate uninstrumented trials compare complete boundaries
+against actual C# for ASCII, mixed, reserved emoji, malformed input, combining,
+prepend and RI workloads at 128/4,096 units. Allocation/serialization are outside
+timers; actual boundary writes, first-use work and source JIT remain inside.
+Profiling is CPU evidence only: no allocator, process-memory, Metal, complete
+shaping, scroll-frame or full-stack performance claim follows.
+
+The prior complete cross-engine research matrix remains in force. Additional
+primary contracts clarify this narrow extension:
+
+| Reference | Decision for ProGPU |
+| --- | --- |
+| [Unicode 16 UAX #29](https://www.unicode.org/reports/tr29/tr29-45.html) and [StringInfo first-element API](https://learn.microsoft.com/en-us/dotnet/api/system.globalization.stringinfo.getnexttextelementlength?view=net-10.0) | Explicit source profile and observed original behavior; default Unicode conformance remains independent. |
+| [SkParagraph builder interface](https://skia.googlesource.com/skia/+/refs/heads/main/modules/skparagraph/include/ParagraphBuilder.h) | UTF-8/UTF-16 segmentation input is distinct from paragraph construction; retain source coordinates and owned reusable generations. Only public interface/comments were examined. |
+| [DirectWrite GetGlyphs](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextanalyzer-getglyphs) and [Win2D CanvasTextLayout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm) | Shaped glyph/cluster mapping and cached layout are later layers; a grapheme match does not establish their parity. |
+| [HarfBuzz cluster contract](https://harfbuzz.github.io/working-with-harfbuzz-clusters.html) | Preserve the distinction between source graphemes and shaping cluster levels; do not fabricate complete shaping records. |
+| [Parley retained layout](https://docs.rs/parley/latest/parley/struct.Layout.html) and [Vello glyph drawing](https://docs.rs/vello/latest/vello/struct.DrawGlyphs.html) | Keep reusable CPU text generations and font identity separate from GPU drawing, DPI/phase and atlas lifetimes. |
+| [WebRender project contract](https://github.com/servo/webrender/blob/main/README.md) and preceding ownership review | Preserve existing retained GPU rendering and independent platform font controls; no device/atlas cache is added by segmentation. |
+
+Startup is static data access; there is no lazy parser, global mutable cache,
+eviction or device invalidation. Text ownership, source preparation and worker
+reuse remain independent of visibility culling, demand-driven upload, GPU batch
+organization, fallback discovery, variable-font state and hinting. Those later
+ports and their original provider/application/package/pixel gates remain open.
+
+The three rotating-order timing trials retain exact complete output equality for
+all 14 workloads. Median-of-trial Rust p50 is 2.90–9.39 times lower than the
+range-based before binary in this capture. Source C# remains faster in nine
+workloads, tied at reported precision in one, and slower in four; remaining
+Rust/C# median ratios reach 1.28. System load was 20.93/21.13/17.56. This is a
+local workload observation with all trial distributions retained, not a stable
+cross-machine speedup or completed performance-parity claim. The independent
+source, native, Unicode conformance and browser gates pass after the change.

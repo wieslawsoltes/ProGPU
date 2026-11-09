@@ -1,0 +1,149 @@
+{
+  "utc": "2026-11-09T06:32:33.496770+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "scope": "Explicit original managed Unicode 16 grapheme profile; native Unicode 17 and native ManagedCompatible unchanged. Complete shaping/layout/rendering qualification remains open.",
+  "tests": {
+    "tests": {
+      "passed": 94,
+      "failed": 0,
+      "ignored": 49
+    },
+    "cpu": {
+      "passed": 92,
+      "failed": 0,
+      "ignored": 42
+    }
+  },
+  "original_managed": {
+    "cases": 22256392,
+    "exact_bytes": 899691464,
+    "runtime": ".NET 10.0.14 macOS 26.6.0",
+    "fixture_updated_in_final_run": false,
+    "cases_include": "All 1112064 valid scalars in 16 contexts; all 4194304 surrogate-unit pairs; all 65536 units in four contexts; class triples, long chains and selected repertoire differences. Every suffix, first length and strict capture compared."
+  },
+  "regressions": {
+    "original_native_cases": 1888801,
+    "original_native_exact_bytes": 84956820,
+    "previous_managed_cases": 89921,
+    "previous_managed_exact_bytes": 1172196,
+    "unicode17_official_cases": 766,
+    "utf8_utf16_records_and_starts": "pass"
+  },
+  "lints": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "format": "pass",
+    "diff_whitespace": "pass",
+    "generator_hash_and_all_code_point_reconstruction": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "headless": true,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache"
+    ],
+    "receipt_sha256": "8321fafe475608f8a972f457a6a76a6ea84d15ae9ce6e22b62e8dc9e677457d0",
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": [],
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "errors": [],
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ]
+  },
+  "browser_fixture": {
+    "cases": 49,
+    "bytes": 2664,
+    "sha256": "25af3f5dc8e934900569b8e6e6fcfb02f6bdb71af375fbd48a3d416758c1f31a"
+  },
+  "performance": {
+    "workloads": 14,
+    "process_trials": 3,
+    "rotating_order": true,
+    "complete_before_after_source_outputs": "exact",
+    "instruments": "Exact benchmark binaries; complete matched six-second Time Profiler exports retained.",
+    "unqualified": "No allocator, process-memory, GPU, complete shaping/frame or stable cross-machine performance qualification."
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OriginalGraphemePolicy.cs": "b1a28832063fa469e11e740f90c5ec6fcba0a0ed7088595bd79c51d2cdf9799c",
+    "src/ProGPU.Native/src/Text/progpu_native_unicode_grapheme.cpp": "0451993c4caf4c33a3b1ffc4f94bdaaabfb3e8adf3c29261c55595ef43c23f0e",
+    "src/ProGPU.Rust/src/text/unicode/grapheme.rs": "6e27ca2e475db550b245e19a93bd1b324a384722288c67add29f83b645b3da85",
+    "src/ProGPU.Rust/src/text/unicode/grapheme_profile_data.rs": "b88250823259552c4d6bb86d12115ac88ee6ef6b8e4a5fa07b60a821119ea48e",
+    "src/ProGPU.Rust/src/text/unicode/grapheme_properties_16.bin": "3d9da066847b22eb6b22a6a02329a5f2d86403be6dcbff62b322a732d0273559",
+    "src/ProGPU.Rust/tests/managed_grapheme.rs": "70d2088bbce2dbec6402e8f6e5f22ea07493d4c2efa0a39b4abdb36647ba8823",
+    "src/ProGPU.Rust/tests/managed_grapheme_profile.cs": "4f7cc0a2acdf821a744fc09c0a396428df951f8f7d472fe4bbef6869afceab06",
+    "src/ProGPU.Rust/tests/support/managed_grapheme_replay.rs": "c26997063b8c6993255653446be2229a44e0fa8aff3ee4e728a5fd80a1911be9"
+  }
+}

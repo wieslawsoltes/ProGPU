@@ -1,0 +1,174 @@
+{
+  "utc": "2026-11-09T06:26:39.045374+00:00",
+  "instrument": "Xcode Instruments Time Profiler",
+  "command": "xcrun xctrace record --template Time Profiler --time-limit 6s --launch -- BINARY --profile repeated.bin",
+  "input_sha256": "80819235eeab16be86d59fd3a3224cba8a96af30bcb5dc0c47302070b8e1fe72",
+  "workload": "20 identical 4096-unit mixed UTF-16 cases; 100000 full original boundary walks per case; same input, harness, toolchain and Release options. Time limit terminates both processes.",
+  "table_bytes": 28672,
+  "limits": "Statistical CPU samples, including startup and E/P core migration. Timing comparisons are separate uninstrumented runs. No allocation, process-memory, GPU, frame or full shaping qualification. Only managed facts/state work changes; native policies remain independent.",
+  "runs": [
+    {
+      "version": "before",
+      "binary_sha256": "941fa7fea1ef4437a600efb77aabdeaa9aed15a88087c91a1c2a32261afd2876",
+      "sample_count": 5540,
+      "missing_backtrace_samples": 0,
+      "core_samples": {
+        "CPU 1 (E Core)": 495,
+        "CPU 10 (P Core)": 592,
+        "CPU 4 (E Core)": 469,
+        "CPU 9 (P Core)": 459,
+        "CPU 7 (P Core)": 429,
+        "CPU 5 (E Core)": 632,
+        "CPU 8 (P Core)": 478,
+        "CPU 3 (E Core)": 585,
+        "CPU 6 (P Core)": 437,
+        "CPU 0 (E Core)": 512,
+        "CPU 2 (E Core)": 452
+      },
+      "top_leaf_functions": [
+        {
+          "name": "progpu::text::unicode::grapheme::managed_next_grapheme_length::h06a31890fe5ca1cf",
+          "leaf_samples": 5497,
+          "inclusive_samples": 5497
+        },
+        {
+          "name": "managed_grapheme_benchmark::main::h00db44092f8a15b9",
+          "leaf_samples": 35,
+          "inclusive_samples": 5515
+        },
+        {
+          "name": "mach_absolute_time",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "0x181528a7d",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOFile::trieWalk(Diagnostics&, unsigned char const*, unsigned char const*, char const*)",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "__ioctl",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "void (anonymous namespace)::quickSort<PropertyList::String**>(PropertyList::String**, PropertyList::String**)",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "std::sys::pal::unix::time::Timespec::sub_timespec::h0af050d2bbca3fda",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "clock_gettime",
+          "leaf_samples": 1,
+          "inclusive_samples": 3
+        }
+      ],
+      "export": "managed-grapheme-before-time-profile.xml.gz",
+      "export_sha256": "a324016ab5a33350321a078dc4dba5f9f318cd216561dd381037c0b1cd8838f6",
+      "uncompressed_export_sha256": "16adf252b893b144d1e57f9d2b6f93b74c00ef0e8ffa060e8420f54f6885a833"
+    },
+    {
+      "version": "after",
+      "binary_sha256": "e3e49220658291d85e35c6fa52aeaf25c0ee17f365e51b7b872cbcc922fe0eec",
+      "sample_count": 5630,
+      "missing_backtrace_samples": 1,
+      "core_samples": {
+        "CPU 8 (P Core)": 511,
+        "CPU 0 (E Core)": 493,
+        "CPU 2 (E Core)": 566,
+        "CPU 3 (E Core)": 406,
+        "CPU 4 (E Core)": 445,
+        "CPU 7 (P Core)": 598,
+        "CPU 9 (P Core)": 559,
+        "CPU 1 (E Core)": 444,
+        "CPU 10 (P Core)": 535,
+        "CPU 6 (P Core)": 590,
+        "CPU 5 (E Core)": 483
+      },
+      "top_leaf_functions": [
+        {
+          "name": "progpu::text::unicode::grapheme::managed_next_grapheme_length::h06a31890fe5ca1cf",
+          "leaf_samples": 5388,
+          "inclusive_samples": 5388
+        },
+        {
+          "name": "managed_grapheme_benchmark::main::h00db44092f8a15b9",
+          "leaf_samples": 218,
+          "inclusive_samples": 5421
+        },
+        {
+          "name": "mach_absolute_time",
+          "leaf_samples": 9,
+          "inclusive_samples": 9
+        },
+        {
+          "name": "clock_gettime",
+          "leaf_samples": 4,
+          "inclusive_samples": 16
+        },
+        {
+          "name": "std::sys::pal::unix::time::Timespec::sub_timespec::h0af050d2bbca3fda",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "core::slice::sort::stable::quicksort::quicksort::hb0c7dbcfed68fb53",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "clock_gettime_nsec_np",
+          "leaf_samples": 2,
+          "inclusive_samples": 11
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 1,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "__open",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "std::io::stdio::print_to_buffer_if_capture_used::h630e4f37122f3551",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_timebase_info",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        }
+      ],
+      "export": "managed-grapheme-after-time-profile.xml.gz",
+      "export_sha256": "0a9a2e967c97e786c2d5b65c0657fbbc37c5d388be084b8c50947d723590f57d",
+      "uncompressed_export_sha256": "fda77ab7d42662c3a00e59e2b40e9365d5a085079a9105d48b7e0f1bf1fa7d2b"
+    }
+  ],
+  "sources": {
+    "src/ProGPU.Rust/src/text/unicode/grapheme.rs": "6e27ca2e475db550b245e19a93bd1b324a384722288c67add29f83b645b3da85",
+    "src/ProGPU.Rust/examples/managed_grapheme_benchmark.rs": "fdf334b1039077df91ff985e8a72d32895cea8c3aa88676941631ef486877465",
+    "src/ProGPU.Rust/src/text/unicode/grapheme_properties_16.bin": "3d9da066847b22eb6b22a6a02329a5f2d86403be6dcbff62b322a732d0273559"
+  },
+  "before_grapheme_source_sha256": "77fad855d0bf68b50dd5677b1aa6079666f2d01a268a091fe8c0481c7ee0da81",
+  "reproduction": "Decompress profile input and run the recorded command. For the before implementation, replace grapheme.rs and grapheme_profile_data.rs with the two retained before-source/facts exports in an isolated checkout; use the unchanged benchmark example and Cargo.lock. Facts are exact Unicode 16 differences regenerated from pinned public facts; their source formatting is not preserved.",
+  "reproduction_exports": {
+    "managed-grapheme-before-time-profile.xml.gz": "a324016ab5a33350321a078dc4dba5f9f318cd216561dd381037c0b1cd8838f6",
+    "managed-grapheme-before-source.rs.gz": "65a94f6d2769d4db50947e806f8782c27c2f4bb40ec5228015c20c2e9679cfee",
+    "managed-grapheme-profile-input.bin.gz": "e427f25ae5998214e78a4de2cb1f24c3b2a6b476c620096e7824001df2ba3862",
+    "managed-grapheme-before-facts.rs.gz": "88ccd810432d6c74d3561ed543eae6e22aa14fde9a0cc9b91b46b04ea36730e3",
+    "managed-grapheme-after-time-profile.xml.gz": "0a9a2e967c97e786c2d5b65c0657fbbc37c5d388be084b8c50947d723590f57d"
+  },
+  "exact_profile_and_timing_binaries_verified": true
+}

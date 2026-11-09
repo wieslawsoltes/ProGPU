@@ -163,6 +163,10 @@ path = "src/ProGPU.Rust/examples/bidi_benchmark.rs"
 name = "grapheme"
 path = "src/ProGPU.Rust/tests/grapheme.rs"
 
+[[test]]
+name = "managed_grapheme"
+path = "src/ProGPU.Rust/tests/managed_grapheme.rs"
+
 [[example]]
 name = "grapheme_conformance"
 path = "src/ProGPU.Rust/examples/grapheme_conformance.rs"
@@ -170,6 +174,10 @@ path = "src/ProGPU.Rust/examples/grapheme_conformance.rs"
 [[example]]
 name = "grapheme_benchmark"
 path = "src/ProGPU.Rust/examples/grapheme_benchmark.rs"
+
+[[example]]
+name = "managed_grapheme_benchmark"
+path = "src/ProGPU.Rust/examples/managed_grapheme_benchmark.rs"
 
 [[test]]
 name = "line_break"

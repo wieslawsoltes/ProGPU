@@ -12,6 +12,9 @@ mod sample;
 #[path = "../tests/support/managed_font_replay.rs"]
 mod managed_font_replay;
 #[cfg(target_arch = "wasm32")]
+#[path = "../tests/support/managed_grapheme_replay.rs"]
+mod managed_grapheme_replay;
+#[cfg(target_arch = "wasm32")]
 #[path = "../tests/support/managed_mapping_replay.rs"]
 mod managed_mapping_replay;
 #[cfg(target_arch = "wasm32")]
@@ -557,6 +560,21 @@ mod web {
         let mut starts = vec![0; data.len()];
         progpu::text::unicode::grapheme::utf16_starts_into(&data, &mut starts).map_err(error)?;
         Ok(starts)
+    }
+    /// Replay actual managed first-cluster, strict capture and malformed suffix contracts.
+    #[wasm_bindgen]
+    pub fn managed_grapheme_utf16(data: Vec<u16>, profile: u16) -> Result<Vec<u32>, JsValue> {
+        use progpu::text::unicode::grapheme::ManagedGraphemeProfile;
+        let selected = ManagedGraphemeProfile::try_from(profile).map_err(error)?;
+        if selected != super::managed_grapheme_replay::PROFILE {
+            return Err(error("unavailable managed grapheme replay profile"));
+        }
+        let mut bytes = Vec::new();
+        super::managed_grapheme_replay::Replay::default().execute(&data, &mut bytes);
+        Ok(bytes
+            .chunks_exact(4)
+            .map(|word| u32::from_le_bytes(word.try_into().expect("complete replay word")))
+            .collect())
     }
     /// Original logical line opportunities with strict retained source ownership.
     #[wasm_bindgen]

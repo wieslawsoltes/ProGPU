@@ -624,3 +624,28 @@ data are regenerated from actual API observations by
 `eng/progpu-benchmark-rust-managed-mapping.py` records matched nominal, cached-font
 and selector batches, including first-call cache costs. Complete script
 preparation, varied outlines, hinting, fallback/layout and GPU text remain pending.
+
+`unicode::grapheme::ManagedGraphemeProfile::Unicode16_0` selects the observed
+original managed grapheme repertoire independently of normalization and category
+profiles. `managed_next_grapheme_length(&[u16], profile)` returns the first text
+element's original UTF-16 length, treating each unpaired surrogate as a one-unit
+replacement scalar. Empty input returns zero. It visits only that cluster and its
+following scalar, uses O(1) scratch, and allocates nothing.
+
+For strict complete capture, construct `DecodedText` and use
+`GraphemePolicy::ManagedRuntime(profile)` with `GraphemeText` or `segment_into`.
+Malformed text rejects before publication. This source policy omits GB9c and is
+not full Unicode 16 conformance. Existing Unicode 17 and native
+`ManagedCompatible` behavior remain separate. Select profiles from actual source
+observations; unsupported numeric profile values reject.
+
+Run `cargo test --locked --release --no-default-features --test managed_grapheme
+-- --include-ignored --nocapture` with .NET 10 (`PROGPU_RUST_DOTNET` selects it).
+The original source comparison covers 22,256,392 cases and 899,691,464 exact bytes.
+The browser replays 49 frozen source captures plus unsupported-profile rejection
+at both DPRs, alongside existing rendering gates. Regenerate/check pinned public
+facts with `python3 eng/progpu-generate-rust-grapheme-profile.py --check`.
+`python3 eng/progpu-benchmark-rust-managed-grapheme.py` compares complete boundary
+walks with C#; `PROGPU_RUST_GRAPHEME_BEFORE` adds a retained before binary and three
+rotating-order process trials. Source parity here does not establish complete
+shaping, layout, fallback or GPU text parity.

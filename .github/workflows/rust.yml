@@ -62,6 +62,7 @@ on:
       - eng/progpu-test-rust-normalization-profiles.py
       - eng/progpu-generate-rust-normalization-profiles.py
       - eng/progpu-generate-rust-mark-profiles.py
+      - eng/progpu-generate-rust-grapheme-profile.py
       - eng/progpu-audit-rust-normalization-runtime.py
       - eng/ProGPU.UnicodeNormalizationGenerator/Program.cs
       - src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp
@@ -107,6 +108,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  managed-graphemes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.403'
+      - name: Install the minimum supported Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal && rustup override set 1.90.0
+      - name: Verify original managed grapheme repertoire and frozen browser captures
+        run: |
+          python3 eng/progpu-generate-rust-grapheme-profile.py --check
+          cargo test --locked --release --no-default-features --test managed_grapheme -- --include-ignored --nocapture
+
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
