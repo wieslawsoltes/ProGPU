@@ -273,5 +273,51 @@ pub fn material_scene() -> Result<Scene> {
         draw.aliased = index == 3;
         scene.draw_stroke(draw)?;
     }
+    // Curved normal/fixed/hairline dashes and the original linear terminal-cap
+    // union are compiled through the same scene in native and browser hosts.
+    for index in 0..4 {
+        let x = 35.0 + index as f32 * 230.0;
+        scene.draw_analytic(AnalyticPrimitive::rectangle(
+            [x - 12.0, 530.0, 204.0, 82.0],
+            [0.1, 0.13, 0.18, 1.0],
+        ))?;
+        let path = if index == 3 {
+            let mut terminal = PathFigure::new([15.0, 18.0], false);
+            terminal
+                .segments
+                .push(PathSegment::new(PathSegmentKind::Line([115.0, 18.0])));
+            Arc::new(PathGeometry {
+                figures: vec![terminal],
+                ..Default::default()
+            })
+        } else {
+            stroke_path.clone()
+        };
+        let mut pen = Pen::new(Arc::new(Brush::new(BrushKind::Solid(
+            colors[index % colors.len()],
+        ))));
+        pen.options.thickness = match index {
+            2 => Pen::HAIRLINE_THICKNESS,
+            3 => 10.0,
+            _ => 4.0,
+        };
+        pen.options.transform = if index == 1 {
+            PenStrokeTransform::Fixed
+        } else {
+            PenStrokeTransform::Normal
+        };
+        pen.options.start_cap = PenLineCap::Square;
+        pen.options.end_cap = PenLineCap::Triangle;
+        pen.options.dash_cap = PenLineCap::Round;
+        pen.options.join = PenLineJoin::Round;
+        pen.set_dash_pattern(if index == 3 {
+            &[3.0, 2.0]
+        } else {
+            &[3.0, 2.0, 1.0]
+        })?;
+        let mut draw = StrokeDraw::new(path, Arc::new(pen));
+        draw.frame.transform = Matrix4::from_affine(Affine([1.0, 0.0, 0.0, 1.0, x, 550.0]));
+        scene.draw_stroke(draw)?;
+    }
     Ok(scene)
 }

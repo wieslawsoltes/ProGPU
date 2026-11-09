@@ -642,6 +642,9 @@ impl Pen {
     pub fn dash_array(&self) -> Option<&[f64]> {
         self.dashes.as_deref()
     }
+    pub(super) fn shared_dashes(&self) -> Option<Arc<[f64]>> {
+        self.dashes.clone()
+    }
     /// Copy optional original property input, retaining Some(empty).
     pub fn set_dash_array(&mut self, dashes: Option<&[f64]>) -> Result<(), Error> {
         self.dashes = dashes.map(snapshot).transpose()?;

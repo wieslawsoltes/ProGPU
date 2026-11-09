@@ -2,7 +2,9 @@
 //! frames remain distinct from the independent line-only widening/query APIs.
 use super::*;
 use crate::geometry::{Mesh, VectorVertex};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+mod preparation;
+pub(crate) use preparation::PreparedStroke;
 mod vertices;
 const EPS: f32 = 0.0001;
 
@@ -29,7 +31,7 @@ impl Default for StrokeFrame {
 
 /// Retained source stroke generation. Compilation uses the original analytic
 /// line/Bezier/arc and affine-section shader contracts; no generic flattening
-/// replaces a supported curve. Dashed owning-API preparation remains separate.
+/// replaces a supported curve. Dash preparation is cached at compilation time.
 #[derive(Clone, Debug)]
 pub struct StrokeDraw {
     /// Complete original figure/segment generation.
@@ -42,6 +44,7 @@ pub struct StrokeDraw {
     pub aliased: bool,
     /// Independent retained ancestor/draw opacity used by material registration.
     pub semantic_opacity: f32,
+    preparation: Arc<Mutex<preparation::Cache>>,
 }
 impl StrokeDraw {
     /// Record a source-local pen under the identity frame, with unit opacity.
@@ -52,20 +55,24 @@ impl StrokeDraw {
             frame: StrokeFrame::default(),
             aliased: false,
             semantic_opacity: 1.0,
+            preparation: Arc::default(),
         }
     }
-    /// Compile one complete original solid stroke into standalone material-zero
-    /// vertices. Scene::draw_stroke supplies the actual retained material binding.
-    /// Invalid source width/frame produces no geometry; unsupported dashed or
-    /// deferred geometry rejects. Publication is atomic on allocation failure.
+    /// Compile an original stroke into standalone material-zero vertices.
+    /// Directed terminal-cap unions require Scene::draw_stroke's path atlas and
+    /// reject here. Invalid width/frame produces no geometry; publication is atomic.
     pub fn compile(&self) -> Result<Mesh, Error> {
         let mut mesh = Mesh::default();
-        self.append(&mut mesh, 0.0)?;
+        match self.prepare()? {
+            None => self.append(&mut mesh, 0.0)?,
+            Some(PreparedStroke::Stroke(draw)) => draw.append(&mut mesh, 0.0)?,
+            Some(PreparedStroke::Empty) => {}
+            Some(PreparedStroke::Fill(_)) => return Err(Error::UnsupportedExecution),
+        }
         Ok(mesh)
     }
     pub(crate) fn validate(&self) -> Result<(), Error> {
-        if self.state()?.is_some() && (self.pen.has_dash_pattern() || self.path.deferred.is_some())
-        {
+        if self.state()?.is_some() && self.path.deferred.is_some() {
             return Err(Error::UnsupportedExecution);
         }
         Ok(())
@@ -78,6 +85,9 @@ impl StrokeDraw {
         let Some(stroke) = self.state()? else {
             return Ok(());
         };
+        if self.pen.has_dash_pattern() {
+            return Err(Error::UnsupportedExecution);
+        }
         let color = match self.pen.brush.kind {
             BrushKind::Solid(color) => color,
             _ => [1.0; 4],
@@ -140,6 +150,7 @@ impl StrokeDraw {
             return Ok(None);
         }
         Ok(Some(State {
+            local,
             geometry,
             device,
             use_affine,
@@ -260,6 +271,7 @@ fn tangent(segment: PathSegmentKind, start: [f32; 2], at_start: bool) -> Option<
 
 #[derive(Clone, Copy)]
 struct State {
+    local: f32,
     geometry: f32,
     device: f32,
     encoded: f32,

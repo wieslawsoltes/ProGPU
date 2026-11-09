@@ -17,7 +17,7 @@ use crate::{
     Error,
     geometry::{Affine, AnalyticPrimitive, Mesh, VectorVertex},
     path::{Path, RasterRequest},
-    vector::{Brush, BrushKind, MaterialPage, MaterialTable, StrokeDraw},
+    vector::{Brush, BrushKind, MaterialPage, MaterialTable, PreparedStroke, StrokeDraw},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -99,6 +99,7 @@ impl MaterialPaint {
 
 #[derive(Clone, Debug)]
 enum Command {
+    Empty,
     Analytic(AnalyticPrimitive),
     Path(PathDraw),
     MaterialAnalytic(AnalyticPrimitive, MaterialPaint),
@@ -113,9 +114,10 @@ pub struct Scene {
 }
 
 impl Scene {
-    /// Retain an original solid path stroke and its actual pen/material frame.
+    /// Retain an original path stroke and its actual pen/material frame.
     /// Curves remain analytic except for the source's explicit affine sections.
-    /// Dashed/deferred owning-API preparation must occur before this entry point.
+    /// Dash preparation is deferred and cached until compilation. Directed
+    /// terminal-cap unions use the same ordered path atlas as ordinary fills.
     pub fn draw_stroke(&mut self, draw: StrokeDraw) -> Result<(), Error> {
         draw.validate()?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
@@ -209,21 +211,65 @@ impl Scene {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
         }
+        let mut commands = Vec::new();
+        commands
+            .try_reserve_exact(self.commands.len())
+            .map_err(|_| Error::Capacity)?;
+        for command in &self.commands {
+            let resolved = if let Command::Stroke(draw) = command {
+                draw.prepare()?.map(|prepared| match prepared {
+                    PreparedStroke::Stroke(draw) => Command::Stroke(draw),
+                    PreparedStroke::Empty => Command::Empty,
+                    PreparedStroke::Fill(path) => {
+                        let m = draw.frame.transform.0;
+                        let color = match draw.pen.brush.kind {
+                            BrushKind::Solid(color) => color,
+                            _ => [1.0; 4],
+                        };
+                        Command::MaterialPath(
+                            PathDraw {
+                                path,
+                                transform: Affine([
+                                    m[0][0], m[0][1], m[1][0], m[1][1], m[3][0], m[3][1],
+                                ]),
+                                color,
+                                sampling: if draw.aliased {
+                                    PathSampling(1)
+                                } else {
+                                    PathSampling::default()
+                                },
+                            },
+                            MaterialPaint {
+                                brush: draw.pen.brush.clone(),
+                                semantic_opacity: draw.semantic_opacity,
+                            },
+                        )
+                    }
+                })
+            } else {
+                None
+            };
+            commands.push(resolved.map_or_else(
+                || std::borrow::Cow::Borrowed(command),
+                std::borrow::Cow::Owned,
+            ));
+        }
         materials.clear();
-        let has_materials = self.commands.iter().any(|command| {
+        let has_materials = commands.iter().any(|command| {
             matches!(
-                command,
+                command.as_ref(),
                 Command::MaterialAnalytic(..) | Command::MaterialPath(..) | Command::Stroke(_)
             )
         });
         let mut rasters = Vec::new();
         let mut retained = HashMap::new();
-        let mut placements = Vec::with_capacity(self.commands.len());
-        for command in &self.commands {
-            match command {
-                Command::Analytic(_) | Command::MaterialAnalytic(..) | Command::Stroke(_) => {
-                    placements.push(None)
-                }
+        let mut placements = Vec::with_capacity(commands.len());
+        for command in &commands {
+            match command.as_ref() {
+                Command::Empty
+                | Command::Analytic(_)
+                | Command::MaterialAnalytic(..)
+                | Command::Stroke(_) => placements.push(None),
                 Command::Path(draw) | Command::MaterialPath(draw, _) => {
                     let placement = Placement::new(draw, dpi_scale)?;
                     let key = RasterKey {
@@ -251,16 +297,16 @@ impl Scene {
         // binding first. Original capacity fallback then cannot turn a legacy
         // draw into whichever non-solid source material happened to come first.
         let legacy_index = if has_materials
-            && self
-                .commands
+            && commands
                 .iter()
-                .any(|command| matches!(command, Command::Analytic(_) | Command::Path(_)))
+                .any(|command| matches!(command.as_ref(), Command::Analytic(_) | Command::Path(_)))
         {
             materials.register(Some(&legacy_solid), 1.0)?
         } else {
             0
         };
-        for (command, placement) in self.commands.iter().zip(placements) {
+        for (command, placement) in commands.iter().zip(placements) {
+            let command = command.as_ref();
             let brush_index = match command {
                 Command::MaterialAnalytic(_, paint) | Command::MaterialPath(_, paint) => {
                     materials.register(Some(&paint.brush), paint.semantic_opacity)?
@@ -273,6 +319,7 @@ impl Scene {
                 _ => legacy_index,
             } as f32;
             match command {
+                Command::Empty => {}
                 Command::Stroke(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;

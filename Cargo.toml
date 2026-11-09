@@ -27,6 +27,7 @@ pollster = { version = "0.4", optional = true }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "bmp", "gif", "hdr", "pnm", "tga"] }
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 roxmltree = { version = "0.21.2", default-features = false, features = ["std"] }
+wide = "=0.7.33"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "=0.2.130", optional = true }

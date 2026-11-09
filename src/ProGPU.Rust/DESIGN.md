@@ -5697,3 +5697,116 @@ pixels, allocator/frame/Instruments evidence and all source/provider/application
 package qualification. Dashed-path preparation and linear dash coverage, full
 managed atlas caching/recovery, clips/layers/masks/effects/images, final SVG/text
 drawing, archives and platform release work remain unfinished.
+
+## Original dashed-stroke preparation and coverage (2026-11-09)
+
+This batch connects original compositor dash preparation, bounded linear coverage
+and immutable geometry caches to the retained renderer. The implementation-first
+sequence remains in force: strict native/WASM/CPU compile/lint now; complete source
+differential, pixel, browser, performance and package qualification after assembly.
+No shader, driver, compiler option, original gate or deadline is changed.
+
+| Original repository source | SHA-256 | Scope |
+| --- | --- | --- |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` | TryCreateDashedStrokePath, line/curve continuation, endpoint cap overrides, closed seam merge, undashed pen construction and linear/general compilation routing |
+| `src/ProGPU.Scene/StrokeCoverageGeometry.LinearPath.cs` | `03b3acb331f8abca1169fccfbf3d00da463ad85c81edf0a69433ba612e1d43f9` | Complete linear admission, cyclic/gap run construction, solid ideal bounds and bounded dashed preparation |
+| `src/ProGPU.Scene/StrokeCoverageGeometry.OutlineBounds.cs` | `69ee8066d4fb4784ea8afe7a6d6eef74c625efab2e4229167aa67ecea94937e1` | Emitted-body bounds, original source joins, float-narrowed caps/arcs/clipped joins, positive compound pieces and directed terminal caps |
+| `src/ProGPU.Scene/StrokeCoverageGeometry.cs` | `02643b208a8c5c31864f58e3ea924c2193a465c920b377ed5792cfcac39ed1a2` | CanPrepareDashPattern and streaming LineBounds reducer, cubic derivative roots and independent round-cap support |
+| `src/ProGPU.Scene/RenderCommand.cs` | `dff6b8f8c375dcb8b2a2bae357145416bd48d05a5c12ebdbbbe0710dd98858f8` | General dash geometry and separately derived-pen cache identities |
+| `src/ProGPU.Scene/RenderCommandGeometryCache.LinearDashes.cs` | `4c23e8f8677aa5eaf28c0d6b43b710895ea687c3350e49a17970a054e188b27c` | Immutable topology, exact linear key, negative-result caching, current-brush replacement and fill-versus-stroke ownership |
+
+Earlier original arc/Bezier dash, pen, cap/join and fill ports remain shared.
+No foreign implementation was read or copied. Safe SIMD consumes locked `wide`
+0.7.33 and `safe_arch` 0.7.4 as ordinary Cargo dependencies; both offer MIT,
+Apache-2.0 or Zlib licensing. Wide declares Rust 1.61, below this crate's 1.90
+minimum. Only the public [crate contract](https://docs.rs/wide/0.7.33/wide/) and
+[f64x2 API](https://docs.rs/wide/0.7.33/wide/struct.f64x2.html) were consulted.
+Packed XY/dash-pair arithmetic uses ordinary multiply/add/subtract/divide and
+min/max, never fused operations or approximate SIMD trigonometry. The source
+scalar root/trigonometric and predecessor-dependent run decisions remain ordered.
+SIMD availability follows the dependency's target contract; targets without a
+supported vector feature use its documented fallback. No compiler flags change
+to manufacture qualification. Exact default-runtime, signed-zero, scalar/SIMD
+and cross-target numerical comparisons remain required.
+
+`dashed_stroke` owns analytic line, quadratic, cubic and arc spans. Constant curves
+retain the original exact-control admission. Coincident nonconstant curves remain
+curves. Unstroked source segments reset phase and active run; every hidden interval
+or completed visible interval ends continuation even when its endpoint equals an
+older coordinate. First curve spans may continue only in the original visible
+phase. Closing edges retain the original independent traversal. Closed seams move
+the first run behind the last or close a single run, restore the source smooth
+flag and clear endpoint overrides. Open endpoint eligibility preserves phase and
+actual traversal; cap overrides require the original coordinate tolerance.
+
+Optional terminal capture owns original point, adjacent source point, dash cap and
+source end cap. Nonlinear terminal metadata rejects where the original writer
+cannot represent it. General compositor preparation retains its original
+capture-disabled policy; normal linear preparation captures and paints the entire
+compound fill when needed. Rational dashed segments reject instead of flattening.
+The source's partial failure output becomes `None` at the Rust owning publication
+boundary; no partially prepared path escapes. The existing Rust full-cycle
+nonprogress rejection also bounds line traversal where floating additions cease
+to advance; it does not modify progressing intervals or source epsilon arithmetic.
+
+`prepare_linear_stroke` validates all original figures/segments, including
+unstroked edges, before owned run allocation. The one-million-record budget is
+decimal and remains distinct from the native fill compiler's capacity. Closed
+gaps rotate run order; exact constants retain pending smooth metadata and wholly
+point-like runs preserve cap policy. Dash preparation uses the original float
+edge metric, two-lane double scaled-interval sum/minimum, zero/odd-array rules,
+offset narrowing and both density/work bounds. Tiny or overflowing linear edges
+reject rather than silently disappearing. Width-zero preparation retains the
+original empty-coverage behavior.
+
+Solid ideal bounds remain separate from emitted dashed-outline measurement.
+Streaming bounds use O(1) scratch. Cubic controls narrow to float before derivative
+roots; root order, invalid-root handling and final float bounds remain unchanged.
+Emitted bodies reject collapsed area. MiterOrBevel, generic clipped joins and WPF
+source triangles retain their different rules. Materialized source joins skip the
+same tiny paint triangles; bounds-only measurement may retain them. Emitted
+clipped miters keep the independent float subtraction before the double multiply.
+Round caps/arcs preserve original cubic construction and analytic extrema.
+Compound pieces retain their anchored positive endpoint-area admission, without
+reversal or a contour-area substitute for raster coverage. Terminal caps join the
+same nonzero fill so overlapping pieces receive coverage once.
+
+Recording remains O(1). Shared cache owners retain actual immutable source Arcs;
+replacing a public source generation invalidates topology and both cache routes.
+General geometry keys compare original width, offset, intervals and all endpoint
+caps with ordinary equality. Linear keys also retain join/miter/clip/WPF policy
+and original NaN-equal failure identity. Brush identity stays out of geometry keys;
+the derived pen or fill command retains the current brush and semantic opacity.
+Warm matching is O(D) for D intervals and does not traverse/rebuild the source or
+emitted geometry. A short CPU-only mutex protects candidate publication and holds
+no GPU resource or render lock. Allocation failure leaves the previous candidate
+intact; failed linear source admission is retained and never selects the general
+route as a fallback. Previously published scene generations remain immutable.
+
+Compilation prepares dashed commands before material mutation or atlas planning.
+Spines use the original solid compiler with recovered local widths; terminal
+unions use the existing fill compiler and actual path-atlas placement. Complete
+target-frame admission precedes extracting XY coefficients. Aliased unions retain
+one-sample coverage, ordinary unions retain the existing sample grid. Painter order
+and mixed descriptor ordinals are unchanged. A per-compilation O(C) borrowed/owned
+command plan holds resolved generations; prepared GPU replay remains one ordered
+draw with no new geometry uploads. Standalone mesh compilation rejects fills that
+require the scene atlas rather than manufacturing triangle coverage.
+
+The shared native/browser gallery adds normal/fixed/hairline curved dashes and an
+exact-period linear terminal-cap union. This is authored integration code for the
+later runtime pass, not a source oracle. Strict builds cover all feature sets;
+runtime controls, output comparisons and performance are explicitly deferred.
+The cleanup receipt records 83 obsolete duplicate incremental directories removed
+(449,443,970 logical bytes), retaining newest/recent state and original evidence.
+
+Required consolidated controls include complete original dash phase/run/cap/seam
+transcripts, exact curve spans, tiny/nonfinite/constant input, whole-inventory and
+density boundaries, both bound families, emitted cubic/triangle records, signed
+zero and default-runtime SIMD arithmetic, positive/negative cache identities,
+brush/source replacement, legacy/fixed/hairline/aliased frames, actual cold/warm
+coverage/material pixels, painter order, cancellation/ownership, browser DPI/loss,
+allocator/frame/Instruments baselines and all original provider/application/package
+gates. Full managed atlas caching/recovery, signed programs, remaining primitive
+coverage APIs, images/clips/layers/masks/effects, final SVG/text drawing, complete
+scene invalidation/archives and platform release qualification remain unfinished.

@@ -10,8 +10,10 @@ mod boolean;
 mod boolean_gpu;
 mod brush;
 mod dash;
+mod dashed_path;
 mod fill;
 mod hit_test;
+mod linear_coverage;
 mod material;
 mod parse;
 mod primitives;
@@ -29,15 +31,18 @@ pub use boolean::{
 pub use boolean_gpu::{BooleanGpuMetrics, BooleanSolver, BooleanWork, PathOperationError};
 pub use brush::*;
 pub use dash::{DashPattern, DashResult, DashState, PositionedSegment};
+pub use dashed_path::{DashedStrokePath, DirectedStrokeCaps};
 pub use fill::{CompiledStrokeQuery, PathQueryFigure};
 pub use hit_test::{
     GeometryTolerance, ellipse_contains_fill, ellipse_contains_stroke, line_contains_fill,
     line_contains_stroke, rectangle_contains_fill, rectangle_contains_stroke,
 };
+pub use linear_coverage::LinearStrokeCoverage;
 pub use material::{GpuBrush, GpuGradientStop, MaterialPage, MaterialTable};
 pub use parse::PathParseError;
 pub use rounded::RoundedRectangleContour;
 pub use stroke::{MAX_STROKE_TRIANGLES, StrokeCap, StrokeJoin, StrokeJoinFrame, StrokeTriangle};
+pub(crate) use stroke_paint::PreparedStroke;
 pub use stroke_paint::{StrokeDraw, StrokeFrame};
 pub use stroke_path::WidenedPath;
 
