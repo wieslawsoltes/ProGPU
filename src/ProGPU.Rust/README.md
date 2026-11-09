@@ -167,6 +167,8 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Current managed positioning | All nine raw GPOS types, complete attachment state, owned feature/digest plan and layout variation dispatch; 32,008 complete C# plan cases and 760,086 exact delta queries; 151 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, metric/default-ignorable preparation, native device GPOS, fallback and full shaping/GPU text |
 | Current managed variation data | Complete original fvar/avar/gvar/HVAR/GDEF/MVAR admission, normalized immutable instances, lazy tuple cache, simple/component/phantom deltas and MVAR/HVAR/layout queries; 8,772 C# cases / 8,192,752 exact bytes; 96 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, full varied-outline/metrics integration and query/frame performance |
 | Current managed font names | Original name-table decoding, UTF-16 character ranking, stable ordinal deduplication and real axis-name resolution; 236,128 C# cases / 12,151,088 exact bytes; 93 browser controls per DPR | Full font identity/style/metric wrapper, broader discovery/source policies and end-to-end performance |
+| Current managed font and preparation | Owned font/cache/metadata, nominal/symbol/UVS mapping, explicit runtime grapheme and normalization profiles, complete original buffer creation | Varied outlines, source raster policies, fallback and complete shaping orchestration |
+| Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions and stage-state actions; 658,040 complete C# cases plus 1,114,113 raw property queries | Complex-script stages, full plan sequencing, positioning initialization and full text pixels |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -676,3 +678,34 @@ Khmer predicate observation. `python3 eng/progpu-benchmark-rust-preparation.py`
 compares creation/retirement and complete output with C#; optional
 `PROGPU_RUST_PREPARATION_BEFORE` includes a retained unpooled binary. The driver
 selects a normalization profile from actual source behavior, never an OS name.
+
+
+`ManagedGlyphBuffer::apply_script_action` applies one explicit
+`text::script_actions::ManagedScriptAction` to an owned prepared buffer. The
+operations retain the actual font/text/context generation, all unrelated glyph
+fields, lookup state and original writes made before an error. An already-mapped
+buffer without preparation metadata rejects before mutation. Plan-dependent
+choices such as vertical-substitution presence, Hebrew mark-feature presence and
+USE selection are explicit inputs; they must come from the eventual full planner.
+Fractions select independently witnessed `ManagedDigitProfile::Unicode16_0`.
+
+These actions cover dotted-circle insertion, direction fallback, Hangul
+composition/decomposition and Jamo masks, modified combining-class ordering,
+Hebrew presentation composition, USE diacritic decomposition, Thai/Lao expansion,
+fraction masks, substitution/syllable clearing, Arabic stretch recording and
+whole-record reversal. They do not implement a complete shaping pipeline.
+Complex Indic/Khmer/Myanmar/USE syllables, Arabic joining, vowel constraints,
+ordered stage orchestration, positioning initialization, paragraphs and GPU text
+remain required work.
+
+Run `cargo test --locked --release --no-default-features --test
+managed_script_actions -- --include-ignored --nocapture` with .NET 10. The oracle
+compares 658,040 complete action cases / 704,161,720 bytes on the observed Unicode
+17 normalization runtime and 1,114,113 modified-class/digit queries. The browser
+replays 267 frozen original cases under each explicit normalization profile, plus
+invalid-profile, truncated-input and overflow-length controls. `python3
+eng/progpu-benchmark-rust-script-actions.py` records three rotating process trials
+of 40 matching C#/Rust action workloads, including complete outputs. Actual
+preparation and raw-record restoration are outside action timers. The original
+stable insertion sort and vector shifts retain worst-case quadratic work; no
+end-to-end performance qualification follows from this baseline.

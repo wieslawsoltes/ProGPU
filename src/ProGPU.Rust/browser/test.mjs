@@ -79,6 +79,14 @@ for(let n=preparationU32();n>0;n--){const size=preparationU32();preparationFonts
 const preparationCases=[];
 for(let n=preparationU32();n>0;n--){const font=preparationU32(),request=Array.from({length:preparationU32()},preparationU32),expected=Array.from({length:preparationU32()/4},preparationU32);preparationCases.push({font,request,expected});}
 assert.equal(preparationCursor,preparationBinary.length);
+const actionBinary=await readFile(new URL('./managed-script-actions.bin',import.meta.url));
+assert.equal(actionBinary.subarray(0,4).toString(),'PSA1');let actionCursor=4;
+const actionU32=()=>{const n=actionBinary.readUInt32LE(actionCursor);actionCursor+=4;return n;};
+const actionFonts=[];
+for(let n=actionU32();n>0;n--){const size=actionU32();actionFonts.push([...actionBinary.subarray(actionCursor,actionCursor+size)]);actionCursor+=size;}
+const actionCases=[];
+for(let n=actionU32();n>0;n--){const font=actionU32(),request=Array.from({length:actionU32()},actionU32),expected=Array.from({length:actionU32()/4},actionU32);actionCases.push({font,request,expected});}
+assert.equal(actionCursor,actionBinary.length);
 const reports = [];
 const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
 let activePage;
@@ -133,7 +141,7 @@ try {
       return app.exclusive(() => app.renderer.metrics().frames >= 4);
     }));
     entry.stage='source and offscreen controls';
-    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases}) => {
+    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases}) => {
       const app = await window.progpuReady;
       return app.exclusive(async () => {
         const r = app.renderer;
@@ -637,6 +645,18 @@ try {
         lineCase([0xd83d,0xdc4d,0xd83c,0xdffd],false,[16,17],[0,2],[0,2],[2,2]);
         lineCase([0x1100,0x1161,0x11a8],false,[28,30,29],[0,0,2]);
         for(const source of [[0xd800],[0xdc00],[0x41,0xd800,0x41]]){rejected=false;try{app.resolve_line_breaks_utf16(new Uint16Array(source),false);}catch{rejected=true;}check(rejected,'WASM line-break strict invalid source');lineBreakChecks++;}
+        let managedScriptActionChecks=0;
+        for(const {font,request,expected} of actionCases){for(const profile of [151,160,170]){
+          const actual=app.managed_script_actions(new Uint8Array(actionFonts[font]),new Uint32Array(request),profile);
+          check(actual.length===expected.length&&actual.every((value,i)=>value===expected[i]),'WASM original complete script action records/state and error continuation');
+          managedScriptActionChecks++;
+        }}
+        rejected=false;try{app.managed_script_actions(new Uint8Array([]),new Uint32Array([]),999);}catch{rejected=true;}
+        check(rejected,'WASM unsupported script action profile');managedScriptActionChecks++;
+        rejected=false;try{app.managed_script_actions(new Uint8Array([]),new Uint32Array([1]),170);}catch{rejected=true;}
+        check(rejected,'WASM truncated script action request');managedScriptActionChecks++;
+        let overflowError;try{app.managed_script_actions(new Uint8Array([]),new Uint32Array([0xffffffff]),170);}catch(error){overflowError=error;}
+        check(typeof overflowError==='string'&&overflowError.includes('invalid script action request'),'WASM oversized request rejects without trapping');managedScriptActionChecks++;
         let managedPreparationChecks=0;
         for(const {font,request,expected} of preparationCases){for(const profile of [151,160,170]){
           const actual=app.managed_prepare_text(new Uint8Array(preparationFonts[font]),new Uint32Array(request),profile);
@@ -787,9 +807,9 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, managedGraphemeChecks, managedPreparationChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedFontChecks, managedMappingChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, managedGraphemeChecks, managedPreparationChecks, managedScriptActionChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedFontChecks, managedMappingChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
-    },{gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases});
+    },{gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases});
     Object.assign(entry,report);
     entry.stage='resize';
     assert.equal(report.before.draws, 1);

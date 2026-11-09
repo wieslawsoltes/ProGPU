@@ -171,6 +171,14 @@ path = "src/ProGPU.Rust/tests/managed_grapheme.rs"
 name = "managed_preparation"
 path = "src/ProGPU.Rust/tests/managed_preparation.rs"
 
+[[test]]
+name = "managed_script_actions"
+path = "src/ProGPU.Rust/tests/managed_script_actions.rs"
+
+[[example]]
+name = "managed_script_actions_benchmark"
+path = "src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs"
+
 [[example]]
 name = "managed_preparation_benchmark"
 path = "src/ProGPU.Rust/examples/managed_preparation_benchmark.rs"

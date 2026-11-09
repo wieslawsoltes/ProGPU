@@ -3543,5 +3543,75 @@ asynchronous and starts at most once, with final capture retained as a fallback.
 The existing three CPU/wait-channel samples, same-process-generation checks and
 bounded GDB attachment remain unchanged. Attaching can perturb timing, so this
 evidence cannot replace original success, performance or pixel gates. No shader,
-driver, compiler, draw count, queue sequence or deadline changes. Actual hosted
-process/backtrace observation remains pending until that path executes.
+driver, compiler, draw count, queue sequence or deadline changes. At `9c37a415c`, that earlier marker executes, but discovery returns no eligible
+live descendant GPU process. No thread samples or backtrace are captured. Both
+original and diagnostic runs still lose the DPR-2 device; this does not identify
+a cause. Complete receipts are retained in `perf/browser-9c37a-hosted.json`.
+Linux, Windows, managed-source and Vulkan/winit jobs pass; macOS is cancelled.
+
+
+## Common managed script actions
+
+The direct source is `OpenTypeTextShaper.GlyphSubstitutionBuffer`: beginning
+insertion, directional fallback, Hangul, modified combining marks, Hebrew
+composition, USE diacritics, Thai/Lao, fractions and stage-state methods. The
+public Rust action enum keeps the original planner's decisions explicit without
+inventing an incomplete aggregate shaper. Every operation requires the actual
+prepared font/text/script/context owner; it mutates the same full records used
+by GSUB. Missing metadata rejects before mutation. Original partial writes on a
+font or scalar error remain visible. The original Create limit remains separate
+from subsequent insertion capacity; actions do not impose a new one-million
+record rejection absent from the source methods.
+
+The original stable mark insertion sort retains crossed-cluster updates and
+Arabic modifier rotations. Hangul retains coverage-dependent composition,
+decomposition, Jamo masks and full record copies; Hebrew retains grapheme groups
+and independent mark-feature admission. Thai/Lao retains its initial replacement
+and insertion even when a later negative cluster-start index fails. USE shares
+normalization scratch and creates the source's fresh default records. Fraction
+classification validates raw scalars only when the original traversal visits
+them; the private fraction marker remains sticky. All other state and record
+fields survive unless the original operation changes them.
+
+The oracle invokes actual original methods through strongly typed delegates;
+reflection transports fields only. Authored coverage-hole fonts exercise missing
+components and composites. Same-length raw record replacement tests original
+mutation behavior across all 31 fields without fabricating a production shaping
+result. All modern Hangul syllables and matching Jamo, malformed UTF-16/scalars,
+all four cluster levels, contexts, flags, combining/Thai/Hebrew triples and 12,000
+mutations are included. Complete valid scalar traversals cover direction fallback,
+modified classes and USE normalization. The separate decimal/class capture visits
+all 1,114,113 raw values through U+110000; it independently witnesses the frozen
+Unicode 16 decimal repertoire. No HarfBuzz-derived generated source tables are
+transcribed. Vowel-constraint and complex-script tables remain separate work.
+
+The existing cross-engine comparison applies unchanged: Skia/SkParagraph,
+DirectWrite/Direct2D/Win2D, WebRender, Vello/Parley and HarfBuzz all informed the
+separation of reusable CPU shaping from retained GPU rendering. This checkpoint
+adds no GPU upload, device, atlas, visibility, DPI/hinting, fallback-discovery or
+worker-publication policy. [Microsoft's Hangul specification](https://learn.microsoft.com/en-us/typography/script-development/hangul)
+clarifies why Jamo features remain distinct from composition; the exact original
+ProGPU coverage decisions and masks are preserved. [HarfBuzz's cluster reordering
+contract](https://harfbuzz.github.io/reordering-in-levels-0-and-1.html) informs
+cluster tests only; no foreign implementation is translated. Original
+crossed-cluster behavior remains the authority.
+
+Most actions are linear scans with constant scratch; normalization uses reusable
+per-call scratch. Original stable insertion, record shifts and repeated merges
+retain worst-case quadratic work. The benchmark times selected production
+actions on prepared buffers, excluding creation, typed raw restoration and
+serialization. Three rotating-order trials include first-call and warm
+percentiles and independently compare complete output. This is a new-feature
+baseline, not an optimization claim or a full startup/scroll/memory/GPU result.
+
+
+The initial 40-workload baseline matches complete C# output in every trial.
+Across trial medians, Rust is lower in 36 workloads, higher in two and equal at
+reported timer resolution in two. The largest higher ratio is 1.14 for 128-record
+missing-font USE decomposition; 4,096-record missing-font fractions are 1.02.
+Host load was 29.64/33.78/25.24, so these observations do not establish a stable
+speedup or performance parity. Original long-run quadratic behavior remains and
+no optimization is claimed. `perf/managed-script-actions-baseline.json` retains
+all first/warm timing distributions, source allocation counters and binary/source
+hashes. Rust allocation events and end-to-end shaping/rendering qualification
+remain open.

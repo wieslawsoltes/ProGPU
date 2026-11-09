@@ -18,11 +18,13 @@ mod managed_grapheme_replay;
 #[path = "../tests/support/managed_mapping_replay.rs"]
 mod managed_mapping_replay;
 #[cfg(target_arch = "wasm32")]
-#[path = "../tests/support/managed_preparation_replay.rs"]
+#[path = "../tests/support/managed_script_actions_replay.rs"]
 #[allow(dead_code)]
-mod managed_preparation_replay;
+mod managed_script_actions_replay;
 #[cfg(target_arch = "wasm32")]
 use managed_preparation_replay::records as managed_records;
+#[cfg(target_arch = "wasm32")]
+use managed_script_actions_replay::preparation as managed_preparation_replay;
 #[cfg(target_arch = "wasm32")]
 #[path = "../tests/support/managed_variation_replay.rs"]
 mod managed_variation_replay;
@@ -578,6 +580,22 @@ mod web {
             .chunks_exact(4)
             .map(|word| u32::from_le_bytes(word.try_into().expect("complete replay word")))
             .collect())
+    }
+    /// Execute exact original script actions over prepared complete records.
+    #[wasm_bindgen]
+    pub fn managed_script_actions(
+        font: Vec<u8>,
+        request: Vec<u32>,
+        profile: u16,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::text::unicode::normalization::ManagedNormalizationProfile;
+        let profile = ManagedNormalizationProfile::try_from(profile).map_err(error)?;
+        let case = super::managed_script_actions_replay::Case::from_request(0, &request)
+            .ok_or_else(|| error("invalid script action request"))?;
+        let font = progpu::font::ManagedFont::new(font, 0).ok();
+        let mut result = Vec::new();
+        super::managed_script_actions_replay::execute(font.as_ref(), &case, profile, &mut result);
+        Ok(result)
     }
     /// Complete original text preparation records and source context state.
     #[wasm_bindgen]

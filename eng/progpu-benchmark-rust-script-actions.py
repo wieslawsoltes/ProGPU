@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Matched complete original script actions, preserving full glyph/state outputs."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import os
+import platform
+import re
+import struct
+import subprocess
+import tempfile
+from xml.sax.saxutils import escape
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def word(value):
+    return struct.pack('<I', value)
+
+
+def font(space_only):
+    head = bytearray(54)
+    struct.pack_into('>H', head, 18, 1000)
+    nominal = struct.pack('>HHIIIIII', 13, 0, 28, 0, 1,
+                          0x20 if space_only else 0, 0x20 if space_only else 0x10ffff,
+                          3 if space_only else 7)
+    selector = struct.pack('>HII', 14, 30, 1) + bytes.fromhex('00fe0f') + struct.pack('>III', 0, 21, 1) + bytes.fromhex('0000410000')
+    cmap = struct.pack('>HHHHIHHI', 0, 2, 0, 4, 20, 0, 5, 48) + nominal + selector
+    result = bytearray(44)
+    struct.pack_into('>IH', result, 0, 0x10000, 2)
+    for n, (tag, data) in enumerate([(b'head', head), (b'cmap', cmap)]):
+        struct.pack_into('>4sIII', result, 12 + n * 16, tag, 0, len(result), len(data))
+        result += data
+    return result
+
+
+def request(script, points, count, actions):
+    records=[]
+    for i in range(count):
+        values=[((i+1)*(n+3)*7) & 255 for n in range(31)]
+        values[0]=7;values[1]=i;values[2]=(i//len(points))*len(points);values[3]=i;values[4]=points[i%len(points)]
+        records.extend(values)
+    script=list(script.encode('ascii'))
+    values=[len(script),*script,1,1,count,*([65]*count),0,0,len(actions),*actions,count,*records]
+    return word(len(values))+b''.join(map(word,values))
+
+
+def corpus():
+    fonts=[font(False),font(True)]
+    header=word(len(fonts))+b''.join(word(len(f))+f for f in fonts)
+    data=bytearray(header);cases=[]
+    patterns=[
+        ('beginning','latn',[0x301,65],[0]),
+        ('directional','latn',[0x28,0x29,0x3008,0x3009,0x2014],[7]),
+        ('hangul','hang',[0x1100,0x1161,0x11a8,0xac00,0xd7cb],[9]),
+        ('combining','arab',[65,0x301,0x327,0x654,0x655,0x8ca],[10]),
+        ('long-combining','arab',[0x301,0x327,0x654,0x655,0x8ca],[10]),
+        ('hebrew','hebr',[0x5e9,0x5bc,0x5c1],[11]),
+        ('use','tibt',[0xf73,0x344,0x301,65],[14]),
+        ('thai','thai',[0xe01,0xe48,0xe33],[15]),
+        ('fractions','latn',[0x31,0x32,0x2044,0x33,0x34,65],[16]),
+        ('stage-state','latn',[65,66,67],[17,18,19,20]),
+    ]
+    for index in range(len(fonts)):
+        for name,script,points,actions in patterns:
+            for count in [128,4096]:
+                data+=word(index)+request(script,points,count,actions)
+                cases.append(dict(font='space-only' if index else 'full',pattern=name,records=count,script=script,actions=actions))
+    profile_input=header+(word(0)+request('arab',patterns[4][2],4096,[10]))*20
+    return data,cases,profile_input
+
+
+def main():
+    data, cases, profile_input = corpus()
+    if output := os.environ.get('PROGPU_RUST_ACTIONS_PROFILE_INPUT'):
+        Path(output).write_bytes(profile_input)
+    dotnet = os.environ.get('PROGPU_RUST_DOTNET', 'dotnet')
+    subprocess.run(['cargo', 'build', '--locked', '--release', '--no-default-features',
+                    '--example', 'managed_script_actions_benchmark'], cwd=ROOT, check=True)
+    binary = ROOT / 'target/release/examples/managed_script_actions_benchmark'
+    with tempfile.TemporaryDirectory(prefix='progpu-script-actions-benchmark-') as directory:
+        work = Path(directory)
+        (work / 'Control.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>'
+            '<OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings>'
+            '<EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup>'
+            f'<Compile Include="{escape(str(ROOT / "src/ProGPU.Rust/tests/managed_script_actions.cs"))}"/>'
+            f'<ProjectReference Include="{escape(str(ROOT / "src/ProGPU.Text/ProGPU.Text.csproj"))}"/>'
+            '</ItemGroup></Project>')
+        subprocess.run([dotnet, 'build', 'Control.csproj', '-c', 'Release', '--nologo', '-v:q',
+                        '-p:UseArtifactsOutput=true', f'-p:ArtifactsPath={work / "artifacts"}'], cwd=work, check=True)
+        assembly = work / 'artifacts/bin/Control/release/Control.dll'
+        observed = subprocess.run([dotnet, str(assembly)], input=word(0), capture_output=True, check=True)
+        candidates = [profile for profile in [151, 160, 170] if subprocess.run(
+            [str(binary), '--witness', str(profile)], capture_output=True, check=True).stdout == observed.stdout]
+        assert len(candidates) == 1, 'unsupported or ambiguous actual source normalization'
+        profile = str(candidates[0])
+        commands = [[str(binary), profile], [dotnet, str(assembly)]]
+        before = os.environ.get('PROGPU_RUST_ACTIONS_BEFORE')
+        if before:
+            commands.append([before, profile])
+        trials = []
+        for trial in range(3):
+            results = [None] * len(commands)
+            for index in [(trial + offset) % len(commands) for offset in range(len(commands))]:
+                results[index] = subprocess.run(commands[index], input=data, capture_output=True, check=True,
+                    env=dict(os.environ, PROGPU_RUST_ACTIONS_BENCHMARK='1'))
+            trials.append(results)
+        assert all(result.stdout == trials[0][0].stdout for trial in trials for result in trial), 'complete original script-actions outputs differ'
+        names = ['rust', 'csharp', 'rust_before']
+        for index, case in enumerate(cases):
+            case['trials'] = []
+            for trial in trials:
+                row = {}
+                for name, result in zip(names, trial):
+                    lines = [line for line in result.stderr.decode().splitlines() if line.startswith('first_us=')]
+                    assert len(lines) == len(cases)
+                    row[name] = {k: float(v) for k, v in re.findall(r'(\w+)=([\d.]+)', lines[index])}
+                case['trials'].append(row)
+        receipt = dict(utc=datetime.datetime.now(datetime.timezone.utc).isoformat(), host=platform.platform(),
+            load_average=os.getloadavg(), normalization_profile=int(profile), source_runtime=observed.stderr.decode().strip(),
+            scope='Three rotating-order process trials; first action, five warmups, 40 samples. Actual owned buffer preparation, typed raw-record restoration, witnesses and serialization excluded. Selected production actions timed; complete 31-field records, state and source context matched. Source GC allocation counters observed; Rust allocator events and full shaping/layout/frame qualification remain open.',
+            input_sha256=hashlib.sha256(data).hexdigest(), output_sha256=hashlib.sha256(trials[0][0].stdout).hexdigest(),
+            rust_binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
+            csharp_assembly_sha256=hashlib.sha256(assembly.read_bytes()).hexdigest(),
+            source_hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in
+                ['src/ProGPU.Text/OpenTypeTextShaper.cs','src/ProGPU.Rust/src/text/script_actions.rs',
+                 'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
+                 'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
+        if before:
+            receipt['rust_before_binary_sha256'] = hashlib.sha256(Path(before).read_bytes()).hexdigest()
+        output = ROOT / 'src/ProGPU.Rust/perf/managed-script-actions-baseline.json'
+        output.write_text(json.dumps(receipt, indent=2)+'\n')
+        print(f'{len(cases)} complete-output matched workloads, three trials; {output}')
+
+
+if __name__ == '__main__':
+    main()

@@ -26,7 +26,7 @@ impl Default for ManagedGlyphState {
 pub struct ManagedGlyphBuffer {
     pub(crate) preparation:
         Option<std::sync::Arc<crate::text::preparation::ManagedPreparationSource>>,
-    pub(super) glyphs: Vec<ManagedShapingGlyph>,
+    pub(crate) glyphs: Vec<ManagedShapingGlyph>,
     font: SfntFace,
     use_gdef: bool,
     mark_profile: ManagedMarkProfile,

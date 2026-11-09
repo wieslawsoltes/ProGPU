@@ -157,6 +157,9 @@ impl ManagedPreparationSource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum PreparationError {
+    /// The operation needs actual text/font/context preparation metadata.
+    #[error("managed script action requires original preparation metadata")]
+    MissingPreparation,
     /// Unknown public cluster policy.
     #[error("invalid managed cluster level")]
     InvalidClusterLevel,
@@ -214,7 +217,7 @@ impl ManagedGlyphBuffer {
 }
 
 #[derive(Default)]
-struct Normalizer {
+pub(super) struct Normalizer {
     scalars: Vec<UnicodeScalar>,
     result: Vec<UnicodeScalar>,
 }
@@ -228,7 +231,7 @@ fn resize<T: Clone>(values: &mut Vec<T>, length: usize, fill: T) -> Result<(), P
     Ok(())
 }
 impl Normalizer {
-    fn normalize(
+    pub(super) fn normalize(
         &mut self,
         input: &[u16],
         profile: ManagedNormalizationProfile,
