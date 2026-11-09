@@ -1,0 +1,70 @@
+{
+  "commit": "490835d4b661b10b739b85dc1e42d7afd0f0530d",
+  "run_id": 42568005460,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42568005460",
+  "jobs": [
+    {
+      "id": 128998682553,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128998682671,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 128998682770,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128998682792,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128998682804,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    }
+  ],
+  "browser": {
+    "original_gate": "failed",
+    "diagnostic": "failed",
+    "stage": "final DPR 2 queue completion",
+    "gpu_process_exit": 512,
+    "device_lost": "A valid external Instance reference no longer exists.",
+    "evidence": "browser-490835-hosted.json"
+  },
+  "scope": "Linux original full differential suite and package, Windows portable/package and Vulkan/winit passed. macOS cancelled. Browser failure remains independent and mandatory.",
+  "linux": {
+    "full_source_suite": "passed",
+    "mapping": {
+      "cases": 8436,
+      "queries": 5143568,
+      "exact_bytes": 61756560,
+      "browser_cases": 88,
+      "browser_fixture_bytes": 455992
+    },
+    "legacy_capture": {
+      "queries_per_page": 66304,
+      "mapped_pairs": [
+        240,
+        285
+      ],
+      "unchanged_source_and_generated_bytes": "passed"
+    },
+    "positioning": {
+      "cases": 32008,
+      "delta_queries": 760086,
+      "exact_bytes": 44353296
+    },
+    "package_files": 374
+  }
+}

@@ -3296,7 +3296,11 @@ of those 18 completes before device loss 22.3 seconds later. Initial DPR 2 canva
 submissions have multi-second completion latency, while the last offscreen
 submissions complete in about 2.6 ms. This identifies outstanding canvas/resize
 work; it does not prove a driver fault, shader defect, lifetime defect or queue
-policy cause. Full source/fixture results are tracked separately.
+policy cause. The hosted Linux full source suite and package pass: 8,436 mapping cases,
+5,143,568 queries, 61,756,560 exact bytes, all 88 frozen browser cases and both
+66,304-query legacy symbol captures. Windows portable/package and Vulkan/winit
+also pass; macOS was cancelled. `perf/managed-mapping-hosted.json` retains these
+independent results.
 
 The original ten-draw burst, subsequent suspend/resume/resize, final completion,
 compositor pixels and 30/180-second deadlines remain intact. Optional diagnostic
