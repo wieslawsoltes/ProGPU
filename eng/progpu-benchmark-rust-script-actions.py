@@ -50,6 +50,7 @@ def request(script, points, count, actions, fallback=False):
 
 def corpus():
     fallback_only = os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1'
+    vowel_only = os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1'
     fonts=[font(False, fallback_only),font(True)]
     header=word(len(fonts))+b''.join(word(len(f))+f for f in fonts)
     data=bytearray(header);cases=[]
@@ -78,6 +79,14 @@ def corpus():
             ('fallback-skipped-marks','arab',[0xfedf]+[0x301]*15+[0xfe8e],[48]),
             ('fallback-joining-sequence','arab',[0x644,0x644,0x647,0x301,0x644,0x627],[21,63]),
         ]
+    if vowel_only:
+        patterns = [
+            ('vowel-pairs','deva',[0x905,0x93e],[68]),
+            ('vowel-triples','deva',[0x930,0x94d,0x907],[68]),
+            ('vowel-pair-shadow','gujr',[0xa85,0xabe,0xac5],[68]),
+            ('vowel-miss','deva',[0x905,0x93f],[68]),
+            ('vowel-disabled-script','latn',[0x905,0x93e],[68]),
+        ]
     joining_only = os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1'
     if joining_only:
         patterns = [pattern for pattern in patterns if pattern[0].startswith('joining-')]
@@ -86,7 +95,8 @@ def corpus():
             for count in [128,4096]:
                 data+=word(index)+request(script,points,count,actions,fallback_only)
                 cases.append(dict(font='space-only' if index else ('identity-bmp' if fallback_only else 'full'),pattern=name,records=count,script=script,actions=actions))
-    profile_input=header+(word(0)+request('arab',patterns[0 if joining_only or fallback_only else 4][2],4096,[47 if fallback_only else 21 if joining_only else 10],fallback_only))*20
+    selected = patterns[0 if joining_only or fallback_only or vowel_only else 4]
+    profile_input=header+(word(0)+request(selected[1],selected[2],4096,selected[3],fallback_only))*20
     return data,cases,profile_input
 
 
@@ -148,11 +158,13 @@ def main():
                  'src/ProGPU.Rust/src/text/script_actions/joining_data.rs',
                  'src/ProGPU.Rust/src/text/script_actions/arabic_fallback.rs',
                  'src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/vowel.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/vowel_data.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
             receipt['rust_before_binary_sha256'] = hashlib.sha256(Path(before).read_bytes()).hexdigest()
-        name = 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
+        name = 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
         output = ROOT / 'src/ProGPU.Rust/perf' / name
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')

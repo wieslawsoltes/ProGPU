@@ -53,6 +53,7 @@ pub fn action(code: u32) -> Option<ManagedScriptAction> {
         19 => RecordArabicStretch,
         20 => Reverse,
         21 => ArabicJoining,
+        68 => VowelConstraints,
         22..=28 | 32..=63 => ArabicFallback {
             enabled: code != 22,
             features: fallback_features(code),

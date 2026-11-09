@@ -39,6 +39,7 @@ static class Control
         var clearSyllable=typeof(B).GetMethod("ClearSyllables",F)!.CreateDelegate<Action<B>>();
         var stretch=typeof(B).GetMethod("RecordArabicStretch",F)!.CreateDelegate<Action<B>>();
         var reverse=typeof(B).GetMethod("Reverse",F)!.CreateDelegate<Action<B>>();
+        var vowels=typeof(B).GetMethod("ApplyVowelConstraints",F)!.CreateDelegate<Action<B,string>>();
         var joining=typeof(B).GetMethod("AssignArabicJoiningActions",F)!.CreateDelegate<Action<B,string>>();
         var fallback=typeof(B).GetMethod("ApplyArabicFallback",F)!.CreateDelegate<Action<B,bool,TextShapingOptions>>();
         var manual=typeof(B).GetMethod("SetManualJoiners",F)!.CreateDelegate<Action<B,bool>>();
@@ -151,6 +152,7 @@ static class Control
                             case 64:case 65:manual(buffer,action==64);break;
                             case 66:syllable(buffer,0,true);break;
                             case 67:clearLookup(buffer);break;
+                            case 68:vowels(buffer,script);break;
                             default:throw new InvalidDataException("action");
                         }
                     }

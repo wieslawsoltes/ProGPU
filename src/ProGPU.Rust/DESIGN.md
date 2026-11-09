@@ -3757,3 +3757,73 @@ open. Local Chromium passes 1,641 script-action checks per DPR, including all
 prior cases, plus all original six-shader, 204,800-pixel, resize and final
 presentation gates. Ordinary native CI also replays all 546 frozen cases under
 three runtime profiles without requiring .NET.
+
+
+## Prohibited vowel sequences
+
+`ManagedScriptAction::VowelConstraints` ports the approved original
+`OpenTypeTextShaper.GlyphSubstitutionBuffer.ApplyVowelConstraints` operation.
+Source code points select an exact script-specific two- or three-scalar match;
+the operation inserts one new original-constructor record immediately before the
+last matched source record and advances by match length plus one. The insertion
+uses that record's source cluster, independently of its grapheme cluster. A zero
+font glyph remains a real inserted slot. No beginning-of-text, dotted-circle
+suppression flag, mark classification or ink-availability shortcut is introduced.
+Original buffer options, owners, context and every unrelated field survive.
+
+The existing HarfBuzz-derived generated table is not read or transcribed.
+The generator instead reads [Microsoft's public invalid-cluster specification](https://github.com/microsoft/font-tools/blob/d06068439ff23fff99bfd058a5ab44a43183ecd9/USE/IndicShapingInvalidCluster.txt)
+and pinned Unicode 17 Scripts/PropertyValueAliases facts. Its own sorted tuple
+inventory is verified against every entry returned by original
+`UnicodeShapingProperties.GetVowelConstraint`. All 103 entries across 16 scripts
+must match. The Microsoft MIT notice is retained with portable LF newlines; Unicode public
+facts retain their existing notice. All downloaded bytes are hash-pinned, and
+CI regenerates and checks each output.
+
+The original matcher independently supplies 4,863,144 observations: all script
+spellings and near misses, malformed raw scalars, cross-script combinations and
+every raw third value for the three longer prefixes, including U+110000 and
+UINT_MAX. Initial longest-match expectations failed: an existing pair shadows
+its longer prefix match. The implementation preserves that source decision by
+checking the exact pair before the exact triple. Specification rows that are
+shadowed remain in the verified inventory; they are not silently deleted.
+Matching uses at most two binary searches with O(log R) work for R fixed rows.
+The dependent source traversal and original vector insertions retain O(N²)
+worst-case movement and O(1) scratch beyond the owned glyph vector. No SIMD lane
+can independently insert a record without changing following source indices.
+
+The required Skia/SkParagraph, DirectWrite/Direct2D/Win2D, WebRender, Vello/Parley
+and HarfBuzz architecture comparison remains in the existing research ledger.
+[Microsoft's USE specification](https://learn.microsoft.com/en-us/typography/script-development/use)
+places cluster validation before later feature/reordering stages. That separation
+is adopted, while ProGPU's exact prefix precedence, constructor fields and skip
+count remain authoritative. This action changes no font discovery, DPI/hinting,
+worker publication, visibility, device generation, atlas cache or GPU upload
+policy. CPU shaping remains reusable and separate from retained GPU rendering.
+
+The complete action differential test now compares 1,064,105 cases /
+1,150,599,296 bytes on the observed macOS Unicode 17 runtime, retaining every
+previous 914,017 case. Added controls cover every rule, all buffer flag bytes,
+all cluster levels, signed extreme clusters, glyph coverage holes, exact script
+spellings, malformed components, every adjacent rule pair, real normalization
+and owner preparation, 12,000 complete-record mutations and 103 long runs.
+All 31 glyph fields and original mutable state/owner/context metadata are checked.
+The 771 frozen original cases replay under three explicit profiles in native
+and browser builds without executing C# at runtime.
+
+Twenty representative action workloads match complete C# output in all three
+rotating process trials. Rust's median is lower in all 20 in this capture, with
+host load 4.75/9.28/18.52. Preparation, raw restoration and serialization are
+outside timers. This is a new-feature baseline, not a before/after optimization,
+allocation-event or end-to-end shaping/frame qualification; earlier preparation,
+lookup and Arabic fallback performance gaps remain open.
+
+The preceding Arabic fallback hosted run 42595701066 passes managed source,
+Windows and Vulkan/winit, while both original and diagnostic browser runs lose
+the device during final DPR-2 capture after all 1,641 action checks and offscreen
+pixels. Chromium reports GPU process exit code 512. Its failure-only observer
+finds zero eligible descendants, so no stack exists. The separate diagnostic
+commit now records bounded owned process identities and fixed process-kind flags
+on that path, without broadening debugger target admission or changing original
+workloads, flags or deadlines. This records missing evidence, not a root cause or
+a browser qualification pass; `perf/browser-24f605-hosted.json` retains the reports.

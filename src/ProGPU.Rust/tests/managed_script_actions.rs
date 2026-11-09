@@ -19,6 +19,8 @@ mod replay;
 use replay::Case;
 #[path = "support/managed_arabic_fallback_cases.rs"]
 mod fallback;
+#[path = "support/managed_vowel_cases.rs"]
+mod vowels;
 #[test]
 fn script_actions_require_source_and_keep_source_owners() {
     let font = ManagedFont::new(fixture::fonts().remove(0), 0).unwrap();
@@ -317,7 +319,8 @@ fn corpus(mut emit: impl FnMut(Case, bool)) {
         emit(c, false);
     }
     joining_corpus(&mut emit);
-    fallback::corpus(emit);
+    fallback::corpus(&mut emit);
+    vowels::corpus(emit);
 }
 
 fn joining_corpus(mut emit: impl FnMut(Case, bool)) {

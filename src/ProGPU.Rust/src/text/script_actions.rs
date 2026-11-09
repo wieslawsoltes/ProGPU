@@ -9,6 +9,7 @@ use normalization::{ManagedNormalizationProfile, NormalizationForm};
 mod joining;
 pub use joining::{ManagedJoiningType, managed_joining_type};
 mod arabic_fallback;
+mod vowel;
 pub use arabic_fallback::ManagedArabicFallbackFeatures;
 
 /// Original four physical shaping directions, independent of bidi level types.
@@ -87,6 +88,8 @@ pub enum ManagedScriptAction {
         /// Original whole-buffer feature settings, separate from ranged features.
         features: ManagedArabicFallbackFeatures,
     },
+    /// Insert original dotted-circle records for exact prohibited vowel sequences.
+    VowelConstraints,
     /// Reverse complete original records without reconstructing clusters.
     Reverse,
 }
@@ -247,6 +250,7 @@ impl ManagedGlyphBuffer {
                 &options.pre_context,
                 &options.post_context,
             ),
+            ManagedScriptAction::VowelConstraints => vowel::apply(self, font, script)?,
             ManagedScriptAction::ArabicFallback { enabled, features } => {
                 if enabled {
                     arabic_fallback::apply(self, font, features)?;
