@@ -11,6 +11,7 @@ mod boolean_gpu;
 mod brush;
 mod dash;
 mod hit_test;
+mod material;
 mod parse;
 mod primitives;
 mod rounded;
@@ -30,6 +31,7 @@ pub use hit_test::{
     GeometryTolerance, ellipse_contains_fill, ellipse_contains_stroke, line_contains_fill,
     line_contains_stroke, rectangle_contains_fill, rectangle_contains_stroke,
 };
+pub use material::{GpuBrush, GpuGradientStop, MaterialPage, MaterialTable};
 pub use parse::PathParseError;
 pub use rounded::RoundedRectangleContour;
 pub use stroke::{MAX_STROKE_TRIANGLES, StrokeCap, StrokeJoin, StrokeJoinFrame, StrokeTriangle};

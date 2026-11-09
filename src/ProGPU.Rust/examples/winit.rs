@@ -12,6 +12,8 @@ use winit::{
 #[path = "support/sample_scene.rs"]
 mod sample;
 use sample::sample_scene;
+#[path = "support/material_scene.rs"]
+mod material_sample;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -24,10 +26,11 @@ struct WindowRenderer {
     config: wgpu::SurfaceConfiguration,
     renderer: Renderer,
     scene: Option<PreparedScene>,
+    material_scene: bool,
 }
 
 impl WindowRenderer {
-    async fn new(event_loop: &ActiveEventLoop) -> Result<Self> {
+    async fn new(event_loop: &ActiveEventLoop, material_scene: bool) -> Result<Self> {
         let window = Arc::new(
             event_loop.create_window(
                 Window::default_attributes()
@@ -80,6 +83,7 @@ impl WindowRenderer {
             config,
             renderer,
             scene: None,
+            material_scene,
         };
         state.resize()?;
         state.window.set_visible(true);
@@ -99,7 +103,11 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
-        let source = sample_scene()?;
+        let source = if self.material_scene {
+            material_sample::material_scene()?
+        } else {
+            sample_scene()?
+        };
         let scene = pollster::block_on(self.renderer.prepare_scene(&source, frame))?;
         eprintln!("prepared: {:?}", scene.metrics());
         self.config.width = size.width;
@@ -159,6 +167,7 @@ struct App {
     frame_limit: Option<u64>,
     frames: u64,
     failure: Option<String>,
+    material_scene: bool,
 }
 
 impl App {
@@ -171,7 +180,7 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
-            match pollster::block_on(WindowRenderer::new(event_loop)) {
+            match pollster::block_on(WindowRenderer::new(event_loop, self.material_scene)) {
                 Ok(state) => self.state = Some(state),
                 Err(error) => self.fail(event_loop, error),
             }
@@ -223,6 +232,7 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     while let Some(argument) = args.next() {
         match argument.as_str() {
+            "--materials" => app.material_scene = true,
             "--frames" => {
                 let frames: u64 = args
                     .next()
@@ -235,7 +245,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --frames N for a bounded smoke run"
+                    "unknown argument {argument}; use --materials for the material gallery or --frames N for a bounded smoke run"
                 )
                 .into());
             }

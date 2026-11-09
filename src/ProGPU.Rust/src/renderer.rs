@@ -11,6 +11,7 @@ use crate::{
     path::{CoverageAtlas, ExecutionPreference, PathRasterizer},
     scene::{CompiledScene, Scene},
     shaders,
+    vector::{GpuBrush, GpuGradientStop, MaterialPage, MaterialTable},
 };
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
@@ -86,6 +87,13 @@ pub struct UploadMetrics {
     pub geometry_bytes: u64,
     /// Frame uniform bytes uploaded once at preparation (excludes path compute).
     pub uniform_bytes: u64,
+    /// Actual brush/auxiliary bytes uploaded for this immutable generation,
+    /// including a required empty-record binding placeholder when applicable.
+    pub material_bytes: u64,
+    /// Actual registered brush records, excluding the legacy shared placeholder.
+    pub material_brushes: u32,
+    /// Actual auxiliary records, excluding an empty binding placeholder.
+    pub material_records: u32,
     /// Ordered indexed draw count (zero for empty scenes).
     pub draws: u32,
     /// Distinct path masks rasterized when this generation was prepared.
@@ -127,6 +135,7 @@ pub struct Renderer {
     stops: wgpu::Buffer,
     atlas: wgpu::BindGroup,
     path_rasterizer: Option<PathRasterizer>,
+    materials: MaterialTable,
 }
 
 impl Renderer {
@@ -245,6 +254,7 @@ impl Renderer {
             stops,
             atlas,
             path_rasterizer: None,
+            materials: MaterialTable::default(),
         })
     }
 
@@ -254,7 +264,7 @@ impl Renderer {
         if mesh.vertices().iter().any(|v| v.shape_type == 4.0) {
             return Err(Error::InvalidInput);
         }
-        self.prepare_geometry(mesh, frame, None)
+        self.prepare_geometry(mesh, frame, None, None)
     }
 
     /// Whether the optional path compute pipeline has been initialized.
@@ -269,7 +279,7 @@ impl Renderer {
         scene: &Scene,
         frame: Frame,
     ) -> Result<PreparedScene, Error> {
-        let compiled = scene.compile(frame.dpi_scale)?;
+        let compiled = scene.compile_with_materials(frame.dpi_scale, &mut self.materials)?;
         self.prepare_compiled(&compiled, frame).await
     }
 
@@ -286,11 +296,12 @@ impl Renderer {
             return Err(Error::InvalidInput);
         }
         self.validate_geometry(&compiled.mesh, frame)?;
+        self.validate_materials(&compiled.mesh, Some(compiled.materials()))?;
         if compiled.atlas_size() > self.device.limits().max_texture_dimension_2d {
             return Err(Error::Capacity);
         }
         if compiled.rasters.is_empty() {
-            return self.prepare_geometry(&compiled.mesh, frame, None);
+            return self.prepare_geometry(&compiled.mesh, frame, None, Some(compiled.materials()));
         }
         if self.path_rasterizer.is_none() {
             let rasterizer =
@@ -308,7 +319,45 @@ impl Renderer {
             .as_ref()
             .ok_or(Error::UnsupportedExecution)?
             .rasterize_atlas(&requests)?;
-        self.prepare_geometry(&compiled.mesh, frame, Some(&atlas))
+        self.prepare_geometry(
+            &compiled.mesh,
+            frame,
+            Some(&atlas),
+            Some(compiled.materials()),
+        )
+    }
+
+    fn validate_materials(&self, mesh: &Mesh, page: Option<&MaterialPage>) -> Result<(), Error> {
+        let count = page.map_or(0, |p| p.brushes().len()).max(1);
+        if mesh.vertices().iter().any(|v| {
+            !v.brush_index.is_finite()
+                || v.brush_index < 0.0
+                || v.brush_index.fract() != 0.0
+                || v.brush_index >= count as f32
+        }) {
+            return Err(Error::InvalidInput);
+        }
+        if let Some(page) = page {
+            let limits = self.device.limits();
+            let brush_bytes = page
+                .brushes()
+                .len()
+                .max(1)
+                .checked_mul(size_of::<GpuBrush>())
+                .ok_or(Error::Capacity)? as u64;
+            let record_bytes = page
+                .records()
+                .len()
+                .max(1)
+                .checked_mul(size_of::<GpuGradientStop>())
+                .ok_or(Error::Capacity)? as u64;
+            if [brush_bytes, record_bytes].into_iter().any(|size| {
+                size > limits.max_buffer_size || size > limits.max_storage_buffer_binding_size
+            }) {
+                return Err(Error::Capacity);
+            }
+        }
+        Ok(())
     }
 
     fn validate_geometry(&self, mesh: &Mesh, frame: Frame) -> Result<Uniforms, Error> {
@@ -337,8 +386,10 @@ impl Renderer {
         mesh: &Mesh,
         frame: Frame,
         coverage: Option<&CoverageAtlas>,
+        materials: Option<&MaterialPage>,
     ) -> Result<PreparedScene, Error> {
         let uniforms = self.validate_geometry(mesh, frame)?;
+        self.validate_materials(mesh, materials)?;
         if coverage.is_some_and(|atlas| atlas.device != self.device) {
             return Err(Error::ResourceDomain);
         }
@@ -397,6 +448,30 @@ impl Renderer {
             bytemuck::bytes_of(&uniforms),
             wgpu::BufferUsages::UNIFORM,
         );
+        let material_buffers = materials
+            .filter(|page| !page.brushes().is_empty())
+            .map(|page| {
+                let brushes = buffer(
+                    "ProGPU retained material brushes",
+                    bytemuck::cast_slice(page.brushes()),
+                    wgpu::BufferUsages::STORAGE,
+                );
+                let records = buffer(
+                    "ProGPU retained material auxiliary records",
+                    if page.records().is_empty() {
+                        &[0; 32]
+                    } else {
+                        bytemuck::cast_slice(page.records())
+                    },
+                    wgpu::BufferUsages::STORAGE,
+                );
+                (brushes, records)
+            });
+        let (brushes, records) = material_buffers
+            .as_ref()
+            .map_or((&self.brush, &self.stops), |(brushes, records)| {
+                (brushes, records)
+            });
         let bindings = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ProGPU immutable scene bindings"),
             layout: &self.pipeline.get_bind_group_layout(0),
@@ -407,11 +482,11 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: self.brush.as_entire_binding(),
+                    resource: brushes.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: self.stops.as_entire_binding(),
+                    resource: records.as_entire_binding(),
                 },
             ],
         });
@@ -426,6 +501,11 @@ impl Renderer {
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
                 uniform_bytes: size_of::<Uniforms>() as u64,
+                material_bytes: material_buffers
+                    .as_ref()
+                    .map_or(0, |(brushes, records)| brushes.size() + records.size()),
+                material_brushes: materials.map_or(0, |p| p.brushes().len() as u32),
+                material_records: materials.map_or(0, |p| p.records().len() as u32),
                 draws: u32::from(index_count != 0),
                 rasterized_paths: coverage.map_or(0, |a| a.tiles().len() as u32),
                 atlas_bytes: coverage.map_or(0, |a| {

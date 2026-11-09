@@ -10,6 +10,10 @@ window.progpuReady = (async () => {
     height: Math.round(canvas.clientHeight * devicePixelRatio), dpi: devicePixelRatio });
   let size = dimensions();
   const renderer = await create_renderer(canvas, size.width, size.height, size.dpi);
+  if (new URLSearchParams(location.search).get('scene') === 'materials') {
+    renderer.select_material_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   // Serialize mutable WASM borrows across asynchronous preparation and tests.
   let tail = Promise.resolve();
   const exclusive = action => {
@@ -28,7 +32,7 @@ window.progpuReady = (async () => {
       }
       renderer.draw();
       const m = renderer.metrics();
-      status.textContent = `${m.width} × ${m.height} · ${m.draws} draw · ${m.pathRasters} shared paths`;
+      status.textContent = `${m.width} × ${m.height} · ${m.draws} draw · ${m.pathRasters} shared paths · ${m.materialBrushes} materials`;
     });
     requestAnimationFrame(frame);
   }

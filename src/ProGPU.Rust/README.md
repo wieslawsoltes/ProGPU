@@ -33,7 +33,8 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Stroke geometry | Original bounded cap/join writers, separate generic/clipped-Miter/WPF semantics, solid/dashed line-only widening, gap/closed-seam traversal and matching triangle hit tests | Source float/topology/capacity/rejection/performance controls, owning API curve/frame contracts and final GPU paint integration |
 | Geometry hit queries | Original line/rectangle/ellipse fill and stroke tests, path fill with polynomial/rational/arc samples, relative/absolute tolerance, boundary/winding and both deferred operands | Complete source query/admission/default-runtime controls; these input queries do not qualify raster coverage |
 | Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and retained painter integration |
-| Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, material compilation, images/effects/interception and full stroke/render pixels |
+| Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, images/effects/interception and full stroke/render pixels |
+| Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
 
 At the user's request, implementation proceeds in connected batches with
@@ -104,8 +105,8 @@ subcurve spans with exact source dash state and independent stroke flags.
 `Brush`/`Pen` retain the non-image source material families, original constructor
 admission, independent join policies and double dash intervals. These are
 production input records/utilities, not yet a complete vector renderer. Boolean
-paint integration, final SVG layer replay, material GPU
-compilation and image/effect contracts remain unfinished. Matched source/default-
+paint integration, final SVG layer replay, complete compositing and image/effect
+contracts remain unfinished. Matched source/default-
 runtime floating-point, runtime/browser, quality and performance gates are
 deferred. Explicit nonprogress rejection replaces malformed source loops; see
 the source/ownership/difference ledger in DESIGN.md.
@@ -138,12 +139,26 @@ submission-owned resources. Unsupported forced execution modes reject. These
 new paths have static checks only; original runtime, pixel, performance and
 package qualification remains outstanding.
 
+`MaterialTable` ports original managed brush registration, including ordered
+first-equal lookup, unchanged stop order, source capacity fallbacks, independent
+opacity, exact hatch/path/tile packing and a bounded retained Perlin table cache.
+`snapshot` returns immutable `MaterialPage` records; `clear` retains allocations
+and noise tables. `Scene::draw_material_analytic` takes the actual source center
+for the local brush frame; `draw_material_path` retains source coordinates
+independently of atlas UVs. `MaterialPaint` owns the brush and semantic opacity.
+`compile_with_materials` allows CPU callers to reuse table/cache storage, and the
+renderer reuses it internally. Prepared scenes own immutable material bindings
+and report actual uploaded bytes/brushes/records; replay performs no uploads.
+These integrations and the gallery below have compile/static checks only.
+
 Run `cargo test --locked` and `cargo clippy --all-targets -- -D warnings`.
 The CPU geometry API also builds with `--no-default-features`.
 
 ```sh
 # Desktop window (add -- --frames 4 for a bounded presentation smoke test)
 cargo run --locked --features window --example winit
+# Shared authored gallery: all eleven non-image materials and painted paths
+cargo run --locked --features window --example winit -- --materials
 # Actual adapter pixels and lifetime checks; missing adapters fail this gate
 cargo test --locked --test gpu_rendering -- --ignored --nocapture
 # Original C++ byte-level differential oracle (requires clang++ and checkout)
@@ -250,8 +265,12 @@ winit; the browser sample uses an HTML canvas and requestAnimationFrame with the
 same renderer and scene. It serializes asynchronous preparation, physical resize
 and tests so mutable WASM borrows cannot overlap. Readback is confined to the
 validation bridge; normal canvas replay performs one retained draw.
+Add `?scene=materials` to select the same authored gallery as winit's `--materials`.
+It exposes material upload/record counts and uses the same retained renderer.
+Its source comparisons and native/browser runtime execution are deferred.
 
-The browser gate compiles all six canonical shader compositions and checks
+The current browser harness includes all eight canonical shader compositions;
+expanded runtime compilation is deferred. Earlier six-module checkpoints checked
 204,800 authored pixels across DPR 1 and 2, including three physical scene DPIs,
 all thirteen grayscale contrast values, cold/warm equality, later-generation
 retirement, resize, and zero-extent suspension/resume. It also requires actual

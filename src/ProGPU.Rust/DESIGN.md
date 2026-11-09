@@ -5389,3 +5389,109 @@ bounds and final full-frame pixels; and every original Windows/source/provider/
 application/package gate. None is qualified by successful compilation. Final
 material compilation, curved owning-API stroke lowering, retained painter/atlas
 integration, color/text/image/layer/effect drawing and release remain unfinished.
+
+## Original material registration and retained GPU integration (2026-11-09)
+
+This batch connects the original non-image brush records to canonical GPU
+material evaluation and the existing ordered analytic/path renderer. It follows
+the user's implementation-first sequence; native/WASM lint, CPU compilation and
+JavaScript syntax are checked now, while source bytes, pixels and performance
+remain unqualified. No shader, driver/compiler default or dependency changes.
+
+| Original repository source | SHA-256 | Scope |
+| --- | --- | --- |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` | GpuBrush/GpuGradientStop layout; complete non-image RegisterBrush, equality/auxiliary tails, gradient/path/hatch registration, all noise normalization/table/frequency/stitch helpers and cache limits; source analytic center/path-coordinate material payload |
+| `src/ProGPU.Backend/Shaders/RegisteredMaterialCommon.wgsl` | `b71e8b365539be20ff1f6a0a57e1ccdc364e2abec10a777e1fc436761881b10a` | Existing unchanged shared evaluator and original material wire layouts |
+| `src/ProGPU.Backend/Shaders/Vector.wgsl` | `6d2d92d59341ea91dc33f851c08467f4b4dcd7f270b5f1f638b9f45006e481ed` | Existing unchanged analytic/path source brush coordinates, derivatives, solid-color selection and fragment evaluation |
+
+`vector/material.rs` preserves exact 256-byte brushes and 32-byte auxiliary
+records with explicit zero padding and compile-time offsets. All eleven original
+non-image kinds retain their actual wire values (hatch set 8, tile 9 and path
+gradient 10). Brush opacity multiplies original semantic opacity once; no clamp,
+premultiplication, coordinate inverse or stop sorting is introduced. Coordinate
+transport selects the original six XY components from the retained full matrix.
+Independent spread/interpolation and conical outside-color flags remain exact.
+
+Registration preserves source first-equal order, ordinary float equality, inline
+colors/offsets, auxiliary equality only for the original six record-backed kinds,
+and the tile high word's independent equality. Candidate records are trimmed
+after duplicate selection or brush capacity fallback. Limits remain 8,192 brushes
+and 65,536 shared records. Ordinary gradients retain the source available-stop
+truncation and inline missing-offset defaults. Hatch sets retain all-or-nothing
+four-record packing per family, with actual signed dashes and zero-filled unused
+slots. Failed hatch capacity returns the original zero index. Path gradients keep
+whole-point/color/curve/affine admission before append, paired point/color records,
+independent preset versus blend curves and original transparent-solid fallback.
+The original affine check deliberately does not inspect M33/M43; no stronger generic
+matrix gate is substituted. Typed enums and owned arrays exclude undefined enum
+values and null mutable stop arrays; empty arrays retain their actual source route.
+
+Perlin registration retains octave clamping, normalized seed identity, original
+tile frequency rounding/stitch data and selection of the original shader fallback
+when 512 table records cannot fit. Deduplication precedes table lookup exactly as
+in the source. The 16-seed cache clears as a whole only before a missing-seed insert
+at capacity, and survives frame-table clear. The original dependent random sequence,
+four-channel inventory, full-256 shuffle selection, permutation, component division
+and 16-bit gradient quantization remain ordered. Small scratch arrays are stack
+owned; final tables have immutable shared ownership. Noise evaluation stays on the
+GPU, with no CPU pixel generation or texture approximation.
+
+Seed normalization retains source double truncation, explicit Int32 boundary
+branches, signed remainder and final integer range. Rust's NaN-to-zero integer
+cast matches the current [.NET documented conversion contract](https://learn.microsoft.com/en-us/dotnet/core/compatibility/jit/9.0/fp-to-integer).
+This public contract reference is not runtime implementation source or execution
+evidence. Every original/default-runtime seed, Vector2 length, arithmetic and
+quantized-table byte control remains mandatory.
+
+`MaterialTable::snapshot` owns immutable Arc inventories, separate from mutable
+frame scratch and retained seed cache. Later clear/reuse cannot mutate an existing
+page. Checked allocation errors roll back the current request's record tail;
+source capacity behavior itself stays distinct from allocation failure. This
+ownership differs from mutable managed list/pool mechanics and requires complete
+allocation/reuse/performance controls before equivalence claims.
+
+Scene recording retains actual immutable source brushes and semantic opacity.
+Analytic material calls require the actual source center, avoiding reconstruction
+from rounded extents or transformed positions; original solid colors and non-solid
+center payloads remain distinct. Path materials keep the original white/solid
+color payload and use retained source coordinates, never atlas UVs. Material
+identity is independent of mask raster identity, so differently painted uses can
+share original coverage. The existing painter order and path phase/sampling remain.
+Mixed legacy/native vertex-color scenes reserve their existing unit-opacity solid
+binding before material registration, so table exhaustion cannot reinterpret old
+draws through a non-solid first record. All-material scenes preserve the original
+registration order. This explicit integration reservation is not a claim of byte-
+identical whole-managed-compositor pages. Legacy-only scenes keep shared default
+bindings and incur no material uploads.
+
+CPU callers can reuse `compile_with_materials`; renderer-owned table/cache storage
+is likewise reused between preparations. Compilation failures may leave scratch
+records but publish no scene. Frozen CPU pages can be prepared on separate actual
+devices because they own only records. GPU preparation validates exact integer
+material indices and actual device buffer/binding limits before optional path GPU
+work, creates independent immutable brush/record buffers and binds them with the
+actual frame. A single zero record satisfies an empty auxiliary binding. The
+prepared bind group retains the buffers through submission; no explicit destroy,
+poll, finalizer lock or global-context lookup is added. Later preparation cannot
+rewrite an earlier scene's material storage. Actual material bytes include the
+empty binding placeholder; brush/record counts exclude it. Replay still uses one
+ordered indexed draw with no material upload or CPU readback.
+
+The shared authored material gallery covers all eleven non-image kinds, semantic
+opacity, transformed source coordinates, mixed legacy drawing and repeated painted
+paths. winit selects it with `--materials`; the browser uses `?scene=materials`.
+Browser selection takes effect on the next serialized resize, retaining the old
+prepared generation until replacement. Original default sample/gate inputs remain.
+Native/WASM compilation does not prove this new gallery rendered correctly; it is
+ready for the consolidated runtime pass, not a substituted source oracle.
+
+Required gates include complete original brush/auxiliary bytes and first-equal
+identity, raw/nonfinite/empty/signed-zero inputs, all capacity/fallback/truncation
+boundaries, path-gradient admission, every hatch/tile/noise record, seed cache
+clear/reuse, original default-runtime float behavior, material/source coordinate
+frames and opacity, all gradient duplicates/spreads/color spaces, analytic/path
+pixels, CPU/GPU generation retention and cancellation/failure, actual cold/warm
+uploads, native/browser DPI/resize/loss, allocator and throughput/frame baselines,
+and original source/provider/application/package qualification. Image/effect and
+intercepted brushes, full retained stroke/path/SVG/text painting, layers/masks/
+compositing, scene cache/archives and platform/release gates remain unfinished.

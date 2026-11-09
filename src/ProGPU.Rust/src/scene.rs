@@ -17,8 +17,10 @@ use crate::{
     Error,
     geometry::{Affine, AnalyticPrimitive, Mesh, VectorVertex},
     path::{Path, RasterRequest},
+    vector::{Brush, BrushKind, MaterialPage, MaterialTable},
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Native path sampling and optional explicit source grayscale contrast.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -76,10 +78,31 @@ pub struct PathDraw {
     pub sampling: PathSampling,
 }
 
+/// Immutable source brush and independent semantic draw opacity. Recording
+/// keeps raw opacity; original material registration performs the multiplication.
+#[derive(Clone, Debug)]
+pub struct MaterialPaint {
+    /// Actual retained source brush generation.
+    pub brush: Arc<Brush>,
+    /// Original ancestor/draw opacity, independent of brush opacity.
+    pub semantic_opacity: f32,
+}
+impl MaterialPaint {
+    /// Retain a source brush with unit semantic opacity.
+    pub fn new(brush: Arc<Brush>) -> Self {
+        Self {
+            brush,
+            semantic_opacity: 1.0,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 enum Command {
     Analytic(AnalyticPrimitive),
     Path(PathDraw),
+    MaterialAnalytic(AnalyticPrimitive, MaterialPaint),
+    MaterialPath(PathDraw, MaterialPaint),
 }
 
 /// Ordered retained commands; no GPU work occurs while recording or compiling.
@@ -104,6 +127,44 @@ impl Scene {
         self.commands.push(Command::Path(draw));
         Ok(())
     }
+    /// Retain an analytic draw with original material semantics. The caller
+    /// supplies the actual source shape center used by the shader's local brush
+    /// frame, avoiding reconstruction from rounded bounds or transformed points.
+    /// Solid brushes supply vertex color; other brushes encode this center.
+    pub fn draw_material_analytic(
+        &mut self,
+        mut primitive: AnalyticPrimitive,
+        paint: MaterialPaint,
+        source_center: [f32; 2],
+    ) -> Result<(), Error> {
+        primitive.color = match paint.brush.kind {
+            BrushKind::Solid(color) => color,
+            _ => [source_center[0], source_center[1], 0.0, 0.0],
+        };
+        let [_, minimum] = primitive.transform.scales()?;
+        primitive.vertices(1.5 / minimum)?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands
+            .push(Command::MaterialAnalytic(primitive, paint));
+        Ok(())
+    }
+    /// Retain a path material independently of its raster identity. Original
+    /// source coordinates remain in shape_size, so materials never sample the
+    /// atlas UV frame. The material supplies the original solid/white payload.
+    pub fn draw_material_path(
+        &mut self,
+        mut draw: PathDraw,
+        paint: MaterialPaint,
+    ) -> Result<(), Error> {
+        draw.color = match paint.brush.kind {
+            BrushKind::Solid(color) => color,
+            _ => [1.0; 4],
+        };
+        validate_path_draw(&draw)?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::MaterialPath(draw, paint));
+        Ok(())
+    }
     /// Number of retained source commands.
     pub fn len(&self) -> usize {
         self.commands.len()
@@ -117,20 +178,41 @@ impl Scene {
         self.commands.clear();
     }
 
-    /// Compile one immutable generation at the actual target DPI. O(C + P)
-    /// expected work and storage for C commands and P distinct raster requests;
-    /// source segment arrays remain shared. Native atlas limits remain in force.
+    /// Compile one immutable generation at the actual target DPI. Geometry takes
+    /// expected O(C + P) work for C commands and P distinct raster requests;
+    /// materials add the original first-equal registration cost. Source segment
+    /// arrays remain shared. Native atlas limits remain in force.
     pub fn compile(&self, dpi_scale: f32) -> Result<CompiledScene, Error> {
+        self.compile_with_materials(dpi_scale, &mut MaterialTable::default())
+    }
+
+    /// Compile using a reusable original material table/noise cache. Its frame
+    /// records are cleared first; the returned snapshot cannot be changed by
+    /// later reuse. Failure can leave partial scratch records, never a published
+    /// scene. Material registration retains its original O(C*B + S) first-equal
+    /// search for C commands, B brushes and S compared/emitted auxiliary records.
+    pub fn compile_with_materials(
+        &self,
+        dpi_scale: f32,
+        materials: &mut MaterialTable,
+    ) -> Result<CompiledScene, Error> {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
         }
+        materials.clear();
+        let has_materials = self.commands.iter().any(|command| {
+            matches!(
+                command,
+                Command::MaterialAnalytic(..) | Command::MaterialPath(..)
+            )
+        });
         let mut rasters = Vec::new();
         let mut retained = HashMap::new();
         let mut placements = Vec::with_capacity(self.commands.len());
         for command in &self.commands {
             match command {
-                Command::Analytic(_) => placements.push(None),
-                Command::Path(draw) => {
+                Command::Analytic(_) | Command::MaterialAnalytic(..) => placements.push(None),
+                Command::Path(draw) | Command::MaterialPath(draw, _) => {
                     let placement = Placement::new(draw, dpi_scale)?;
                     let key = RasterKey {
                         source: draw.path.identity(),
@@ -152,18 +234,48 @@ impl Scene {
         let layout = AtlasLayout::new(rasters.iter().map(|(_, request)| request.size))?;
         let mut mesh = Mesh::default();
         let mut exact_loads = 0;
+        let legacy_solid = Brush::default();
+        // A mixed native scene reserves its existing unit-opacity vertex-color
+        // binding first. Original capacity fallback then cannot turn a legacy
+        // draw into whichever non-solid source material happened to come first.
+        let legacy_index = if has_materials
+            && self
+                .commands
+                .iter()
+                .any(|command| matches!(command, Command::Analytic(_) | Command::Path(_)))
+        {
+            materials.register(Some(&legacy_solid), 1.0)?
+        } else {
+            0
+        };
         for (command, placement) in self.commands.iter().zip(placements) {
+            let brush_index = match command {
+                Command::MaterialAnalytic(_, paint) | Command::MaterialPath(_, paint) => {
+                    materials.register(Some(&paint.brush), paint.semantic_opacity)?
+                }
+                // Legacy draws keep their vertex colors and unit opacity even
+                // when material zero happens to be a non-solid source brush.
+                _ => legacy_index,
+            } as f32;
             match command {
-                Command::Analytic(primitive) => {
+                Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
                     // Original native analytic execution expands in the local
                     // affine frame; DPI belongs to the final projection.
                     let padding = 1.5 / minimum;
-                    mesh.push(primitive, padding)?;
+                    let mut vertices = primitive.vertices(padding)?;
+                    for vertex in &mut vertices {
+                        vertex.brush_index = brush_index;
+                    }
+                    mesh.push_quad(vertices)?;
                 }
-                Command::Path(draw) => {
+                Command::Path(draw) | Command::MaterialPath(draw, _) => {
                     let (index, placement) = placement.ok_or(Error::InvalidInput)?;
-                    let vertices = placement.vertices(draw, layout.origins[index], dpi_scale)?;
+                    let mut vertices =
+                        placement.vertices(draw, layout.origins[index], dpi_scale)?;
+                    for vertex in &mut vertices {
+                        vertex.brush_index = brush_index;
+                    }
                     exact_loads += u32::from(vertices[0].stroke_thickness < 0.0);
                     mesh.push_quad(vertices)?;
                 }
@@ -183,6 +295,7 @@ impl Scene {
             layout,
             dpi_scale,
             exact_loads,
+            materials: materials.snapshot()?,
         })
     }
 }
@@ -195,6 +308,7 @@ pub struct CompiledScene {
     pub(crate) layout: AtlasLayout,
     dpi_scale: f32,
     exact_loads: u32,
+    materials: MaterialPage,
 }
 
 impl CompiledScene {
@@ -217,6 +331,10 @@ impl CompiledScene {
     /// Number of path draws admitted to exact integer texel loads.
     pub fn exact_path_draws(&self) -> u32 {
         self.exact_loads
+    }
+    /// Immutable exact registered-material generation for this ordered scene.
+    pub fn materials(&self) -> &MaterialPage {
+        &self.materials
     }
 }
 

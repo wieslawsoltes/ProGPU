@@ -5,6 +5,9 @@
 #[path = "support/font_scene.rs"]
 mod font_scene;
 #[cfg(target_arch = "wasm32")]
+#[path = "support/material_scene.rs"]
+mod material_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/sample_scene.rs"]
 mod sample;
 
@@ -1642,6 +1645,7 @@ mod web {
         config: wgpu::SurfaceConfiguration,
         renderer: Renderer,
         scene: Option<PreparedScene>,
+        material_scene: bool,
         validation: Option<Renderer>,
         frames: u32,
         capture_complete: Option<Arc<AtomicBool>>,
@@ -1708,6 +1712,7 @@ mod web {
             config,
             renderer,
             scene: None,
+            material_scene: false,
             validation: None,
             frames: 0,
             capture_complete: None,
@@ -1731,6 +1736,13 @@ mod web {
         pub fn adapter_info(&self) -> String {
             format!("{:?}", self.adapter.get_info())
         }
+        /// Select the shared authored material gallery for the next resize.
+        /// The current prepared generation remains active until that completes.
+        pub fn select_material_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.material_scene = enabled;
+            Ok(())
+        }
         /// Prepare a new physical frame; zero extents suspend presentation.
         pub async fn resize(&mut self, width: u32, height: u32, dpi: f32) -> Result<(), JsValue> {
             self.ensure_live()?;
@@ -1738,7 +1750,12 @@ mod web {
                 self.scene = None;
                 return Ok(());
             }
-            let source = sample::sample_scene().map_err(error)?;
+            let source = if self.material_scene {
+                super::material_sample::material_scene()
+            } else {
+                sample::sample_scene()
+            }
+            .map_err(error)?;
             let scene = self
                 .renderer
                 .prepare_scene(
@@ -1829,6 +1846,9 @@ mod web {
                 for (name, value) in [
                     ("geometryBytes", m.geometry_bytes as f64),
                     ("uniformBytes", m.uniform_bytes as f64),
+                    ("materialBytes", m.material_bytes as f64),
+                    ("materialBrushes", m.material_brushes as f64),
+                    ("materialRecords", m.material_records as f64),
                     ("draws", m.draws as f64),
                     ("pathRasters", m.rasterized_paths as f64),
                     ("atlasBytes", m.atlas_bytes as f64),
