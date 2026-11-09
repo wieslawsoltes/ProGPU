@@ -13,6 +13,7 @@ use std::sync::Arc;
 mod edit;
 mod interaction;
 mod shaping;
+pub mod styled;
 pub use edit::TextEditInteractionSnapshot;
 pub use interaction::{
     TextBounds, TextCaretStop, TextClusterHitTestResult, TextHitTestResult, TextInteractionSnapshot,

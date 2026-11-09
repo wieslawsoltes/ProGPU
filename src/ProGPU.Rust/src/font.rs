@@ -21,6 +21,10 @@ mod managed_font;
 mod managed_variations;
 mod names;
 mod outline;
+mod raster_recommendations;
+pub use raster_recommendations::{
+    FontRasterizationRange, FontRasterizationRecommendations, read_rasterization_recommendations,
+};
 mod variations;
 mod vertical;
 pub use composite::{

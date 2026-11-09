@@ -4587,3 +4587,101 @@ throughput, allocation, sustained frames, package/source/application qualificati
 and historical default-compiler/browser failures remain open. Styled text,
 system discovery/resident fallback, GPU text and the rest of the engine remain
 unfinished.
+
+## Styled paragraph writer and static raster recommendations (2026-11-09)
+
+This batch continues the requested implementation-first cadence. Native all-target,
+all-feature compilation and strict Clippy pass; formatting and whitespace pass.
+Complete differential, browser, performance, Instruments and package cycles are
+deferred. Neither this batch nor the preceding connected text batches are
+parity-qualified.
+
+| Original in-repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Text/StyledTextLayout.cs` | `18412d80ebb95b0f7be9a896e142824b020205df8474fb1c73389c4dfa3a1307` | Complete constructor/validation, style and box maps, paragraph selection, fallback-aware shaping, safe wrapping, visual grouping, placement, tabs, justification and original output records |
+| `src/ProGPU.Text/TtfFont.RasterizationRecommendations.cs` | `976729eb9f50a6db3132364b9b01abb2443658193de03df862260393d58d5647` | Exact static TrueType query, raw selected-face directory/duplicate/extent checks and raw fvar exclusion |
+| `src/ProGPU.Text/SfntRasterizationRecommendations.cs` | `348b0f7f57905adf0a10b3018f4b56bcb8c50141060f32670f70fd4bec3a5224` | Complete gasp range validation, version-dependent independent flags, exact first-applicable selection and missing-coverage distinction |
+
+These are direct ports of original ProGPU-owned source under handbook A-1. No
+third-party text implementation, generated shaping machine or foreign layout
+structure was used. The previously recorded public architecture research remains
+applicable. The platform discovery/resident font resolver and GPU glyph atlas are
+still separate unfinished subsystems.
+
+`text::layout::styled::StyledTextLayout` retains its complete immutable UTF-16,
+style partition, inline-box inventory, paragraph request and explicit Unicode
+profiles. Original options and whole UTF-16 admission precede style/box/paragraph
+preflight and all fallback/shaping callbacks. Style ranges must cover the entire
+source without splitting a surrogate pair; empty text has exactly one zero-length
+default range. Every U+FFFC has exactly one finite nonnegative inline object, with
+caller object order/tag preserved independently of physical output order. Typed
+alignment enums exclude undefined values at the Rust API boundary.
+
+The styled writer retains distinct original semantics from basic TextLayout:
+LF-only paragraph boundaries, strict source encoding, exact paragraph-start
+selection (no previous-record inheritance), NBSP whitespace participation and
+four tab alignments. First-line/left/right indents, before/after spacing and
+minimum/exact line height preserve source operation order. Line metrics use the
+actual selected font, font size and baseline shift; width scaling affects glyph
+X offsets, while advances use width times tracking. Baseline shift is applied
+separately to output Y. Layout metadata does not itself realize scaled glyph
+textures or claim rendered text pixels.
+
+Each paragraph resolves bidi before style/font partitioning. Missing scalars use
+the explicit shared fallback boundary; default ignorables retain the preceding
+selected font within the original segment. Context views retain the actual
+paragraph owner and original BOT/EOT flags. Per-run shaping direction comes from
+the resolved level, independently of the requested paragraph base direction.
+RTL logical restoration reverses cluster groups, retaining glyph order inside
+each group. Wrapped trailing-whitespace groups reset for L1 before original L2.
+Source font owners survive the resolver and every output generation.
+
+Safe wrapping retains whitespace/preceding-safe/emergency-forward choices.
+Logical tab fitting inspects the remaining logical paragraph field; placement
+recomputes tabs over the actual visual line. Custom stops remain strictly ordered
+absolute coordinates. Center/right/decimal field measurement preserves first
+period/comma/space selection, subsequent-tab termination, rejection of negative
+advances and original repeating interval fallback. Tabs move the pen and emit
+neither glyph nor object. Justification counts entire non-tab whitespace groups,
+including a trailing group, and distributes remaining space only on non-final
+lines. Original recorded-width arithmetic is retained even when there are no
+expandable gaps. Blank/trailing rows and exact line spacing preserve independent
+maximum-bottom tracking.
+
+Rust uses a typed glyph-or-object candidate rather than a nullable font and
+sentinel glyph identity. Visual-order arrays reference original candidates, so
+line reordering does not duplicate font ownership. Inputs and tab inventories
+are immutable owned arrays. `reflow` constructs a complete new generation and
+leaves the previous one unchanged on failure. The original StyledTextLayout has
+no basic TextInteractionSnapshot producer; this batch does not fabricate such
+geometry from glyph output after tabs/justification have been lowered.
+
+Storage is O(T+G+B+L), with complete style/box maps and retained output. Source
+run, pen, wrapping and group arithmetic is sequential; filling style maps uses
+slice fill, and no raster workload is moved to CPU. Bidi L2 retains O(G*levels).
+Tab fields keep the original ordered scan for each eligible custom stop, so
+adversarial tab/stop inventories retain that source cost rather than a claimed
+universal linear bound. Shaping and platform-provider costs remain independent.
+There is no new latency, memory or allocation performance claim.
+
+`read_rasterization_recommendations` validates the full original gasp inventory
+in O(R) time/O(1) scratch before publication, including later ranges after a
+match. Versions zero/one keep their allowed bits; symmetric smoothing does not
+imply grayscale. Missing tables, valid empty inventories and uncovered sizes are
+distinct from an explicit zero recommendation. The selected-font query checks
+raw directory duplicates/extents and raw fvar presence before static admission;
+an invalid ignored fvar record cannot manufacture static capability. The query
+keeps the original TrueType-only admission without importing VDMX's separate
+symbol-face restriction. It changes no normal font cache, glyph placement,
+hinting, raster target, source GDI/GDI+ policy or package qualification.
+
+Deferred controls include complete styled glyph/object/line output and float
+bits; mixed font/size/width/tracking/baseline runs; fallback context and ownership;
+all style/paragraph/box/UTF-16 rejections before callbacks; bidi, combining and
+ligature wrapping; ordinary/NBSP/trailing whitespace justification; decimal and
+repeated tabs in logical versus visual order; empty/final rows; indent exhaustion,
+exact spacing and overflow behavior; retained generations/reflow; and complete
+gasp version/range/duplicate/extent/fvar/missing-versus-zero source inventories.
+Browser, GPU text pixels, performance, original source/application/provider and
+package/release gates remain open, together with earlier compiler-float and
+hosted-browser reliability failures.

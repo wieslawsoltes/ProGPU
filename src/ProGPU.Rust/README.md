@@ -21,10 +21,11 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Managed TrueType/CFF1 outlines | Float contours, composite attachment, selected variations, managed CFF INDEX/DICT/FDSelect and Type 2 policy, owned outline/flipped caches | Original geometry/error/cache/float controls; independent legacy CFF fallback remains unfinished |
 | Managed positioning/output | Metrics/ignorables/spaces, vertical origins, GPOS, kern, marks, direction, stretch, Verify, scaled/design-unit output and typed font-face boundary | Complete original positioned records, scaling and text pixels |
 | Paragraph bidi | Original UTF-16 levels/runs, inline isolates, line L1 and cluster-group L2 visual ordering | Full managed paragraph source controls |
-| Basic paragraph writer | Original font-run shaping, ASCII path, safe wrapping, tabs, alignment, vertical columns, CRLF/blank rows and atomic reflow | Whole-layout source/browser/performance controls; styled paragraphs and system fallback providers remain unfinished |
+| Basic paragraph writer | Original font-run shaping, ASCII path, safe wrapping, tabs, alignment, vertical columns, CRLF/blank rows and atomic reflow | Whole-layout source/browser/performance controls; system fallback providers remain unfinished |
+| Styled paragraph writer | Strict source/style/inline-box admission, actual font runs, width/tracking/baseline shifts, safe wrapping, indents/spacing, four tab alignments, justification and atomic reflow | Complete styled source/browser/performance corpus, platform fallback and GPU text integration |
 | Retained text interaction | Original advance boxes, carets/affinities, hits, selection, row/vertical navigation and explicit EDIT grapheme ownership | Source controls for empty/wrapped/bidi/multi-font/malformed input and lifetime/error cases |
-| Source line metrics | Whole-inventory VDMX reader, raw-directory validation and exact immutable font/pixel-size ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
-| Other font/layout/render work | Earlier independent foundations remain available | Styled text, system discovery/resident fallback, GPU text and remaining engine stack |
+| Source font metadata | Whole-inventory VDMX/gasp readers, raw-directory validation, independent raster recommendation flags and exact immutable source line-frame ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
+| Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
 
 At the user's request, implementation proceeds in connected batches with
 compile/static checks; exhaustive differential/browser/performance/package
@@ -45,6 +46,16 @@ neighboring-context views over the original owner instead of copying a paragraph
 prefix/suffix for each font run. `SourceDeviceLineMetrics::capture` admits only
 the original exact static square-pixel VDMX frame. These new additions have
 compile/static checks only; full source differential validation is deferred.
+
+`text::layout::styled::StyledTextLayout` ports the original separate styled writer,
+including strict UTF-16, complete style partitions, U+FFFC boxes, LF-only source
+paragraphs, exact paragraph records, NBSP whitespace groups, decimal-field tabs
+and non-final-line justification. Output retains original style/font identities
+and independent glyph/box/line inventories; tabs emit no glyph. Its original
+source does not expose the basic writer's interaction snapshot API. The explicit
+`ManagedFont::static_rasterization_recommendations` query returns exact original
+gasp metadata only; missing coverage is distinct from a zero recommendation,
+and it neither selects a source rendering policy nor executes hinting.
 
 Run `cargo test --locked` and `cargo clippy --all-targets -- -D warnings`.
 The CPU geometry API also builds with `--no-default-features`.
