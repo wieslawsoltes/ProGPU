@@ -1,0 +1,32 @@
+{
+  "utc": "2026-11-09T11:00:52.972961+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-khmer-package-nucbb2z9",
+      "logical_bytes": 403746373
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2667775
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148725
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/package/progpu-0.1.0.crate",
+      "logical_bytes": 1717308
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/eng/__pycache__/progpu-capture-rust-script-properties.cpython-314.pyc",
+      "logical_bytes": 11332
+    },
+    {
+      "path": "/tmp/progpu-rust-khmer",
+      "logical_bytes": 74224121
+    }
+  ],
+  "crate_only_cargo_clean": "Removed 25312 files, 1.8GiB total",
+  "additional_logical_bytes": 482515634,
+  "preserved": "Reusable dependency build cache, .NET/wasm-bindgen tools and browser tools/downloads; compact source/browser/benchmark/package receipts retained. Source oracle and benchmark temporary directories also retire automatically."
+}

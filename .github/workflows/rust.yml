@@ -67,6 +67,7 @@ on:
       - eng/progpu-generate-rust-joining.py
       - eng/progpu-generate-rust-vowels.py
       - eng/progpu-capture-rust-script-properties.py
+      - eng/progpu-test-rust-khmer-syllables.py
       - eng/progpu-capture-rust-arabic-fallback.py
       - src/ProGPU.Text/ArabicJoiningData.Generated.cs
       - src/ProGPU.Text/UnicodeJoiningFallbackData.Generated.cs
@@ -135,6 +136,7 @@ jobs:
           python3 eng/progpu-generate-rust-joining.py --check
           python3 eng/progpu-generate-rust-vowels.py --check
           python3 eng/progpu-capture-rust-script-properties.py --check --rust
+          python3 eng/progpu-test-rust-khmer-syllables.py
           python3 eng/progpu-capture-rust-arabic-fallback.py --check
           cargo test --locked --release --no-default-features --test managed_preparation -- --include-ignored --nocapture
           cargo test --locked --release --no-default-features --test managed_script_actions -- --include-ignored --nocapture

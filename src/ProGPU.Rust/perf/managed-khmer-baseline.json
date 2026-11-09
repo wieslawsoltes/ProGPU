@@ -1,0 +1,1603 @@
+{
+  "utc": "2026-11-09T10:53:13.219193+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    3.591796875,
+    3.36669921875,
+    4.423828125
+  ],
+  "normalization_profile": 170,
+  "source_runtime": ".NET 10.0.14 macOS 26.6.0",
+  "scope": "Three rotating-order process trials; first action, five warmups, 40 samples. Actual owned buffer preparation, typed raw-record restoration, witnesses and serialization excluded. Selected production actions timed; complete 31-field records, state and source context matched. Source GC allocation counters observed; Rust allocator events and full shaping/layout/frame qualification remain open.",
+  "input_sha256": "5761697be93fb8d125411e2bb4b525a60f8e2543ca62b7e91b3f0a2da33ea5ff",
+  "output_sha256": "b22058828dba2ee485c5938873cf2fe5c69e4503c04c8b452f0ba4971cab3651",
+  "rust_binary_sha256": "e5581443a90f1a6ce01f75ad27f875c36335f8a4c8b265ce2b0ff7e44aeb7244",
+  "csharp_assembly_sha256": "9464108e26849fcb4049354ef0ea157c4cc74896c11141e27799f9eb66f055cb",
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "5e4955976371c72de3612de78b6427e6d1ef6723495639f247e8a2a1d75875a1",
+    "src/ProGPU.Rust/src/text/script_actions/joining.rs": "089c9ea67c2344f8e2fb18b29f434043c5c69d88049e1a7a8c019f8fbcec48cc",
+    "src/ProGPU.Rust/src/text/script_actions/joining_data.rs": "20ea6d3401e5c297a84cc1ca3ebe933a6291e1f4aa43bd535ba7a5e0251f35a8",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback.rs": "6acb3a16698e5de781623e37c7b392927d396e3b4ca22f7b4149042701b5ef14",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs": "7a7114d94d4a16f50cd49515112bc0fb6d27cfbe57e3f7166ec55b49fe29438f",
+    "src/ProGPU.Rust/src/text/script_actions/vowel.rs": "87706a6b7936f94eb52d824dec3823a3df3a46272872fd89f5997d7d1d841b76",
+    "src/ProGPU.Rust/src/text/script_actions/vowel_data.rs": "5f3df8634c7fb473ef34001f07c780219453c7f980d121c15c7bc9e2252a1ce7",
+    "src/ProGPU.Rust/src/text/script_actions/khmer.rs": "4ac87b5793ef3357a0f20cfd1eb23efe904397aa8e3294120877a7bc2d334bb1",
+    "src/ProGPU.Rust/src/text/script_actions/khmer_syllables.rs": "722675bcac639b4f4949da59c2ceaf179b8dd18d63f2520aff000234ccdf5f44",
+    "src/ProGPU.Rust/src/text/preparation.rs": "c6263f53b7ca626bb49c9b79ad3a60a6fea608371f6c815b8a8aa504b139ef10",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "ecc9f39b003896bc515d84e473b698ee40aeab3cda7a2b68ea21bd79b4b20546",
+    "src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs": "44144ffd64468b3f6235496829550ef3bf1cbd9056ddd6739693994544fc8ebb",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "748daebbdf81112cab3fcbb57a1772ef3ed9f3f821fc093c9579251788210cb6"
+  },
+  "workloads": [
+    {
+      "font": "full",
+      "pattern": "khmer-base",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.75,
+            "p50_us": 2.0,
+            "p95_us": 2.125,
+            "p99_us": 2.25
+          },
+          "csharp": {
+            "first_us": 1235.209,
+            "p50_us": 11.667,
+            "p95_us": 11.792,
+            "p99_us": 12.083,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.625,
+            "p50_us": 1.958,
+            "p95_us": 2.459,
+            "p99_us": 2.625
+          },
+          "csharp": {
+            "first_us": 1150.333,
+            "p50_us": 11.708,
+            "p95_us": 13.458,
+            "p99_us": 15.334,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.334,
+            "p50_us": 1.958,
+            "p95_us": 1.959,
+            "p99_us": 2.083
+          },
+          "csharp": {
+            "first_us": 1214.584,
+            "p50_us": 11.667,
+            "p95_us": 11.834,
+            "p99_us": 12.291,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-base",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 64.75,
+            "p50_us": 64.625,
+            "p95_us": 64.958,
+            "p99_us": 65.417
+          },
+          "csharp": {
+            "first_us": 445.833,
+            "p50_us": 204.5,
+            "p95_us": 228.375,
+            "p99_us": 229.625,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 60.958,
+            "p50_us": 61.459,
+            "p95_us": 61.791,
+            "p99_us": 67.458
+          },
+          "csharp": {
+            "first_us": 457.083,
+            "p50_us": 205.5,
+            "p95_us": 231.792,
+            "p99_us": 271.333,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 60.75,
+            "p50_us": 61.042,
+            "p95_us": 64.375,
+            "p99_us": 70.542
+          },
+          "csharp": {
+            "first_us": 436.292,
+            "p50_us": 203.541,
+            "p95_us": 216.084,
+            "p99_us": 236.875,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-ro",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 4.833,
+            "p50_us": 2.834,
+            "p95_us": 2.958,
+            "p99_us": 2.959
+          },
+          "csharp": {
+            "first_us": 397.625,
+            "p50_us": 26.917,
+            "p95_us": 31.5,
+            "p99_us": 45.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.041,
+            "p50_us": 2.75,
+            "p95_us": 2.833,
+            "p99_us": 2.834
+          },
+          "csharp": {
+            "first_us": 334.417,
+            "p50_us": 26.583,
+            "p95_us": 31.042,
+            "p99_us": 34.875,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.375,
+            "p50_us": 2.625,
+            "p95_us": 2.667,
+            "p99_us": 2.667
+          },
+          "csharp": {
+            "first_us": 361.458,
+            "p50_us": 27.25,
+            "p95_us": 28.042,
+            "p99_us": 35.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-ro",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 91.667,
+            "p50_us": 89.625,
+            "p95_us": 91.75,
+            "p99_us": 97.583
+          },
+          "csharp": {
+            "first_us": 6699.083,
+            "p50_us": 6438.791,
+            "p95_us": 6871.458,
+            "p99_us": 7120.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 89.667,
+            "p50_us": 90.916,
+            "p95_us": 100.958,
+            "p99_us": 103.166
+          },
+          "csharp": {
+            "first_us": 6923.125,
+            "p50_us": 6389.458,
+            "p95_us": 6693.5,
+            "p99_us": 6984.875,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 85.25,
+            "p50_us": 83.625,
+            "p95_us": 98.041,
+            "p99_us": 107.125
+          },
+          "csharp": {
+            "first_us": 6820.459,
+            "p50_us": 6498.917,
+            "p95_us": 6687.5,
+            "p99_us": 6722.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-broken",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 7.375,
+            "p50_us": 6.375,
+            "p95_us": 6.375,
+            "p99_us": 6.459
+          },
+          "csharp": {
+            "first_us": 26.542,
+            "p50_us": 21.042,
+            "p95_us": 21.667,
+            "p99_us": 26.333,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 7.375,
+            "p50_us": 6.209,
+            "p95_us": 6.375,
+            "p99_us": 6.375
+          },
+          "csharp": {
+            "first_us": 26.25,
+            "p50_us": 20.834,
+            "p95_us": 21.458,
+            "p99_us": 23.084,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 7.375,
+            "p50_us": 6.209,
+            "p95_us": 6.375,
+            "p99_us": 6.458
+          },
+          "csharp": {
+            "first_us": 27.166,
+            "p50_us": 20.875,
+            "p95_us": 21.458,
+            "p99_us": 26.833,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-broken",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3821.375,
+            "p50_us": 3720.334,
+            "p95_us": 3790.583,
+            "p99_us": 3817.25
+          },
+          "csharp": {
+            "first_us": 13622.291,
+            "p50_us": 13677.084,
+            "p95_us": 14176.542,
+            "p99_us": 15930.084,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3726.917,
+            "p50_us": 3698.666,
+            "p95_us": 3802.083,
+            "p99_us": 3877.5
+          },
+          "csharp": {
+            "first_us": 13533.709,
+            "p50_us": 13599.333,
+            "p95_us": 13996.5,
+            "p99_us": 15843.917,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3778.5,
+            "p50_us": 3689.584,
+            "p95_us": 3804.5,
+            "p99_us": 3859.625
+          },
+          "csharp": {
+            "first_us": 13711.833,
+            "p50_us": 13606.458,
+            "p95_us": 13806.25,
+            "p99_us": 15736.041,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-long-subscripts",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.75,
+            "p50_us": 1.375,
+            "p95_us": 1.375,
+            "p99_us": 1.5
+          },
+          "csharp": {
+            "first_us": 7.041,
+            "p50_us": 3.083,
+            "p95_us": 3.25,
+            "p99_us": 3.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.833,
+            "p50_us": 1.417,
+            "p95_us": 1.833,
+            "p99_us": 8.833
+          },
+          "csharp": {
+            "first_us": 6.291,
+            "p50_us": 3.084,
+            "p95_us": 3.209,
+            "p99_us": 3.375,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.833,
+            "p50_us": 1.417,
+            "p95_us": 1.417,
+            "p99_us": 1.5
+          },
+          "csharp": {
+            "first_us": 5.75,
+            "p50_us": 3.042,
+            "p95_us": 3.125,
+            "p99_us": 7.208,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-long-subscripts",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 66.458,
+            "p50_us": 56.458,
+            "p95_us": 64.083,
+            "p99_us": 71.375
+          },
+          "csharp": {
+            "first_us": 106.958,
+            "p50_us": 116.0,
+            "p95_us": 249.5,
+            "p99_us": 301.875,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 57.0,
+            "p50_us": 56.708,
+            "p95_us": 60.958,
+            "p99_us": 68.584
+          },
+          "csharp": {
+            "first_us": 106.666,
+            "p50_us": 115.75,
+            "p95_us": 235.584,
+            "p99_us": 267.083,
+            "allocated_p50_bytes": 458776.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 57.375,
+            "p50_us": 57.792,
+            "p95_us": 62.541,
+            "p99_us": 72.042
+          },
+          "csharp": {
+            "first_us": 116.208,
+            "p50_us": 115.75,
+            "p95_us": 234.709,
+            "p99_us": 251.458,
+            "allocated_p50_bytes": 458776.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-joiners",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.833,
+            "p50_us": 3.042,
+            "p95_us": 3.084,
+            "p99_us": 3.084
+          },
+          "csharp": {
+            "first_us": 37.709,
+            "p50_us": 37.834,
+            "p95_us": 41.5,
+            "p99_us": 43.333,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.75,
+            "p50_us": 2.917,
+            "p95_us": 2.917,
+            "p99_us": 2.917
+          },
+          "csharp": {
+            "first_us": 38.708,
+            "p50_us": 37.792,
+            "p95_us": 38.417,
+            "p99_us": 39.417,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.542,
+            "p50_us": 2.875,
+            "p95_us": 2.958,
+            "p99_us": 7.958
+          },
+          "csharp": {
+            "first_us": 38.333,
+            "p50_us": 38.875,
+            "p95_us": 47.5,
+            "p99_us": 56.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-joiners",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 90.292,
+            "p50_us": 96.542,
+            "p95_us": 102.875,
+            "p99_us": 108.125
+          },
+          "csharp": {
+            "first_us": 20942.291,
+            "p50_us": 21035.625,
+            "p95_us": 21351.875,
+            "p99_us": 21459.708,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 91.416,
+            "p50_us": 91.208,
+            "p95_us": 97.167,
+            "p99_us": 107.791
+          },
+          "csharp": {
+            "first_us": 21441.875,
+            "p50_us": 20956.792,
+            "p95_us": 21345.542,
+            "p99_us": 21480.875,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 91.416,
+            "p50_us": 91.375,
+            "p95_us": 104.75,
+            "p99_us": 108.833
+          },
+          "csharp": {
+            "first_us": 21270.875,
+            "p50_us": 21058.625,
+            "p95_us": 21506.375,
+            "p99_us": 21582.5,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-joined-marks",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.708,
+            "p50_us": 1.583,
+            "p95_us": 1.625,
+            "p99_us": 1.625
+          },
+          "csharp": {
+            "first_us": 6.209,
+            "p50_us": 3.375,
+            "p95_us": 3.417,
+            "p99_us": 3.5,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.792,
+            "p50_us": 1.625,
+            "p95_us": 1.625,
+            "p99_us": 1.625
+          },
+          "csharp": {
+            "first_us": 7.0,
+            "p50_us": 3.292,
+            "p95_us": 3.334,
+            "p99_us": 3.334,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.625,
+            "p50_us": 1.625,
+            "p95_us": 1.667,
+            "p99_us": 1.667
+          },
+          "csharp": {
+            "first_us": 6.083,
+            "p50_us": 3.333,
+            "p95_us": 3.334,
+            "p99_us": 3.334,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-joined-marks",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 50.583,
+            "p50_us": 50.583,
+            "p95_us": 53.917,
+            "p99_us": 59.375
+          },
+          "csharp": {
+            "first_us": 792.75,
+            "p50_us": 768.833,
+            "p95_us": 804.625,
+            "p99_us": 830.5,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 51.166,
+            "p50_us": 51.042,
+            "p95_us": 54.416,
+            "p99_us": 59.166
+          },
+          "csharp": {
+            "first_us": 781.666,
+            "p50_us": 770.542,
+            "p95_us": 799.25,
+            "p99_us": 806.417,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 52.0,
+            "p50_us": 51.792,
+            "p95_us": 51.917,
+            "p99_us": 57.125
+          },
+          "csharp": {
+            "first_us": 770.875,
+            "p50_us": 768.083,
+            "p95_us": 831.833,
+            "p99_us": 842.584,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-disabled-script",
+      "records": 128,
+      "script": "latn",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.209,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.0,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.5,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.0,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.5,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "khmer-disabled-script",
+      "records": 4096,
+      "script": "latn",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.0,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.125,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.041,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.208,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.0,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.458,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-base",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.375,
+            "p50_us": 1.875,
+            "p95_us": 1.917,
+            "p99_us": 1.958
+          },
+          "csharp": {
+            "first_us": 3.958,
+            "p50_us": 1.917,
+            "p95_us": 1.959,
+            "p99_us": 1.959,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.333,
+            "p50_us": 1.875,
+            "p95_us": 1.875,
+            "p99_us": 1.875
+          },
+          "csharp": {
+            "first_us": 3.459,
+            "p50_us": 1.917,
+            "p95_us": 2.459,
+            "p99_us": 2.666,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.916,
+            "p50_us": 1.917,
+            "p95_us": 2.459,
+            "p99_us": 2.667
+          },
+          "csharp": {
+            "first_us": 3.125,
+            "p50_us": 1.916,
+            "p95_us": 1.959,
+            "p99_us": 2.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-base",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 70.958,
+            "p50_us": 59.792,
+            "p95_us": 61.208,
+            "p99_us": 62.792
+          },
+          "csharp": {
+            "first_us": 80.791,
+            "p50_us": 64.75,
+            "p95_us": 71.75,
+            "p99_us": 76.417,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 57.25,
+            "p50_us": 58.833,
+            "p95_us": 66.75,
+            "p99_us": 73.917
+          },
+          "csharp": {
+            "first_us": 64.959,
+            "p50_us": 67.209,
+            "p95_us": 72.75,
+            "p99_us": 73.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 64.667,
+            "p50_us": 63.834,
+            "p95_us": 70.917,
+            "p99_us": 71.625
+          },
+          "csharp": {
+            "first_us": 65.458,
+            "p50_us": 64.542,
+            "p95_us": 72.083,
+            "p99_us": 77.708,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-ro",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.625,
+            "p50_us": 2.625,
+            "p95_us": 2.666,
+            "p99_us": 2.708
+          },
+          "csharp": {
+            "first_us": 11.375,
+            "p50_us": 8.375,
+            "p95_us": 8.417,
+            "p99_us": 8.458,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.5,
+            "p50_us": 2.542,
+            "p95_us": 2.584,
+            "p99_us": 2.709
+          },
+          "csharp": {
+            "first_us": 10.792,
+            "p50_us": 8.584,
+            "p95_us": 11.042,
+            "p99_us": 11.084,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 4.041,
+            "p50_us": 2.542,
+            "p95_us": 2.583,
+            "p99_us": 2.584
+          },
+          "csharp": {
+            "first_us": 11.416,
+            "p50_us": 8.583,
+            "p95_us": 11.042,
+            "p99_us": 15.75,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-ro",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 83.042,
+            "p50_us": 82.708,
+            "p95_us": 86.291,
+            "p99_us": 90.417
+          },
+          "csharp": {
+            "first_us": 6415.584,
+            "p50_us": 6273.209,
+            "p95_us": 6388.791,
+            "p99_us": 6455.75,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 82.791,
+            "p50_us": 81.042,
+            "p95_us": 86.208,
+            "p99_us": 97.083
+          },
+          "csharp": {
+            "first_us": 6253.708,
+            "p50_us": 6294.708,
+            "p95_us": 6455.791,
+            "p99_us": 6563.25,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 80.5,
+            "p50_us": 81.083,
+            "p95_us": 93.167,
+            "p99_us": 112.584
+          },
+          "csharp": {
+            "first_us": 6368.875,
+            "p50_us": 6268.375,
+            "p95_us": 6393.083,
+            "p99_us": 6453.209,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-broken",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.25,
+            "p50_us": 2.667,
+            "p95_us": 2.792,
+            "p99_us": 2.792
+          },
+          "csharp": {
+            "first_us": 6.708,
+            "p50_us": 4.917,
+            "p95_us": 4.959,
+            "p99_us": 4.959,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.25,
+            "p50_us": 2.625,
+            "p95_us": 2.667,
+            "p99_us": 2.708
+          },
+          "csharp": {
+            "first_us": 6.209,
+            "p50_us": 4.917,
+            "p95_us": 4.959,
+            "p99_us": 5.0,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.875,
+            "p50_us": 2.417,
+            "p95_us": 2.458,
+            "p99_us": 2.459
+          },
+          "csharp": {
+            "first_us": 6.042,
+            "p50_us": 4.917,
+            "p95_us": 5.0,
+            "p99_us": 5.041,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-broken",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 93.542,
+            "p50_us": 84.459,
+            "p95_us": 84.625,
+            "p99_us": 89.083
+          },
+          "csharp": {
+            "first_us": 3108.916,
+            "p50_us": 3104.25,
+            "p95_us": 3184.459,
+            "p99_us": 3206.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 86.583,
+            "p50_us": 81.208,
+            "p95_us": 87.5,
+            "p99_us": 88.792
+          },
+          "csharp": {
+            "first_us": 3181.209,
+            "p50_us": 3106.667,
+            "p95_us": 3204.5,
+            "p99_us": 3423.459,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 79.292,
+            "p50_us": 82.583,
+            "p95_us": 92.875,
+            "p99_us": 96.459
+          },
+          "csharp": {
+            "first_us": 3180.333,
+            "p50_us": 3116.542,
+            "p95_us": 3186.541,
+            "p99_us": 3234.083,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-long-subscripts",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.0,
+            "p50_us": 1.291,
+            "p95_us": 1.292,
+            "p99_us": 1.292
+          },
+          "csharp": {
+            "first_us": 4.333,
+            "p50_us": 3.0,
+            "p95_us": 3.667,
+            "p99_us": 3.75,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.792,
+            "p50_us": 1.25,
+            "p95_us": 1.25,
+            "p99_us": 1.292
+          },
+          "csharp": {
+            "first_us": 4.0,
+            "p50_us": 2.833,
+            "p95_us": 2.875,
+            "p99_us": 2.917,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.042,
+            "p50_us": 1.333,
+            "p95_us": 1.541,
+            "p99_us": 1.792
+          },
+          "csharp": {
+            "first_us": 5.084,
+            "p50_us": 2.917,
+            "p95_us": 3.083,
+            "p99_us": 3.958,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-long-subscripts",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 49.75,
+            "p50_us": 46.75,
+            "p95_us": 48.708,
+            "p99_us": 54.625
+          },
+          "csharp": {
+            "first_us": 101.0,
+            "p50_us": 102.792,
+            "p95_us": 137.625,
+            "p99_us": 155.417,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 46.708,
+            "p50_us": 45.833,
+            "p95_us": 50.792,
+            "p99_us": 58.375
+          },
+          "csharp": {
+            "first_us": 97.834,
+            "p50_us": 102.167,
+            "p95_us": 123.083,
+            "p99_us": 140.459,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 50.5,
+            "p50_us": 47.667,
+            "p95_us": 57.042,
+            "p99_us": 59.75
+          },
+          "csharp": {
+            "first_us": 98.0,
+            "p50_us": 106.875,
+            "p95_us": 127.042,
+            "p99_us": 135.083,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-joiners",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.083,
+            "p50_us": 2.833,
+            "p95_us": 2.875,
+            "p99_us": 2.875
+          },
+          "csharp": {
+            "first_us": 38.583,
+            "p50_us": 37.875,
+            "p95_us": 38.75,
+            "p99_us": 43.875,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.292,
+            "p50_us": 2.959,
+            "p95_us": 3.75,
+            "p99_us": 4.042
+          },
+          "csharp": {
+            "first_us": 37.791,
+            "p50_us": 37.791,
+            "p95_us": 38.875,
+            "p99_us": 39.375,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.625,
+            "p50_us": 2.958,
+            "p95_us": 2.959,
+            "p99_us": 3.0
+          },
+          "csharp": {
+            "first_us": 40.125,
+            "p50_us": 38.5,
+            "p95_us": 43.625,
+            "p99_us": 50.625,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-joiners",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 89.417,
+            "p50_us": 89.375,
+            "p95_us": 94.25,
+            "p99_us": 97.25
+          },
+          "csharp": {
+            "first_us": 21154.708,
+            "p50_us": 20972.25,
+            "p95_us": 21476.834,
+            "p99_us": 21588.083,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 93.292,
+            "p50_us": 93.0,
+            "p95_us": 96.333,
+            "p99_us": 101.542
+          },
+          "csharp": {
+            "first_us": 20795.75,
+            "p50_us": 20801.0,
+            "p95_us": 21071.042,
+            "p99_us": 21233.791,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 93.416,
+            "p50_us": 91.458,
+            "p95_us": 93.125,
+            "p99_us": 97.042
+          },
+          "csharp": {
+            "first_us": 21220.291,
+            "p50_us": 21093.208,
+            "p95_us": 21399.625,
+            "p99_us": 21613.417,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-joined-marks",
+      "records": 128,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 1.875,
+            "p50_us": 1.542,
+            "p95_us": 1.625,
+            "p99_us": 1.625
+          },
+          "csharp": {
+            "first_us": 6.584,
+            "p50_us": 3.291,
+            "p95_us": 3.417,
+            "p99_us": 3.5,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.166,
+            "p50_us": 1.542,
+            "p95_us": 1.584,
+            "p99_us": 1.625
+          },
+          "csharp": {
+            "first_us": 6.459,
+            "p50_us": 3.291,
+            "p95_us": 3.333,
+            "p99_us": 3.375,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.625,
+            "p50_us": 1.625,
+            "p95_us": 1.625,
+            "p99_us": 1.625
+          },
+          "csharp": {
+            "first_us": 5.75,
+            "p50_us": 3.375,
+            "p95_us": 4.166,
+            "p99_us": 4.25,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-joined-marks",
+      "records": 4096,
+      "script": "khmr",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 48.375,
+            "p50_us": 48.334,
+            "p95_us": 51.667,
+            "p99_us": 56.333
+          },
+          "csharp": {
+            "first_us": 760.166,
+            "p50_us": 755.0,
+            "p95_us": 802.334,
+            "p99_us": 806.041,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 48.792,
+            "p50_us": 48.667,
+            "p95_us": 55.125,
+            "p99_us": 61.875
+          },
+          "csharp": {
+            "first_us": 793.792,
+            "p50_us": 756.042,
+            "p95_us": 805.083,
+            "p99_us": 835.458,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 50.125,
+            "p50_us": 49.0,
+            "p95_us": 53.709,
+            "p99_us": 54.708
+          },
+          "csharp": {
+            "first_us": 784.083,
+            "p50_us": 758.5,
+            "p95_us": 792.166,
+            "p99_us": 796.667,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-disabled-script",
+      "records": 128,
+      "script": "latn",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.041,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.375,
+            "p50_us": 0.0,
+            "p95_us": 0.041,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.083,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.209,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.084,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.417,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "khmer-disabled-script",
+      "records": 4096,
+      "script": "latn",
+      "actions": [
+        69
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.042,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.041,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.25,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.083,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ]
+    }
+  ],
+  "measurement_limits": "Four disabled-script no-op workloads are at the observed 0..0.042 microsecond clock/format resolution; their relative latency is not qualified. Retain original samples and complete outputs."
+}

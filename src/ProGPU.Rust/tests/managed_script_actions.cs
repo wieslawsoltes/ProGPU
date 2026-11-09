@@ -40,6 +40,7 @@ static class Control
         var stretch=typeof(B).GetMethod("RecordArabicStretch",F)!.CreateDelegate<Action<B>>();
         var reverse=typeof(B).GetMethod("Reverse",F)!.CreateDelegate<Action<B>>();
         var vowels=typeof(B).GetMethod("ApplyVowelConstraints",F)!.CreateDelegate<Action<B,string>>();
+        var khmer=typeof(B).GetMethod("PrepareKhmerShaping",F)!.CreateDelegate<Action<B,string>>();
         var joining=typeof(B).GetMethod("AssignArabicJoiningActions",F)!.CreateDelegate<Action<B,string>>();
         var fallback=typeof(B).GetMethod("ApplyArabicFallback",F)!.CreateDelegate<Action<B,bool,TextShapingOptions>>();
         var manual=typeof(B).GetMethod("SetManualJoiners",F)!.CreateDelegate<Action<B,bool>>();
@@ -153,6 +154,7 @@ static class Control
                             case 66:syllable(buffer,0,true);break;
                             case 67:clearLookup(buffer);break;
                             case 68:vowels(buffer,script);break;
+                            case 69:khmer(buffer,script);break;
                             default:throw new InvalidDataException("action");
                         }
                     }

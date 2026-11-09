@@ -54,6 +54,7 @@ pub fn action(code: u32) -> Option<ManagedScriptAction> {
         20 => Reverse,
         21 => ArabicJoining,
         68 => VowelConstraints,
+        69 => Khmer,
         22..=28 | 32..=63 => ArabicFallback {
             enabled: code != 22,
             features: fallback_features(code),

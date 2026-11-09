@@ -9,6 +9,7 @@ use normalization::{ManagedNormalizationProfile, NormalizationForm};
 mod joining;
 pub use joining::{ManagedJoiningType, managed_joining_type};
 mod arabic_fallback;
+mod khmer;
 mod vowel;
 pub use arabic_fallback::ManagedArabicFallbackFeatures;
 
@@ -90,6 +91,8 @@ pub enum ManagedScriptAction {
     },
     /// Insert original dotted-circle records for exact prohibited vowel sequences.
     VowelConstraints,
+    /// Original Khmer category/syllable preparation, broken circles and reordering.
+    Khmer,
     /// Reverse complete original records without reconstructing clusters.
     Reverse,
 }
@@ -251,6 +254,9 @@ impl ManagedGlyphBuffer {
                 &options.post_context,
             ),
             ManagedScriptAction::VowelConstraints => vowel::apply(self, font, script)?,
+            ManagedScriptAction::Khmer => {
+                khmer::prepare(&mut self.glyphs, font, options.buffer_flags, script)?;
+            }
             ManagedScriptAction::ArabicFallback { enabled, features } => {
                 if enabled {
                     arabic_fallback::apply(self, font, features)?;

@@ -3890,3 +3890,75 @@ are zero; Rust allocator events are not measured. Host load is
 10.61/8.83/8.15. This is a new-feature observation, not an optimization or full
 shaping/layout/frame qualification. Full syllable machines, script reordering,
 source plan orchestration and all original provider/package/pixel gates remain.
+
+## Complete original Khmer preparation
+
+`ManagedScriptAction::Khmer` ports the approved original ProGPU-owned
+`OpenTypeTextShaper.GlyphSubstitutionBuffer.PrepareKhmerShaping`,
+`MarkSyllablesUnsafeToBreak`, `InsertBrokenKhmerDottedCircles`,
+`PrepareKhmerSyllable`, `MarkInteriorGlyphFlags` and `MergeCluster` behavior.
+The foreign-derived `KhmerSyllableMachineData` arrays and lexer topology are not
+read or translated. Instead, an independent ordered parser recognizes the
+language observed through the original `FindKhmerSyllables` API. The source-only
+harness invokes that method on a real owned original font/buffer and transports
+only category inputs and resulting syllable bytes. Reflection stays in the
+harness; production is typed safe Rust with no external shaping engine.
+
+[Microsoft's Khmer specification](https://learn.microsoft.com/en-us/typography/script-development/khmer)
+informs the separation of bases, subscripts, vowels/signs and later reordering.
+The original ProGPU observations refine that public grammar: ordinary letters
+admit an optional joiner-bearing modifier; placeholders do not share that
+initial allowance. The following modifier and completed subscript groups remain
+separate. The source accepts long subscript chains, ordered vowel sections,
+joiner-bearing mark runs, a distinct final coeng, and a limited late subscript.
+These observed decisions supersede assumptions from a simplified public grammar;
+there is no claim of original Microsoft shaping or pixels. The existing
+Skia/SkParagraph, DirectWrite/Direct2D/Win2D, WebRender, Vello/Parley and HarfBuzz
+architecture research continues to govern CPU text ownership versus GPU replay.
+
+The parser performs direct ordered optional matches, independently of generated
+states, transitions or action numbers. A single cached joiner-run endpoint
+prevents repeated speculative scans after a failed optional suffix. One immutable
+category pass uses O(N) work and O(1) scratch; serials cycle through 1..15 and
+each otherwise unclassified category receives its own non-cluster token.
+The parser's output is separately checked against the original API for every
+sequence through length five over all relevant categories plus a non-cluster,
+every raw-byte pair, every raw category in all three positions with two relevant
+neighbors, long runs through 4,096 units, and 16,000 deterministic randomized
+sequences. All 1,398,562 cases / 9,586,614 bytes match. No inferred automaton or
+foreign engine implementation supplies the expected outputs.
+
+The complete stage retains exact `khmr` spelling, raw Indic category defaults,
+original script-shaper writes and untouched position metadata. Unsafe flags apply
+to records whose signed cluster differs from the syllable minimum, before dotted
+insertion. Suppression and font-coverage policies retain their original ordering;
+the dotted-circle font query still runs on an empty/no-broken buffer unless the
+source suppression flag applies. Inserted records use original constructor
+fields and source cluster, and receive the original syllable/shaper/category.
+Pre-base vowels and coeng/ro pairs move as complete records. The pair's pref mask,
+post-base masks, following cfar masks and source coeng-count behavior survive;
+cluster merging extends through equal original neighbor clusters outside the
+local range. In-place rotations preserve original remove/insert ordering and all
+unrelated bits. Repeated source merges/rotations and insertions retain O(N²)
+worst-case work; no CPU raster fallback or shader-policy change is introduced.
+
+The full action corpus retains all prior 1,064,105 cases and adds 99,333 controls:
+category combinations, every buffer flag, four cluster levels, extreme signed
+clusters, multiple source/font coverage policies, exact script spelling,
+consecutive/reversed actions, original normalized/malformed UTF-16 preparation,
+all property boundaries/high aliases, 12,000 complete-record mutations and long
+serial/subscript/mark runs. Source comparison checks all 31 glyph fields, eight
+mutable states, actual source/owner/context metadata, and error continuation.
+The final no-update run matches 1,163,438 cases / 1,280,069,720 bytes. Its 1,041
+frozen original cases run under all three profiles in native and browser tests.
+
+The matched new-stage baseline covers 28 workloads in three rotating trials with
+first execution, five warmups and forty samples. Preparation, raw restoration
+and serialization are outside timers; all complete outputs match. The 24 active
+workloads have lower Rust medians. Four disabled-script no-ops are at the observed
+0..0.042 microsecond resolution (two higher Rust medians, two ties), so relative
+latency is unqualified there. Host load is 3.59/3.37/4.42. Source GC counters are
+recorded; Rust allocation events, a before/after optimization claim and complete
+shaping/layout/frame qualification remain outside this evidence. Full Indic,
+Myanmar and USE stages, ordered shaping plans, positioning initialization and
+all original provider/package/source/pixel gates remain mandatory.

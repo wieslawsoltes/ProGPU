@@ -51,6 +51,7 @@ def request(script, points, count, actions, fallback=False):
 def corpus():
     fallback_only = os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1'
     vowel_only = os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1'
+    khmer_only = os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1'
     fonts=[font(False, fallback_only),font(True)]
     header=word(len(fonts))+b''.join(word(len(f))+f for f in fonts)
     data=bytearray(header);cases=[]
@@ -88,6 +89,16 @@ def corpus():
             ('vowel-disabled-script','latn',[0x905,0x93e],[68]),
         ]
     joining_only = os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1'
+    if khmer_only:
+        patterns = [
+            ('khmer-base', 'khmr', [0x1780, 0x17b7, 0x17c6, 0x17c7], [69]),
+            ('khmer-ro', 'khmr', [0x1780, 0x17d2, 0x179a, 0x17c1, 0x17b7], [69]),
+            ('khmer-broken', 'khmr', [0x17c1, 0x17c1, 0x17c7, 0x17c6], [69]),
+            ('khmer-long-subscripts', 'khmr', [0x17d2, 0x179a, 0x17d2, 0x1780], [69]),
+            ('khmer-joiners', 'khmr', [0x200c, 0x200d], [69]),
+            ('khmer-joined-marks', 'khmr', [0x1780]+[0x200d]*15+[0x17c6, 0x17c1], [69]),
+            ('khmer-disabled-script', 'latn', [0x1780, 0x17d2, 0x179a, 0x17c1], [69]),
+        ]
     if joining_only:
         patterns = [pattern for pattern in patterns if pattern[0].startswith('joining-')]
     for index in range(len(fonts)):
@@ -95,7 +106,7 @@ def corpus():
             for count in [128,4096]:
                 data+=word(index)+request(script,points,count,actions,fallback_only)
                 cases.append(dict(font='space-only' if index else ('identity-bmp' if fallback_only else 'full'),pattern=name,records=count,script=script,actions=actions))
-    selected = patterns[0 if joining_only or fallback_only or vowel_only else 4]
+    selected = patterns[0 if joining_only or fallback_only or vowel_only or khmer_only else 4]
     profile_input=header+(word(0)+request(selected[1],selected[2],4096,selected[3],fallback_only))*20
     return data,cases,profile_input
 
@@ -160,11 +171,15 @@ def main():
                  'src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs',
                  'src/ProGPU.Rust/src/text/script_actions/vowel.rs',
                  'src/ProGPU.Rust/src/text/script_actions/vowel_data.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/khmer.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/khmer_syllables.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
             receipt['rust_before_binary_sha256'] = hashlib.sha256(Path(before).read_bytes()).hexdigest()
-        name = 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
+        if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1':
+            receipt['measurement_limits'] = 'Four disabled-script no-op workloads are at the observed 0..0.042 microsecond clock/format resolution; their relative latency is not qualified. Retain original samples and complete outputs.'
+        name = 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
         output = ROOT / 'src/ProGPU.Rust/perf' / name
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')
