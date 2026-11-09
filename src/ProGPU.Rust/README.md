@@ -54,6 +54,7 @@ python3 eng/progpu-benchmark-rust-line-break.py
 python3 eng/progpu-benchmark-rust-normalization.py
 python3 eng/progpu-benchmark-rust-normalization-profiles.py
 python3 eng/progpu-benchmark-rust-digest.py
+python3 eng/progpu-benchmark-rust-selection.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -144,6 +145,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Canonical normalization | Original frozen plan plus explicit Unicode 15.1/16.0/17.0 source profiles; native source/tail semantics and original output metadata preserved; 3,668,863 native controls, 4,476,001 managed controls on both macOS and Ubuntu, 1,181,460 profile fixture checks, 36 browser controls per DPR | Source runtime selection and full shaping integration; performance and hosted/platform qualification |
 | OpenType common tables and GDEF | Borrowed/owned coverage, classes, lazy lookup validation, GDEF classification/mark sets and exact independent blocklist; 6,415,296 native and 5,374,312 actual C# queries; 26 browser controls per DPR | Feature selection, GSUB/GPOS execution, shaping plans and full text integration |
 | Lookup accelerators | Original five-mask native and distinct three-mask managed filters; exact single coverage and owned format-3 context preparation; 39,859 C++ records / 57,233,864 bytes and 15,728,640 C# glyph queries / 201,347,072 bytes; 15 browser controls per DPR | Ordered glyph/GDEF traversal, plan integration and complete source lookup execution |
+| Native feature selection | Exact script/language fallback, required/requested/excluded features, ordered variation records and owned selections; 50,956 native controls / 7,157,396 bytes; 1,728 actual C# shared-policy controls; 16 browser checks per DPR | Additional current managed fallback/value/global policies, staged plans and GSUB/GPOS execution |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -303,3 +305,21 @@ capacities before writing. `PreparedContext` owns the selected layout/font gener
 ordered descriptors and coverage offsets/digests; its borrowed exact coverage queries
 do not reparse or copy font bytes. Full ordered glyph traversal and GDEF filtering
 remain with the future executor, rather than being inferred from these set filters.
+
+`SelectionRequest` selects the original native script/language/feature policy.
+`LayoutTable` exposes allocation-free capacity, bulk/excluded, single-feature and
+membership queries. Bulk success sorts unique IDs; single-feature success retains
+source order. Required features survive exclusions. Capacity preflight intentionally
+does not validate lookup IDs: a later invalid ID can retain the original written
+prefix on failure, while `LookupSelection::new` publishes an owned result only on
+complete success. Owned selections freeze the actual table/font generation, exact
+requested/excluded tags and normalized coordinates.
+
+Feature variations preserve first matching records, signed inclusive conditions,
+first duplicate substitutions and original malformed-record behavior. Invalid
+alternate pointers skip that feature rather than selecting its original table.
+These APIs do not select shaping defaults or translate language names. Current C#
+also has lowercase-default/Latin fallback, global-feature and value precedence
+policies; the 1,728 shared-policy comparisons do not qualify those unfinished
+paths. Rust's larger native-selection baseline is slower than C++; the compact
+receipt records that gap and the different work performed by the C# control.

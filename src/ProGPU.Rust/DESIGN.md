@@ -2212,3 +2212,100 @@ inputs, sources, binaries, timings, validation and cleanup. Source-oracle direct
 the extracted package, temporary managed/native benchmark builds and unused local
 benchmark executables are removed; active dependencies and current browser/package
 evidence remain.
+
+## Original native OpenType feature selection
+
+The complete selection implementation comes from the original
+`src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_features.cpp`, with
+`OpenTypeTextShaper.cs` used as an independent managed execution reference. The
+[OpenType common-table specification](https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2)
+informs ScriptList/LangSys/FeatureVariations fixtures. The [feature-tag contract](https://learn.microsoft.com/en-us/typography/opentype/spec/featuretags)
+and [HarfBuzz feature overview](https://harfbuzz.github.io/shaping-opentype-features.html)
+reinforce separating explicit lookup selection from script-specific activation,
+glyph eligibility and full execution. Earlier cross-engine research continues to
+govern immutable CPU preparation and later GPU realization. No foreign engine
+implementation or production reflection is added.
+
+`SelectionRequest` carries raw script/language tags, requested tags and original
+signed F2DOT14 coordinates. Native fallback selects the first exact script, then
+uppercase DFLT; an exact language falls back to default LangSys. Missing selection
+remains empty. Required features survive exclusions. Bulk APIs sort deduplicated
+IDs; the separate single-feature API excludes required features and retains source
+order. Queries reject an invalid target ID before traversing source tables.
+
+The original capacity contract is intentionally not stronger validation: it checks
+selected feature extents and bounds the sum by lookup count, but does not inspect
+individual IDs. Excluding features still requires the unexcluded capacity. A later
+invalid ID can leave the original unsorted written prefix on failure. The single-
+feature API first requires full lookup-count capacity, then preserves its original
+partial-write behavior. Unused tails are unchanged. Safe Rust borrows prevent an
+input/output alias, while complete owned candidate construction prevents publishing
+any partially selected result.
+
+Feature variations retain ordered first-match conditions and signed inclusive
+axis bounds. Invalid conditions do not match. A matching null substitution stops
+search; an unsupported substitution version continues to the next record, while a
+truncated selected substitution disables substitutions. Duplicate feature entries
+select the first original record. An invalid alternate pointer skips that feature
+entirely; it must not fall back to the original table. An alternate with a readable
+header but truncated lookup inventory remains an error. All arithmetic uses checked
+offsets, including the wasm32 paths, without clamping coordinates or changing source
+conditions.
+
+`LookupSelection` retains the exact `OwnedLayoutTable` and selected font generation,
+requested/excluded tag inventories, raw coordinates and final sorted lookup IDs.
+Its immutable result survives caller source/option disposal. Independent zero and
+negative coordinate selections retain different original variation results; no
+process-wide coordinate or policy cache is introduced. Caller-buffer operations
+allocate nothing, while owned construction uses O(F+E+A+L) storage for feature,
+exclusion, axis and selected-lookup inventories. Original linear tag searches and
+duplicate scans retain their quadratic worst cases. Per-feature decisions depend
+on ordered source and output state; this layer is CPU shaping preparation, not a
+parallel rendering fallback.
+
+The unchanged default-compiler C++ oracle passes **50,956 records / 7,157,396 exact
+bytes**, including 25,000 deterministic mutations, every prefix, missing/default/
+duplicate scripts, required/excluded features, raw coordinates, malformed variation
+records, capacity order and every output tail. The actual compiled C# enabled-lookup
+method passes **1,728 shared-policy records / 43,248 bytes**, using actual TtfFont
+instances and original WithVariations normalization. Every requested normalized
+coordinate is read back through the original font query and compared before lookup
+results. Test-only typed delegates call the actual private method; no translated
+managed oracle or fabricated font-normalization callback is used.
+
+That managed comparison covers the common admitted policy, not the full current
+managed selector. C# separately supports lowercase-default/Latin fallback, different
+duplicate history, language-name mapping, global-feature eligibility, feature-value
+precedence and malformed-source behavior. Those policies, staged shaping plans and
+GSUB/GPOS execution remain work to port. The native API is explicitly documented as
+native policy rather than relabeled as current complete managed shaping.
+
+Sixteen browser controls per DPR preserve sorted and source-order results, required
+features, capacity/failure prefixes, retained options and 32-bit extreme variation
+offsets. They pass alongside 204,800 offscreen pixels, all six canonical shaders,
+resize and both actual presented canvases. Strict native/WASM Clippy passes; fresh
+extracted native all-target/all-feature and WASM checks pass from empty targets with
+exact production/resource/license bytes. All-feature tests pass 65 with 36 explicit
+source/GPU controls ignored by the aggregate; source controls run separately.
+
+Eight baseline workloads match lookup counts/hashes for Rust, original C++ and the
+actual managed enabled-lookup method. Five warmups and forty rounds retain original
+compiler/JIT defaults. Rust/C++ reuse output buffers and perform no timed allocation;
+managed execution additionally produces value/ownership metadata, attempts optional
+accelerators and allocates. Its measured allocation is reported, but the work is not
+equivalent and cannot establish a cross-language speedup. At 512 features, native
+selection returns 1,536 IDs in p50 144.458 µs Rust / 83.750 µs C++; the managed method
+is 2649.800 µs with 8,750,688 allocated bytes per call. With a selected variation,
+1,535 IDs take 145.333 / 96.334 / 2795.100 µs respectively. Rust is slower in the
+larger native workloads. Load was 36.80/38.70/25.28 with compiler activity, so these
+are diagnostic observations, not stable regression or full-shaping qualification.
+Further performance work requires matched Instruments and representative final
+shaping workloads. Reproduction: `eng/progpu-benchmark-rust-selection.py`; compact
+inputs, binary/source hashes, quantiles and cleanup are in `perf/selection-*.json`.
+
+Hosted follow-up for the preceding lookup-filter commit `40c695980` (Rust run
+42538980147) passes Linux's complete source/oracle/package lane, Windows portable
+and Linux GPU/winit. The actual 57,233,864-byte native and 201,347,072-byte managed
+filter comparisons pass there, followed by all normalization gates. Original and
+diagnostic browser gates still report final DPR 2 device loss; macOS is cancelled.
+This does not qualify the current selection changes or close browser reliability.

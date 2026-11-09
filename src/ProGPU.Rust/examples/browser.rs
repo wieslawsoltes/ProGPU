@@ -782,6 +782,65 @@ mod web {
         }
         Ok(result)
     }
+    /// Run original feature selection with a retained immutable source/policy.
+    #[wasm_bindgen]
+    pub fn select_layout(
+        bytes: Vec<u8>,
+        script: u32,
+        language: u32,
+        features: Vec<u32>,
+        excluded: Vec<u32>,
+        coordinates: Vec<i16>,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{Tag, layout::*};
+        let tags: Vec<_> = features.into_iter().map(Tag).collect();
+        let excluded: Vec<_> = excluded.into_iter().map(Tag).collect();
+        let request = SelectionRequest {
+            script: Tag(script),
+            language: Tag(language),
+            features: &tags,
+            coordinates: &coordinates,
+        };
+        let selection = LookupSelection::new(
+            OwnedLayoutTable::new(bytes).map_err(error)?,
+            request,
+            &excluded,
+        )
+        .map_err(error)?;
+        let retained = selection.clone();
+        drop(selection);
+        drop(tags);
+        drop(excluded);
+        drop(coordinates);
+        Ok(retained.lookups().iter().map(|&v| u32::from(v)).collect())
+    }
+    /// Preserve original source-order and failure-prefix behavior in wasm32.
+    #[wasm_bindgen]
+    pub fn select_layout_feature(
+        bytes: Vec<u8>,
+        script: u32,
+        language: u32,
+        feature: u32,
+        coordinates: Vec<i16>,
+        capacity: u16,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{Tag, layout::*};
+        let table = LayoutTable::parse(&bytes).map_err(error)?;
+        let mut output = vec![0xbeef; usize::from(capacity)];
+        let result = table.select_feature_into(
+            Tag(script),
+            Tag(language),
+            Tag(feature),
+            &coordinates,
+            &mut output,
+        );
+        let mut response = vec![
+            result.as_ref().err().map_or(0, |e| *e as u32),
+            result.unwrap_or(0),
+        ];
+        response.extend(output.into_iter().map(u32::from));
+        Ok(response)
+    }
     /// Browser-owned device, canvas surface and immutable prepared generation.
     #[wasm_bindgen]
     pub struct WebRenderer {

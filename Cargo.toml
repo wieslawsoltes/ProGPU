@@ -187,6 +187,10 @@ path = "src/ProGPU.Rust/tests/layout.rs"
 name = "digest"
 path = "src/ProGPU.Rust/tests/digest.rs"
 
+[[test]]
+name = "selection"
+path = "src/ProGPU.Rust/tests/selection.rs"
+
 [[example]]
 name = "normalization_conformance"
 path = "src/ProGPU.Rust/examples/normalization_conformance.rs"
@@ -202,3 +206,7 @@ path = "src/ProGPU.Rust/examples/layout_benchmark.rs"
 [[example]]
 name = "digest_benchmark"
 path = "src/ProGPU.Rust/examples/digest_benchmark.rs"
+
+[[example]]
+name = "selection_benchmark"
+path = "src/ProGPU.Rust/examples/selection_benchmark.rs"

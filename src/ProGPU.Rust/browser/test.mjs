@@ -332,6 +332,29 @@ try {
           digestCheck(context.subarray(0,context.length-1),extension,10,[1,0,0,0,0xffffffff,0]);
         }
         for(const bad of [new Uint8Array(),digestTable(1,[]),digestSimple.subarray(0,25)]){let caught=false;try{app.layout_digest_query(bad,0,7,0);}catch{caught=true;}check(caught,'WASM invalid digest header');digestChecks++;}
+        let selectionChecks=0;
+        const otTag=s=>[...s].reduce((v,c)=>(v*256+c.charCodeAt(0))>>>0,0);
+        const selectionFixture=(varied=false)=>{
+          // One DFLT LangSys, required rlig [3,1], liga [2,0,2], four empty lookups.
+          const b=otWords([1,varied?1:0,14,36,68,0,varied?84:0,1,0x4446,0x4c54,8,4,0,0,0,2,0,1,2,0x726c,0x6967,14,0x6c69,0x6761,22,0,2,3,1,0,3,2,0,2,4,10,10,10,10,1,0,0]);
+          if(!varied)return b;
+          // Unconditional first record replaces liga with [3,2].
+          return new Uint8Array([...b,...otWords([1,0,0,1,0,0,0,16,1,0,1,1,0,12,0,2,3,2])]);
+        };
+        const selectionCheck=(bytes,script,features,excluded,expected)=>{const actual=[...app.select_layout(bytes,otTag(script),0,new Uint32Array(features.map(otTag)),new Uint32Array(excluded.map(otTag)),new Int16Array())];check(JSON.stringify(actual)===JSON.stringify(expected),`WASM original selection ${JSON.stringify(actual)}`);selectionChecks++;};
+        const selectionBytes=selectionFixture();
+        selectionCheck(selectionBytes,'DFLT',[],[],[1,3]);selectionCheck(selectionBytes,'arab',['liga'],[],[0,1,2,3]);selectionCheck(selectionBytes,'DFLT',['liga'],['rlig','liga'],[1,3]);
+        selectionCheck(selectionFixture(true),'DFLT',['liga'],[],[1,2,3]);
+        for(const [offset,value,expected] of [[88,0xffffffff,[0,1,2,3]],[92,0xffffffff,[0,1,2,3]],[96,0xffffffff,[0,1,2,3]],[108,0xffffffff,[1,3]]]){
+          const malformed=selectionFixture(true);new DataView(malformed.buffer).setUint32(offset,value);selectionCheck(malformed,'DFLT',['liga'],[],expected);
+        }
+        const selectionVersion=selectionFixture(true);new DataView(selectionVersion.buffer).setUint16(100,2);selectionCheck(selectionVersion,'DFLT',['liga'],[],[0,1,2,3]);
+        check(JSON.stringify([...app.select_layout_feature(selectionBytes,otTag('DFLT'),0,otTag('liga'),new Int16Array(),5)])===JSON.stringify([0,2,2,0,0xbeef,0xbeef,0xbeef]),'WASM original unsorted feature selection');selectionChecks++;
+        check(JSON.stringify([...app.select_layout_feature(selectionBytes,otTag('DFLT'),0,otTag('rlig'),new Int16Array(),4)])===JSON.stringify([0,0,0xbeef,0xbeef,0xbeef,0xbeef]),'WASM required feature exclusion');selectionChecks++;
+        check(JSON.stringify([...app.select_layout_feature(selectionBytes,otTag('DFLT'),0,otTag('liga'),new Int16Array(),2)])===JSON.stringify([7,0,0xbeef,0xbeef]),'WASM original whole-count capacity');selectionChecks++;
+        const selectionBad=selectionBytes.slice();new DataView(selectionBad.buffer).setUint16(64,65535);
+        check(JSON.stringify([...app.select_layout_feature(selectionBad,otTag('DFLT'),0,otTag('liga'),new Int16Array(),4)])===JSON.stringify([4,0,2,0xbeef,0xbeef,0xbeef]),'WASM original selection failure prefix');selectionChecks++;
+        for(const b of [new Uint8Array(),selectionBytes.subarray(0,20),selectionBad]){let caught=false;try{app.select_layout(b,otTag('DFLT'),0,new Uint32Array([otTag('liga')]),new Uint32Array(),new Int16Array());}catch{caught=true;}check(caught,'WASM failed owned selection never publishes');selectionChecks++;}
         let normalizationChecks=0;
         const normalizationCase=(source,form,managed,records,profile=null)=>{
           const result=profile===null?app.normalize_utf16(new Uint16Array(source),form,managed):app.normalize_utf16_profile(new Uint16Array(source),form,profile);
@@ -517,7 +540,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, selectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

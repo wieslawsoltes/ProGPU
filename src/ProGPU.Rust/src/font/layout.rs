@@ -7,6 +7,7 @@ use std::sync::Arc;
 mod coverage;
 mod digest;
 mod gdef;
+mod selection;
 mod table;
 pub use coverage::{ClassDefinition, Coverage};
 pub use digest::{
@@ -14,6 +15,7 @@ pub use digest::{
     PreparedContext,
 };
 pub use gdef::{Gdef, GlyphClass, OwnedGdef, is_gdef_blocklisted};
+pub use selection::{LookupSelection, SelectionRequest};
 pub use table::{LayoutTable, Lookup, OwnedLayoutTable};
 
 fn fits(data: &[u8], offset: usize, length: usize) -> bool {

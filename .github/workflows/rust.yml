@@ -67,6 +67,7 @@ on:
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gdef.cpp
       - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_digest.cpp
+      - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_features.cpp
       - src/ProGPU.Text/OpenTypeTextShaper.cs
       - src/ProGPU.Text.Shaping/OpenTypeGdefPolicy.cs
       - src/ProGPU.Text/UnicodeNormalizationPlan.cs
@@ -188,6 +189,7 @@ jobs:
           python3 eng/progpu-test-rust-line-break-conformance.py
           cargo test --locked --test layout -- --ignored --nocapture
           cargo test --locked --test digest -- --ignored --nocapture
+          cargo test --locked --test selection -- --ignored --nocapture
           cargo test --locked --test normalization -- --ignored --nocapture
           python3 eng/progpu-test-rust-normalization-conformance.py
           python3 eng/progpu-test-rust-normalization-profiles.py
