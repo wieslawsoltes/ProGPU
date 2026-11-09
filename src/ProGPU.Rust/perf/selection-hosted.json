@@ -1,0 +1,42 @@
+{
+  "captured_utc": "2026-11-09T00:45:36.800330+00:00",
+  "commit": "8e217efee0a03109c30bb2f251ac45e2e9a02490",
+  "run_id": 42540414364,
+  "jobs": {
+    "browser": {
+      "id": 128913864555,
+      "conclusion": "success",
+      "original_gate": true,
+      "diagnostic_rerun": "skipped",
+      "dprs": [
+        1,
+        2
+      ],
+      "selection_checks_per_dpr": 16,
+      "offscreen_pixels": 204800,
+      "actual_final_presentation_and_resize": true
+    },
+    "linux": {
+      "id": 128913864811,
+      "conclusion": "success",
+      "full_source_oracles_and_package": true,
+      "native_selection_records": 50956,
+      "native_selection_bytes": 7157396,
+      "managed_common_selection_records": 1728,
+      "managed_common_selection_bytes": 43248
+    },
+    "windows": {
+      "id": 128913864730,
+      "conclusion": "success"
+    },
+    "gpu": {
+      "id": 128913864688,
+      "conclusion": "success"
+    },
+    "macos": {
+      "id": 128913864800,
+      "conclusion": "cancelled"
+    }
+  },
+  "qualification": "Original browser pass does not close earlier intermittent loss/stall or qualify new managed-policy changes."
+}

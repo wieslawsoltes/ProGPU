@@ -1,0 +1,16 @@
+{
+  "captured_utc": "2026-11-09T00:49:08.975027+00:00",
+  "package_work_directory_removed": "/private/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-managed-feature-package-5so235g1",
+  "package_logical_bytes_removed": 526206545,
+  "benchmark_temporary_bytes_removed": 74140681,
+  "unused_benchmark_bytes_removed": 1011813,
+  "removed_benchmark_paths": [
+    "target/release/examples/managed_feature_benchmark-da203ce55d37398e",
+    "target/release/examples/managed_feature_benchmark-da203ce55d37398e.d",
+    "target/release/examples/managed_feature_benchmark",
+    "target/release/examples/managed_feature_benchmark.d"
+  ],
+  "total_measured_logical_bytes": 601359039,
+  "additional_cleanup": "Original-source oracle directories, including raw input/output and temporary .NET builds, and failed benchmark temporary directory auto-remove; excluded from this measured total.",
+  "retained": "Active root dependency/build caches, current browser/package evidence, compact receipts."
+}

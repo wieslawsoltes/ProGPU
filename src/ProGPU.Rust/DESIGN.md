@@ -2276,8 +2276,8 @@ managed oracle or fabricated font-normalization callback is used.
 That managed comparison covers the common admitted policy, not the full current
 managed selector. C# separately supports lowercase-default/Latin fallback, different
 duplicate history, language-name mapping, global-feature eligibility, feature-value
-precedence and malformed-source behavior. Those policies, staged shaping plans and
-GSUB/GPOS execution remain work to port. The native API is explicitly documented as
+precedence and malformed-source behavior. Those policies are covered by the later managed-selection milestone below; staged
+shaping plans and GSUB/GPOS execution remain work to port. The native API is explicitly documented as
 native policy rather than relabeled as current complete managed shaping.
 
 Sixteen browser controls per DPR preserve sorted and source-order results, required
@@ -2309,3 +2309,94 @@ and Linux GPU/winit. The actual 57,233,864-byte native and 201,347,072-byte mana
 filter comparisons pass there, followed by all normalization gates. Original and
 diagnostic browser gates still report final DPR 2 device loss; macOS is cancelled.
 This does not qualify the current selection changes or close browser reliability.
+
+
+## Current managed feature-selection policy
+
+`ManagedLookupSelection` ports original `GetRawEnabledLookupIndices` selection and
+its optional `TryCreateRawLookupDigest` result from `ProGPU.Text/OpenTypeTextShaper.cs`.
+It intentionally keeps raw managed admission separate from native `LayoutTable`.
+Source ordering, first/last duplicate decisions and partial acceptance differ; a
+strict native parser cannot silently substitute for the original managed policy.
+The selected actual font generation and complete request are immutable and retained.
+
+Settings preserve four UTF-16 code units, including non-ASCII and unpaired units,
+and the original arbitrary signed value. Last-value filtering still visits every
+original matching duplicate. Required features are inserted first and protected;
+global features retain their independent precedence. Global eligibility includes
+random/directional tags and Jamo only under the exact script string `hang`. Font
+feature tags preserve original ASCII replacement of high bytes. Script conversion
+retains original full code-unit shifts, while language mapping retains invariant
+case/underscore normalization and original default-language fallback. An exhaustive
+65,536-unit language witness includes Kelvin-sign folding and surrogate inputs.
+
+Script selection preserves last exact/DFLT/dflt/latn matches in original fallback
+order. Invalid language headers produce empty allowed sets; truncated feature arrays
+produce unrestricted sets while preserving required metadata. Cross-list extents
+retain the original empty-set rule. Readable prefixes of feature lookup arrays are
+retained, including IDs outside the lookup count. Invalid optional digest data does
+not discard a selected ID. Managed reversed coverage ranges contribute no bits;
+that is distinct from stricter native digest admission. The source's possible raw
+indexing exception is mapped to atomic `InvalidFace`, never a Rust bounds panic.
+
+Managed variation use includes a matching null substitution. First matching record
+and original wrong-version/invalid-extent decisions remain intact; last duplicate
+alternate wins. Out-of-range relative entries are omitted, preserving any earlier
+entry; an inserted unreadable alternate skips that feature. No fallback is invented.
+Raw signed F2Dot14 coordinates are frozen separately from source bytes. The actual
+C# control constructs original TtfFont/WithVariations instances and checks original
+normalized coordinates before comparing outputs. No native normalization stub or
+production reflection bridge is introduced.
+
+Construction follows the original O(S*F + R + L log L + D) expected time for S
+settings, F feature records, R visited lookup references, L unique lookup IDs and
+D visited digest records; script/language/variation inventories add linear scans.
+Standard hash maps preserve original keyed policies without per-feature strings.
+Owned storage is O(S+A+L) plus original script/language units and shared source bytes,
+with O(F+L+V) temporary allowed/position/substitution entries. All publication is
+atomic and fallible capacities are checked. This is reusable CPU shaping preparation;
+no GPU work, per-pixel CPU fallback or foreign implementation is introduced.
+
+The unchanged actual managed method passes **327,015 records / 27,595,740 exact
+bytes**: winning ID/value/tag/required metadata, variation use and all digest masks.
+Every prefix, 25,000 deterministic mutations, all mapped language families, script
+fallbacks/duplicates, disabled/negative/extreme values and full UTF-16 witness are
+retained. Native policy tests remain independent. Twenty browser checks per DPR
+pass alongside 204,800 offscreen pixels, six unchanged canonical shaders, resize
+and both actual presented canvases.
+
+Eight baseline workloads compare all selected metadata hashes, using five warmups
+and forty rounds with original compiler/JIT defaults. At 512 static features,
+1,317 IDs measure p50/p95/p99 1889.542/2013.250/2099.875 µs Rust and
+2715.100/3237.700/3956.700 µs C#; C# allocates 7,552,320 bytes per call. The varied
+case's 1,316 IDs measures 1870.084/1974.916/2024.834 µs and
+2482.000/3219.600/3813.200 µs; C# allocates 7,552,512 bytes. Rust retains/copies its
+request; C# additionally attempts context preparation. Fixtures have empty lookup
+payloads, so both optional accelerators are absent. Hashing/input preparation are
+outside timing; Rust allocation totals are not measured. Load was 3.54/13.15/17.89
+with background compiler work. These are diagnostic construction baselines, not a
+steady-state JIT, stable speedup, full-shaping or frame-performance qualification.
+Further optimization requires matched Instruments evidence. Reproduce with
+`eng/progpu-benchmark-rust-managed-features.py`; compact receipts retain source,
+input and binary hashes without disposable binaries.
+
+Managed context preparation has distinct weak coverage admission and ordered glyph
+eligibility; it remains the next independent port stage. Complete shaping defaults,
+GSUB/GPOS execution, fallback, layout and GPU text are not supplied by this milestone.
+No original compiler, shader, source/application or package/pixel gate is relaxed.
+
+Hosted follow-up for preceding commit `8e217efee` (run 42540414364) passes full Linux
+source/package, Windows portable, Linux GPU/winit and the original browser gate.
+The exact original native/shared managed selection oracles pass 50,956/1,728 records
+there. macOS is cancelled. Browser passes 16 selection checks and 102,400 offscreen
+pixels per DPR with actual final presentation. Earlier original/diagnostic device
+loss receipts remain: one successful run does not establish browser reliability.
+
+Strict native all-target/all-feature and WASM Clippy pass. Aggregate tests pass
+67 with 37 explicit source/GPU controls ignored; CPU-only passes 65 with 30 ignored.
+The current managed source control runs separately and passes. An extracted crate
+passes native all-target/all-feature and WASM checks from an independent empty
+target, with 86 exact production/resource/license files and original manifest.
+Temporary package/benchmark outputs and unused benchmark binaries remove
+**601,359,039 measured logical bytes**; source-control auto-cleanup is additional.
+Active caches and compact receipts remain.

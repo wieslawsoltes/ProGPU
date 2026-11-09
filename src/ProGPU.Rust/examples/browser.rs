@@ -814,6 +814,64 @@ mod web {
         drop(coordinates);
         Ok(retained.lookups().iter().map(|&v| u32::from(v)).collect())
     }
+    /// Exercise current managed selection metadata with exact UTF-16 input tags.
+    #[wasm_bindgen]
+    pub fn select_managed_layout(
+        bytes: Vec<u8>,
+        script: Vec<u16>,
+        language: Vec<u16>,
+        tags: Vec<u16>,
+        values: Vec<i32>,
+        coordinates: Vec<i16>,
+        extension: u16,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{FontError, layout::*};
+        if values.len().checked_mul(4) != Some(tags.len()) {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let settings: Result<Vec<_>, _> = tags
+            .chunks_exact(4)
+            .zip(values)
+            .map(|(tag, value)| ManagedFeatureSetting::new(tag.try_into().unwrap(), value))
+            .collect();
+        let settings = settings.map_err(error)?;
+        let selected = ManagedLookupSelection::new(
+            bytes,
+            ManagedSelectionRequest {
+                script: &script,
+                language: Some(&language),
+                settings: &settings,
+                coordinates: &coordinates,
+                extension_lookup_type: extension,
+            },
+        )
+        .map_err(error)?;
+        let retained = selected.clone();
+        drop(selected);
+        drop(script);
+        drop(language);
+        drop(settings);
+        drop(coordinates);
+        let mut out = vec![
+            u32::from(retained.uses_feature_variations()),
+            retained.lookups().len() as u32,
+        ];
+        for entry in retained.lookups() {
+            out.extend([
+                u32::from(entry.index),
+                entry.value as u32,
+                u32::from_be_bytes(entry.tag),
+                u32::from(entry.required),
+                u32::from(entry.digest.is_some()),
+            ]);
+            if let Some(digest) = entry.digest {
+                for &mask in digest.masks() {
+                    out.extend([mask as u32, (mask >> 32) as u32]);
+                }
+            }
+        }
+        Ok(out)
+    }
     /// Preserve original source-order and failure-prefix behavior in wasm32.
     #[wasm_bindgen]
     pub fn select_layout_feature(

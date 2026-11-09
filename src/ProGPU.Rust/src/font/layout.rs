@@ -1,12 +1,13 @@
 //! Original OpenType coverage, class, GSUB/GPOS lookup and GDEF data boundaries.
-//! These views prepare immutable shaping data; they do not apply substitutions,
-//! positioning, script policy or rasterization. Unknown lookup flags/types retain
+//! These views prepare immutable shaping data with explicit native/managed feature
+//! policies; they do not apply substitutions, positioning or rasterization. Unknown lookup flags/types retain
 //! their raw values, and compatibility blocklists remain explicit caller policy.
 use super::{FontError, SfntFace, Span, Tag, bytes};
 use std::sync::Arc;
 mod coverage;
 mod digest;
 mod gdef;
+mod managed_selection;
 mod selection;
 mod table;
 pub use coverage::{ClassDefinition, Coverage};
@@ -15,6 +16,9 @@ pub use digest::{
     PreparedContext,
 };
 pub use gdef::{Gdef, GlyphClass, OwnedGdef, is_gdef_blocklisted};
+pub use managed_selection::{
+    ManagedEnabledLookup, ManagedFeatureSetting, ManagedLookupSelection, ManagedSelectionRequest,
+};
 pub use selection::{LookupSelection, SelectionRequest};
 pub use table::{LayoutTable, Lookup, OwnedLayoutTable};
 

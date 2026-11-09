@@ -355,6 +355,28 @@ try {
         const selectionBad=selectionBytes.slice();new DataView(selectionBad.buffer).setUint16(64,65535);
         check(JSON.stringify([...app.select_layout_feature(selectionBad,otTag('DFLT'),0,otTag('liga'),new Int16Array(),4)])===JSON.stringify([4,0,2,0xbeef,0xbeef,0xbeef]),'WASM original selection failure prefix');selectionChecks++;
         for(const b of [new Uint8Array(),selectionBytes.subarray(0,20),selectionBad]){let caught=false;try{app.select_layout(b,otTag('DFLT'),0,new Uint32Array([otTag('liga')]),new Uint32Array(),new Int16Array());}catch{caught=true;}check(caught,'WASM failed owned selection never publishes');selectionChecks++;}
+        let managedSelectionChecks=0;
+        const utf16=s=>new Uint16Array(Array.from({length:s.length},(_,i)=>s.charCodeAt(i)));
+        const managedEntry=(index,value,tag,required=false,digest=[])=>[index,value>>>0,otTag(tag),+required,+(digest.length>0),...digest];
+        const managedCheck=(bytes,script,language,settings,uses,expected)=>{const actual=[...app.select_managed_layout(bytes,utf16(script),utf16(language),utf16(settings.map(s=>s[0]).join('')),new Int32Array(settings.map(s=>s[1])),new Int16Array(),7)];check(JSON.stringify(actual)===JSON.stringify([+uses,expected.length,...expected.flat()]),`WASM managed selection ${JSON.stringify(actual)}`);managedSelectionChecks++;};
+        const requiredEntries=[managedEntry(1,1,'rlig',true),managedEntry(3,1,'rlig',true)];
+        managedCheck(selectionBytes,'DFLT','',[],false,requiredEntries);
+        managedCheck(selectionBytes,'DFLT','',[['liga',-7]],false,[managedEntry(0,-7,'liga'),requiredEntries[0],managedEntry(2,-7,'liga'),requiredEntries[1]]);
+        managedCheck(selectionBytes,'DFLT','',[['liga',2],['liga',0]],false,requiredEntries);
+        managedCheck(selectionBytes,'DFLT','',[['liga',0],['liga',-2147483648]],false,[managedEntry(0,-2147483648,'liga'),requiredEntries[0],managedEntry(2,-2147483648,'liga'),requiredEntries[1]]);
+        managedCheck(selectionFixture(true),'DFLT','',[['liga',9]],true,[requiredEntries[0],managedEntry(2,9,'liga'),requiredEntries[1]]);
+        for(const fallback of ['latn','dflt']){const b=selectionBytes.slice();new DataView(b.buffer).setUint32(16,otTag(fallback));managedCheck(b,'arab','TR',[['liga',1]],false,[managedEntry(0,1,'liga'),requiredEntries[0],managedEntry(2,1,'liga'),requiredEntries[1]]);}
+        const nullSubstitution=selectionFixture(true);new DataView(nullSubstitution.buffer).setUint32(96,0);managedCheck(nullSubstitution,'DFLT','',[['liga',2]],true,[managedEntry(0,2,'liga'),requiredEntries[0],managedEntry(2,2,'liga'),requiredEntries[1]]);
+        for(const [offset,uses] of [[88,false],[92,false],[96,false],[108,true]]){const b=selectionFixture(true);new DataView(b.buffer).setUint32(offset,0xffffffff);managedCheck(b,'DFLT','',[['liga',2]],uses,[managedEntry(0,2,'liga'),requiredEntries[0],managedEntry(2,2,'liga'),requiredEntries[1]]);}
+        managedCheck(selectionBad,'DFLT','',[['liga',2]],false,[requiredEntries[0],managedEntry(2,2,'liga'),requiredEntries[1],managedEntry(65535,2,'liga')]);
+        managedCheck(new Uint8Array(),'','',[],false,[]);
+        // A missing LangSys still admits directional/global features. Jamo is
+        // admitted only for the exact original script string, not its four-unit tag.
+        for(const [tag,script,enabled] of [['rand','arab',true],['rtlm','arab',true],['ljmo','hang',true],['ljmo','hang-more',false],['liga','hang',false]]){const b=selectionBytes.slice(),v=new DataView(b.buffer);v.setUint16(22,0);v.setUint32(44,otTag(tag));managedCheck(b,script,'',[[tag,3]],false,enabled?[managedEntry(0,3,tag),managedEntry(2,3,tag)]:[]);}
+        // Retain exact managed digest admission of a reversed range (empty mask).
+        const digestSelection=new Uint8Array([...selectionBytes,...otWords([1,0,1,8,1,4,2,1,100,99,0])]);
+        for(let i=0;i<4;i++)new DataView(digestSelection.buffer).setUint16(70+i*2,16);
+        managedCheck(digestSelection,'DFLT','',[],false,[managedEntry(1,1,'rlig',true,[0,0,0,0,0,0]),managedEntry(3,1,'rlig',true,[0,0,0,0,0,0])]);
         let normalizationChecks=0;
         const normalizationCase=(source,form,managed,records,profile=null)=>{
           const result=profile===null?app.normalize_utf16(new Uint16Array(source),form,managed):app.normalize_utf16_profile(new Uint16Array(source),form,profile);
@@ -540,7 +562,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, selectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

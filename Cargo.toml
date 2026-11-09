@@ -43,6 +43,10 @@ missing_docs = "warn"
 undocumented_unsafe_blocks = "deny"
 
 [[test]]
+name = "managed_feature_selection"
+path = "src/ProGPU.Rust/tests/managed_feature_selection.rs"
+
+[[test]]
 name = "shader_validation"
 path = "src/ProGPU.Rust/tests/shader_validation.rs"
 
@@ -210,3 +214,7 @@ path = "src/ProGPU.Rust/examples/digest_benchmark.rs"
 [[example]]
 name = "selection_benchmark"
 path = "src/ProGPU.Rust/examples/selection_benchmark.rs"
+
+[[example]]
+name = "managed_feature_benchmark"
+path = "src/ProGPU.Rust/examples/managed_feature_benchmark.rs"

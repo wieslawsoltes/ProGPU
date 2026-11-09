@@ -40,6 +40,9 @@ python3 eng/progpu-test-rust-normalization-conformance.py
 python3 eng/progpu-test-rust-normalization-profiles.py
 python3 eng/progpu-generate-rust-normalization-profiles.py --check
 cargo test --locked --test layout -- --ignored --nocapture
+cargo test --locked --test digest -- --ignored --nocapture
+cargo test --locked --test selection -- --ignored --nocapture
+cargo test --locked --test managed_feature_selection -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -55,6 +58,7 @@ python3 eng/progpu-benchmark-rust-normalization.py
 python3 eng/progpu-benchmark-rust-normalization-profiles.py
 python3 eng/progpu-benchmark-rust-digest.py
 python3 eng/progpu-benchmark-rust-selection.py
+python3 eng/progpu-benchmark-rust-managed-features.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -145,7 +149,8 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Canonical normalization | Original frozen plan plus explicit Unicode 15.1/16.0/17.0 source profiles; native source/tail semantics and original output metadata preserved; 3,668,863 native controls, 4,476,001 managed controls on both macOS and Ubuntu, 1,181,460 profile fixture checks, 36 browser controls per DPR | Source runtime selection and full shaping integration; performance and hosted/platform qualification |
 | OpenType common tables and GDEF | Borrowed/owned coverage, classes, lazy lookup validation, GDEF classification/mark sets and exact independent blocklist; 6,415,296 native and 5,374,312 actual C# queries; 26 browser controls per DPR | Feature selection, GSUB/GPOS execution, shaping plans and full text integration |
 | Lookup accelerators | Original five-mask native and distinct three-mask managed filters; exact single coverage and owned format-3 context preparation; 39,859 C++ records / 57,233,864 bytes and 15,728,640 C# glyph queries / 201,347,072 bytes; 15 browser controls per DPR | Ordered glyph/GDEF traversal, plan integration and complete source lookup execution |
-| Native feature selection | Exact script/language fallback, required/requested/excluded features, ordered variation records and owned selections; 50,956 native controls / 7,157,396 bytes; 1,728 actual C# shared-policy controls; 16 browser checks per DPR | Additional current managed fallback/value/global policies, staged plans and GSUB/GPOS execution |
+| Native feature selection | Exact script/language fallback, required/requested/excluded features, ordered variation records and owned selections; 50,956 native controls / 7,157,396 bytes; 1,728 actual C# shared-policy controls; 16 browser checks per DPR | Staged plans, GSUB/GPOS execution and native-selection performance gap |
+| Current managed feature policy | Separate immutable UTF-16 request, full fallback/value/global precedence, variation substitutions and optional managed digest; 327,015 actual C# controls / 27,595,740 bytes; 20 browser checks per DPR | Managed context preparation, ordered glyph/GDEF traversal, staged shaping and lookup execution |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -318,8 +323,27 @@ requested/excluded tags and normalized coordinates.
 Feature variations preserve first matching records, signed inclusive conditions,
 first duplicate substitutions and original malformed-record behavior. Invalid
 alternate pointers skip that feature rather than selecting its original table.
-These APIs do not select shaping defaults or translate language names. Current C#
-also has lowercase-default/Latin fallback, global-feature and value precedence
-policies; the 1,728 shared-policy comparisons do not qualify those unfinished
-paths. Rust's larger native-selection baseline is slower than C++; the compact
+These native APIs do not select shaping defaults or translate language names.
+The distinct current managed selection API below supplies C#'s additional policies;
+the 1,728 shared-policy comparisons qualify only the common native inventory.
+Rust's larger native-selection baseline is slower than C++; the compact
 receipt records that gap and the different work performed by the C# control.
+
+`ManagedLookupSelection` retains original raw table/font bytes and a frozen
+`ManagedSelectionRequest`. Four-unit UTF-16 `ManagedFeatureSetting` tags preserve
+ordinal identity and arbitrary signed values. It follows original C# last-setting,
+required/global precedence, exact/DFLT/dflt/latn fallback, language normalization and
+last-duplicate alternate substitution. Null matched substitutions still report
+active variation use. It preserves managed partial-table admission independently
+of the stricter native parser. Selected IDs do not imply executable lookup validity.
+Original source indexing exceptions become atomic `FontError::InvalidFace` errors.
+
+The actual original method passes 327,015 records / 27,595,740 metadata/digest bytes,
+including actual font-instance coordinates, every fixture prefix, 25,000 mutations
+and an exhaustive UTF-16 language-folding witness. Browser controls cover both DPRs,
+signed values, global/Jamo rules, distinct native/managed fallbacks, reversed digest
+ranges and extreme 32-bit variation offsets. The eight-workload baseline verifies
+all selected metadata hashes; 512 static features measure p50 1889.542 µs Rust and
+2715.100 µs C#. Ownership and optional context work differ, and compilation activity
+was present: these are diagnostic construction measurements, not full shaping or
+stable speedup qualification. Managed context preparation/execution remains pending.
