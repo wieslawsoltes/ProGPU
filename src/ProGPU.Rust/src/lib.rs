@@ -8,6 +8,7 @@ pub mod effects;
 pub mod font;
 pub mod geometry;
 pub mod image;
+pub mod image_effect;
 pub mod mask;
 pub mod path;
 #[cfg(feature = "gpu")]

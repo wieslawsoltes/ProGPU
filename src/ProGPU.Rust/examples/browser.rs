@@ -14,6 +14,9 @@ mod effect_sample;
 #[path = "support/font_scene.rs"]
 mod font_scene;
 #[cfg(target_arch = "wasm32")]
+#[path = "support/image_effect_scene.rs"]
+mod image_effect_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/image_scene.rs"]
 mod image_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1678,6 +1681,7 @@ mod web {
         clear_scene: bool,
         axis_clip_scene: bool,
         retained_aa_scene: bool,
+        image_effect_scene: bool,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
         validation: Option<Renderer>,
@@ -1759,6 +1763,7 @@ mod web {
             clear_scene: false,
             axis_clip_scene: false,
             retained_aa_scene: false,
+            image_effect_scene: false,
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
             validation: None,
@@ -1796,6 +1801,7 @@ mod web {
             self.clear_scene = false;
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
+            self.image_effect_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1820,6 +1826,7 @@ mod web {
             self.clear_scene = false;
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
+            self.image_effect_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1833,6 +1840,7 @@ mod web {
             self.clear_scene = false;
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
+            self.image_effect_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1845,6 +1853,7 @@ mod web {
             self.clear_scene = false;
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
+            self.image_effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1857,6 +1866,7 @@ mod web {
             self.clear_scene = false;
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
+            self.image_effect_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1869,6 +1879,7 @@ mod web {
             self.clear_scene = enabled;
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
+            self.image_effect_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1881,6 +1892,7 @@ mod web {
             self.ensure_live()?;
             self.axis_clip_scene = enabled;
             self.retained_aa_scene = false;
+            self.image_effect_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -1893,6 +1905,21 @@ mod web {
         pub fn select_retained_aa_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.retained_aa_scene = enabled;
+            self.image_effect_scene = false;
+            self.axis_clip_scene = false;
+            self.clear_scene = false;
+            self.layer_scene = false;
+            self.effect_scene = false;
+            self.mask_scene = false;
+            self.image_scene = false;
+            self.material_scene = false;
+            Ok(())
+        }
+        /// Select shared fused RGB/NV12 effects, original live blur and composition.
+        pub fn select_image_effect_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.image_effect_scene = enabled;
+            self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -1921,6 +1948,16 @@ mod web {
                 .map_err(error)?;
                 axis_clip_metrics = metrics;
                 (source, Default::default())
+            } else if self.image_effect_scene {
+                (
+                    super::image_effect_sample::image_effect_scene(
+                        &self.device,
+                        &self.queue,
+                        [width, height],
+                    )
+                    .map_err(error)?,
+                    Default::default(),
+                )
             } else if self.effect_scene {
                 super::effect_sample::effect_scene(&mut self.renderer, dpi, self.text_font.clone())
                     .await
@@ -2079,8 +2116,44 @@ mod web {
                 let layers = scene.layer_metrics();
                 let advanced = scene.advanced_blend_metrics();
                 let aa = scene.retained_aa_metrics();
+                let image_effects = scene.image_effect_metrics();
                 let f = scene.frame();
                 for (name, value) in [
+                    ("imageEffectDraws", image_effects.draws as f64),
+                    ("imageEffectBlurPasses", image_effects.blur_passes as f64),
+                    (
+                        "imageEffectBlurTextureBytes",
+                        image_effects.blur_texture_bytes as f64,
+                    ),
+                    (
+                        "imageEffectParameterBytes",
+                        image_effects.parameter_bytes as f64,
+                    ),
+                    (
+                        "imageEffectGeometryBytes",
+                        image_effects.geometry_bytes as f64,
+                    ),
+                    (
+                        "layerImageEffectDraws",
+                        layers.source_image_effects.draws as f64,
+                    ),
+                    (
+                        "layerImageEffectBlurPasses",
+                        layers.source_image_effects.blur_passes as f64,
+                    ),
+                    (
+                        "layerImageEffectBlurTextureBytes",
+                        layers.source_image_effects.blur_texture_bytes as f64,
+                    ),
+                    ("aaImageEffectDraws", aa.source_image_effects.draws as f64),
+                    (
+                        "aaImageEffectBlurPasses",
+                        aa.source_image_effects.blur_passes as f64,
+                    ),
+                    (
+                        "aaImageEffectBlurTextureBytes",
+                        aa.source_image_effects.blur_texture_bytes as f64,
+                    ),
                     ("retainedAaGroups", aa.groups as f64),
                     ("retainedAaTextureBytes", aa.texture_bytes as f64),
                     ("retainedAaUniformBytes", aa.uniform_bytes as f64),

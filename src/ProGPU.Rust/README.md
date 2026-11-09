@@ -4,11 +4,11 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
-Latest connected batch: immutable retained source AA groups now connect painter-
-ordered replay, inherited binary clips and Clear background propagation inward of
-the nearest ordinary owner. Deferred child text retains one protected atlas batch
-and final texture bindings. Both native and browser samples share the retained
-AA gallery. Full source transport and original qualification remain unfinished.
+Latest connected batch: fused image effects and original live Gaussian source
+preparation now run through retained rendering, ordinary captures and deferred AA
+children. Native and browser hosts share a twenty-panel RGB/NV12 gallery. The
+native/managed blur arithmetic and storage policies remain distinct. Original
+runtime pixels, complete source transport and release qualification remain open.
 
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
@@ -55,8 +55,33 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Target-storage Clear | Original straight colors, target-local binary scissors, canonical replace pass, fresh 16-byte upload per occurrence, bounded/advanced-target ordering and replay counters; shared native/browser gallery | Native open-scope/semantic transport, scene Ignore-alpha targets and nested picture transport remain unfinished; original whole-frame/runtime/performance gates deferred |
 | Explicit source AA execution | Original independent-axis projection, outward allocation, exact area masks, consecutive-parent ratios, real background copies, canonical linear-byte/sRGB composition and loaded-scene replay; shared gallery | Complete native open-scope/scene transport, Ignore-alpha targets, original pixels and performance remain unfinished |
 | Retained source AA scenes | Immutable typed subtrees, complete closed depth preflight, actual binary-scoped Clear propagation, shared live parent targets and ordered resolves; whole-tree text pinning/final bindings; native/browser gallery | Original builder streams and pixels, small-atlas stress/cancellation/device-loss, replay/resource/performance controls and full source transport remain unqualified |
+| Fused image effects | Exact 288-byte records, original color/matrix/luma/spherical operations, RGB/planar bindings, alpha modes, supported direct masks and painter-ordered retained draws; native/browser gallery | Original bytes/pixels/lifetime/performance controls; source command/extension transport, complete masks, reconstruction and filter graphs remain unfinished |
+| Live image Gaussian | Separate original native/managed builders, 912-byte paired-tap records, unchanged filterable and integer-load planar shaders, two retained GPU passes, native RGBA8 versus managed source/RGBA16F storage | Original host-transcendental/SIMD/format/planar pixels, live-source mutation and allocation/replay/performance controls; imported video/provider generations and full source caches remain unfinished |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
 
+
+`Scene::draw_image_effect(ImageEffectDraw::new(source, bounds))` records a fused
+image draw without GPU work. The original color operations, matrix and spherical
+rows live in `ImageEffectUniforms`; source alpha/YUV and primary-mask flags resolve
+from the actual retained inputs. Exact compiled inputs remain inspectable through
+`CompiledScene::image_effects()`. The direct path accepts one primary mask or up
+to three analytic masks; an explicit image mask overrides that chain while binary
+clips remain active. Unsupported area/composite masks and Cubic/Fant reconstruction
+reject rather than changing shader semantics.
+
+`ImageBlurEngine::prepare` retains the original two live GPU passes and actual
+RGB, NV12 or Tier-1 P010 sources. Every `encode` evaluates current pixels. Native
+RGBA8/double-exponential and managed source-format/float-exponential paths remain
+explicit policies. The fused renderer invokes them before consumers and disables
+only the completed blur/YUV operations. Ordinary captures remain frozen until
+reprepared; deferred AA children replay their owned source work.
+
+Run `cargo run --locked --example winit --features window -- --image-effects`,
+or `?scene=image-effects` in the browser. Twenty authored panels exercise color
+operations, matrices, spherical rows, native/managed blur, masks, ordinary/AA
+composition and RGB/NV12. This gallery is wired and compiled, not yet runtime-
+qualified. `image_effect_metrics()` reports direct draws, blur passes/storage,
+parameter and geometry bytes; layer/AA counters separately report child work.
 
 `Scene::push_mask`, `push_clip_rect` and `pop_scope` retain direct coverage across
 vector/text/image commands. Four analytic masks, or one primary R8 source followed
@@ -85,7 +110,7 @@ are explicit; `Scene::draw_layer` now resolves declared bounds and nested isolat
 
 The shared `--effects` / `?scene=effects` gallery covers six cases including an
 eight-node mixed chain; an explicit local font also exercises captured text.
-The module inventory now contains fourteen unchanged canonical shaders, including
+The module inventory now contains seventeen unchanged canonical shaders, including
 Gaussian horizontal/vertical, shadow composition, advanced blending and target Clear. Runtime pixels, full source
 comparisons and performance remain deferred. See the design ledger for exact
 sources, resource ownership and the remaining layer/effect contracts.

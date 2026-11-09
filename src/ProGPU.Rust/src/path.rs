@@ -36,6 +36,8 @@ pub enum ExecutionPreference {
 /// Resolved path used for diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecutionPath {
+    /// Original equivalent GPU fragment/render execution.
+    GpuShader,
     /// The canonical native compute kernel.
     NativeCompute,
 }

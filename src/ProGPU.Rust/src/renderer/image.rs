@@ -11,17 +11,18 @@ use std::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct SamplerKey {
-    mode: ImageSampling,
-    anisotropy: u8,
-    address: [ImageAddress; 2],
+pub(super) struct SamplerKey {
+    pub(super) mode: ImageSampling,
+    pub(super) anisotropy: u8,
+    pub(super) address: [ImageAddress; 2],
 }
 struct Upload {
     source: Weak<Pixels>,
     image: GpuImage,
 }
+#[derive(Default)]
 pub(super) struct ImageState {
-    pipeline: wgpu::RenderPipeline,
+    pipeline: Option<wgpu::RenderPipeline>,
     uploads: HashMap<(usize, bool), Upload>,
     samplers: HashMap<SamplerKey, wgpu::Sampler>,
     mips: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
@@ -130,20 +131,11 @@ pub(super) async fn pipeline_entry(
     Ok(result)
 }
 impl ImageState {
-    async fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Result<Self, Error> {
-        Ok(Self {
-            pipeline: pipeline(device, format, false, LayerBlend::SrcOver, false).await?,
-            uploads: HashMap::new(),
-            samplers: HashMap::new(),
-            mips: HashMap::new(),
-            composites: HashMap::new(),
-        })
-    }
     fn prune(&mut self) {
         self.uploads
             .retain(|_, entry| entry.source.strong_count() != 0);
     }
-    fn sampler(&mut self, device: &wgpu::Device, key: SamplerKey) -> &wgpu::Sampler {
+    pub(super) fn sampler(&mut self, device: &wgpu::Device, key: SamplerKey) -> &wgpu::Sampler {
         self.samplers.entry(key).or_insert_with(|| {
             let address = |mode| match mode {
                 ImageAddress::Clamp => wgpu::AddressMode::ClampToEdge,
@@ -181,7 +173,7 @@ impl ImageState {
             })
         })
     }
-    async fn upload(
+    pub(super) async fn upload(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -366,10 +358,11 @@ impl Renderer {
             return Err(Error::UnsupportedExecution);
         }
         let uniforms = self.validate_geometry(&compiled.image_mesh, frame)?;
-        let mut state = match self.images.take() {
-            Some(state) => state,
-            None => ImageState::new(&self.device, self.format).await?,
-        };
+        let mut state = self.images.take().unwrap_or_default();
+        if state.pipeline.is_none() {
+            state.pipeline =
+                Some(pipeline(&self.device, self.format, false, LayerBlend::SrcOver, false).await?);
+        }
         let mut needed = HashSet::new();
         let mut mask_index = 0;
         for draw in &compiled.draws {
@@ -414,6 +407,11 @@ impl Renderer {
         uniforms: Uniforms,
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
+        let pipeline = state
+            .pipeline
+            .as_ref()
+            .ok_or(Error::ResourceDomain)?
+            .clone();
         let mut bindings = Vec::new();
         bindings
             .try_reserve_exact(compiled.images.len())
@@ -450,7 +448,7 @@ impl Renderer {
                 }
             }
             let view = image.texture().create_view(&Default::default());
-            let layout = state.pipeline.get_bind_group_layout(1);
+            let layout = pipeline.get_bind_group_layout(1);
             let sampler = state.sampler(
                 device,
                 SamplerKey {
@@ -498,7 +496,7 @@ impl Renderer {
         );
         let uniforms = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ProGPU retained image frame"),
-            layout: &state.pipeline.get_bind_group_layout(0),
+            layout: &pipeline.get_bind_group_layout(0),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: frame_buffer.as_entire_binding(),
@@ -507,7 +505,7 @@ impl Renderer {
         prepared.metrics.geometry_bytes += vertices.size() + indices.size();
         prepared.metrics.uniform_bytes += size_of::<Uniforms>() as u64;
         prepared.images = Some(PreparedImages {
-            pipeline: state.pipeline.clone(),
+            pipeline,
             composites: state.composites.clone(),
             vertices,
             indices,

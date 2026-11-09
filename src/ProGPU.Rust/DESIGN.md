@@ -7002,3 +7002,143 @@ Ignore-alpha scene owners and independent-axis scene presentation remain unfinis
 Other full-stack masks, shader effects/filters, caches and source providers remain
 separate ports. The historical Windows/ARM64/browser/float/performance gates remain
 mandatory and unchanged; this checkpoint is not parity or release qualification.
+
+
+## Fused image effects and live Gaussian source preparation (2026-11-09)
+
+This connected implementation batch directly ports original ProGPU-owned code.
+The existing architecture research at the beginning of this ledger remains the
+basis: immutable source/display-list ownership, separate device domains, lazy
+GPU realization, explicit target frames and retained resources through submission.
+No external engine implementation is consulted or incorporated. Shaping/layout,
+font keys and source metrics are unchanged; existing deferred-text transactions
+continue to protect the full tree. This is implementation progress, not parity or
+a measured optimization.
+
+### Exact original provenance
+
+| Original repository source | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Scene/ImageEffectParams.cs` | `833656e3f5567bc77b18b656278c1a273bdd72a2d2b1182ec96afe7a64eaea8e` |
+| `src/ProGPU.Scene/Extensions/ImageEffectExtensionPipeline.cs` | `333e632ed7b0ff7ec9cbe14fa77cba5e4aa8169be37dda076950ebe7e667ef0d` |
+| `src/ProGPU.Scene/Shaders/ImageEffect.wgsl` | `994eb88551a7c7db875061fb7b372e5c68b976591faa65c0a80762f0726b45f8` |
+| `src/ProGPU.Backend/GpuTextureGaussianBlur.cs` | `5aed1ae6e8669c6d565218f570d850c53af839a4a81eb513bf9a21633517f008` |
+| `src/ProGPU.Backend/Shaders/TextureGaussianBlur.wgsl` | `626ebffccbb20ded140648014c0572cd84810872e9b7ae4123145650be68154a` |
+| `src/ProGPU.Backend/Shaders/TextureGaussianBlurUnfilterable.wgsl` | `8b580e54362af03c4f3f00999095f9a8b9416141822043927930db4b36d1e1e9` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_image_effect_resources.cpp` | `91c50901679c0c0e4975ccf4ef947433a77141d13c62fdeb6fce20ee90905287` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_image_blur_resources.cpp` | `c0295bef019ced851fbdf3f1fba291d6f94a5328fc410745109f619ab95034c7` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_draw_execution.cpp` | `4dd136cd49ec8dd28e21e7541ba74db83cc6a7b9fe0acd8a7aa8f81a45e7e8b5` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp` | `3b49e72ee4a6d3d6d413f3e5f6eb3772d3894e730a0ec4f1926e6b0642449c32` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_render_execution.cpp` | `c0325d3d72f30d79f386cfc0619f84213090b67a3a203e9e69ac4e4add4a9dae` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_image.cpp` | `0fba76f13ece2b5a6b726429951c014997303f0fd2a73c8cd90fffad12c056d4` |
+| `src/ProGPU.Native/include/progpu_native.h` | `bf31eab3ad25f079e36391c4d3072bbd15eeab8a94f8cbd04bb9e2d15145e441` |
+| `docs/NATIVE_CPP_COMMAND_PARITY.md` | `5f01cc1d9894200c90910a7c972e7cc1b29f889c41b4f7eb3233612f18c132a0` |
+
+### Records, arithmetic and execution
+
+`image_effect` retains the exact 288-byte fused record, independent native packet
+validation, 64-byte YUV descriptor and 912-byte Gaussian records (taps at byte
+144). Static layout assertions protect these boundaries. Four original vertices
+retain their position/color/UV bytes; standard bounds are only a quad constructor.
+The renderer uses the unchanged shared ImageEffect WGSL and actual 224-byte frame,
+288-byte parameters, sampler/two-source and 96/288-byte mask bindings.
+
+Brightness, contrast, saturation, grayscale, sepia, invert, luma-to-alpha, matrix
+and clamp retain shader order. Luma keeps source alpha. Original spherical rows,
+FOV/aspect/UV rectangle are supplied explicitly; no source rotation history is
+invented. Actual source alpha selects unpremultiplication, and output alpha selects
+the matching straight or premultiplied blend state. Native raw validation remains
+strictly straight-alpha and separate from managed modes.
+
+Gaussian sigma is bounded by 32, radius by 96 and pairs by 48. Native weights use
+the original double denominator/exp followed by float weights; managed weights
+use its original float denominator/exp. Both retain the ordered double sum and
+single float inverse normalization. Independent normalization and pair lanes use
+allocation-free wide SIMD; the dependent sum and exact host-transcendental calls
+remain scalar. Unused SIMD padding is private, never part of a shader record.
+Cross-runtime transcendental bits and SIMD/source equality still need matched
+original controls; Rust host exp is not relabeled as proven C++/MathF equivalence.
+
+The original filterable shader uses paired linear samples; the Tier-1 planar
+shader retains integer luma/chroma loads and separate original pair weights.
+YUV decode occurs only on the horizontal pass. Native uses two RGBA8 targets;
+managed keeps the actual RGB format or RGBA16Float after planar decode, with its
+optional affine RGB transform applied only after the vertical pass. An unfilterable
+source still executes identity conversion at zero sigma. No CPU pixel fallback,
+readback, upload-on-replay, per-pass submission or bounded 2D-blur approximation
+replaces these passes. Preparation reports Automatic/GpuShader; incompatible
+forced execution preferences reject.
+
+### Ownership, retained integration and bounds
+
+`BlurInput` retains the actual device, RGB or two planar textures, alpha and YUV
+metadata. Source dimensions/formats/sample count/usage and device identities are
+validated. Actual caller textures remain live; every blur encode reevaluates them.
+`PreparedImageBlur` owns both pass bindings/targets, original parameters and an
+engine identity. Public encoding rejects another engine's prepared program.
+Private renderer replay uses its retained program independently of later cache
+replacement. Resources are released through ordinary wgpu ownership; no Drop GPU
+work, explicit destroy, wait or polling is introduced.
+
+Scene recording is O(1), CPU compilation preserves painter order, and whole-tree
+preflight accounts for source blur storage/work before text realization. Explicit
+compiled input also enforces the 512 MiB blur-storage and 16,384-pass limits;
+existing full-tree limits include other capture/AA work. Shared source/sampler
+upload caches are reused. Ordinary image pipelines now initialize only for ordinary
+image draws; effect-only inputs do not eagerly compile the Texture draw pipeline.
+Fused variants are lazy by chain/output-alpha mode; Gaussian variants are lazy by
+actual format and filterability. Candidate failure/cancellation leaves previous
+prepared scenes owning their original resources.
+
+Blur producers encode before the current target's consumers. Deferred AA children
+execute their source work when their real parent frame is available; ordinary
+isolated layers retain their existing eager capture contract and must be prepared
+again after source mutation. Full imported-video generation/callback/source-cache
+ownership remains a separate port; an externally mutable handle is not a revision
+proof for an ordinary captured subtree.
+
+The unchanged fused shader supports one primary mask or three analytic chain
+records. All chain inputs occupy those actual three records; the primary is not
+silently multiplied twice. Explicit source masks override the per-draw chain,
+retaining independent binary scissors and actual target-origin mapping. Area masks,
+R8-plus-analytic chains and larger/composite masks reject pending full materialized
+mask integration. The Rust hardware-sampler field rejects Cubic/Fant because their
+ordinary Texture reconstruction code is not present in this fused shader. Native
+wire sampling labels still need their separate producer mapping; no equivalent
+reconstruction is inferred from successful binding.
+
+Recording and preparation storage scale with draw count D; Gaussian setup is O(R)
+with fixed stack workspace. Each original blur is two O(P * R) GPU passes over P
+source pixels and two full-size textures; fused sampling is O(P) with fixed bounded
+color/spherical/mask work. Existing ordinary image mip generation may submit during
+first realization. Steady live effect replay adds only recorded GPU passes/draws.
+
+### Samples, diagnostics and remaining gates
+
+Winit `--image-effects` and browser `?scene=image-effects` share twenty authored
+RGB/NV12 panels: neutral/color/luma/matrix operations, original spherical rows,
+native/managed blur, explicit-mask override, analytic chains, binary clips,
+advanced ordinary layers and retained AA composition. P010 needs the caller's
+actual format feature and remains outside this authored sample inventory.
+
+`ImageEffectMetrics` reports direct nonempty draws, actual blur passes/two-target
+bytes, 288/912-byte parameters and quad/index bytes. The common frame's 224 bytes
+remain in scene uniform uploads. Layer and deferred-AA metrics separately aggregate
+source effect work; captures are preparation cost, live blur is replay cost. These
+are cumulative resource/work counters, not peak residency, GPU completion, pixels
+or measured performance.
+
+Strict native all-target/all-feature, browser/WASM and CPU-only Clippy, formatting,
+JS syntax/whitespace and existing offline validation of all seventeen canonical
+modules are the batch gates. No new source test suite or runtime/profile/package
+cycle is added under the user's implementation-first order. The compact check and
+cleanup receipt is `perf/image-effect-implementation-cleanup.json`.
+
+Original complete parameter/vertex/source records, default-host float arithmetic,
+RGB/NV12/P010 format/alpha pixels, zero/max sigma, partial masks, nested target
+frames, mutation/replay/cancellation/device loss, memory/retirement and full native/
+browser performance remain deferred. Full source command/extension/semantic wire
+transport, blend variants, original sampler label mapping, image-filter/color-filter
+DAGs, complete masks, mutable/imported video providers and source cache generations
+remain unfinished. Preserve original Windows/ARM64/provider/package/application,
+DPR-2 browser, compiler-float, performance and Instruments gates unchanged.

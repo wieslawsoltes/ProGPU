@@ -66,8 +66,17 @@ pub const DROP_SHADOW: &str =
 pub const PATH_OPERATION: &str = shader!("PathOpGeometry");
 /// Original separate ordered output-record finalizer.
 pub const PATH_OPERATION_FINALIZER: &str = shader!("PathOpRecordFinalizer");
+/// Original fused RGB/YUV, color matrix, spherical image effect.
+pub const IMAGE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/ImageEffect.wgsl");
+/// Original paired-tap filterable image Gaussian kernel.
+pub const IMAGE_BLUR: &str = shader!("TextureGaussianBlur");
+/// Original integer-load unfilterable planar Gaussian kernel.
+pub const IMAGE_BLUR_UNFILTERABLE: &str = shader!("TextureGaussianBlurUnfilterable");
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("image_effect", IMAGE_EFFECT),
+    ("image_blur", IMAGE_BLUR),
+    ("image_blur_unfilterable", IMAGE_BLUR_UNFILTERABLE),
     ("vector", VECTOR),
     ("path", PATH),
     ("glyph", GLYPH),

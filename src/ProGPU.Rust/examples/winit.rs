@@ -18,6 +18,8 @@ mod axis_clip_sample;
 mod clear_sample;
 #[path = "support/effect_scene.rs"]
 mod effect_sample;
+#[path = "support/image_effect_scene.rs"]
+mod image_effect_sample;
 #[path = "support/image_scene.rs"]
 mod image_sample;
 #[path = "support/layer_scene.rs"]
@@ -41,6 +43,7 @@ enum CompositeGallery {
     Clears,
     AxisClips,
     RetainedAa,
+    ImageEffects,
 }
 
 struct WindowRenderer {
@@ -168,6 +171,12 @@ impl WindowRenderer {
                 metrics.loaded_copy_bytes
             );
             scene
+        } else if self.composite_gallery == CompositeGallery::ImageEffects {
+            image_effect_sample::image_effect_scene(
+                &self.device,
+                &self.queue,
+                [frame.width, frame.height],
+            )?
         } else if self.composite_gallery == CompositeGallery::RetainedAa {
             retained_aa_sample::retained_aa_scene(self.text_font.clone())?
         } else if self.composite_gallery == CompositeGallery::Clears {
@@ -202,11 +211,12 @@ impl WindowRenderer {
         };
         let scene = pollster::block_on(self.renderer.prepare_scene(&source, frame))?;
         eprintln!(
-            "prepared: {:?}; layers: {:?}; advanced blends: {:?}; retained AA: {:?}; per replay: {:?}",
+            "prepared: {:?}; layers: {:?}; advanced blends: {:?}; retained AA: {:?}; image effects: {:?}; per replay: {:?}",
             scene.metrics(),
             scene.layer_metrics(),
             scene.advanced_blend_metrics(),
             scene.retained_aa_metrics(),
+            scene.image_effect_metrics(),
             scene.replay_metrics()
         );
         self.config.width = size.width;
@@ -352,6 +362,7 @@ fn main() -> Result<()> {
             "--clears" => app.composite_gallery = CompositeGallery::Clears,
             "--axis-clips" => app.composite_gallery = CompositeGallery::AxisClips,
             "--retained-aa" => app.composite_gallery = CompositeGallery::RetainedAa,
+            "--image-effects" => app.composite_gallery = CompositeGallery::ImageEffects,
             "--text" => {
                 let path = args.next().ok_or("--text requires a font file path")?;
                 app.text_font = Some(progpu::font::ManagedFont::new(std::fs::read(path)?, 0)?);
@@ -368,7 +379,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

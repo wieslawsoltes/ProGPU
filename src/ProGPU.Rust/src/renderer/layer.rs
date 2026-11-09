@@ -50,6 +50,8 @@ pub struct LayerMetrics {
     /// AA resources/work prepared inside ordinary captures, separate from live replay.
     /// Its source upload/advanced fields are also included in the totals above.
     pub source_aa: RetainedAaMetrics,
+    /// Fused image effects and live-blur preparation in captured subtrees.
+    pub source_image_effects: ImageEffectMetrics,
 }
 
 #[derive(Clone, Copy)]
@@ -171,6 +173,12 @@ impl Renderer {
         use crate::scene::GroupRef;
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         self.validate_mask_states(&states)?;
+        let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
+        *bytes = bytes.checked_add(effect_bytes).ok_or(Error::Capacity)?;
+        *passes = passes.checked_add(effect_passes).ok_or(Error::Capacity)?;
+        if *bytes > 512 * 1024 * 1024 || *passes > 16 * 1024 {
+            return Err(Error::Capacity);
+        }
         if scene.layer_depth() > 16 {
             return Err(Error::Capacity);
         }
@@ -394,6 +402,8 @@ impl Renderer {
 impl LayerMetrics {
     pub(super) fn add_nested(&mut self, other: Self) -> Result<(), Error> {
         self.source_aa.merge(other.source_aa)?;
+        self.source_image_effects
+            .merge(other.source_image_effects)?;
         self.source_replay_texture_copy_bytes = self
             .source_replay_texture_copy_bytes
             .checked_add(other.source_replay_texture_copy_bytes)
@@ -476,6 +486,11 @@ impl LayerMetrics {
         let child = scene.layers;
         let source = scene.metrics;
         let aa = scene.retained_aa_metrics();
+        self.source_image_effects
+            .merge(child.source_image_effects)?;
+        self.source_image_effects
+            .merge(scene.image_effect_metrics())?;
+        self.source_image_effects.merge(aa.source_image_effects)?;
         self.source_aa.merge(child.source_aa)?;
         self.source_aa.merge(aa)?;
         self.captures = self

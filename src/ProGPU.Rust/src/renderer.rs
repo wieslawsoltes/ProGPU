@@ -27,6 +27,8 @@ mod groups;
 pub use groups::RetainedAaMetrics;
 use groups::{GroupTarget, PreparedGroup, PreparedGroups};
 mod image;
+mod image_effect;
+pub use image_effect::ImageEffectMetrics;
 mod layer;
 pub use layer::LayerMetrics;
 use layer::RenderFrame;
@@ -157,6 +159,7 @@ pub struct PreparedScene {
     origin: [u32; 2],
     layers: LayerMetrics,
     groups: PreparedGroups,
+    image_effects: Option<image_effect::PreparedImageEffects>,
     advanced: Option<advanced::PreparedAdvanced>,
     clears: Option<clear::PreparedClears>,
     metrics: UploadMetrics,
@@ -193,7 +196,8 @@ impl PreparedScene {
             count = count.checked_add(1).ok_or(Error::Capacity)?;
         }
         count
-            .checked_add(self.advanced_blend_metrics().render_passes)
+            .checked_add(self.image_effect_metrics().blur_passes)
+            .and_then(|v| v.checked_add(self.advanced_blend_metrics().render_passes))
             .ok_or(Error::Capacity)
     }
     /// Physical frame used when preparing this scene.
@@ -233,6 +237,7 @@ pub struct Renderer {
     text_tree_active: bool,
     text_options: crate::text::glyph::GlyphAtlasOptions,
     images: Option<image::ImageState>,
+    image_effects: Option<image_effect::ImageEffectState>,
     masks: Option<mask::MaskState>,
     effects: Option<crate::effects::EffectEngine>,
     advanced: Option<advanced::AdvancedState>,
@@ -366,6 +371,7 @@ impl Renderer {
             text_tree_active: false,
             text_options: Default::default(),
             images: None,
+            image_effects: None,
             masks: None,
             effects: None,
             advanced: None,
@@ -406,6 +412,8 @@ impl Renderer {
         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
         if scene.layer_depth() != 0 {
             self.preflight_layers(scene, target)?;
+        } else {
+            self.preflight_image_effects(scene)?;
         }
         let mut transaction =
             text::TreePreparation::new(self, scene.has_axis_clips() && scene.has_tree_text());
@@ -466,6 +474,7 @@ impl Renderer {
         }
         self.validate_geometry(&compiled.mesh, frame)?;
         self.validate_masks(compiled)?;
+        self.validate_image_effects(compiled)?;
         self.validate_materials(&compiled.mesh, Some(compiled.materials()))?;
         if compiled.atlas_size() > self.device.limits().max_texture_dimension_2d {
             return Err(Error::Capacity);
@@ -503,6 +512,8 @@ impl Renderer {
         self.prepare_images(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, &mut prepared).await?;
         self.prepare_clears(compiled, &mut prepared).await?;
+        self.prepare_image_effects(compiled, frame, &mut prepared)
+            .await?;
         self.prepare_advanced(compiled, frame, &mut prepared)
             .await?;
         self.finish_groups(&mut prepared).await?;
@@ -692,6 +703,7 @@ impl Renderer {
             origin: frame.origin,
             layers: LayerMetrics::default(),
             groups: PreparedGroups::default(),
+            image_effects: None,
             advanced: None,
             clears: None,
             metrics: UploadMetrics {
@@ -782,6 +794,9 @@ impl Renderer {
         {
             return Err(Error::InvalidInput);
         }
+        if let Some(effects) = &scene.image_effects {
+            effects.encode_sources(encoder);
+        }
         if let Some(advanced) = &scene.advanced {
             self.encode_advanced(encoder, scene, advanced, target, wgpu::LoadOp::Clear(clear))?;
         } else {
@@ -860,6 +875,9 @@ impl Renderer {
                     depth_or_array_layers: 1,
                 },
             );
+        }
+        if let Some(effects) = &scene.image_effects {
+            effects.encode_sources(encoder);
         }
         if let Some(advanced) = &scene.advanced {
             self.encode_advanced(encoder, scene, advanced, view, wgpu::LoadOp::Load)?;
@@ -948,6 +966,14 @@ impl Renderer {
                     }
                     pass.set_scissor_rect(x, y, width, height);
                 }
+                if let DrawRange::ImageEffect(index) = draw {
+                    scene
+                        .image_effects
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, *index)?;
+                    continue;
+                }
                 let masked = draw_state.and_then(|state| state.binding.as_ref());
                 let masked_pipeline = if masked.is_some() {
                     let index = match draw {
@@ -967,7 +993,7 @@ impl Renderer {
                     None
                 };
                 match draw {
-                    DrawRange::State(_) => unreachable!(),
+                    DrawRange::State(_) | DrawRange::ImageEffect(_) => unreachable!(),
                     DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_) => {
                         unreachable!()
                     }

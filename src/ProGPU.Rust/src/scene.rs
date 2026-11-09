@@ -43,6 +43,7 @@ pub(crate) use text::ResolvedSceneText;
 pub(crate) enum DrawRange {
     State(usize),
     Clear(ClearColor),
+    ImageEffect(usize),
     #[cfg(feature = "gpu")]
     Axis(usize),
     Vector(std::ops::Range<u32>),
@@ -161,6 +162,7 @@ enum Command {
     Empty,
     Clear(ClearColor),
     Layer(Box<LayerDraw>),
+    ImageEffect(Box<crate::image_effect::ImageEffectDraw>),
     AxisClip(Box<AxisClipDraw>),
     #[cfg(feature = "gpu")]
     ResolvedAxis(usize),
@@ -211,6 +213,25 @@ impl Scene {
         self.storage_clear |= source.storage_clear;
         self.tree_text |= source.tree_text;
         self.layer_depth = self.layer_depth.max(source.layer_depth);
+        Ok(())
+    }
+    #[cfg(feature = "gpu")]
+    pub(crate) fn image_effects(
+        &self,
+    ) -> impl Iterator<Item = &crate::image_effect::ImageEffectDraw> {
+        self.commands.iter().filter_map(|c| match c {
+            Command::ImageEffect(draw) => Some(draw.as_ref()),
+            _ => None,
+        })
+    }
+    /// Retain one original fused image effect in painter order, without GPU work.
+    pub fn draw_image_effect(
+        &mut self,
+        draw: crate::image_effect::ImageEffectDraw,
+    ) -> Result<(), Error> {
+        draw.validate()?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::ImageEffect(Box::new(draw)));
         Ok(())
     }
     /// Retain an original image/patch draw after whole-inventory admission.
@@ -452,7 +473,8 @@ impl Scene {
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
                 | Command::Image(..)
-                | Command::TileImage(_) => placements.push(None),
+                | Command::TileImage(_)
+                | Command::ImageEffect(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
                 Command::Glyph(_) | Command::ResolvedAxis(_) => placements.push(None),
                 Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
@@ -495,6 +517,7 @@ impl Scene {
         if self.inherited_clip.is_some() {
             draws.push(DrawRange::State(0));
         }
+        let mut image_effects = Vec::new();
         let mut exact_loads = 0;
         let legacy_solid = Brush::default();
         // A mixed native scene reserves its existing unit-opacity vertex-color
@@ -535,6 +558,12 @@ impl Scene {
                 | Command::PushClip(_)
                 | Command::PopScope => {}
                 Command::Clear(color) => draws.push(DrawRange::Clear(*color)),
+                Command::ImageEffect(draw) => {
+                    draw.validate()?;
+                    image_effects.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    draws.push(DrawRange::ImageEffect(image_effects.len()));
+                    image_effects.push(draw.as_ref().clone());
+                }
                 #[cfg(feature = "gpu")]
                 Command::ResolvedAxis(index) => draws.push(DrawRange::Axis(*index)),
                 Command::Image(draw, blend, bounds) => {
@@ -662,6 +691,7 @@ impl Scene {
             draws,
             states,
             image_mesh,
+            image_effects,
             images,
             image_sampling,
             has_tile_images: self
@@ -685,6 +715,7 @@ pub struct CompiledScene {
     pub(crate) draws: Vec<DrawRange>,
     pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,
+    pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
     pub(crate) images: Vec<ImageBinding>,
     pub(crate) image_sampling: ImageSamplingPath,
     pub(crate) has_tile_images: bool,
@@ -697,6 +728,13 @@ pub(crate) struct ImageBinding {
 }
 
 impl CompiledScene {
+    /// Retained fused-effect inputs in painter order, inspectable without a GPU.
+    pub fn image_effects(&self) -> impl Iterator<Item = &crate::image_effect::ImageEffectDraw> {
+        self.draws.iter().filter_map(|draw| match draw {
+            DrawRange::ImageEffect(index) => Some(&self.image_effects[*index]),
+            _ => None,
+        })
+    }
     /// Original image vertices in their independent shader stream.
     pub fn image_mesh(&self) -> &Mesh {
         &self.image_mesh

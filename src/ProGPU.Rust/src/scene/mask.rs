@@ -89,6 +89,18 @@ impl Scene {
         let mut stack = Vec::new();
         let mut current = 0;
         for command in &self.commands {
+            if let Command::ImageEffect(draw) = command {
+                let state = &states[current];
+                if draw.mask.is_none()
+                    && (state.count > 3
+                        || (state.coverage.is_some() && state.count > 1)
+                        || state.masks[..state.count]
+                            .iter()
+                            .any(|m| m.options[0] > 4.5))
+                {
+                    return Err(Error::UnsupportedExecution);
+                }
+            }
             if matches!(command, Command::Clear(_) | Command::AxisClip(_))
                 && states[current].count != 0
             {

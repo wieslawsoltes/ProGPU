@@ -31,7 +31,7 @@ pub(super) struct PreparedMasks {
 }
 
 impl MaskState {
-    fn new(device: &wgpu::Device) -> Self {
+    pub(super) fn new(device: &wgpu::Device) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ProGPU unused analytic-mask texture"),
             size: wgpu::Extent3d {
@@ -136,7 +136,7 @@ impl MaskState {
         self.pipelines[index] = Some(pipeline);
         Ok(())
     }
-    fn binding(
+    pub(super) fn binding(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -287,7 +287,10 @@ impl Renderer {
             }
             if matches!(
                 draw,
-                DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_)
+                DrawRange::Advanced(_)
+                    | DrawRange::Clear(_)
+                    | DrawRange::Axis(_)
+                    | DrawRange::ImageEffect(_)
             ) {
                 continue;
             }

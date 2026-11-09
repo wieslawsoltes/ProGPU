@@ -39,6 +39,8 @@ pub struct RetainedAaMetrics {
     pub source_advanced_uniform_bytes: u64,
     /// Child advanced resolve/copy geometry payloads.
     pub source_advanced_geometry_bytes: u64,
+    /// Fused image effects and live-blur resources in deferred children.
+    pub source_image_effects: ImageEffectMetrics,
 }
 #[derive(Default)]
 pub(super) struct PreparedGroups {
@@ -307,6 +309,8 @@ impl RenderFrame {
 }
 impl RetainedAaMetrics {
     pub(super) fn merge(&mut self, other: Self) -> Result<(), Error> {
+        self.source_image_effects
+            .merge(other.source_image_effects)?;
         macro_rules! add {
             ($field:ident) => {
                 self.$field = self
@@ -339,6 +343,10 @@ impl RetainedAaMetrics {
         source: &PreparedScene,
     ) -> Result<(), Error> {
         let nested = source.groups.metrics;
+        self.source_image_effects
+            .merge(nested.source_image_effects)?;
+        self.source_image_effects
+            .merge(source.image_effect_metrics())?;
         let m = clip.metrics();
         let uploads = source.metrics;
         macro_rules! add {
