@@ -1,0 +1,641 @@
+{
+  "captured_utc": "2026-11-09T01:37:15.201859+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    58.1796875,
+    50.83642578125,
+    33.0771484375
+  ],
+  "method": "5 warmups + 40 rounds. Original full lookup execution only; parsing, buffer allocation/reset and full-output serialization outside timing. Both executors use reusable caller capacity and allocate nothing during execution. Exact complete state and storage bytes must match. Default compiler policies. Diagnostic baseline, not an optimization, full managed shaping or frame qualification.",
+  "background_compilers": [
+    "45951   0.0 /private/tmp/progpu-rust-dotnet/dotnet",
+    "45952   0.0 /private/tmp/progpu-rust-dotnet/dotnet",
+    "45953   0.0 /private/tmp/progpu-rust-dotnet/dotnet",
+    "45954   0.0 /private/tmp/progpu-rust-dotnet/dotnet",
+    "45955   0.0 /private/tmp/progpu-rust-dotnet/sdk/10.0.403/Roslyn/bincore/VBCSCompiler"
+  ],
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "cxx": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "source_sha256": {
+    "src/ProGPU.Rust/tests/native_gsub.cpp": "ac85cab746ddc647ca6ff9262a2652c94ca5489ee8e21bd23cd9feddc7243887",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gsub.cpp": "dbb094f40329659ad1f9e8fbfb23455f0526fded8f3678643a0d4c43259fef69",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp": "d78cd9aeb83731524fa4d52c765dc0b3ae22796f2765b72175ce6abb98259550",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gdef.cpp": "c19b6068a845c03c243b8344c20f8ad84e36e51fbb320f734556e37f6f874772",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_digest.cpp": "b685e3900e6ac034ec4f280904de652f89e4c87a5fcff0f771f1217f55315783",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_unicode_shaping.cpp": "a064a7b8f613d147f55d05728926aee00862e8088c6ed8b14fc66ffcc03efd6c",
+    "src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_category.cpp": "a12ca2a33ddfb74c13c60a631a06d354d12587bbc0dd1a9c6527e905bc4fd885",
+    "src/ProGPU.Rust/src/font/layout/gsub.rs": "bf61d03297597f535d03c8c8a562aa3f1714b4c357a8041d5a6cfdc3c65029ac",
+    "src/ProGPU.Rust/src/font/layout/gsub/context.rs": "adfd5d1f1e1e57d7e7dd4b26270717c79a040c9ba20b77bdaec28315db47e8ee",
+    "src/ProGPU.Rust/src/text/shaping.rs": "7904de7628e8ed4a4718b589dbd0925a4d77d2c2e1292691766e118ef4044d87",
+    "src/ProGPU.Rust/examples/gsub_benchmark.rs": "bb1bb28ced311b0373bd4523c588571f306dbcac3cb96a591ec048801fd491e6",
+    "src/ProGPU.Rust/tests/support/gsub_fixture.rs": "a8301c8ec51a89e3eb70d1e2341e7c8be772047e712bd70d185cc820d6bc0dcb",
+    "eng/progpu-benchmark-rust-gsub.py": "32d49c580b456f48f5d6c69e0a9e681a6294bb81b3d0f42e3cb37e2f07dbad26"
+  },
+  "binary_sha256": {
+    "rust": "6e0e85c5eace82e84ff400c6f956d560a388d744ecdcdbd9a7e791a8744bbc92",
+    "native": "226ed9fa64057911e09fc05b535ac24af1b9cb7b93bafc21d5b7f951772b064a"
+  },
+  "inputs": [
+    {
+      "mode": "single",
+      "glyphs": 32,
+      "input_sha256": "821c5f72e1c175459aa4524a2c69257630cc8bbc42b082305347af9d6f4c1491",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.542,
+            "execute_p95_us": 0.584,
+            "execute_p99_us": 0.584
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 1.25,
+            "execute_p95_us": 1.292,
+            "execute_p99_us": 1.375
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "4248cfaeed80133514cdfbc1a22e05db7378d0149cae407e0140f1a8553d6052"
+    },
+    {
+      "mode": "multiple",
+      "glyphs": 32,
+      "input_sha256": "40dd3fea832d830607135431defee243055770d271e7563d60f6c9acad6b127f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.459,
+            "execute_p95_us": 0.5,
+            "execute_p99_us": 0.5
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 0.458,
+            "execute_p95_us": 0.5,
+            "execute_p99_us": 0.5
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "4b5400346d15b6784440f031884253f80aa7e00cfba6955a4e1ceff43f42b60a"
+    },
+    {
+      "mode": "delete",
+      "glyphs": 32,
+      "input_sha256": "90ca523ad8b5cee15b89176c3cff25bdef4849de37c6b9a2f2ffd33d0302ffa9",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.458,
+            "execute_p95_us": 0.541,
+            "execute_p99_us": 0.541
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 0.334,
+            "execute_p95_us": 0.417,
+            "execute_p99_us": 0.417
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "29ad5583918fc13c32d97ff3143dab85d6e12fe8cf9c9ea5d7975d60eff16805"
+    },
+    {
+      "mode": "ligature",
+      "glyphs": 32,
+      "input_sha256": "302296dacd2f7f5e4c2ebe4a011b0b836cc792ba137fe3e5a460d80588502fc1",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.792,
+            "execute_p95_us": 0.834,
+            "execute_p99_us": 0.917
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 0.75,
+            "execute_p95_us": 0.792,
+            "execute_p99_us": 0.834
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "0233448a461602666c004a83f5c5f2b0b9da3f7f5cdad3d4c5c9c100c09b7e4f"
+    },
+    {
+      "mode": "context",
+      "glyphs": 32,
+      "input_sha256": "e6878f3940d9a1808b9cb6ac0adef306141c594cf561365cf7519d768c279ddc",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.75,
+            "execute_p95_us": 0.75,
+            "execute_p99_us": 0.792
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 0.75,
+            "execute_p95_us": 0.75,
+            "execute_p99_us": 0.75
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "4b1123fb248bb55a527d97d4bb92574216267f84caa04ab1b5eaa4a394ea9017"
+    },
+    {
+      "mode": "chain",
+      "glyphs": 32,
+      "input_sha256": "1d052f7b7a6331f2be4b07bbc464d5780bc5096ac76c14ef6b6fe2b17b3d65bc",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1.125,
+            "execute_p95_us": 1.25,
+            "execute_p99_us": 1.25
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 0.958,
+            "execute_p95_us": 1.208,
+            "execute_p99_us": 17.0
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "ebe723a9749c547d0845f0966001f46bd12aaa36c88e1bf7832bfac8f4d2510a"
+    },
+    {
+      "mode": "reverse",
+      "glyphs": 32,
+      "input_sha256": "7d3552e800b0cd1348a5fe769a9b9fe3663142cce641b8ed5142312257037283",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.792,
+            "execute_p95_us": 0.875,
+            "execute_p99_us": 0.875
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 0.792,
+            "execute_p95_us": 0.792,
+            "execute_p99_us": 0.834
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "f5d02bcad79d6dafcb3d1a102c069bd1e7936535651063a7fc3f331718f015ed"
+    },
+    {
+      "mode": "random",
+      "glyphs": 32,
+      "input_sha256": "247261dd7d073cdb6977ea5b48b114d3736e447fde9721d9b2260aaf8edd0171",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 0.542,
+            "execute_p99_us": 0.542
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 0.584,
+            "execute_p95_us": 0.625,
+            "execute_p99_us": 0.667
+          }
+        }
+      ],
+      "exact_output_bytes": 3232,
+      "output_sha256": "38fef03547cfc2354fd2a808e4fdb4717ea005513e6b1b9933141177082a1dce"
+    },
+    {
+      "mode": "single",
+      "glyphs": 512,
+      "input_sha256": "5f6af12580b374114eede88d0b797a06b67da55604ff30a36f8f5a972dfe2172",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 8.292,
+            "execute_p95_us": 8.375,
+            "execute_p99_us": 8.375
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 7.542,
+            "execute_p95_us": 9.584,
+            "execute_p99_us": 9.875
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "ebe18fafbc792ab111367249a0a3f6e22e1865a70a9e1ef70c0065f4dc3c6e23"
+    },
+    {
+      "mode": "multiple",
+      "glyphs": 512,
+      "input_sha256": "ec675ca7d1816eba1f8e6d198c6f42f9a6ea2f16d7ac6b192c5a011cb9320b22",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 17.709,
+            "execute_p95_us": 18.125,
+            "execute_p99_us": 20.416
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 18.084,
+            "execute_p95_us": 19.375,
+            "execute_p99_us": 20.5
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "f654aed5ec897339806c2639b36eb01daab68aeb74cb150c48d4b78a33104a47"
+    },
+    {
+      "mode": "delete",
+      "glyphs": 512,
+      "input_sha256": "60ae69ec6d16fa7e673719bc390a03cc9c98ad8a31d565c5d7e318c48ab80a09",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 16.042,
+            "execute_p95_us": 16.084,
+            "execute_p99_us": 16.125
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 17.875,
+            "execute_p95_us": 22.708,
+            "execute_p99_us": 25.0
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "27ac679b5170ff1f4409e4beac2347ab84e609dcc839e96714528744eb974aa8"
+    },
+    {
+      "mode": "ligature",
+      "glyphs": 512,
+      "input_sha256": "6e8f5e25b2af1407aae542f195886f9fa531468f5febf094264dbe9979b4bde5",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 30.584,
+            "execute_p95_us": 38.542,
+            "execute_p99_us": 55.125
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 26.917,
+            "execute_p95_us": 27.291,
+            "execute_p99_us": 27.542
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "3a1a4927a7da6950750eb7b1e6bbde15cd57dd0e982f713e59ef6c2541c120d9"
+    },
+    {
+      "mode": "context",
+      "glyphs": 512,
+      "input_sha256": "e2ff4b2b377ee4dd45a4a486ca3e068c9d80905db6c5b440a279670be9b0c72d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 11.167,
+            "execute_p95_us": 11.209,
+            "execute_p99_us": 11.25
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 10.833,
+            "execute_p95_us": 10.875,
+            "execute_p99_us": 10.917
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "ccd4633982c2a39f6792868cf941bc932165b7d6c752dbf7ef4061ec1ac1fbaa"
+    },
+    {
+      "mode": "chain",
+      "glyphs": 512,
+      "input_sha256": "e72ded76fc093172191ca29fb2daf1d053459e91dc9aee263962dce06a210aeb",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 14.75,
+            "execute_p95_us": 15.167,
+            "execute_p99_us": 18.542
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 14.958,
+            "execute_p95_us": 19.209,
+            "execute_p99_us": 29.833
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "b9f9701df68abac16cfb925e5da1f364189eea0294dd3479c295c241e03b3de9"
+    },
+    {
+      "mode": "reverse",
+      "glyphs": 512,
+      "input_sha256": "63004fb3bd7990e65cf746610fe537622caeb3602e65c46284eebbd28cdfaaf4",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 12.292,
+            "execute_p95_us": 12.708,
+            "execute_p99_us": 15.458
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 12.25,
+            "execute_p95_us": 15.0,
+            "execute_p99_us": 15.75
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "a5c180722631677daf66923c28abf7b5b5009192d8e2d2677dec0377371ba010"
+    },
+    {
+      "mode": "random",
+      "glyphs": 512,
+      "input_sha256": "f96f27423a27f7ff04d12faab0f972ee408693bd5d0e90f435112b2fad722360",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 38.292,
+            "execute_p95_us": 42.416,
+            "execute_p99_us": 66.667
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 48.833,
+            "execute_p95_us": 53.209,
+            "execute_p99_us": 56.833
+          }
+        }
+      ],
+      "exact_output_bytes": 49312,
+      "output_sha256": "b959f7de2e0721adee94e380b8aeba829ccda04fdcf0b7ebeaab17b7060be9a3"
+    },
+    {
+      "mode": "single",
+      "glyphs": 4096,
+      "input_sha256": "bb393d192830f278cc329f44e8bedc057c8dbc8976f0c581d5aefb287eb62d80",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 68.625,
+            "execute_p95_us": 75.291,
+            "execute_p99_us": 76.166
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 62.166,
+            "execute_p95_us": 62.833,
+            "execute_p99_us": 68.584
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "f7f5b292a2a37adb1b3bc878c06fa1a6c02881c3878d8242a84dc6499d25f4ff"
+    },
+    {
+      "mode": "multiple",
+      "glyphs": 4096,
+      "input_sha256": "0e8a4a7b313f386a0b9b534058b677ee469d23e32e5c9b478c62fdda0ec6bbd3",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 817.167,
+            "execute_p95_us": 889.375,
+            "execute_p99_us": 896.083
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 800.667,
+            "execute_p95_us": 850.958,
+            "execute_p99_us": 856.709
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "88741fa8a7f092ed5f286a4c136b19b9cb0cf13d5b72e3a8d89621f59304d50b"
+    },
+    {
+      "mode": "delete",
+      "glyphs": 4096,
+      "input_sha256": "a0195eff237728e63c549bebe94c9e48551459895b9a5c4df7ac4e105deb5c14",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 792.875,
+            "execute_p95_us": 846.541,
+            "execute_p99_us": 875.25
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 936.459,
+            "execute_p95_us": 977.208,
+            "execute_p99_us": 984.208
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "d74b0ff31cf10f38b856a37438a16da3737cff7230023b42f07af89e6804b71e"
+    },
+    {
+      "mode": "ligature",
+      "glyphs": 4096,
+      "input_sha256": "8f636b51e5a4176e317c0c78d78ab4f10befc8c67baabd4c516c3228b0f53e19",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1276.917,
+            "execute_p95_us": 1318.875,
+            "execute_p99_us": 1334.75
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 1119.125,
+            "execute_p95_us": 1153.292,
+            "execute_p99_us": 1168.667
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "0a4b9ccc45b6dcb9f64655464fdf21b6b412444ed45e79923f458746d47365fa"
+    },
+    {
+      "mode": "context",
+      "glyphs": 4096,
+      "input_sha256": "ed6a5af6c431f010e46be94aa20b0cbe1e4ab267f801ab0183b1a6d3b3dc23c0",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 89.167,
+            "execute_p95_us": 98.667,
+            "execute_p99_us": 100.75
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 86.542,
+            "execute_p95_us": 97.166,
+            "execute_p99_us": 101.583
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "9c4fe162ac9c8cdeb6d304131fdb5eaa4ccc1d339a65a8b6225956a6e9a213d1"
+    },
+    {
+      "mode": "chain",
+      "glyphs": 4096,
+      "input_sha256": "b210d3e734f057ac7ce9c2a8167f7ccaef3ea573078bc234fa8dbf137ba739ce",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 116.25,
+            "execute_p95_us": 125.125,
+            "execute_p99_us": 130.625
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 117.0,
+            "execute_p95_us": 122.208,
+            "execute_p99_us": 122.75
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "7b2ae6d2637a7065c93f5a27c98be218410ef55e21effa941b713085ae00e444"
+    },
+    {
+      "mode": "reverse",
+      "glyphs": 4096,
+      "input_sha256": "32a756d70514db9f20c210dc550cbb15128e55deaefe4124f2f8d3bdca70a2ee",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 93.042,
+            "execute_p95_us": 99.125,
+            "execute_p99_us": 102.5
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 94.708,
+            "execute_p95_us": 99.917,
+            "execute_p99_us": 101.792
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "ac7f691334c90ae804a0fc527938b71eb5135d1d0eca024aec4d4f74c6cde642"
+    },
+    {
+      "mode": "random",
+      "glyphs": 4096,
+      "input_sha256": "4d70bf1695adcce3f68b93c115d4468fb5568eb190a308392ec230584b19fa66",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "execute_p50_us": 1991.125,
+            "execute_p95_us": 2115.417,
+            "execute_p99_us": 2161.167
+          }
+        },
+        {
+          "implementation": "native",
+          "metrics": {
+            "execute_p50_us": 2889.458,
+            "execute_p95_us": 3054.333,
+            "execute_p99_us": 3106.75
+          }
+        }
+      ],
+      "exact_output_bytes": 393376,
+      "output_sha256": "b09ff8f95d4ff565b38a5e65d62b7a5422887eacd379d6bc164177d9896cff09"
+    }
+  ],
+  "temporary_bytes_removed": 148984
+}

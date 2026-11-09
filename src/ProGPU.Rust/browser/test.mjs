@@ -332,6 +332,38 @@ try {
           digestCheck(context.subarray(0,context.length-1),extension,10,[1,0,0,0,0xffffffff,0]);
         }
         for(const bad of [new Uint8Array(),digestTable(1,[]),digestSimple.subarray(0,25)]){let caught=false;try{app.layout_digest_query(bad,0,7,0);}catch{caught=true;}check(caught,'WASM invalid digest header');digestChecks++;}
+        let gsubChecks=0;
+        const sg=(id,cluster=0,flags=0,cp=65)=>[id,cp,cluster>>>0,flags>>>0,101,(-202)>>>0,(-303)>>>0,404];
+        const gsubTable=lookups=>{const w=[1,0,10,12,14,0,0,lookups.length,...lookups.map(()=>0)];
+          for(let i=0;i<lookups.length;i++){const [kind,flags,subs]=lookups[i],start=w.length;w[8+i]=start*2-14;w.push(kind,flags,subs.length,...subs.map(()=>0));if(flags&16)w.push(0);for(let j=0;j<subs.length;j++){w[start+3+j]=(w.length-start)*2;w.push(...subs[j]);}}return otWords(w);};
+        const singleSub=[1,6,100,1,3,10,20,30],multiSub=[1,16,1,8,3,100,101,102,1,1,10],ligSub=[1,18,1,8,1,4,88,2,20,1,1,10];
+        const gsub=(table,records,options=[records.length,0xffffffff,0,1,0,0,0,0],gdef=new Uint8Array())=>{gsubChecks++;return [...app.apply_gsub(table,gdef,0,new Uint32Array(records.flat()),new Uint32Array(options))];};
+        const glyphResult=(result,index)=>result.slice(5+index*8,13+index*8);
+        for(const wrapped of [false,true]){const tab=(kind,sub,flags=0)=>gsubTable([[wrapped?7:kind,flags,[wrapped?[1,kind,0,8,...sub]:sub]]]);
+          let r=gsub(tab(1,singleSub),[sg(10,-8),sg(20,9)]);check(r[0]===0&&r[1]===2&&r[2]===1&&glyphResult(r,0)[0]===110&&glyphResult(r,1)[0]===120,'WASM GSUB single bulk');
+          r=gsub(tab(2,multiSub),[sg(10,-8),sg(20,9),sg(900),sg(901)],[2,0,37,1,0,0,0,0]);check(r[0]===0&&r[1]===4&&glyphResult(r,2)[0]===102&&glyphResult(r,2)[3]===0xa0280000&&glyphResult(r,0)[4]===0x80000000&&glyphResult(r,3)[0]===20,'WASM GSUB multiple exact flags/provenance');
+          r=gsub(tab(2,multiSub),[sg(10),sg(20)],[2,0,37,1,0,0,0,0]);check(r[0]===7&&r[1]===2&&r[2]===0&&glyphResult(r,0)[0]===10,'WASM GSUB capacity rollback');
+          const deletion=[1,10,1,8,0,1,1,10];r=gsub(tab(2,deletion),[sg(10),sg(20),sg(999)],[2,0,0,1,0,0,0,0]);check(r[1]===1&&glyphResult(r,0)[0]===20&&glyphResult(r,1)[0]===20&&glyphResult(r,2)[0]===999,'WASM GSUB deletion tail');
+          r=gsub(tab(3,multiSub),[sg(10,0),sg(10,1)],[2,0,136,1,0,0,0,0xdeadbeef]);const random=(Math.imul(0xdeadbeef,48271)>>>0)%2147483647;check(r[4]===random&&glyphResult(r,0)[0]===100+random%3&&glyphResult(r,1)[3]===3,'WASM GSUB random wrapping/dependency');
+          r=gsub(tab(4,ligSub,8),[sg(10,8),sg(12,-3,0,0x301),sg(20,7),sg(30,7)],[4,0,3,1,0,0,0,0]);check(r[1]===3&&glyphResult(r,0)[0]===88&&glyphResult(r,0)[2]===0xfffffffd&&glyphResult(r,0)[3]===0xc0000010&&glyphResult(r,1)[3]===0x800&&glyphResult(r,2)[2]===0xfffffffd,'WASM GSUB ligature cluster/mark');
+          const rev=[1,18,2,24,30,1,36,1,77,1,1,10,1,1,9,1,1,8,1,1,20];r=gsub(tab(8,rev),[sg(8,0),sg(9,1),sg(10,2),sg(20,3)]);check(r[0]===0&&glyphResult(r,2)[0]===77&&glyphResult(r,3)[3]===3,'WASM reverse GSUB');
+          r=gsub(tab(1,singleSub),[sg(10)],[1,0,0,1,1,0,0,0]);check(r[2]===0&&glyphResult(r,0)[0]===10,'WASM required glyph flags');
+          r=gsub(tab(4,ligSub),[sg(10,0,0x2000),sg(20,1,0x4000)],[2,0,16,1,0,0,0,0]);check(r[2]===0&&r[1]===2,'WASM GSUB syllable boundary');
+        }
+        const contextSub=records=>{const w=[3,2,records.length,0,0,...records.flat()];w[3]=w.length*2;w.push(1,1,10);w[4]=w.length*2;w.push(1,1,20);return w;};
+        for(const records of [[[0,1]],[[0,1],[2,1]],[[0,0]]]){const b=gsubTable([[5,0,[contextSub(records)]],[1,0,[singleSub]]]);const r=gsub(b,[sg(10,0),sg(20,9)],[2,0,64,1,0,0,0,0]);check(r[0]===(records.length===2?4:0)&&glyphResult(r,1)[3]===3,'WASM contextual dependency/error');check(r[2]===(records.length===1&&records[0][1]===1?1:0),'WASM nested applied state');if(records.length===2)check(glyphResult(r,0)[0]===110&&r[3]===0,'WASM retained nested write/unpublished boundary');}
+        for(const offset of [0x7fffffff,0x80000000,0xffffffff]){const b=gsubTable([[7,0,[[1,1,0,8,...singleSub]]]]);new DataView(b.buffer).setUint32(30,offset);const r=gsub(b,[sg(10)]);check(r[0]===4&&r[2]===0,'WASM GSUB extreme extension offset');}
+        const contextRules=[
+          [5,[1,22,1,8,1,4,2,1,20,0,1,1,1,10],0,[sg(10,0),sg(20,1)]],
+          [5,[2,26,32,2,0,12,1,4,2,1,2,0,1,1,1,10,1,10,11,1,0,0,0,0,0,0,0,0,0,2],0,[sg(10,0),sg(20,1)]],
+          [6,[1,32,1,8,1,4,2,9,8,2,20,1,30,1,0,1,1,1,10],2,[sg(8,0),sg(9,1),sg(10,2),sg(20,3),sg(30,4)]],
+          [6,[2,40,46,46,46,2,0,16,1,4,2,0,0,2,2,1,3,1,0,1,1,1,10,1,0,31,...Array.from({length:31},(_,i)=>Math.floor(i/10))],2,[sg(8,0),sg(9,1),sg(10,2),sg(20,3),sg(30,4)]],
+          [6,[3,2,24,30,2,36,42,1,48,1,0,1,1,1,9,1,1,8,1,1,10,1,1,20,1,1,30],2,[sg(8,0),sg(9,1),sg(10,2),sg(20,3),sg(30,4)]]];
+        for(const [kind,sub,pos,records] of contextRules){for(const wrapped of [false,true]){const b=gsubTable([[wrapped?7:kind,0,[wrapped?[1,kind,0,8,...sub]:sub]],[1,0,[singleSub]]]);const r=gsub(b,records,[records.length,pos,64,1,0,0,0,0]);check(r[0]===0&&r[2]===1&&r[3]===pos+2&&glyphResult(r,pos)[0]===110,'WASM GSUB all contextual formats');}}
+        const oneContext=[3,1,2,16,0,1,0,1,1,1,10],deleteSub=[1,10,1,8,0,1,1,10];
+        const stale=gsub(gsubTable([[7,0,[[1,5,0,8,...oneContext],[1,2,0,8,...multiSub]]],[2,0,[deleteSub]]]),[sg(10),sg(900),sg(901)],[1,0xffffffff,0,1,0,0,0,0]);check(stale[0]===0&&stale[1]===2&&stale[2]===1&&glyphResult(stale,2)[0]===102,'WASM original-slot continuation after nested deletion');
+        const gd=otWords([1,2,14,0,0,32,46,1,10,6,1,2,3,4,5,0,1,10,4,0,0,2,7,1,1,0,8,1,1,12]);
+        for(const flags of [0x700,0x710]){const r=gsub(gsubTable([[1,flags,[[1,6,100,1,1,12]]]]),[sg(12,0,0,0x301)],[1,0,0,1,0,0,0,0],gd);check(r[0]===0&&r[2]===+(flags===0x710)&&glyphResult(r,0)[0]===(flags===0x710?112:12),'WASM original mark-set versus attachment admission');}
         let managedContextChecks=0;
         const contextGlyph=(id,cp=65,sub=0,shaper=0,mask=0,syllable=0)=>[id,cp,sub,shaper,mask,syllable];
         const contextCheck=(bytes,extension,glyphs,expected,options=[0,0,0])=>{const actual=[...app.managed_context_query(bytes,0,extension,new Uint16Array(),new Uint32Array(glyphs.flat()),new Uint32Array(options))];check(actual[0]===1&&actual.at(-1)===+expected,`WASM managed ordered context ${JSON.stringify(actual)}`);managedContextChecks++;return actual;};
@@ -588,7 +620,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

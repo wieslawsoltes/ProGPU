@@ -872,6 +872,95 @@ mod web {
         }
         Ok(out)
     }
+    /// Execute original native GSUB in wasm32 and expose complete storage/error state.
+    /// Options: count, position (u32::MAX for bulk), bits, alternate, required,
+    /// restricted syllable, initial context end, initial random state.
+    #[wasm_bindgen]
+    pub fn apply_gsub(
+        bytes: Vec<u8>,
+        gdef_bytes: Vec<u8>,
+        index: u16,
+        records: Vec<u32>,
+        options: Vec<u32>,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::{
+            font::{FontError, layout::*},
+            text::ShapingGlyph,
+        };
+        if !records.len().is_multiple_of(8)
+            || options.len() != 8
+            || options[2] > 255
+            || options[5] > 255
+        {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let mut storage: Vec<_> = records
+            .chunks_exact(8)
+            .map(|g| ShapingGlyph {
+                glyph_id: g[0],
+                code_point: g[1],
+                cluster: g[2] as i32,
+                flags: g[3],
+                advance_x: g[4] as i32,
+                advance_y: g[5] as i32,
+                offset_x: g[6] as i32,
+                offset_y: g[7] as i32,
+            })
+            .collect();
+        let retained = OwnedLayoutTable::new(bytes).map_err(error)?;
+        let gdef = if gdef_bytes.is_empty() {
+            None
+        } else {
+            Some(OwnedGdef::new(gdef_bytes).map_err(error)?)
+        };
+        let bits = options[2];
+        let policy = GsubOptions {
+            gdef: gdef.as_ref().map(OwnedGdef::view),
+            alternate_value: options[3],
+            required_glyph_flags: options[4],
+            restricted_syllable: options[5] as u8,
+            mark_substituted: bits & 1 != 0,
+            track_fallback_mark_metadata: bits & 2 != 0,
+            track_arabic_stretch_metadata: bits & 4 != 0,
+            random_alternate: bits & 8 != 0,
+            restrict_to_syllable: bits & 16 != 0,
+            track_substitution_provenance: bits & 32 != 0,
+            ..Default::default()
+        };
+        let mut state = GsubState {
+            glyph_count: options[0],
+            applied: true,
+            context_match_end: (bits & 64 != 0).then_some(options[6]),
+            random_state: (bits & 128 != 0).then_some(options[7]),
+        };
+        let result = retained.view().apply_gsub(
+            index,
+            (options[1] != u32::MAX).then_some(options[1]),
+            &mut storage,
+            policy,
+            &mut state,
+        );
+        let mut out = vec![
+            result.err().map_or(0, |e| e as u32),
+            state.glyph_count,
+            u32::from(state.applied),
+            state.context_match_end.unwrap_or(options[6]),
+            state.random_state.unwrap_or(options[7]),
+        ];
+        for g in storage {
+            out.extend([
+                g.glyph_id,
+                g.code_point,
+                g.cluster as u32,
+                g.flags,
+                g.advance_x as u32,
+                g.advance_y as u32,
+                g.offset_x as u32,
+                g.offset_y as u32,
+            ]);
+        }
+        Ok(out)
+    }
     /// Original managed context preparation and ordered matching in wasm32.
     /// Options are manual-joiners/restricted bits, active syllable, full digest.
     #[wasm_bindgen]

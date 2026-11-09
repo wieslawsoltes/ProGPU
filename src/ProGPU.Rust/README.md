@@ -44,6 +44,7 @@ cargo test --locked --test digest -- --ignored --nocapture
 cargo test --locked --test selection -- --ignored --nocapture
 cargo test --locked --test managed_feature_selection -- --ignored --nocapture
 cargo test --locked --test managed_context -- --ignored --nocapture
+cargo test --locked --test gsub -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -154,6 +155,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Native feature selection | Exact script/language fallback, required/requested/excluded features, ordered variation records and owned selections; 50,956 native controls / 7,157,396 bytes; 1,728 actual C# shared-policy controls; 16 browser checks per DPR | Staged plans, GSUB/GPOS execution and native-selection performance gap |
 | Current managed feature policy | Separate immutable UTF-16 request, full fallback/value/global precedence, variation substitutions and optional managed digest; 327,015 actual C# controls / 27,595,740 bytes; 20 browser checks per DPR | Full GDEF/executor integration, staged shaping and lookup execution |
 | Managed context and ordered matching | Owned raw managed format-3 contexts, exact weak coverage admission and original glyph/indexer/skip rules; 56,996 actual C# source records, 22,558,608 coverage queries and 1,191,586 ordered matches; 70 browser checks per DPR | Full lookup/GDEF execution, staged shaping, layout/text integration and large-query baseline gap |
+| Native GSUB execution | All eight lookup types; contextual formats 1–3; caller-owned 32-byte glyph records, original errors/tails, nested state, GDEF and metadata; 117,973 C++ records / 60,322,260 bytes and 3,968 actual C# shared-policy records / 975,232 bytes | Complete current managed mutation policy, GPOS, staged shaping, fallback, layout/GPU text and performance qualification |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -260,7 +262,8 @@ and GDEF generations. `OwnedLayoutTable::from_face` and `OwnedGdef::from_face`
 retain the selected `SfntFace` without copying its table bytes. Lookups validate
 all declared subtable offsets on demand; their raw types/flags remain unchanged.
 GDEF blocklist policy is explicit and independent of parsing. These APIs provide
-shaping data boundaries; they do not yet apply substitutions or positioning.
+shaping data boundaries. `LayoutTable::apply_gsub` now executes the original native
+substitution contracts; GPOS and complete shaping remain separate.
 
 Hosted normalization checkpoint `672d632b9` passes Windows, browser and GPU;
 Linux's actual managed comparison fails at U+105C9, while its native comparison
@@ -376,3 +379,18 @@ baseline workloads match complete metadata/result bytes. At 4,096 repeated glyph
 Rust ordered search is about 39 µs versus C# 29 µs; the gap remains open. Queries
 allocate nothing in Rust by construction and zero measured bytes in C#. Broader
 performance claims require matched Instruments and complete shaping workloads.
+
+`LayoutTable::apply_gsub(index, position, storage, options, state)` allocates no
+memory. `None` visits the whole live prefix; `Some(position)` preserves original
+lookup-at policy. `GsubState::glyph_count` selects the live prefix and slice length
+supplies capacity. On errors, original earlier mutations and unused storage tails
+remain observable. The optional context boundary publishes only after successful
+application. This low-level contract is deliberately not transactional. Source,
+32-bit offsets, recursion bounds and explicit GDEF/filter generations remain checked.
+
+Run `python3 eng/progpu-benchmark-rust-gsub.py` for 24 matched native/Rust execution
+baselines. Buffer reset, allocation and serialization are outside timing; every
+complete state/storage byte must match. Native and managed policies still differ
+in default ignorables, already-ligated expansion, one-component ligature flags,
+malformed-table admission and staged feature handling. The current managed source
+comparison qualifies only their explicitly shared mutation contracts.

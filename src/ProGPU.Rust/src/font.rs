@@ -2,7 +2,8 @@
 //!
 //! Direct port of ProGPU's `progpu_native_sfnt.cpp` and standalone-font writer.
 //! Simple/composite TrueType decoding preserves source topology and instruction bytes.
-//! No font discovery, shaping, hinting, rasterization or GPU work occurs here.
+//! Font discovery, complete shaping, hinting and GPU realization remain separate.
+//! The layout module supplies explicit original OpenType data and GSUB execution.
 //! Ordinary table lookup preserves the native last-valid-duplicate policy;
 //! specialized metadata APIs must independently apply their stricter contracts.
 

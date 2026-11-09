@@ -2505,3 +2505,106 @@ target, with 87 exact production/resource/license files and original manifest.
 Temporary package/benchmark outputs and unused benchmark binaries remove
 **606,578,719 measured logical bytes**; source-oracle auto-cleanup is additional.
 Active caches and compact receipts remain.
+
+
+## Native GSUB execution and original mutation state
+
+The Rust executor directly ports `progpu_native_open_type_gsub.cpp` and its private
+metadata helpers. `ShapingGlyph` preserves the original 32-byte record: full u32
+glyph/code-point/flag fields, signed cluster and four signed position/advance words.
+`GsubOptions` exposes explicit caller policy; `GsubState` preserves count, applied
+state, optional context boundary and original u32 random state even on failure.
+No font discovery, script selection, source normalization or staged defaults are
+inferred by this low-level API. Validated borrowed views keep actual table/GDEF
+bytes alive, and the owned common table retains its original font generation.
+
+All eight native types execute: delta/array singles, multiple including deletion,
+alternates, ordered ligatures, contextual and chained formats 1–3, extensions and
+reverse chaining. The original 64-level nested lookup bound remains. Complete raw
+lookup arrays preflight; individual substitutions validate their own data/capacity.
+Later malformed context records retain prior substitutions and dependency writes,
+with the original top-level applied state and unpublished context boundary. A
+nested no-match can follow a deletion: the following extension subtable still uses
+the original initialized storage slot. A dedicated C++ comparison preserves that
+case, including the stale output outside the new live count. Rust bounds-checks
+physical storage, rejecting capacity/offset overflow instead of permitting an
+out-of-bounds native access. Unused tails are neither cleared nor reconstructed.
+
+Ligatures merge complete adjacent source clusters, including skipped marks, before
+removing ordered components. Original fallback component, Arabic stretch and complex
+substitution flags retain their exact masks and bounded values. Provenance independently
+writes i32::MIN to advance_x. Context dependency flags mark only nonminimum signed
+clusters. Context end adjustment follows the original mutated count once at the
+top-level application. Random alternates retain wrapping u32 multiplication and
+whole-buffer dependency marking at top-level depth only. Native mark-filtering sets
+have original precedence over the attachment type; this differs from current C#.
+
+Bulk and lookup-at preserve their distinct digest/admission behavior. Optional
+prepared context filters apply only at top-level depth. Exact contextual coverage
+uses the original exclusive-high binary search and raw order, independently of the
+strict public Coverage parser. Flags, syllable boundaries, input/backtrack/lookahead
+order and all malformed-record decisions remain source-defined. No rendering,
+shader, compiler or driver changes accompany execution.
+
+The original default-compiler C++ passes **117,973 records / 60,322,260 exact result
+and full-capacity storage bytes**. Cases include all formats/extensions, GDEF and
+Unicode mark fallback, all accelerator combinations, capacity/count extremes,
+every selected fixture prefix, 25,000 byte mutations, 10,000 mixed record inputs,
+recursion, positive/negative clusters, raw flag/syllable state, random wrap,
+300-component metadata clamping and nested failure/no-match continuation.
+Five focused ordinary tests independently assert mutation/error contracts.
+
+The actual C# `ApplyNestedLookup`, reverse subtable executor and original
+GlyphSubstitutionBuffer pass **3,968 shared-policy records / 975,232 exact bytes**.
+Comparison includes live IDs, code points, signed clusters, public dependency flags,
+all advances/offsets and substituted/ligated/multiplied/component metadata. The test
+uses actual compiled original code through typed reflection delegates. It does not
+translate the managed executor. Current managed default-ignorable traversal,
+malformed-source recovery, one-component ligature marking, already-ligated multiple
+expansion and full staged shaping remain separate contracts to port; this milestone
+makes no full current-managed GSUB claim.
+
+Native and Rust baselines cover eight operations at 32/512/4096 glyphs, with five
+warmups and forty measured rounds. Parsing, buffer allocation/reset, transport and
+complete-output serialization are outside timing. Both executors allocate nothing
+during lookup execution. Original repeated buffer shifts/context searches and random
+whole-run marking retain their worst-case quadratic behavior. Exact serialized
+state and full storage match in all 24 workloads. Timings are diagnostic, with
+mixed regressions and background compiler load recorded; this is not optimization,
+managed steady-state, whole-shaper or frame-performance qualification. Any future
+optimization requires matched Instruments evidence. Reproduction and compact
+source/input/binary hashes: `eng/progpu-benchmark-rust-gsub.py`, `perf/gsub-*.json`.
+
+The preceding context commit `99b2f9093` passes hosted Linux full source/package,
+Windows, GPU/winit and original Chromium WebGPU run 42544464172. Its browser checks
+both presented DPRs, 204,800 offscreen pixels and 70 managed context controls per DPR.
+The diagnostic rerun is skipped. Earlier device loss remains recorded and unresolved;
+a successful checkpoint does not establish browser reliability. New GSUB work has
+its own browser and hosted gates.
+
+Thirty-seven browser controls per DPR pass all GSUB types/context formats,
+extensions, GDEF precedence, overflow, recursive/no-match continuation, exact
+metadata and capacity failures. All existing 204,800 pixels, six shaders, resize
+and both presented canvases pass. Strict native/WASM Clippy passes; aggregates
+pass 74 all-feature tests (40 explicitly ignored) and 72 CPU-only (33 ignored).
+Seven focused/source tests run separately and pass. Fresh independent extracted
+native all-target/all-feature and WASM checks pass, comparing 90 exact production,
+resource and license files plus the original manifest.
+
+| 4,096-glyph workload | Rust p50 / p95 / p99 µs | C++ p50 / p95 / p99 µs |
+| --- | --- | --- |
+| single | 68.625 / 75.291 / 76.166 | 62.166 / 62.833 / 68.584 |
+| multiple | 817.167 / 889.375 / 896.083 | 800.667 / 850.958 / 856.709 |
+| delete | 792.875 / 846.541 / 875.250 | 936.459 / 977.208 / 984.208 |
+| ligature | 1276.917 / 1318.875 / 1334.750 | 1119.125 / 1153.292 / 1168.667 |
+| context | 89.167 / 98.667 / 100.750 | 86.542 / 97.166 / 101.583 |
+| chain | 116.250 / 125.125 / 130.625 | 117.000 / 122.208 / 122.750 |
+| reverse | 93.042 / 99.125 / 102.500 | 94.708 / 99.917 / 101.792 |
+| random | 1991.125 / 2115.417 / 2161.167 | 2889.458 / 3054.333 / 3106.750 |
+
+Baseline load was [58.1796875, 50.83642578125, 33.0771484375]; compiler processes are recorded in the
+receipt. Single, multiple, ligature and context medians are slower than C++ in
+this run. No stable speedup or performance parity is claimed. Cleanup removed
+**539,368,324 measured logical bytes** of package/benchmark
+scratch, unused executables and the temporary helper; source-oracle scratch
+removal is additional. Active dependency caches and compact evidence remain.

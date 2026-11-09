@@ -226,3 +226,11 @@ path = "src/ProGPU.Rust/examples/managed_feature_benchmark.rs"
 [[example]]
 name = "managed_context_benchmark"
 path = "src/ProGPU.Rust/examples/managed_context_benchmark.rs"
+
+[[test]]
+name = "gsub"
+path = "src/ProGPU.Rust/tests/gsub.rs"
+
+[[example]]
+name = "gsub_benchmark"
+path = "src/ProGPU.Rust/examples/gsub_benchmark.rs"
