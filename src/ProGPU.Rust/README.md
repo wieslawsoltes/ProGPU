@@ -20,8 +20,11 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Managed shaping orchestration | Original complete stage and feature ordering | Matched whole-pipeline source corpus, browser and performance |
 | Managed TrueType/CFF1 outlines | Float contours, composite attachment, selected variations, managed CFF INDEX/DICT/FDSelect and Type 2 policy, owned outline/flipped caches | Original geometry/error/cache/float controls; independent legacy CFF fallback remains unfinished |
 | Managed positioning/output | Metrics/ignorables/spaces, vertical origins, GPOS, kern, marks, direction, stretch, Verify, scaled/design-unit output and typed font-face boundary | Complete original positioned records, scaling and text pixels |
-| Paragraph bidi | Original UTF-16 levels/runs, inline isolates and L2 visual ordering | Full managed paragraph source controls and interaction with wrapping |
-| Other font/layout/render work | Earlier independent foundations remain available | Full paragraphs/fallback/interaction, GPU text and remaining engine stack |
+| Paragraph bidi | Original UTF-16 levels/runs, inline isolates, line L1 and cluster-group L2 visual ordering | Full managed paragraph source controls |
+| Basic paragraph writer | Original font-run shaping, ASCII path, safe wrapping, tabs, alignment, vertical columns, CRLF/blank rows and atomic reflow | Whole-layout source/browser/performance controls; styled paragraphs and system fallback providers remain unfinished |
+| Retained text interaction | Original advance boxes, carets/affinities, hits, selection, row/vertical navigation and explicit EDIT grapheme ownership | Source controls for empty/wrapped/bidi/multi-font/malformed input and lifetime/error cases |
+| Source line metrics | Whole-inventory VDMX reader, raw-directory validation and exact immutable font/pixel-size ownership | Original metadata/line-frame controls; independent source/package/pixel qualification |
+| Other font/layout/render work | Earlier independent foundations remain available | Styled text, system discovery/resident fallback, GPU text and remaining engine stack |
 
 At the user's request, implementation proceeds in connected batches with
 compile/static checks; exhaustive differential/browser/performance/package
@@ -30,6 +33,18 @@ Managed CFF admission/figure semantics remain separate from native CFF1/CFF2.
 Programs requiring the unported legacy CFF fallback return `UnsupportedOutline`;
 they are not published as empty glyphs. Earlier measurements below describe their
 named checkpoints and do not validate this new connected pipeline.
+
+`text::layout::ManagedTextLayout::new` connects the original basic paragraph
+writer to the owned shaper. It takes an explicit `ManagedFontFallback` resolver;
+an explicitly supplied `[ManagedFont]` list works for portable/browser hosts.
+This is not the original system font discovery provider. Completed generations
+own their selected fonts and expose immutable glyph membership. `reflow` creates
+a complete candidate; `create_interaction_snapshot` freezes source-row/advance
+geometry independently of GPU text realization. `ManagedTextContext` retains
+neighboring-context views over the original owner instead of copying a paragraph
+prefix/suffix for each font run. `SourceDeviceLineMetrics::capture` admits only
+the original exact static square-pixel VDMX frame. These new additions have
+compile/static checks only; full source differential validation is deferred.
 
 Run `cargo test --locked` and `cargo clippy --all-targets -- -D warnings`.
 The CPU geometry API also builds with `--no-default-features`.

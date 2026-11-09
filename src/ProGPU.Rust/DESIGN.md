@@ -4483,3 +4483,107 @@ float differences, browser reliability and provider/package/application/pixel ga
 remain independent and unresolved. Full wrapping/fallback/interaction, GPU text,
 compressed/resident/discovery factories and the rest of the rendering port remain
 unfinished.
+
+## Connected basic paragraph and retained interaction port (2026-11-09)
+
+This production batch follows the user's implementation-first instruction:
+assemble connected code, compile and lint, and defer exhaustive differential,
+browser, benchmark, Instruments and package cycles until more of the stack is
+assembled. Nothing in this section claims source or release qualification.
+
+| Original in-repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Text/TextLayout.cs` | `24193ae1b73fb8e28d3871a8d19f829172d254accf34b6a10dccc1bcb650403d` | Basic request/candidate writer, active shaped/ASCII/vertical paths, font partitioning, context, safe breaks, tabs, width/alignment, L1/L2, cluster/row geometry |
+| `src/ProGPU.Text/TextInteractionSnapshot.cs` | `8db724368e4de1bf768ae941edf88d99fc5616bbbe846a868e466f9ed0de3444` | Complete retained carets, hits, cluster hits, rows, source points, horizontal/vertical navigation and selection |
+| `src/ProGPU.Text/TextEditInteractionSnapshot.cs` | `a4895b53f5425ea889ec2c0b5b699e734c58ab922112ca97d947b446e1ae5808` | Explicit original grapheme ownership, grouping, exact trailing edges, empty-row remapping, query-local missing-interior rejection |
+| `src/ProGPU.Text/OriginalGraphemePolicy.cs` | `b1a28832063fa469e11e740f90c5ec6fcba0a0ed7088595bd79c51d2cdf9799c` | Strict whole-source admission followed by original first-element capture before fallback |
+| `src/ProGPU.Text/SourceDeviceLineMetrics.cs` | `05a640361056e1e5a2b1d05540e369f61c7265d33e1221cf8c6cbfcb9c59fd31` | Exact immutable font, pixel-em and horizontal-direction validation |
+| `src/ProGPU.Text/TtfFont.VerticalDeviceMetrics.cs` | `77db7203a0e7e0d4e54751317ca3e6d2bc22fb78f40438753a79dd74b28f0709` | Raw selected-face directory, VDMX duplicates/extents, raw fvar presence and static/symbol admission |
+| `src/ProGPU.Text/SfntVerticalDeviceMetrics.cs` | `72b61520c285d6a9e488a375273c4eb993aa3017667ede70c4eb893fb72efc1f` | Complete group/record/ratio validation, version-zero per-charset defaults and exact first-applicable size selection |
+
+The original owned source is directly ported under handbook A-1. No external
+text-layout engine, generated shaping machine or fallback implementation was
+read or copied. Existing recorded public architecture/specification research
+remains applicable. The legacy unused `GenerateLayoutLegacy` path, texture-atlas
+construction, static file discovery and platform fallback factories are outside
+this batch; they are not silently represented by another engine.
+
+`ManagedTextLayout` freezes original UTF-16, primary font, request and explicit
+Unicode profiles. Its production path partitions by original bidi runs and
+actual selected font identity. Missing non-space/tab scalars use a typed
+`ManagedFontFallback` provider; default ignorables keep the preceding selected
+fallback run. A caller-supplied ordered font slice is an explicit portable
+provider, not system discovery qualification. Every emitted glyph retains the
+actual selected immutable font. Run prefixes/suffixes use `ManagedTextContext`
+views over the original `Arc<[u16]>`, matching source ReadOnlyMemory ownership
+without O(N*R) text copies for R font runs. Full-context assignments now use
+`.into()`; the previous owner-retention test keeps its exact original assertions.
+The separate Verify path retains its original concatenation semantics.
+
+Font runs preserve original paragraph BOT/EOT flags and complete context. Design
+output is scaled with the selected font's em; vertical runs keep original
+size-rounded metrics. RTL logical ordering reverses cluster groups without
+reversing glyphs inside them. Safe wrapping retains source whitespace-before-
+overflow selection, preceding safe break and forward emergency safe break.
+Tabs keep original interval arithmetic, invalid interval skipping and 0.001
+comparison. Measured widths use logical candidate order independently of visual
+placement; trailing measurement policy is retained. Wrapped lines reset trailing
+space/tab group levels for L1 before original L2. Basic Justify retains the
+original left route; the independent styled writer remains unfinished.
+
+Horizontal hard breaks keep whole CRLF ownership, blank rows and trailing rows;
+the vertical writer retains its distinct LF-only policy. Alignment, nonfinite
+input behavior, unsigned layout dimensions, source Y inversion and sequential
+float pen/line accumulation retain original operations. Empty source keeps zero
+content/measured size, with an explicit source-metrics empty row when applicable.
+`reflow` constructs a complete candidate and leaves the prior generation intact
+on failure. Public glyph membership is immutable, so the original defensive
+membership check is enforced by ownership rather than rescanning mutable lists.
+
+Interaction freezes advance intervals, not ink bounds or glyph drawing offsets.
+Horizontal row membership and source end delimiters are retained; vertical
+geometry keeps its separate baseline/metric path. Carets preserve physical order,
+both bidi affinities and actual empty-row insertion indices. Original adjacent
+duplicate comparison is expressed as linear compaction against the original
+predecessor, even when that predecessor was removed, rather than repeated vector
+deletion. Point hits select the actual horizontal vertical band before horizontal
+distance. Row/source navigation, tie-breaking, half-interval hits, selection
+sorting/merging, signed range arithmetic and preferred-X double distances retain
+their separate original routes. Immutable snapshots share owned arrays, survive
+layout retirement and never query fonts during interaction.
+
+Explicit EDIT captures original well-formed grapheme boundaries before font
+fallback, using the requested original Unicode profile. It keeps complete
+multi-grapheme shaping intervals, rejects overlapping/unproven owners, and
+requires exact original trailing caret geometry. Ordinary navigation remains
+unchanged. Missing interior ownership rejects only affected queries; no synthetic
+interior caret, source word boundary or reconstructed shaping record is added.
+
+VDMX visits the complete bounded inventory before selecting any record. Raw
+directory duplicates/extents and raw fvar presence are independently retained;
+malformed later metadata cannot be hidden behind an earlier match or unsupported
+face. Version-zero charset termination stays independent, version one shares its
+inventory, and all original offsets must identify real group starts. Source line
+metrics retain exact font identity and integer pixel em; no nearest record,
+scaled extrema, completed-height rounding or ordinary-layout change is admitted.
+
+Complexity: layout retains O(N+G+L) source/glyph/line storage, plus shaping scratch.
+Original script shaping and feature-query costs remain independent. Sequential
+pen, run, wrap and group dependencies are not SIMD-independent workloads. L2
+retains O(G*levels); the original tab scan retains O(stops) per tab. Snapshot
+cluster construction and selection sorting are O(G log G); retained navigation
+and hit queries remain original linear scans. VDMX is O(records + ratios log
+groups), with O(groups) scratch. No GPU raster workload was moved to the CPU,
+and there is no new measured performance claim.
+
+Static verification: all targets/features compile and strict native Clippy passes.
+Deferred source differential controls include whole positioned layouts, fallback
+context/identity and cancellation/errors, all four directions, empty/CRLF/soft
+rows, whitespace/tabs, bidi affinities, combining/ligature/multi-font graphemes,
+EDIT ambiguity/rejection, malformed UTF-16, source VDMX complete-inventory and
+owner admission, float/signed-zero/nonfinite behavior, snapshot lifetimes, and
+linear duplicate compaction equivalence. Full browser/platform/text pixels,
+throughput, allocation, sustained frames, package/source/application qualification
+and historical default-compiler/browser failures remain open. Styled text,
+system discovery/resident fallback, GPU text and the rest of the engine remain
+unfinished.

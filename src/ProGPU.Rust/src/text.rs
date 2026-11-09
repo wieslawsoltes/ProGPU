@@ -2,6 +2,7 @@
 //! they do not substitute for OpenType shaping, bidi or paragraph layout.
 
 mod font_face;
+pub mod layout;
 pub mod managed_pipeline;
 mod managed_shaping;
 pub use font_face::{ManagedShapingFontFace, ShapingFontFace, ShapingGlyphExtents};

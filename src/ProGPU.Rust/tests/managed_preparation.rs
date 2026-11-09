@@ -36,7 +36,7 @@ fn prepared_buffers_keep_original_owners_context_and_independent_records() {
     let mut options = options();
     options.cluster_level = ManagedClusterLevel::Characters;
     options.buffer_flags = ManagedBufferFlags::from_bits(255);
-    options.pre_context = pre;
+    options.pre_context = pre.into();
     options.post_context = vec![0xd800].into();
     let mut a = ManagedGlyphBuffer::from_text(source, font, "deva", options).unwrap();
     let b = a.clone();

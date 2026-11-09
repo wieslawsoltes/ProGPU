@@ -196,8 +196,10 @@ impl ManagedShapingPlan {
             }
             let mut fragment_preparation = preparation.clone();
             fragment_preparation.buffer_flags = F::from_bits(flags);
-            fragment_preparation.pre_context = joined(&preparation.pre_context, &text[..start])?;
-            fragment_preparation.post_context = joined(&text[end..], &preparation.post_context)?;
+            fragment_preparation.pre_context =
+                joined(&preparation.pre_context, &text[..start])?.into();
+            fragment_preparation.post_context =
+                joined(&text[end..], &preparation.post_context)?.into();
             let mut options = self.requested.clone();
             options.script = Some(self.unicode_script.clone());
             options.direction = Some(self.direction);

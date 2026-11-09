@@ -10,6 +10,8 @@
 mod bytes;
 pub mod cff;
 mod composite;
+mod device_metrics;
+pub use device_metrics::{FontVerticalDeviceMetrics, read_vertical_device_metrics};
 pub mod gvar;
 mod horizontal;
 mod item_variation;

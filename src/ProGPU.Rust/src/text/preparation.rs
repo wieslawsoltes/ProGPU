@@ -89,6 +89,52 @@ impl std::ops::BitOr for ManagedBufferFlags {
         Self(self.0 | rhs.0)
     }
 }
+/// Owned immutable UTF-16 context view. Neighboring font runs share their actual
+/// paragraph owner without copying its prefix and suffix for every partition.
+#[derive(Clone, Debug, Default)]
+pub struct ManagedTextContext {
+    owner: Arc<[u16]>,
+    range: std::ops::Range<usize>,
+}
+impl ManagedTextContext {
+    /// Retain the exact original owner and validated range; no decoding or copy.
+    pub fn view(owner: Arc<[u16]>, range: std::ops::Range<usize>) -> Result<Self, UnicodeError> {
+        if range.start > range.end || range.end > owner.len() {
+            return Err(UnicodeError::InvalidArgument);
+        }
+        Ok(Self { owner, range })
+    }
+    /// Actual immutable source owner, including units outside the selected view.
+    pub fn owner(&self) -> &Arc<[u16]> {
+        &self.owner
+    }
+    /// Original source-unit range within that owner.
+    pub fn range(&self) -> std::ops::Range<usize> {
+        self.range.clone()
+    }
+}
+impl From<Arc<[u16]>> for ManagedTextContext {
+    fn from(owner: Arc<[u16]>) -> Self {
+        let range = 0..owner.len();
+        Self { owner, range }
+    }
+}
+impl From<Vec<u16>> for ManagedTextContext {
+    fn from(value: Vec<u16>) -> Self {
+        Self::from(Arc::<[u16]>::from(value))
+    }
+}
+impl std::ops::Deref for ManagedTextContext {
+    type Target = [u16];
+    fn deref(&self) -> &Self::Target {
+        &self.owner[self.range.clone()]
+    }
+}
+impl AsRef<[u16]> for ManagedTextContext {
+    fn as_ref(&self) -> &[u16] {
+        self
+    }
+}
 /// Immutable source policy and owned neighboring context. Profiles are explicit:
 /// OS names, SDK versions and font scripts do not select their Unicode facts.
 #[derive(Clone, Debug)]
@@ -104,9 +150,9 @@ pub struct ManagedPreparationOptions {
     /// Independently witnessed first-element facts.
     pub graphemes: ManagedGraphemeProfile,
     /// Exact caller-provided preceding UTF-16; never synthesized from this run.
-    pub pre_context: Arc<[u16]>,
+    pub pre_context: ManagedTextContext,
     /// Exact caller-provided following UTF-16.
-    pub post_context: Arc<[u16]>,
+    pub post_context: ManagedTextContext,
 }
 impl ManagedPreparationOptions {
     /// Original default clustering/flags and empty context, with explicit profiles.
@@ -121,8 +167,8 @@ impl ManagedPreparationOptions {
             graphemes,
             cluster_level: ManagedClusterLevel::default(),
             buffer_flags: ManagedBufferFlags::default(),
-            pre_context: Arc::from([]),
-            post_context: Arc::from([]),
+            pre_context: ManagedTextContext::default(),
+            post_context: ManagedTextContext::default(),
         }
     }
 }

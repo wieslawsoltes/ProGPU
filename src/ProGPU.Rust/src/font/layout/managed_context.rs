@@ -153,7 +153,7 @@ impl<'a, G: ManagedContextRecord> ManagedContextInput<'a, G> {
         None
     }
 }
-pub(super) fn default_ignorable(c: u32) -> bool {
+pub(crate) fn default_ignorable(c: u32) -> bool {
     matches!(c,0x00ad | 0x034f | 0x061c | 0x115f | 0x1160 | 0x17b4 | 0x17b5 |
         0x180b..=0x180f | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f |
         0x3164 | 0xfeff | 0xffa0 | 0xfff0..=0xfff8 | 0xfe00..=0xfe0f |

@@ -10,6 +10,7 @@ mod digest;
 mod gdef;
 mod gsub;
 mod managed_context;
+pub(crate) use managed_context::default_ignorable;
 mod managed_gpos;
 mod managed_gsub;
 mod managed_selection;
