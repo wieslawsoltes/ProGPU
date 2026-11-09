@@ -86,3 +86,5 @@ pub use managed_stage::ManagedSubstitutionStage;
 
 mod managed_variations;
 pub use managed_variations::ManagedLayoutVariations;
+
+pub(crate) use managed_variations::ManagedVariationStore;

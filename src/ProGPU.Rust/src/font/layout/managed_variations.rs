@@ -28,7 +28,7 @@ struct Layout {
 pub struct ManagedLayoutVariations {
     source: SfntFace,
     coordinates: Arc<[i16]>,
-    layout: Option<Layout>,
+    layout: Option<Arc<ManagedVariationStore>>,
     active: bool,
 }
 fn extent(data: &[u8], at: i32, n: usize) -> Result<(), FontError> {
@@ -90,7 +90,10 @@ impl ManagedLayoutVariations {
     pub fn has_store(&self) -> bool {
         self.layout.is_some()
     }
-    fn layout(source: &SfntFace, axes: usize) -> Result<Option<Layout>, FontError> {
+    fn layout(
+        source: &SfntFace,
+        axes: usize,
+    ) -> Result<Option<Arc<ManagedVariationStore>>, FontError> {
         let Some((_, span)) = source.table_span(Tag::new(*b"GDEF")) else {
             return Ok(None);
         };
@@ -106,9 +109,43 @@ impl ManagedLayoutVariations {
         if relative <= 0 {
             return Ok(None);
         }
-        Self::parse(data, start.wrapping_add(relative), axes)
+        ManagedVariationStore::parse(source.clone(), start.wrapping_add(relative), axes)
+            .map(|store| store.map(Arc::new))
     }
-    fn parse(data: &[u8], start: i32, axes: usize) -> Result<Option<Layout>, FontError> {
+    /// Original ordered floating delta, with lazy selected-row failures.
+    pub fn delta(&self, outer: u16, inner: u16) -> Result<f32, FontError> {
+        self.layout.as_ref().map_or(Ok(0.0), |store| {
+            store.delta(&self.coordinates, None, outer, inner)
+        })
+    }
+    pub(crate) fn from_store(
+        source: SfntFace,
+        coordinates: Arc<[i16]>,
+        store: Option<Arc<ManagedVariationStore>>,
+    ) -> Self {
+        let active = coordinates.iter().any(|&v| v != 0);
+        Self {
+            source,
+            coordinates,
+            layout: if active { store } else { None },
+            active,
+        }
+    }
+}
+/// Original process-neutral store shared by HVAR, MVAR and GDEF instance paths.
+#[derive(Clone, Debug)]
+pub(crate) struct ManagedVariationStore {
+    source: SfntFace,
+    layout: Layout,
+    axes: usize,
+}
+impl ManagedVariationStore {
+    pub(crate) fn parse(
+        source: SfntFace,
+        start: i32,
+        axes: usize,
+    ) -> Result<Option<Self>, FontError> {
+        let data = source.data();
         extent(data, start, 8)?;
         if read(data, start)? != 1 {
             return Ok(None);
@@ -126,7 +163,7 @@ impl ManagedLayoutVariations {
         let region_bytes = usize::from(region_count)
             .checked_mul(axes)
             .and_then(|n| n.checked_mul(6))
-            .ok_or(FontError::Capacity)?;
+            .ok_or(FontError::InvalidFace)?;
         extent(data, tuples, region_bytes)?;
         let mut subtables = Vec::new();
         subtables
@@ -161,20 +198,28 @@ impl ManagedLayoutVariations {
                     + i32::from(count - words) * if long { 2 } else { 1 },
             }));
         }
-        Ok(Some(Layout {
-            regions: tuples,
-            region_count,
-            subtables,
+        Ok(Some(Self {
+            source,
+            axes,
+            layout: Layout {
+                regions: tuples,
+                region_count,
+                subtables,
+            },
         }))
     }
-    fn scalar(&self, layout: &Layout, region: u16) -> f32 {
+    pub(crate) fn region_count(&self) -> u16 {
+        self.layout.region_count
+    }
+    pub(crate) fn scalar(&self, coordinates: &[i16], region: u16) -> f32 {
+        let layout = &self.layout;
         if region >= layout.region_count {
             return 0.0;
         }
         let data = self.source.data();
-        let at = layout.regions as usize + usize::from(region) * self.coordinates.len() * 6;
+        let at = layout.regions as usize + usize::from(region) * coordinates.len() * 6;
         let mut scalar = 1.0;
-        for (i, &coordinate) in self.coordinates.iter().enumerate() {
+        for (i, &coordinate) in coordinates.iter().enumerate() {
             let p = at + i * 6;
             let s = |p| f32::from(i16::from_be_bytes([data[p], data[p + 1]])) / 16384.0;
             scalar *= axis_scalar(f32::from(coordinate) / 16384.0, s(p), s(p + 2), s(p + 4));
@@ -187,10 +232,17 @@ impl ManagedLayoutVariations {
     /// Original ordered floating delta, including lazy selected-row failures.
     /// Missing outer/inner entries and unknown regions return/contribute zero.
     /// Each delta is read before testing its region, retaining source error order.
-    pub fn delta(&self, outer: u16, inner: u16) -> Result<f32, FontError> {
-        let Some(layout) = &self.layout else {
-            return Ok(0.0);
-        };
+    pub(crate) fn delta(
+        &self,
+        coordinates: &[i16],
+        cached: Option<&[f32]>,
+        outer: u16,
+        inner: u16,
+    ) -> Result<f32, FontError> {
+        if coordinates.len() != self.axes {
+            return Err(FontError::InvalidArgument);
+        }
+        let layout = &self.layout;
         let Some(Some(table)) = layout.subtables.get(usize::from(outer)) else {
             return Ok(0.0);
         };
@@ -218,7 +270,11 @@ impl ManagedLayoutVariations {
                 n
             };
             let region = read(data, table.indices + i32::from(i) * 2)?;
-            sum += delta as f32 * self.scalar(layout, region);
+            let scalar = cached
+                .and_then(|v| v.get(usize::from(region)))
+                .copied()
+                .unwrap_or_else(|| self.scalar(coordinates, region));
+            sum += delta as f32 * scalar;
         }
         Ok(sum)
     }

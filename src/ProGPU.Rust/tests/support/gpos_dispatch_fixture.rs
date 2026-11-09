@@ -1,11 +1,20 @@
 #![allow(dead_code)]
 #[path = "font_fixture.rs"]
-mod font;
+pub mod font;
 #[path = "gpos_fixture.rs"]
 pub mod gpos;
 #[path = "layout_selection_fixture.rs"]
 mod selection;
-pub use gpos::{context, coverage1, cursive, put, table, words};
+pub use gpos::{coverage1, put, words};
+pub fn context(chain: bool, format: u16, records: &[(u16, u16)]) -> Vec<u8> {
+    gpos::context(chain, format, records)
+}
+pub fn cursive() -> Vec<u8> {
+    gpos::cursive()
+}
+pub fn table(lookups: &[(u16, u16, Vec<Vec<u8>>)]) -> Vec<u8> {
+    gpos::table(lookups)
+}
 pub fn extension(kind: u16, sub: &[u8]) -> Vec<u8> {
     gpos::extension(kind, sub)
 }

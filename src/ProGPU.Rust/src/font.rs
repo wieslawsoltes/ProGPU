@@ -14,6 +14,7 @@ pub mod gvar;
 mod horizontal;
 mod item_variation;
 pub mod layout;
+mod managed_variations;
 mod outline;
 mod variations;
 mod vertical;
@@ -23,6 +24,9 @@ pub use composite::{
 };
 pub use horizontal::{HorizontalAdvanceInstance, HorizontalMetricsInstance};
 pub use item_variation::{DeltaSetIndexMap, ItemVariationStore};
+pub use managed_variations::{
+    ManagedVariationAxis, ManagedVariationData, ManagedVariationInstance, ManagedVariationSetting,
+};
 pub use outline::{GlyphKind, GlyphRequirements, OutlinePoint, SimpleGlyph};
 use std::sync::Arc;
 pub use variations::{VariationAxes, VariationAxis};

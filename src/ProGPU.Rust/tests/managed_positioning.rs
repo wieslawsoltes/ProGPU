@@ -1,6 +1,6 @@
 //! Whole current managed GPOS dispatch and original lazy variation-store controls.
 use progpu::{
-    font::{FontError, SfntFace, layout::*},
+    font::{FontError, ManagedVariationData, ManagedVariationSetting, SfntFace, layout::*},
     text::ManagedShapingGlyph,
 };
 use std::{
@@ -599,6 +599,22 @@ fn original_managed_plan_and_layout_variation_records() {
         let n = take();
         let coordinates: Vec<_> = (0..n).map(|_| take() as i16).collect();
         let active = take();
+        let instance = ManagedVariationData::from_face(faces[c.font].clone(), |_| None)
+            .unwrap()
+            .map(|data| {
+                data.create_instance(&[
+                    ManagedVariationSetting::from_str("wght", c.requested as f32 / 16384.0),
+                    ManagedVariationSetting::from_str("wdth", c.requested as f32 / -32768.0),
+                    ManagedVariationSetting::from_str("opsz", c.requested as f32 / 49152.0),
+                ])
+                .unwrap()
+            });
+        let selected_coordinates = instance.as_ref().map_or(&[][..], |i| i.coordinates());
+        assert_eq!(
+            selected_coordinates, coordinates,
+            "actual WithVariations coordinate capture {number}"
+        );
+
         captures += 1;
         let vars =
             ManagedLayoutVariations::from_normalized(faces[c.font].clone(), &coordinates).unwrap();
@@ -631,13 +647,23 @@ fn original_managed_plan_and_layout_variation_records() {
         .unwrap();
         let mut kerning = false;
         let result = (|| {
-            if let Some(plan) = ManagedPositioningPlan::from_face(
-                faces[c.font].clone(),
-                options(c.policy),
-                &[68, 70, 76, 84],
-                None,
-                &coordinates,
-            )? {
+            let plan = if let Some(instance) = &instance {
+                ManagedPositioningPlan::from_variation_instance(
+                    instance,
+                    options(c.policy),
+                    &[68, 70, 76, 84],
+                    None,
+                )?
+            } else {
+                ManagedPositioningPlan::from_face(
+                    faces[c.font].clone(),
+                    options(c.policy),
+                    &[68, 70, 76, 84],
+                    None,
+                    &[],
+                )?
+            };
+            if let Some(plan) = plan {
                 kerning = plan.apply(&mut buffer)?;
             }
             if c.mode == 1 {

@@ -266,3 +266,11 @@ path = "src/ProGPU.Rust/tests/managed_positioning.rs"
 [[example]]
 name = "managed_positioning_benchmark"
 path = "src/ProGPU.Rust/examples/managed_positioning_benchmark.rs"
+
+[[test]]
+name = "managed_variations"
+path = "src/ProGPU.Rust/tests/managed_variations.rs"
+
+[[example]]
+name = "managed_variations_benchmark"
+path = "src/ProGPU.Rust/examples/managed_variations_benchmark.rs"

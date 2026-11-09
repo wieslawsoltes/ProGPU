@@ -47,6 +47,7 @@ cargo test --locked --test managed_context -- --ignored --nocapture
 cargo test --locked --test gsub -- --ignored --nocapture
 cargo test --locked --test managed_gpos -- --ignored --nocapture
 cargo test --locked --test managed_positioning -- --ignored --nocapture
+cargo test --locked --test managed_variations -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -66,6 +67,7 @@ python3 eng/progpu-benchmark-rust-managed-features.py
 python3 eng/progpu-benchmark-rust-managed-context.py
 python3 eng/progpu-benchmark-rust-managed-gpos.py
 python3 eng/progpu-benchmark-rust-managed-positioning.py
+python3 eng/progpu-benchmark-rust-managed-variations.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -160,7 +162,8 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Current managed feature policy | Separate immutable UTF-16 request, full fallback/value/global precedence, variation substitutions and optional managed digest; 327,015 actual C# controls / 27,595,740 bytes; 20 browser checks per DPR | Full GDEF/executor integration, staged shaping and lookup execution |
 | Managed context and ordered matching | Owned raw managed format-3 contexts, exact weak coverage admission and original glyph/indexer/skip rules; 56,996 actual C# source records, 22,558,608 coverage queries and 1,191,586 ordered matches; 70 browser checks per DPR | Full lookup/GDEF execution, staged shaping, layout/text integration and large-query baseline gap |
 | Native GSUB execution | All eight lookup types; contextual formats 1–3; caller-owned 32-byte glyph records, original errors/tails, nested state, GDEF and metadata; 117,973 C++ records / 60,322,260 bytes and 3,968 actual C# shared-policy records / 975,232 bytes | Complete current managed mutation policy, GPOS, staged shaping, fallback, layout/GPU text and performance qualification |
-| Current managed positioning | All nine raw GPOS types, complete attachment state, owned feature/digest plan and layout variation dispatch; 32,008 complete C# plan cases and 760,086 exact delta queries; 151 browser controls per DPR | Current managed variation-instance creation, metric/default-ignorable preparation, native device GPOS, fallback and full shaping/GPU text |
+| Current managed positioning | All nine raw GPOS types, complete attachment state, owned feature/digest plan and layout variation dispatch; 32,008 complete C# plan cases and 760,086 exact delta queries; 151 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, metric/default-ignorable preparation, native device GPOS, fallback and full shaping/GPU text |
+| Current managed variation data | Complete original fvar/avar/gvar/HVAR/GDEF/MVAR admission, normalized immutable instances, lazy tuple cache, simple/component/phantom deltas and MVAR/HVAR/layout queries; 8,772 C# cases / 8,192,752 exact bytes; 96 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, source name resolution, full varied-outline/metrics integration and query/frame performance |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -505,3 +508,31 @@ The hosted `deaf86ae6` Linux source/package, Windows and Vulkan/winit jobs pass;
 its original and diagnostic browser runs fail at final DPR 2 capture with GPU
 process exit 512 and device loss. Original flags, deadlines and qualification
 gates remain unchanged.
+
+
+`font::ManagedVariationData::from_face` ports the complete original managed
+process-neutral metadata constructor. Its name resolver is explicit, as in the
+original constructor; callers supply the selected source's name policy. Invalid
+metadata returns `None`; capacity failures stay errors. Axis ordering is validated
+at the original instance boundary. `create_instance` retains last matching UTF-16
+settings, original float/fixed conversions, ordered avar mappings, exact normalized
+cache-key bits and HVAR scalar inventory. Instances and lazy glyph caches retain
+the same immutable selected source across clones.
+
+`ManagedVariationInstance` exposes original HVAR/MVAR/layout deltas and cached gvar
+simple, component and phantom operations. Glyph parse failures retain the original
+once-only error followed by cached empty state; the first query freezes item count.
+Simple IUP uses coordinates changed by earlier tuples. Source scalar arithmetic,
+partial writes and complete-font reads remain unchanged. The source comparison
+covers **8,772 cases / 8,192,752 exact bytes** and **96 captured browser fixtures**.
+`ManagedPositioningPlan::from_variation_instance` now accepts Rust-selected state;
+all **32,008 original positioning cases** independently verify its computed
+coordinates against actual C# selection before comparing complete outputs.
+
+This ports the process-neutral variation component. Full `TtfFont` root/FIFO cache,
+instance metadata, source name decoding, hinted/varied outline construction and
+metric preparation remain separate required work. Its default instance retains a
+complete zero-coordinate inventory; the full font wrapper still owns default-root
+selection and skipped variation application. The 48-workload admission/instance
+baseline retains allocation and original compiler/JIT behavior. Query throughput,
+full shaping/frame performance and previously recorded native FP gaps remain open.

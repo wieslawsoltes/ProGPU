@@ -2979,3 +2979,80 @@ Both the original browser gate and diagnostic retry lose the device during final
 DPR 2 capture after GPU-process exit 512. Earlier passing checkpoints do not close
 this intermittent failure. Original flags, drivers, deadlines, source/application,
 provider/package and pixel requirements remain mandatory.
+
+
+## Current managed process-neutral variation data (2026-11-09)
+
+`ManagedVariationData` ports the original `OpenTypeVariationData` component instead
+of relabeling strict native variation parsing. Admission visits fvar, avar, gvar,
+HVAR, GDEF and MVAR in original order. It retains complete selected font ownership,
+source ASCII tag replacement, original axis float/fixed bits, hidden flags and the
+explicit name-resolver callback dependency. Missing/invalid source data yields no
+variation generation, as in `TryCreate`; allocation/capacity failure is independent.
+Axis ordering remains deferred to instance creation. gvar admission uses the
+original whole-font maxp count read (missing defaults zero), independently of the
+native declared-table metric accessor. Other full TtfFont constructor gates remain
+separate; metadata admission does not qualify source font construction.
+
+Instances freeze last matching UTF-16 settings, floating clamp/nonfinite behavior,
+original 16.16 conversion, wrapping fixed differences, double normalization and
+away-from-zero lattice rounding. avar retains its ordered search, direct endpoint
+values, original float interpolation and ties-to-even interior rounding. No sort,
+endpoint repair or table-version inference is introduced. Settings retain original
+clamped/requantized user coordinates separately from normalized key bits. Cached
+HVAR region scalars use the original maximum inventory length across all stores;
+MVAR and GDEF retain independent scalar evaluation and original zero tails.
+
+The original managed lazy item-store codec is shared with the existing layout
+state. HVAR offset/map reads retain whole-font bounds, signed offsets, unsupported
+map behavior and final-entry reuse. MVAR keeps its own store, record stride, ASCII
+tag semantics and last matching record. Reads of selected delta rows remain lazy;
+each source delta precedes region selection. Normalized coordinates are immutable,
+not aliases into caller setting buffers. `from_variation_instance` connects these
+instances directly to managed GPOS. The 32,008 positioning controls now compute
+Rust coordinates and compare them to actual C# captures before plan execution.
+Default source fonts expose the complete zero coordinate inventory, not a missing
+inventory; active layout adjustment remains a separate predicate.
+
+Gvar retains shared/embedded peaks, intermediate regions, shared/private packed
+points, original run overflow checks and the independent tuple payload boundary.
+The first query sets the original parsed flag before parsing and fixes item count.
+A failed first parse propagates once; later queries observe cached empty state.
+An owned mutex preserves this order across cloned instances. Parsed immutable
+payloads are shared without changing their source generation. Simple deltas retain
+ordered tuple mutation; IUP reads coordinates already modified by earlier tuples.
+Duplicate selected points accumulate, phantom slots remain independent, absent
+variation returns empty component output, and HVAR keeps phantom-advance precedence.
+Caller-invalid contour reads fail at their original operation with earlier tuple
+writes retained. Explicit Rust size bounds reject unrepresentable caller counts.
+
+The direct source harness executes unchanged `TryCreate`, `CreateInstance`,
+advance/metric/layout queries, simple/component deltas and phantom deltas through
+typed delegates. The original name callback dependency is frozen separately and
+includes null fallback, NUL and unpaired UTF-16 values; this does not claim source
+name-table decoding. **8,772 cases / 8,192,752 exact bytes** cover 6,000 mutated or
+truncated metadata inputs, 2,000 arbitrary coordinate/contour controls, extreme
+fixed endpoints, nonfinite settings, ordered cache queries, complete axis/name/
+setting/key/scalar state, partial mutation and errors. Every original scalar and
+coordinate bit is compared. The **96-case / 474,611-byte browser fixture** is emitted
+from actual C# and revalidated by mandatory CI; both DPRs retain all existing
+positioning, shader, offscreen-pixel, resize and actual presentation gates.
+
+The matched diagnostic baseline contains 48 complete-output workloads: admission
+and instance creation for one/two/three axes across eight table configurations.
+Five warmups precede 40 rounds. SFNT owner preparation, callback construction,
+input transport and output serialization are untimed; production allocations,
+Rust replacement drops and C# delegate/GC behavior stay measured. Rust allocation
+counts are not instrumented. Short-call clock overhead and host/JIT tails remain;
+no optimization or full shaping/frame speedup is claimed. Query throughput still
+needs separate measurements, and any optimization requires Instruments evidence.
+
+Remaining work includes the actual TtfFont root/FIFO cache and identity wrapper,
+variation metadata application, original source name decoding, complete font
+metrics/outline preparation, hinting, script preparation and paragraph/GPU text.
+The earlier native default-compiler FP differences are not resolved by this
+independent managed comparison. The preceding ddccf5614 hosted Linux source/
+package, Windows, Vulkan/winit and original browser gates pass; macOS was cancelled.
+That passing browser run does not close the recorded intermittent device loss.
+All original platform/provider/package/source/application/pixel gates remain open
+where their complete scope has not been demonstrated.

@@ -41,6 +41,44 @@ impl ManagedPositioningPlan {
             return Ok(None);
         };
         let variations = ManagedLayoutVariations::from_normalized(face, coordinates)?;
+        Ok(Some(Self::selected(selection, options, variations)))
+    }
+    /// Build directly from original managed variation-data selection. Default
+    /// instances retain the original root's complete zero coordinate inventory
+    /// for FeatureVariations; active instances retain the already-parsed store.
+    /// TtfFont's full metadata/root/cache wrapper remains a separate consumer.
+    pub fn from_variation_instance(
+        instance: &crate::font::ManagedVariationInstance,
+        options: ManagedFeatureOptions,
+        script: &[u16],
+        language: Option<&[u16]>,
+    ) -> Result<Option<Self>, FontError> {
+        let coordinates = instance.coordinates();
+        let Some(selection) = ManagedLookupSelection::from_face(
+            instance.data().source().clone(),
+            Tag::new(*b"GPOS"),
+            ManagedSelectionRequest {
+                script,
+                language,
+                settings: options.features(),
+                coordinates,
+                extension_lookup_type: 9,
+            },
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self::selected(
+            selection,
+            options,
+            instance.layout_variations(),
+        )))
+    }
+    fn selected(
+        selection: ManagedLookupSelection,
+        options: ManagedFeatureOptions,
+        variations: ManagedLayoutVariations,
+    ) -> Self {
         let has_kerning = selection
             .lookups()
             .iter()
@@ -48,13 +86,13 @@ impl ManagedPositioningPlan {
         let table = ManagedGposTable {
             storage: selection.retained_storage(),
         };
-        Ok(Some(Self {
+        Self {
             selection,
             options,
             table,
             variations,
             has_kerning,
-        }))
+        }
     }
     /// Exact retained original lookup selection and digests.
     pub fn selection(&self) -> &ManagedLookupSelection {

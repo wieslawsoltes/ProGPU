@@ -12,6 +12,9 @@ mod sample;
 #[path = "../tests/support/managed_glyph_fixture.rs"]
 mod managed_records;
 #[cfg(target_arch = "wasm32")]
+#[path = "../tests/support/managed_variation_replay.rs"]
+mod managed_variation_replay;
+#[cfg(target_arch = "wasm32")]
 mod web {
     use super::sample;
     use js_sys::{
@@ -1060,6 +1063,20 @@ mod web {
             out.extend(super::managed_records::words(g));
         }
         Ok(out)
+    }
+    /// Replay original variation-data admission, normalization and ordered lazy
+    /// queries using the source fixture's explicit name-resolver dependency.
+    #[wasm_bindgen]
+    pub fn managed_variation_instance(
+        font: Vec<u8>,
+        request: Vec<u32>,
+    ) -> Result<Vec<u32>, JsValue> {
+        let case = super::managed_variation_replay::decode(font, &request).map_err(error)?;
+        let bytes = case.expected().map_err(error)?;
+        Ok(bytes
+            .chunks_exact(4)
+            .map(|v| u32::from_le_bytes(v.try_into().unwrap()))
+            .collect())
     }
     /// Replay actual C# prepared-instance captures and complete positioning plans.
     /// Options are direction, attachment resolution and root-call safety budget.
