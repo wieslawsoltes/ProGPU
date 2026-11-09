@@ -17,6 +17,7 @@ mod parse;
 mod primitives;
 mod rounded;
 mod stroke;
+mod stroke_paint;
 mod stroke_path;
 pub use arc::{ArcCenter, ArcShaderParameters};
 pub use bezier::{DEFAULT_LENGTH_SEGMENTS, evaluate_cubic, evaluate_quadratic};
@@ -37,6 +38,7 @@ pub use material::{GpuBrush, GpuGradientStop, MaterialPage, MaterialTable};
 pub use parse::PathParseError;
 pub use rounded::RoundedRectangleContour;
 pub use stroke::{MAX_STROKE_TRIANGLES, StrokeCap, StrokeJoin, StrokeJoinFrame, StrokeTriangle};
+pub use stroke_paint::{StrokeDraw, StrokeFrame};
 pub use stroke_path::WidenedPath;
 
 /// Complete row-major, row-vector 4-by-4 source transform. No perspective or

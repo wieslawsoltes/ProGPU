@@ -219,6 +219,29 @@ impl Mesh {
             .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         Ok(())
     }
+    /// Append compiler-owned vertices with indices relative to this append.
+    /// Embedded shader vertex ordinals must already use the actual mesh base.
+    pub(crate) fn push_indexed(
+        &mut self,
+        vertices: &[VectorVertex],
+        indices: &[u32],
+    ) -> Result<(), Error> {
+        let base = u32::try_from(self.vertices.len()).map_err(|_| Error::Capacity)?;
+        let count = u32::try_from(vertices.len()).map_err(|_| Error::Capacity)?;
+        base.checked_add(count).ok_or(Error::Capacity)?;
+        if indices.iter().any(|i| *i >= count) {
+            return Err(Error::InvalidInput);
+        }
+        self.vertices
+            .try_reserve(vertices.len())
+            .map_err(|_| Error::Capacity)?;
+        self.indices
+            .try_reserve(indices.len())
+            .map_err(|_| Error::Capacity)?;
+        self.vertices.extend_from_slice(vertices);
+        self.indices.extend(indices.iter().map(|i| base + i));
+        Ok(())
+    }
     /// Read the original vertex records.
     pub fn vertices(&self) -> &[VectorVertex] {
         &self.vertices

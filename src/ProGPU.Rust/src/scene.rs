@@ -17,7 +17,7 @@ use crate::{
     Error,
     geometry::{Affine, AnalyticPrimitive, Mesh, VectorVertex},
     path::{Path, RasterRequest},
-    vector::{Brush, BrushKind, MaterialPage, MaterialTable},
+    vector::{Brush, BrushKind, MaterialPage, MaterialTable, StrokeDraw},
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -103,6 +103,7 @@ enum Command {
     Path(PathDraw),
     MaterialAnalytic(AnalyticPrimitive, MaterialPaint),
     MaterialPath(PathDraw, MaterialPaint),
+    Stroke(StrokeDraw),
 }
 
 /// Ordered retained commands; no GPU work occurs while recording or compiling.
@@ -112,6 +113,15 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// Retain an original solid path stroke and its actual pen/material frame.
+    /// Curves remain analytic except for the source's explicit affine sections.
+    /// Dashed/deferred owning-API preparation must occur before this entry point.
+    pub fn draw_stroke(&mut self, draw: StrokeDraw) -> Result<(), Error> {
+        draw.validate()?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::Stroke(draw));
+        Ok(())
+    }
     /// Append an analytic shape, rejecting invalid or singular input atomically.
     pub fn draw_analytic(&mut self, primitive: AnalyticPrimitive) -> Result<(), Error> {
         let [_, minimum] = primitive.transform.scales()?;
@@ -203,7 +213,7 @@ impl Scene {
         let has_materials = self.commands.iter().any(|command| {
             matches!(
                 command,
-                Command::MaterialAnalytic(..) | Command::MaterialPath(..)
+                Command::MaterialAnalytic(..) | Command::MaterialPath(..) | Command::Stroke(_)
             )
         });
         let mut rasters = Vec::new();
@@ -211,7 +221,9 @@ impl Scene {
         let mut placements = Vec::with_capacity(self.commands.len());
         for command in &self.commands {
             match command {
-                Command::Analytic(_) | Command::MaterialAnalytic(..) => placements.push(None),
+                Command::Analytic(_) | Command::MaterialAnalytic(..) | Command::Stroke(_) => {
+                    placements.push(None)
+                }
                 Command::Path(draw) | Command::MaterialPath(draw, _) => {
                     let placement = Placement::new(draw, dpi_scale)?;
                     let key = RasterKey {
@@ -253,11 +265,15 @@ impl Scene {
                 Command::MaterialAnalytic(_, paint) | Command::MaterialPath(_, paint) => {
                     materials.register(Some(&paint.brush), paint.semantic_opacity)?
                 }
+                Command::Stroke(draw) if draw.is_renderable()? => {
+                    materials.register(Some(&draw.pen.brush), draw.semantic_opacity)?
+                }
                 // Legacy draws keep their vertex colors and unit opacity even
                 // when material zero happens to be a non-solid source brush.
                 _ => legacy_index,
             } as f32;
             match command {
+                Command::Stroke(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
                     // Original native analytic execution expands in the local

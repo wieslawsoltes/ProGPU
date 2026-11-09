@@ -6,8 +6,9 @@ use progpu::{
     vector::{
         ArcSegment, BooleanOperation, Brush, BrushKind, GradientStop, HatchLineFamily,
         HatchPattern, HatchPatternSet, LinearGradient, Matrix4, PathFigure, PathGeometry,
-        PathGradient, PathGradientBlendStop, PathSegment, PathSegmentKind, PerlinNoise,
-        RadialGradient, SweepDirection, SweepGradient, TilePattern, TwoPointConicalGradient,
+        PathGradient, PathGradientBlendStop, PathSegment, PathSegmentKind, Pen, PenLineCap,
+        PenLineJoin, PenStrokeTransform, PerlinNoise, RadialGradient, StrokeDraw, SweepDirection,
+        SweepGradient, TilePattern, TwoPointConicalGradient,
     },
 };
 use std::sync::Arc;
@@ -213,6 +214,64 @@ pub fn material_scene() -> Result<Scene> {
                 semantic_opacity: 1.0 - index as f32 * 0.18,
             },
         )?;
+    }
+    // Source-local, affine, fixed-device and hairline curves share the retained
+    // mesh/material path. This authored panel does not replace source pixels.
+    let mut figure = PathFigure::new([0.0, 18.0], false);
+    figure.segments = [
+        PathSegmentKind::Line([25.0, 0.0]),
+        PathSegmentKind::Quadratic([[50.0, 38.0], [76.0, 18.0]]),
+        PathSegmentKind::Cubic([[88.0, 0.0], [104.0, 34.0], [126.0, 18.0]]),
+        PathSegmentKind::Arc(ArcSegment {
+            end: [160.0, 18.0],
+            size: [20.0, 16.0],
+            rotation: 0.0,
+            large: false,
+            sweep: SweepDirection::Clockwise,
+        }),
+    ]
+    .into_iter()
+    .map(PathSegment::new)
+    .collect();
+    figure.segments[2].is_smooth_join = true;
+    let stroke_path = Arc::new(PathGeometry {
+        figures: vec![figure],
+        ..Default::default()
+    });
+    scene.draw_analytic(AnalyticPrimitive::rectangle(
+        [710.0, 366.0, 204.0, 136.0],
+        [0.1, 0.13, 0.18, 1.0],
+    ))?;
+    for index in 0..4 {
+        let mut pen = Pen::new(Arc::new(Brush::new(BrushKind::Solid(
+            colors[index % colors.len()],
+        ))));
+        pen.options.thickness = if index == 3 {
+            Pen::HAIRLINE_THICKNESS
+        } else {
+            5.0
+        };
+        pen.options.transform = if index == 2 {
+            PenStrokeTransform::Fixed
+        } else {
+            PenStrokeTransform::Normal
+        };
+        pen.options.start_cap = PenLineCap::Round;
+        pen.options.end_cap = PenLineCap::Triangle;
+        pen.options.use_wpf_join_semantics = index < 2;
+        pen.options.join = if index == 2 {
+            PenLineJoin::MiterOrBevel
+        } else {
+            PenLineJoin::Miter
+        };
+        let mut draw = StrokeDraw::new(stroke_path.clone(), Arc::new(pen));
+        draw.frame.transform = Matrix4::from_affine(Affine(if index == 0 {
+            [0.9, 0.0, 0.0, 0.9, 732.0, 378.0]
+        } else {
+            [0.9, 0.025, 0.16, 0.6, 732.0, 378.0 + index as f32 * 29.0]
+        }));
+        draw.aliased = index == 3;
+        scene.draw_stroke(draw)?;
     }
     Ok(scene)
 }

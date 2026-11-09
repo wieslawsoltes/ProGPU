@@ -5598,3 +5598,102 @@ provider, application, platform and package gates. Full managed compiled-path
 caching, atlas growth/eviction/recovery, signed programs, curved-stroke paint,
 clipping/layers/effects/images, final SVG/text painting and release qualification
 remain unfinished.
+
+## Original retained solid-stroke painting (2026-11-09)
+
+This batch connects original managed solid-path stroke compilation to the Rust
+retained mesh/material renderer. It implements the four painted body families
+and their local/affine/fixed/hairline frames together. Complete source byte,
+default-runtime, pixel, lifetime and performance validation remains deferred
+under the user's implementation-first sequence. Native/WASM/CPU-only strict
+lint and formatting are checked now; no shader/compiler/driver defaults change.
+
+| Original repository source | SHA-256 | Scope |
+| --- | --- | --- |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` | Solid CompilePathCommand traversal; stroke-state/thickness admission; tangent selection; analytic/affine line, Bezier and arc vertices; regular/affine/device/degenerate caps/joins; topology masks and thickness encoding |
+| `src/ProGPU.Vector/TransformMetrics.cs` | `12271082b95c438ed47d041e961e757e5a0b94bc56334a978f5acc2f17a838de` | Original double maximum singular scale and abs(det)/maximum minimum, float narrowing and positive-finite admission |
+| `src/ProGPU.Backend/Shaders/Vector.wgsl` | `6d2d92d59341ea91dc33f851c08467f4b4dcd7f270b5f1f638b9f45006e481ed` | Existing unchanged analytic/Bezier/arc, topology triangle/strip, fixed/hairline and affine round-cap consumers |
+
+Earlier original StrokeJoinGeometry, StrokeCapGeometry, ArcSegmentGeometry and
+BezierSegmentGeometry ports remain shared with their existing provenance. The
+cross-engine retained-geometry/resource-domain research recorded above continues
+to govern ownership and GPU realization. No foreign implementation was consulted
+or copied; no alternate stroke algorithm replaces the original source routes.
+
+`StrokeDraw` owns source path/pen generations, raw semantic opacity, aliased policy
+and a complete `StrokeFrame`. Actual final transforms remain separate from original
+command transforms used only for legacy pre-scaled width recovery. New recorders
+default to source-local widths. None represents the original absent/default
+command-transform sentinel; raw source adapters must preserve that distinction.
+Matrix input does not witness named transform construction/history. Join policy
+validates before width admission. Invalid widths/frames retain no-paint behavior
+without material registration; dashed/deferred inputs require separate owning-API
+preparation and are not silently painted as solid or empty.
+
+Managed `Matrix4::stroke_scales` deliberately remains separate from native
+`geometry::Affine::scales`: the minimum uses abs(det)/maximum, positive-finite
+admission and no added small-scale epsilon. Full affine admission keeps the source
+XY coefficients, float determinant and residual checks, excluding original
+uninspected M33/M43 fields. Hairlines retain the exact -1 sentinel and width basis
+one. Fixed positive strokes expand transformed centerlines in device space.
+Non-uniform normal strokes expand the original outline before transformation.
+Conservative local width checks and fixed encoding retain BitIncrement(1).
+Legacy fixed joins retain the pen width where the source descriptor uses it,
+independently of recovered body width.
+
+Figure traversal preserves cap overrides, source order, unstroked gap resets,
+open-only gap/end caps, degenerate candidates and both closing/seam join routes.
+Smooth metadata retains first-edge seam ownership. Tangents select original
+controls in order. Compositor directions subtract transformed zero from transformed
+direction, preserving translation cancellation rather than substituting linear
+coefficients. Generic joins retain synthesized previous/next endpoint subtraction;
+WPF joins retain direct tangent transport. The original solid compositor emits
+no rational stroke body: it still handles tangents/caps/joins, advances the endpoint
+and clears continuation. This source behavior remains; rational fill support is
+not relabeled as rational stroke coverage.
+
+Ordinary line bodies preserve four vertices, signed corner payloads and triangle
+order. Non-affine quadratic/cubic bodies retain 50 descriptors and 24 strip sections,
+with the actual global mesh base embedded in the shader payload. Cubic endpoint
+coordinates remain independent color fields. Affine Beziers use original double
+device-curvature counts, 0.25 error constant, 24..1024 bounds, polynomial/tangent
+expressions and chord fallback. Sections retain their first/interior/last strip
+kind even when another section is rejected. Analytic arcs retain transformed axes,
+determinant admission, angles, padded bounds and fallback extent. Affine arcs keep
+pi/24 bounded sections, signed tangents and exact final endpoint. Only the original
+failed-analytic route selects default arc flattening and line emission.
+
+Miter, clipped Miter, MiterOrBevel and WPF reversal/smooth policies remain separate.
+Round caps use the original affine semicircle shader. Square/triangle caps and
+join fans retain exterior/owned-internal masks, winding, area rejection and 1.5
+raster padding. Ordinary triangles receive no extra identity transform; affine
+triangles transform actual emitted points. Fixed/hairline adornments retain their
+four-descriptor form, global ordinals, full-cap flags, independent miter clipping
+and original smooth suppression. Equal round/square degenerate endpoints retain
+whole-shape handling, source brush coordinates and local/device expansion; mixed
+endpoints keep paired cap calls. Figure cap overrides do not replace the pen's
+independent degenerate policy.
+
+Scene recording remains O(1), retaining immutable Arc generations. Compilation
+appends strokes at their actual painter position in the same mesh. Descriptor
+ordinals include earlier analytic/path commands. Checked indexed append validates
+relative indices and reserves both buffers before writing. Allocation failure
+discards the candidate; reusable material scratch cannot mutate published pages.
+Existing finite vertex/device-buffer admission precedes upload. Prepared replay
+remains one ordered indexed draw without geometry/material uploads. No finalizer
+lock, explicit GPU destruction, polling, CPU coverage or readback is introduced.
+
+The shared native/browser material gallery adds ordinary, non-uniform, fixed-width
+and aliased-hairline curves with cap/smooth-join metadata. It is an authored scene
+ready for consolidated runtime execution, not a source oracle or performance
+result. Default sample/gate scenes remain unchanged.
+
+Remaining gates include original descriptor/index bytes and mesh-base relocation,
+default-runtime SIMD/float behavior, tiny/huge/nonfinite widths/matrices, legacy
+frames, fixed/hairline physical DPI, gap/seam/cap overrides, every join/reversal/
+miter/smooth case, topology ownership, curve thresholds/fallbacks, degenerate
+policies/material coordinates, painter order, lifetime/cancellation, native/browser
+pixels, allocator/frame/Instruments evidence and all source/provider/application/
+package qualification. Dashed-path preparation and linear dash coverage, full
+managed atlas caching/recovery, clips/layers/masks/effects/images, final SVG/text
+drawing, archives and platform release work remain unfinished.
