@@ -4979,3 +4979,122 @@ and final text pixels on native/browser backends; allocation/memory/performance;
 and every original platform/provider/source/application/package gate. Full hinted
 owners, SVG geometry/brushes, color-layer drawing, CPU raster modes, final shaped
 text rendering and the rest of the full rendering stack remain unfinished.
+
+## Original vector geometry, dash traversal and material records (2026-11-09)
+
+This implementation batch adds the shared production prerequisites for SVG glyph
+layers and ordinary vector rendering. It follows the requested implementation-
+first cadence: static compilation/lint checks now, full differential/native/GPU/
+browser/performance/package validation after stack assembly. No parity or release
+qualification follows from these utilities or the retained material records.
+
+| Original repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Vector/PathGeometry.cs` | `a246ffa979b6e21f78a48b84017720d70ece894b61eb976909105da5d365bb88` | Original ordinary figure/segment families and flags; transforms, finite control bounds and complete Parse/token grammar. Deferred Boolean expression/query classification remains pending. |
+| `src/ProGPU.Vector/PrimitivePathGeometry.cs` | `ca099d68853a9d354bc9db4b106f4a71f9cbd0277c694f358b8e03339a709493` | Open-line/rectangle recognition and rectangle/rounded-rectangle/ellipse construction |
+| `src/ProGPU.Vector/ArcSegmentGeometry.cs` | `847d2cab48f10fe903eafff7ac56da9a36f4be77ad6932258c45b3ac6b31428e` | Center conversion, endpoint/axis extrema, complete transform routes, shader axes, explicit bounded flattening, subarcs and length-parameterized arc dashes |
+| `src/ProGPU.Vector/BezierSegmentGeometry.cs` | `12a9c8f17ced93e202714e9039d67f8e29a7b5d3f148ea9523d431b76184eb19` | Original quadratic/cubic evaluation, ordered splitting, subsegment length admission, bounded length tables and analytic dashed subcurves |
+| `src/ProGPU.Vector/DashPattern.cs` | `1ea24ab5b9288ffad072e77d2fb56b10d9ffd594fe9a8b3ea2f37924eaa2c17f` | Double-input construction, odd-pattern duplication, interval repair, original modulo/phase/state rules and two-pass line dash output |
+| `src/ProGPU.Vector/Brush.cs` | `c3a745a0321ad92d9cbfeb2c3f1529b8f7b6e7a979836df7dd8b8635c8a053e8` | All non-image material payloads/constructors, gradient policies, bounded path-gradient inventory, full hatch-set admission and exact pen flags/double dash ownership; retained command-interception dispatch is pending |
+
+Only original ProGPU implementation was read/translated. No new dependency or
+foreign implementation is introduced. All new files remain under the crate's
+unsafe-code prohibition. CPU work here is source parsing, dependent topology/
+state traversal and bounded geometry preparation, not pixel rasterization. The
+dependent dash phase/count/fill and cumulative length loops preserve source
+ordering. Fixed two-component arithmetic retains source expression grouping;
+exact default-runtime SIMD/FMA/NaN/signed-zero results and CPU vectorization/
+throughput still require the consolidated source and performance gates.
+
+Source paths retain line, quadratic, cubic, rational quadratic/cubic and endpoint
+arc families with original controls/weights, stroke/smooth flags, figure fill/
+closure and optional cap overrides. Rational constructors retain their original
+unstroked default. Managed fill enum values are explicitly converted to the
+opposite native shader wire; no raw cast aliases these contracts. `Matrix4`
+retains all sixteen original coefficients, with explicit source XY point/direction
+expressions; it does not infer source rotation/skew construction history. Ordinary
+transforms preserve all flags and weights. Arc failure follows the original line
+fallback, not hidden flattening. Boolean reconstruction/classification is neither
+represented as an ordinary path nor approximated by bounds.
+
+The parser retains F/M/L/H/V/Q/T/C/S/A/Z, implicit repetitions, independent
+last-command/control history, permissive numeric arc flags, move-only figures,
+relative origins and implicit closure. Borrowed source slices replace per-token
+string allocations; complete tokenization and candidate construction precede
+publication. Existing original Unicode category data is reused for BMP char
+classification, retaining UTF-16-code-unit admission for supplementary scalars.
+Simple command casing includes the original long-s S case. Full original Unicode
+version/case/decimal parsing/error behavior remains a differential gate. Rust
+errors report UTF-8 byte offsets. Numeric repetition after Z returns an explicit
+nonprogress error instead of reproducing the original infinite loop.
+
+Primitives preserve original epsilon and finite-extent admission, explicit fourth
+rectangle edge, four clockwise ellipse arcs and zero-only rounded-corner fallback.
+Open-line recognition retains cap/stroke/closure checks. Rectangle recognition
+includes the implicit closing edge, exact zero-radius arc admission, original
+double signed area and tolerance; it does not manufacture rectangle identity for
+curves or Boolean paths. Bounds retain finite control envelopes and analytic arc
+extrema rather than substituting tight Bezier or painted stroke extents.
+
+Arc math keeps corrected radii, exact antipodal half-turn selection, source
+endpoint seeding, in-sweep extrema and the distinct endpoint/axis point expressions.
+Transforms preserve similarity, positive-axis and principal-axis branches, full
+2D affine admission, determinant/reflection sweep behavior and original large-arc
+intent. Explicit flattening keeps original endpoints and the 64-span bound; it
+is not implicitly selected by rendering. Polynomial evaluation/splitting keeps
+ordered original expressions; subsegments retain flags and their original
+32-sample positive-length admission. Length tables use the original clamped
+1..256 sample count and source defaults, with bounded Rust stack storage replacing
+temporary heap arrays. Runtime Lerp/FMA exactness remains independently unqualified.
+
+Dash construction retains actual double source intervals/offset/thickness before
+the original float narrowing, odd inventory duplication, source zero-interval
+repair and ordered phase reduction. State admission, normalization and Advance
+remain separate. Lines use their original 1e-4 epsilon; curves use 1e-5 traversal
+and the same original 1e-4 state/Advance behavior. Count and fill remain separate
+ordered passes, and drawn curves use the original sampled-distance parameter
+lookup followed by analytic subcurve creation. Failed subcurve creation publishes
+no partial segments but retains the original already-counted final state. Source
+constructor NaN/infinity behavior remains distinct from later state admission.
+
+For termination, phase normalization rejects a complete interval inventory with
+no representable subtraction progress. Traversal rejects only after the initial
+partial element plus a full interval cycle makes no distance progress. A single
+small interval may round away and continue into a later large interval, preserving
+the original terminating route. These explicit failures replace source hangs;
+there is no epsilon perturbation, phase modulo shortcut or iteration-budget
+truncation. Allocation/count overflow returns Capacity and never partial output.
+These termination differences require targeted controls in the consolidated run.
+
+Materials retain straight RGBA, raw opacity, unsorted stops, complete coordinate
+frames and independent spread/interpolation. Sweep keeps Repeat as its distinct
+default. Radial radius selection retains comparison-based NaN behavior. Path
+gradient admission keeps its 2..128 original boundary count, one color per point
+and exactly one blend/preset inventory without inventing extra finite checks.
+Hatch sets retain contiguous signed offsets/counts, unit tangent tolerance, per-
+family spacing/width checks, original ordered period arithmetic, drawn-zero dots
+and all-or-nothing snapshot publication. Single/cross hatch and 64-bit tile retain
+their independent source identities; negative tile coordinates wrap by original
+bit masking. No noise, gradient or hatch pixel loop is added on the CPU.
+
+Pens retain exact -1 hairlines, normal/fixed expansion, all four join/cap values,
+independent clipped-Miter and WPF flags, constructor-only miter/offset normalization
+and raw later assignments. WPF admission excludes hairline/fixed/MiterOrBevel
+without changing ordinary policies. Dash snapshots use immutable Arc storage;
+Some(empty) property input stays distinct from the span setter's empty-to-None.
+With-brush snapshots share the actual immutable dash generation and copy every
+other parameter. Rust borrows expose read-only arrays instead of managed defensive
+getter copies. Material generations are immutable Arc owners; mutable framework
+brush notifications/capture and retained command interception must be connected
+at their original boundary before claiming live-resource behavior.
+
+Remaining gates include complete source path/token/error/primitive/flag records;
+all matrix/arc branches and original default-runtime float bits; source dash
+construction, two-pass final states, rejection and nonprogress cases; all material
+constructor payloads/errors and immutable ownership; exact GPU segment/material
+lowering; ordinary/signed/Boolean curves and all source cap/join/dash frames;
+SVG XML/reference/gradient/cache and final color glyph integration; cold/warm CPU
+and GPU throughput, bounded allocations and compiler SIMD behavior; final browser/
+native pixels; and every original source/provider/application/package gate.
+SVG XML/cache, Boolean solvers, stroke expansion, material rendering, images,
+clips/layers/masks/effects and the rest of the full-stack port remain unfinished.

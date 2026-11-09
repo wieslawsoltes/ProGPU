@@ -28,6 +28,8 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | GPU glyph raster engine | Exact records/uniforms, lazy owned outlines, sparse upload slots, bounded staging/growth, canonical grayscale compute/fragment and binary two-pass dispatch, typed R8/RGBA targets and bitmap uploads | Runtime GPU/source/browser/performance controls; hinted-source ownership, CPU modes and final text drawing remain unfinished |
 | Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
+| Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls, Boolean reconstruction, stroke expansion and final GPU lowering |
+| Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, material compilation, images/effects/interception and full stroke/render pixels |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
 
 At the user's request, implementation proceeds in connected batches with
@@ -84,6 +86,21 @@ gates; JPEG/16-bit/HDR/error behavior is not certified against StbImageSharp, an
 payload decoding is not implemented. Native hinted-source owners, SVG geometry,
 CPU raster modes and **final text draw replay remain unfinished**. These connected batches have
 compile/static checks only; exhaustive validation is deferred as requested.
+
+`vector` now provides the original managed ordinary `PathGeometry`, typed
+line/quadratic/cubic/rational/arc segments, complete `Matrix4` frames, primitive
+construction and recognition, and the source SVG/WPF path grammar. Arc bounds
+and transforms stay analytic; explicit flattening is an opt-in utility. The
+shared `DashPattern`/`PathSegment` helpers produce original line or analytic
+subcurve spans with exact source dash state and independent stroke flags.
+`Brush`/`Pen` retain the non-image source material families, original constructor
+admission, independent join policies and double dash intervals. These are
+production input records/utilities, not yet a complete vector renderer. Boolean
+queries, stroke body/cap/join expansion, SVG XML/cache integration, material GPU
+compilation and image/effect contracts remain unfinished. Matched source/default-
+runtime floating-point, runtime/browser, quality and performance gates are
+deferred. Explicit nonprogress rejection replaces malformed source loops; see
+the source/ownership/difference ledger in DESIGN.md.
 
 Run `cargo test --locked` and `cargo clippy --all-targets -- -D warnings`.
 The CPU geometry API also builds with `--no-default-features`.
