@@ -261,6 +261,17 @@ briefly pauses the process and can perturb timing; this observation never
 qualifies performance or replaces the original gate. No heap/core dump or browser
 profile is retained. CI enables it only in the failure-only diagnostic run.
 
+Selection validates the actual browser executable's device/inode, owned ancestry
+and original PID generation. Both a separate exact GPU-role argument and a packed
+title beginning with the exact executable path followed by the GPU-role token
+are supported; an embedded marker alone is insufficient. Identity is rechecked
+before sampling and attachment. `capture-gpu-test.py` covers misleading titles,
+different executable images, reparenting and PID reuse. For an isolated Linux
+diagnostic with an already installed browser, run
+`python3 src/ProGPU.Rust/browser/capture-gpu-live-test.py --executable /path/to/chrome --output /tmp/progpu-gpu-probe.json`.
+It owns and cleans its temporary browser/profile and records bounded samples and
+debugger output. This probe does not run the rendering gate or qualify its pixels.
+
 The line-break module exposes logical scalar boundaries and resolved classes,
 with the original context-sensitive rule order and separate EDIT projection.
 It preserves scratch-prefix writes on a later invalid scalar while never

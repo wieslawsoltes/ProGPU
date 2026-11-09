@@ -40,18 +40,46 @@ def descendant(pid, parent, root=Path('/proc')):
     return True
 
 
-def gpu_processes(parent, root=Path('/proc')):
+def gpu_identity(pid, executable, root=Path('/proc')):
+    """Recognize a fixed GPU role only on the selected browser executable.
+
+    Linux exposes mutable argv storage. Chromium can pack its entire title into
+    one argument; accept only the exact executable prefix and first role token,
+    never an embedded substring or a shell-style split of arbitrary values.
+    """
+    directory = root / str(pid)
+    expected = executable.stat()
+    actual = (directory / 'exe').stat()
+    if (expected.st_dev, expected.st_ino) != (actual.st_dev, actual.st_ino):
+        return None
+    identity = dict(executable_device=actual.st_dev, executable_inode=actual.st_ino)
+    raw = (directory / 'cmdline').read_bytes()
+    args = raw.rstrip(b'\0').split(b'\0')
+    kinds = [arg for arg in args[1:] if arg.startswith(b'--type=')]
+    if kinds == [b'--type=gpu-process']:
+        return dict(**identity, selection='separate-argument')
+    prefix = os.fsencode(executable) + b' --type=gpu-process'
+    if len(args) == 1 and (args[0] == prefix or args[0].startswith(prefix + b' ')):
+        return dict(**identity, selection='packed-executable-prefix')
+    return None
+
+
+def gpu_processes(parent, executable, root=Path('/proc')):
     result = []
     for directory in root.iterdir():
         if not directory.name.isdecimal():
             continue
+        pid = int(directory.name)
+        if pid == parent or not descendant(pid, parent, root):
+            continue
         try:
-            args = (directory / 'cmdline').read_bytes().split(b'\0')
-            if b'--type=gpu-process' not in args:
+            before = process_stat(pid, root)
+            selection = gpu_identity(pid, executable, root)
+            if not selection:
                 continue
-            pid = int(directory.name)
-            if descendant(pid, parent, root):
-                result.append(process_stat(pid, root))
+            after = process_stat(pid, root)
+            if before['start_ticks'] == after['start_ticks'] and descendant(pid, parent, root):
+                result.append(dict(**after, **selection))
         except (OSError, ValueError, IndexError):
             continue  # Concurrent child exit is an observation, not a test result.
     return sorted(result, key=lambda value: value['pid'])
@@ -71,8 +99,8 @@ def owned_process_inventory(parent, root=Path('/proc'), limit=128):
             try:
                 raw = (directory / 'cmdline').read_bytes()
                 args = [part for part in raw.split(b'\0') if part]
-                # Preserve only fixed process-kind flags. An embedded marker is
-                # evidence for argv packing, never permission to attach to it.
+                # Preserve only fixed process-kind flags. An embedded marker
+                # alone never supplies the executable/role proof for attachment.
                 kinds = [kind for kind in ('gpu-process', 'renderer', 'zygote', 'utility')
                          if ('--type=' + kind).encode() in args]
                 value.update(argument_count=len(args), process_types=kinds,
@@ -90,16 +118,22 @@ def owned_process_inventory(parent, root=Path('/proc'), limit=128):
     return dict(processes=result, truncated=False)
 
 
-def same_generation(source, parent):
+def same_generation(source, parent, executable, root=Path('/proc')):
     try:
-        current = process_stat(source['pid'])
-        return current['start_ticks'] == source['start_ticks'] and descendant(source['pid'], parent)
+        current = process_stat(source['pid'], root)
+        if current['start_ticks'] != source['start_ticks'] or not descendant(source['pid'], parent, root):
+            return False
+        identity = gpu_identity(source['pid'], executable, root)
+        if not identity or any(source.get(key) != value for key, value in identity.items()):
+            return False
+        return (process_stat(source['pid'], root)['start_ticks'] == source['start_ticks']
+                and descendant(source['pid'], parent, root))
     except (OSError, ValueError, IndexError):
         return False
 
 
-def sample(source, parent):
-    if not same_generation(source, parent):
+def sample(source, parent, executable):
+    if not same_generation(source, parent, executable):
         return dict(retired=True)
     directory = Path('/proc') / str(source['pid'])
     threads = []
@@ -110,11 +144,13 @@ def sample(source, parent):
             threads.append(value)
         except (OSError, ValueError, IndexError):
             continue
+    if not same_generation(source, parent, executable):
+        return dict(retired=True)
     return dict(process=process_stat(source['pid']), threads=threads)
 
 
-def backtrace(source, parent):
-    if not same_generation(source, parent):
+def backtrace(source, parent, executable):
+    if not same_generation(source, parent, executable):
         return dict(status='retired before attachment')
     gdb, timeout = shutil.which('gdb'), shutil.which('timeout')
     if not gdb or not timeout:
@@ -151,6 +187,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--parent', type=int, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--executable', type=Path, required=True)
     args = parser.parse_args()
     started = time.monotonic()
     receipt = dict(scope='Failure-only observation; debugger attachment perturbs timing. '
@@ -161,7 +198,8 @@ def main():
         # user's browser or a sibling CI workload for debugger attachment.
         if args.parent != os.getppid():
             raise ValueError('parent must be the actual spawning test process')
-        candidates = gpu_processes(args.parent)
+        executable = args.executable.resolve(strict=True)
+        candidates = gpu_processes(args.parent, executable)
         receipt['candidates'] = candidates
         if len(candidates) != 1:
             receipt['status'] = 'no unique live descendant GPU process'
@@ -172,12 +210,13 @@ def main():
                 if index:
                     time.sleep(2)
                 receipt['samples'].append(dict(elapsed_seconds=time.monotonic() - started,
-                                               **sample(source, args.parent)))
-            if same_generation(source, args.parent):
+                                               **sample(source, args.parent, executable)))
+            if same_generation(source, args.parent, executable):
                 maps = (Path('/proc') / str(source['pid']) / 'maps').read_text()
-                receipt['executable_mappings'] = [line for line in maps.splitlines()
-                                                   if 'r-x' in line.split()[1]]
-            receipt['backtrace'] = backtrace(source, args.parent)
+                if same_generation(source, args.parent, executable):
+                    receipt['executable_mappings'] = [line for line in maps.splitlines()
+                                                       if 'r-x' in line.split()[1]]
+            receipt['backtrace'] = backtrace(source, args.parent, executable)
             receipt['status'] = 'observed'
     except (OSError, ValueError, IndexError) as error:
         receipt.update(status='observation unavailable', error=str(error))

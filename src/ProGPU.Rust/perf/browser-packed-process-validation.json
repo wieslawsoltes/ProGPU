@@ -1,0 +1,32 @@
+{
+  "utc": "2026-11-09T12:09:24.415352+00:00",
+  "scope": "Isolated live /proc and debugger diagnostic only; no ProGPU shader, pixel, browser reliability or performance qualification.",
+  "browser": "Google Chrome 154.0.8037.92",
+  "platform": "Linux-7.0.0-38-generic-aarch64-with-glibc2.39",
+  "architecture": "aarch64",
+  "observer_sha256": "0aeab06d5ab323eb484a5910fc09309f1c7d56263187218c34d13f2283d0bea7",
+  "result": "observed",
+  "selection": "packed-executable-prefix",
+  "samples": 3,
+  "sample_thread_counts": [
+    3,
+    15,
+    15
+  ],
+  "gdb_exit": 0,
+  "backtrace_bytes": 23629,
+  "complete_receipt": {
+    "file": "browser-packed-process-live.json.gz",
+    "uncompressed_bytes": 47980,
+    "sha256": "bea3def160ee338b80331dcb0e039e91133ca5647cdd281007b4723810fab318"
+  },
+  "synthetic_tests": "3 passing on macOS Python 3.14 and Ubuntu ARM64 Python 3.12; embedded markers, image identity, role boundaries, ancestry, PID reuse and pre-observation rejection",
+  "limits": "Installed Chrome 154 on Linux ARM64 validates observer selection and bounded attachment only. Hosted renderer uses Playwright Chromium 151. No full render/pixel, crash root cause or performance claim.",
+  "cleanup": {
+    "removed_shared_probe_logical_bytes": 72495,
+    "guest_temporary_profiles_remaining": 0,
+    "vm_final_state": "suspended",
+    "dependency_installs": 0,
+    "preserved": "Complete compressed observer receipt and compact validation; existing browser installation untouched."
+  }
+}

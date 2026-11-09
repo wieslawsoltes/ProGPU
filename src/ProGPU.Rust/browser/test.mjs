@@ -98,7 +98,8 @@ function observeGpuProcess(dpr,stage) {
      process.env.PROGPU_RUST_BROWSER_GPU_STACKS!=='1')return;
   console.log(`[DPR ${dpr}] arming failure-only GPU process observation: ${stage}`);
   const capture=spawn('python3',[fileURLToPath(new URL('./capture-gpu.py',import.meta.url)),
-    '--parent',String(process.pid),'--output',path.join(output,'gpu-process.json')],
+    '--parent',String(process.pid),'--executable',chromium.executablePath(),
+    '--output',path.join(output,'gpu-process.json')],
     {stdio:['ignore','inherit','inherit']});
   gpuProcessCapture=new Promise(resolve=>{
     capture.on('error',e=>{console.error(`GPU process observation unavailable: ${e}`);resolve();});

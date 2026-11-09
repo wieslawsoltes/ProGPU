@@ -4164,3 +4164,46 @@ recordings; an export attempted during finalization was repeated only after the
 recording became terminal. The complete tables replace large temporary traces
 for disk retention. No source driver, shader, browser flag or compiler default
 is changed to obtain these CPU-stage measurements.
+
+## Packed Linux browser-process diagnostics
+
+The retained Myanmar hosted failure reports an owned Chrome descendant with one
+nonempty command-line record containing a GPU marker, while the prior observer
+required a separate NUL-delimited role argument. It therefore collected no stack.
+[Linux proc documentation](https://docs.kernel.org/filesystems/proc.html) and the
+primary [cmdline contract](https://man7.org/linux/man-pages/man5/proc_pid_cmdline.5.html)
+describe mutable argument storage; a process can overwrite the visible format.
+The [exe contract](https://man7.org/linux/man-pages/man5/proc_pid_exe.5.html)
+supplies the actual executable link. These public contracts inform an independent
+recognizer; no Chromium process-title implementation was read or copied.
+
+The failure-only observer now receives the bundled browser path from Playwright's
+public [executablePath API](https://playwright.dev/docs/api/class-browsertype#browser-type-executable-path).
+Both separate and packed role admission require the actual executable's matching
+device/inode. Packed admission requires one command-line string with the exact
+executable path and first complete GPU-role token; arbitrary substring matching,
+basename matching and shell-style splitting of values remain excluded. The
+observer retains owned ancestry, unique selection and the original start ticks,
+adds captured executable identity, and rechecks these before observations and
+attachment. A `/proc` snapshot is not a process lifetime lease; concurrent exits
+remain unavailable observations. Full command lines and environments are never
+retained. The original browser flags, shader/compiler settings and deadlines are
+unchanged, and debugger attachment remains confined to a separate diagnostic.
+
+Three synthetic tests pass on macOS Python 3.14 and Linux ARM64 Python 3.12,
+including exact/packed forms, paths with spaces, private embedded markers, role
+boundaries, unrelated images, missing files, cycles, reparenting and generation
+changes during selection/revalidation. An isolated Linux ARM64 Chrome 154 probe
+observes the actual packed-executable-prefix route, three thread/CPU samples and
+a 23,629-byte GDB result with successful detach/exit zero. Some optimized frames
+cannot unwind; the complete compressed receipt retains those limitations. This
+existing installed browser differs from hosted Playwright Chromium 151 and the
+probe uses a blank page. It validates observer plumbing, not the earlier crash's
+cause, original rendering pixels, performance or browser reliability. The prior
+hosted failures remain required evidence even when a later original gate passes.
+
+The probe owns a new temporary profile and process group, retires them on exit,
+and leaves no guest dependencies or dumps. The Ubuntu VM is returned to its
+original suspended state. Compact validation and complete compressed output are
+retained in `perf/browser-packed-process-validation.json` and
+`perf/browser-packed-process-live.json.gz`.

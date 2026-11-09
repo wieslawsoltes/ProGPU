@@ -1,0 +1,62 @@
+{
+  "run_id": 42613758234,
+  "head": "927acf41cd6010c5b25b34dcaf9962496ba5ce0b",
+  "jobs": [
+    {
+      "id": 129148423751,
+      "name": "portable (ubuntu-24.04)",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "id": 129148424060,
+      "name": "managed-text-source",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129148424154,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 129148424169,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129148424437,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 129148424487,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "managed": {
+    "cases": 1532882,
+    "exact_bytes": 1715627980,
+    "profile": "Linux Unicode 15.1",
+    "parser_cases": 5870757,
+    "parser_exact_bytes": 35631822
+  },
+  "browser": {
+    "dprs": [
+      1,
+      2
+    ],
+    "action_checks_per_dpr": 5733,
+    "offscreen_pixels": 204800,
+    "final_capture": "pass"
+  },
+  "qualification": "Linux portable pending; macOS cancelled. Earlier original/diagnostic browser device losses remain unresolved.",
+  "utc": "2026-11-09 12:14:06 UTC",
+  "terminal": false,
+  "linux_portable": "Original C++/managed differential oracles still running at observation; not qualified."
+}
