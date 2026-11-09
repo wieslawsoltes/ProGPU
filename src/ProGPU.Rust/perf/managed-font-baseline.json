@@ -1,0 +1,929 @@
+{
+  "captured_utc": "2026-11-09T05:01:30.268601+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    8.6025390625,
+    22.919921875,
+    25.85302734375
+  ],
+  "method": "First call plus 5 warmups and 40 measured rounds. Construction includes original SFNT selection and complete metadata admission, keeping variation data lazy. Cache-hit and rotating requests use a prepared root/data generation; rotation preserves the original 32-entry FIFO. Palette cloning includes the original owned source copy, constructor, selected variation and overrides. Request arrays, input transport and full output serialization are untimed. Production allocations, Rust replacement drops and original C# GC behavior remain timed; Rust allocation counts are uninstrumented. Initial diagnostic baseline, not complete shaping/frame performance or optimization qualification.",
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "dotnet": ".NET SDK:\n Version:           10.0.403\n Commit:            5a2162bea6\n Workload version:  10.0.400-manifests.a00bebb6\n MSBuild version:   18.9.15+5a2162bea\n\nRuntime Environment:\n OS Name:     Mac OS X\n OS Version:  26.6\n OS Platform: Darwin\n RID:         osx-arm64\n Base Path:   /private/tmp/progpu-rust-dotnet/sdk/10.0.403/\n\n.NET workloads installed:\nThere are no installed workloads to display.\nConfigured to use workload sets when installing new manifests.\nNo workload sets are installed. Run \"dotnet workload restore\" to install a workload set.\n\nHost:\n  Version:      10.0.14\n  Architecture: arm64\n  Commit:       0427b9abbe\n\n.NET SDKs installed:\n  10.0.403 [/private/tmp/progpu-rust-dotnet/sdk]\n\n.NET runtimes installed:\n  Microsoft.AspNetCore.App 10.0.14 [/private/tmp/progpu-rust-dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.NETCore.App 10.0.14 [/private/tmp/progpu-rust-dotnet/shared/Microsoft.NETCore.App]\n\nOther architectures found:\n  None\n\nEnvironment variables:\n  Not set\n\nglobal.json file:\n  /Users/wieslawsoltes/GitHub/ProGPU/global.json\n\nLearn more:\n  https://aka.ms/dotnet/info\n\nDownload .NET:\n  https://aka.ms/dotnet/download",
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/managed_font.rs": "14f2b0087203aba7fbaf73f2900ce6b9aff896cc1e345f5512f507c5f518eae3",
+    "src/ProGPU.Rust/src/font/managed_font/metadata.rs": "ca2b9303267020972d10358e59fbcbd125b3f8f3cdfb52a3ba8f9a88ae1557c6",
+    "src/ProGPU.Rust/src/font/managed_font/metrics.rs": "d75e042f9439bf7c4f64b9e08a94c30ba6e43e79f78988d4b60e9d0cd9ce5845",
+    "src/ProGPU.Rust/src/font/managed_variations.rs": "20ae0f5d0c79c5fa6937535ec306c020982b936a1e006a5ae3e9dfc3218175f2",
+    "src/ProGPU.Rust/tests/managed_font.cs": "f220c026f17c222fca19091fbae6294a024f020292c084cb6cb94a6b13905788",
+    "src/ProGPU.Rust/tests/support/managed_font_fixture.rs": "7548966d78a8fae85dc05708a4f4f428e8000e29335fc59613772be4f9c9bb0c",
+    "src/ProGPU.Rust/tests/support/managed_font_replay.rs": "b6d0944ee7328d26f14c75d2e1d55ec8dd5e0724aeae5032d298072cd755b4f8",
+    "src/ProGPU.Rust/examples/managed_font_benchmark.rs": "fbcfdb929fea7e61acb4ebe86445fdf11188f613828bee07e61750b8d4058f62",
+    "src/ProGPU.Text/TtfFont.cs": "7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b",
+    "src/ProGPU.Text/TtfFont.Variations.cs": "318cae60429ea6f74da43bc1338b81b8c8dec2c94dde3da4ce750e705aec5035",
+    "src/ProGPU.Text/OpenTypeVariationData.cs": "c2a70bb774b663db4d396f5edf14d04a278f2d16d238cb455791e95a3f3b71b1",
+    "eng/progpu-benchmark-rust-managed-font.py": "5bf3d9eac5b304e5a2e319339a9768ede73a66e0a2a6a9aaa6f768d612e410e1"
+  },
+  "binary_sha256": {
+    "rust": "67faa21cb88b5a6186569e797bce20b58d9958b8e14332ebd3c4dddf61268e55",
+    "managed_control": "711c4b842c1ce5bae0b080c6eba6d297660499eb79340976346b529842e060b2"
+  },
+  "inputs": [
+    {
+      "variant": 0,
+      "mode": "construction",
+      "input_sha256": "9076a2b9c7508bdf26d8b28112149c27abc3cdccd1a13271e7ac9f987dbd9b37",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 103.625,
+            "execute_p50_us": 3.792,
+            "execute_p95_us": 6.542,
+            "execute_p99_us": 16.416
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 13827.708,
+            "execute_p50_us": 10.5,
+            "execute_p95_us": 11.875,
+            "execute_p99_us": 18.666,
+            "allocated_p50_bytes": 10624.0
+          }
+        }
+      ],
+      "exact_output_bytes": 468,
+      "output_sha256": "3a2fc1bda96037df57590f4bcf34e69b06e51f7c98a28111748cc165ff90435a"
+    },
+    {
+      "variant": 0,
+      "mode": "hit",
+      "input_sha256": "9076a2b9c7508bdf26d8b28112149c27abc3cdccd1a13271e7ac9f987dbd9b37",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 1.208,
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.417,
+            "execute_p99_us": 1.542
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 4.167,
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 0.542,
+            "execute_p99_us": 1.958,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "177d8ad3a01d5bdaec5adebec50a64cf5dc0ad2cf3d4a65c0eb2eaac1951950d"
+    },
+    {
+      "variant": 0,
+      "mode": "rotating",
+      "input_sha256": "9076a2b9c7508bdf26d8b28112149c27abc3cdccd1a13271e7ac9f987dbd9b37",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 4.708,
+            "execute_p50_us": 1.292,
+            "execute_p95_us": 3.084,
+            "execute_p99_us": 5.708
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 1785.458,
+            "execute_p50_us": 3.5,
+            "execute_p95_us": 4.75,
+            "execute_p99_us": 9.333,
+            "allocated_p50_bytes": 1008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "bcabab9ffc53dd4231c97a38f2d18fe1fc2b3af191491ec5af2b7e7e42d111fb"
+    },
+    {
+      "variant": 0,
+      "mode": "palette",
+      "input_sha256": "9076a2b9c7508bdf26d8b28112149c27abc3cdccd1a13271e7ac9f987dbd9b37",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 6.958,
+            "execute_p50_us": 4.334,
+            "execute_p95_us": 5.958,
+            "execute_p99_us": 6.917
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 313.333,
+            "execute_p50_us": 17.958,
+            "execute_p95_us": 21.084,
+            "execute_p99_us": 21.625,
+            "allocated_p50_bytes": 19912.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "b9704002a29873dc09005c7404cfa33acd97ec11d4b8348b6d90e4eb7a790b0c"
+    },
+    {
+      "variant": 1,
+      "mode": "construction",
+      "input_sha256": "eb0e1c6f5df974a7d19cc6db4afa4bed6f7b0564407c9f12ef9419b1b90dec3e",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 11.041,
+            "execute_p50_us": 1.5,
+            "execute_p95_us": 2.625,
+            "execute_p99_us": 4.708
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 8424.292,
+            "execute_p50_us": 9.334,
+            "execute_p95_us": 12.25,
+            "execute_p99_us": 12.542,
+            "allocated_p50_bytes": 11152.0
+          }
+        }
+      ],
+      "exact_output_bytes": 468,
+      "output_sha256": "823cd2ff8bdc8e4f2b97bbdd3bf7648d77d91c03fa86e85fac8055b4e3de3ce3"
+    },
+    {
+      "variant": 1,
+      "mode": "hit",
+      "input_sha256": "eb0e1c6f5df974a7d19cc6db4afa4bed6f7b0564407c9f12ef9419b1b90dec3e",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 1.208,
+            "execute_p50_us": 0.542,
+            "execute_p95_us": 1.791,
+            "execute_p99_us": 3.875
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 7.584,
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 0.75,
+            "execute_p99_us": 1.208,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "0f3d4482fba2fc725a5c0a2c2398cf4a958453c529c352adc8ecf0d473e990a4"
+    },
+    {
+      "variant": 1,
+      "mode": "rotating",
+      "input_sha256": "eb0e1c6f5df974a7d19cc6db4afa4bed6f7b0564407c9f12ef9419b1b90dec3e",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 4.291,
+            "execute_p50_us": 1.375,
+            "execute_p95_us": 2.416,
+            "execute_p99_us": 10.125
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 1797.083,
+            "execute_p50_us": 3.666,
+            "execute_p95_us": 4.833,
+            "execute_p99_us": 9.25,
+            "allocated_p50_bytes": 1008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "14d5348c3b0b1631d4e4b164b2b9192672aef3fcef016ae99d731b5a00550634"
+    },
+    {
+      "variant": 1,
+      "mode": "palette",
+      "input_sha256": "eb0e1c6f5df974a7d19cc6db4afa4bed6f7b0564407c9f12ef9419b1b90dec3e",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 6.958,
+            "execute_p50_us": 4.458,
+            "execute_p95_us": 7.042,
+            "execute_p99_us": 7.292
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 293.25,
+            "execute_p50_us": 19.625,
+            "execute_p95_us": 22.167,
+            "execute_p99_us": 22.583,
+            "allocated_p50_bytes": 22016.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "25bbbc57e25bb7ba98e51f2e60bea0d1d9573a155c8fca34223ca7535e3ba699"
+    },
+    {
+      "variant": 2,
+      "mode": "construction",
+      "input_sha256": "2bfea1c39e65bf117df58cd3a5492dfa0ee106975921ebd07628fc6678849b7d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 10.792,
+            "execute_p50_us": 1.5,
+            "execute_p95_us": 2.583,
+            "execute_p99_us": 4.708
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 7881.458,
+            "execute_p50_us": 8.917,
+            "execute_p95_us": 10.583,
+            "execute_p99_us": 13.292,
+            "allocated_p50_bytes": 10688.0
+          }
+        }
+      ],
+      "exact_output_bytes": 468,
+      "output_sha256": "2b272f5842e49d1e1ce91679934d7af1f651f377bc099bce7b2a5cb42ceea374"
+    },
+    {
+      "variant": 2,
+      "mode": "hit",
+      "input_sha256": "2bfea1c39e65bf117df58cd3a5492dfa0ee106975921ebd07628fc6678849b7d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 1.292,
+            "execute_p50_us": 0.541,
+            "execute_p95_us": 1.458,
+            "execute_p99_us": 3.875
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 4.667,
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 0.792,
+            "execute_p99_us": 2.583,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "8a6a51f512b10ae2926eb22a2453e908706e42a3bcf81b9043c0ae8bbd3235e5"
+    },
+    {
+      "variant": 2,
+      "mode": "rotating",
+      "input_sha256": "2bfea1c39e65bf117df58cd3a5492dfa0ee106975921ebd07628fc6678849b7d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 4.417,
+            "execute_p50_us": 1.292,
+            "execute_p95_us": 2.458,
+            "execute_p99_us": 4.792
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 1799.541,
+            "execute_p50_us": 3.791,
+            "execute_p95_us": 5.0,
+            "execute_p99_us": 10.125,
+            "allocated_p50_bytes": 1008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "047d2ad24cf7f656aa6481aaf49e865e291958ea08012dc91ab31e6dc4b0a184"
+    },
+    {
+      "variant": 2,
+      "mode": "palette",
+      "input_sha256": "2bfea1c39e65bf117df58cd3a5492dfa0ee106975921ebd07628fc6678849b7d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 7.042,
+            "execute_p50_us": 5.5,
+            "execute_p95_us": 7.375,
+            "execute_p99_us": 7.5
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 309.708,
+            "execute_p50_us": 19.542,
+            "execute_p95_us": 23.333,
+            "execute_p99_us": 25.125,
+            "allocated_p50_bytes": 21536.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "b614a8c8907b03fb4b2d1f410332d8aa040caa69da2520e3842f74b7d48f9bc6"
+    },
+    {
+      "variant": 3,
+      "mode": "construction",
+      "input_sha256": "7dbf3785119c808691c78a8b66227fe4ccade1a242c956b347dcaf78de0ff091",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 10.333,
+            "execute_p50_us": 1.458,
+            "execute_p95_us": 2.5,
+            "execute_p99_us": 4.541
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 8103.75,
+            "execute_p50_us": 9.083,
+            "execute_p95_us": 11.583,
+            "execute_p99_us": 49.666,
+            "allocated_p50_bytes": 11088.0
+          }
+        }
+      ],
+      "exact_output_bytes": 468,
+      "output_sha256": "823cd2ff8bdc8e4f2b97bbdd3bf7648d77d91c03fa86e85fac8055b4e3de3ce3"
+    },
+    {
+      "variant": 3,
+      "mode": "hit",
+      "input_sha256": "7dbf3785119c808691c78a8b66227fe4ccade1a242c956b347dcaf78de0ff091",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 1.167,
+            "execute_p50_us": 0.459,
+            "execute_p95_us": 1.25,
+            "execute_p99_us": 4.792
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 3.959,
+            "execute_p50_us": 0.416,
+            "execute_p95_us": 0.541,
+            "execute_p99_us": 2.333,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "0f3d4482fba2fc725a5c0a2c2398cf4a958453c529c352adc8ecf0d473e990a4"
+    },
+    {
+      "variant": 3,
+      "mode": "rotating",
+      "input_sha256": "7dbf3785119c808691c78a8b66227fe4ccade1a242c956b347dcaf78de0ff091",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 3.917,
+            "execute_p50_us": 1.292,
+            "execute_p95_us": 2.125,
+            "execute_p99_us": 4.25
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 1763.917,
+            "execute_p50_us": 4.416,
+            "execute_p95_us": 5.708,
+            "execute_p99_us": 10.75,
+            "allocated_p50_bytes": 1008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "14d5348c3b0b1631d4e4b164b2b9192672aef3fcef016ae99d731b5a00550634"
+    },
+    {
+      "variant": 3,
+      "mode": "palette",
+      "input_sha256": "7dbf3785119c808691c78a8b66227fe4ccade1a242c956b347dcaf78de0ff091",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 6.375,
+            "execute_p50_us": 4.625,
+            "execute_p95_us": 6.041,
+            "execute_p99_us": 6.792
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 282.333,
+            "execute_p50_us": 18.208,
+            "execute_p95_us": 20.0,
+            "execute_p99_us": 22.625,
+            "allocated_p50_bytes": 20392.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "90b582610799b2e8a28d88e6d21d9f6d9fb64e576ae8f08b22bf789a8651ae29"
+    },
+    {
+      "variant": 4,
+      "mode": "construction",
+      "input_sha256": "3a043d0cfd305c4889bab163ed160c363efe99d9de8223874a0bd34c4cc6f712",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 10.875,
+            "execute_p50_us": 1.458,
+            "execute_p95_us": 2.583,
+            "execute_p99_us": 4.208
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 8247.708,
+            "execute_p50_us": 9.042,
+            "execute_p95_us": 11.375,
+            "execute_p99_us": 11.917,
+            "allocated_p50_bytes": 10688.0
+          }
+        }
+      ],
+      "exact_output_bytes": 468,
+      "output_sha256": "2b272f5842e49d1e1ce91679934d7af1f651f377bc099bce7b2a5cb42ceea374"
+    },
+    {
+      "variant": 4,
+      "mode": "hit",
+      "input_sha256": "3a043d0cfd305c4889bab163ed160c363efe99d9de8223874a0bd34c4cc6f712",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 1.166,
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.541,
+            "execute_p99_us": 4.041
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 4.708,
+            "execute_p50_us": 0.584,
+            "execute_p95_us": 0.75,
+            "execute_p99_us": 2.625,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "d85288ca552e65b249da4d9711ed1be9aaa12f305b0ad74aa67377e8cb7f018e"
+    },
+    {
+      "variant": 4,
+      "mode": "rotating",
+      "input_sha256": "3a043d0cfd305c4889bab163ed160c363efe99d9de8223874a0bd34c4cc6f712",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 4.208,
+            "execute_p50_us": 1.292,
+            "execute_p95_us": 2.458,
+            "execute_p99_us": 4.167
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 2031.416,
+            "execute_p50_us": 3.792,
+            "execute_p95_us": 6.333,
+            "execute_p99_us": 9.125,
+            "allocated_p50_bytes": 1008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "9c1fd840b438605eea4dc3937ef7ff075524227183b303b7876b1b9b2767c8f7"
+    },
+    {
+      "variant": 4,
+      "mode": "palette",
+      "input_sha256": "3a043d0cfd305c4889bab163ed160c363efe99d9de8223874a0bd34c4cc6f712",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 7.209,
+            "execute_p50_us": 4.541,
+            "execute_p95_us": 6.75,
+            "execute_p99_us": 9.708
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 301.833,
+            "execute_p50_us": 20.25,
+            "execute_p95_us": 27.375,
+            "execute_p99_us": 32.25,
+            "allocated_p50_bytes": 21568.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "c1990a49d5a1533995b00d92c684760dc34096e25d613764a72771429a772d22"
+    },
+    {
+      "variant": 5,
+      "mode": "construction",
+      "input_sha256": "34238cf447adce0188d02b2a3fac3d914b29197d3336b16137aaf650a0a634f6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 11.458,
+            "execute_p50_us": 1.542,
+            "execute_p95_us": 2.667,
+            "execute_p99_us": 4.542
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 7956.25,
+            "execute_p50_us": 9.292,
+            "execute_p95_us": 10.791,
+            "execute_p99_us": 13.708,
+            "allocated_p50_bytes": 11152.0
+          }
+        }
+      ],
+      "exact_output_bytes": 468,
+      "output_sha256": "4621d335871eda79c26e8553766b5dccbd9bf583327555811c32dd7ab3684f59"
+    },
+    {
+      "variant": 5,
+      "mode": "hit",
+      "input_sha256": "34238cf447adce0188d02b2a3fac3d914b29197d3336b16137aaf650a0a634f6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 1.417,
+            "execute_p50_us": 0.541,
+            "execute_p95_us": 1.542,
+            "execute_p99_us": 9.625
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 4.625,
+            "execute_p50_us": 0.625,
+            "execute_p95_us": 0.833,
+            "execute_p99_us": 2.583,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "32924528a1a36a8ceb5532423bc2e1518ddd83d8ecdc04a8204fe14844c683c8"
+    },
+    {
+      "variant": 5,
+      "mode": "rotating",
+      "input_sha256": "34238cf447adce0188d02b2a3fac3d914b29197d3336b16137aaf650a0a634f6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 4.291,
+            "execute_p50_us": 1.416,
+            "execute_p95_us": 2.25,
+            "execute_p99_us": 2.375
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 1762.625,
+            "execute_p50_us": 3.75,
+            "execute_p95_us": 5.208,
+            "execute_p99_us": 8.792,
+            "allocated_p50_bytes": 1008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "b097f21a1eeade08236670d5a315bab67ec939694bcc3a44f71ecd2fa9be801e"
+    },
+    {
+      "variant": 5,
+      "mode": "palette",
+      "input_sha256": "34238cf447adce0188d02b2a3fac3d914b29197d3336b16137aaf650a0a634f6",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 7.208,
+            "execute_p50_us": 4.834,
+            "execute_p95_us": 7.084,
+            "execute_p99_us": 8.0
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 289.917,
+            "execute_p50_us": 19.542,
+            "execute_p95_us": 22.083,
+            "execute_p99_us": 25.458,
+            "allocated_p50_bytes": 21976.0
+          }
+        }
+      ],
+      "exact_output_bytes": 540,
+      "output_sha256": "3cdde1f307e477c500f07d0de9e7bc0654a6ab7644851c27ff51800f973d077c"
+    },
+    {
+      "variant": 6,
+      "mode": "construction",
+      "input_sha256": "4e01505290f0a07e6f0b1caf6a30ac46df4c60cda7ee4485e40141970e0e3016",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 10.834,
+            "execute_p50_us": 1.417,
+            "execute_p95_us": 2.459,
+            "execute_p99_us": 4.458
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 8229.666,
+            "execute_p50_us": 8.666,
+            "execute_p95_us": 10.125,
+            "execute_p99_us": 10.958,
+            "allocated_p50_bytes": 10552.0
+          }
+        }
+      ],
+      "exact_output_bytes": 420,
+      "output_sha256": "a97e13f3d78d4f10deaee5f221c81b73ed5b4452d0147bc5c063c8b05f21fbf2"
+    },
+    {
+      "variant": 6,
+      "mode": "hit",
+      "input_sha256": "4e01505290f0a07e6f0b1caf6a30ac46df4c60cda7ee4485e40141970e0e3016",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 1.209,
+            "execute_p50_us": 0.5,
+            "execute_p95_us": 1.375,
+            "execute_p99_us": 3.459
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 4.25,
+            "execute_p50_us": 0.417,
+            "execute_p95_us": 0.542,
+            "execute_p99_us": 2.5,
+            "allocated_p50_bytes": 320.0
+          }
+        }
+      ],
+      "exact_output_bytes": 492,
+      "output_sha256": "5eeea8d288e22c5666635b95050fdb6d6c50d6ba0d188ef90e68d9147f8abae1"
+    },
+    {
+      "variant": 6,
+      "mode": "rotating",
+      "input_sha256": "4e01505290f0a07e6f0b1caf6a30ac46df4c60cda7ee4485e40141970e0e3016",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 4.042,
+            "execute_p50_us": 1.333,
+            "execute_p95_us": 2.125,
+            "execute_p99_us": 4.167
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 1834.334,
+            "execute_p50_us": 3.583,
+            "execute_p95_us": 4.75,
+            "execute_p99_us": 8.5,
+            "allocated_p50_bytes": 1008.0
+          }
+        }
+      ],
+      "exact_output_bytes": 492,
+      "output_sha256": "2fdce2f18cf1e3b128295596d1f57b63c2e067cf013198c38312900351c4bc22"
+    },
+    {
+      "variant": 6,
+      "mode": "palette",
+      "input_sha256": "4e01505290f0a07e6f0b1caf6a30ac46df4c60cda7ee4485e40141970e0e3016",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 0.333,
+            "execute_p50_us": 0.041,
+            "execute_p95_us": 0.042,
+            "execute_p99_us": 0.042
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 224.333,
+            "execute_p50_us": 0.0,
+            "execute_p95_us": 0.042,
+            "execute_p99_us": 0.166,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ],
+      "exact_output_bytes": 492,
+      "output_sha256": "5eeea8d288e22c5666635b95050fdb6d6c50d6ba0d188ef90e68d9147f8abae1"
+    },
+    {
+      "variant": 7,
+      "mode": "construction",
+      "input_sha256": "2905572574833cce94d57e63e6f96e402acb9315ab09c7b6c01b0f7740c40e21",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 11.417,
+            "execute_p50_us": 1.375,
+            "execute_p95_us": 2.333,
+            "execute_p99_us": 5.042
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 18278.292,
+            "execute_p50_us": 7.959,
+            "execute_p95_us": 9.583,
+            "execute_p99_us": 11.75,
+            "allocated_p50_bytes": 8000.0
+          }
+        }
+      ],
+      "exact_output_bytes": 268,
+      "output_sha256": "8a1597e1f459a813dc162a173bc09240e503bff66bd73a2615453c5f563d3d71"
+    },
+    {
+      "variant": 7,
+      "mode": "hit",
+      "input_sha256": "2905572574833cce94d57e63e6f96e402acb9315ab09c7b6c01b0f7740c40e21",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 0.084,
+            "execute_p50_us": 0.0,
+            "execute_p95_us": 0.042,
+            "execute_p99_us": 0.042
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 0.167,
+            "execute_p50_us": 0.041,
+            "execute_p95_us": 0.042,
+            "execute_p99_us": 0.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ],
+      "exact_output_bytes": 268,
+      "output_sha256": "8a1597e1f459a813dc162a173bc09240e503bff66bd73a2615453c5f563d3d71"
+    },
+    {
+      "variant": 7,
+      "mode": "rotating",
+      "input_sha256": "2905572574833cce94d57e63e6f96e402acb9315ab09c7b6c01b0f7740c40e21",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 0.083,
+            "execute_p50_us": 0.041,
+            "execute_p95_us": 0.042,
+            "execute_p99_us": 0.042
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 185.541,
+            "execute_p50_us": 0.041,
+            "execute_p95_us": 0.042,
+            "execute_p99_us": 0.125,
+            "allocated_p50_bytes": 0.0
+          }
+        }
+      ],
+      "exact_output_bytes": 268,
+      "output_sha256": "8a1597e1f459a813dc162a173bc09240e503bff66bd73a2615453c5f563d3d71"
+    },
+    {
+      "variant": 7,
+      "mode": "palette",
+      "input_sha256": "2905572574833cce94d57e63e6f96e402acb9315ab09c7b6c01b0f7740c40e21",
+      "runs": [
+        {
+          "implementation": "rust",
+          "metrics": {
+            "first_us": 3.75,
+            "execute_p50_us": 1.417,
+            "execute_p95_us": 3.375,
+            "execute_p99_us": 20.625
+          }
+        },
+        {
+          "implementation": "managed",
+          "metrics": {
+            "first_us": 315.667,
+            "execute_p50_us": 8.041,
+            "execute_p95_us": 8.75,
+            "execute_p99_us": 11.0,
+            "allocated_p50_bytes": 8856.0
+          }
+        }
+      ],
+      "exact_output_bytes": 268,
+      "output_sha256": "a547d3bcc8df797bfc9c22f73c67bfd1f518d4c7cf0944943a2682771635909a"
+    }
+  ],
+  "temporary_bytes_removed": 74144173
+}

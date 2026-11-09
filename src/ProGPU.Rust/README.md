@@ -562,3 +562,30 @@ strings, duplicate inventories, header/record bounds and ranking. The **93-case 
 queries against the source at 1/8/64/512 records. It excludes SFNT construction and
 serialization, retaining production allocations and original runtime behavior;
 this initial baseline does not qualify full font/shaping/frame performance.
+
+`font::ManagedFont` now owns original uncompressed SFNT/TTC constructor metadata,
+selected variation instances and the original strong 32-entry FIFO cache. Separate
+roots have separate identities; clones retain the same instance. Normalized-key
+equality survives eviction, while `same_instance` distinguishes a recreated entry.
+Cache values hold immutable snapshots without root back-references, so retained
+instances outlive their caller's root without an Arc cycle. Failed metadata
+selection publishes no cache entry. Every TTC face directory validates before
+the selected constructor runs, including malformed unselected faces.
+
+The wrapper applies original wght/ital/slnt and MVAR metadata, preserves owned
+palette cloning and no-op identity, and exposes horizontal/vertical advances,
+layout and simple/component variation queries. `ManagedPositioningPlan::from_font`
+uses this exact source/coordinate generation; all 32,008 original positioning
+controls now exercise it. Full varied outline construction, vertical origins,
+hinting, color-layer rendering, compressed/mapped/resident factories, discovery
+and complete shaping/layout/GPU text remain separate required ports.
+
+The constructor/cache oracle compares **10,369 actual C# cases / 81,025,616 bytes**,
+including complete metadata, reference/key identity matrices, palette overrides,
+FIFO eviction, malformed metadata and TTCs, source errors and partial mutation.
+Its **104-case / 1,805,194-byte** browser capture is checked against actual source
+in CI and replayed at both DPRs. Run `cargo test --locked --no-default-features
+--test managed_font --test managed_positioning -- --include-ignored --nocapture`
+with .NET 10; `PROGPU_RUST_DOTNET` selects its executable. The initial diagnostic
+benchmark is `python3 eng/progpu-benchmark-rust-managed-font.py`; it compares
+construction, cache hits, FIFO rotation and owned palette clones with original C#.

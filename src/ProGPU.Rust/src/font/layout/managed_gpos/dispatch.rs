@@ -15,6 +15,36 @@ pub struct ManagedPositioningPlan {
     has_kerning: bool,
 }
 impl ManagedPositioningPlan {
+    /// Build from an actual managed font root/selected instance, preserving
+    /// invalid-variation fallback and root zero coordinates after constructor and
+    /// metadata admission. Complete glyph metric preparation remains separate.
+    pub fn from_font(
+        font: &crate::font::ManagedFont,
+        options: ManagedFeatureOptions,
+        script: &[u16],
+        language: Option<&[u16]>,
+    ) -> Result<Option<Self>, FontError> {
+        let coordinates = font.normalized_coordinates()?;
+        let Some(selection) = ManagedLookupSelection::from_face(
+            font.source().clone(),
+            Tag::new(*b"GPOS"),
+            ManagedSelectionRequest {
+                script,
+                language,
+                settings: options.features(),
+                coordinates: &coordinates,
+                extension_lookup_type: 9,
+            },
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self::selected(
+            selection,
+            options,
+            font.layout_variations()?,
+        )))
+    }
     /// Retain the selected font and its original normalized coordinates, lookup
     /// order and per-cluster feature policy. Missing GPOS remains None. Coordinates
     /// describe an already-normalized source instance; this is not fvar/avar

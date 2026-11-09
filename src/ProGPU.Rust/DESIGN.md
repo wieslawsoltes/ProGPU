@@ -3102,3 +3102,89 @@ optimization, full font-cache throughput or shaping/frame parity is claimed; fut
 optimization still requires Instruments evidence. Full TtfFont root/FIFO identity
 and metadata, discovery, varied metrics/outlines and the complete text stack remain
 separate. Previous platform/provider/package/pixel and default-compiler gaps persist.
+
+## Current managed font ownership and metadata (2026-11-09)
+
+`ManagedFont` ports original owned `TtfFont` construction, variation selection,
+identity, metadata and palette cloning. `Root` owns the selected immutable SFNT,
+lazy variation data and original 32-entry FIFO; each cache value owns a `State`
+without a root back-reference. Public handles retain both. This preserves strong
+cached instance identity, first-cached public settings and survival after caller
+root disposal while avoiding the GC cycle that literal Arc translation would make.
+Normalized-coordinate equality survives eviction; exact instance identity does
+not. Hits do not refresh FIFO order. Original instance normalization runs before
+lookup; full metadata preparation runs before insertion or eviction. Concurrent
+selection shares the same published snapshot. Explicit controls prove final source
+retirement and rejection without cache publication.
+
+Whole-collection SFNT admission precedes selected metadata reads. Every unselected
+TTC header/directory remains mandatory. Original required head/bhed and cmap,
+whole-font head/hhea/maxp reads, declared OS/2/post/vhea bounds, table-presence
+capabilities and selected name fallback remain separate. Original style selection
+retains wght rounding/clamping and ital/slnt rules. MVAR evaluates all nine metrics
+in original order, including deltas for absent nullable fields before leaving them
+absent. Full axis zero inventories on the root and default-root reuse survive
+unusual avar mappings. Invalid variation data stays absent; capacity errors remain
+errors without freezing lazy state.
+
+Palette cloning preserves the original no-op rules, invalid-index fallback,
+ordered packed-ARGB overrides and owned full-source copy. The new root is private
+until its selected palette snapshot is replaced consistently in its cache. Cache
+eviction retains the original distinction between normalized equality and a
+recreated palette snapshot. Original default CPAL reads and clone-time color-count
+admission are intentionally different. Color table flags do not execute color
+layers or qualify bitmap/CFF consumers.
+
+Horizontal advances retain original hmtx fallback, last-long-metric selection,
+HVAR precedence and cached gvar phantom counts. Vertical advances preserve actual
+selected ascent/descent fallback and original vmtx behavior; they do not invent
+VVAR application. Glyph item counts keep whole-font loca/glyf reads, component
+flag precedence and first cached result. Layout/simple/component callbacks share
+the actual selected generation. `ManagedPositioningPlan::from_font` consumes that
+generation; all 32,008 original positioning cases compare selected coordinates
+before complete positioning output. Complete varied outlines, vertical origins,
+hinting, compressed/mapped/resident factories, discovery and paragraph/GPU text
+remain required work.
+
+The actual C# constructor/WithVariations/WithColorPalette harness compares 10,369
+cases and 81,025,616 bytes, including every metadata field, names/palette bits,
+settings, normalized coordinates, complete identity/equality matrices and ordered
+queries. Invalid source reads retain source errors and partial mutation. Controls
+include 6,000 metadata mutations, 2,000 arbitrary float requests, every selected
+table truncation, whole-font versus declared extents, late MVAR failures, 32-entry
+rotation and malformed selected/unselected TTC faces. The 104-case browser corpus
+contains 1,805,194 bytes captured from actual source and independently revalidated
+in mandatory CI. Native concurrency/retirement controls complement source identity
+comparisons; they do not substitute for original platform or pixel gates.
+
+Architecture references inform ownership only: [SkTypeface](https://api.skia.org/classSkTypeface.html)
+keeps intrinsic font identity and cloning; [HarfBuzz font objects](https://harfbuzz.github.io/harfbuzz-hb-font.html)
+separate face data from selected font state; [Parley FontContext](https://docs.rs/parley/latest/parley/struct.FontContext.html)
+shares font discovery/source caches; [DirectWrite CreateFontFace](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_3/nf-dwrite_3-idwritefontresource-createfontface)
+creates an axis-selected owned face; [WebRender](https://github.com/servo/webrender/blob/main/webrender_api/src/font.rs)
+separates templates and instances. [Win2D CanvasFontFace](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_Text_CanvasFontFace.htm)
+retains design-unit properties and [Vello glyph runs](https://docs.rs/vello/latest/vello/struct.DrawGlyphs.html)
+carry explicit size/hinting/coordinates/transform. No external implementation is
+copied. Original ProGPU FIFO/constructor arithmetic remains authoritative; CPU font
+management does not initialize a GPU. Future prepared glyph/device caches need
+their own exact DPI, phase, hinting and target identities.
+
+The initial 32-workload diagnostic benchmark compares actual complete outputs for
+construction, cached selection, FIFO rotation and owned palette cloning across
+eight source configurations. First call, five warmups and 40 measured rounds are
+reported. Request preparation and serialization are untimed; source/instance
+allocations, Rust replacement drops and C# GC remain timed. No allocation or
+optimization claim is made, and future optimization requires Instruments evidence.
+
+The preceding 5ba16d417 hosted Linux run passed Rust-versus-C# variation outputs
+then failed frozen browser-request equality: 24 width-setting NaNs differed only
+in sign after authored `-NaN / 2` generation on x64 versus ARM64. Font and output
+bytes matched. Browser request bits are now explicit; all original host-generated
+cases remain additional source comparisons. Production arithmetic, published
+fixture bytes and full equality gates are unchanged; mismatch diagnostics report
+the first offset instead of dumping megabytes. That checkpoint's original and
+diagnostic browser runs both lost the device at final DPR 2 capture. Windows and
+Vulkan/winit passed; macOS was cancelled. Prior d4d56c4f9 original browser passed
+but Linux/macOS were cancelled. Both compact hosted receipts retain these limits.
+No original shader/compiler flags, deadlines, provider/package/source/application
+or pixel gates are relaxed.

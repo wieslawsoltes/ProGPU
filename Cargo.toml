@@ -282,3 +282,11 @@ path = "src/ProGPU.Rust/tests/managed_names.rs"
 [[example]]
 name = "managed_names_benchmark"
 path = "src/ProGPU.Rust/examples/managed_names_benchmark.rs"
+
+[[test]]
+name = "managed_font"
+path = "src/ProGPU.Rust/tests/managed_font.rs"
+
+[[example]]
+name = "managed_font_benchmark"
+path = "src/ProGPU.Rust/examples/managed_font_benchmark.rs"

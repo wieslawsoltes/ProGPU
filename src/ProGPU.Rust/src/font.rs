@@ -14,6 +14,7 @@ pub mod gvar;
 mod horizontal;
 mod item_variation;
 pub mod layout;
+mod managed_font;
 mod managed_variations;
 mod names;
 mod outline;
@@ -25,6 +26,7 @@ pub use composite::{
 };
 pub use horizontal::{HorizontalAdvanceInstance, HorizontalMetricsInstance};
 pub use item_variation::{DeltaSetIndexMap, ItemVariationStore};
+pub use managed_font::{ManagedFont, ManagedFontMetadata};
 pub use managed_variations::{
     ManagedVariationAxis, ManagedVariationData, ManagedVariationInstance, ManagedVariationSetting,
 };

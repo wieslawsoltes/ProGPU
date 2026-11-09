@@ -9,6 +9,9 @@ mod font_scene;
 mod sample;
 
 #[cfg(target_arch = "wasm32")]
+#[path = "../tests/support/managed_font_replay.rs"]
+mod managed_font_replay;
+#[cfg(target_arch = "wasm32")]
 #[path = "../tests/support/managed_glyph_fixture.rs"]
 mod managed_records;
 #[cfg(target_arch = "wasm32")]
@@ -1076,6 +1079,18 @@ mod web {
     ) -> Result<Vec<u32>, JsValue> {
         let case = super::managed_variation_replay::decode(font, &request).map_err(error)?;
         let bytes = case.expected().map_err(error)?;
+        Ok(bytes
+            .chunks_exact(4)
+            .map(|v| u32::from_le_bytes(v.try_into().unwrap()))
+            .collect())
+    }
+    /// Replay original font construction, instance-cache identity and queries.
+    #[wasm_bindgen]
+    pub fn managed_font_state(request: Vec<u8>) -> Result<Vec<u32>, JsValue> {
+        let bytes = super::managed_font_replay::decode(&request)
+            .map_err(error)?
+            .expected()
+            .map_err(error)?;
         Ok(bytes
             .chunks_exact(4)
             .map(|v| u32::from_le_bytes(v.try_into().unwrap()))

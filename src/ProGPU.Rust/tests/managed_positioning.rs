@@ -1,6 +1,6 @@
 //! Whole current managed GPOS dispatch and original lazy variation-store controls.
 use progpu::{
-    font::{FontError, ManagedVariationData, ManagedVariationSetting, SfntFace, layout::*},
+    font::{FontError, ManagedFont, ManagedVariationSetting, SfntFace, layout::*},
     text::ManagedShapingGlyph,
 };
 use std::{
@@ -585,6 +585,11 @@ fn original_managed_plan_and_layout_variation_records() {
     let mut bytes = 0;
     let mut queries = 0;
     let mut captures = 0;
+    let managed_fonts: Vec<_> = faces
+        .iter()
+        .cloned()
+        .map(|face| ManagedFont::from_face(face).unwrap())
+        .collect();
     let mut browser = Vec::from(*b"PMP1");
     emit(
         &mut browser,
@@ -599,20 +604,22 @@ fn original_managed_plan_and_layout_variation_records() {
         let n = take();
         let coordinates: Vec<_> = (0..n).map(|_| take() as i16).collect();
         let active = take();
-        let instance = ManagedVariationData::from_face(faces[c.font].clone(), |_| None)
-            .unwrap()
-            .map(|data| {
-                data.create_instance(&[
-                    ManagedVariationSetting::from_str("wght", c.requested as f32 / 16384.0),
-                    ManagedVariationSetting::from_str("wdth", c.requested as f32 / -32768.0),
-                    ManagedVariationSetting::from_str("opsz", c.requested as f32 / 49152.0),
-                ])
-                .unwrap()
-            });
-        let selected_coordinates = instance.as_ref().map_or(&[][..], |i| i.coordinates());
+        let selected_font = managed_fonts[c.font]
+            .with_variations(&[
+                ManagedVariationSetting::from_str("wght", c.requested as f32 / 16384.0),
+                ManagedVariationSetting::from_str("wdth", c.requested as f32 / -32768.0),
+                ManagedVariationSetting::from_str("opsz", c.requested as f32 / 49152.0),
+            ])
+            .unwrap();
         assert_eq!(
-            selected_coordinates, coordinates,
+            selected_font.normalized_coordinates().unwrap(),
+            coordinates,
             "actual WithVariations coordinate capture {number}"
+        );
+        assert_eq!(
+            u32::from(selected_font.has_active_variations()),
+            active,
+            "actual WithVariations active capture {number}"
         );
 
         captures += 1;
@@ -647,22 +654,12 @@ fn original_managed_plan_and_layout_variation_records() {
         .unwrap();
         let mut kerning = false;
         let result = (|| {
-            let plan = if let Some(instance) = &instance {
-                ManagedPositioningPlan::from_variation_instance(
-                    instance,
-                    options(c.policy),
-                    &[68, 70, 76, 84],
-                    None,
-                )?
-            } else {
-                ManagedPositioningPlan::from_face(
-                    faces[c.font].clone(),
-                    options(c.policy),
-                    &[68, 70, 76, 84],
-                    None,
-                    &[],
-                )?
-            };
+            let plan = ManagedPositioningPlan::from_font(
+                &selected_font,
+                options(c.policy),
+                &[68, 70, 76, 84],
+                None,
+            )?;
             if let Some(plan) = plan {
                 kerning = plan.apply(&mut buffer)?;
             }
