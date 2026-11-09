@@ -5,15 +5,26 @@
 use crate::Error;
 mod arc;
 mod bezier;
+mod boolean;
+#[cfg(feature = "gpu")]
+mod boolean_gpu;
 mod brush;
 mod dash;
 mod parse;
 mod primitives;
+mod rounded;
 pub use arc::{ArcCenter, ArcShaderParameters};
 pub use bezier::{DEFAULT_LENGTH_SEGMENTS, evaluate_cubic, evaluate_quadratic};
+pub use boolean::{
+    BooleanOperation, CombinedQueryKind, CompiledPath, DeferredPath, GpuPathRecord,
+    reconstruct_figures,
+};
+#[cfg(feature = "gpu")]
+pub use boolean_gpu::{BooleanGpuMetrics, BooleanSolver, BooleanWork, PathOperationError};
 pub use brush::*;
 pub use dash::{DashPattern, DashResult, DashState, PositionedSegment};
 pub use parse::PathParseError;
+pub use rounded::RoundedRectangleContour;
 
 /// Complete row-major, row-vector 4-by-4 source transform. No perspective or
 /// unused component is discarded when retaining a source frame.
@@ -265,18 +276,22 @@ impl Default for PathFigure {
         Self::new([0.0; 2], false)
     }
 }
-/// Owned ordinary source path geometry. Retained Boolean expressions and their
-/// exact query classification are a separate pending port, not approximated here.
+/// Owned source path geometry with optional immutable deferred Boolean operands.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PathGeometry {
     /// Complete original figure inventory, including move-only/nonfilled figures.
     pub figures: Vec<PathFigure>,
     /// Original managed fill rule, default nonzero.
     pub fill_rule: FillRule,
+    /// Original deferred expression; ordinary figures remain a separate inventory.
+    pub deferred: Option<DeferredPath>,
 }
 impl PathGeometry {
     /// Original finite figure/control envelope, including analytic arc extrema.
     pub fn bounds(&self) -> Option<[f32; 4]> {
+        if let Some(deferred) = &self.deferred {
+            return deferred.bounds();
+        }
         let mut bounds = None;
         for figure in &self.figures {
             if let Some(b) = figure.bounds() {
@@ -290,6 +305,9 @@ impl PathGeometry {
     /// keeps the original similarity/axis/principal-axis routes and original
     /// line fallback when no transformed arc is admitted. No tessellation.
     pub fn transformed(&self, transform: Matrix4) -> Result<Self, Error> {
+        if let Some(deferred) = &self.deferred {
+            return deferred.transformed(transform, self.fill_rule);
+        }
         let mut result = Self {
             fill_rule: self.fill_rule,
             ..Default::default()

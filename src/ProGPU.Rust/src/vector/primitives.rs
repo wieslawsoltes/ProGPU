@@ -4,6 +4,9 @@ const EPSILON: f32 = 0.0001;
 impl PathGeometry {
     /// Recognize the original single open stroked line without cap overrides.
     pub fn open_line(&self) -> Option<[[f32; 2]; 2]> {
+        if self.deferred.is_some() {
+            return None;
+        }
         let [figure] = self.figures.as_slice() else {
             return None;
         };
@@ -25,6 +28,9 @@ impl PathGeometry {
     /// Original axis/area rectangle recognition, including the implicit closing
     /// edge and original zero-radius arcs. This does not classify Boolean paths.
     pub fn axis_aligned_rectangle_bounds(&self) -> Option<[f32; 4]> {
+        if self.deferred.is_some() {
+            return None;
+        }
         let [figure] = self.figures.as_slice() else {
             return None;
         };

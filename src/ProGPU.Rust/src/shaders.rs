@@ -47,6 +47,10 @@ pub const TEXTURE: &str = concat!(
     "\n",
     shader!("Texture")
 );
+/// Original pairwise segment splitting/classification for Boolean reconstruction.
+pub const PATH_OPERATION: &str = shader!("PathOpGeometry");
+/// Original separate ordered output-record finalizer.
+pub const PATH_OPERATION_FINALIZER: &str = shader!("PathOpRecordFinalizer");
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
     ("vector", VECTOR),
@@ -55,4 +59,6 @@ pub const MODULES: &[(&str, &str)] = &[
     ("binary_glyph", BINARY_GLYPH),
     ("text", TEXT),
     ("texture", TEXTURE),
+    ("path_operation", PATH_OPERATION),
+    ("path_operation_finalizer", PATH_OPERATION_FINALIZER),
 ];

@@ -5183,3 +5183,113 @@ and named-transform arithmetic, real-font SVG inventories, cache identity and
 negative reuse, variation/palette/thread/retention behavior, source atlas routing,
 actual final color-layer/text pixels on native/browser backends, allocation and
 cold/warm performance, and all original source/provider/application/package gates.
+
+## Original deferred and GPU Boolean geometry (2026-11-09)
+
+This batch connects the original Boolean query, compilation and reconstruction
+algorithms to the two canonical GPU kernels. The implementation-first workflow
+continues: native/browser-target strict Clippy, CPU-only compilation, formatting
+and offline Naga shader validation are the current checks. No new runtime GPU,
+browser, differential, performance, profiling or package qualification is claimed.
+
+| Original repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Vector/PathGeometry.cs` | `a246ffa979b6e21f78a48b84017720d70ece894b61eb976909105da5d365bb88` | Deferred Boolean operation/query kinds, original cached bounds/emptiness semantics and transformed operands retaining query classification |
+| `src/ProGPU.Vector/RoundedRectanglePathGeometry.cs` | `6e917cc5e3a6c4efe39a08d6a61ff7741079ee81c506eaa9c911c06304d57ff4` | Complete canonical contour recognition, paired corner radii, convex/center/radius containment, bounds ownership and partial-corner classification |
+| `src/ProGPU.Vector/PathOpGeometrySolver.cs` | `548e444604b434000f857400281efc5eb709d0382d0dec5a519d10133b678958` | Deferred classification, output fill rules, immediate results, rational rejection, source records/segments, bounded output sizing, two GPU passes/readback, first-unused forward/reverse reconstruction and complete deferred resolution |
+| `src/ProGPU.Vector/PathAtlas.cs` | `8b0c65142b0156f505374f1d20a6feff3eea1ed7bec23a1b8ce6f405e7414ccd` | Original 32-byte GpuPathRecord and explicit managed-to-shader fill encoding only; complete managed PathAtlas remains separate |
+| `src/ProGPU.Backend/Shaders/PathOpGeometry.wgsl` | `a47dd7e334686e425b5c5bb24f16d106678578ad9529f74b185976d9f4b75f10` | Unchanged original classification/splitting compute program |
+| `src/ProGPU.Backend/Shaders/PathOpRecordFinalizer.wgsl` | `a90fc71f62a6b40274bba6556d26df777ab2781ab36eef416635208b087c1a7d` | Unchanged ordered record finalizer |
+
+Only original ProGPU-owned source was read/ported. Canonical shader files are
+included directly; no shader math, roots, atomic ordering, compiler defaults or
+driver policy changes are introduced. The named shader inventory now contains
+eight modules, including both original Boolean programs. Existing native/browser
+module-validation loops consume that inventory; execution of the expanded browser
+gate is deferred. No external implementation or new dependency is introduced.
+
+Rounded contour recognition preserves the complete original 4..8-segment walk,
+rotation of the first admitted top line, side directions, optional corners,
+radius/rotation/sweep/large-arc rejection, pair-sum limits and original scale-based
+tolerance. Containment keeps its four-corner convex proof and separate coincident-
+center/radius route. Arbitrary curved boundaries are not replaced by bounds.
+All source finite, degenerate, tiny-radius, rotated-start and reversed inventories
+remain necessary differential controls.
+
+Deferred paths own actual immutable Arc operands and retain all five operations
+and seven query kinds. Bounds-only ownership and exact operand results remain
+distinct; unknown/empty/nonempty is not collapsed into a boolean guess. Original
+empty, contained, strictly contained, disjoint and missing-bounds branch ordering
+is retained. Transforming an expression transforms both operands and preserves
+its original query kind without reclassification, as the source does. Ordinary
+figures remain an independent inventory; primitive recognizers reject deferred
+paths. Rust immutable sharing replaces managed mutable snapshot markers; invalid
+null/cyclic object graphs and direct raw query-state mutation are not exposed.
+Managed object-pool reset/sharing-flag behavior and allocator equivalence remain
+separate ownership/performance work, not silently qualified by Arc use.
+
+Immediate reconstruction preserves original intersection/union operand selection,
+contained difference's EvenOdd contour pair, empty operand routes and output fill
+rules. Rational segments reject before these routes, retaining the solver's
+original whole-input gate. Ordinary copies retain every figure/segment flag and
+cap override. Public compile_boolean_input applies that same solver admission
+explicitly; it does not reproduce the old standalone CompilePath utility's silent
+skip of unsupported rational records. Combined operands require resolution first.
+
+Solver compilation retains source figure ordering and its separate inclusion
+policy: even unfilled/unstroked figures participate as in the original solver.
+Move-only figures emit no records. Quadratic/cubic controls, endpoints, implicit
+closure, source arc center/radii/parameter bits and degenerate line fallback are
+preserved. Bounds use original control/analytic-arc arithmetic, including original
+nonfinite propagation, rather than the ordinary finite envelope helper. Exact
+native wire sizes are 32-byte records, 48-byte segments and 16-byte uniforms/header;
+fill encoding is explicitly converted from the managed enum.
+
+GPU output capacity retains max(64,15*(A+B)); overflow and actual device binding/
+buffer/workgroup limits reject before GPU publication. The geometry dispatch uses
+the original ceil((A+B)/64) groups, followed by one finalizer pass, then one copy of
+the complete output capacity. The original output counter alone is explicitly
+reset, and readback clamps it to the original capacity. Finalizer record semantics
+remain independent of the CPU result's original output fill rule. Actual upload,
+submission, pass, readback-capacity and input-segment counters are exposed.
+
+BooleanSolver owns its actual wgpu device, queue and pipelines instead of a global
+Current-context/weak-table lookup. Automatic and forced native compute use the
+canonical path; unsupported fragment/CPU choices fail explicitly because no
+equivalent atomic/storage implementation is ported. Input buffers use wgpu's
+normal initialized-buffer upload boundary. Validation scopes cover pipeline and
+work creation, retaining default compilation options. GPU commands keep their real
+buffer/bind-group owners through submission; Rust scope exits do not destroy live
+submitted input/output resources.
+
+BooleanWork owns the actual staging buffer and callback state. Browser completion
+yields to WebGPU; native async callers must drive Device::poll from their host.
+The separate blocking native method uses the original five-second wait bound.
+Cancellation clears the stored wake owner and unmaps/cancels only that staging
+buffer; Drop does not poll, flush, acquire a rendering lock or explicitly destroy
+submitted resources. Callback wakeups run outside the signal lock, and no borrowed
+mapped range escapes reconstruction. Mapping/validation failures publish no
+geometry. Full cancellation/device-loss/map-deadline controls remain mandatory.
+
+Contour reconstruction preserves the original first-unused inventory scan,
+forward-endpoint before reversed-endpoint selection, strict squared distance <0.25,
+arc reversal parameter updates and original closure check inside the continuation
+loop. It does not discard small or signed-area-cancelled lobes. Unknown raw segment
+kinds retain the original no-append behavior in the standalone utility; admitted
+solver inputs remain kinds 0..3. Small usage inventories stay on stack, larger
+ones use owned temporary storage; no pool-rented bytes escape. CPU reconstruction
+retains the original O(n²) dependent walk, while pairwise classification remains
+on the GPU. Iterative deferred materialization preserves A-before-B source order
+without recursive async futures or cached-query shortcuts.
+
+Required consolidated controls include every original query/empty/bounds/fill
+branch, full canonical rounded contour admission, source transport bytes and
+default-runtime float semantics, all immediate/rational/degenerate cases, all five
+operations on line/curve/arc inventories, real GPU output/counter/finalizer order,
+capacity overflow and limits, topology/reversal/closure including tiny/cancelled
+lobes, map cancellation/errors/native deadlines, source lifetime/owner isolation,
+browser/native pixels, cold/warm throughput and allocations, retained painter
+integration, and original source/provider/application/package qualification.
+Stroke expansion, material compilation, full retained path atlas/Boolean paint
+programs, final color/text/image/layer/effect rendering and release gates remain
+unfinished. Offline shader validation is not runtime execution evidence.

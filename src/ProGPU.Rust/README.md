@@ -29,7 +29,8 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/SVG/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
 | SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic and whole-layer source controls; final layer rendering and native/browser pixels |
-| Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls, Boolean reconstruction, stroke expansion and final GPU lowering |
+| Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls, stroke expansion and final retained GPU lowering |
+| Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and retained painter integration |
 | Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, material compilation, images/effects/interception and full stroke/render pixels |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
 
@@ -101,11 +102,25 @@ subcurve spans with exact source dash state and independent stroke flags.
 `Brush`/`Pen` retain the non-image source material families, original constructor
 admission, independent join policies and double dash intervals. These are
 production input records/utilities, not yet a complete vector renderer. Boolean
-queries, stroke body/cap/join expansion, final SVG layer replay, material GPU
+paint/query integration, stroke body/cap/join expansion, final SVG layer replay, material GPU
 compilation and image/effect contracts remain unfinished. Matched source/default-
 runtime floating-point, runtime/browser, quality and performance gates are
 deferred. Explicit nonprogress rejection replaces malformed source loops; see
 the source/ownership/difference ledger in DESIGN.md.
+
+`PathGeometry::combine_deferred` now retains immutable operands and the original
+query classification without materialization. `immediate_boolean` exposes the
+original resolved-operand fast routes; None means GPU reconstruction is needed.
+`compile_boolean_input` and `reconstruct_figures` retain the original solver wire
+and contour ordering. With `gpu`, reuse a `BooleanSolver` for the unchanged
+geometry/finalizer compute kernels. `begin(...).await` returns owned `BooleanWork`;
+`complete().await` uses host-driven polling on native targets and the WebGPU event
+loop in browsers. Native `complete_blocking` retains the original five-second
+wait bound. `resolve` materializes complete deferred trees in A-before-B order.
+Dropped work cancels/unmaps its own staging buffer without polling or destroying
+submission-owned resources. Unsupported forced execution modes reject. These
+new paths have static checks only; original runtime, pixel, performance and
+package qualification remains outstanding.
 
 Run `cargo test --locked` and `cargo clippy --all-targets -- -D warnings`.
 The CPU geometry API also builds with `--no-default-features`.
