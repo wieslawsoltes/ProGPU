@@ -1,5 +1,8 @@
 use super::*;
 use crate::text::unicode::ManagedMarkProfile;
+mod fallback;
+mod finish;
+mod prepare;
 /// Original managed positioning direction; independent of lookup RTL flags.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]

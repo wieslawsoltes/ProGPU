@@ -133,6 +133,23 @@ pub enum ManagedScriptAction {
     Reverse,
 }
 impl ManagedGlyphBuffer {
+    pub(crate) fn prepare_khmer_layout(
+        &mut self,
+        layout_script: &str,
+    ) -> Result<(), PreparationError> {
+        let source = self
+            .preparation
+            .as_ref()
+            .ok_or(PreparationError::MissingPreparation)?
+            .clone();
+        khmer::prepare(
+            &mut self.glyphs,
+            source.font(),
+            source.options().buffer_flags,
+            layout_script,
+        )?;
+        Ok(())
+    }
     /// Original initial Indic reordering with the actual selected raw GSUB plan.
     /// `None` represents missing GSUB. Layout-script UTF-16 selects the original
     /// old/new policy independently of the prepared Unicode script. Source

@@ -4338,3 +4338,71 @@ At the user's request, remaining exhaustive browser, profiling, fresh-package
 and platform validation is deferred until the complete stack is assembled.
 Implementation proceeds in larger connected batches with quick compile checks.
 This changes work ordering, not parity requirements or the final release gates.
+
+## Implementation-first connected shaping batch (2026-11-09)
+
+This batch follows the user's explicit request to port connected code before
+exhaustive validation. Quick all-target/all-feature compilation and strict native
+Clippy are the checkpoint gates; complete differential, browser, performance,
+Instruments and fresh-package work is deferred. Existing failures remain open.
+
+Approved direct-port provenance, all original repository implementation:
+
+| Source | SHA-256 | Ported surface |
+| --- | --- | --- |
+| `src/ProGPU.Text/OpenTypeTextShaper.cs` | `ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1` | ShapeCore ordering, script/direction/feature policy, raw feature presence, safe-boundary verification, position construction, legacy kern, fallback marks, combining-cluster reversal and Arabic stretch |
+| `src/ProGPU.Text/TtfFont.cs` | `7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b` | TrueType simple/composite parsing, original float contour writer, selected variation integration, cache/no-ink slots, bounds and vertical origins |
+| `src/ProGPU.Text/SfntFontFace.cs` | `4639127d2390813ae578d93a5a18cd5d4cd613235ac704b8d5d61a1123393e0a` | Independent raw vertical-origin bounds, including empty-slot success and whole-glyf header reads |
+| `src/ProGPU.Vector/PathGeometry.cs` | `a246ffa979b6e21f78a48b84017720d70ece894b61eb976909105da5d365bb88` | Finite start/control/endpoint envelope, not tight curve bounds |
+
+No generated Indic/USE machine implementation or external engine implementation
+was inspected or copied. The original stage and outline code above is approved
+ProGPU-owned material. Previously recorded public architecture/script research
+continues to apply; source algorithms remain authoritative.
+
+`ManagedShapingPlan` owns the actual selected font, requested/effective feature
+policies, Unicode/layout script identities and optional GSUB/GPOS plans. Missing
+tables do not trigger unrelated variation queries. Feature merging retains first
+insertion order with last values through an indexed ordered inventory, preserving
+explicit-default identity, per-cluster baselines/ranges and original directional
+insertion. Substitution interleaves every original script stage, actual Indic
+font probes and Arabic fallback/context reversal. Khmer receives the independent
+selected layout tag without mutating prepared source metadata.
+
+`shape_true_type` joins the original stages through immutable owned output. Font
+outline caches are per selected instance; no cached geometry points back to its
+font cache. A cache lock encloses recursive parsing and original child publication,
+with depth/cycle checks and skipped missing components. Geometry retains complete
+float points, figures, variation deltas, original contour ordering and no-ink
+states. Raw static bounds remain separate from selected-variation figure bounds.
+VORG and TrueType bearing/fallback branches retain source integer/float order.
+The outline adapter is explicitly TrueType-only; managed CFF/font fallback,
+flipped-outline caching and broader font-source factories remain pending.
+
+Position construction retains all record fields, original default-ignorable
+removal/visibility, forward cluster repair, space-fallback advances, rounding and
+mark clearing. GPOS then runs before conditional legacy kerning, late mark
+clearing, attachment resolution, fallback mark stacks, backward ordering and
+Arabic stretch. Optional Verify reshapes every safe fragment with remapped ranges,
+original requested features and extended pre/post contexts, checking glyph IDs,
+code points, clusters and all four position values. It never silently ignores the
+flag. Output remains original font-space design units; UI scaling/Y inversion,
+paragraph placement and GPU realization are separate consumers.
+
+Complexity follows the original data-dependent CPU stages: feature planning is
+expected O(F); outlines are O(points + components + emitted geometry) for visited
+cached glyphs, with bounded recursion; metric/fallback passes are linear except
+original cluster repairs and mark-skipping/attachment traversals. Legacy kern
+format 0 retains binary pair lookup. Stretch is linear in records plus emitted
+copies, with original 256-record/run and 1,048,576-total limits. Verification can
+reshape many fragments and remains opt-in. These dependency-carrying operations
+are not independent SIMD lanes; no GPU workload was moved to CPU. No latency,
+allocation, arithmetic parity, browser or release improvement is claimed yet.
+
+Deferred validation must cover full-stage interactions for all script families,
+feature/default/range identities, absent/malformed tables, TrueType raw versus
+varied geometry/cache behavior, original float compiler differences, default
+ignorables, vertical origins, fallback mark stacks, both kern formats/headers,
+Arabic stretch limits and every verification boundary/direction. Existing stage
+fixtures and canonical shader tests are retained unchanged; the expanded Indic
+browser corpus remains unexecuted locally at this checkpoint.

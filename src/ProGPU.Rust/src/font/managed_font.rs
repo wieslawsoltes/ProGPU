@@ -11,7 +11,9 @@ use std::{
 };
 mod metadata;
 mod metrics;
+mod outline;
 use metadata::Raw;
+pub use outline::{ManagedGlyphOutline, ManagedOutlineFigure};
 
 /// Original immutable font properties in design units. Capability flags describe
 /// original table presence, not qualification of every outline or bitmap consumer.
@@ -73,6 +75,7 @@ struct State {
     metadata: ManagedFontMetadata,
     instance: Option<ManagedVariationInstance>,
     ascii: OnceLock<Box<[AtomicU32; 128]>>,
+    outlines: Mutex<outline::OutlineCache>,
 }
 #[derive(Debug, Default)]
 struct Cache {
@@ -127,6 +130,7 @@ impl ManagedFont {
             metadata,
             instance: None,
             ascii: OnceLock::new(),
+            outlines: Mutex::new(outline::OutlineCache::default()),
         });
         Ok(Self {
             root: Arc::new(Root {
@@ -244,6 +248,7 @@ impl ManagedFont {
             metadata,
             instance: Some(instance),
             ascii: OnceLock::new(),
+            outlines: Mutex::new(outline::OutlineCache::default()),
         });
         cache.instances.insert(key.clone(), state.clone());
         cache.order.push_back(key);
@@ -367,6 +372,7 @@ impl ManagedFont {
             metadata,
             instance: clone.state.instance.clone(),
             ascii: OnceLock::new(),
+            outlines: Mutex::new(outline::OutlineCache::default()),
         });
         // This root is still private to the candidate. Replace the same snapshot
         // in its cache before publication, matching the source's private mutation.

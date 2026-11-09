@@ -4,6 +4,29 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
+Current implementation batch (2026-11-09): the managed TrueType route now connects
+original script/direction/feature planning, complete GSUB stage ordering, selected
+outline/variation metrics, GPOS, legacy kerning, fallback marks, visual ordering,
+Arabic stretch and optional safe-boundary verification. Use
+`text::managed_pipeline::ManagedShapingPlan::shape_true_type` with explicit
+`ManagedPreparationOptions`; the returned run owns its complete source generation
+and retains original font-space design-unit records. `substitute` remains an
+explicit pre-positioning API. Plans can be reused for the selected script.
+
+| Current connected port | Implementation | Validation still required |
+| --- | --- | --- |
+| Managed shaping orchestration | Original complete stage and feature ordering | Matched whole-pipeline source corpus, browser and performance |
+| Managed TrueType outlines | Float point decode, composite attachment, variations, per-instance cache and original bounds | Original geometry/error/cache/float controls |
+| Managed positioning | Metrics/ignorables/spaces, vertical origins, GPOS, kern, marks, direction, stretch and Verify | Complete original positioned records and text pixels |
+| Other font/layout/render work | Earlier independent foundations remain available | Managed CFF adapter, full paragraphs/fallback, GPU text and remaining engine stack |
+
+At the user's request, implementation now proceeds in connected batches with
+compile/static checks; exhaustive differential/browser/performance/package
+validation is deferred until assembly. These additions are **not parity-qualified**.
+The TrueType API explicitly rejects non-TrueType fonts; it does not silently use
+the separately ported native CFF evaluator. Earlier measurements below describe
+their named checkpoints and do not validate this new connected pipeline.
+
 Run `cargo test --locked` and `cargo clippy --all-targets -- -D warnings`.
 The CPU geometry API also builds with `--no-default-features`.
 

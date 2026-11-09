@@ -28,7 +28,9 @@ pub use composite::{
 pub use horizontal::{HorizontalAdvanceInstance, HorizontalMetricsInstance};
 pub use item_variation::{DeltaSetIndexMap, ItemVariationStore};
 pub use managed_cmap::ManagedCharacterMap;
-pub use managed_font::{ManagedFont, ManagedFontMetadata};
+pub use managed_font::{
+    ManagedFont, ManagedFontMetadata, ManagedGlyphOutline, ManagedOutlineFigure,
+};
 pub use managed_variations::{
     ManagedVariationAxis, ManagedVariationData, ManagedVariationInstance, ManagedVariationSetting,
 };

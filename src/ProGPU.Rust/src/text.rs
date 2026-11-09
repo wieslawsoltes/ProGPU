@@ -1,6 +1,7 @@
 //! Original ProGPU text contracts. Simple runs retain UTF-16 source positions;
 //! they do not substitute for OpenType shaping, bidi or paragraph layout.
 
+pub mod managed_pipeline;
 mod managed_shaping;
 mod shaping;
 pub use managed_shaping::ManagedShapingGlyph;

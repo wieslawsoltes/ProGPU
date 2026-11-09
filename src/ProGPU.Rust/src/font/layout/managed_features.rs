@@ -1,6 +1,7 @@
 //! Frozen original per-cluster feature values and script-record admission.
 use super::{FontError, ManagedFeatureSetting};
 use crate::text::ManagedShapingGlyph;
+mod planner;
 /// Original half-open UTF input feature range, with an independent unsigned value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ManagedFeatureRange {
