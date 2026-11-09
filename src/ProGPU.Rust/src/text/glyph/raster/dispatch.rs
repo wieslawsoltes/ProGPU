@@ -2,6 +2,40 @@
 use super::*;
 
 impl GlyphRasterizer {
+    /// Clear the same actual coverage attachment without changing its identity.
+    /// Callers must invalidate associated residency before publishing new draws.
+    pub async fn clear_coverage_texture(&self, target: &GlyphCoverageTexture) -> Result<(), Error> {
+        if !Arc::ptr_eq(&target.owner, &self.owner) {
+            return Err(Error::ResourceDomain);
+        }
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let view = target.texture.create_view(&Default::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("ProGPU clear existing glyph coverage"),
+            });
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ProGPU clear existing glyph coverage"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+        }
+        self.queue.submit([encoder.finish()]);
+        if let Some(error) = scope.pop().await {
+            return Err(error.into());
+        }
+        Ok(())
+    }
     /// Create and clear an actual R8 target on this device. Atlas packing is a
     /// separate owner; returned textures never imply glyph residency by themselves.
     pub async fn create_coverage_texture(
@@ -162,7 +196,7 @@ impl GlyphRasterizer {
         }
         Ok(())
     }
-    fn validate_request(
+    pub(in crate::text::glyph) fn validate_request(
         &self,
         target: &GlyphCoverageTexture,
         request: &GlyphRasterRequest,
@@ -178,7 +212,6 @@ impl GlyphRasterizer {
             || request.scale <= 0.0
             || !request.subpixel_x.is_finite()
             || request.origin.iter().any(|v| !v.is_finite())
-            || request.slot.record.segment_count == 0
             || request.slot.record.bounds.iter().any(|v| !v.is_finite())
             || request.slot.record.bounds[0] > request.slot.record.bounds[2]
             || request.slot.record.bounds[1] > request.slot.record.bounds[3]
@@ -209,6 +242,9 @@ impl GlyphRasterizer {
             }
         }
         if request.mode == GlyphRasterMode::Binary {
+            if request.slot.record.segment_count == 0 {
+                return Err(Error::InvalidInput);
+            }
             if self.path != GlyphExecutionPath::NativeCompute
                 || request.slot.record.segment_count > 256
             {

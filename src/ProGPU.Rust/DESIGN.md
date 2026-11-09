@@ -4792,3 +4792,87 @@ provider, source/application and package gates. Dynamic atlas packing, LRU and
 residency sets, hinted source generations/failure tickets, color glyph paths,
 CPU implementations, final text draw replay and full engine integration remain
 unfinished.
+
+## Original dynamic glyph coverage atlas (2026-11-09)
+
+This implementation batch connects `text::glyph::GlyphAtlas` to the preceding
+original glyph GPU engine. It follows the requested implementation-first
+workflow: native all-target/all-feature and browser-target strict Clippy,
+CPU-only compilation, formatting and whitespace checks only. Exhaustive differential, runtime GPU,
+browser, performance, profiling and package validation remain deferred. Neither
+this connection nor the previous low-level engine is qualified text rendering.
+
+| Original repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Text/GlyphAtlas.cs` | `5fb66ddeba150535a48c760b18a584dd161af38c6fc3ed46accc8e35f3f64582` | Coverage GlyphInfo, actual font-instance keys, nested batch/frame counters, cache/usage/residency, original raw outline bounds and four-pixel padding, coverage shelf packing/classes, growth/UV refresh, LRU, capacity sentinels and clear |
+| `src/ProGPU.Text/GlyphAtlas.GpuRasterizer.cs` | `f19bcc92ca35244e967b06a8e39c8740ed92936081e2fc0ad5451e8a1e798c10` | Atlas-side original ring admission/flush and oversized-immediate scheduling into the shared engine |
+| `src/ProGPU.Text/GlyphAtlas.HintedGeometry.cs` | `fab0c90753583197b3f057ea8eb9ea98e952e22d78e1576b557d7023dcd8adcc` | Failure-ticket reservation, exact region deduplication, first-best-waste reuse and whole-pending cache invalidation; native hinted-source acquisition itself remains unported |
+
+No external implementation was read or transcribed. The new files are direct
+ports of original ProGPU methods with typed Rust ownership. Existing public
+architecture research and source/provider/package gates remain applicable.
+Canonical shaders, compiler defaults, drivers and font source bytes are unchanged.
+
+Coverage starts at the original 260-square default and grows by the original
+next-power-of-two rule up to its configured maximum. Both allocation axes retain
+their independent eight-pixel classes, two-texel perimeter/gaps, exact glyph
+coverage extents and ordered same-height shelf search. Growth occurs before LRU
+reuse, flushes preceding writes, clears/copies the actual GPU base level, refreshes
+cached normalized UVs and increments only the texture revision. Old wgpu texture
+clones remain live for retained/submitted consumers; no explicit destroy or CPU
+readback/repacking is introduced. Clear invalidates residency and resets shelves
+while clearing the same actual attachment rather than manufacturing a new owner.
+
+Keys retain the actual selected `ManagedFont` root/instance, glyph, size identity
+and original byte phase. Float key normalization follows original Single equality
+for signed zero/NaN without altering source raster coordinates. Lookup uses a hash
+index; a separate physical slot vector with a LIFO free list preserves original
+dictionary enumeration for equal-frame/equal-waste LRU ties. Allocation excludes
+every current-frame entry. Capacity fallback entries retry only on a later frame
+when atlas preference is explicit. Spaces, tabs, LF and CR preserve their original
+font advance without acquiring a region. Empty grayscale records may emit original
+zero coverage; binary admission still requires a nonempty physical record.
+
+Raw atlas bounds visit each original figure start and line/quadratic/cubic control
+point after the original scalar X and negated-Y multiplication. They deliberately
+do not substitute the tight quadratic GPU-record bounds or the generic path's
+finite-point filtering. Source-order and finite signed-zero min/max behavior stay
+intact. The current Rust atlas admits finite positive em/scale and checked finite
+integer bounds; invalid/zero/negative/overflow behavior of the original unchecked
+direct size API remains an explicit parity gap for final controls. Color/bitmap
+table presence currently rejects the complete font route, even for an ordinary
+glyph in that font, until the original per-glyph bitmap/layer selector is connected.
+It never silently substitutes monochrome rendering or fabricates a color result.
+
+Nested batches advance/trim only at the outer boundary. Pending requests stay
+bounded by the original uniform/coverage rings, with 256-byte rows and 512-byte
+slice starts; oversized compute glyphs flush preceding work and submit immediately.
+New-glyph accounting counts actual appended outline slots. Residency capture
+deduplicates original first-use keys and reuses caller storage, growing with unique
+keys rather than duplicate occurrences. Replay preflights all keys before marking
+any frame/use and rejects foreign atlas identities. Texture revision and generation
+remain separate consumer contracts; key residency alone does not repair stale UVs.
+
+Failure reservations preallocate enough ticket storage for the entire pending
+group plus the active acquisition. Drop guards abandon pending cache claims on an
+error, panic unwind or asynchronous cancellation without allocation, font callbacks,
+polling or GPU destruction. Tickets deduplicate actual origin and full reserved
+extent, and reuse selects the first smallest waste. Upload identities invalidate
+after failure; already submitted wgpu resources retain their real lifetime. The
+original hinted failure-ticket mechanism is also used for interrupted Rust design-
+font acquisitions, a cancellation-specific extension rather than a new successful
+rendering policy. Dropping an atlas never asynchronously flushes it: callers use
+the explicit batch/flush API before consumer submission.
+
+Required consolidated controls include complete source packing/UV/counter traces;
+dictionary free-slot/LRU ties; current-frame protection; capacity retries; duplicate,
+foreign, stale and partially missing residency; resize/clear and old-texture replay;
+record/segment growth during pending work; boundary/oversized ring scheduling;
+no-ink/move-only records; complete outline/bearing/advance/phase bytes; asynchronous
+cancellation at every suspension point and injected upload/finish/device loss;
+bounded staging and source/font/texture ownership; full native compute/fragment
+and browser pixels; cold/warm throughput/allocation/memory and all original
+platform/provider/source/application/package gates. Color atlases/decoders,
+hinted generation/selection owners, source raster policies, CPU raster modes and
+final shaped-text draw integration remain unfinished. No performance claim follows
+from static compilation or this implementation milestone.

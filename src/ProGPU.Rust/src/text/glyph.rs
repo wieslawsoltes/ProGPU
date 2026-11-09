@@ -7,7 +7,13 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 #[cfg(feature = "gpu")]
+mod atlas;
+#[cfg(feature = "gpu")]
 mod raster;
+#[cfg(feature = "gpu")]
+pub use atlas::{
+    GlyphAtlas, GlyphAtlasOptions, GlyphAtlasResidency, GlyphAtlasStatistics, GlyphInfo,
+};
 #[cfg(feature = "gpu")]
 pub use raster::{
     GlyphCoverageTexture, GlyphExecutionPath, GlyphGpuError, GlyphGpuMetrics, GlyphGpuSlot,

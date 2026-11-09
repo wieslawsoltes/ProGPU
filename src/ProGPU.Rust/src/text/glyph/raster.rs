@@ -8,6 +8,9 @@ mod upload;
 /// Connected font/raster failure without erasing the original font error.
 #[derive(Debug, thiserror::Error)]
 pub enum GlyphGpuError {
+    /// Color/bitmap font routing requires its original decoder/layer consumer.
+    #[error("color/bitmap font glyph routing is not yet connected")]
+    UnsupportedColorFont,
     /// Original font outline failure.
     #[error(transparent)]
     Font(#[from] FontError),
@@ -324,6 +327,11 @@ impl GlyphRasterizer {
     /// Actual cumulative upload and pass counters.
     pub fn metrics(&self) -> GlyphGpuMetrics {
         self.metrics
+    }
+    pub(super) fn invalidate_font_slots(&mut self) {
+        // A failed/cancelled atlas upload cannot certify newly appended slots.
+        // Existing submitted resources remain owned; future requests re-upload.
+        self.font_slots.clear();
     }
     /// Original current record/segment count.
     pub fn outline_counts(&self) -> [u32; 2] {

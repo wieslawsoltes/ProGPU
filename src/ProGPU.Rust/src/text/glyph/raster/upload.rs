@@ -53,7 +53,8 @@ impl GlyphRasterizer {
     /// Upload the exact selected original segment range, rebasing only its
     /// descriptor offset. Coordinates, record bounds and all segment metadata
     /// words are retained; this does not execute a font or infer raster policy.
-    /// Empty records retain an actual slot and are rejected only at raster use.
+    /// Empty records retain an actual slot; grayscale emits original zero
+    /// coverage, while explicit binary raster use requires a nonempty record.
     pub async fn upload_outline(
         &mut self,
         mut record: GpuGlyphRecord,
