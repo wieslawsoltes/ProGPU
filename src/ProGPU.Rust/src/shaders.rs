@@ -72,8 +72,17 @@ pub const IMAGE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/ImageEff
 pub const IMAGE_BLUR: &str = shader!("TextureGaussianBlur");
 /// Original integer-load unfilterable planar Gaussian kernel.
 pub const IMAGE_BLUR_UNFILTERABLE: &str = shader!("TextureGaussianBlurUnfilterable");
+/// Original path-atlas transfer and raw/sampled retained-mask composition.
+pub const CLIP_COMPOSE: &str = concat!(
+    shader!("PathAtlasSampling"),
+    "\n",
+    shader!("SampledMaskCommon"),
+    "\n",
+    shader!("ClipCompose")
+);
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("clip_compose", CLIP_COMPOSE),
     ("image_effect", IMAGE_EFFECT),
     ("image_blur", IMAGE_BLUR),
     ("image_blur_unfilterable", IMAGE_BLUR_UNFILTERABLE),

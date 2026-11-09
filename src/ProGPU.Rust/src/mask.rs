@@ -1,12 +1,132 @@
-//! Retained native analytic and R8 coverage masks. These are per-draw coverage
-//! operations; isolated group opacity and source AA-layer composition are separate.
+//! Retained native analytic, sampled and materialized coverage masks.
+//! Isolated group opacity and source AA-layer composition remain separate.
 use crate::{
     Error,
     geometry::Affine,
-    image::{Image, ImageFormat},
+    image::{Image, ImageFormat, ImageSource},
 };
 use bytemuck::{Pod, Zeroable};
 use wide::f32x4;
+
+mod clip;
+pub use clip::{ClipPath, ClipPlan, ClipVertex, ComposeUniforms};
+#[cfg(feature = "gpu")]
+mod gpu;
+#[cfg(feature = "gpu")]
+pub use gpu::{MaskComposer, MaskCompositionMetrics, PreparedMask, SampledMaskInput};
+
+/// Original ordered clip combination. Difference removes coverage from the
+/// preceding result, including an initially opaque target for the first node.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum MaskOperation {
+    #[default]
+    /// Multiply preceding coverage by this component.
+    Intersect = 0,
+    /// Multiply preceding coverage by one minus this component.
+    Difference = 1,
+}
+
+/// Original selected coverage channel, independent of source alpha encoding.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MaskChannel {
+    #[default]
+    /// Original red-channel coverage.
+    Red,
+    /// Original RGBA alpha, without unpremultiplication or extraction.
+    Alpha,
+}
+
+/// Original sampled-mask mapping. GPU sources retain actual handles; picture
+/// alpha can be consumed directly without extracting or reading pixels.
+#[derive(Clone, Debug)]
+pub struct TextureMask {
+    /// Actual immutable pixels or retained same-device texture.
+    pub source: ImageSource,
+    /// Original local X, Y, width and height.
+    pub bounds: [f32; 4],
+    /// Original local-to-target logical mapping.
+    pub transform: Affine,
+    /// Original nearest/linear sampling, without mip generation.
+    pub sampling: MaskSampling,
+    /// Independent coverage opacity in 0..=1.
+    pub opacity: f32,
+    /// Original selected source component.
+    pub channel: MaskChannel,
+}
+impl TextureMask {
+    /// Retain a source with identity mapping, linear sampling and unit opacity.
+    pub fn new(source: impl Into<ImageSource>, bounds: [f32; 4], channel: MaskChannel) -> Self {
+        Self {
+            source: source.into(),
+            bounds,
+            transform: Affine::IDENTITY,
+            sampling: MaskSampling::Linear,
+            opacity: 1.0,
+            channel,
+        }
+    }
+    /// Original native sampled-mask inverse for an actual cropped target. The
+    /// physical origin is subtracted in double before inversion, without a
+    /// round trip through a narrowed translated affine or a completed UV row.
+    pub fn uniforms_for_target(&self, dpi: f32, origin: [u32; 2]) -> Result<MaskUniforms, Error> {
+        Mask::Texture(self.clone()).validate()?;
+        if !dpi.is_finite() || dpi <= 0.0 {
+            return Err(Error::InvalidInput);
+        }
+        let [a, b, c, d, tx, ty] = self.transform.0.map(f64::from);
+        let x = tx - f64::from(origin[0]) / f64::from(dpi);
+        let y = ty - f64::from(origin[1]) / f64::from(dpi);
+        let det = a * d - b * c;
+        let [bx, by, w, h] = self.bounds;
+        let px = f64::from(dpi * w);
+        let py = f64::from(dpi * h);
+        let v = narrow([
+            (d / det) / px,
+            (-c / det) / px,
+            (((c * y - d * x) / det) - f64::from(bx)) / f64::from(w),
+            (-b / det) / py,
+            (a / det) / py,
+            (((b * x - a * y) / det) - f64::from(by)) / f64::from(h),
+        ])?;
+        Ok(MaskUniforms {
+            coordinate0: [v[0], v[1], v[2], 0.0],
+            coordinate1: [v[3], v[4], v[5], 0.0],
+            options: [
+                1.0,
+                self.opacity,
+                1.0,
+                if self.channel == MaskChannel::Alpha {
+                    2.0
+                } else {
+                    1.0
+                },
+            ],
+            ..Zeroable::zeroed()
+        })
+    }
+}
+impl From<CoverageMask> for TextureMask {
+    fn from(value: CoverageMask) -> Self {
+        Self {
+            source: value.image.into(),
+            bounds: value.bounds,
+            transform: value.transform,
+            sampling: value.sampling,
+            opacity: value.opacity,
+            channel: MaskChannel::Red,
+        }
+    }
+}
+
+/// Immutable-at-recording mask and its original ordered operation.
+#[derive(Clone, Debug)]
+pub struct MaskComponent {
+    /// Actual retained coverage source.
+    pub mask: Mask,
+    /// Original operation at this position in the ordered chain.
+    pub operation: MaskOperation,
+}
 
 /// Original rounded-mask coverage policy.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -88,6 +208,8 @@ pub enum Mask {
     Analytic(AnalyticMask),
     /// Original immutable coverage bitmap.
     Coverage(CoverageMask),
+    /// Original red/alpha sampled source, including an owned GPU generation.
+    Texture(TextureMask),
 }
 impl From<AnalyticMask> for Mask {
     fn from(value: AnalyticMask) -> Self {
@@ -97,6 +219,11 @@ impl From<AnalyticMask> for Mask {
 impl From<CoverageMask> for Mask {
     fn from(value: CoverageMask) -> Self {
         Self::Coverage(value)
+    }
+}
+impl From<TextureMask> for Mask {
+    fn from(value: TextureMask) -> Self {
+        Self::Texture(value)
     }
 }
 
@@ -180,6 +307,7 @@ impl Mask {
                 }
                 (mask.bounds, mask.transform, mask.opacity)
             }
+            Self::Texture(mask) => (mask.bounds, mask.transform, mask.opacity),
         };
         rect(bounds)?;
         if !opacity.is_finite()
@@ -237,25 +365,9 @@ impl Mask {
                 }
             }
             Self::Coverage(mask) => {
-                // Semantic legacy UV route uses division by determinant and
-                // retains the float DPI*extent product before widening.
-                let [a, b, c, d, x, y] = mask.transform.0.map(f64::from);
-                let det = a * d - b * c;
-                let [bx, by, w, h] = mask.bounds;
-                let px = f64::from(dpi * w);
-                let py = f64::from(dpi * h);
-                let values = narrow([
-                    (d / det) / px,
-                    (-c / det) / px,
-                    (((c * y - d * x) / det) - f64::from(bx)) / f64::from(w),
-                    (-b / det) / py,
-                    (a / det) / py,
-                    (((b * x - a * y) / det) - f64::from(by)) / f64::from(h),
-                ])?;
-                out.coordinate0 = [values[0], values[1], values[2], 0.0];
-                out.coordinate1 = [values[3], values[4], values[5], 0.0];
-                out.options = [1.0, mask.opacity, 1.0, 1.0];
+                return Self::Texture(mask.clone().into()).uniforms(dpi);
             }
+            Self::Texture(mask) => return mask.uniforms_for_target(dpi, [0; 2]),
         }
         if bytemuck::cast_slice::<_, f32>(std::slice::from_ref(&out))
             .iter()

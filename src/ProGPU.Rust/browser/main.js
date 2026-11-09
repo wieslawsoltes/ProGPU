@@ -46,6 +46,10 @@ window.progpuReady = (async () => {
     renderer.select_image_effect_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'materialized-masks') {
+    renderer.select_materialized_mask_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   // Serialize mutable WASM borrows across asynchronous preparation and tests.
   let tail = Promise.resolve();
   const exclusive = action => {

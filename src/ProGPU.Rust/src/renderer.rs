@@ -34,6 +34,8 @@ pub use layer::LayerMetrics;
 use layer::RenderFrame;
 mod layout;
 mod mask;
+mod materialized_mask;
+pub use materialized_mask::{CapturedMask, MaskBrushFrame};
 mod text;
 pub use capture::CapturedScene;
 
@@ -136,9 +138,9 @@ pub struct UploadMetrics {
     pub image_texture_bytes: u64,
     /// Actual GPU mip-generation render passes during preparation.
     pub image_mip_passes: u32,
-    /// Original strided R8 payload uploaded for retained coverage masks.
+    /// Original strided red/RGBA payload uploaded for retained coverage masks.
     pub mask_upload_bytes: u64,
-    /// Distinct actual R8 mask texture bytes referenced by this scene.
+    /// Distinct actual red/RGBA mask texture bytes referenced by this scene.
     pub mask_texture_bytes: u64,
     /// Immutable mask/chain bind groups uploaded for this scene.
     pub mask_bindings: u32,
@@ -239,6 +241,7 @@ pub struct Renderer {
     images: Option<image::ImageState>,
     image_effects: Option<image_effect::ImageEffectState>,
     masks: Option<mask::MaskState>,
+    materialized_masks: Option<materialized_mask::MaterialMaskState>,
     effects: Option<crate::effects::EffectEngine>,
     advanced: Option<advanced::AdvancedState>,
     axis_clip: Option<axis_clip::AxisClipState>,
@@ -373,6 +376,7 @@ impl Renderer {
             images: None,
             image_effects: None,
             masks: None,
+            materialized_masks: None,
             effects: None,
             advanced: None,
             axis_clip: None,
@@ -413,7 +417,15 @@ impl Renderer {
         if scene.layer_depth() != 0 {
             self.preflight_layers(scene, target)?;
         } else {
-            self.preflight_image_effects(scene)?;
+            let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
+            let (states, changes) = scene.compile_states(target.dpi_scale)?;
+            self.validate_mask_states(&states)?;
+            let (mask_bytes, mask_passes) =
+                self.mask_resource_cost(scene, &states, &changes, target)?;
+            if effect_bytes + mask_bytes > 512 * 1024 * 1024 || effect_passes + mask_passes > 16384
+            {
+                return Err(Error::Capacity);
+            }
         }
         let mut transaction =
             text::TreePreparation::new(self, scene.has_axis_clips() && scene.has_tree_text());
@@ -474,7 +486,11 @@ impl Renderer {
         }
         self.validate_geometry(&compiled.mesh, frame)?;
         self.validate_masks(compiled)?;
-        self.validate_image_effects(compiled)?;
+        let (mask_bytes, mask_passes) = self.compiled_mask_cost(compiled, frame)?;
+        let (effect_bytes, effect_passes) = self.validate_image_effects(compiled)?;
+        if mask_bytes + effect_bytes > 512 * 1024 * 1024 || mask_passes + effect_passes > 16384 {
+            return Err(Error::Capacity);
+        }
         self.validate_materials(&compiled.mesh, Some(compiled.materials()))?;
         if compiled.atlas_size() > self.device.limits().max_texture_dimension_2d {
             return Err(Error::Capacity);
@@ -510,7 +526,7 @@ impl Renderer {
         };
         prepared.groups = groups;
         self.prepare_images(compiled, frame, &mut prepared).await?;
-        self.prepare_masks(compiled, &mut prepared).await?;
+        self.prepare_masks(compiled, frame, &mut prepared).await?;
         self.prepare_clears(compiled, &mut prepared).await?;
         self.prepare_image_effects(compiled, frame, &mut prepared)
             .await?;

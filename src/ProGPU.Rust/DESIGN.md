@@ -7142,3 +7142,157 @@ transport, blend variants, original sampler label mapping, image-filter/color-fi
 DAGs, complete masks, mutable/imported video providers and source cache generations
 remain unfinished. Preserve original Windows/ARM64/provider/package/application,
 DPR-2 browser, compiler-float, performance and Instruments gates unchanged.
+
+
+## Materialized path, brush, picture and mixed masks (2026-11-09)
+
+This connected batch ports original ProGPU-owned mask kernels, records and resource
+execution, retaining the architecture research already recorded above: immutable
+CPU/display-list generations, device-owned realizations, explicit target frames,
+lazy GPU families and actual submission ownership. No external implementation is
+consulted or incorporated. Text shaping, glyph policy and source hit geometry are
+unchanged. The APIs below are production implementation progress; original source
+pixels, complete scene transport and package qualification are not claimed.
+
+### Exact original provenance
+
+| Original repository source | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Native/src/Backend/progpu_native_clip_execution.cpp` | `19eac821712a3c166eae34ae27508027ae00e2a6511be728b353711fd9263f63` |
+| `src/ProGPU.Native/src/Backend/progpu_native_clip_resources.cpp` | `dd36e3a5141f9cfd2f201c4e6afa699d537d67642cd26c02585e9fb902b2827f` |
+| `src/ProGPU.Native/src/Backend/progpu_native_gpu_records.hpp` | `5f1eda15324be086c0b8880ee432e1244f2797f32f0137dd1d8a636149586311` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_layer_mask_resources.cpp` | `66fcc7bc64d8b908788571c31f1bd0b6b671fdea2d25484be2ca22a4091a1158` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_brush_mask_resources.cpp` | `2bdfe30bc3da4d3ae5b8b86a39c931a718d75e28dca5f89be386e78e151c0bd1` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_brush_mask_pipeline.cpp` | `048e11ada73b1f325e70633f5dafbd27b7f3c8076d43ee652654a0fe5cc21b69` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_picture_mask_resources.cpp` | `ad9f661c3dd6cac4d612a28ff8b24124833b1b15af2f81d32c6e82c96106432a` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_composite_mask_resources.cpp` | `3f4fee8d6ac8591cc9d2bf353ffcdb9e77a8504dd9a7e4f95db50837f049e664` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_state.cpp` | `2b801e9cc4673fa49092bdee28ac7c6275672c000f635798ba5767d759b30dd5` |
+| `src/ProGPU.Backend/Shaders/ClipCompose.wgsl` | `19518807c90f8485796cae98bb2c4fd760af2af4ca35b3211b7019e413ed25c4` |
+| `src/ProGPU.Backend/Shaders/PathAtlasSampling.wgsl` | `02bc5b7ae8ed508ba3bfa922a305c4a6426fd16dce290222a30167bcb1131e56` |
+| `src/ProGPU.Backend/Shaders/SampledMaskCommon.wgsl` | `4799e7646ac1cebbef3237ec248edebf3359880159ecdd098b4c9215ad995c79` |
+| `src/ProGPU.Backend/Shaders/Vector.wgsl` | `6d2d92d59341ea91dc33f851c08467f4b4dcd7f270b5f1f638b9f45006e481ed` |
+| `src/ProGPU.Backend/Shaders/Texture.wgsl` | `5f9c663cdc9eac166506c93a1add5ec058c3d68f9a766253aee895afe4adda51` |
+| `docs/NATIVE_CPP_COMMAND_PARITY.md` | `5f01cc1d9894200c90910a7c972e7cc1b29f889c41b4f7eb3233612f18c132a0` |
+
+### Clip atlas and ordered execution
+
+`ClipPlan` retains original Path generations, affine transforms, sample grids and
+intersect/difference order. Native maximum singular scale, 1/64 phase, four-pixel
+raster padding, 4096 atlas limit, shelf margins and min-plus-width local endpoints
+remain explicit. Independent NDC/UV lanes use wide SIMD with the original multiply/
+divide order. UV normalization happens only after final atlas packing. Exact integer
+projection/mapping admits the original integer texel load; all other quads keep
+original filtered transfer. Vertices are 16 bytes; compose records are 32 bytes in
+256-byte dynamic slots. No CPU coverage or approximate contour reconstruction is
+introduced. Existing direct/postfix Boolean Path programs reuse the original
+rasterizer; separate signed/staged programs remain unfinished.
+
+Raster keys retain segment and Boolean-program owners, bounds, fill rule, scale,
+phase and sample grid. The ordinary retained scene key now also retains its actual
+Boolean-program identity. Equal segment addresses cannot alias different fill
+rules or independently retained programs. The unique-path atlas is produced in
+one existing raster submission. Original ClipCompose then alternates a node clear/
+quad transfer and target-wide intersect/difference pass for each node. The first
+node uses opaque previous coverage. One node texture plus two R8 accumulation
+textures bound storage independently of node count. The public clip inventory is
+bounded at 65,536 nodes, with actual device/buffer/512 MiB resource admission.
+
+`MaskComposer` retains exact engine identity, pipelines and output generations.
+Composition reports GpuShader; its independently configurable path rasterizer
+reports NativeCompute when initialized. Unsupported forced routes reject. Public
+prepared programs retain every bind group, texture view and immutable buffer;
+encoding adds no submit, CPU upload/readback, poll or explicit destruction. Each
+preparation owns fresh outputs. A caller must encode a prepared program before
+consuming its output; standalone program replay is explicit.
+
+### Sampled and generated mask sources
+
+`TextureMask` carries immutable CPU pixels or actual same-device GPU handles with
+independent red/alpha channel, bounds, affine, nearest/linear filter and opacity.
+Original CoverageMask remains R8-only. The common upload cache now retains actual
+R8/RGBA/BGRA generations under weak source keys; prepared bindings remain owners
+after cache removal. Sampling never unpremultiplies picture colors or extracts
+alpha on the CPU/GPU. sRGB affects RGB interpretation, not the selected alpha.
+
+Target-local sampled composition ports the native inverse: subtract the actual
+physical crop origin in double before inversion, retain the original float DPI
+by extent product, then narrow complete rows once. Do not narrow a translated
+affine first or repair a completed UV map. Direct scene shaders retain their
+original global physical mapping and render-origin convention.
+
+`capture_geometry_mask` accepts original compiled vector/path/stroke material
+geometry without other drawing families or active scopes. Canonical
+`fs_mask_target_space` uses native target-space materials; the explicit local
+variant uses `fs_mask_unmasked`. Both retain R8 no-blend overwrite semantics.
+Material registration, path rasterization, geometry and original uniform bindings
+are shared with the renderer. The caller supplies the actual capture frame; full
+native geometry-mask bounds/scissor/guideline transport is not inferred.
+
+Picture masks use the ordinary retained RGBA capture and select its alpha directly.
+`CapturedScene::into_mask` retains that exact output with caller-supplied original
+mapping. Existing layers, effects, AA, Clear and text ownership remain available
+inside explicit source capture. Original automatic picture-mask source recording,
+source revision/callback dependencies and capture/cache reuse remain future work.
+
+### Retained scopes and bounded materialization
+
+Recording remains O(1). Compilation retains complete immutable component arrays
+bounded by 64, separate binary scissors and exact direct-mask uniforms. Up to four
+analytic masks, or a primary sampled source followed by three analytic masks, keep
+the existing direct route. Difference, a later sampled source, larger chains and
+fused-effect shader limits select materialization. The first difference starts
+from opaque target coverage. Empty binary scopes still validate their complete
+source inventory and cannot hide unsupported Clear/AA combinations.
+
+The complete active mask/effect/capture tree is budgeted before renderer mutation;
+explicit compiled scenes receive the same mask/effect aggregate limits. Actual
+binary-disjoint draws allocate no materialization. Clip-only state transitions share
+one output for the exact component owner within the actual target. Different target
+frames prepare independent generations. Original state order controls deterministic
+uploads and submissions; a partial candidate is never published as a prepared scene.
+
+Sampled children compose directly through `fs_compose_sampled`, retaining their
+original affine/channel/opacity/filter records and one R8 product write. Analytic
+children use the unchanged Texture coverage entry point to populate one reusable
+R8 node immediately before their corresponding composition pass. This preserves
+original analytic/area evaluation rather than substituting a bounding rectangle,
+contour approximation or CPU raster. Two accumulation textures and at most one
+node texture keep scratch storage O(W*H). Per-component parameters and source
+bindings are O(N); GPU work is O(N*W*H), with N <=64. Compilation snapshots are
+O(commands times the fixed 64-component bound), not a per-pixel CPU workload.
+
+The final result binds as one actual root-mapped red mask across vector/text/image,
+advanced layers and fused image effects. Deferred AA source frames receive their
+own mapped mask preparation; existing AA/target Clear policy remains independent.
+Materialized outputs freeze their prepared source pixels. Mutating an external
+source requires re-preparation; direct GPU-source masks continue sampling the live
+handle. Full producer revision/invalidation transport remains explicitly unfinished.
+
+### Samples, metrics and pending qualification
+
+Winit `--materialized-masks` and browser `?scene=materialized-masks` share sixteen
+panels: curved native clip atlases, difference, fractional/sheared transfer,
+gradient/hatch alpha, RGBA picture alpha, five/64 analytic scopes, first complement,
+interleaved sampled sources, exact-area fused effects and ordinary/AA children.
+Source factories and scene composition report separate actual counters.
+`mask_composition_metrics()` counts preparation passes, node/accumulation/atlas
+storage, aligned uniforms and geometry; LayerMetrics/RetainedAaMetrics retain the
+same child evidence. Stable scene replay samples outputs without these preparation
+passes. Counters overlap referenced texture inventories and must not be summed as
+peak residency or interpreted as measured speed.
+
+Strict native all-target/all-feature, browser/WASM and CPU-only Clippy, formatting,
+JS syntax/whitespace and existing offline validation of eighteen canonical modules
+are the batch checks. The shared gallery is wired and compiled; no new runtime
+pixel, differential suite, benchmark, Instruments or package qualification is
+claimed. The compact receipt is `perf/materialized-mask-implementation-cleanup.json`.
+
+The user's implementation-first order leaves exact original records/default-host
+float/SIMD controls, all source/frame/format pixels, boundary/complement/overlap
+cases, mutation/reuse/cancellation/device loss, actual submissions/retirement,
+allocator/frame timings and complete native/browser performance deferred. Full
+source-scene mask recording, picture/cache revisions, native semantic archives,
+independent-axis presentation/guidelines, signed/staged vector clip programs,
+source-specific input policy and provider/package/application qualification remain
+open. Historical browser DPR-2, Windows/ARM64, float, performance and Instruments
+gates remain mandatory and unchanged.

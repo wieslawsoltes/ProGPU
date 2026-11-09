@@ -167,6 +167,7 @@ enum Command {
     #[cfg(feature = "gpu")]
     ResolvedAxis(usize),
     PushMask(Box<crate::mask::Mask>),
+    PushMaskDifference(Box<crate::mask::Mask>),
     PushClip([f32; 4]),
     PopScope,
     Analytic(AnalyticPrimitive),
@@ -467,6 +468,7 @@ impl Scene {
                 Command::Empty
                 | Command::Clear(_)
                 | Command::PushMask(_)
+                | Command::PushMaskDifference(_)
                 | Command::PushClip(_)
                 | Command::PopScope
                 | Command::Analytic(_)
@@ -489,7 +491,7 @@ impl Scene {
                         Placement::new(draw, dpi_scale)?
                     };
                     let key = RasterKey {
-                        source: draw.path.identity(),
+                        source: draw.path.raster_identity(),
                         bounds: draw.path.bounds().map(f32::to_bits),
                         fill_rule: draw.path.fill_rule() as u32,
                         scale: placement.request.scale.map(f32::to_bits),
@@ -555,6 +557,7 @@ impl Scene {
             match command {
                 Command::Empty
                 | Command::PushMask(_)
+                | Command::PushMaskDifference(_)
                 | Command::PushClip(_)
                 | Command::PopScope => {}
                 Command::Clear(color) => draws.push(DrawRange::Clear(*color)),
@@ -811,7 +814,7 @@ impl CompiledScene {
 
 #[derive(Hash, PartialEq, Eq)]
 struct RasterKey {
-    source: usize,
+    source: (usize, usize),
     bounds: [u32; 4],
     fill_rule: u32,
     scale: [u32; 2],
@@ -923,11 +926,11 @@ fn quantize_phase(mut value: f32) -> f32 {
     if quantized >= 1.0 { 0.0 } else { quantized }
 }
 
-fn exact_projection(dpi: f32) -> bool {
+pub(crate) fn exact_projection(dpi: f32) -> bool {
     dpi.is_finite() && dpi >= 1.0 && dpi.to_bits() & 0x007f_ffff == 0
 }
 
-fn exact_mapping(positions: [[f32; 2]; 4], atlas: [[f32; 2]; 4]) -> bool {
+pub(crate) fn exact_mapping(positions: [[f32; 2]; 4], atlas: [[f32; 2]; 4]) -> bool {
     let offset = [atlas[0][0] - positions[0][0], atlas[0][1] - positions[0][1]];
     positions.iter().zip(atlas).all(|(p, a)| {
         (0..2).all(|axis| {

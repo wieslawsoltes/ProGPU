@@ -52,6 +52,8 @@ pub struct LayerMetrics {
     pub source_aa: RetainedAaMetrics,
     /// Fused image effects and live-blur preparation in captured subtrees.
     pub source_image_effects: ImageEffectMetrics,
+    /// Materialized masks prepared inside captured subtrees.
+    pub source_masks: crate::mask::MaskCompositionMetrics,
 }
 
 #[derive(Clone, Copy)]
@@ -174,8 +176,13 @@ impl Renderer {
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         self.validate_mask_states(&states)?;
         let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
-        *bytes = bytes.checked_add(effect_bytes).ok_or(Error::Capacity)?;
-        *passes = passes.checked_add(effect_passes).ok_or(Error::Capacity)?;
+        let (mask_bytes, mask_passes) = self.mask_resource_cost(scene, &states, &changes, frame)?;
+        *bytes = bytes
+            .checked_add(effect_bytes + mask_bytes)
+            .ok_or(Error::Capacity)?;
+        *passes = passes
+            .checked_add(effect_passes + mask_passes)
+            .ok_or(Error::Capacity)?;
         if *bytes > 512 * 1024 * 1024 || *passes > 16 * 1024 {
             return Err(Error::Capacity);
         }
@@ -401,6 +408,7 @@ impl Renderer {
 }
 impl LayerMetrics {
     pub(super) fn add_nested(&mut self, other: Self) -> Result<(), Error> {
+        self.source_masks.merge(other.source_masks)?;
         self.source_aa.merge(other.source_aa)?;
         self.source_image_effects
             .merge(other.source_image_effects)?;
@@ -486,6 +494,9 @@ impl LayerMetrics {
         let child = scene.layers;
         let source = scene.metrics;
         let aa = scene.retained_aa_metrics();
+        self.source_masks.merge(child.source_masks)?;
+        self.source_masks.merge(scene.mask_composition_metrics())?;
+        self.source_masks.merge(aa.source_masks)?;
         self.source_image_effects
             .merge(child.source_image_effects)?;
         self.source_image_effects

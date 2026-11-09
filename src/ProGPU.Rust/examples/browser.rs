@@ -29,6 +29,9 @@ mod mask_sample;
 #[path = "support/material_scene.rs"]
 mod material_sample;
 #[cfg(target_arch = "wasm32")]
+#[path = "support/materialized_mask_scene.rs"]
+mod materialized_mask_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/retained_aa_scene.rs"]
 mod retained_aa_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1682,6 +1685,8 @@ mod web {
         axis_clip_scene: bool,
         retained_aa_scene: bool,
         image_effect_scene: bool,
+        materialized_mask_scene: bool,
+        materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
         validation: Option<Renderer>,
@@ -1764,6 +1769,8 @@ mod web {
             axis_clip_scene: false,
             retained_aa_scene: false,
             image_effect_scene: false,
+            materialized_mask_scene: false,
+            materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
             validation: None,
@@ -1802,6 +1809,7 @@ mod web {
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1827,6 +1835,7 @@ mod web {
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1841,6 +1850,7 @@ mod web {
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1854,6 +1864,7 @@ mod web {
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1867,6 +1878,7 @@ mod web {
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1880,6 +1892,7 @@ mod web {
             self.axis_clip_scene = false;
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1893,6 +1906,7 @@ mod web {
             self.axis_clip_scene = enabled;
             self.retained_aa_scene = false;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -1906,6 +1920,7 @@ mod web {
             self.ensure_live()?;
             self.retained_aa_scene = enabled;
             self.image_effect_scene = false;
+            self.materialized_mask_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -1919,6 +1934,22 @@ mod web {
         pub fn select_image_effect_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.image_effect_scene = enabled;
+            self.materialized_mask_scene = false;
+            self.retained_aa_scene = false;
+            self.axis_clip_scene = false;
+            self.clear_scene = false;
+            self.layer_scene = false;
+            self.effect_scene = false;
+            self.mask_scene = false;
+            self.image_scene = false;
+            self.material_scene = false;
+            Ok(())
+        }
+        /// Select shared path, brush, picture and mixed-mask materialization.
+        pub fn select_materialized_mask_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.materialized_mask_scene = enabled;
+            self.image_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -1936,6 +1967,7 @@ mod web {
                 self.scene = None;
                 return Ok(());
             }
+            self.materialized_mask_sources = Default::default();
             let mut axis_clip_metrics = Default::default();
             let (source, effect_metrics) = if self.axis_clip_scene {
                 let (source, metrics) = super::axis_clip_sample::axis_clip_scene(
@@ -1947,6 +1979,17 @@ mod web {
                 .await
                 .map_err(error)?;
                 axis_clip_metrics = metrics;
+                (source, Default::default())
+            } else if self.materialized_mask_scene {
+                let (source, metrics) = super::materialized_mask_sample::materialized_mask_scene(
+                    &mut self.renderer,
+                    &self.device,
+                    &self.queue,
+                    dpi,
+                )
+                .await
+                .map_err(error)?;
+                self.materialized_mask_sources = metrics;
                 (source, Default::default())
             } else if self.image_effect_scene {
                 (
@@ -2117,8 +2160,41 @@ mod web {
                 let advanced = scene.advanced_blend_metrics();
                 let aa = scene.retained_aa_metrics();
                 let image_effects = scene.image_effect_metrics();
+                let masks = scene.mask_composition_metrics();
                 let f = scene.frame();
                 for (name, value) in [
+                    ("maskCompositionNodes", masks.nodes as f64),
+                    ("maskCompositionPasses", masks.render_passes as f64),
+                    ("maskCompositionTextureBytes", masks.texture_bytes as f64),
+                    ("maskCompositionUniformBytes", masks.uniform_bytes as f64),
+                    (
+                        "maskSourcePasses",
+                        self.materialized_mask_sources.render_passes as f64,
+                    ),
+                    (
+                        "maskSourceTextureBytes",
+                        self.materialized_mask_sources.texture_bytes as f64,
+                    ),
+                    (
+                        "maskSourceAtlasBytes",
+                        self.materialized_mask_sources.atlas_bytes as f64,
+                    ),
+                    (
+                        "layerMaskCompositionPasses",
+                        layers.source_masks.render_passes as f64,
+                    ),
+                    (
+                        "layerMaskCompositionTextureBytes",
+                        layers.source_masks.texture_bytes as f64,
+                    ),
+                    (
+                        "aaMaskCompositionPasses",
+                        aa.source_masks.render_passes as f64,
+                    ),
+                    (
+                        "aaMaskCompositionTextureBytes",
+                        aa.source_masks.texture_bytes as f64,
+                    ),
                     ("imageEffectDraws", image_effects.draws as f64),
                     ("imageEffectBlurPasses", image_effects.blur_passes as f64),
                     (

@@ -17,6 +17,12 @@ pub struct CapturedScene {
     effects: Option<EffectMetrics>,
 }
 impl CapturedScene {
+    /// Retain the actual captured RGBA alpha as a sampled picture mask. The
+    /// caller supplies its original logical mapping; no extraction pass or
+    /// readback changes the captured source generation.
+    pub fn into_mask(self, bounds: [f32; 4]) -> crate::mask::TextureMask {
+        crate::mask::TextureMask::new(self.image, bounds, crate::mask::MaskChannel::Alpha)
+    }
     /// Actual final premultiplied capture/effect output.
     pub fn image(&self) -> &GpuImage {
         &self.image

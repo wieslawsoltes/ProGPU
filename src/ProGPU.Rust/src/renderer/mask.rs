@@ -1,7 +1,7 @@
 //! Lazy canonical mask pipelines and immutable per-scene mask bindings.
 use super::*;
 use crate::{
-    image::Pixels,
+    image::{GpuImage, ImageFormat, ImageSource, Pixels},
     mask::{MaskSampling, MaskUniforms},
     scene::CompiledDrawState,
 };
@@ -12,7 +12,7 @@ use std::{
 
 struct Upload {
     source: Weak<Pixels>,
-    texture: wgpu::Texture,
+    image: GpuImage,
 }
 pub(super) struct MaskState {
     layout: wgpu::BindGroupLayout,
@@ -26,11 +26,16 @@ pub(super) struct PreparedState {
     pub scissor: [u32; 4],
 }
 pub(super) struct PreparedMasks {
+    pub resolved: Vec<CompiledDrawState>,
+    pub composition: crate::mask::MaskCompositionMetrics,
     pub states: Vec<PreparedState>,
     pub pipelines: [Option<wgpu::RenderPipeline>; 3],
 }
 
 impl MaskState {
+    pub(super) fn placeholder(&self) -> wgpu::TextureView {
+        self.placeholder.clone()
+    }
     pub(super) fn new(device: &wgpu::Device) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ProGPU unused analytic-mask texture"),
@@ -136,71 +141,103 @@ impl MaskState {
         self.pipelines[index] = Some(pipeline);
         Ok(())
     }
+    pub(super) fn image(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: &ImageSource,
+        metrics: &mut UploadMetrics,
+        textures: &mut HashSet<(u8, usize)>,
+    ) -> Result<GpuImage, Error> {
+        let image = match source {
+            ImageSource::Gpu(image) => {
+                if image.device() != device {
+                    return Err(Error::ResourceDomain);
+                }
+                image.clone()
+            }
+            ImageSource::Pixels(source) => {
+                let pixels = &source.0;
+                let key = Arc::as_ptr(pixels) as usize;
+                let present = self.uploads.get(&key).is_some_and(|entry| {
+                    entry
+                        .source
+                        .upgrade()
+                        .is_some_and(|old| Arc::ptr_eq(&old, pixels))
+                });
+                if !present {
+                    let [width, height] = pixels.size;
+                    let format = match pixels.format {
+                        ImageFormat::R8 => wgpu::TextureFormat::R8Unorm,
+                        ImageFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
+                        ImageFormat::Bgra8 => wgpu::TextureFormat::Bgra8Unorm,
+                    };
+                    let texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("ProGPU original sampled-mask pixels"),
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                        view_formats: &[],
+                    });
+                    let bytes = u64::from(pixels.stride) * u64::from(height - 1)
+                        + u64::from(width) * u64::from(pixels.format.bytes_per_pixel());
+                    let length = usize::try_from(bytes).map_err(|_| Error::Capacity)?;
+                    queue.write_texture(
+                        texture.as_image_copy(),
+                        &pixels.data[..length],
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(pixels.stride),
+                            rows_per_image: Some(height),
+                        },
+                        texture.size(),
+                    );
+                    metrics.mask_upload_bytes += bytes;
+                    self.uploads.insert(
+                        key,
+                        Upload {
+                            source: Arc::downgrade(pixels),
+                            image: GpuImage::from_texture(device, &texture, pixels.alpha)?,
+                        },
+                    );
+                }
+                self.uploads
+                    .get(&key)
+                    .ok_or(Error::ResourceDomain)?
+                    .image
+                    .clone()
+            }
+        };
+        if textures.insert(source.identity()) {
+            let bpp = if image.texture().format() == wgpu::TextureFormat::R8Unorm {
+                1
+            } else {
+                4
+            };
+            metrics.mask_texture_bytes +=
+                u64::from(image.size()[0]) * u64::from(image.size()[1]) * bpp;
+        }
+        Ok(image)
+    }
     pub(super) fn binding(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         source: &CompiledDrawState,
         metrics: &mut UploadMetrics,
-        textures: &mut HashSet<usize>,
+        textures: &mut HashSet<(u8, usize)>,
     ) -> Result<wgpu::BindGroup, Error> {
         let (view, sampler) = if let Some(coverage) = &source.coverage {
-            let pixels = &coverage.image.0;
-            let key = Arc::as_ptr(pixels) as usize;
-            let present = self.uploads.get(&key).is_some_and(|entry| {
-                entry
-                    .source
-                    .upgrade()
-                    .is_some_and(|old| Arc::ptr_eq(&old, pixels))
-            });
-            if !present {
-                let [width, height] = pixels.size;
-                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("ProGPU retained native R8 coverage"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::R8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[],
-                });
-                let bytes = u64::from(pixels.stride) * u64::from(height - 1) + u64::from(width);
-                let length = usize::try_from(bytes).map_err(|_| Error::Capacity)?;
-                queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &pixels.data[..length],
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(pixels.stride),
-                        rows_per_image: Some(height),
-                    },
-                    texture.size(),
-                );
-                metrics.mask_upload_bytes += bytes;
-                self.uploads.insert(
-                    key,
-                    Upload {
-                        source: Arc::downgrade(pixels),
-                        texture,
-                    },
-                );
-            }
-            if textures.insert(key) {
-                metrics.mask_texture_bytes += u64::from(pixels.size[0]) * u64::from(pixels.size[1]);
-            }
-            let texture = &self.uploads.get(&key).ok_or(Error::ResourceDomain)?.texture;
+            let image = self.image(device, queue, &coverage.source, metrics, textures)?;
             (
-                texture.create_view(&Default::default()),
+                image.texture().create_view(&Default::default()),
                 usize::from(coverage.sampling == MaskSampling::Linear),
             )
         } else {
@@ -257,14 +294,24 @@ impl Renderer {
     }
     pub(super) fn validate_mask_states(&self, states: &[CompiledDrawState]) -> Result<(), Error> {
         for state in states {
-            if let Some(source) = &state.coverage
-                && source
-                    .image
+            for component in state.components.iter() {
+                let source = match &component.mask {
+                    crate::mask::Mask::Coverage(c) => ImageSource::Pixels(c.image.clone()),
+                    crate::mask::Mask::Texture(c) => c.source.clone(),
+                    _ => continue,
+                };
+                if source
                     .size()
                     .iter()
                     .any(|v| *v > self.device.limits().max_texture_dimension_2d)
-            {
-                return Err(Error::Capacity);
+                {
+                    return Err(Error::Capacity);
+                }
+                if let ImageSource::Gpu(source) = &source
+                    && source.device() != &self.device
+                {
+                    return Err(Error::ResourceDomain);
+                }
             }
         }
         Ok(())
@@ -272,6 +319,7 @@ impl Renderer {
     pub(super) async fn prepare_masks(
         &mut self,
         compiled: &CompiledScene,
+        frame: RenderFrame,
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
         self.trim_mask_cache();
@@ -320,6 +368,12 @@ impl Renderer {
                 }
             }
         }
+        let (resolved, composition) = if let Some(cache) = &mut cache {
+            self.resolve_mask_states(compiled, frame, cache, &mut prepared.metrics)
+                .await?
+        } else {
+            (compiled.states.clone(), Default::default())
+        };
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let result = (|| {
             let mut states = Vec::new();
@@ -328,8 +382,8 @@ impl Renderer {
                 .map_err(|_| Error::Capacity)?;
             let mut textures = HashSet::new();
             let mut bindings =
-                HashMap::<([[u32; 24]; 4], Option<(usize, bool)>), wgpu::BindGroup>::new();
-            for source in &compiled.states {
+                HashMap::<([[u32; 24]; 4], Option<((u8, usize), bool)>), wgpu::BindGroup>::new();
+            for source in &resolved {
                 let [ox, oy] = prepared.origin;
                 let [left, top, right, bottom] = source.clip.unwrap_or([
                     ox,
@@ -356,12 +410,10 @@ impl Renderer {
                     // clip-only transitions share one immutable mask binding.
                     let key = (
                         source.masks.map(bytemuck::cast),
-                        source.coverage.as_ref().map(|c| {
-                            (
-                                Arc::as_ptr(&c.image.0) as usize,
-                                c.sampling == MaskSampling::Linear,
-                            )
-                        }),
+                        source
+                            .coverage
+                            .as_ref()
+                            .map(|c| (c.source.identity(), c.sampling == MaskSampling::Linear)),
                     );
                     if let Some(binding) = bindings.get(&key) {
                         Some(binding.clone())
@@ -382,6 +434,8 @@ impl Renderer {
                 states.push(PreparedState { binding, scissor });
             }
             Ok::<_, Error>(PreparedMasks {
+                resolved,
+                composition,
                 states,
                 pipelines: cache
                     .as_ref()

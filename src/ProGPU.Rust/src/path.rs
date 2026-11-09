@@ -266,6 +266,14 @@ impl Path {
     pub(crate) fn identity(&self) -> usize {
         std::sync::Arc::as_ptr(&self.segments) as *const Segment as usize
     }
+    pub(crate) fn raster_identity(&self) -> (usize, usize) {
+        (
+            self.identity(),
+            self.program
+                .as_ref()
+                .map_or(0, |p| std::sync::Arc::as_ptr(p) as usize),
+        )
+    }
 
     /// Read the original immutable segment inventory. Boolean inputs retain
     /// each ordered operand occurrence without reconstructing result contours.

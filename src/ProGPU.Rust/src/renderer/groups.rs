@@ -41,6 +41,8 @@ pub struct RetainedAaMetrics {
     pub source_advanced_geometry_bytes: u64,
     /// Fused image effects and live-blur resources in deferred children.
     pub source_image_effects: ImageEffectMetrics,
+    /// Materialized mask preparation in deferred source subtrees.
+    pub source_masks: crate::mask::MaskCompositionMetrics,
 }
 #[derive(Default)]
 pub(super) struct PreparedGroups {
@@ -309,6 +311,7 @@ impl RenderFrame {
 }
 impl RetainedAaMetrics {
     pub(super) fn merge(&mut self, other: Self) -> Result<(), Error> {
+        self.source_masks.merge(other.source_masks)?;
         self.source_image_effects
             .merge(other.source_image_effects)?;
         macro_rules! add {
@@ -343,6 +346,8 @@ impl RetainedAaMetrics {
         source: &PreparedScene,
     ) -> Result<(), Error> {
         let nested = source.groups.metrics;
+        self.source_masks.merge(nested.source_masks)?;
+        self.source_masks.merge(source.mask_composition_metrics())?;
         self.source_image_effects
             .merge(nested.source_image_effects)?;
         self.source_image_effects

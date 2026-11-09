@@ -274,7 +274,10 @@ impl Renderer {
         }
         Ok((bytes, passes))
     }
-    pub(super) fn validate_image_effects(&self, compiled: &CompiledScene) -> Result<(), Error> {
+    pub(super) fn validate_image_effects(
+        &self,
+        compiled: &CompiledScene,
+    ) -> Result<(u64, u32), Error> {
         let limits = self.device.limits();
         if !compiled.image_effects.is_empty()
             && (limits.max_bind_groups < 4
@@ -305,6 +308,7 @@ impl Renderer {
                     }
                     let masks = &compiled.states[state];
                     if draw.mask.is_none()
+                        && !masks.materialized
                         && (masks.count > 3
                             || (masks.coverage.is_some() && masks.count > 1)
                             || masks.masks[..masks.count]
@@ -320,7 +324,7 @@ impl Renderer {
                 _ => (),
             }
         }
-        Ok(())
+        Ok((texture_bytes, passes))
     }
     pub(super) async fn prepare_image_effects(
         &mut self,
@@ -362,7 +366,10 @@ impl Renderer {
             .map_err(|_| Error::Capacity)?;
         let mut frame_pipeline = None;
         for (index, draw) in compiled.image_effects.iter().enumerate() {
-            let source_state = &compiled.states[states[index]];
+            let source_state = &prepared
+                .masks
+                .as_ref()
+                .map_or(&compiled.states, |m| &m.resolved)[states[index]];
             if !frame.clip_intersects(source_state.clip) {
                 draws.push(None);
                 continue;

@@ -1,6 +1,6 @@
 //! Fixed-size coverage snapshots and exact binary pixel-center clip boundaries.
 use super::*;
-use crate::mask::{CoverageMask, Mask, MaskUniforms};
+use crate::mask::{Mask, MaskComponent, MaskOperation, MaskUniforms, TextureMask};
 use bytemuck::Zeroable;
 use wide::f32x4;
 
@@ -8,7 +8,9 @@ use wide::f32x4;
 pub(crate) struct CompiledDrawState {
     pub masks: [MaskUniforms; 4],
     pub count: usize,
-    pub coverage: Option<CoverageMask>,
+    pub coverage: Option<TextureMask>,
+    pub components: Arc<[MaskComponent]>,
+    pub materialized: bool,
     /// Physical left/top/right/bottom integer half-open boundaries.
     pub clip: Option<[u32; 4]>,
 }
@@ -18,8 +20,54 @@ impl Default for CompiledDrawState {
             masks: [MaskUniforms::zeroed(); 4],
             count: 0,
             coverage: None,
+            components: Arc::from([]),
+            materialized: false,
             clip: None,
         }
+    }
+}
+impl CompiledDrawState {
+    #[cfg(feature = "gpu")]
+    pub(crate) fn direct(mask: Mask, dpi: f32) -> Result<Self, Error> {
+        let mut result = Self::default();
+        result.append_mask(mask, MaskOperation::Intersect, dpi)?;
+        Ok(result)
+    }
+    fn append_mask(&mut self, mask: Mask, operation: MaskOperation, dpi: f32) -> Result<(), Error> {
+        if self.components.len() == 64 {
+            return Err(Error::Capacity);
+        }
+        let mut components = Vec::new();
+        components
+            .try_reserve_exact(self.components.len() + 1)
+            .map_err(|_| Error::Capacity)?;
+        components.extend_from_slice(&self.components);
+        components.push(MaskComponent { mask, operation });
+        let direct = components.len() <= 4
+            && components.iter().enumerate().all(|(i, c)| {
+                c.operation == MaskOperation::Intersect
+                    && (i == 0 || matches!(c.mask, Mask::Analytic(_)))
+            });
+        self.masks = [MaskUniforms::zeroed(); 4];
+        self.coverage = None;
+        self.materialized = !direct;
+        self.count = if direct { components.len() } else { 1 };
+        // Validate every original record even when it will be materialized later.
+        for (i, c) in components.iter().enumerate() {
+            let uniforms = c.mask.uniforms(dpi)?;
+            if direct {
+                self.masks[i] = uniforms;
+            }
+        }
+        if direct {
+            self.coverage = match &components[0].mask {
+                Mask::Coverage(mask) => Some(mask.clone().into()),
+                Mask::Texture(mask) => Some(mask.clone()),
+                _ => None,
+            };
+        }
+        self.components = components.into();
+        Ok(())
     }
 }
 fn validate_clip(bounds: [f32; 4]) -> Result<(), Error> {
@@ -30,9 +78,38 @@ fn validate_clip(bounds: [f32; 4]) -> Result<(), Error> {
     Ok(())
 }
 impl Scene {
+    #[cfg(feature = "gpu")]
+    pub(crate) fn used_mask_states<'a>(
+        &'a self,
+        changes: &'a [Option<usize>],
+    ) -> impl Iterator<Item = usize> + 'a {
+        let mut current = 0;
+        self.commands
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, command)| {
+                if let Some(Some(next)) = changes.get(index) {
+                    current = *next;
+                }
+                match command {
+                    Command::Empty
+                    | Command::Clear(_)
+                    | Command::AxisClip(_)
+                    | Command::ResolvedAxis(_)
+                    | Command::PushMask(_)
+                    | Command::PushMaskDifference(_)
+                    | Command::PushClip(_)
+                    | Command::PopScope => None,
+                    Command::ImageEffect(draw) if draw.mask.is_some() => None,
+                    _ => Some(current),
+                }
+            })
+    }
+
     /// Push per-draw coverage without an offscreen group. Up to four analytic
-    /// masks, or one primary R8 mask followed by three analytic masks, can be
-    /// compiled directly. Other compositions require the separate layer path.
+    /// masks, or one primary sampled mask followed by three analytic masks, use
+    /// direct bindings. Other ordered chains materialize through the original
+    /// GPU composition path, with at most 64 coverage components.
     /// Recording is O(1), retaining the actual immutable pixel owner.
     pub fn push_mask(&mut self, mask: impl Into<Mask>) -> Result<(), Error> {
         let mask = mask.into();
@@ -40,6 +117,19 @@ impl Scene {
         let depth = self.scope_depth.checked_add(1).ok_or(Error::Capacity)?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
         self.commands.push(Command::PushMask(Box::new(mask)));
+        self.scope_depth = depth;
+        self.has_scopes = true;
+        Ok(())
+    }
+    /// Retain the original complement operation against preceding coverage.
+    /// The first difference starts from opaque coverage across the actual target.
+    pub fn push_mask_difference(&mut self, mask: impl Into<Mask>) -> Result<(), Error> {
+        let mask = mask.into();
+        mask.validate()?;
+        let depth = self.scope_depth.checked_add(1).ok_or(Error::Capacity)?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands
+            .push(Command::PushMaskDifference(Box::new(mask)));
         self.scope_depth = depth;
         self.has_scopes = true;
         Ok(())
@@ -92,13 +182,23 @@ impl Scene {
             if let Command::ImageEffect(draw) = command {
                 let state = &states[current];
                 if draw.mask.is_none()
+                    && !state.materialized
                     && (state.count > 3
                         || (state.coverage.is_some() && state.count > 1)
                         || state.masks[..state.count]
                             .iter()
                             .any(|m| m.options[0] > 4.5))
                 {
-                    return Err(Error::UnsupportedExecution);
+                    let mut state = state.clone();
+                    state.materialized = true;
+                    state.count = 1;
+                    state.masks = [MaskUniforms::zeroed(); 4];
+                    state.coverage = None;
+                    states.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    current = states.len();
+                    states.push(state);
+                    changes.push(Some(current));
+                    continue;
                 }
             }
             if matches!(command, Command::Clear(_) | Command::AxisClip(_))
@@ -112,24 +212,25 @@ impl Scene {
                 continue;
             }
             let mut candidate = match command {
-                Command::PushMask(_) | Command::PushClip(_) => states[current].clone(),
+                Command::PushMask(_) | Command::PushMaskDifference(_) | Command::PushClip(_) => {
+                    states[current].clone()
+                }
                 _ => {
                     changes.push(None);
                     continue;
                 }
             };
             match command {
-                Command::PushMask(mask) => {
-                    if candidate.count == 4
-                        || (matches!(mask.as_ref(), Mask::Coverage(_)) && candidate.count != 0)
-                    {
-                        return Err(Error::UnsupportedExecution);
-                    }
-                    candidate.masks[candidate.count] = mask.uniforms(dpi)?;
-                    candidate.count += 1;
-                    if let Mask::Coverage(source) = mask.as_ref() {
-                        candidate.coverage = Some(source.clone());
-                    }
+                Command::PushMask(mask) | Command::PushMaskDifference(mask) => {
+                    candidate.append_mask(
+                        mask.as_ref().clone(),
+                        if matches!(command, Command::PushMaskDifference(_)) {
+                            MaskOperation::Difference
+                        } else {
+                            MaskOperation::Intersect
+                        },
+                        dpi,
+                    )?;
                 }
                 Command::PushClip(bounds) => {
                     validate_clip(*bounds)?;

@@ -28,6 +28,8 @@ mod layer_sample;
 mod mask_sample;
 #[path = "support/material_scene.rs"]
 mod material_sample;
+#[path = "support/materialized_mask_scene.rs"]
+mod materialized_mask_sample;
 #[path = "support/retained_aa_scene.rs"]
 mod retained_aa_sample;
 #[path = "support/text_scene.rs"]
@@ -44,6 +46,7 @@ enum CompositeGallery {
     AxisClips,
     RetainedAa,
     ImageEffects,
+    MaterializedMasks,
 }
 
 struct WindowRenderer {
@@ -171,6 +174,16 @@ impl WindowRenderer {
                 metrics.loaded_copy_bytes
             );
             scene
+        } else if self.composite_gallery == CompositeGallery::MaterializedMasks {
+            let (scene, metrics) =
+                pollster::block_on(materialized_mask_sample::materialized_mask_scene(
+                    &mut self.renderer,
+                    &self.device,
+                    &self.queue,
+                    dpi,
+                ))?;
+            eprintln!("mask sources: {metrics:?}");
+            scene
         } else if self.composite_gallery == CompositeGallery::ImageEffects {
             image_effect_sample::image_effect_scene(
                 &self.device,
@@ -211,12 +224,13 @@ impl WindowRenderer {
         };
         let scene = pollster::block_on(self.renderer.prepare_scene(&source, frame))?;
         eprintln!(
-            "prepared: {:?}; layers: {:?}; advanced blends: {:?}; retained AA: {:?}; image effects: {:?}; per replay: {:?}",
+            "prepared: {:?}; layers: {:?}; advanced blends: {:?}; retained AA: {:?}; image effects: {:?}; mask composition: {:?}; per replay: {:?}",
             scene.metrics(),
             scene.layer_metrics(),
             scene.advanced_blend_metrics(),
             scene.retained_aa_metrics(),
             scene.image_effect_metrics(),
+            scene.mask_composition_metrics(),
             scene.replay_metrics()
         );
         self.config.width = size.width;
@@ -362,6 +376,7 @@ fn main() -> Result<()> {
             "--clears" => app.composite_gallery = CompositeGallery::Clears,
             "--axis-clips" => app.composite_gallery = CompositeGallery::AxisClips,
             "--retained-aa" => app.composite_gallery = CompositeGallery::RetainedAa,
+            "--materialized-masks" => app.composite_gallery = CompositeGallery::MaterializedMasks,
             "--image-effects" => app.composite_gallery = CompositeGallery::ImageEffects,
             "--text" => {
                 let path = args.next().ok_or("--text requires a font file path")?;
@@ -379,7 +394,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }
