@@ -6,9 +6,12 @@ use super::{Arc, FontError, SfntFace, Storage, Tag, fits, is_gdef_blocklisted, u
 use crate::text::ManagedShapingGlyph;
 mod buffer;
 mod context;
+mod dispatch;
 mod primitive;
+mod variations;
 pub use buffer::{ManagedPositionBuffer, ManagedPositionDirection};
 use context::Records;
+pub use dispatch::ManagedPositioningPlan;
 type Applied = Result<bool, FontError>;
 /// Explicit Rust bound for untrusted contextual call graphs. The original GPOS
 /// executor has no recursion limit; an explicit stack preserves deep finite

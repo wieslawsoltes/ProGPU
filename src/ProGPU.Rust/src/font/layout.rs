@@ -28,6 +28,7 @@ pub use managed_context::{
 };
 pub use managed_gpos::{
     ManagedGposLimits, ManagedGposTable, ManagedPositionBuffer, ManagedPositionDirection,
+    ManagedPositioningPlan,
 };
 pub use managed_gsub::{
     ManagedGlyphBuffer, ManagedGlyphState, ManagedGsubLimits, ManagedGsubTable,
@@ -82,3 +83,6 @@ pub use managed_features::{ManagedFeatureOptions, ManagedFeatureRange};
 
 mod managed_stage;
 pub use managed_stage::ManagedSubstitutionStage;
+
+mod managed_variations;
+pub use managed_variations::ManagedLayoutVariations;

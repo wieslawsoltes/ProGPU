@@ -252,6 +252,18 @@ impl ManagedPositionBuffer {
             }
         }
     }
+    pub(super) fn variation(&mut self, i: usize, x: f32, y: f32, advance: f32) {
+        let add = |left: i16, right: f32| {
+            (f32::from(left) + right)
+                .round_ties_even()
+                .clamp(f32::from(i16::MIN), f32::from(i16::MAX)) as i16
+        };
+        let g = &mut self.glyphs[i];
+        g.offset_x = add(g.offset_x, x);
+        g.offset_y = add(g.offset_y, y);
+        g.advance_x = add(g.advance_x, advance);
+        g.positioned = 1;
+    }
     pub(super) fn values(&mut self, i: usize, values: [i16; 4]) {
         let g = &mut self.glyphs[i];
         g.offset_x = add(g.offset_x, i32::from(values[0]));

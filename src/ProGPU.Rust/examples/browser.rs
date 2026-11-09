@@ -1061,6 +1061,89 @@ mod web {
         }
         Ok(out)
     }
+    /// Replay actual C# prepared-instance captures and complete positioning plans.
+    /// Options are direction, attachment resolution and root-call safety budget.
+    #[wasm_bindgen]
+    pub fn apply_managed_positioning(
+        font: Vec<u8>,
+        coordinates: Vec<i16>,
+        records: Vec<u32>,
+        policy: Vec<u32>,
+        options: Vec<u32>,
+        queries: Vec<u16>,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{FontError, SfntFace, layout::*};
+        if options.len() != 3
+            || options[0] > 4
+            || options[1] > 1
+            || !records.len().is_multiple_of(31)
+            || !queries.len().is_multiple_of(2)
+        {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let source = SfntFace::new(font, 0).map_err(error)?;
+        let vars = ManagedLayoutVariations::from_normalized(source.clone(), &coordinates)
+            .map_err(error)?;
+        let mut out = vec![u32::from(vars.is_active())];
+        for q in queries.chunks_exact(2) {
+            let result = vars.delta(q[0], q[1]);
+            out.extend([
+                result.err().map_or(0, |e| e as u32),
+                result.unwrap_or(0.0).to_bits(),
+            ]);
+        }
+        let mut buffer = ManagedPositionBuffer::new(
+            source.clone(),
+            records
+                .chunks_exact(31)
+                .map(super::managed_records::from_words)
+                .collect(),
+            ManagedPositionDirection::try_from(options[0] as u8).map_err(error)?,
+        )
+        .map_err(error)?;
+        let mut kerning = false;
+        let result = (|| {
+            let plan = ManagedPositioningPlan::from_face(
+                source.clone(),
+                managed_feature_options(&policy).map_err(|_| FontError::InvalidArgument)?,
+                &[68, 70, 76, 84],
+                None,
+                &coordinates,
+            )?;
+            drop(source);
+            drop(vars);
+            let retained = plan.clone();
+            drop(plan);
+            if let Some(plan) = retained {
+                kerning = plan.apply_with_limits(
+                    &mut buffer,
+                    ManagedGposLimits {
+                        max_lookup_calls: options[2],
+                    },
+                )?;
+            }
+            if options[1] != 0 {
+                buffer.resolve_attachments()?;
+            }
+            Ok::<_, FontError>(())
+        })();
+        out.extend([
+            result.err().map_or(0, |e| e as u32),
+            u32::from(kerning),
+            buffer.mark_filtering_coverage() as u32,
+        ]);
+        for i in 0..buffer.glyphs().len() {
+            out.push(
+                buffer
+                    .glyph_class(i)
+                    .map_or_else(|e| 0x80000000 | e as u32, u32::from),
+            );
+        }
+        for &g in buffer.glyphs() {
+            out.extend(super::managed_records::words(g));
+        }
+        Ok(out)
+    }
     /// Execute the actual managed GPOS/attachment controls with retained owners.
     /// Options: lookup, position, direction, mode (raw/resolve/both/zero), call budget.
     #[wasm_bindgen]

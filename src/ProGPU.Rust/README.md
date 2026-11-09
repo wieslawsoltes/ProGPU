@@ -46,6 +46,7 @@ cargo test --locked --test managed_feature_selection -- --ignored --nocapture
 cargo test --locked --test managed_context -- --ignored --nocapture
 cargo test --locked --test gsub -- --ignored --nocapture
 cargo test --locked --test managed_gpos -- --ignored --nocapture
+cargo test --locked --test managed_positioning -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -64,6 +65,7 @@ python3 eng/progpu-benchmark-rust-selection.py
 python3 eng/progpu-benchmark-rust-managed-features.py
 python3 eng/progpu-benchmark-rust-managed-context.py
 python3 eng/progpu-benchmark-rust-managed-gpos.py
+python3 eng/progpu-benchmark-rust-managed-positioning.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -158,6 +160,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Current managed feature policy | Separate immutable UTF-16 request, full fallback/value/global precedence, variation substitutions and optional managed digest; 327,015 actual C# controls / 27,595,740 bytes; 20 browser checks per DPR | Full GDEF/executor integration, staged shaping and lookup execution |
 | Managed context and ordered matching | Owned raw managed format-3 contexts, exact weak coverage admission and original glyph/indexer/skip rules; 56,996 actual C# source records, 22,558,608 coverage queries and 1,191,586 ordered matches; 70 browser checks per DPR | Full lookup/GDEF execution, staged shaping, layout/text integration and large-query baseline gap |
 | Native GSUB execution | All eight lookup types; contextual formats 1–3; caller-owned 32-byte glyph records, original errors/tails, nested state, GDEF and metadata; 117,973 C++ records / 60,322,260 bytes and 3,968 actual C# shared-policy records / 975,232 bytes | Complete current managed mutation policy, GPOS, staged shaping, fallback, layout/GPU text and performance qualification |
+| Current managed positioning | All nine raw GPOS types, complete attachment state, owned feature/digest plan and layout variation dispatch; 32,008 complete C# plan cases and 760,086 exact delta queries; 151 browser controls per DPR | Current managed variation-instance creation, metric/default-ignorable preparation, native device GPOS, fallback and full shaping/GPU text |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -474,3 +477,31 @@ metric initialization, fallback, native device GPOS and complete shaping remain
 separate work. The original C# oracle verifies 63,557 full cases; browser validation
 replays 80 exact C# fixtures plus a cyclic-work control at both DPRs. See the design
 ledger and `perf/managed-gpos-baseline.json` for scope and matched baseline evidence.
+
+
+`ManagedPositioningPlan` retains an immutable selected font, original lookup
+selection, feature options and already-normalized instance coordinates. `apply`
+performs the original raw lookup and variation pass in order and returns the
+plan's kerning presence, independently of whether any glyph changed. Attachment
+resolution stays explicit. `ManagedLayoutVariations` preserves complete-font
+reads, eager metadata admission, lazy selected-row failures, exact ordered float
+arithmetic and original missing-store behavior. Oversized inventories fail safely.
+
+The prepared-instance boundary is deliberate: the oracle calls the actual C#
+`WithVariations`, captures its actual normalized coordinates, and compares the
+resulting plan, deltas and complete records. **32,008 cases, 760,086 delta queries
+and 44,353,296 output bytes** match, including 2/3-axis products, malformed leaf
+and store data, unusual dispatch policies and a 131,073-glyph run. This does not
+port or qualify C# instance creation, its fallback on invalid metadata, full
+metric preparation or complete shaping. **151 captured C# controls** replay in
+WASM at both DPRs; the mandatory source oracle verifies the fixture byte-for-byte.
+
+The complete-plan benchmark compares 30 exact-output workloads with actual C#,
+using cached plans and prepared buffers. Five warmups and 40 measured rounds
+retain production allocation; preparation/reset/serialization stay outside timing.
+`perf/managed-positioning-baseline.json` records hashes, load and all quantiles.
+This is a diagnostic baseline, not an optimization or frame-performance claim.
+The hosted `deaf86ae6` Linux source/package, Windows and Vulkan/winit jobs pass;
+its original and diagnostic browser runs fail at final DPR 2 capture with GPU
+process exit 512 and device loss. Original flags, deadlines and qualification
+gates remain unchanged.

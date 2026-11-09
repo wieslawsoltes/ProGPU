@@ -2905,3 +2905,77 @@ GPOS and hinted point anchors remain separate implementation work. Full script
 preparation/reordering, layout, GPU text and remaining rendering subsystems remain
 in scope. Original Windows/application/provider/package/pixel gates, all recorded
 default-compiler arithmetic gaps and intermittent hosted browser loss remain open.
+
+
+## Current managed positioning plans and layout variations (2026-11-09)
+
+`ManagedPositioningPlan` composes the original owned feature selection, exact
+raw GPOS generation, immutable feature policy and selected normalized instance.
+It builds one run digest, retains selected lookup order, applies the per-record
+digest and required/ranged feature rules, then executes each lookup's original
+variation pass. Return value remains selected `kern`/`dist` presence, even for a
+no-match run. Attachment resolution, metric initialization, fallback and paragraph
+construction remain explicit independent operations. The per-root recursive-work
+bound does not limit ordinary run length: 131,073 original records are compared.
+
+Variation dispatch retains current C# distinctions rather than substituting a
+uniform OpenType interpretation. Any first-level pair extension selects the whole
+lookup's pair-variation route. Pair variations use ordered linear pair search and
+PairSet-relative device offsets; ordinary raw pair positioning keeps its original
+binary search. Single and mark variation passes preserve their separate feature,
+ignored-glyph and component rules. Mark-to-base skips original mark classes;
+mark-to-mark uses the immediate previous record. Cursive, ligature and nested
+context variation behavior is unchanged. Reserved value bits remain independent;
+advance-Y device values are read for source failures but their result is unused.
+`AppendVariation` retains float addition, ties-to-even rounding, short saturation
+and the positioned marker even for zero adjustment. Errors preserve prior writes
+and restore selected private mark coverage.
+
+`ManagedLayoutVariations` owns the full selected immutable SFNT and exact F2DOT14
+coordinate inventory. The current managed GDEF ItemVariationStore reads against
+the complete font, including original bytes beyond the declared GDEF extent. Its
+metadata parser validates headers, regions and region-index inventories eagerly;
+delta rows remain lazy. Missing/unsupported stores, absent subtables and past-end
+items return zero as in the source. A delta is read before testing its region
+index, including unknown regions. Word/long-word storage, signed row-offset
+arithmetic, ordered region products, early zero and ordered floating sums remain
+unchanged. Checked inventory multiplication rejects oversized untrusted inputs
+without a wasm32 integer panic; this safety bound does not claim that the original
+producer has identical overflow behavior. Default compiler arithmetic stays intact.
+
+This API accepts an already-normalized source instance. The actual original C#
+`WithVariations` is executed in the oracle, then its real normalized coordinates
+and active flag become the explicit Rust input boundary. Invalid source metadata
+may cause the original instance creation to fall back to its root; those captures
+retain the resulting inactive state. They do not prove that Rust has implemented
+C# `WithVariations`, its full fvar/avar/gvar/HVAR/MVAR admission or source fallback.
+The strict native variation APIs and their recorded default-FP gaps remain separate.
+
+Validation invokes unchanged `CreatePositioningPlan`, `ApplyPositions`,
+`GetLayoutVariationDelta` and optional attachment resolution. Reflection transports
+all 31 fields and real constructor-owned GDEF only; typed delegates execute source
+methods. **32,008 cases / 760,086 exact float-bit delta queries / 44,353,296 complete
+output bytes** pass. Controls include all raw types and selected orders, six
+feature policies, all directions, 12,000 mutated/truncated leaf payloads, 4,000
+store mutations, 10,000 random normalized captures, 2,000 two/three-axis captures,
+mixed extensions, unsorted/duplicate pairs, source whole-font reads and lazy failures.
+The 151-entry browser fixture is emitted from actual C# and revalidated byte-for-
+byte by the required CI source oracle. WASM retains cloned plans/source owners
+through execution and compares every output field. This is browser CPU positioning;
+GPU text rendering, native GPOS and complete shaping remain unfinished.
+
+The matched 30-workload baseline executes cached plans at 32/512/4,096 glyphs,
+including static/active single, long-word deltas, both pair forms, cursive, mark,
+context and chain cases. Every complete output must match actual C#. Five warmups
+precede 40 rounds; source instance/plan creation, buffer reset, queries and output
+serialization are untimed. Production allocations and typed-delegate overhead
+remain measured; Rust allocation counts are not instrumented. High host contention
+and JIT/tail behavior remain in the recorded diagnostics. No optimization or stable
+speedup is claimed; future optimization still requires Instruments evidence.
+
+The previous `deaf86ae6` hosted Linux source/package, Windows portable and Vulkan/
+winit jobs pass, with all 63,557 original raw GPOS cases. macOS was cancelled.
+Both the original browser gate and diagnostic retry lose the device during final
+DPR 2 capture after GPU-process exit 512. Earlier passing checkpoints do not close
+this intermittent failure. Original flags, drivers, deadlines, source/application,
+provider/package and pixel requirements remain mandatory.
