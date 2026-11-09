@@ -4285,3 +4285,21 @@ retained interaction, GPU text and original provider/package/source/pixel gates
 remain open. Receipts are `perf/managed-indic-{validation,baseline,time-profiler,
 package,cleanup}.json`; the mandatory source parser gate is
 `eng/progpu-test-rust-indic-syllables.py`.
+
+The following hosted Indic-preparation browser gate completes all 7,401 action
+checks per DPR and both offscreen pixel inventories, then loses the device at
+the original final DPR-2 capture. Its separate diagnostic reaches DPR-2 resize
+and times out after the GPU process exits. The packed-process observer now
+selects the actual owned executable/generation and obtains three samples; four
+worker threads consume most sampled CPU. Required GDB/timeout tooling is missing,
+so the receipt explicitly reports an unavailable backtrace. These observations do not identify
+the failure's cause or qualify browser reliability. Complete original and
+diagnostic reports and compressed process observations are retained in
+`perf/browser-9e0b967-hosted.json` and its referenced gzip.
+
+The workflow now installs GDB and the bounded `timeout` utility only after the
+original browser gate fails, before the separate diagnostic. Installation failure
+does not suppress the existing process samples. No original workload, deadline,
+shader, browser flag, driver or compiler policy changes; a diagnostic pass cannot
+replace the original failure. Owned executable/ancestry/start-tick revalidation
+still precedes debugger attachment, and no other browser process is admitted.
