@@ -18,6 +18,9 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod capture;
 mod image;
+mod layer;
+pub use layer::LayerMetrics;
+use layer::RenderFrame;
 mod layout;
 mod mask;
 mod text;
@@ -142,6 +145,8 @@ pub struct PreparedScene {
     images: Option<image::PreparedImages>,
     masks: Option<mask::PreparedMasks>,
     frame: Frame,
+    origin: [u32; 2],
+    layers: LayerMetrics,
     metrics: UploadMetrics,
 }
 
@@ -166,6 +171,10 @@ impl PreparedScene {
     /// Physical frame used when preparing this scene.
     pub fn frame(&self) -> Frame {
         self.frame
+    }
+    /// Actual isolated subtree preparation, excluding this root scene.
+    pub fn layer_metrics(&self) -> LayerMetrics {
+        self.layers
     }
     /// Actual preparation payload counts; replay performs no uploads.
     pub fn metrics(&self) -> UploadMetrics {
@@ -333,7 +342,7 @@ impl Renderer {
         {
             return Err(Error::InvalidInput);
         }
-        self.prepare_geometry(mesh, frame, None, None)
+        self.prepare_geometry(mesh, frame.into(), None, None)
     }
 
     /// Whether the optional path compute pipeline has been initialized.
@@ -348,9 +357,20 @@ impl Renderer {
         scene: &Scene,
         frame: Frame,
     ) -> Result<PreparedScene, Error> {
-        frame.uniforms(self.device.limits().max_texture_dimension_2d)?;
+        let target = RenderFrame::from(frame);
+        target.uniforms(self.device.limits().max_texture_dimension_2d)?;
+        if scene.layer_depth() != 0 {
+            self.preflight_layers(scene, target)?;
+        }
+        self.prepare_layer_tree(scene, target).await
+    }
+
+    async fn prepare_flat_scene(
+        &mut self,
+        scene: &Scene,
+        frame: RenderFrame,
+    ) -> Result<PreparedScene, Error> {
         if scene.has_text() {
-            // Reject complete scope topology/mapping errors before atlas work.
             let (states, _) = scene.compile_states(frame.dpi_scale)?;
             self.validate_mask_states(&states)?;
             return self.prepare_text_scene(scene, frame).await;
@@ -361,7 +381,7 @@ impl Renderer {
             self.image_sampling
                 .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
         )?;
-        self.prepare_compiled(&compiled, frame).await
+        self.prepare_compiled_geometry(&compiled, frame).await
     }
 
     /// Upload a CPU-compiled immutable generation. Exact DPI must match the
@@ -376,13 +396,13 @@ impl Renderer {
         if !compiled.glyphs.is_empty() {
             return Err(Error::ResourceDomain);
         }
-        self.prepare_compiled_geometry(compiled, frame).await
+        self.prepare_compiled_geometry(compiled, frame.into()).await
     }
 
     async fn prepare_compiled_geometry(
         &mut self,
         compiled: &CompiledScene,
-        frame: Frame,
+        frame: RenderFrame,
     ) -> Result<PreparedScene, Error> {
         if compiled.dpi_scale().to_bits() != frame.dpi_scale.to_bits() {
             return Err(Error::InvalidInput);
@@ -462,7 +482,7 @@ impl Renderer {
         Ok(())
     }
 
-    fn validate_geometry(&self, mesh: &Mesh, frame: Frame) -> Result<Uniforms, Error> {
+    fn validate_geometry(&self, mesh: &Mesh, frame: RenderFrame) -> Result<Uniforms, Error> {
         let limits = self.device.limits();
         let uniforms = frame.uniforms(limits.max_texture_dimension_2d)?;
         u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
@@ -486,7 +506,7 @@ impl Renderer {
     fn prepare_geometry(
         &self,
         mesh: &Mesh,
-        frame: Frame,
+        frame: RenderFrame,
         coverage: Option<&CoverageAtlas>,
         materials: Option<&MaterialPage>,
     ) -> Result<PreparedScene, Error> {
@@ -606,7 +626,9 @@ impl Renderer {
             text: None,
             images: None,
             masks: None,
-            frame,
+            frame: frame.frame,
+            origin: frame.origin,
+            layers: LayerMetrics::default(),
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
                 uniform_bytes: size_of::<Uniforms>() as u64,
@@ -744,10 +766,18 @@ impl Renderer {
                         pass.set_vertex_buffer(0, text.instances.slice(..));
                         pass.draw(0..6, range.clone());
                     }
-                    DrawRange::Image(range, binding) => {
+                    DrawRange::Image(range, binding, blend) => {
                         let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
                         let binding = images.bindings.get(*binding).ok_or(Error::ResourceDomain)?;
-                        pass.set_pipeline(masked_pipeline.unwrap_or(&images.pipeline));
+                        let pipeline = if *blend == crate::scene::LayerBlend::SrcOver {
+                            masked_pipeline.unwrap_or(&images.pipeline)
+                        } else {
+                            images
+                                .composites
+                                .get(&(*blend, masked.is_some()))
+                                .ok_or(Error::ResourceDomain)?
+                        };
+                        pass.set_pipeline(pipeline);
                         pass.set_bind_group(0, &images.uniforms, &[]);
                         pass.set_bind_group(1, binding, &[]);
                         if let Some(mask) = masked {

@@ -4,6 +4,7 @@ use crate::image::{
     GpuImage, Image, ImageAddress, ImageFormat, ImageSampling, ImageSamplingPath,
     ImageSamplingPreference, ImageSource, Pixels,
 };
+use crate::scene::LayerBlend;
 use std::{
     collections::{HashMap, HashSet},
     sync::Weak,
@@ -24,9 +25,11 @@ pub(super) struct ImageState {
     uploads: HashMap<(usize, bool), Upload>,
     samplers: HashMap<SamplerKey, wgpu::Sampler>,
     mips: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
+    composites: HashMap<(LayerBlend, bool), wgpu::RenderPipeline>,
 }
 pub(super) struct PreparedImages {
     pub pipeline: wgpu::RenderPipeline,
+    pub composites: HashMap<(LayerBlend, bool), wgpu::RenderPipeline>,
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
     pub uniforms: wgpu::BindGroup,
@@ -37,6 +40,8 @@ async fn pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
     mip: bool,
+    blend: LayerBlend,
+    masked: bool,
 ) -> Result<wgpu::RenderPipeline, Error> {
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -61,8 +66,10 @@ async fn pipeline(
         attributes: &attributes,
     });
     let buffers = [layout];
-    let pipeline_layout =
-        (!mip).then(|| super::layout::pipeline(device, super::layout::Family::Image, None));
+    let mask_layout = masked.then(|| super::layout::mask(device));
+    let pipeline_layout = (!mip).then(|| {
+        super::layout::pipeline(device, super::layout::Family::Image, mask_layout.as_ref())
+    });
     let result = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(if mip {
             "ProGPU linear mip generation"
@@ -83,17 +90,15 @@ async fn pipeline(
             module: &module,
             entry_point: Some(if mip {
                 "fs_main"
+            } else if masked {
+                "fs_retained_image_chain"
             } else {
                 "fs_retained_image_unmasked"
             }),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: if mip {
-                    None
-                } else {
-                    Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING)
-                },
+                blend: if mip { None } else { Some(blend.fixed()?) },
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -108,10 +113,11 @@ async fn pipeline(
 impl ImageState {
     async fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Result<Self, Error> {
         Ok(Self {
-            pipeline: pipeline(device, format, false).await?,
+            pipeline: pipeline(device, format, false, LayerBlend::SrcOver, false).await?,
             uploads: HashMap::new(),
             samplers: HashMap::new(),
             mips: HashMap::new(),
+            composites: HashMap::new(),
         })
     }
     fn prune(&mut self) {
@@ -189,8 +195,10 @@ impl ImageState {
             1
         };
         if levels > 1 && !self.mips.contains_key(&format) {
-            self.mips
-                .insert(format, pipeline(device, format, true).await?);
+            self.mips.insert(
+                format,
+                pipeline(device, format, true, LayerBlend::SrcOver, false).await?,
+            );
         }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ProGPU immutable image generation"),
@@ -323,7 +331,7 @@ impl Renderer {
     pub(super) async fn prepare_images(
         &mut self,
         compiled: &CompiledScene,
-        frame: Frame,
+        frame: RenderFrame,
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
         self.trim_image_cache();
@@ -343,6 +351,22 @@ impl Renderer {
             Some(state) => state,
             None => ImageState::new(&self.device, self.format).await?,
         };
+        let mut needed = HashSet::new();
+        let mut mask_index = 0;
+        for draw in &compiled.draws {
+            match draw {
+                DrawRange::State(index) => mask_index = *index,
+                DrawRange::Image(_, _, blend) if *blend != LayerBlend::SrcOver => {
+                    needed.insert((*blend, compiled.states[mask_index].count != 0));
+                }
+                _ => {}
+            }
+        }
+        for key in needed {
+            if let std::collections::hash_map::Entry::Vacant(entry) = state.composites.entry(key) {
+                entry.insert(pipeline(&self.device, self.format, false, key.0, key.1).await?);
+            }
+        }
         // Failure/cancellation drops this exclusive candidate. Prepared scenes
         // retain their original pipeline/layouts and actual textures independently.
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
@@ -465,6 +489,7 @@ impl Renderer {
         prepared.metrics.uniform_bytes += size_of::<Uniforms>() as u64;
         prepared.images = Some(PreparedImages {
             pipeline: state.pipeline.clone(),
+            composites: state.composites.clone(),
             vertices,
             indices,
             uniforms,

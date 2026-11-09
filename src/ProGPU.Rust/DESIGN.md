@@ -6414,3 +6414,131 @@ zero/asymmetric/maximum radii, long mixed chains, odd extents, fractional offset
 color/alpha, retirement/cancellation/device loss, warm output caching, allocator/
 process/frame performance and original provider/package/application qualification
 are deferred. Original browser failures and prior performance gates remain open.
+
+## Bounded nested scene layers and fixed destination blends (2026-11-09)
+
+This connected implementation supersedes the earlier explicit-capture checkpoint's
+automatic bounds/nesting gap for the typed isolated subtree API below. Full native
+semantic packet/source policy and release qualification remain incomplete.
+
+Original repository sources consulted, SHA-256:
+
+| Original source | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_state.cpp` | `2b801e9cc4673fa49092bdee28ac7c6275672c000f635798ba5767d759b30dd5` |
+| `src/ProGPU.Native/src/Backend/progpu_native_image_layer_resources.cpp` | `8d8fb8816f1db86563b5ab1551446f928bf4915021f095cfc1b8737d2c16d523` |
+| `src/ProGPU.Native/src/Backend/progpu_native_layer_resource_execution.cpp` | `7ba451a122e78d4c60b02bd5f984091485067683ddcf8883522fc558d729a6d3` |
+| `src/ProGPU.Native/src/Backend/progpu_native_layer_composite_execution.cpp` | `c3605dd11b5551e827f8689c6579bfc584d7219e61fe9c1fcb71f96b82a09f57` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_budget.hpp` | `58c1bf76b9ef70522dd549624c7e8fe30eaf0523aef8965e21691c0977433167` |
+| `src/ProGPU.Native/include/progpu_native.h` | `bf31eab3ad25f079e36391c4d3072bbd15eeab8a94f8cbd04bb9e2d15145e441` |
+| `src/ProGPU.Backend/Shaders/Texture.wgsl` | `5f9c663cdc9eac166506c93a1add5ec058c3d68f9a766253aee895afe4adda51` |
+| `src/ProGPU.Backend/Shaders/Vector.wgsl` | `6d2d92d59341ea91dc33f851c08467f4b4dcd7f270b5f1f638b9f45006e481ed` |
+| `src/ProGPU.Backend/Shaders/Text.wgsl` | `432bcabab2d670297ceba2a720de8ca2351ffb4609bd619f62ead1fd7cf84d4a` |
+
+### Retained topology and bounded frames
+
+`LayerDraw` retains an immutable `Arc<Scene>`, optional declared root-logical
+bounds, raw group opacity, original typed destination blend, independent nearest/
+linear sampling and an optional immutable native effect chain. Recording is O(1)
+and validates complete metadata, source balance and retained depth before writer
+mutation. Cached maximum depth includes detached child recordings, is preserved
+by `append`, and is reset by `clear`. The original maximum of sixteen isolated
+target levels is enforced. Owned immutable construction prevents reference cycles;
+no weak source, owner callbacks or fabricated content identity is introduced.
+
+Before the first private capture, preparation walks the complete retained tree,
+validating scope topology/mask frames, blend availability, physical bounds/effect
+plans and allocation counts, including children of empty targets. It limits layer
+occurrences and effect passes independently to 16,384. Per-target capture storage
+is bounded by the original 256 MiB limit. The original 512 MiB compiled budget is
+used conservatively for the sum of all capture/effect allocations; this is not a
+claim to have ported the full native retained residency budget or reusable pool.
+Other existing geometry/font/device admission remains in each source preparation.
+A failed later source preparation publishes no partially prepared root; completed
+private GPU submissions may already exist and retain their actual owners.
+
+Declared bounds use the native `presentation_clip_edges` four independent SIMD
+lanes, preserving original x+width/y+height expressions, DPI multiplication and
+zero-origin addition. Original finite physical edges clamp to the root extent;
+`abs(value-round(value)) < 0.0001` snapping precedes outward floor/ceil. The result
+intersects the actual parent physical target. Empty/inverted collapsed physical
+extents allocate no texture. Missing bounds select the actual parent target; no
+paint envelope, source transform, effect padding or positive empty-source extent
+is inferred.
+
+Private `RenderFrame` retains both the root frame and actual target origin/size.
+The original managed `CreateMaskRenderUniforms` projection scale and translation
+map already-compiled world coordinates into the bounded attachment. Vector brush
+coordinates, source text positions and image source domains remain unchanged.
+Canonical mask shaders add the actual `renderOrigin` to attachment fragment
+positions; integer scissors subtract that same origin, clamp to actual attachment
+size and preserve empty-state restoration. The unbounded root path retains its
+previous exact uniform values. No glyph physical-frame certificate is invented;
+its independent original positive-projection/source admission remains unchanged.
+This combines the existing native bounds contract with the managed world-space
+bounded-pass route; exact cross-implementation floating/pixel equivalence still
+requires the original matched controls.
+
+### Ordered source capture and final blend
+
+Preparation traverses child layers before their parent scene. Each child uses
+its actual bounded target, paints transparent source contents, applies its full
+original effect chain, and submits the capture/effects together using the existing
+owned capture API. Final image opacity is applied after the effect output. Outer
+mask/clip scopes apply once to the composite; inner scopes stay on source draws.
+All parent vector/text/image commands retain their original painter order, including
+restoration after an empty or completed layer. Source-over zero-opacity shortcuts
+are not applied to other blend modes, since transparent source can still alter
+destination pixels.
+
+Parent text is realized after its children have been captured. Subsequent atlas
+growth/eviction cannot change an already materialized child image; ordinary parent
+text keeps the existing exact final-generation/residency checks. This follows the
+managed offscreen materialization boundary, not an assertion that the native
+single-encoder layer compiler/recovery policy has been ported. Each preparation
+captures again; immutable root replay retains completed output images and performs
+no recapture or source upload. Source/effect resources use actual device ownership
+and wgpu submission retention, with no explicit destructor GPU destruction, polling,
+readback or finalizer submission. Mutable borrowed texture producers still own
+their synchronization/content contracts.
+
+`LayerBlend` preserves all 29 native enum identities, separate from the image patch
+color-blend enum. `configure_fixed_group_blend` supplies all fourteen admitted
+fixed states: SrcOver, Src, Dst, SrcIn, DstIn, SrcOut, DstOut, SrcAtop, DstAtop,
+Xor, DstOver, Plus, Clear and Modulate. Color and alpha factors stay independent
+for Modulate. Advanced destination-reading modes return `UnsupportedExecution`
+during whole-tree preflight. No fallback changes their meaning. Blend identity
+participates in ordered draw batching. Lazy fixed-state pipelines use the unchanged
+canonical retained premultiplied image entry points, with structurally compatible
+uniform/image/mask layouts; prepared scenes retain pipeline handles independently
+of cache lifetime. Layer Clear is the original quad blend operator, not the separate
+target-storage Clear operation.
+
+`LayerMetrics` counts actual captured subtrees, source and effect allocation bytes,
+effect uniform storage/passes, source geometry/uniform/glyph/image/mask uploads and
+source draws. Cumulative allocation/work is labeled separately from root metrics;
+adding it to root referenced-texture bytes does not produce a unique-residency
+measurement. Cached pool/cold-warm performance claims are not made.
+
+### Integration scope and remaining work
+
+Native `--layers` and browser `?scene=layers` use one authored gallery: all fourteen
+fixed destination blends, two-level bounded captures, final group opacity,
+fractional/nonzero origins, binary and rounded scopes, original painter restoration,
+shadow effects, empty captures and optional explicitly loaded masked text. Both
+hosts expose subtree preparation counters. The gallery is an integration fixture,
+not source or runtime qualification evidence.
+
+Per the requested implementation-first sequencing, this batch runs strict native
+all-target/all-feature, browser-target and CPU-only Clippy, formatting, whitespace
+and browser JS syntax checks. It changes no canonical shader, dependency version
+or compiler/driver flags. Exhaustive source topology/bounds/float/opacity/blend/pixel
+controls, live GPU/browser presentation, cancellation/lifetime/device-loss stress,
+allocator/process/frame performance and package qualification remain deferred.
+Required next compositor work includes original destination-copy advanced blend
+passes, complete geometry/brush/picture masks, conditional source AA groups,
+background initialization and target-storage Clear, shader/image filters and
+source-specific opacity/frame rules, typed retained resource revisions, caches,
+residency pools, invalidation and native semantic transport. The original public,
+provider/source/package/pixel and historical browser failure gates remain intact.

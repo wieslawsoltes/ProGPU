@@ -321,17 +321,26 @@ impl Renderer {
             let mut bindings =
                 HashMap::<([[u32; 24]; 4], Option<(usize, bool)>), wgpu::BindGroup>::new();
             for source in &compiled.states {
-                let [left, top, right, bottom] =
-                    source
-                        .clip
-                        .unwrap_or([0, 0, prepared.frame.width, prepared.frame.height]);
-                let left = left.min(prepared.frame.width);
-                let top = top.min(prepared.frame.height);
+                let [ox, oy] = prepared.origin;
+                let [left, top, right, bottom] = source.clip.unwrap_or([
+                    ox,
+                    oy,
+                    ox + prepared.frame.width,
+                    oy + prepared.frame.height,
+                ]);
+                let left = left.saturating_sub(ox).min(prepared.frame.width);
+                let top = top.saturating_sub(oy).min(prepared.frame.height);
                 let scissor = [
                     left,
                     top,
-                    right.min(prepared.frame.width).saturating_sub(left),
-                    bottom.min(prepared.frame.height).saturating_sub(top),
+                    right
+                        .saturating_sub(ox)
+                        .min(prepared.frame.width)
+                        .saturating_sub(left),
+                    bottom
+                        .saturating_sub(oy)
+                        .min(prepared.frame.height)
+                        .saturating_sub(top),
                 ];
                 let binding = if source.count != 0 {
                     // Exact original uniform bits and actual retained source;

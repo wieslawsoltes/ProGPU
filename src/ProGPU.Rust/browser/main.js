@@ -26,6 +26,10 @@ window.progpuReady = (async () => {
     renderer.select_effect_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'layers') {
+    renderer.select_layer_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   // Serialize mutable WASM borrows across asynchronous preparation and tests.
   let tail = Promise.resolve();
   const exclusive = action => {

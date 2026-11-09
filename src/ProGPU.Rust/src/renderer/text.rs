@@ -84,7 +84,7 @@ impl TextState {
         renderer: &Renderer,
         compiled: &CompiledScene,
         resolved: ResolvedSceneText,
-        frame: Frame,
+        frame: RenderFrame,
     ) -> Result<PreparedText, Error> {
         let device = &renderer.device;
         let limits = device.limits();
@@ -221,7 +221,7 @@ impl Renderer {
     pub(super) async fn prepare_text_scene(
         &mut self,
         scene: &Scene,
-        frame: Frame,
+        frame: RenderFrame,
     ) -> Result<PreparedScene, Error> {
         // Exclusive transaction ownership: cancellation or error drops this
         // state. No Drop implementation submits, polls, destroys live textures,

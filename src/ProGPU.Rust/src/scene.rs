@@ -24,7 +24,9 @@ use crate::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod layer;
 mod mask;
+pub use layer::{LayerBlend, LayerDraw};
 mod text;
 #[cfg(feature = "gpu")]
 pub(crate) use mask::CompiledDrawState;
@@ -37,7 +39,7 @@ pub(crate) enum DrawRange {
     Vector(std::ops::Range<u32>),
     #[cfg(feature = "gpu")]
     Text(std::ops::Range<u32>),
-    Image(std::ops::Range<u32>, usize),
+    Image(std::ops::Range<u32>, usize, LayerBlend),
 }
 
 fn append_draw(draws: &mut Vec<DrawRange>, draw: DrawRange) {
@@ -49,9 +51,10 @@ fn append_draw(draws: &mut Vec<DrawRange>, draw: DrawRange) {
         (Some(DrawRange::Text(last)), DrawRange::Text(next)) if last.end == next.start => {
             last.end = next.end;
         }
-        (Some(DrawRange::Image(last, binding)), DrawRange::Image(next, next_binding))
-            if binding == next_binding && last.end == next.start =>
-        {
+        (
+            Some(DrawRange::Image(last, binding, blend)),
+            DrawRange::Image(next, next_binding, next_blend),
+        ) if binding == next_binding && blend == next_blend && last.end == next.start => {
             last.end = next.end;
         }
         _ => draws.push(draw),
@@ -136,6 +139,7 @@ impl MaterialPaint {
 #[derive(Clone, Debug)]
 enum Command {
     Empty,
+    Layer(Box<LayerDraw>),
     PushMask(Box<crate::mask::Mask>),
     PushClip([f32; 4]),
     PopScope,
@@ -148,7 +152,7 @@ enum Command {
     TextPath(PathDraw, MaterialPaint, TextPathPolicy),
     #[cfg(feature = "gpu")]
     Glyph(GlyphInstance),
-    Image(Box<ImageDraw>),
+    Image(Box<ImageDraw>, LayerBlend),
     TileImage(Box<TileImageDraw>),
 }
 
@@ -159,6 +163,7 @@ pub struct Scene {
     commands: Vec<Command>,
     scope_depth: usize,
     has_scopes: bool,
+    layer_depth: u8,
 }
 
 impl Scene {
@@ -174,13 +179,15 @@ impl Scene {
             .map_err(|_| Error::Capacity)?;
         self.commands.extend(source.commands.iter().cloned());
         self.has_scopes |= source.has_scopes;
+        self.layer_depth = self.layer_depth.max(source.layer_depth);
         Ok(())
     }
     /// Retain an original image/patch draw after whole-inventory admission.
     pub fn draw_image(&mut self, draw: ImageDraw) -> Result<(), Error> {
         draw.validate()?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
-        self.commands.push(Command::Image(Box::new(draw)));
+        self.commands
+            .push(Command::Image(Box::new(draw), LayerBlend::SrcOver));
         Ok(())
     }
     /// Retain an explicit occupied tile-page draw. This primitive always uses
@@ -301,13 +308,15 @@ impl Scene {
         self.commands.clear();
         self.scope_depth = 0;
         self.has_scopes = false;
+        self.layer_depth = 0;
     }
 
     /// Compile one immutable generation at the actual target DPI. Geometry takes
     /// expected O(C + P) work for C commands and P distinct raster requests;
     /// materials add the original first-equal registration cost. Source segment
     /// arrays remain shared. Native atlas limits remain in force. Unresolved
-    /// text requires the GPU renderer and returns `UnsupportedExecution` here.
+    /// text and isolated layers require the GPU renderer and return
+    /// `UnsupportedExecution` here.
     pub fn compile(&self, dpi_scale: f32) -> Result<CompiledScene, Error> {
         self.compile_with_materials(dpi_scale, &mut MaterialTable::default())
     }
@@ -336,7 +345,7 @@ impl Scene {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
         }
-        if self.has_text() {
+        if self.has_text() || self.layer_depth != 0 {
             return Err(Error::UnsupportedExecution);
         }
         let (states, state_changes) = self.compile_states(dpi_scale)?;
@@ -405,11 +414,11 @@ impl Scene {
                 | Command::Analytic(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
-                | Command::Image(_)
+                | Command::Image(..)
                 | Command::TileImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
                 Command::Glyph(_) => placements.push(None),
-                Command::Text(_) => return Err(Error::UnsupportedExecution),
+                Command::Text(_) | Command::Layer(_) => return Err(Error::UnsupportedExecution),
                 Command::Path(draw)
                 | Command::MaterialPath(draw, _)
                 | Command::TextPath(draw, _, _) => {
@@ -483,7 +492,7 @@ impl Scene {
                 | Command::PushMask(_)
                 | Command::PushClip(_)
                 | Command::PopScope => {}
-                Command::Image(draw) => {
+                Command::Image(draw, blend) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
                     draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
@@ -499,7 +508,7 @@ impl Scene {
                     let end =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
                     if end != start {
-                        append_draw(&mut draws, DrawRange::Image(start..end, binding));
+                        append_draw(&mut draws, DrawRange::Image(start..end, binding, *blend));
                     }
                 }
                 Command::TileImage(draw) => {
@@ -525,10 +534,11 @@ impl Scene {
                         DrawRange::Image(
                             start..start.checked_add(6).ok_or(Error::Capacity)?,
                             binding,
+                            LayerBlend::SrcOver,
                         ),
                     );
                 }
-                Command::Text(_) => return Err(Error::UnsupportedExecution),
+                Command::Text(_) | Command::Layer(_) => return Err(Error::UnsupportedExecution),
                 #[cfg(feature = "gpu")]
                 Command::Glyph(instance) => {
                     let index = u32::try_from(glyphs.len()).map_err(|_| Error::Capacity)?;

@@ -11,6 +11,9 @@ mod font_scene;
 #[path = "support/image_scene.rs"]
 mod image_sample;
 #[cfg(target_arch = "wasm32")]
+#[path = "support/layer_scene.rs"]
+mod layer_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/mask_scene.rs"]
 mod mask_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1662,6 +1665,7 @@ mod web {
         image_scene: bool,
         mask_scene: bool,
         effect_scene: bool,
+        layer_scene: bool,
         effect_metrics: super::effect_sample::GalleryMetrics,
         validation: Option<Renderer>,
         frames: u32,
@@ -1737,6 +1741,7 @@ mod web {
             image_scene: false,
             mask_scene: false,
             effect_scene: false,
+            layer_scene: false,
             effect_metrics: Default::default(),
             validation: None,
             frames: 0,
@@ -1768,6 +1773,7 @@ mod web {
             self.material_scene = enabled;
             self.mask_scene = false;
             self.effect_scene = false;
+            self.layer_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1788,6 +1794,7 @@ mod web {
             self.image_scene = enabled;
             self.mask_scene = false;
             self.effect_scene = false;
+            self.layer_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1797,6 +1804,7 @@ mod web {
             self.ensure_live()?;
             self.mask_scene = enabled;
             self.effect_scene = false;
+            self.layer_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1805,6 +1813,17 @@ mod web {
         pub fn select_effect_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.effect_scene = enabled;
+            self.layer_scene = false;
+            self.mask_scene = false;
+            self.image_scene = false;
+            self.material_scene = false;
+            Ok(())
+        }
+        /// Select shared bounded nested layers and all original fixed blends.
+        pub fn select_layer_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.layer_scene = enabled;
+            self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1847,7 +1866,9 @@ mod web {
             Ok(())
         }
         fn record_scene(&self) -> Result<progpu::scene::Scene, Box<dyn std::error::Error>> {
-            if self.mask_scene {
+            if self.layer_scene {
+                super::layer_sample::layer_scene(self.text_font.clone())
+            } else if self.mask_scene {
                 super::mask_sample::mask_scene(self.text_font.clone())
             } else if let Some(font) = &self.text_font {
                 super::text_sample::text_scene(font.clone())
@@ -1924,6 +1945,7 @@ mod web {
             field(&result, "frames", self.frames as f64)?;
             if let Some(scene) = &self.scene {
                 let m = scene.metrics();
+                let layers = scene.layer_metrics();
                 let f = scene.frame();
                 for (name, value) in [
                     ("geometryBytes", m.geometry_bytes as f64),
@@ -1945,6 +1967,22 @@ mod web {
                     ("maskUploadBytes", m.mask_upload_bytes as f64),
                     ("maskTextureBytes", m.mask_texture_bytes as f64),
                     ("maskBindings", m.mask_bindings as f64),
+                    ("layerCaptures", layers.captures as f64),
+                    ("layerCaptureBytes", layers.capture_bytes as f64),
+                    ("layerEffectBytes", layers.effect_texture_bytes as f64),
+                    (
+                        "layerEffectUniformBytes",
+                        layers.effect_uniform_bytes as f64,
+                    ),
+                    ("layerEffectPasses", layers.effect_passes as f64),
+                    ("layerGeometryBytes", layers.geometry_bytes as f64),
+                    ("layerUniformBytes", layers.uniform_bytes as f64),
+                    ("layerGlyphUploadBytes", layers.glyph_upload_bytes as f64),
+                    (
+                        "layerImageMaskUploadBytes",
+                        layers.image_mask_upload_bytes as f64,
+                    ),
+                    ("layerSourceDraws", layers.source_draws as f64),
                     ("captures", self.effect_metrics.captures as f64),
                     ("captureBytes", self.effect_metrics.capture_bytes as f64),
                     (

@@ -16,6 +16,8 @@ use sample::sample_scene;
 mod effect_sample;
 #[path = "support/image_scene.rs"]
 mod image_sample;
+#[path = "support/layer_scene.rs"]
+mod layer_sample;
 #[path = "support/mask_scene.rs"]
 mod mask_sample;
 #[path = "support/material_scene.rs"]
@@ -39,6 +41,7 @@ struct WindowRenderer {
     image_scene: bool,
     mask_scene: bool,
     effect_scene: bool,
+    layer_scene: bool,
 }
 
 impl WindowRenderer {
@@ -49,6 +52,7 @@ impl WindowRenderer {
         image_scene: bool,
         mask_scene: bool,
         effect_scene: bool,
+        layer_scene: bool,
     ) -> Result<Self> {
         let window = Arc::new(
             event_loop.create_window(
@@ -108,6 +112,7 @@ impl WindowRenderer {
             image_scene,
             mask_scene,
             effect_scene,
+            layer_scene,
         };
         state.resize()?;
         state.window.set_visible(true);
@@ -127,7 +132,9 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
-        let source = if self.effect_scene {
+        let source = if self.layer_scene {
+            layer_sample::layer_scene(self.text_font.clone())?
+        } else if self.effect_scene {
             let (scene, metrics) = pollster::block_on(effect_sample::effect_scene(
                 &mut self.renderer,
                 dpi,
@@ -154,7 +161,11 @@ impl WindowRenderer {
             sample_scene()?
         };
         let scene = pollster::block_on(self.renderer.prepare_scene(&source, frame))?;
-        eprintln!("prepared: {:?}", scene.metrics());
+        eprintln!(
+            "prepared: {:?}; layers: {:?}",
+            scene.metrics(),
+            scene.layer_metrics()
+        );
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
@@ -217,6 +228,7 @@ struct App {
     image_scene: bool,
     mask_scene: bool,
     effect_scene: bool,
+    layer_scene: bool,
 }
 
 impl App {
@@ -236,6 +248,7 @@ impl ApplicationHandler for App {
                 self.image_scene,
                 self.mask_scene,
                 self.effect_scene,
+                self.layer_scene,
             )) {
                 Ok(state) => self.state = Some(state),
                 Err(error) => self.fail(event_loop, error),
@@ -292,6 +305,7 @@ fn main() -> Result<()> {
             "--images" => app.image_scene = true,
             "--masks" => app.mask_scene = true,
             "--effects" => app.effect_scene = true,
+            "--layers" => app.layer_scene = true,
             "--text" => {
                 let path = args.next().ok_or("--text requires a font file path")?;
                 app.text_font = Some(progpu::font::ManagedFont::new(std::fs::read(path)?, 0)?);
@@ -308,7 +322,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }
