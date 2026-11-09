@@ -6264,3 +6264,153 @@ odd stride, nearest/linear out-of-bounds samples, mixed draw transitions and war
 replay. Full composite/path/brush/picture masks, layers/effects/ROP/Clear, managed
 atlas recovery, resource archives, original provider/package/application pixels
 and all prior reliability/performance gates remain open.
+
+
+## Owned captures and bounded native group effects (2026-11-09)
+
+This connected batch ports the complete original bounded Gaussian/box/drop-shadow
+scheduler, physical parameter conversion and canonical compute passes. Explicit
+scene capture connects those operations to retained image composition. Automatic
+semantic layer traversal, bounds localization, nesting and source effect policies
+remain separate unfinished consumers; explicit capture is not their replacement.
+Only original repository implementation was used. No external implementation
+source or runtime rendering engine was introduced.
+
+| Original repository source | SHA-256 |
+| --- | --- |
+| src/ProGPU.Native/src/Backend/progpu_native_effect_plan.hpp | 2de624832f22378fe73d3fdea67530059dc0d01a14da8ed69226d312c2b80e18 |
+| src/ProGPU.Native/src/Backend/progpu_native_effect_plan.cpp | fb737c514ac7e4979f2b07bc223d80dc1141ee97869b1d0fe5d1780f2e27b23b |
+| src/ProGPU.Native/src/Backend/progpu_native_draw_state.cpp | 2c59e9107eb66374a7d939f95a7d03c78f7e78ad25e3a84ecf06281227021816 |
+| src/ProGPU.Native/src/Backend/progpu_native_effect_execution.cpp | a2e42e6680497a0477c4bd8a94615b08766f91a3f6fdf57ff6c5de709489ee9f |
+| src/ProGPU.Native/src/Backend/progpu_native_layer_resource_execution.cpp | 7ba451a122e78d4c60b02bd5f984091485067683ddcf8883522fc558d729a6d3 |
+| src/ProGPU.Native/src/Backend/progpu_native_layer_composite_execution.cpp | c3605dd11b5551e827f8689c6579bfc584d7219e61fe9c1fcb71f96b82a09f57 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp | 3b49e72ee4a6d3d6d413f3e5f6eb3772d3894e730a0ec4f1926e6b0642449c32 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_state.cpp | 2b801e9cc4673fa49092bdee28ac7c6275672c000f635798ba5767d759b30dd5 |
+| src/ProGPU.Native/src/Scene/progpu_native_semantic_render_execution.cpp | c0325d3d72f30d79f386cfc0619f84213090b67a3a203e9e69ac4e4add4a9dae |
+| src/ProGPU.Native/include/progpu_native.h | bf31eab3ad25f079e36391c4d3072bbd15eeab8a94f8cbd04bb9e2d15145e441 |
+| src/ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl | 7ffc9636c103bddbbf13e7ba5fc253d4e9a02c26478edc5e5a38ef9a81de8834 |
+| src/ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl | fc700b1b057b369588960ce485d8bf07a0cb9a6f06e8611f794c1d990f32080c |
+| src/ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl | e57962dfb2ff1b95b68e8ca35f4453856b45a6a8ce234a41caba2f0deeb39238 |
+
+### CPU descriptor and schedule contracts
+
+`EffectChain` owns one through eight immutable `Effect` nodes. Typed variants
+preserve the separate Gaussian sigma, box radius and shadow sigma/offset/color
+contracts. Gaussian and box values must exceed the original logical .01 threshold
+on both axes; shadows independently admit zero sigma. Shadow colors retain the
+original straight linear RGBA 0..1 domain. Rust-owned typed descriptors are not
+native wire producers: struct-size/reserved/version/revision fields are not
+invented, and native transport admission remains separate.
+
+`plan([dpi_x,dpi_y])` ports the semantic presentation route, retaining the original
+four independent float multiply/add lanes with safe SIMD. It validates complete
+physical sigma/radius/offset output before publication. Gaussian/shadow physical
+sigma remains bounded by 128/3; box radius by 128. Gaussian radius is the original
+ceil(sigma*3), box radius the original floor(radius), each clamped to 0..128 only
+after admission. Parameter records stay exactly 16 and 32 bytes with zero padding.
+No zero-radius pass is deleted; the unchanged shaders retain their original
+copy branches, transparent out-of-bounds reads, recurrence order, weight sums,
+uniform box normalization and explicit bilinear shadow-alpha offsets.
+
+The original schedule selects the first intermediate unequal to the source for
+horizontal blur. A Gaussian/box vertical pass reuses the previous source slot
+(or the other initial slot); a shadow selects a third distinct source/blur slot
+when necessary, then writes its composition into the now-dead horizontal slot.
+The original capture remains untouched. `EffectPlan` exposes every source/slot,
+parameter byte record, physical DPI, pass count and checked allocation budget.
+Planning is O(E) bounded by eight nodes; GPU texel work remains original O(P*R)
+per blur axis with radius <=128 and O(P) shadow composition. No CPU pixel loops,
+readback, resampling or approximation are introduced.
+
+### GPU resources and execution
+
+`EffectEngine` uses the shared typed execution preference. Automatic/native
+compute select the canonical 16x16 kernels after checking actual device limits;
+forced alternate GPU/SIMD/scalar routes currently reject. This is capability
+admission, not measured adapter qualification. Equivalent fragment and CPU routes
+remain required work where applicable under the repository execution policy.
+Blur pipelines initialize only on actual use; the separate shadow pipeline only
+when a selected node requires it. All three original WGSL files are embedded
+unchanged and explicitly included in the package inventory. The canonical module
+inventory grows from nine to twelve.
+
+`prepare` requires an actual same-device premultiplied RGBA/BGRA (linear or sRGB)
+source. The source view selects mip zero; all intermediates retain original
+RGBA8Unorm storage/sample/render usage. Raw R8 or straight-alpha sources reject
+rather than receiving an implicit conversion. The original caller-provided target
+extent controls padding and transparent boundaries. No automatic effect bounds,
+source color-space metadata or content generation is inferred from a handle.
+
+Prepared jobs own distinct candidate textures and exact pipeline/bind-group
+handles. They allocate only the schedule's referenced two or three intermediate
+slots; unlike the native semantic pool's eager three-slot inventory, an unused
+third texture is omitted. This changes allocation ownership/quantity without
+changing any original selector, alias, pass or texel operation; memory/performance
+and output comparisons remain deferred. The original 256-byte dynamic uniform
+slots are preserved (16/32-byte exact payloads), with complete device/buffer/size
+admission and checked storage-byte arithmetic. No shared pool can overwrite a
+previous prepared result.
+
+`encode` records the original separate ordered compute passes into a caller-owned
+same-device encoder. `apply` prepares and submits the complete chain once, with
+no CPU GPU-completion wait. Re-encoding a prepared program uploads nothing and
+recomputes current source contents into that program's own output; the API does
+not claim an immutable content snapshot for an externally mutable source. Each
+new apply allocates an independent result. Output caches keyed by actual content
+and effect revisions, pool/retirement budgets and allocation/performance tuning
+remain open. Bind groups retain all source/intermediate resources through GPU
+submission; no destructor destroys a live texture, submits, polls or unmaps.
+
+Metrics report original node/pass/workgroup counts, actual intermediate byte and
+allocation counts, padded uniform storage and distinct exact payload bytes.
+These counters expose work; they do not establish performance parity.
+
+### Scene capture and final composition
+
+`Renderer::encode` now exposes the existing painter-ordered render pass without
+forcing a submission; `render` uses that same implementation. All owner, frame,
+finite-clear and glyph-residency gates remain. `Renderer::capture` allocates a
+fresh source-format texture at the already-prepared physical frame, clears it to
+transparent, encodes original vector/text/image ranges and direct mask/scissor
+controls, then optionally encodes the complete effect chain in the same command
+buffer and submits once. It never changes source positions, target DPI or mask
+coordinate records. The native isolated target's render/sample/copy usages are
+retained. Preparation/render and effect resources stay under their actual device.
+
+`CapturedScene` returns the final premultiplied image, actual frame, capture
+allocation bytes and optional effect metrics. Earlier source preparation metrics
+are separately labeled, not recounted as new uploads. Subsequent image draws
+apply final opacity, masks and placement after capture/effects. Every capture has
+its own output generation, so later captures do not mutate earlier retained
+images. Async cancellation/error drops private candidates without publishing a
+partial result; wgpu retains actually submitted dependencies. No readback or
+external owner callback is added.
+
+This API takes an explicit physical frame and source geometry/padding. It does
+not implement automatic root-to-layer rebasing, semantic outward bounds, nested
+layer traversal, conditional AA groups, background initialization, source shader
+opacity ordering, target-storage Clear, advanced blends or retained revision
+caches. Those original contracts and their package/source/pixel gates remain
+mandatory future work. A whole root-sized capture is not advertised as the
+bounded native semantic layer compiler.
+
+### Shared gallery and validation scope
+
+Native `--effects` and browser `?scene=effects` share six authored capture cases:
+plain, anisotropic Gaussian, fractional box, zero-sigma fractional-offset shadow,
+blurred shadow and a complete eight-node mixed chain. Source rounded masks and
+alpha overlaps precede capture; final clipped image opacity is applied afterward.
+`--effects --text FONT_PATH` or a local browser font selection adds actual owned
+shaped text to the captured source. The 264x208 logical fixture explicitly owns
+its padding and resolves its physical frame at actual target DPI. The gallery
+reports capture/effect bytes, uniform bytes and passes without reading pixels.
+
+Per the requested implementation-first workflow, validation is limited to strict
+native all-target/all-feature, browser-target and CPU-only lint/compilation,
+format/whitespace/JS syntax, package-file inventory (no archive built), and the
+existing offline Naga test over all twelve canonical modules. Complete matched
+source parameter/schedule/error/float controls, native/browser full-frame pixels,
+zero/asymmetric/maximum radii, long mixed chains, odd extents, fractional offsets,
+color/alpha, retirement/cancellation/device loss, warm output caching, allocator/
+process/frame performance and original provider/package/application qualification
+are deferred. Original browser failures and prior performance gates remain open.

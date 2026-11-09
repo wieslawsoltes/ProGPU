@@ -1,4 +1,4 @@
-//! Canonical shader compositions, matching `ProGPU.Backend/Shaders.cs`.
+//! Canonical backend compositions and original ProGPU.Compute effect resources.
 //! Composition happens at compile time, with no runtime decoding or allocation.
 
 macro_rules! shader {
@@ -49,6 +49,15 @@ pub const TEXTURE: &str = concat!(
 );
 /// Original linear previous-level mip generation, without CPU resampling.
 pub const MIP_GENERATOR: &str = shader!("MipGenerator");
+/// Original horizontal Gaussian/box group-effect kernel.
+pub const BLUR_HORIZONTAL: &str =
+    include_str!("../../ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl");
+/// Original vertical Gaussian/box group-effect kernel.
+pub const BLUR_VERTICAL: &str =
+    include_str!("../../ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl");
+/// Original premultiplied source-over-shadow composition kernel.
+pub const DROP_SHADOW: &str =
+    include_str!("../../ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl");
 /// Original pairwise segment splitting/classification for Boolean reconstruction.
 pub const PATH_OPERATION: &str = shader!("PathOpGeometry");
 /// Original separate ordered output-record finalizer.
@@ -62,6 +71,9 @@ pub const MODULES: &[(&str, &str)] = &[
     ("text", TEXT),
     ("texture", TEXTURE),
     ("mip_generator", MIP_GENERATOR),
+    ("blur_horizontal", BLUR_HORIZONTAL),
+    ("blur_vertical", BLUR_VERTICAL),
+    ("drop_shadow", DROP_SHADOW),
     ("path_operation", PATH_OPERATION),
     ("path_operation_finalizer", PATH_OPERATION_FINALIZER),
 ];

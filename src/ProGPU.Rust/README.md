@@ -4,6 +4,10 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
+Latest connected batch: owned scene captures and complete bounded native Gaussian,
+box and drop-shadow chains, with shared native/browser effect galleries. Automatic
+nested layer composition and full validation remain unfinished.
+
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
 ordering, outline/variation metrics, GPOS, kerning, fallback marks, visual ordering,
@@ -43,6 +47,7 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, color matrices/effects and complete compositor integration |
 | Image resources and mips | Immutable strided RGBA/BGRA/R8 owners, device-bound GPU handles, weak-owner upload cache, actual sampler policy, canonical GPU mip generation and occupied-tile/brush mapping; native/browser gallery | Runtime/source/browser validation; full mutable generation, subresource, capture, codec and provider ownership APIs |
 | Direct masks and binary clips | Original 96/288-byte analytic/R8 chains, independent radii and physical mappings, exact axis-area branch, binary pixel-center scissors, balanced retained scopes and shared vector/text/image execution; native/browser mask gallery | Matched source bytes/pixels/lifetime/cache/performance controls; full path/brush/picture/composite masks, isolated layers, AA group composition and Clear remain unfinished |
+| Owned captures and group effects | Complete eight-node native Gaussian/box/drop-shadow plan, original physical parameters and canonical GPU passes, owned job resources, same-submission scene capture and final image composition; shared effect gallery | Whole-source/runtime/browser/lifetime/performance controls; automatic bounds/rebasing/nested layers, alternate execution routes, output caches, shader/image filters and advanced blends remain unfinished |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
 
 
@@ -62,6 +67,21 @@ actual mask/pipeline resources, exact uniform/source bindings are shared within
 the frame, and weak-owner coverage uploads are reused across preparation. Metrics
 report actual mask uploads/storage/bindings and exclude empty-scissor draws.
 Runtime and original-source qualification remain deferred.
+
+`effects::EffectChain::plan` exposes original bounded Gaussian/box/shadow
+schedules and parameter records without a GPU. `EffectEngine::prepare/encode`
+retain original 16x16 passes and aligned uniforms; `apply` submits a complete
+chain. `Renderer::capture` renders a prepared scene to a fresh transparent target,
+optionally executes its effects in the same submission, and returns an owned
+premultiplied image for later opacity/mask/placement. Capture frames and padding
+are explicit; automatic native layer bounds/nesting remain unfinished.
+
+The shared `--effects` / `?scene=effects` gallery covers six cases including an
+eight-node mixed chain; an explicit local font also exercises captured text.
+The module inventory now contains twelve unchanged canonical shaders, including
+Gaussian horizontal/vertical and shadow composition. Runtime pixels, full source
+comparisons and performance remain deferred. See the design ledger for exact
+sources, resource ownership and the remaining layer/effect contracts.
 
 At the user's request, implementation proceeds in connected batches with
 compile/static checks; exhaustive differential/browser/performance/package

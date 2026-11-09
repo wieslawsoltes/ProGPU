@@ -2,6 +2,9 @@
 //! This example uses the same production renderer and shared scene as winit.
 
 #[cfg(target_arch = "wasm32")]
+#[path = "support/effect_scene.rs"]
+mod effect_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/font_scene.rs"]
 mod font_scene;
 #[cfg(target_arch = "wasm32")]
@@ -1658,6 +1661,8 @@ mod web {
         text_font: Option<progpu::font::ManagedFont>,
         image_scene: bool,
         mask_scene: bool,
+        effect_scene: bool,
+        effect_metrics: super::effect_sample::GalleryMetrics,
         validation: Option<Renderer>,
         frames: u32,
         capture_complete: Option<Arc<AtomicBool>>,
@@ -1731,6 +1736,8 @@ mod web {
             text_font: None,
             image_scene: false,
             mask_scene: false,
+            effect_scene: false,
+            effect_metrics: Default::default(),
             validation: None,
             frames: 0,
             capture_complete: None,
@@ -1760,6 +1767,7 @@ mod web {
             self.ensure_live()?;
             self.material_scene = enabled;
             self.mask_scene = false;
+            self.effect_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1779,6 +1787,7 @@ mod web {
             self.ensure_live()?;
             self.image_scene = enabled;
             self.mask_scene = false;
+            self.effect_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1787,6 +1796,16 @@ mod web {
         pub fn select_mask_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.mask_scene = enabled;
+            self.effect_scene = false;
+            self.image_scene = false;
+            self.material_scene = false;
+            Ok(())
+        }
+        /// Select the shared owned capture/Gaussian/box/drop-shadow gallery.
+        pub fn select_effect_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.effect_scene = enabled;
+            self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1798,18 +1817,13 @@ mod web {
                 self.scene = None;
                 return Ok(());
             }
-            let source = if self.mask_scene {
-                super::mask_sample::mask_scene(self.text_font.clone())
-            } else if let Some(font) = &self.text_font {
-                super::text_sample::text_scene(font.clone())
-            } else if self.image_scene {
-                super::image_sample::image_scene()
-            } else if self.material_scene {
-                super::material_sample::material_scene()
+            let (source, effect_metrics) = if self.effect_scene {
+                super::effect_sample::effect_scene(&mut self.renderer, dpi, self.text_font.clone())
+                    .await
+                    .map_err(error)?
             } else {
-                sample::sample_scene()
-            }
-            .map_err(error)?;
+                (self.record_scene().map_err(error)?, Default::default())
+            };
             let scene = self
                 .renderer
                 .prepare_scene(
@@ -1829,7 +1843,21 @@ mod web {
             self.canvas.set_height(height);
             self.surface.configure(&self.device, &self.config);
             self.scene = Some(scene);
+            self.effect_metrics = effect_metrics;
             Ok(())
+        }
+        fn record_scene(&self) -> Result<progpu::scene::Scene, Box<dyn std::error::Error>> {
+            if self.mask_scene {
+                super::mask_sample::mask_scene(self.text_font.clone())
+            } else if let Some(font) = &self.text_font {
+                super::text_sample::text_scene(font.clone())
+            } else if self.image_scene {
+                super::image_sample::image_scene()
+            } else if self.material_scene {
+                super::material_sample::material_scene()
+            } else {
+                sample::sample_scene()
+            }
         }
         /// Present retained GPU resources without uploads, rasterization or readback.
         pub fn draw(&mut self) -> Result<bool, JsValue> {
@@ -1917,6 +1945,17 @@ mod web {
                     ("maskUploadBytes", m.mask_upload_bytes as f64),
                     ("maskTextureBytes", m.mask_texture_bytes as f64),
                     ("maskBindings", m.mask_bindings as f64),
+                    ("captures", self.effect_metrics.captures as f64),
+                    ("captureBytes", self.effect_metrics.capture_bytes as f64),
+                    (
+                        "effectTextureBytes",
+                        self.effect_metrics.effect_bytes as f64,
+                    ),
+                    (
+                        "effectUniformBytes",
+                        self.effect_metrics.effect_uniform_bytes as f64,
+                    ),
+                    ("effectPasses", self.effect_metrics.effect_passes as f64),
                     ("width", f.width as f64),
                     ("height", f.height as f64),
                     ("dpi", f.dpi_scale as f64),

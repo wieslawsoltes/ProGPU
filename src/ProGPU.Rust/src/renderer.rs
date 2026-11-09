@@ -16,10 +16,12 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod capture;
 mod image;
 mod layout;
 mod mask;
 mod text;
+pub use capture::CapturedScene;
 
 /// Physical target dimensions and scalar logical-to-physical DPI.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -187,6 +189,7 @@ pub struct Renderer {
     text_options: crate::text::glyph::GlyphAtlasOptions,
     images: Option<image::ImageState>,
     masks: Option<mask::MaskState>,
+    effects: Option<crate::effects::EffectEngine>,
     image_sampling: Option<crate::image::ImageSamplingPath>,
     image_preference: crate::image::ImageSamplingPreference,
 }
@@ -314,6 +317,7 @@ impl Renderer {
             text_options: Default::default(),
             images: None,
             masks: None,
+            effects: None,
             image_sampling: None,
             image_preference: Default::default(),
         })
@@ -631,6 +635,25 @@ impl Renderer {
         target: &wgpu::TextureView,
         clear: wgpu::Color,
     ) -> Result<wgpu::SubmissionIndex, Error> {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("ProGPU frame"),
+            });
+        self.encode(&mut encoder, scene, target, clear)?;
+        Ok(self.queue.submit([encoder.finish()]))
+    }
+
+    /// Encode an ordered scene into a caller-owned same-device encoder. The
+    /// target must match the scene's actual frame and renderer format. This
+    /// allows capture, effects and composition to share one submission.
+    pub fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &PreparedScene,
+        target: &wgpu::TextureView,
+        clear: wgpu::Color,
+    ) -> Result<(), Error> {
         if !Arc::ptr_eq(&self.owner, &scene.owner) {
             return Err(Error::ResourceDomain);
         }
@@ -643,11 +666,6 @@ impl Renderer {
         {
             return Err(Error::InvalidInput);
         }
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("ProGPU frame"),
-            });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ProGPU ordered scene pass"),
@@ -742,7 +760,7 @@ impl Renderer {
                 }
             }
         }
-        Ok(self.queue.submit([encoder.finish()]))
+        Ok(())
     }
 }
 

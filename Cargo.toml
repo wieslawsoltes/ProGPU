@@ -7,7 +7,7 @@ license = "MIT AND Unicode-3.0"
 description = "ProGPU's native Rust rendering engine using canonical WebGPU shaders"
 repository = "https://github.com/wieslawsoltes/ProGPU"
 readme = "src/ProGPU.Rust/README.md"
-include = ["/Cargo.toml", "/Cargo.lock", "/LICENSE", "/src/ProGPU.Rust/**", "/src/ProGPU.Backend/Shaders/*.wgsl", "/src/ProGPU.Text/UnicodeNormalizationData.bin"]
+include = ["/Cargo.toml", "/Cargo.lock", "/LICENSE", "/src/ProGPU.Rust/**", "/src/ProGPU.Backend/Shaders/*.wgsl", "/src/ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl", "/src/ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl", "/src/ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl", "/src/ProGPU.Text/UnicodeNormalizationData.bin"]
 
 [lib]
 path = "src/ProGPU.Rust/src/lib.rs"
