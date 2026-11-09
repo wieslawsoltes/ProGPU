@@ -40,6 +40,10 @@ static class Control
         var stretch=typeof(B).GetMethod("RecordArabicStretch",F)!.CreateDelegate<Action<B>>();
         var reverse=typeof(B).GetMethod("Reverse",F)!.CreateDelegate<Action<B>>();
         var vowels=typeof(B).GetMethod("ApplyVowelConstraints",F)!.CreateDelegate<Action<B,string>>();
+        var usePrepare=typeof(B).GetMethod("PrepareUseShaping",F)!.CreateDelegate<Action<B,bool,string>>();
+        var useRepha=typeof(B).GetMethod("RecordUseRepha",F)!.CreateDelegate<Action<B>>();
+        var usePrebase=typeof(B).GetMethod("RecordUsePrebase",F)!.CreateDelegate<Action<B>>();
+        var useReorder=typeof(B).GetMethod("ReorderUseShaping",F)!.CreateDelegate<Action<B,bool>>();
         var myanmarPrepare=typeof(B).GetMethod("PrepareMyanmarShaping",F)!.CreateDelegate<Action<B,bool>>();
         var myanmarReorder=typeof(B).GetMethod("ReorderMyanmar",F)!.CreateDelegate<Action<B>>();
         var khmer=typeof(B).GetMethod("PrepareKhmerShaping",F)!.CreateDelegate<Action<B,string>>();
@@ -160,6 +164,12 @@ static class Control
                             case 70:myanmarPrepare(buffer,false);break;
                             case 71:myanmarPrepare(buffer,true);break;
                             case 72:myanmarReorder(buffer);break;
+                            case 73:usePrepare(buffer,false,script);break;
+                            case 74:usePrepare(buffer,true,script);break;
+                            case 75:useRepha(buffer);break;
+                            case 76:usePrebase(buffer);break;
+                            case 77:useReorder(buffer,false);break;
+                            case 78:useReorder(buffer,true);break;
                             default:throw new InvalidDataException("action");
                         }
                     }

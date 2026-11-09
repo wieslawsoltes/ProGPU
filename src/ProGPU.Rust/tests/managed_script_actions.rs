@@ -23,6 +23,8 @@ mod fallback;
 mod khmer;
 #[path = "support/managed_myanmar_cases.rs"]
 mod myanmar;
+#[path = "support/managed_use_cases.rs"]
+mod use_cases;
 #[path = "support/managed_vowel_cases.rs"]
 mod vowels;
 #[test]
@@ -326,7 +328,8 @@ fn corpus(mut emit: impl FnMut(Case, bool)) {
     fallback::corpus(&mut emit);
     vowels::corpus(&mut emit);
     khmer::corpus(&mut emit);
-    myanmar::corpus(emit);
+    myanmar::corpus(&mut emit);
+    use_cases::corpus(emit);
 }
 
 fn joining_corpus(mut emit: impl FnMut(Case, bool)) {

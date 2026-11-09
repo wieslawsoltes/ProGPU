@@ -58,6 +58,12 @@ pub fn action(code: u32) -> Option<ManagedScriptAction> {
         70 => MyanmarPreparation { enabled: false },
         71 => MyanmarPreparation { enabled: true },
         72 => MyanmarReordering,
+        73 => UsePreparation { enabled: false },
+        74 => UsePreparation { enabled: true },
+        75 => UseRecordRepha,
+        76 => UseRecordPrebase,
+        77 => UseReordering { enabled: false },
+        78 => UseReordering { enabled: true },
         22..=28 | 32..=63 => ArabicFallback {
             enabled: code != 22,
             features: fallback_features(code),

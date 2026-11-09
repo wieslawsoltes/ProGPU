@@ -12,6 +12,7 @@ pub use joining::{ManagedJoiningType, managed_joining_type};
 mod arabic_fallback;
 mod khmer;
 mod myanmar;
+mod use_shaping;
 mod vowel;
 pub use arabic_fallback::ManagedArabicFallbackFeatures;
 
@@ -102,6 +103,20 @@ pub enum ManagedScriptAction {
     },
     /// Insert original broken-syllable circles and reorder the current records.
     MyanmarReordering,
+    /// Original USE classification, filtered syllables, eligibility and forms.
+    UsePreparation {
+        /// Actual planner admission, independent of raw script spelling.
+        enabled: bool,
+    },
+    /// Record the first substituted eligible repha in each original USE syllable.
+    UseRecordRepha,
+    /// Record the first substituted pre-base form in each original USE syllable.
+    UseRecordPrebase,
+    /// Original post-basic-substitution USE dotted circles and reordering.
+    UseReordering {
+        /// Actual planner admission; false preserves every record.
+        enabled: bool,
+    },
     /// Reverse complete original records without reconstructing clusters.
     Reverse,
 }
@@ -271,6 +286,14 @@ impl ManagedGlyphBuffer {
             }
             ManagedScriptAction::MyanmarReordering => {
                 myanmar::reorder(&mut self.glyphs, font, options.buffer_flags)?;
+            }
+            ManagedScriptAction::UseRecordRepha => use_shaping::record_repha(&mut self.glyphs),
+            ManagedScriptAction::UsePreparation { enabled } => {
+                use_shaping::prepare(&mut self.glyphs, enabled, script, options.marks)?;
+            }
+            ManagedScriptAction::UseRecordPrebase => use_shaping::record_prebase(&mut self.glyphs),
+            ManagedScriptAction::UseReordering { enabled } => {
+                use_shaping::reorder(&mut self.glyphs, font, options.buffer_flags, enabled)?;
             }
             ManagedScriptAction::ArabicFallback { enabled, features } => {
                 if enabled {

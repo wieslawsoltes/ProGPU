@@ -35,7 +35,7 @@ def font(space_only, identity=False):
     return result
 
 
-def request(script, points, count, actions, fallback=False, myanmar=False):
+def request(script, points, count, actions, fallback=False, myanmar=False, use=False):
     records=[]
     for i in range(count):
         values=[((i+1)*(n+3)*7) & 255 for n in range(31)]
@@ -48,6 +48,13 @@ def request(script, points, count, actions, fallback=False, myanmar=False):
                 categories = {0x1000:1,0x1004:15,0x103a:32,0x1039:4,0x103c:36,0x1031:22,0xfe00:40,0x102f:21,0x1036:9}
                 values[17] = categories[values[4]]
                 values[16] = 0x10 if len(points) <= 2 else (((i // len(points)) % 15 + 1) << 4)
+        if use:
+            values[22] = values[23] = 0
+            if actions in ([78], [75, 76, 78]):
+                categories = {0x30:1,0xd4e:18,0x94d:12,0x93f:22,0x1c34:23}
+                values[15] = categories[values[4]]
+                values[16] = ((i // len(points)) % 15 + 1) << 4 | 2
+                values[20] = 1 if i % len(points) < 3 else 0
         records.extend(values)
     script=list(script.encode('ascii'))
     values=[len(script),*script,1,1,count,*([65]*count),0,0,len(actions),*actions,count,*records]
@@ -57,6 +64,7 @@ def request(script, points, count, actions, fallback=False, myanmar=False):
 def corpus():
     fallback_only = os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1'
     vowel_only = os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1'
+    use_only = os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1'
     myanmar_only = os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1'
     khmer_only = os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1'
     fonts=[font(False, fallback_only),font(True)]
@@ -117,15 +125,28 @@ def corpus():
             ('myanmar-sort-long-prevowels', 'mymr', [0x1031,0xfe00], [72]),
             ('myanmar-disabled', 'mymr', [0x1004,0x103a,0x1039,0x1000], [70]),
         ]
+    if use_only:
+        patterns = [
+            ('use-prepare', 'tibt', [0xd4e,0x30,0x94d,0x30,0x93f,0x1c34], [74]),
+            ('use-base', 'tibt', [0x30,0x93f,0x941,0x952,0x1930], [74,78]),
+            ('use-repha', 'tibt', [0xd4e,0x30,0x94d,0x30,0x93f,0x1c34], [74,78]),
+            ('use-broken', 'tibt', [0x93f,0x1c34,0x952], [74,78]),
+            ('use-filtered', 'tibt', [0x34f,0x200c,0x34f,0x93f,0x30], [74,78]),
+            ('use-hieroglyphs', 'egyp', [0x5b,0x13000,0x13430,0x5b,0x13000,0x5d], [74,78]),
+            ('use-long-prefix', 'egyp', [0x5b], [74]),
+            ('use-record-forms', 'tibt', [0xd4e,0x30,0x94d,0x30,0x93f,0x1c34], [75,76,78]),
+            ('use-reorder', 'tibt', [0xd4e,0x30,0x94d,0x30,0x93f,0x1c34], [78]),
+            ('use-disabled', 'tibt', [0xd4e,0x30,0x93f], [73,77]),
+        ]
     if joining_only:
         patterns = [pattern for pattern in patterns if pattern[0].startswith('joining-')]
     for index in range(len(fonts)):
         for name,script,points,actions in patterns:
             for count in [128,4096]:
-                data+=word(index)+request(script,points,count,actions,fallback_only,myanmar_only)
+                data+=word(index)+request(script,points,count,actions,fallback_only,myanmar_only,use_only)
                 cases.append(dict(font='space-only' if index else ('identity-bmp' if fallback_only else 'full'),pattern=name,records=count,script=script,actions=actions))
-    selected = patterns[0 if joining_only or fallback_only or vowel_only or khmer_only or myanmar_only else 4]
-    profile_input=header+(word(0)+request(selected[1],selected[2],4096,selected[3],fallback_only,myanmar_only))*20
+    selected = patterns[0 if joining_only or fallback_only or vowel_only or khmer_only or myanmar_only or use_only else 4]
+    profile_input=header+(word(0)+request(selected[1],selected[2],4096,selected[3],fallback_only,myanmar_only,use_only))*20
     return data,cases,profile_input
 
 
@@ -194,6 +215,9 @@ def main():
                  'src/ProGPU.Rust/src/text/script_actions/myanmar.rs',
                  'src/ProGPU.Rust/src/text/script_actions/myanmar_syllables.rs',
                  'src/ProGPU.Rust/src/text/script_actions/myanmar_sort_storage.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/use_shaping.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/use_syllables.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/use_indices.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
@@ -202,7 +226,9 @@ def main():
             receipt['measurement_limits'] = 'Four disabled-script no-op workloads are at the observed 0..0.042 microsecond clock/format resolution; their relative latency is not qualified. Retain original samples and complete outputs.'
         if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1':
             receipt['measurement_limits'] = 'New-stage matched baseline, not an optimization or end-to-end shaping claim. Disabled preparation is a near-clock-resolution no-op; relative latency is not qualified.'
-        name = 'managed-myanmar-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1' else 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
+        if os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1':
+            receipt['measurement_limits'] = ('Paired Release Rust before/after and original C#; matched CPU-stage outputs and three rotating trials. Instruments CPU tables retained separately. Disabled stages are clock-limited; no allocator, process-memory, GPU or end-to-end shaping qualification.' if before else 'New-stage matched baseline, not optimization or end-to-end shaping qualification. Disabled stages are near-clock-resolution no-ops; relative latency is not qualified.')
+        name = 'managed-use-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_USE_ONLY') == '1' else 'managed-myanmar-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_MYANMAR_ONLY') == '1' else 'managed-khmer-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_KHMER_ONLY') == '1' else 'managed-vowel-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_VOWEL_ONLY') == '1' else 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
         output = ROOT / 'src/ProGPU.Rust/perf' / name
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')

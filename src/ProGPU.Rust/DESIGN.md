@@ -4052,3 +4052,115 @@ Rust allocation events, a before/after optimization claim and full shaping/frame
 performance remain open. Full Indic/USE stages, actual plan orchestration,
 position initialization, fallback/layout/interaction, GPU text and all original
 provider/package/source/pixel qualification remain mandatory.
+
+
+## Original USE stages with independent recognition
+
+The approved ProGPU-owned `OpenTypeTextShaper.GlyphSubstitutionBuffer` methods
+`PrepareUseShaping`, `FindUseSyllables` filtering, `AssignUseSyllable`,
+`MarkSyllablesUnsafeToBreak`, `AssignUseRephaEligibility`,
+`AssignUseTopographicalActions`, `RecordUseRepha`, `RecordUsePrebase`,
+`ReorderUseShaping`, `InsertBrokenUseDottedCircles`, `ReorderUseSyllable`,
+`IsUsePostBase`, `IsUseHalant` and `MergeCluster` supply the stage behavior.
+The source-only harness invokes original syllable recognition with explicitly
+owned identity indices and transports category inputs and original result bytes.
+Only byte-literal category names/values are reflected from `UseShapingData`;
+no provider arrays are accessed. Generated foreign tables, state numbers and
+lexer structure are not used to implement the independent Rust recognizer.
+
+[Microsoft's USE specification](https://learn.microsoft.com/en-us/typography/script-development/use)
+supplies public cluster families and ordered components. The original API's
+observable behavior refines those contracts: distinct early/late sakot-base
+sections, halant versus invisible-stacker/reordering-killer endings, contextual
+final modifiers, symbol/general-base ties, permissive incomplete hieroglyph
+joiner/segment sequences and broken-cluster grouping. Original behavior takes
+precedence over current specification revisions and the suggested 31-character
+cap. The prior engine research ledger remains applicable; no external rendering
+or shaping engine implementation text, transition table or generated topology is
+transcribed. Production uses typed safe Rust and the already qualified original
+property API, with no additional runtime engine dependency.
+
+Recognition compares independently parsed cluster-family extents. Long accepted
+sections are consumed; a cached segment-begin endpoint bounds repeated failed
+hieroglyph prefixes. The complete scan is O(N) with O(1) parser scratch. The
+source oracle covers every sequence through length four over 45 categories,
+every raw-byte pair, every raw category in all three positions with two relevant
+neighbors, long sections through 4,096 repetitions, 30,000 random runs and
+10,000 authored public-grammar combinations/mutations. All 5,870,757 cases /
+35,631,822 output bytes match; tests use original API outputs as the oracle.
+
+Preparation first writes original shaper/category metadata, then builds the
+complete filtered index view before any syllable write. CGJ is omitted;
+ZWNJ is omitted only when the next non-CGJ record passes the original Rune mark
+query under the explicit managed mark profile. Invalid scalars reject at that
+query, leaving earlier classification writes and untouched subsequent metadata.
+The sentinel maps recognition's end back to the complete original record range.
+Leading and wholly excluded records retain old syllables; excluded records
+between included boundaries are assigned with their original containing range.
+Unsafe bits use signed cluster minima. Repha eligibility sets the original one
+or three leading records without clearing unrelated existing eligibility bytes.
+Exact source Arabic-joining script names suppress topographical rewriting; other
+scripts retain original whole-syllable initial/medial/final/isolated decisions.
+
+An independent index lease preserves the source pooled-allocation boundary.
+It retains at most one empty allocation of 8,192 32-bit indices per thread, with
+no font/text/context owners and no RefCell borrow spanning stage work. Nested
+leases remain independent; reentrant borrowing, oversized storage and thread
+teardown retire normally. The ownership test checks these cases. Index storage
+is O(N); ordered filtering, grammar and topology carry genuine sequential state.
+No per-pixel workload or GPU shader moves to CPU.
+
+Post-lookup repha recording stops at the first ineligible record and marks only
+the first substituted eligible one. Pre-base recording marks the first
+substituted record in the syllable. Reordering inserts broken circles after any
+leading repha run, preserving the first source record's cluster and Arabic action.
+Suppression precedes the font query, and unsuppressed empty/non-broken calls still
+query the actual font. Repha moves after cluster merging, while pre-base records
+retain the cluster value captured BEFORE merging. This source distinction is
+intentional in the port. Neighbor-extended cluster writes, ligation-sensitive
+halant barriers, multiple-substitution components and whole-record movement stay
+unchanged. Original repeated merging/insertion/movement retains O(N²) worst-case
+work; in-place rotations preserve the source remove/insert sequence.
+
+The full action corpus adds 207,963 cases while preserving all 1,324,919 earlier
+cases. It checks all 31 glyph fields, eight mutable lookup states, immutable
+source/context ownership, failures and continuation. Controls include all raw
+category pairs, all syllable bytes, ligation/component state, eligible-prefix
+termination, filtered leading/interior/trailing records, malformed/high code
+points, source joining scripts, every buffer flag, four levels, repeated and
+reversed actions, real source normalization and long runs. The 1,532,882 cases
+match 1,715,629,716 bytes on the actual macOS Unicode 17 runtime; 1,910 frozen
+cases remain shared by native and browser builds. Full Indic stages, actual
+planner integration, positioning initialization, fallback/layout/interaction,
+GPU text and all original provider/package/source/pixel gates remain required.
+
+
+The first USE baseline had four higher Rust medians, all hieroglyph workloads,
+under host load 46.22/36.17/21.06. Instruments Time Profiler sampled the actual
+4,096-record prepare/reorder workload for six seconds: the generic tail matcher
+accounted for 1,651 of 5,640 leaf samples despite the disjoint hieroglyph prefix.
+A confirmed hieroglyph prefix now returns its original family result before
+unrelated Indic/number/symbol candidate parsing. Failed segment-begin prefixes
+retain the prior cached fallback path. The complete parser corpus and full-record
+source suite are repeated after this change.
+
+Matched six-second Release profiles retain complete compressed exported tables,
+the before parser source, identical workload bytes and exact binary hashes. The
+second trace has 5,074 samples with no generic-tail leaf samples on this workload.
+CPU-core distribution and startup differ; sample counts are attribution evidence,
+not a timing comparison. Independent uninstrumented tests rotate current Rust,
+original C# and before Rust in three process-order trials over all 40 workloads;
+every complete output matches. All 36 active workloads have lower current Rust
+medians than C# in this capture. Hieroglyph after/before median ratios are
+0.523–0.571 across both lengths and fonts; four disabled no-ops are clock-limited.
+The paired run's host load is 6.14/20.73/19.96. The exact original baseline and
+paired samples are retained without discarding slower results. Source GC counters
+are observed; no allocator-event, process-footprint, GPU/Metal or end-to-end
+shaping claim follows. Full rendering/layout performance remains a separate gate.
+
+The first copied profiler executable lacked its executable mode, so that attempt
+produced no qualifying sample. Correcting the owned file mode allowed both full
+recordings; an export attempted during finalization was repeated only after the
+recording became terminal. The complete tables replace large temporary traces
+for disk retention. No source driver, shader, browser flag or compiler default
+is changed to obtain these CPU-stage measurements.
