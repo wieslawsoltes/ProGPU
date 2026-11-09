@@ -78,10 +78,11 @@ increment adds native route/language discovery, the complete four complex-stage
 families, their normalization/mapping/preprocessing, spaces/fractions and connected
 design-unit positioning, including vertical/reverse finishing. Remaining families:
 
-* Arabic joining/form/preprocessing/context/reversal/fallback/stretch orchestration,
-  including USE routes that independently require joining; Hangul and other
-  ordinary noncomplex preprocessing/finishing.
-* Full native fallback-mark extent positioning.
+The later [native-unified-shaping-port.md](native-unified-shaping-port.md)
+connects ordinary Arabic (including USE overlap), Hangul/Hebrew/Thai-Lao,
+design-unit fallback-mark extents and Arabic stretch. `NativeShaper` now owns the
+unified native run route; the specialized Latin API remains independent.
+
 * Actual hinted-device font producer, metric/outline preparation, descriptor
   remapping, source positioning/boundary capture, fragment-verification callbacks,
   prepared-glyph placement and final provider integration. Existing GPOS/device

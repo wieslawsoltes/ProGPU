@@ -100,19 +100,20 @@ font execution or frame-time font loading is introduced.
 
 ## Independent remaining boundaries
 
-* Some original USE scripts also require the separate Arabic joining family
-  (including Mongolian and Adlam). Complete USE stage algorithms are present,
-  but `NativeComplexShaper::new` rejects `route.arabic_joining` until native
-  joining/form/directional/stretch/context/fallback orchestration is connected.
+The subsequent [native-unified-shaping-port.md](native-unified-shaping-port.md)
+connects the ordinary-script, Arabic (including USE overlap), Hangul, Hebrew,
+Thai/Lao, fallback-mark and stretch families through `NativeShaper`.
+`NativeComplex*` names remain aliases to that shared run owner.
+
 * The source `Verify` flag requires the independent fragment verification/replay
   family. This entry point explicitly rejects it rather than omitting verification.
 * Actual hinted-device metric/outline preparation, device descriptor mapping,
   positioning/boundary capture and provider callbacks remain independent work.
   These are design-unit runs; existing device GPOS contracts are not a hinted
   font producer or source-policy qualification.
-* Ordinary noncomplex Arabic, Hangul, Hebrew and Thai/Lao execution and full
-  fallback-mark extent positioning remain separate. Paragraph fallback, bidi
-  itemization and source application/package/browser qualification also remain.
+* Paragraph fallback, bidi itemization and source application/package/browser
+  qualification remain independent. The exact device mark/stretch policies and
+  actual hinted metric producer remain outside the connected design-unit writer.
 
 ## Architecture and deferred validation
 

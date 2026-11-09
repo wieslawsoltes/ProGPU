@@ -1,5 +1,7 @@
 //! Original native complex feature scheduler and bounded Indic GSUB probes.
 use super::*;
+#[path = "ordinary_stages.rs"]
+mod ordinary;
 const DIRECTIONAL: &[Tag] = &[
     Tag::new(*b"ltra"),
     Tag::new(*b"ltrm"),
@@ -65,6 +67,8 @@ pub(super) struct Context<'a> {
     pub alternate: u32,
     pub flags: NativeBufferFlags,
     pub gdef: Option<Gdef<'a>>,
+    pub random: std::cell::Cell<u32>,
+    pub zero_mark_advances: bool,
 }
 fn per_syllable(kind: NativeComplexKind, tag: Tag, presentation: bool) -> bool {
     let bytes = tag.bytes();
@@ -105,6 +109,7 @@ impl Context<'_> {
         let feature = feature.filter(|&f| self.plan.has_settings(f));
         let mut state = GsubState {
             glyph_count: b.count as u32,
+            random_state: Some(self.random.get()),
             ..Default::default()
         };
         let result = (|| {
@@ -139,6 +144,9 @@ impl Context<'_> {
                         b.storage,
                         GsubOptions {
                             alternate_value: value,
+                            random_alternate: options.random_alternate
+                                && feature == RAND
+                                && value == u32::from(u16::MAX),
                             ..options
                         },
                         &mut state,
@@ -149,11 +157,22 @@ impl Context<'_> {
                     }
                 }
             } else {
-                table.apply_gsub(lookup, None, b.storage, options, &mut state)?;
+                table.apply_gsub(
+                    lookup,
+                    None,
+                    b.storage,
+                    GsubOptions {
+                        random_alternate: false,
+                        ..options
+                    },
+                    &mut state,
+                )?;
             }
             Ok(())
         })();
         b.count = state.glyph_count as usize;
+        self.random
+            .set(state.random_state.unwrap_or(self.random.get()));
         result
     }
     fn feature(
@@ -273,6 +292,7 @@ impl Context<'_> {
                 GsubOptions {
                     gdef: self.gdef,
                     alternate_value: self.plan.value(tag, cluster),
+                    track_fallback_mark_metadata: self.fallback_marks(),
                     track_substitution_provenance: true,
                     ..Default::default()
                 },

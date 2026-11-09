@@ -1,9 +1,9 @@
 //! Original native shaping orchestration, independent of the managed shaper.
 //!
-//! [`NativeLatinShaper`] connects the complete printable-ASCII, left-to-right
-//! Latin branch of the original native run writer. Its explicit input boundary
-//! does not claim admission of the separate complex-script preprocessing stages.
-//! Feature planning and native legacy kerning are reusable independently.
+//! [`NativeShaper`] connects original ordinary, joining, Hangul and complex
+//! script stages to owned design-unit positioned runs. [`NativeLatinShaper`]
+//! retains its independent printable-ASCII specialization. Native hinting and
+//! fragment verification remain separate provider boundaries.
 use super::ShapingGlyph;
 use crate::font::layout::{
     Gdef, GlyphClass, GposAttachment, GposDirection, GposOptions, GposState, GsubOptions,
@@ -18,7 +18,9 @@ mod latin;
 pub use complex::{
     NativeBufferFlags, NativeClusterLevel, NativeComplexKind, NativeComplexRequest,
     NativeComplexRequirements, NativeComplexRun, NativeComplexScratch, NativeComplexShaper,
-    NativeShapingRoute, resolve_native_language_tag, resolve_native_shaping_route,
+    NativeFallbackBounds, NativeRun, NativeShapeRequest, NativeShapeRequirements,
+    NativeShapeScratch, NativeShaper, NativeShapingRoute, resolve_native_language_tag,
+    resolve_native_shaping_route,
 };
 pub use features::{
     NativeFeature, NativeFeaturePlan, NativeFeatureRoute, NativeFeatureSetting,

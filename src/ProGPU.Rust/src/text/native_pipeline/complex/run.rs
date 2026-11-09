@@ -1,12 +1,12 @@
-//! Owned native complex run planning, complete caller-scratch execution and
+//! Owned native unified run planning, explicit caller-scratch execution and
 //! atomic publication of immutable design-unit positioned glyph generations.
 use super::*;
 use crate::font::HorizontalAdvanceInstance;
 
-/// Original native request for a single explicitly selected complex-script run.
+/// Original native request for one font/script/direction run.
 /// Indic and USE retain the supplied original normalization-plan owner.
 #[derive(Clone, Copy, Debug)]
-pub struct NativeComplexRequest<'a> {
+pub struct NativeShapeRequest<'a> {
     /// Source Unicode script; font-dependent native layout generations are resolved.
     pub unicode_script: Tag,
     /// Exact OpenType language-system tag.
@@ -21,6 +21,8 @@ pub struct NativeComplexRequest<'a> {
     pub alternate_value: u32,
     /// Original mark advance zeroing policy.
     pub zero_mark_advances: bool,
+    /// Explicit original native design-unit fallback extent source.
+    pub fallback_bounds: NativeFallbackBounds,
     /// Original cluster assignment policy.
     pub cluster_level: NativeClusterLevel,
     /// Original flags; fragment verification belongs to the separate replay API.
@@ -29,27 +31,31 @@ pub struct NativeComplexRequest<'a> {
     pub normalization: Option<&'a NormalizationPlan>,
     /// Original decoded pre-context; its presence controls initial dotted circles.
     pub pre_context: &'a [UnicodeScalar],
+    /// Original decoded post-context for bounded joining decisions.
+    pub post_context: &'a [UnicodeScalar],
 }
-impl Default for NativeComplexRequest<'_> {
+impl Default for NativeShapeRequest<'_> {
     fn default() -> Self {
         Self {
-            unicode_script: Tag::new(*b"deva"),
+            unicode_script: Tag::new(*b"latn"),
             language: Tag::new(*b"dflt"),
             direction: GposDirection::Unspecified,
             features: &[],
             normalized_coordinates: &[],
             alternate_value: 1,
             zero_mark_advances: true,
+            fallback_bounds: NativeFallbackBounds::Outline,
             cluster_level: NativeClusterLevel::MonotoneGraphemes,
             flags: NativeBufferFlags::default(),
             normalization: None,
             pre_context: &[],
+            post_context: &[],
         }
     }
 }
 /// Complete native run capacities before glyph mutation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NativeComplexRequirements {
+pub struct NativeShapeRequirements {
     /// Source-declared glyph capacity including preprocessing expansion.
     pub glyph_capacity: usize,
     /// Exact initial source mapping count before composition/selector folding.
@@ -60,13 +66,22 @@ pub struct NativeComplexRequirements {
     pub normalization_capacity: usize,
     /// Complete native GSUB lookup-selection scratch inventory.
     pub lookup_capacity: usize,
+    /// Original input/normalization joining action inventory.
+    pub script_action_capacity: usize,
+    /// Source glyph slots available to the per-run outline-bound cache.
+    pub bounds_capacity: usize,
 }
 /// Reusable caller-owned scratch. Error returns retain the native live glyph
 /// prefix and partial writes; a caller can inspect them without publishing a run.
 #[derive(Clone, Debug, Default)]
-pub struct NativeComplexScratch {
+pub struct NativeShapeScratch {
     glyphs: Vec<ShapingGlyph>,
     glyph_count: usize,
+    actions: Vec<u8>,
+    joining_flags: Vec<u32>,
+    stretch_runs: Vec<stretch::Run>,
+    bounds: Vec<fallback_marks::Cached>,
+    bounds_generation: u64,
     categories: Vec<u8>,
     syllables: Vec<u8>,
     indices: Vec<u32>,
@@ -84,14 +99,14 @@ fn filled<T: Clone>(n: usize, value: T) -> Result<Vec<T>, FontError> {
     output.resize(n, value);
     Ok(output)
 }
-impl NativeComplexScratch {
+impl NativeShapeScratch {
     /// Allocate exactly the source-required capacities.
-    pub fn new(requirements: NativeComplexRequirements) -> Result<Self, FontError> {
+    pub fn new(requirements: NativeShapeRequirements) -> Result<Self, FontError> {
         Self::with_glyph_capacity(requirements, requirements.glyph_capacity)
     }
     /// Retain a larger explicit glyph capacity for font-authored GSUB expansions.
     pub fn with_glyph_capacity(
-        r: NativeComplexRequirements,
+        r: NativeShapeRequirements,
         capacity: usize,
     ) -> Result<Self, FontError> {
         if capacity < r.glyph_capacity || capacity >= u32::MAX as usize {
@@ -100,6 +115,11 @@ impl NativeComplexScratch {
         Ok(Self {
             glyphs: filled(capacity, ShapingGlyph::default())?,
             glyph_count: 0,
+            actions: filled(r.script_action_capacity, 7)?,
+            joining_flags: filled(r.script_action_capacity, 0)?,
+            stretch_runs: filled(capacity, stretch::Run::default())?,
+            bounds: filled(r.bounds_capacity, fallback_marks::Cached::default())?,
+            bounds_generation: 0,
             categories: filled(capacity, 0)?,
             syllables: filled(capacity, 0)?,
             indices: filled(capacity + 1, 0)?,
@@ -119,11 +139,11 @@ impl NativeComplexScratch {
         self.glyphs.len()
     }
 }
-/// Immutable native font/layout/normalization owner for all four complex stage
-/// families. Routes requiring independent Arabic joining or fragment replay are
-/// rejected explicitly until their separate production families are connected.
+/// Immutable original native font/layout/normalization owner for ordinary,
+/// joining, Hangul and all four complex stage families. Fragment replay remains
+/// a separately admitted operation.
 #[derive(Clone, Debug)]
-pub struct NativeComplexShaper {
+pub struct NativeShaper {
     font: SfntFace,
     route: NativeShapingRoute,
     features: NativeFeaturePlan,
@@ -135,19 +155,19 @@ pub struct NativeComplexShaper {
     language: Tag,
     alternate: u32,
     zero_marks: bool,
+    fallback_bounds: NativeFallbackBounds,
     level: NativeClusterLevel,
     flags: NativeBufferFlags,
     pre_context: Vec<UnicodeScalar>,
+    post_context: Vec<UnicodeScalar>,
     gpos_kerning: bool,
 }
-impl NativeComplexShaper {
+impl NativeShaper {
     /// Capture the exact native route, original feature policies and font instance.
     /// No managed shaper, platform shaping callback or GPU object is used.
-    pub fn new(font: SfntFace, request: NativeComplexRequest<'_>) -> Result<Self, FontError> {
+    pub fn new(font: SfntFace, request: NativeShapeRequest<'_>) -> Result<Self, FontError> {
         let route = resolve_native_shaping_route(&font, request.unicode_script, request.direction);
-        if route.complex == NativeComplexKind::None
-            || route.arabic_joining
-            || request.flags.contains(NativeBufferFlags::VERIFY)
+        if request.flags.contains(NativeBufferFlags::VERIFY)
             || request
                 .flags
                 .contains(NativeBufferFlags::PRESERVE_DEFAULT_IGNORABLES)
@@ -201,9 +221,11 @@ impl NativeComplexShaper {
             language: request.language,
             alternate: request.alternate_value,
             zero_marks: request.zero_mark_advances,
+            fallback_bounds: request.fallback_bounds,
             level: request.cluster_level,
             flags: request.flags,
             pre_context: copy_vec(request.pre_context)?,
+            post_context: copy_vec(request.post_context)?,
             gpos_kerning,
         })
     }
@@ -231,13 +253,14 @@ impl NativeComplexShaper {
     pub fn requirements(
         &self,
         source: &[UnicodeScalar],
-    ) -> Result<NativeComplexRequirements, FontError> {
+    ) -> Result<NativeShapeRequirements, FontError> {
         if source.len() > u32::MAX as usize / 3 {
             return Err(FontError::InvalidArgument);
         }
         let kind = self.route.complex;
         let data = self.normalization();
-        let normalization_capacity = if kind != NativeComplexKind::Use
+        let normalization_capacity = if self.route.unicode_script != Tag::new(*b"hang")
+            && kind != NativeComplexKind::Use
             && !source.iter().all(|s| (0x20..=0x7e).contains(&s.code_point))
             && data.is_some_and(|d| input::needs_composition(source, d))
         {
@@ -275,22 +298,30 @@ impl NativeComplexShaper {
                 grapheme::cluster_count(source, GraphemePolicy::Unicode17)
                     .map_err(input::unicode_error)? as usize
             };
-        Ok(NativeComplexRequirements {
+        Ok(NativeShapeRequirements {
             glyph_capacity: capacity,
             initial_glyph_count: initial,
             grapheme_capacity,
             normalization_capacity,
+            script_action_capacity: source.len().max(normalization_capacity),
+            bounds_capacity: if self.fallback_mark_positioning()
+                && self.fallback_bounds == NativeFallbackBounds::Outline
+            {
+                usize::from(self.font.glyph_count().ok_or(FontError::InvalidFace)?)
+            } else {
+                0
+            },
             lookup_capacity: self.gsub.as_ref().map_or(0, |s| {
                 usize::from(s.selection.table().view().lookup_count())
             }),
         })
     }
     /// Shape and atomically publish one complete native design-unit generation.
-    pub fn shape(&self, source: &[UnicodeScalar]) -> Result<NativeComplexRun, FontError> {
-        let mut scratch = NativeComplexScratch::new(self.requirements(source)?)?;
+    pub fn shape(&self, source: &[UnicodeScalar]) -> Result<NativeRun, FontError> {
+        let mut scratch = NativeShapeScratch::new(self.requirements(source)?)?;
         self.shape_into(source, &mut scratch)?;
         scratch.glyphs.truncate(scratch.glyph_count);
-        Ok(NativeComplexRun {
+        Ok(NativeRun {
             font: self.font.clone(),
             route: self.route,
             coordinates: copy_vec(self.normalized_coordinates())?,
@@ -304,11 +335,16 @@ impl NativeComplexShaper {
     pub fn shape_into<'a>(
         &self,
         source: &[UnicodeScalar],
-        scratch: &'a mut NativeComplexScratch,
+        scratch: &'a mut NativeShapeScratch,
     ) -> Result<&'a [ShapingGlyph], FontError> {
         scratch.glyph_count = 0;
         let r = self.requirements(source)?;
         if scratch.glyphs.len() < r.glyph_capacity
+            || self.route.arabic_joining
+                && (scratch.actions.len() < r.script_action_capacity
+                    || scratch.joining_flags.len() < r.script_action_capacity)
+            || scratch.bounds.len() < r.bounds_capacity
+            || scratch.stretch_runs.len() < scratch.glyphs.len()
             || scratch.categories.len() < r.glyph_capacity
             || scratch.syllables.len() < r.glyph_capacity
             || scratch.indices.len() <= r.glyph_capacity
@@ -320,9 +356,19 @@ impl NativeComplexShaper {
         {
             return Err(FontError::Capacity);
         }
-        let NativeComplexScratch {
+        scratch.bounds_generation = scratch.bounds_generation.wrapping_add(1);
+        if scratch.bounds_generation == 0 {
+            scratch.bounds.fill(fallback_marks::Cached::default());
+            scratch.bounds_generation = 1;
+        }
+        let NativeShapeScratch {
             glyphs,
             glyph_count,
+            actions,
+            joining_flags,
+            stretch_runs,
+            bounds,
+            bounds_generation,
             categories,
             syllables,
             indices,
@@ -372,6 +418,20 @@ impl NativeComplexShaper {
             storage: glyphs,
             count: 0,
         };
+        if self.route.arabic_joining {
+            let count =
+                grapheme::segment_into(shaping_input, input::policy(self.route.complex), graphemes)
+                    .map_err(input::unicode_error)? as usize;
+            joining::assign(
+                shaping_input,
+                &graphemes[..count],
+                &self.pre_context,
+                &self.post_context,
+                self.flags,
+                actions,
+                joining_flags,
+            )?;
+        }
         input::map(
             &self.font,
             shaping_input,
@@ -379,6 +439,9 @@ impl NativeComplexShaper {
             self.level,
             self.normalization(),
             graphemes,
+            self.route
+                .arabic_joining
+                .then_some((&actions[..], &joining_flags[..])),
             &mut b,
         )?;
         let mut metadata = false;
@@ -416,6 +479,8 @@ impl NativeComplexShaper {
                     self.level,
                     self.flags,
                     !self.pre_context.is_empty(),
+                    self.route.arabic_joining,
+                    self.route.compose_hebrew,
                     self.normalization(),
                     &mut b,
                 )?;
@@ -428,7 +493,7 @@ impl NativeComplexShaper {
                     NativeComplexKind::Khmer => {
                         khmer::prepare(&self.font, self.flags, &mut b, categories, syllables)?
                     }
-                    NativeComplexKind::None => return Err(FontError::InvalidArgument),
+                    NativeComplexKind::None => (),
                 }
                 Ok(())
             })();
@@ -436,7 +501,7 @@ impl NativeComplexShaper {
                 b.count = 0;
                 return Err(error);
             }
-            metadata = true;
+            metadata = self.route.complex != NativeComplexKind::None;
             let gdef = self.gdef.as_ref().map(OwnedGdef::view);
             let context = stages::Context {
                 font: &self.font,
@@ -452,8 +517,10 @@ impl NativeComplexShaper {
                 alternate: self.alternate,
                 flags: self.flags,
                 gdef,
+                random: std::cell::Cell::new(1),
+                zero_mark_advances: self.zero_marks,
             };
-            context.apply(shaping_input, &mut b, lookups, indices)?;
+            context.apply_run(shaping_input, &mut b, lookups, indices)?;
             input::process_ignorables(&self.font, self.route.direction, self.flags, &mut b)?;
             let count = b.count;
             self.position(
@@ -461,7 +528,19 @@ impl NativeComplexShaper {
                 &mut attachments[..count],
                 attachment_states,
                 gdef,
+                bounds,
+                *bounds_generation,
             )?;
+            if self.route.arabic_joining {
+                let stretched = stretch::apply(
+                    &self.advance,
+                    &mut b,
+                    self.route.direction == GposDirection::RightToLeft,
+                    stretch_runs,
+                );
+                joining::clear(b.glyphs_mut());
+                stretched?;
+            }
             Ok(())
         })();
         if metadata {
@@ -471,12 +550,20 @@ impl NativeComplexShaper {
         result?;
         Ok(&b.storage[..b.count])
     }
+    fn fallback_mark_positioning(&self) -> bool {
+        self.zero_marks
+            && self.route.complex == NativeComplexKind::None
+            && ![*b"thai", *b"lao ", *b"mymr", *b"qaag"]
+                .contains(&self.route.unicode_script.bytes())
+    }
     fn position(
         &self,
         glyphs: &mut [ShapingGlyph],
         attachments: &mut [GposAttachment],
         states: &mut [u8],
         gdef: Option<Gdef<'_>>,
+        bounds: &mut [fallback_marks::Cached],
+        generation: u64,
     ) -> Result<(), FontError> {
         let direction = self.route.direction;
         let vertical = matches!(
@@ -495,6 +582,12 @@ impl NativeComplexShaper {
                     .flags
                     .contains(NativeBufferFlags::PRESERVE_DEFAULT_IGNORABLES);
             *a = GposAttachment::default();
+            if self.fallback_mark_positioning() {
+                a.component_count = ((g.flags & 0x7f8) >> 3) as u8;
+                let encoded = ((g.flags & 0x7f800) >> 11) as u8;
+                a.component = if encoded == 0 { 255 } else { encoded - 1 };
+                g.flags &= !0x7fff8;
+            }
             let id = u16::try_from(g.glyph_id).map_err(|_| FontError::InvalidGlyph)?;
             let width = self.advance.design_advance_width(id)?;
             if !width.is_finite() {
@@ -568,12 +661,53 @@ impl NativeComplexShaper {
         {
             apply_native_legacy_kern(&self.font, glyphs, gdef);
         }
+        let late_zero = self.zero_marks
+            && (self.fallback_mark_positioning()
+                || [*b"thai", *b"lao "].contains(&self.route.unicode_script.bytes()));
+        if late_zero {
+            let adjust = self.gpos.is_none()
+                && matches!(
+                    direction,
+                    GposDirection::LeftToRight | GposDirection::TopToBottom
+                );
+            for g in glyphs.iter_mut() {
+                let class = gdef.map_or(GlyphClass::Unclassified, |d| {
+                    d.glyph_class(g.glyph_id as u16)
+                });
+                let mark = if class != GlyphClass::Unclassified {
+                    class == GlyphClass::Mark
+                } else {
+                    !input::default_ignorable(g.code_point) && unicode_mark(g.code_point)
+                };
+                if !mark {
+                    continue;
+                }
+                if adjust {
+                    g.offset_x = clamped(i64::from(g.offset_x) - i64::from(g.advance_x));
+                    g.offset_y = clamped(i64::from(g.offset_y) - i64::from(g.advance_y));
+                }
+                g.advance_x = 0;
+                g.advance_y = 0;
+            }
+        }
         if self
             .gpos
             .as_ref()
             .is_some_and(|s| s.selection.table().view().lookup_count() != 0)
         {
             resolve_gpos_attachments(glyphs, attachments, direction, states, false)?;
+        }
+        if self.fallback_mark_positioning() {
+            fallback_marks::apply(
+                &self.font,
+                &self.advance,
+                glyphs,
+                direction,
+                attachments,
+                self.fallback_bounds,
+                bounds,
+                generation,
+            )?;
         }
         if matches!(
             direction,
@@ -608,17 +742,17 @@ impl NativeComplexShaper {
         Ok(())
     }
 }
-/// Published native complex-script result retaining the exact font and original
+/// Published native positioned result retaining the exact font and original
 /// scalar-source coordinates independently of shaping scratch or GPU lifetime.
 #[derive(Clone, Debug)]
-pub struct NativeComplexRun {
+pub struct NativeRun {
     font: SfntFace,
     route: NativeShapingRoute,
     coordinates: Vec<i16>,
     source: Vec<UnicodeScalar>,
     glyphs: Vec<ShapingGlyph>,
 }
-impl NativeComplexRun {
+impl NativeRun {
     /// Exact selected font owner.
     pub fn font(&self) -> &SfntFace {
         &self.font

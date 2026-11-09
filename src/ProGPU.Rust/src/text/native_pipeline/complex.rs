@@ -1,31 +1,46 @@
-//! Original native Indic, USE, Myanmar and Khmer shaping stages and run writer.
+//! Original native unified shaping stages and owned design-unit run writer.
 //! Native packed glyph metadata, capacity admission, substitution probes and
 //! stage ordering remain independent of managed glyph-buffer implementations.
 use super::*;
 use crate::text::unicode::{self, GeneralCategory, ManagedIndicProperties, UnicodeScalar};
 use unicode::grapheme::{self, GraphemeCluster, GraphemePolicy};
 use unicode::normalization::{NormalizationData, NormalizationForm, NormalizationPlan};
+mod arabic_fallback;
+mod fallback_marks;
+pub use fallback_marks::NativeFallbackBounds;
 mod indic;
 mod input;
+mod joining;
 mod khmer;
 mod myanmar;
+mod ordinary_input;
 mod route;
 mod run;
 mod spaces;
 mod stages;
+mod stretch;
 mod syllables;
 mod use_shaper;
 pub use route::{NativeShapingRoute, resolve_native_language_tag, resolve_native_shaping_route};
 pub use run::{
-    NativeComplexRequest, NativeComplexRequirements, NativeComplexRun, NativeComplexScratch,
-    NativeComplexShaper,
+    NativeRun, NativeShapeRequest, NativeShapeRequirements, NativeShapeScratch, NativeShaper,
 };
+/// Compatibility name for the original complex request API.
+pub type NativeComplexRequest<'a> = NativeShapeRequest<'a>;
+/// Compatibility name for original complex-run capacities.
+pub type NativeComplexRequirements = NativeShapeRequirements;
+/// Compatibility name for original complex-run scratch.
+pub type NativeComplexScratch = NativeShapeScratch;
+/// Compatibility name for the now-unified native run owner.
+pub type NativeComplexShaper = NativeShaper;
+/// Compatibility name for published complex runs.
+pub type NativeComplexRun = NativeRun;
 
 /// Original native complex-script selector; `None` remains a distinct route.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum NativeComplexKind {
-    /// Ordinary/Arabic/Hangul shaper, outside this complex-stage runner.
+    /// Ordinary/Arabic/Hangul shaping without a complex-script syllable machine.
     #[default]
     None = 0,
     /// Original Indic stage order and reordering.
@@ -70,7 +85,7 @@ impl NativeBufferFlags {
     pub const VERIFY: Self = Self(32);
     /// Original request to retain unsafe-to-concatenate output dependencies.
     pub const PRODUCE_UNSAFE_TO_CONCAT: Self = Self(64);
-    /// Original Arabic stretch metadata request; joining routes stay separate.
+    /// Original request for safe Arabic tatweel-insertion dependencies.
     pub const PRODUCE_SAFE_TO_INSERT_TATWEEL: Self = Self(128);
     /// Preserve the original bitwise admission.
     pub const fn contains(self, other: Self) -> bool {

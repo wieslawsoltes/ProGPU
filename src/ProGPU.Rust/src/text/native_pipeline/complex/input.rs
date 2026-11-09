@@ -184,6 +184,7 @@ pub(super) fn map(
     level: NativeClusterLevel,
     normalization: Option<NormalizationData<'_>>,
     clusters: &mut [GraphemeCluster],
+    joining: Option<(&[u8], &[u32])>,
     b: &mut Buffer<'_>,
 ) -> Result<(), FontError> {
     let count =
@@ -237,6 +238,11 @@ pub(super) fn map(
                     cluster: source as i32,
                     ..Default::default()
                 };
+                if let Some((actions, flags)) = joining {
+                    let scalar_index = cluster.scalar_index as usize + offset;
+                    super::joining::set_action(&mut b.storage[mapped], actions[scalar_index]);
+                    b.storage[mapped].flags |= flags[scalar_index];
+                }
                 mapped += 1;
             }
             previous = cp;
@@ -315,7 +321,7 @@ pub(super) fn modified_class(cp: u32) -> u8 {
         v => v,
     }
 }
-fn reorder_marks(g: &mut [ShapingGlyph], level: NativeClusterLevel) {
+fn reorder_marks(g: &mut [ShapingGlyph], level: NativeClusterLevel, arabic: bool) {
     let mut start = 0;
     while start < g.len() {
         while start < g.len() && modified_class(g[start].code_point) == 0 {
@@ -341,6 +347,9 @@ fn reorder_marks(g: &mut [ShapingGlyph], level: NativeClusterLevel) {
                     g.cluster = crossed;
                 }
             }
+        }
+        if arabic {
+            joining::reorder_modifiers(g, start, end);
         }
         start = if end == start { end + 1 } else { end };
     }
@@ -423,6 +432,8 @@ pub(super) fn preprocess(
     level: NativeClusterLevel,
     flags: NativeBufferFlags,
     has_pre_context: bool,
+    arabic: bool,
+    compose_hebrew: bool,
     normalization: Option<NormalizationData<'_>>,
     b: &mut Buffer<'_>,
 ) -> Result<(), FontError> {
@@ -431,7 +442,17 @@ pub(super) fn preprocess(
     } else {
         None
     };
-    let additions = vowel_additions(script, b.glyphs());
+    let mut additions = vowel_additions(script, b.glyphs());
+    for glyph in b.glyphs() {
+        if script == Tag::new(*b"hang") && (0xac00..=0xd7a3).contains(&glyph.code_point) {
+            additions += 2;
+        }
+        if script == Tag::new(*b"thai") && glyph.code_point == 0xe33
+            || script == Tag::new(*b"lao ") && glyph.code_point == 0xeb3
+        {
+            additions += 1;
+        }
+    }
     let use_added = data
         .map(|d| use_additions(font, d, b.glyphs()))
         .transpose()?
@@ -467,7 +488,13 @@ pub(super) fn preprocess(
             },
         )?;
     }
-    reorder_marks(b.glyphs_mut(), level);
+    if script == Tag::new(*b"hang") {
+        ordinary_input::hangul(font, b)?;
+    }
+    reorder_marks(b.glyphs_mut(), level, arabic);
+    if script == Tag::new(*b"hebr") && compose_hebrew {
+        ordinary_input::hebrew(font, b)?;
+    }
     let additions = vowel_additions(script, b.glyphs());
     b.reserve(additions)?;
     if additions != 0 {
@@ -511,6 +538,7 @@ pub(super) fn preprocess(
         }
         b.count = final_count;
     }
+    ordinary_input::thai_lao(font, script, level, b)?;
     Ok(())
 }
 pub(super) fn default_ignorable(cp: u32) -> bool {
