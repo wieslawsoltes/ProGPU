@@ -6,9 +6,9 @@ use crate::{
 };
 impl ManagedPositionBuffer {
     /// Initialize original selected-font metrics and default-ignorable policy
-    /// from a live prepared/substituted generation. This consumer currently uses
-    /// managed TrueType outlines for visibility, bounds and vertical fallback.
-    pub fn from_true_type_substitutions(
+    /// from a live prepared/substituted generation, using the actual selected
+    /// managed outline adapter for visibility, bounds and vertical fallback.
+    pub fn from_substitutions(
         substitutions: &ManagedGlyphBuffer,
         direction: ManagedPositionDirection,
         zero_marks_early: bool,
@@ -20,9 +20,6 @@ impl ManagedPositionBuffer {
         let font = source.font();
         let options = source.options();
         let flags = options.buffer_flags;
-        if !font.metadata().has_true_type_outlines {
-            return Err(FontError::InvalidFace.into());
-        }
         let preserve = flags.contains(F::PRESERVE_DEFAULT_IGNORABLES);
         let remove = flags.contains(F::REMOVE_DEFAULT_IGNORABLES);
         let invisible = if preserve || remove {
@@ -162,7 +159,7 @@ impl ManagedPositionBuffer {
     }
 }
 fn visible_outline(font: &ManagedFont, glyph: u16) -> Result<bool, FontError> {
-    Ok(font.true_type_bounds(glyph)?.is_some() && font.true_type_outline(glyph)?.is_some())
+    Ok(font.glyph_bounds(glyph)?.is_some() && font.glyph_outline(glyph)?.is_some())
 }
 fn checked_short(value: f32) -> Result<i16, FontError> {
     if value.is_nan() {
@@ -219,4 +216,22 @@ fn space_fallback(
         g.advance_x = clamp(advance);
     }
     Ok(())
+}
+
+impl ManagedPositionBuffer {
+    /// Explicit TrueType-only constructor retained for existing callers.
+    pub fn from_true_type_substitutions(
+        substitutions: &ManagedGlyphBuffer,
+        direction: ManagedPositionDirection,
+        zero_marks_early: bool,
+    ) -> Result<Self, PreparationError> {
+        let source = substitutions
+            .preparation
+            .as_ref()
+            .ok_or(PreparationError::MissingPreparation)?;
+        if !source.font().metadata().has_true_type_outlines {
+            return Err(FontError::InvalidFace.into());
+        }
+        Self::from_substitutions(substitutions, direction, zero_marks_early)
+    }
 }

@@ -32,6 +32,29 @@ impl<'a> FdSelect<'a> {
     ) -> Result<Self, FontError> {
         Self::parse(data, offset as usize, glyphs, dictionaries).ok_or(FontError::InvalidFace)
     }
+    pub(crate) fn read_managed(
+        data: &'a [u8],
+        offset: i32,
+        glyphs: u32,
+        dictionaries: u32,
+    ) -> Result<Self, FontError> {
+        let at = usize::try_from(offset).map_err(|_| FontError::InvalidFace)?;
+        let result = Self::parse(data, at, glyphs, dictionaries).ok_or(FontError::InvalidFace)?;
+        if result.layout.ranges > i32::MAX as u32 {
+            return Err(FontError::InvalidFace);
+        }
+        if result.layout.format == 4 {
+            for i in 0..result.layout.ranges {
+                if result
+                    .range(i)
+                    .is_none_or(|(first, _)| first > i32::MAX as u32)
+                {
+                    return Err(FontError::InvalidFace);
+                }
+            }
+        }
+        Ok(result)
+    }
     fn parse(data: &'a [u8], offset: usize, glyphs: u32, dictionaries: u32) -> Option<Self> {
         if dictionaries == 0 {
             return None;

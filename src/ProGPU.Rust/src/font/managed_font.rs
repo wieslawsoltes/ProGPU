@@ -76,6 +76,7 @@ struct State {
     instance: Option<ManagedVariationInstance>,
     ascii: OnceLock<Box<[AtomicU32; 128]>>,
     outlines: Mutex<outline::OutlineCache>,
+    flipped: Mutex<HashMap<u16, Option<Arc<ManagedGlyphOutline>>>>,
 }
 #[derive(Debug, Default)]
 struct Cache {
@@ -89,6 +90,7 @@ struct Root {
     raw: Raw,
     base: Arc<State>,
     data: OnceLock<Option<ManagedVariationData>>,
+    cff: OnceLock<Result<Option<crate::font::cff::ManagedCff>, FontError>>,
     cache: Mutex<Cache>,
 }
 /// Owned current managed font data and immutable selected instance. Original
@@ -131,6 +133,7 @@ impl ManagedFont {
             instance: None,
             ascii: OnceLock::new(),
             outlines: Mutex::new(outline::OutlineCache::default()),
+            flipped: Mutex::new(HashMap::new()),
         });
         Ok(Self {
             root: Arc::new(Root {
@@ -138,6 +141,7 @@ impl ManagedFont {
                 raw,
                 base: state.clone(),
                 data: OnceLock::new(),
+                cff: OnceLock::new(),
                 cache: Mutex::new(Cache::default()),
             }),
             state,
@@ -249,6 +253,7 @@ impl ManagedFont {
             instance: Some(instance),
             ascii: OnceLock::new(),
             outlines: Mutex::new(outline::OutlineCache::default()),
+            flipped: Mutex::new(HashMap::new()),
         });
         cache.instances.insert(key.clone(), state.clone());
         cache.order.push_back(key);
@@ -373,6 +378,7 @@ impl ManagedFont {
             instance: clone.state.instance.clone(),
             ascii: OnceLock::new(),
             outlines: Mutex::new(outline::OutlineCache::default()),
+            flipped: Mutex::new(HashMap::new()),
         });
         // This root is still private to the candidate. Replace the same snapshot
         // in its cache before publication, matching the source's private mutation.

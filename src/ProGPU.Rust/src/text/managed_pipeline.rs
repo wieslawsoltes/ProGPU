@@ -1,6 +1,6 @@
 //! Original managed shaping plan and complete substitution-stage orchestration.
 //! Owns font/options and reusable GSUB/GPOS plans; each execution owns independent
-//! text/context/record state. The TrueType route also performs complete original
+//! text/context/record state. Selected managed outline routes perform original
 //! positioning and optional safe-boundary verification before publication.
 use super::{preparation::*, script_actions::*, unicode};
 use crate::font::{
@@ -11,7 +11,9 @@ use crate::font::{
     },
 };
 use std::sync::Arc;
+mod output;
 mod position;
+pub use output::{ManagedScaledGlyph, shape_design_units, shape_scaled};
 pub use position::{ManagedShapedRun, ManagedShapingError};
 
 /// Frozen original source selection, independent of per-execution text context.

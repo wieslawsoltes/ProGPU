@@ -94,6 +94,9 @@ pub enum FontError {
     /// Output cannot be represented or allocated within the supported capacity.
     #[error("font capacity exceeded")]
     Capacity = 7,
+    /// The source requires an outline route not implemented by this adapter.
+    #[error("font requires an unsupported outline fallback")]
+    UnsupportedOutline = 8,
 }
 
 /// Original directory entry selected by ordinary native table lookup.

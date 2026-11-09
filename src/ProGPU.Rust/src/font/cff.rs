@@ -5,6 +5,8 @@ mod dictionary;
 mod fd_select;
 mod font2;
 mod index;
+mod managed;
+pub(crate) use managed::ManagedCff;
 mod type2;
 pub use dictionary::{TopDictionary, TopDictionary2, read_number};
 pub use fd_select::FdSelect;

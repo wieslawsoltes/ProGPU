@@ -338,13 +338,32 @@ impl Writer<'_> {
         Some(())
     }
 }
+trait OutlineWriter {
+    const MANAGED: bool;
+    fn move_to(&mut self, p: [f64; 2]) -> Option<()>;
+    fn line(&mut self, start: [f64; 2], end: [f64; 2]) -> Option<()>;
+    fn curve(&mut self, points: [[f64; 2]; 4]) -> Option<()>;
+}
+impl OutlineWriter for Writer<'_> {
+    const MANAGED: bool = false;
+    fn move_to(&mut self, p: [f64; 2]) -> Option<()> {
+        Writer::move_to(self, p)
+    }
+    fn line(&mut self, start: [f64; 2], end: [f64; 2]) -> Option<()> {
+        Writer::line(self, start, end)
+    }
+    fn curve(&mut self, p: [[f64; 2]; 4]) -> Option<()> {
+        Writer::curve(self, p)
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Flow {
     Return,
     End,
 }
-struct Evaluator<'a, 'b> {
-    writer: Writer<'b>,
+struct Evaluator<'a, W> {
+    writer: W,
     global: Index<'a>,
     local: Index<'a>,
     operands: [f64; 513],
@@ -356,7 +375,14 @@ struct Evaluator<'a, 'b> {
     random: u32,
     variation: Option<Variation<'a>>,
 }
-impl Evaluator<'_, '_> {
+impl<W: OutlineWriter> Evaluator<'_, W> {
+    fn integer(value: f64) -> Option<i32> {
+        if W::MANAGED {
+            Some(value as i32)
+        } else {
+            i32_value(value)
+        }
+    }
     fn push(&mut self, v: f64) -> Option<()> {
         if self.len >= self.operands.len() || !v.is_finite() {
             return None;
@@ -482,7 +508,7 @@ impl Evaluator<'_, '_> {
                     self.len = 0;
                 }
                 10 | 29 => {
-                    let requested = i32_value(self.pop()?)?;
+                    let requested = Self::integer(self.pop()?)?;
                     let subs = if op == 10 { self.local } else { self.global };
                     let bias = if subs.len() < 1240 {
                         107
@@ -491,7 +517,11 @@ impl Evaluator<'_, '_> {
                     } else {
                         32768
                     };
-                    let index = i64::from(requested) + bias;
+                    let index = if W::MANAGED {
+                        i64::from(requested.wrapping_add(bias as i32))
+                    } else {
+                        i64::from(requested) + bias
+                    };
                     if index < 0 || index >= i64::from(subs.len()) {
                         return None;
                     }
@@ -692,14 +722,14 @@ impl Evaluator<'_, '_> {
             20 => {
                 let encoded = self.pop()?;
                 let value = self.pop()?;
-                let i = i32_value(encoded)?;
+                let i = Self::integer(encoded)?;
                 if i < 0 || i as usize >= self.transient.len() {
                     return None;
                 }
                 self.transient[i as usize] = value;
             }
             21 => {
-                let i = i32_value(self.pop()?)?;
+                let i = Self::integer(self.pop()?)?;
                 if i < 0 || i as usize >= self.transient.len() {
                     return None;
                 }
@@ -738,12 +768,12 @@ impl Evaluator<'_, '_> {
                 if self.len == 0 {
                     return None;
                 }
-                let i = i32_value(encoded)?.clamp(0, (self.len - 1) as i32) as usize;
+                let i = Self::integer(encoded)?.clamp(0, (self.len - 1) as i32) as usize;
                 self.push(self.operands[self.len - 1 - i])?;
             }
             30 => {
-                let shift = i32_value(self.pop()?)?;
-                let count = i32_value(self.pop()?)?;
+                let shift = Self::integer(self.pop()?)?;
+                let count = Self::integer(self.pop()?)?;
                 if count < 0 || count as usize > self.len {
                     return None;
                 }
@@ -809,4 +839,91 @@ fn operand(data: &[u8], cursor: &mut usize, first: u8) -> Option<f64> {
         }
         _ => None,
     }
+}
+
+// Original managed OutlineBuilder retains empty/move-only figures, implicit
+// closure and float narrowing even when a resulting coordinate is nonfinite.
+struct ManagedWriter {
+    figures: Vec<crate::font::ManagedOutlineFigure>,
+    current: [f32; 2],
+    allocation_failed: bool,
+}
+impl ManagedWriter {
+    fn ensure(&mut self) -> Option<()> {
+        if self.figures.is_empty() {
+            self.move_to([0.0; 2])?;
+        }
+        Some(())
+    }
+    fn emit(&mut self, segment: Segment) -> Option<()> {
+        let figure = self.figures.last_mut()?;
+        if figure.segments.try_reserve(1).is_err() {
+            self.allocation_failed = true;
+            return None;
+        }
+        figure.segments.push(segment);
+        Some(())
+    }
+}
+impl OutlineWriter for ManagedWriter {
+    const MANAGED: bool = true;
+    fn move_to(&mut self, p: [f64; 2]) -> Option<()> {
+        if self.figures.try_reserve(1).is_err() {
+            self.allocation_failed = true;
+            return None;
+        }
+        self.current = p.map(|v| v as f32);
+        self.figures.push(crate::font::ManagedOutlineFigure {
+            start: self.current,
+            segments: Vec::new(),
+        });
+        Some(())
+    }
+    fn line(&mut self, _: [f64; 2], end: [f64; 2]) -> Option<()> {
+        self.ensure()?;
+        let end = end.map(|v| v as f32);
+        self.emit(Segment::line(self.current, end))?;
+        self.current = end;
+        Some(())
+    }
+    fn curve(&mut self, points: [[f64; 2]; 4]) -> Option<()> {
+        self.ensure()?;
+        let mut p = points.map(|p| p.map(|v| v as f32));
+        p[0] = self.current;
+        self.emit(Segment::cubic(p))?;
+        self.current = p[3];
+        Some(())
+    }
+}
+pub(super) fn managed_outline(
+    program: &[u8],
+    global: Index<'_>,
+    local: Index<'_>,
+    glyph: u16,
+) -> Result<Option<Vec<crate::font::ManagedOutlineFigure>>, FontError> {
+    let mut evaluator = Evaluator {
+        writer: ManagedWriter {
+            figures: Vec::new(),
+            current: [0.0; 2],
+            allocation_failed: false,
+        },
+        global,
+        local,
+        operands: [0.0; 513],
+        len: 0,
+        transient: [0.0; 32],
+        stems: 0,
+        width_seen: false,
+        p: [0.0; 2],
+        random: u32::from(glyph) + 1,
+        variation: None,
+    };
+    let complete = matches!(evaluator.execute(program, 0, false), Some(Flow::End));
+    if evaluator.writer.allocation_failed {
+        return Err(FontError::Capacity);
+    }
+    if !complete {
+        return Err(FontError::UnsupportedOutline);
+    }
+    Ok((!evaluator.writer.figures.is_empty()).then_some(evaluator.writer.figures))
 }

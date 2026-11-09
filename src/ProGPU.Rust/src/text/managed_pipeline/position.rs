@@ -48,9 +48,9 @@ impl ManagedShapedRun {
 impl ManagedShapingPlan {
     /// Execute original preparation, GSUB, metric construction, GPOS, kerning,
     /// fallback marks, visual ordering, Arabic stretch and optional verification.
-    /// This first complete route explicitly requires managed TrueType outlines;
-    /// it does not substitute native CFF geometry for the pending managed adapter.
-    pub fn shape_true_type(
+    /// Uses the original managed TrueType/CFF1 adapters; legacy CFF fallback
+    /// requirements remain explicit UnsupportedOutline failures.
+    pub fn shape(
         &self,
         text: impl Into<Arc<[u16]>>,
         preparation: ManagedPreparationOptions,
@@ -69,7 +69,7 @@ impl ManagedShapingPlan {
             TopToBottom => ManagedPositionDirection::TopToBottom,
             BottomToTop => ManagedPositionDirection::BottomToTop,
         };
-        let mut positions = ManagedPositionBuffer::from_true_type_substitutions(
+        let mut positions = ManagedPositionBuffer::from_substitutions(
             &substitutions,
             direction,
             self.zero_mark_advances_early(),
@@ -102,7 +102,7 @@ impl ManagedShapingPlan {
         }
         positions.resolve_attachments()?;
         if fallback {
-            positions.apply_true_type_fallback_marks(&self.font)?;
+            positions.apply_fallback_marks(&self.font)?;
         }
         if matches!(self.direction, RightToLeft | BottomToTop) {
             positions.reverse();
@@ -203,7 +203,7 @@ impl ManagedShapingPlan {
             options.direction = Some(self.direction);
             options.features = options.features.for_fragment(start as u32..end as u32)?;
             let plan = Self::new(self.font.clone(), &text[start..end], options)?;
-            let actual = plan.shape_true_type(&text[start..end], fragment_preparation)?;
+            let actual = plan.shape(&text[start..end], fragment_preparation)?;
             if actual.glyphs.len() != output_end - output_start {
                 return Err(ManagedShapingError::Verification {
                     glyph: output_start,
@@ -240,4 +240,18 @@ fn joined(a: &[u16], b: &[u16]) -> Result<Arc<[u16]>, FontError> {
     out.extend_from_slice(a);
     out.extend_from_slice(b);
     Ok(out.into())
+}
+
+impl ManagedShapingPlan {
+    /// Explicit TrueType-only shaping entry point retained for existing callers.
+    pub fn shape_true_type(
+        &self,
+        text: impl Into<Arc<[u16]>>,
+        preparation: ManagedPreparationOptions,
+    ) -> Result<ManagedShapedRun, ManagedShapingError> {
+        if !self.font.metadata().has_true_type_outlines {
+            return Err(FontError::InvalidFace.into());
+        }
+        self.shape(text, preparation)
+    }
 }

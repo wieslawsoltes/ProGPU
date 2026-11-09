@@ -2,7 +2,11 @@
 //! This preserves logical source order. Line wrapping, L2 cluster reordering and
 //! glyph mirroring are separate stages; no displayed glyph order is fabricated.
 use super::{BidiClass, DecodedText, UnicodeError, UnicodeScalar, allocate};
+mod managed;
 mod resolve;
+pub use managed::{
+    ManagedBidiParagraph, ManagedBidiRun, managed_visual_order, managed_visual_order_if_needed,
+};
 
 /// Original eight-byte resolved level record in logical source order.
 #[repr(C)]

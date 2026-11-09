@@ -1,4 +1,4 @@
-//! Original TtfFont TrueType outline/cache/variation integration. Raw managed
+//! Original TtfFont TrueType/CFF1 outline/cache/variation integration. Raw managed
 //! reads retain whole-source bounds, distinct from native per-glyph admission.
 //! Recursion retains the original depth-32/cycle checks and skipped components.
 use super::*;
@@ -75,8 +75,8 @@ pub(super) struct OutlineCache {
 }
 impl ManagedFont {
     /// Original managed TrueType outline parsing, including selected simple and
-    /// component variations and per-instance cached no-ink slots. Non-TrueType
-    /// fonts reject explicitly until the independent managed CFF adapter is ported.
+    /// component variations and per-instance cached no-ink slots. This explicit
+    /// route retains TrueType-only admission; `glyph_outline` also selects CFF1.
     pub fn true_type_outline(
         &self,
         glyph: u16,
@@ -93,6 +93,79 @@ impl ManagedFont {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         self.outline_internal(glyph, &mut Vec::new(), &mut cache)
+    }
+    /// Original outline selection: TrueType first, then the owned managed CFF1
+    /// reader. A program requiring the separate legacy fallback returns
+    /// UnsupportedOutline; successful empty geometry remains independently None.
+    pub fn glyph_outline(&self, glyph: u16) -> Result<Option<Arc<ManagedGlyphOutline>>, FontError> {
+        if glyph >= self.metadata().glyph_count {
+            return Ok(None);
+        }
+        if self.metadata().has_true_type_outlines {
+            return self.true_type_outline(glyph);
+        }
+        let mut cache = self
+            .state
+            .outlines
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.glyphs.get(&glyph) {
+            return Ok(cached.clone());
+        }
+        let cff = self.root.cff.get_or_init(|| {
+            if self.source().table(Tag::new(*b"CFF ")).is_none() {
+                return Ok(None);
+            }
+            crate::font::cff::ManagedCff::new(self.source().clone(), self.metadata().glyph_count)
+                .map(Some)
+        });
+        let cff = cff.as_ref().map_err(|e| *e)?;
+        let outline = match cff {
+            Some(cff) => cff.outline(glyph)?.map(|figures| {
+                Arc::new(ManagedGlyphOutline {
+                    source: self.source().clone(),
+                    glyph,
+                    figures,
+                    points: Vec::new(),
+                })
+            }),
+            None => None,
+        };
+        cache
+            .glyphs
+            .try_reserve(1)
+            .map_err(|_| FontError::Capacity)?;
+        cache.glyphs.insert(glyph, outline.clone());
+        Ok(outline)
+    }
+    /// Original independently cached flipped outline generation. Negation retains
+    /// signed-zero behavior; source geometry and point-attachment data stay owned.
+    pub fn flipped_outline(
+        &self,
+        glyph: u16,
+    ) -> Result<Option<Arc<ManagedGlyphOutline>>, FontError> {
+        let mut cache = self.state.flipped.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(&glyph) {
+            return Ok(cached.clone());
+        }
+        let flipped = self.glyph_outline(glyph)?.map(|outline| {
+            let mut out = outline.as_ref().clone();
+            for figure in &mut out.figures {
+                figure.start[1] = -figure.start[1];
+                for segment in &mut figure.segments {
+                    for p in &mut segment.points[..segment.kind as usize + 2] {
+                        p[1] = -p[1];
+                    }
+                }
+            }
+            for point in &mut out.points {
+                point[1] = -point[1];
+            }
+            Arc::new(out)
+        });
+        cache.try_reserve(1).map_err(|_| FontError::Capacity)?;
+        cache.insert(glyph, flipped.clone());
+        Ok(flipped)
     }
     fn outline_internal(
         &self,
@@ -350,9 +423,7 @@ impl ManagedFont {
         }
         Ok((!out.figures.is_empty()).then_some(out))
     }
-    /// Original managed TrueType bounds: raw header for static faces and finite
-    /// figure/control bounds for selected variations. Missing/empty is None.
-    /// Non-TrueType bounds remain a separate CFF consumer, rejected explicitly.
+    /// Explicit TrueType-only bounds entry point retained for existing callers.
     pub fn true_type_bounds(&self, glyph: u16) -> Result<Option<[i16; 4]>, FontError> {
         if glyph >= self.metadata().glyph_count {
             return Ok(None);
@@ -360,8 +431,16 @@ impl ManagedFont {
         if !self.metadata().has_true_type_outlines {
             return Err(FontError::InvalidFace);
         }
-        let bounds = if self.has_active_variations() {
-            let Some(outline) = self.true_type_outline(glyph)? else {
+        self.glyph_bounds(glyph)
+    }
+    /// Original managed bounds: raw static TrueType header or original finite
+    /// figure/control envelope for CFF and selected TrueType variations.
+    pub fn glyph_bounds(&self, glyph: u16) -> Result<Option<[i16; 4]>, FontError> {
+        if glyph >= self.metadata().glyph_count {
+            return Ok(None);
+        }
+        let bounds = if !self.metadata().has_true_type_outlines || self.has_active_variations() {
+            let Some(outline) = self.glyph_outline(glyph)? else {
                 return Ok(None);
             };
             let Some(b) = outline.bounds() else {

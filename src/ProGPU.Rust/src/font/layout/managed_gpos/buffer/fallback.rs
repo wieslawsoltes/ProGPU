@@ -10,8 +10,8 @@ struct Extents {
 }
 impl ManagedPositionBuffer {
     /// Original mark clusters, ligature components, class stacks and outline
-    /// offsets. Uses actual selected managed TrueType bounds and advances.
-    pub fn apply_true_type_fallback_marks(&mut self, font: &ManagedFont) -> Result<(), FontError> {
+    /// offsets. Uses actual selected managed outline bounds and advances.
+    pub fn apply_fallback_marks(&mut self, font: &ManagedFont) -> Result<(), FontError> {
         let mut start = 0;
         for i in 1..self.glyphs.len() {
             if self
@@ -197,7 +197,7 @@ impl ManagedPositionBuffer {
     }
 }
 fn extents(font: &ManagedFont, glyph: u16) -> Result<Option<Extents>, FontError> {
-    Ok(font.true_type_bounds(glyph)?.map(|b| Extents {
+    Ok(font.glyph_bounds(glyph)?.map(|b| Extents {
         x: i32::from(b[0]),
         y: i32::from(b[3]),
         width: i32::from(b[2]) - i32::from(b[0]),
@@ -249,5 +249,12 @@ fn recategorize(point: u32, mut class: u8) -> u8 {
         118 | 129 | 132 => 220,
         122 | 130 => 230,
         _ => class,
+    }
+}
+
+impl ManagedPositionBuffer {
+    /// Prior entry point, retaining the selected font's original bounds policy.
+    pub fn apply_true_type_fallback_marks(&mut self, font: &ManagedFont) -> Result<(), FontError> {
+        self.apply_fallback_marks(font)
     }
 }

@@ -131,8 +131,8 @@ impl ManagedFont {
 
 impl ManagedFont {
     /// Original VORG/TrueType vertical-origin policy in the selected em scale.
-    /// The outline fallback currently admits the managed TrueType adapter only.
-    pub fn true_type_vertical_origin(&self, glyph: u16, em: f32) -> Result<f32, FontError> {
+    /// Outline fallback uses the selected original TrueType/CFF1 adapter.
+    pub fn vertical_origin_y(&self, glyph: u16, em: f32) -> Result<f32, FontError> {
         let source = self.source();
         if let Some(t) = source.table(Tag::new(*b"VORG")) {
             let d = t.bytes;
@@ -179,7 +179,7 @@ impl ManagedFont {
             }
         }
         let advance = i32::from(self.metadata().ascender) - i32::from(self.metadata().descender);
-        let origin = if let Some(b) = self.true_type_bounds(glyph)? {
+        let origin = if let Some(b) = self.glyph_bounds(glyph)? {
             i32::from(b[3]) + ((advance - (i32::from(b[3]) - i32::from(b[1]))) >> 1)
         } else if glyph < self.metadata().glyph_count {
             advance >> 1
@@ -213,4 +213,11 @@ fn source_vertical_bound(source: &SfntFace, glyph: u16) -> Option<i16> {
     }
     bytes::bytes(glyf, start as usize, 10)?;
     bytes::i16(glyf, start as usize + 8)
+}
+
+impl ManagedFont {
+    /// Prior vertical-origin entry point; uses the original selected outline policy.
+    pub fn true_type_vertical_origin(&self, glyph: u16, em: f32) -> Result<f32, FontError> {
+        self.vertical_origin_y(glyph, em)
+    }
 }

@@ -1,8 +1,10 @@
 //! Original ProGPU text contracts. Simple runs retain UTF-16 source positions;
 //! they do not substitute for OpenType shaping, bidi or paragraph layout.
 
+mod font_face;
 pub mod managed_pipeline;
 mod managed_shaping;
+pub use font_face::{ManagedShapingFontFace, ShapingFontFace, ShapingGlyphExtents};
 mod shaping;
 pub use managed_shaping::ManagedShapingGlyph;
 pub mod preparation;

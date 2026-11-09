@@ -27,14 +27,19 @@ impl<'a> Index<'a> {
     /// Parse an original CFF1 INDEX (16-bit item count).
     /// On failure, cursor retains the native parser's already-consumed header bytes.
     pub fn read(bytes: &'a [u8], cursor: &mut usize) -> Result<Self, FontError> {
-        Self::read_core(bytes, cursor, false).ok_or(FontError::InvalidFace)
+        Self::read_core(bytes, cursor, false, false).ok_or(FontError::InvalidFace)
     }
     /// Parse an original CFF2 INDEX (32-bit item count).
     /// All offsets and the final data extent are validated before returning a view.
     pub fn read_cff2(bytes: &'a [u8], cursor: &mut usize) -> Result<Self, FontError> {
-        Self::read_core(bytes, cursor, true).ok_or(FontError::InvalidFace)
+        Self::read_core(bytes, cursor, true, false).ok_or(FontError::InvalidFace)
     }
-    fn read_core(data: &'a [u8], cursor: &mut usize, cff2: bool) -> Option<Self> {
+    // Original Cff1OutlineSource accepts an initial encoded offset above one.
+    // Native CFF1/CFF2 keep their independent exact-one requirement.
+    pub(crate) fn read_managed(bytes: &'a [u8], cursor: &mut usize) -> Result<Self, FontError> {
+        Self::read_core(bytes, cursor, false, true).ok_or(FontError::InvalidFace)
+    }
+    fn read_core(data: &'a [u8], cursor: &mut usize, cff2: bool, managed: bool) -> Option<Self> {
         let count = if cff2 {
             bytes::u32(data, *cursor)?
         } else {
@@ -74,7 +79,7 @@ impl<'a> Index<'a> {
             },
         };
         let mut previous = result.offset(0)?;
-        if previous != 1 {
+        if previous < 1 || !managed && previous != 1 {
             return None;
         }
         for item in 1..=count {
