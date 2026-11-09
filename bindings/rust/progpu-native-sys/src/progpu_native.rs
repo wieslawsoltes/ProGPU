@@ -6475,6 +6475,9 @@ unsafe extern "C" {
         engine: *mut *mut progpu_native_engine,
     ) -> progpu_native_status;
     pub fn progpu_native_engine_destroy(engine: *mut progpu_native_engine);
+    pub fn progpu_native_engine_adopt_owner_thread(
+        engine: *mut progpu_native_engine,
+    ) -> progpu_native_status;
     pub fn progpu_native_engine_mark_device_lost(
         engine: *mut progpu_native_engine,
     ) -> progpu_native_status;

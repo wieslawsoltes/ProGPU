@@ -3535,6 +3535,18 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_create(
 PROGPU_NATIVE_API void progpu_native_engine_destroy(
     progpu_native_engine* engine);
 /*
+ * Makes the calling thread the owner thread of the engine and of the engines
+ * it owns. The engine keeps no thread-local state: owner-thread affinity is
+ * its guard against concurrent entry. A host that serializes every engine
+ * call under one lock, and renders from more than one thread under it (a
+ * render thread and the thread of a synchronous resize), adopts the engine
+ * on the thread that enters next. The caller guarantees that no other thread
+ * is inside the engine, or enters it, until this thread has left it. Performs
+ * no WebGPU call and is valid after a device loss.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_adopt_owner_thread(
+    progpu_native_engine* engine);
+/*
  * Owner-thread host hook for an asynchronously reported device loss. It is
  * idempotent and performs no WebGPU calls. Every subsequent GPU operation
  * fails with DEVICE_LOST while scene updates may still replace the retained
