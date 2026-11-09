@@ -162,9 +162,10 @@ impl WindowRenderer {
         };
         let scene = pollster::block_on(self.renderer.prepare_scene(&source, frame))?;
         eprintln!(
-            "prepared: {:?}; layers: {:?}",
+            "prepared: {:?}; layers: {:?}; advanced blends: {:?}",
             scene.metrics(),
-            scene.layer_metrics()
+            scene.layer_metrics(),
+            scene.advanced_blend_metrics()
         );
         self.config.width = size.width;
         self.config.height = size.height;

@@ -40,6 +40,17 @@ pub(crate) enum DrawRange {
     #[cfg(feature = "gpu")]
     Text(std::ops::Range<u32>),
     Image(std::ops::Range<u32>, usize, LayerBlend),
+    #[cfg(feature = "gpu")]
+    Advanced(AdvancedImage),
+}
+
+#[cfg(feature = "gpu")]
+#[derive(Clone, Debug)]
+pub(crate) struct AdvancedImage {
+    pub binding: usize,
+    pub blend: LayerBlend,
+    pub bounds: [u32; 4],
+    pub opacity: f32,
 }
 
 fn append_draw(draws: &mut Vec<DrawRange>, draw: DrawRange) {
@@ -152,7 +163,7 @@ enum Command {
     TextPath(PathDraw, MaterialPaint, TextPathPolicy),
     #[cfg(feature = "gpu")]
     Glyph(GlyphInstance),
-    Image(Box<ImageDraw>, LayerBlend),
+    Image(Box<ImageDraw>, LayerBlend, Option<[u32; 4]>),
     TileImage(Box<TileImageDraw>),
 }
 
@@ -187,7 +198,7 @@ impl Scene {
         draw.validate()?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
         self.commands
-            .push(Command::Image(Box::new(draw), LayerBlend::SrcOver));
+            .push(Command::Image(Box::new(draw), LayerBlend::SrcOver, None));
         Ok(())
     }
     /// Retain an explicit occupied tile-page draw. This primitive always uses
@@ -492,10 +503,12 @@ impl Scene {
                 | Command::PushMask(_)
                 | Command::PushClip(_)
                 | Command::PopScope => {}
-                Command::Image(draw, blend) => {
+                Command::Image(draw, blend, bounds) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
-                    draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
+                    if blend.is_fixed() {
+                        draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
+                    }
                     let key = draw.binding_key();
                     let next = images.len();
                     let binding = *image_bindings.entry(key).or_insert_with(|| {
@@ -505,6 +518,20 @@ impl Scene {
                         });
                         next
                     });
+                    if !blend.is_fixed() {
+                        #[cfg(feature = "gpu")]
+                        draws.push(DrawRange::Advanced(AdvancedImage {
+                            binding,
+                            blend: *blend,
+                            bounds: bounds.ok_or(Error::ResourceDomain)?,
+                            opacity: draw.opacity,
+                        }));
+                        #[cfg(not(feature = "gpu"))]
+                        {
+                            let _ = bounds;
+                            return Err(Error::UnsupportedExecution);
+                        }
+                    }
                     let end =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
                     if end != start {

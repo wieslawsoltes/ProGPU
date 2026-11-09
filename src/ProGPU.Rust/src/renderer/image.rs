@@ -36,13 +36,14 @@ pub(super) struct PreparedImages {
     pub bindings: Vec<wgpu::BindGroup>,
 }
 
-async fn pipeline(
+pub(super) async fn pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
     mip: bool,
     blend: LayerBlend,
     masked: bool,
 ) -> Result<wgpu::RenderPipeline, Error> {
+    let blend_state = if mip { None } else { Some(blend.fixed()?) };
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(if mip {
@@ -98,7 +99,7 @@ async fn pipeline(
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: if mip { None } else { Some(blend.fixed()?) },
+                blend: blend_state,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),

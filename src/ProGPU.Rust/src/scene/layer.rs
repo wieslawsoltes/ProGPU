@@ -141,7 +141,8 @@ pub struct LayerDraw {
     pub blend: LayerBlend,
     /// Original immutable Gaussian/box/drop-shadow chain.
     pub effects: Option<EffectChain>,
-    /// Sample the actual layer texture with linear filtering; false uses nearest.
+    /// Select linear filtering for fixed blends; false uses nearest. Advanced
+    /// blends retain the original native linear source-resolve binding.
     pub linear_sampling: bool,
 }
 impl LayerDraw {
@@ -206,7 +207,10 @@ impl Scene {
         })
     }
     #[cfg(feature = "gpu")]
-    pub(crate) fn replace_layers(&self, images: Vec<Option<ImageDraw>>) -> Result<Self, Error> {
+    pub(crate) fn replace_layers(
+        &self,
+        images: Vec<Option<(ImageDraw, [u32; 4])>>,
+    ) -> Result<Self, Error> {
         let mut images = images.into_iter();
         let mut scene = Self {
             has_scopes: self.has_scopes,
@@ -219,7 +223,9 @@ impl Scene {
         for command in &self.commands {
             scene.commands.push(match command {
                 Command::Layer(layer) => match images.next().ok_or(Error::ResourceDomain)? {
-                    Some(image) => Command::Image(Box::new(image), layer.blend),
+                    Some((image, bounds)) => {
+                        Command::Image(Box::new(image), layer.blend, Some(bounds))
+                    }
                     None => Command::Empty,
                 },
                 _ => command.clone(),

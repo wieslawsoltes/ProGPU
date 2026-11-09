@@ -47,6 +47,8 @@ pub const TEXTURE: &str = concat!(
     "\n",
     shader!("Texture")
 );
+/// Original destination-aware advanced blend, raster operation and AA composition shader.
+pub const ADVANCED_BLEND: &str = shader!("AdvancedBlend");
 /// Original linear previous-level mip generation, without CPU resampling.
 pub const MIP_GENERATOR: &str = shader!("MipGenerator");
 /// Original horizontal Gaussian/box group-effect kernel.
@@ -71,6 +73,7 @@ pub const MODULES: &[(&str, &str)] = &[
     ("text", TEXT),
     ("texture", TEXTURE),
     ("mip_generator", MIP_GENERATOR),
+    ("advanced_blend", ADVANCED_BLEND),
     ("blur_horizontal", BLUR_HORIZONTAL),
     ("blur_vertical", BLUR_VERTICAL),
     ("drop_shadow", DROP_SHADOW),

@@ -16,6 +16,8 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod advanced;
+pub use advanced::AdvancedBlendMetrics;
 mod capture;
 mod image;
 mod layer;
@@ -147,6 +149,7 @@ pub struct PreparedScene {
     frame: Frame,
     origin: [u32; 2],
     layers: LayerMetrics,
+    advanced: Option<advanced::PreparedAdvanced>,
     metrics: UploadMetrics,
 }
 
@@ -162,11 +165,13 @@ impl PreparedScene {
                     .and_then(|m| m.states.get(*index))
                     .ok_or(Error::ResourceDomain)?;
                 drawable = state.scissor[2] != 0 && state.scissor[3] != 0;
-            } else if drawable {
+            } else if drawable && !matches!(draw, DrawRange::Advanced(_)) {
                 count = count.checked_add(1).ok_or(Error::Capacity)?;
             }
         }
-        Ok(count)
+        count
+            .checked_add(self.advanced_blend_metrics().render_passes)
+            .ok_or(Error::Capacity)
     }
     /// Physical frame used when preparing this scene.
     pub fn frame(&self) -> Frame {
@@ -175,6 +180,12 @@ impl PreparedScene {
     /// Actual isolated subtree preparation, excluding this root scene.
     pub fn layer_metrics(&self) -> LayerMetrics {
         self.layers
+    }
+    /// Actual destination-aware blend resources and per-replay passes.
+    pub fn advanced_blend_metrics(&self) -> AdvancedBlendMetrics {
+        self.advanced
+            .as_ref()
+            .map_or_else(AdvancedBlendMetrics::default, |a| a.metrics)
     }
     /// Actual preparation payload counts; replay performs no uploads.
     pub fn metrics(&self) -> UploadMetrics {
@@ -199,6 +210,7 @@ pub struct Renderer {
     images: Option<image::ImageState>,
     masks: Option<mask::MaskState>,
     effects: Option<crate::effects::EffectEngine>,
+    advanced: Option<advanced::AdvancedState>,
     image_sampling: Option<crate::image::ImageSamplingPath>,
     image_preference: crate::image::ImageSamplingPreference,
 }
@@ -327,6 +339,7 @@ impl Renderer {
             images: None,
             masks: None,
             effects: None,
+            advanced: None,
             image_sampling: None,
             image_preference: Default::default(),
         })
@@ -444,6 +457,8 @@ impl Renderer {
         };
         self.prepare_images(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, &mut prepared).await?;
+        self.prepare_advanced(compiled, frame, &mut prepared)
+            .await?;
         prepared.draws = compiled.draws.clone();
         prepared.metrics.draws = prepared.draw_count()?;
         Ok(prepared)
@@ -629,6 +644,7 @@ impl Renderer {
             frame: frame.frame,
             origin: frame.origin,
             layers: LayerMetrics::default(),
+            advanced: None,
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
                 uniform_bytes: size_of::<Uniforms>() as u64,
@@ -688,6 +704,29 @@ impl Renderer {
         {
             return Err(Error::InvalidInput);
         }
+        if let Some(advanced) = &scene.advanced {
+            return self.encode_advanced(encoder, scene, advanced, target, clear);
+        }
+        self.encode_span(
+            encoder,
+            scene,
+            target,
+            wgpu::LoadOp::Clear(clear),
+            0..scene.draws.len(),
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // One immutable painter span and its original attachment/scope state.
+    fn encode_span(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &PreparedScene,
+        target: &wgpu::TextureView,
+        load: wgpu::LoadOp<wgpu::Color>,
+        range: std::ops::Range<usize>,
+        initial_state: Option<usize>,
+    ) -> Result<(), Error> {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ProGPU ordered scene pass"),
@@ -696,14 +735,22 @@ impl Renderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear),
+                        load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 ..Default::default()
             });
-            let mut draw_state = None;
-            for draw in &scene.draws {
+            let mut draw_state = initial_state
+                .map(|index| {
+                    scene
+                        .masks
+                        .as_ref()
+                        .and_then(|m| m.states.get(index))
+                        .ok_or(Error::ResourceDomain)
+                })
+                .transpose()?;
+            for draw in &scene.draws[range] {
                 if let DrawRange::State(index) = draw {
                     draw_state = Some(
                         scene
@@ -714,6 +761,11 @@ impl Renderer {
                             .get(*index)
                             .ok_or(Error::ResourceDomain)?,
                     );
+                    continue;
+                }
+                // Live advanced draws are separate ordered passes. Entries left
+                // inside a span were proven disjoint from their actual scissor.
+                if matches!(draw, DrawRange::Advanced(_)) {
                     continue;
                 }
                 if let Some(state) = draw_state {
@@ -728,7 +780,7 @@ impl Renderer {
                     let index = match draw {
                         DrawRange::Vector(_) => 0,
                         DrawRange::Text(_) => 1,
-                        DrawRange::Image(..) => 2,
+                        DrawRange::Image(..) | DrawRange::Advanced(_) => 2,
                         _ => unreachable!(),
                     };
                     Some(
@@ -743,6 +795,7 @@ impl Renderer {
                 };
                 match draw {
                     DrawRange::State(_) => unreachable!(),
+                    DrawRange::Advanced(_) => unreachable!(),
                     DrawRange::Vector(range) => {
                         pass.set_pipeline(masked_pipeline.unwrap_or(&self.pipeline));
                         pass.set_bind_group(0, &scene.bindings, &[]);

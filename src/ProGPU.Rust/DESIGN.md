@@ -6542,3 +6542,126 @@ background initialization and target-storage Clear, shader/image filters and
 source-specific opacity/frame rules, typed retained resource revisions, caches,
 residency pools, invalidation and native semantic transport. The original public,
 provider/source/package/pixel and historical browser failure gates remain intact.
+
+## Destination-aware layer blending (2026-11-09)
+
+This batch fills the prior typed-layer checkpoint's fifteen advanced-mode gap.
+Original repository sources consulted, SHA-256:
+
+| Original source | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Native/src/Backend/progpu_native_advanced_blend_execution.cpp` | `44578984717579eb89a2c38ac62f097b5219211b963e8790dcc88092753e7446` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_render_execution.cpp` | `c0325d3d72f30d79f386cfc0619f84213090b67a3a203e9e69ac4e4add4a9dae` |
+| `src/ProGPU.Native/src/Backend/progpu_native_gpu_records.hpp` | `5f1eda15324be086c0b8880ee432e1244f2797f32f0137dd1d8a636149586311` |
+| `src/ProGPU.Native/src/Backend/progpu_native_image_layer_resources.cpp` | `8d8fb8816f1db86563b5ab1551446f928bf4915021f095cfc1b8737d2c16d523` |
+| `src/ProGPU.Native/src/Backend/progpu_native_layer_resource_execution.cpp` | `7ba451a122e78d4c60b02bd5f984091485067683ddcf8883522fc558d729a6d3` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_budget.hpp` | `58c1bf76b9ef70522dd549624c7e8fe30eaf0523aef8965e21691c0977433167` |
+| `src/ProGPU.Backend/Shaders/AdvancedBlend.wgsl` | `f4143798b7172e117c7e838efe6e5e87bbed7010f6cb619b1a64693d6adcdb8e` |
+| `src/ProGPU.Backend/Shaders/Texture.wgsl` | `5f9c663cdc9eac166506c93a1add5ec058c3d68f9a766253aee895afe4adda51` |
+
+### Original records and preparation
+
+The original `AdvancedBlend.wgsl` is embedded unchanged as module thirteen. Its
+fifteen destination-aware functions (Multiply through Exclusion, and Overlay
+through Luminosity) retain their exact unpremultiplication, branch expressions,
+color/alpha terms and clamps. Fixed modes retain the separate original blend
+factors. This host always selects operation-kind zero; inclusion of the shader's
+ROP/axis-clip branches does not qualify or expose those independent policies.
+The uniform-backdrop `GroupBlend.wgsl` fast path remains separate future work.
+
+Private `SamplingUniforms` retains the complete original 96-byte record with
+compile-time size and field-offset assertions. Source origins subtract the two
+original integer-to-float conversions, and extents retain the actual physical
+bounds. Unused operation/pattern fields remain typed zero. Every operation owns
+its original 256-byte uniform slot; no per-frame uniform mutation or upload is
+required. The explicit four-entry layout retains sampled destination/source,
+unfilterable pattern texture (bound to the original source for operation zero)
+and the exact uniform range. No sampler or float32-filterable feature is added to
+the destination-aware pass.
+
+The retained image command now carries its already-resolved physical bounds
+through text expansion and compilation. Advanced operations are separate ordered
+records, so they cannot merge across an ordinary draw or another operation.
+Compilation does not recover bounds from a rounded image quad, mask alpha or ink
+envelope. Each actual target prepares two full-size attachments (destination/root
+and output) and one source attachment sized to the maximum bounded source among
+its live operations. These private resources preserve the actual renderer format,
+sample count, device and render/sample/copy usages. Source targets skipped by an
+empty/disjoint actual scissor produce no advanced operation; canonical source
+recording remains retained and later scope restoration stays ordered.
+
+The complete layer-tree budget now includes conservative actual advanced scratch
+allocations alongside capture/effect allocations, before the first private layer
+capture. Per-texture 256 MiB and aggregate 512 MiB admission remains; operation
+counts, uniform buffer limits and original binding alignment are also checked.
+This does not claim the full native residency pool/eviction or full draw-pass
+budget compiler has been ported. Pipeline state initializes lazily and is taken
+as a private async candidate: failure/cancellation cannot publish half-prepared
+resources. Already prepared scenes retain independent actual pipeline, buffer,
+bind-group and texture handles.
+
+### Ordered GPU execution
+
+Each target with advanced operations paints into its owned destination attachment,
+using the caller's original clear color. Ordinary vector/text/image ranges use the
+same existing renderer, split only at advanced operations; immutable mask/scissor
+state is carried into each subsequent span. For each operation:
+
+1. Clear bounded source scratch, resolve the actual retained layer image through
+   final group opacity and outer masks with the original Src pipeline, and apply
+   the actual localized integer scissor. Source quads retain original zero-origin
+   and width/DPI expressions, whole-texture UVs and premultiplied color metadata.
+   Mask sampling keeps the actual global physical render origin. As in the native
+   advanced route, source resolution uses the original linear layer binding;
+   explicit nearest selection continues to affect the separate fixed route.
+2. Run the unchanged full-target advanced shader, reading the original current
+   destination and bounded resolved source and writing an independent output.
+   No sampled texture aliases the current attachment. Original source-coordinate
+   bounds, color conversions, alpha multiplication and clamp order remain intact.
+3. Replace the parent from that output using the original full-size Src image
+   quad. Subsequent ordinary draws and advanced operations observe this completed
+   destination in painter order.
+
+Finally copy the owned destination to the caller's actual target using the same
+Src route. Browser and native swapchain attachments need no sampling usage or
+new surface format. All passes are encoded into the caller's existing encoder;
+there is no intermediate queue submission, CPU readback or GPU-completion wait.
+The surrounding explicit capture/effect API still submits once for that source
+capture. Re-encoding a prepared scene performs no new allocation or upload and
+reuses its own scratch attachments in command order. Wgpu retains each encoded
+resource; destructors never destroy a live consumer texture, submit or poll.
+Exact source-format round trips are intentionally preserved, including sRGB
+attachment conversions; no direct-write approximation removes the original
+intermediate stored boundaries.
+
+`AdvancedBlendMetrics` reports actual live operations, three passes per operation
+plus the final root copy, scratch storage, padded sampling/resolve/copy uniforms
+and quad/index payload. These are actual root resources and per-replay work, not
+unique global residency or measured performance. `LayerMetrics` additionally
+accumulates advanced work inside materialized child captures. Root draw counts
+include the actual source/blend/replace/root-copy draws and exclude suppressed
+operations; ordinary empty drawing spans add no draws. Images, masks and source
+capture metrics retain their prior independent meanings.
+
+### Gallery, static checks and remaining gates
+
+The shared native `--layers` / browser `?scene=layers` gallery now includes all 29
+native modes in source enum order, with both bounded child and actual root
+advanced destinations, nonzero/fractional bounds, translucent overlap, group
+opacity, outer masks/clips and following painter commands. It retains optional
+explicitly loaded bounded text, shadows and empty-target ownership, and adds a
+nonempty clip disjoint from an advanced layer to exercise suppression/restoration.
+Both hosts expose root and captured-subtree advanced counters.
+
+Implementation-first checks are strict native all-target/all-feature, browser
+WASM and CPU-only Clippy; formatting, whitespace and browser JS syntax; and the
+existing offline Naga test over all thirteen original shader modules. No shader
+source, compiler default, driver, dependency version or package contract is
+changed. Complete matched source parameter/pass/bounds/rejection/float controls,
+all-format and all-mode live GPU/browser pixels, opacity/mask/clip/empty cases,
+repeated-frame and multi-target ownership, cancellation/device loss, allocator/
+process/frame benchmarks and full package/source/application qualification are
+deferred to integrated validation. The earlier browser and performance failures
+remain open. Uniform-backdrop optimization, full cache/revision/residency policy,
+source-specific ROP/AA/background/Clear operations, geometry/brush/picture masks,
+shader/image filters and complete native semantic transport remain unfinished.

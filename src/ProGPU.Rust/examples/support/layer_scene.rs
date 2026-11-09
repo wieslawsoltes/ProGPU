@@ -31,66 +31,86 @@ pub fn layer_scene(font: Option<ManagedFont>) -> Result<Scene> {
         LayerBlend::DstAtop,
         LayerBlend::Xor,
         LayerBlend::DstOver,
+        LayerBlend::Multiply,
+        LayerBlend::Screen,
+        LayerBlend::Darken,
+        LayerBlend::Lighten,
+        LayerBlend::Exclusion,
         LayerBlend::Plus,
         LayerBlend::Clear,
+        LayerBlend::Overlay,
+        LayerBlend::ColorDodge,
+        LayerBlend::ColorBurn,
+        LayerBlend::HardLight,
+        LayerBlend::SoftLight,
+        LayerBlend::Difference,
+        LayerBlend::Hue,
+        LayerBlend::Saturation,
+        LayerBlend::Color,
+        LayerBlend::Luminosity,
         LayerBlend::Modulate,
     ];
     let mut scene = Scene::default();
     for (index, blend) in modes.into_iter().enumerate() {
-        let x = 16.25 + (index % 4) as f32 * 232.0;
-        let y = 16.5 + (index / 4) as f32 * 150.0;
+        let x = 12.25 + (index % 6) as f32 * 156.0;
+        let y = 12.5 + (index / 6) as f32 * 122.0;
+        let r = |[rx, ry, w, h]: [f32; 4]| [x + rx * 0.66, y + ry * 0.82, w * 0.66, h * 0.82];
         scene.draw_analytic(AnalyticPrimitive::rectangle(
-            [x, y, 220.0, 136.0],
+            r([0.0, 0.0, 220.0, 136.0]),
             [0.2, 0.23, 0.28, 1.0],
         ))?;
         let mut group = Scene::default();
         let mut background =
-            AnalyticPrimitive::rectangle([x + 18.0, y + 18.0, 122.0, 94.0], [0.05, 0.65, 1.0, 0.8]);
+            AnalyticPrimitive::rectangle(r([18.0, 18.0, 122.0, 94.0]), [0.05, 0.65, 1.0, 0.8]);
         background.shape = Shape::Ellipse;
         group.draw_analytic(background)?;
         let mut foreground = Scene::default();
         let mut primitive =
-            AnalyticPrimitive::rectangle([x + 80.0, y + 32.0, 114.0, 90.0], [1.0, 0.2, 0.5, 0.7]);
+            AnalyticPrimitive::rectangle(r([80.0, 32.0, 114.0, 90.0]), [1.0, 0.2, 0.5, 0.7]);
         primitive.shape = Shape::Ellipse;
         foreground.draw_analytic(primitive)?;
         let mut child = LayerDraw::new(foreground);
-        child.bounds = Some([x + 60.0, y + 12.0, 144.0, 114.0]);
+        child.bounds = Some(r([60.0, 12.0, 144.0, 114.0]));
         child.blend = blend;
         child.opacity = 0.85;
         child.linear_sampling = index % 2 == 0;
         group.draw_layer(child)?;
-        // Restore painter order after the nested composite.
         group.draw_analytic(AnalyticPrimitive::rectangle(
-            [x + 24.0, y + 116.0, 164.0, 3.0],
+            r([24.0, 116.0, 164.0, 3.0]),
             [0.3, 1.0, 0.6, 0.9],
         ))?;
         let mut outer = LayerDraw::new(group);
-        outer.bounds = Some([x + 8.0, y + 8.0, 204.0, 120.0]);
+        outer.bounds = Some(r([8.0, 8.0, 204.0, 120.0]));
         outer.opacity = if index % 2 == 0 { 1.0 } else { 0.65 };
-        let mut mask = AnalyticMask::rectangle([x + 10.0, y + 10.0, 200.0, 116.0]);
-        mask.radii_x = [18.0; 4];
-        mask.radii_y = [14.0; 4];
+        // Exercise both bounded child destinations and actual root destination
+        // reads, with direct mask/scissor scopes applied during source resolve.
+        if !blend.is_fixed() && index % 2 == 0 {
+            outer.blend = blend;
+        }
+        let mut mask = AnalyticMask::rectangle(r([10.0, 10.0, 200.0, 116.0]));
+        mask.radii_x = [12.0; 4];
+        mask.radii_y = [10.0; 4];
         scene.push_mask(mask)?;
-        scene.push_clip_rect([x + 6.5, y + 6.5, 204.0, 120.0])?;
+        scene.push_clip_rect(r([6.5, 6.5, 204.0, 120.0]))?;
         scene.draw_layer(outer)?;
         scene.pop_scope()?;
         scene.pop_scope()?;
     }
     // Offset bounded mask/text source, then shadow, then final group opacity.
     let mut content = Scene::default();
-    let mut mask = AnalyticMask::rectangle([486.25, 482.5, 170.0, 100.0]);
+    let mut mask = AnalyticMask::rectangle([800.25, 510.5, 132.0, 94.0]);
     mask.radii_x = [18.0; 4];
     mask.radii_y = [22.0; 4];
     content.push_mask(mask)?;
     content.draw_analytic(AnalyticPrimitive::rectangle(
-        [480.0, 478.0, 190.0, 110.0],
+        [794.0, 506.0, 146.0, 106.0],
         [0.4, 0.7, 1.0, 0.9],
     ))?;
     if let Some(font) = font {
         let layout = ManagedTextLayout::new(
             "Nested Rust".encode_utf16().collect::<Vec<_>>(),
             font,
-            22.0,
+            16.0,
             Default::default(),
             ManagedPreparationOptions::new(
                 ManagedNormalizationProfile::Unicode17_0,
@@ -100,7 +120,7 @@ pub fn layer_scene(font: Option<ManagedFont>) -> Result<Scene> {
             &[] as &[ManagedFont],
         )?;
         let mut text = TextDraw::layout(Arc::new(layout));
-        text.position = [495.0, 520.0];
+        text.position = [806.0, 542.0];
         text.brush = Some(Arc::new(progpu::vector::Brush::new(
             progpu::vector::BrushKind::Solid([1.0; 4]),
         )));
@@ -108,7 +128,7 @@ pub fn layer_scene(font: Option<ManagedFont>) -> Result<Scene> {
     }
     content.pop_scope()?;
     let mut layer = LayerDraw::new(content);
-    layer.bounds = Some([476.0, 472.0, 212.0, 134.0]);
+    layer.bounds = Some([786.0, 498.0, 164.0, 128.0]);
     layer.opacity = 0.75;
     layer.effects = Some(EffectChain::new(vec![Effect::DropShadow {
         sigma: [2.5, 4.0],
@@ -120,8 +140,21 @@ pub fn layer_scene(font: Option<ManagedFont>) -> Result<Scene> {
     let mut empty = LayerDraw::new(scene.clone());
     empty.bounds = Some([0.0, 0.0, 0.0, 10.0]);
     scene.draw_layer(empty)?;
+    // A nonempty clip disjoint from an advanced layer suppresses its operation
+    // without losing the subsequent root state or fabricating empty geometry.
+    let mut hidden = Scene::default();
+    hidden.draw_analytic(AnalyticPrimitive::rectangle(
+        [2.0, 2.0, 18.0, 18.0],
+        [1.0, 0.0, 0.0, 1.0],
+    ))?;
+    let mut hidden = LayerDraw::new(hidden);
+    hidden.bounds = Some([2.0, 2.0, 20.0, 20.0]);
+    hidden.blend = LayerBlend::Overlay;
+    scene.push_clip_rect([900.0, 0.0, 10.0, 10.0])?;
+    scene.draw_layer(hidden)?;
+    scene.pop_scope()?;
     scene.draw_analytic(AnalyticPrimitive::rectangle(
-        [720.0, 514.0, 180.0, 28.0],
+        [792.0, 630.0, 150.0, 3.0],
         [0.2, 0.95, 0.65, 1.0],
     ))?;
     Ok(scene)

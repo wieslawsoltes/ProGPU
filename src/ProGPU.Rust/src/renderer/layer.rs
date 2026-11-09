@@ -29,6 +29,16 @@ pub struct LayerMetrics {
     pub image_mask_upload_bytes: u64,
     /// Ordered source draws across captured subtrees.
     pub source_draws: u64,
+    /// Destination-aware operations inside captured subtrees.
+    pub advanced_operations: u64,
+    /// Actual three-pass operations and final subtree root copies.
+    pub advanced_passes: u64,
+    /// Actual destination-aware subtree scratch allocations.
+    pub advanced_texture_bytes: u64,
+    /// Original padded sampling slots and resolve/copy frames.
+    pub advanced_uniform_bytes: u64,
+    /// Original advanced resolve/copy geometry payloads.
+    pub advanced_geometry_bytes: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -151,14 +161,12 @@ impl Renderer {
         if scene.layer_depth() > 16 {
             return Err(Error::Capacity);
         }
+        let mut advanced_source = [0u32; 2];
         for layer in scene.layers() {
             *count = count.checked_add(1).ok_or(Error::Capacity)?;
             if *count > 16 * 1024 {
                 return Err(Error::Capacity);
             }
-            // Advanced modes need the original destination-copy shader route.
-            // Reject the whole tree before the first private capture submission.
-            layer.blend.fixed()?;
             if self.image_sampling.is_none() {
                 return Err(Error::UnsupportedExecution);
             }
@@ -177,6 +185,10 @@ impl Renderer {
                 }
             }
             if !target.empty() {
+                if !layer.blend.is_fixed() {
+                    advanced_source[0] = advanced_source[0].max(target.width);
+                    advanced_source[1] = advanced_source[1].max(target.height);
+                }
                 target.uniforms(self.device.limits().max_texture_dimension_2d)?;
                 let allocation = u64::from(target.width) * u64::from(target.height) * 4;
                 if allocation > 256 * 1024 * 1024 {
@@ -198,6 +210,14 @@ impl Renderer {
                 }
             }
             self.preflight_layer_tree(&layer.scene, target, count, bytes, passes)?;
+        }
+        if advanced_source != [0; 2] {
+            let advanced_bytes =
+                advanced::advanced_texture_bytes([frame.width, frame.height], advanced_source)?;
+            *bytes = bytes.checked_add(advanced_bytes).ok_or(Error::Capacity)?;
+            if *bytes > 512 * 1024 * 1024 {
+                return Err(Error::Capacity);
+            }
         }
         Ok(())
     }
@@ -234,13 +254,22 @@ impl Renderer {
                 ],
             );
             draw.opacity = layer.opacity;
-            draw.sampling = if layer.linear_sampling {
+            // Original advanced source resolve always uses the linear layer binding.
+            draw.sampling = if layer.linear_sampling || !layer.blend.is_fixed() {
                 ImageSampling::Linear
             } else {
                 ImageSampling::Nearest
             };
             draw.validate()?;
-            outputs.push(Some(draw));
+            outputs.push(Some((
+                draw,
+                [
+                    target.origin[0],
+                    target.origin[1],
+                    target.width,
+                    target.height,
+                ],
+            )));
         }
         let resolved = scene.replace_layers(outputs)?;
         let mut prepared = self.prepare_flat_scene(&resolved, frame).await?;
@@ -276,6 +305,12 @@ impl LayerMetrics {
             .ok_or(Error::Capacity)?;
         add!(image_mask_upload_bytes, image_mask_bytes);
         add!(source_draws, u64::from(source.draws));
+        let advanced = scene.advanced_blend_metrics();
+        add!(advanced_operations, u64::from(advanced.operations));
+        add!(advanced_passes, u64::from(advanced.render_passes));
+        add!(advanced_texture_bytes, advanced.texture_bytes);
+        add!(advanced_uniform_bytes, advanced.uniform_bytes);
+        add!(advanced_geometry_bytes, advanced.geometry_bytes);
         let effects = capture.effect_metrics().unwrap_or_default();
         add!(effect_texture_bytes, effects.texture_bytes);
         add!(effect_uniform_bytes, effects.uniform_bytes);

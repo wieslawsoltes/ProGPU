@@ -285,11 +285,14 @@ impl Renderer {
                 current = *index;
                 continue;
             }
+            if matches!(draw, DrawRange::Advanced(_)) {
+                continue;
+            }
             if compiled.states[current].count != 0 {
                 required[match draw {
                     DrawRange::Vector(_) => 0,
                     DrawRange::Text(_) => 1,
-                    DrawRange::Image(..) => 2,
+                    DrawRange::Image(..) | DrawRange::Advanced(_) => 2,
                     _ => unreachable!(),
                 }] = true;
             }

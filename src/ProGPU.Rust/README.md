@@ -4,9 +4,10 @@ Native Rust port in progress. This is not yet a parity-qualified release.
 The Cargo manifest is at the repository root so packaged crates can embed the
 same canonical shader files as C# and C++ without copied shader forks.
 
-Latest connected batch: owned bounded nested layers, original target mapping,
-final group opacity and fourteen fixed-function destination blends. Native and
-browser hosts share a layer gallery; full compositor and validation remain unfinished.
+Latest connected batch: the fifteen destination-reading blend modes now join the
+fourteen fixed-function modes. Bounded source resolve, original advanced blending,
+parent replacement and owned root presentation are connected on native and browser
+hosts. Full compositor and validation remain unfinished.
 
 Current implementation batch (2026-11-09): the managed TrueType and owned CFF1
 routes now connect original script/direction/feature planning, complete GSUB stage
@@ -47,8 +48,9 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Retained image drawing | Native image/patch admission, all 29 patch color blends, eleven reconstruction modes, opacity/alpha policies, projective quads, snapping, extended sampler domains and ordered canonical Texture drawing | Full original record/pixel/ownership/performance controls; managed command-opacity differences, color matrices/effects and complete compositor integration |
 | Image resources and mips | Immutable strided RGBA/BGRA/R8 owners, device-bound GPU handles, weak-owner upload cache, actual sampler policy, canonical GPU mip generation and occupied-tile/brush mapping; native/browser gallery | Runtime/source/browser validation; full mutable generation, subresource, capture, codec and provider ownership APIs |
 | Direct masks and binary clips | Original 96/288-byte analytic/R8 chains, independent radii and physical mappings, exact axis-area branch, binary pixel-center scissors, balanced retained scopes and shared vector/text/image execution; native/browser mask gallery | Matched source bytes/pixels/lifetime/cache/performance controls; full path/brush/picture/composite masks, conditional AA group composition and target-storage Clear remain unfinished |
-| Owned captures and group effects | Complete eight-node native Gaussian/box/drop-shadow plan, original physical parameters and canonical GPU passes, owned job resources, same-submission scene capture and final image composition; shared effect gallery | Whole-source/runtime/browser/lifetime/performance controls; alternate execution routes, output caches, shader/image filters and advanced blends remain unfinished |
-| Bounded nested layers | Immutable source scenes, 16-target depth, native outward target bounds, original managed projection/render-origin mapping, nested captures before parent text, final group opacity and all 14 fixed destination blends; native/browser gallery | Original target/float/pixel/ownership/performance controls; advanced destination-read modes, source-specific AA/Clear/opacity policies, revision caches/pools and complete scene compiler remain unfinished |
+| Owned captures and group effects | Complete eight-node native Gaussian/box/drop-shadow plan, original physical parameters and canonical GPU passes, owned job resources, same-submission scene capture and final image composition; shared effect gallery | Whole-source/runtime/browser/lifetime/performance controls; alternate execution routes, output caches, shader/image filters and source-specific compositing remain unfinished |
+| Bounded nested layers | Immutable source scenes, 16-target depth, native outward target bounds, original managed projection/render-origin mapping, nested captures before parent text, final group opacity and all 29 native destination blends; native/browser gallery | Original target/float/pixel/ownership/performance controls; source-specific AA/Clear/opacity policies, revision caches/pools and complete scene compiler remain unfinished |
+| Destination-aware blend passes | All fifteen advanced modes use canonical AdvancedBlend.wgsl, exact 96-byte records/256-byte slots, bounded source resolution, actual destination reads and ordered parent/root copies; immutable prepared resources and lazy pipelines | Original bytes/float/pixel/performance/retirement controls; uniform-backdrop fast path, caches, source-specific ROP/AA/Clear and complete semantic transport remain unfinished |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, full text compositor and remaining engine stack |
 
 
@@ -79,8 +81,8 @@ are explicit; `Scene::draw_layer` now resolves declared bounds and nested isolat
 
 The shared `--effects` / `?scene=effects` gallery covers six cases including an
 eight-node mixed chain; an explicit local font also exercises captured text.
-The module inventory now contains twelve unchanged canonical shaders, including
-Gaussian horizontal/vertical and shadow composition. Runtime pixels, full source
+The module inventory now contains thirteen unchanged canonical shaders, including
+Gaussian horizontal/vertical, shadow composition and advanced blending. Runtime pixels, full source
 comparisons and performance remain deferred. See the design ledger for exact
 sources, resource ownership and the remaining layer/effect contracts.
 
@@ -89,17 +91,25 @@ root logical coordinates. Optional declared bounds include caller-owned padding;
 preparation projects and outward-rounds them in the original physical frame and
 intersects the actual parent target. Inner masks affect source painting; outer
 masks and clips affect the final composite. Effects precede final group opacity.
-The original fourteen fixed destination blends are available through `LayerBlend`;
-destination-reading advanced modes reject before capture, pending their own pass.
+All twenty-nine original native destination modes are available through `LayerBlend`: fourteen fixed states and fifteen destination-reading modes. The latter
+resolve source opacity/masks, blend against the actual parent, then replace the
+parent before the next painter-ordered command. Prepared root/source/output
+textures support ordinary window/browser attachments without requiring a sampled
+swapchain or CPU readback. Each replay shares the caller's submission.
 
 Run `cargo run --locked --example winit --features window -- --layers`, or
 `?scene=layers` in the browser. Optional explicit-font input adds bounded masked
-text. The gallery covers nested group opacity, all fixed blends, nonzero/fractional
+text. The gallery covers nested group opacity, all 29 blends, nonzero/fractional
 bounds, masks/clips, post-layer painter order, shadows and empty targets.
 `PreparedScene::layer_metrics()` reports actual cumulative capture/effect allocation
 and subtree upload/draw work separately from root preparation; these are not peak
 resident-memory or performance measurements. Captures submit during preparation;
 replaying the prepared root performs no layer recapture or source uploads.
+`advanced_blend_metrics()` separately reports root advanced operations, the three
+passes per operation plus final root copy, actual scratch bytes and immutable
+uniform/geometry uploads. Layer metrics include the same work inside captures.
+Root draw counts now include actual advanced source/blend/copy draws; disjoint
+scissors suppress the corresponding operation.
 
 At the user's request, implementation proceeds in connected batches with
 compile/static checks; exhaustive differential/browser/performance/package

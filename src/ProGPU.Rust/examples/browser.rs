@@ -1819,7 +1819,7 @@ mod web {
             self.material_scene = false;
             Ok(())
         }
-        /// Select shared bounded nested layers and all original fixed blends.
+        /// Select shared bounded nested layers and all original destination blends.
         pub fn select_layer_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.layer_scene = enabled;
@@ -1946,6 +1946,7 @@ mod web {
             if let Some(scene) = &self.scene {
                 let m = scene.metrics();
                 let layers = scene.layer_metrics();
+                let advanced = scene.advanced_blend_metrics();
                 let f = scene.frame();
                 for (name, value) in [
                     ("geometryBytes", m.geometry_bytes as f64),
@@ -1983,6 +1984,25 @@ mod web {
                         layers.image_mask_upload_bytes as f64,
                     ),
                     ("layerSourceDraws", layers.source_draws as f64),
+                    ("layerAdvancedOperations", layers.advanced_operations as f64),
+                    ("layerAdvancedPasses", layers.advanced_passes as f64),
+                    (
+                        "layerAdvancedTextureBytes",
+                        layers.advanced_texture_bytes as f64,
+                    ),
+                    (
+                        "layerAdvancedUniformBytes",
+                        layers.advanced_uniform_bytes as f64,
+                    ),
+                    (
+                        "layerAdvancedGeometryBytes",
+                        layers.advanced_geometry_bytes as f64,
+                    ),
+                    ("advancedOperations", advanced.operations as f64),
+                    ("advancedPasses", advanced.render_passes as f64),
+                    ("advancedTextureBytes", advanced.texture_bytes as f64),
+                    ("advancedUniformBytes", advanced.uniform_bytes as f64),
+                    ("advancedGeometryBytes", advanced.geometry_bytes as f64),
                     ("captures", self.effect_metrics.captures as f64),
                     ("captureBytes", self.effect_metrics.capture_bytes as f64),
                     (
