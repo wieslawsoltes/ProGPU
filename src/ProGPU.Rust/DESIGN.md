@@ -7459,3 +7459,22 @@ New host selectors author sixteen filter and twelve managed shader panels. Eight
 unchanged managed WGSL fragments enter the package allowlist without being
 relabeled standalone shader modules. No compilation, tests, lint, shader/browser,
 source/performance or package validation ran. All historical gates remain open.
+
+
+## Connected native complex shaping (unvalidated)
+
+The parallel native increment adds 3,421 Rust lines for complete original Indic,
+USE, Myanmar and Khmer algorithms and their native run orchestration. It retains
+native scalar mapping, normalization owner, category/syllable flags, filtering,
+bounded substitution probes, exact feature-stage order, varied metrics, GPOS,
+legacy kern, attachment resolution and immutable output generation. Only common
+category facts/recognizers are reused; managed glyph actions/executors are not
+substituted. NativeComplexShaper exposes requirements, reusable scratch, complete
+shape and caller-scratch shape_into entry points. Exact source hashes, SIMD and
+structural scalar policy are in [native complex notes](notes/native-complex-shaping-port.md).
+
+Arabic-joining USE overlap and Verify requests explicitly reject until their
+independent production routes are connected. Ordinary Arabic/Hangul/Hebrew/
+Thai-Lao, fallback-mark extents, fragment verification and hinted-device/provider
+integration remain unfinished. No build/lint/tests/shader/browser/performance or
+new validation fixtures ran. Original source/provider/package gates are unchanged.

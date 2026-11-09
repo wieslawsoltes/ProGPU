@@ -9,8 +9,8 @@ families and connected native Latin shaping; immutable color filters and five
 original GPU filter kernels; programmable shader translation, v1–v6 resources,
 owned captures/final-device draws; retained ROP3 and uniform-backdrop blending.
 The continuation connects managed WGSL/16 samplers, full retained color-filter
-graphs and exact Texture matrices; native complex-script orchestration is being
-ported in parallel. Shared hosts also author 16 color-filter and 12 managed shader panels.
+graphs, exact Texture matrices and connected native Indic/USE/Myanmar/Khmer
+orchestration. Shared hosts also author 16 color-filter and 12 managed shader panels.
 
 **Mandatory implementation-first workflow:** complete the remaining code before
 validation. This entire batch is unvalidated; no compilation, lint, test, shader,
@@ -20,7 +20,7 @@ connects retained rendering, samples and package source inventory.
 
 | Latest parallel slice | Implemented | Remaining integration |
 | --- | --- | --- |
-| Native GPOS and shaping | All nine lookup families, GDEF filtering, device deltas, attachments, feature planner, design/device legacy kern and owned printable-ASCII/LTR Latin pipeline | Native complex-script orchestration and actual hinted-device producer |
+| Native GPOS and shaping | All nine lookup families, Latin pipeline, and connected original Indic/USE/Myanmar/Khmer preparation, reordering, feature stages, metrics/GPOS/kern/attachments and owned output | Native Arabic-joining overlap, ordinary Arabic/Hangul/Hebrew/Thai-Lao, fallback marks, fragment verification and actual hinted-device producer |
 | PNG codec | Original chunks/CRC, zlib/DEFLATE, color/depth inventory, Adam7, filters, palette/transparency and caller-owned scratch | Color-font/provider integration and all source/error/performance controls |
 | Color filters | Immutable graph/factories, CPU brush colors, exact matrix packets, direct Texture drawing and full retained matrix/table/nonlinear/constant/compose/lerp graph execution with live mipmaps | Runtime-effect filter nodes, remaining image-filter DAG families and all qualification |
 | Programmable shader effects | Original bytecode/v1–v6 stack plus managed WGSL, all 16 samplers, exact alpha/blend policies, actual-target masks and painter-ordered draws | Owned nested source capture/revision/cache realization and source transport |

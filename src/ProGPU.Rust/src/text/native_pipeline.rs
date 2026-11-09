@@ -11,9 +11,15 @@ use crate::font::layout::{
     is_gdef_blocklisted, resolve_gpos_attachments,
 };
 use crate::font::{FontError, SfntFace, Tag};
+pub mod complex;
 mod features;
 mod kern;
 mod latin;
+pub use complex::{
+    NativeBufferFlags, NativeClusterLevel, NativeComplexKind, NativeComplexRequest,
+    NativeComplexRequirements, NativeComplexRun, NativeComplexScratch, NativeComplexShaper,
+    NativeShapingRoute, resolve_native_language_tag, resolve_native_shaping_route,
+};
 pub use features::{
     NativeFeature, NativeFeaturePlan, NativeFeatureRoute, NativeFeatureSetting,
     native_default_features,

@@ -73,13 +73,15 @@ font-object identity and does not synthesize hinted metrics or outline points.
 
 ## Remaining native scope
 
-* Full font/script route discovery and language-name-to-tag mapping.
-* General native initial mapping, canonical/compatibility preprocessing, Unicode
-  normalization providers, non-ASCII grapheme ownership, special-space fallback,
-  default-ignorable removal and automatic fraction shaping.
-* Arabic joining/form/preprocessing/context/reversal/fallback/stretch orchestration;
-  Hangul and native Indic/USE/Myanmar/Khmer preparation/reordering/syllable stages.
-* Full native fallback-mark extent positioning and vertical/reverse run finishing.
+The subsequent [native-complex-shaping-port.md](native-complex-shaping-port.md)
+increment adds native route/language discovery, the complete four complex-stage
+families, their normalization/mapping/preprocessing, spaces/fractions and connected
+design-unit positioning, including vertical/reverse finishing. Remaining families:
+
+* Arabic joining/form/preprocessing/context/reversal/fallback/stretch orchestration,
+  including USE routes that independently require joining; Hangul and other
+  ordinary noncomplex preprocessing/finishing.
+* Full native fallback-mark extent positioning.
 * Actual hinted-device font producer, metric/outline preparation, descriptor
   remapping, source positioning/boundary capture, fragment-verification callbacks,
   prepared-glyph placement and final provider integration. Existing GPOS/device
