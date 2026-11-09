@@ -12,6 +12,7 @@ pub struct CapturedScene {
     image: GpuImage,
     frame: Frame,
     source_metrics: UploadMetrics,
+    replay_metrics: ReplayMetrics,
     capture_bytes: u64,
     effects: Option<EffectMetrics>,
 }
@@ -28,10 +29,15 @@ impl CapturedScene {
     pub fn frame(&self) -> Frame {
         self.frame
     }
-    /// Earlier preparation metrics of the source scene; capture repeats no
-    /// source uploads and does not report these bytes as newly uploaded.
+    /// Earlier source preparation metrics, not counted again as capture uploads.
+    /// Per-occurrence target Clear uploads are reported by `source_replay_metrics`.
     pub fn source_preparation_metrics(&self) -> UploadMetrics {
         self.source_metrics
+    }
+    /// Actual source replay work encoded in this capture, including original
+    /// target Clear uploads independently of previous source preparation.
+    pub fn source_replay_metrics(&self) -> ReplayMetrics {
+        self.replay_metrics
     }
     /// Actual transparent capture allocation bytes, before effect intermediates.
     pub fn capture_bytes(&self) -> u64 {
@@ -154,6 +160,7 @@ impl Renderer {
             image,
             frame: scene.frame,
             source_metrics: scene.metrics,
+            replay_metrics: scene.replay_metrics(),
             capture_bytes,
             effects: effect_metrics,
         })

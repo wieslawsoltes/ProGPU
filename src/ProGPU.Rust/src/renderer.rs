@@ -19,6 +19,8 @@ use wgpu::util::DeviceExt;
 mod advanced;
 pub use advanced::AdvancedBlendMetrics;
 mod capture;
+mod clear;
+pub use clear::{RenderSubmission, ReplayMetrics, TargetClearRequest};
 mod image;
 mod layer;
 pub use layer::LayerMetrics;
@@ -150,6 +152,7 @@ pub struct PreparedScene {
     origin: [u32; 2],
     layers: LayerMetrics,
     advanced: Option<advanced::PreparedAdvanced>,
+    clears: Option<clear::PreparedClears>,
     metrics: UploadMetrics,
 }
 
@@ -187,7 +190,8 @@ impl PreparedScene {
             .as_ref()
             .map_or_else(AdvancedBlendMetrics::default, |a| a.metrics)
     }
-    /// Actual preparation payload counts; replay performs no uploads.
+    /// Actual preparation payload counts; target-storage Clear has separately
+    /// reported per-replay uploads through `replay_metrics()`.
     pub fn metrics(&self) -> UploadMetrics {
         self.metrics
     }
@@ -211,6 +215,7 @@ pub struct Renderer {
     masks: Option<mask::MaskState>,
     effects: Option<crate::effects::EffectEngine>,
     advanced: Option<advanced::AdvancedState>,
+    clear: Option<clear::ClearPipeline>,
     image_sampling: Option<crate::image::ImageSamplingPath>,
     image_preference: crate::image::ImageSamplingPreference,
 }
@@ -340,6 +345,7 @@ impl Renderer {
             masks: None,
             effects: None,
             advanced: None,
+            clear: None,
             image_sampling: None,
             image_preference: Default::default(),
         })
@@ -457,6 +463,7 @@ impl Renderer {
         };
         self.prepare_images(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, &mut prepared).await?;
+        self.prepare_clears(compiled, &mut prepared).await?;
         self.prepare_advanced(compiled, frame, &mut prepared)
             .await?;
         prepared.draws = compiled.draws.clone();
@@ -645,6 +652,7 @@ impl Renderer {
             origin: frame.origin,
             layers: LayerMetrics::default(),
             advanced: None,
+            clears: None,
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
                 uniform_bytes: size_of::<Uniforms>() as u64,
@@ -663,7 +671,8 @@ impl Renderer {
         })
     }
 
-    /// Render one frozen scene in painter order, without uploads or CPU readback.
+    /// Render one frozen scene in painter order, without CPU readback. Explicit
+    /// target-storage Clear retains its original 16-byte upload per occurrence.
     ///
     /// The caller supplies a same-device, single-sample view with the configured
     /// format and the prepared physical extent. wgpu validates target compatibility.
@@ -673,13 +682,28 @@ impl Renderer {
         target: &wgpu::TextureView,
         clear: wgpu::Color,
     ) -> Result<wgpu::SubmissionIndex, Error> {
+        Ok(self
+            .render_with_metrics(scene, target, clear)?
+            .submission_index)
+    }
+
+    /// Submit one retained frame and return actual encoded draw/upload counts.
+    pub fn render_with_metrics(
+        &self,
+        scene: &PreparedScene,
+        target: &wgpu::TextureView,
+        clear: wgpu::Color,
+    ) -> Result<RenderSubmission, Error> {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ProGPU frame"),
             });
-        self.encode(&mut encoder, scene, target, clear)?;
-        Ok(self.queue.submit([encoder.finish()]))
+        let metrics = self.encode_with_metrics(&mut encoder, scene, target, clear)?;
+        Ok(RenderSubmission {
+            submission_index: self.queue.submit([encoder.finish()]),
+            metrics,
+        })
     }
 
     /// Encode an ordered scene into a caller-owned same-device encoder. The
@@ -692,6 +716,19 @@ impl Renderer {
         target: &wgpu::TextureView,
         clear: wgpu::Color,
     ) -> Result<(), Error> {
+        self.encode_with_metrics(encoder, scene, target, clear)
+            .map(|_| ())
+    }
+
+    /// Encode the complete immutable scene and report its actual command work.
+    /// Counts describe encoded commands, not GPU completion or pixel qualification.
+    pub fn encode_with_metrics(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &PreparedScene,
+        target: &wgpu::TextureView,
+        clear: wgpu::Color,
+    ) -> Result<ReplayMetrics, Error> {
         if !Arc::ptr_eq(&self.owner, &scene.owner) {
             return Err(Error::ResourceDomain);
         }
@@ -705,20 +742,22 @@ impl Renderer {
             return Err(Error::InvalidInput);
         }
         if let Some(advanced) = &scene.advanced {
-            return self.encode_advanced(encoder, scene, advanced, target, clear);
+            self.encode_advanced(encoder, scene, advanced, target, clear)?;
+        } else {
+            self.encode_span(
+                encoder,
+                scene,
+                target,
+                wgpu::LoadOp::Clear(clear),
+                0..scene.draws.len(),
+                None,
+            )?;
         }
-        self.encode_span(
-            encoder,
-            scene,
-            target,
-            wgpu::LoadOp::Clear(clear),
-            0..scene.draws.len(),
-            None,
-        )
+        Ok(scene.replay_metrics())
     }
 
     #[allow(clippy::too_many_arguments)] // One immutable painter span and its original attachment/scope state.
-    fn encode_span(
+    fn encode_draw_span(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         scene: &PreparedScene,
@@ -765,7 +804,7 @@ impl Renderer {
                 }
                 // Live advanced draws are separate ordered passes. Entries left
                 // inside a span were proven disjoint from their actual scissor.
-                if matches!(draw, DrawRange::Advanced(_)) {
+                if matches!(draw, DrawRange::Advanced(_) | DrawRange::Clear(_)) {
                     continue;
                 }
                 if let Some(state) = draw_state {
@@ -795,7 +834,7 @@ impl Renderer {
                 };
                 match draw {
                     DrawRange::State(_) => unreachable!(),
-                    DrawRange::Advanced(_) => unreachable!(),
+                    DrawRange::Advanced(_) | DrawRange::Clear(_) => unreachable!(),
                     DrawRange::Vector(range) => {
                         pass.set_pipeline(masked_pipeline.unwrap_or(&self.pipeline));
                         pass.set_bind_group(0, &scene.bindings, &[]);

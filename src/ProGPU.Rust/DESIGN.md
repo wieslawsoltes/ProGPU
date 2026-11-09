@@ -6665,3 +6665,102 @@ deferred to integrated validation. The earlier browser and performance failures
 remain open. Uniform-backdrop optimization, full cache/revision/residency policy,
 source-specific ROP/AA/background/Clear operations, geometry/brush/picture masks,
 shader/image filters and complete native semantic transport remain unfinished.
+
+
+## Ordered target-storage Clear implementation (2026-11-09)
+
+The original storage operator is now connected to the retained Rust command
+stream, ordinary/bounded captures and destination-aware layer passes. The public
+contract research at the start of this ledger continues to govern independent
+paint/clip state, immutable source records, device domains and retained resources.
+This is a direct port of ProGPU's original operator, not a new clear algorithm or
+an optimization claim. Original sources consulted, SHA-256:
+
+| Original source | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Native/src/Backend/progpu_native_target_clear.cpp` | `ff98709c7fb03998e23edc0ce5126ef47435d2a71b48250b3360e20ed7229f31` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_render_execution.cpp` | `c0325d3d72f30d79f386cfc0619f84213090b67a3a203e9e69ac4e4add4a9dae` |
+| `src/ProGPU.Native/tests/progpu_native_target_clear_fixture.hpp` | `7f94a584318a8cc3f3ac91fa42c8304fa3e518dc781904f39a7a2f8d9220c33e` |
+| `src/ProGPU.Backend/Shaders/TargetClear.wgsl` | `17ed457c5840152c4578d5262c56d9bdf3b673fa518e9589687e813e938eafc8` |
+
+`docs/native-target-storage-clear.md` retains the complete source AA/background,
+ordinary-layer ownership, depth, provider, package and pixel gates. Its original
+fifteen native fixtures have been inspected, not replayed or qualified by this
+Rust checkpoint. Existing Windows/source and provider receipts remain independent.
+
+### Original CPU records and admission
+
+`ClearColor` validates finite straight RGBA and alpha 0..=1 before recording,
+retaining original component bits, signed zero and finite negative/HDR RGB. Its
+private storage prevents bypassing validation through a public POD constructor.
+The original independent RGB multiplication uses four SIMD lanes; Preserve uses
+the supplied alpha, while explicit actual-target Ignore uses one. The source
+alpha slot is assigned directly, with no clamp, quantization or inherited opacity.
+`Scene::clear_target` appends one typed command without geometry, brush, hit data or
+child traversal. CPU and compiled iterators expose original colors in order.
+
+Complete scope preflight rejects direct per-draw masks around Clear even when the
+binary clip is empty, before layer captures or text atlas mutation. Ordinary
+isolated child targets remain independent of outer final masks/opacity. Binary
+clips retain the existing original physical `ceil(double(edge)-0.5)` rule and
+bounded target localization; no AA coverage is applied to storage Clear itself.
+An empty resulting scissor suppresses the operation and its upload. The current
+scene API uses alpha-preserving targets. The explicit low-level encoder accepts an
+actual caller-owned texture with `TargetAlpha`; it inspects its base-level extent,
+format, dimensionality, layer/sample count and attachment usage. Same-device
+ownership remains a wgpu contract, never inferred from numeric dimensions.
+
+### Original storage pass and ordering
+
+The unchanged canonical `TargetClear.wgsl` is module fourteen. The lazy pipeline
+retains its original nonempty shader/pipeline identities, fragment uniform of
+exactly 16 bytes, three-vertex fullscreen primitive, no blend, all-channel writes
+and single-sample target. Every nonempty occurrence allocates its own original
+Uniform/CopyDst buffer, uploads exactly 16 bytes and binds that actual buffer.
+This preserves separate values for multiple encodes before submission, including
+warm replay. It deliberately does not turn the original upload contract into a
+cached mutable or preparation-only uniform.
+
+Encoding loads/stores the actual current attachment, sets its actual viewport and
+physical binary scissor, then issues one draw. The ordered span encoder splits at
+Clear records and carries the original scope state into subsequent draws. A first
+Clear still retains the caller's initial attachment load/clear outside its scissor.
+Consecutive clears retain distinct ordered operations. With destination-aware
+blending, Clear targets the actual owned root between source/blend/replace passes;
+bounded captures use their own physical target. No CPU readback, extra submission,
+completion wait, explicit resource destruction or destructor queue work is added.
+Wgpu retains actual buffer/bind-group dependencies through command submission.
+
+`ReplayMetrics` separates encoded Clear uploads/allocations from earlier geometry,
+mask, image and uniform preparation. `render_with_metrics` returns the real queue
+submission plus these counts; `encode_with_metrics` reports commands before caller
+submission, and `PreparedScene::replay_metrics()` describes the frozen plan.
+Captures retain their source replay counts and `LayerMetrics` accumulates captured
+subtree work without recounting it on root replay. The browser reports its last
+actual encoded frame independently of these preparation/capture totals. These are
+command counters, not GPU completion, allocator profiling or parity evidence.
+
+### Shared sample and remaining qualification
+
+Native `--clears` and browser `?scene=clears` use the same twelve authored panels:
+opaque/transparent/partial alpha, fractional/exact-half/adjacent float binary clips,
+nested and empty clips, bounded source clears with final layer opacity/rounded
+masks, clears before/between/after advanced modes, source shadows, optional local
+font and subsequent draw restoration. No sample claims to reproduce the original
+native fifteen-case source inventory or conditional source AA controls.
+
+Implementation-first checks: strict all-target/all-feature native Clippy, browser
+WASM and CPU-only Clippy; formatting/whitespace/JS syntax; the existing offline
+Naga validation across fourteen canonical modules. Complete original records,
+source admission and pixel corpus, live native/browser execution, repeated/unsubmitted
+encodes, all target formats, explicit Ignore-alpha output, lifetime/cancellation,
+performance/Instruments and package/application gates remain deferred. No original
+shader, dependency, driver, compiler default or qualification gate is changed.
+
+Source AA background initialization inward of the nearest ordinary layer and
+coverage resolve at pop remain unfinished. They require actual parent storage at
+painter position and must not be fabricated by the already-captured ordinary-layer
+API. Independent per-axis DPI/viewport, scene Ignore-alpha owners, nested picture
+transport, full source depth/semantic budgets and source opacity/Clear policies
+also remain separate work. The surrounding full mask/filter/cache/archive and
+platform port remains incomplete.

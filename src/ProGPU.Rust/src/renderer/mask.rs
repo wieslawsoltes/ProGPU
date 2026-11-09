@@ -285,7 +285,7 @@ impl Renderer {
                 current = *index;
                 continue;
             }
-            if matches!(draw, DrawRange::Advanced(_)) {
+            if matches!(draw, DrawRange::Advanced(_) | DrawRange::Clear(_)) {
                 continue;
             }
             if compiled.states[current].count != 0 {

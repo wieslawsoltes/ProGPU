@@ -2,6 +2,9 @@
 //! This example uses the same production renderer and shared scene as winit.
 
 #[cfg(target_arch = "wasm32")]
+#[path = "support/clear_scene.rs"]
+mod clear_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/effect_scene.rs"]
 mod effect_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1666,9 +1669,11 @@ mod web {
         mask_scene: bool,
         effect_scene: bool,
         layer_scene: bool,
+        clear_scene: bool,
         effect_metrics: super::effect_sample::GalleryMetrics,
         validation: Option<Renderer>,
         frames: u32,
+        last_replay: progpu::renderer::ReplayMetrics,
         capture_complete: Option<Arc<AtomicBool>>,
         // Retain the complete browser device-creation ownership chain until
         // every child above has retired, including asynchronous validation.
@@ -1742,9 +1747,11 @@ mod web {
             mask_scene: false,
             effect_scene: false,
             layer_scene: false,
+            clear_scene: false,
             effect_metrics: Default::default(),
             validation: None,
             frames: 0,
+            last_replay: Default::default(),
             capture_complete: None,
             adapter,
             _instance: instance,
@@ -1774,6 +1781,7 @@ mod web {
             self.mask_scene = false;
             self.effect_scene = false;
             self.layer_scene = false;
+            self.clear_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1795,6 +1803,7 @@ mod web {
             self.mask_scene = false;
             self.effect_scene = false;
             self.layer_scene = false;
+            self.clear_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1805,6 +1814,7 @@ mod web {
             self.mask_scene = enabled;
             self.effect_scene = false;
             self.layer_scene = false;
+            self.clear_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1814,6 +1824,7 @@ mod web {
             self.ensure_live()?;
             self.effect_scene = enabled;
             self.layer_scene = false;
+            self.clear_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1823,6 +1834,18 @@ mod web {
         pub fn select_layer_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.ensure_live()?;
             self.layer_scene = enabled;
+            self.clear_scene = false;
+            self.effect_scene = false;
+            self.mask_scene = false;
+            self.image_scene = false;
+            self.material_scene = false;
+            Ok(())
+        }
+        /// Select shared ordered storage clears, bounded targets and blend interleaving.
+        pub fn select_clear_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            self.clear_scene = enabled;
+            self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1866,7 +1889,9 @@ mod web {
             Ok(())
         }
         fn record_scene(&self) -> Result<progpu::scene::Scene, Box<dyn std::error::Error>> {
-            if self.layer_scene {
+            if self.clear_scene {
+                super::clear_sample::clear_scene(self.text_font.clone())
+            } else if self.layer_scene {
                 super::layer_sample::layer_scene(self.text_font.clone())
             } else if self.mask_scene {
                 super::mask_sample::mask_scene(self.text_font.clone())
@@ -1880,7 +1905,8 @@ mod web {
                 sample::sample_scene()
             }
         }
-        /// Present retained GPU resources without uploads, rasterization or readback.
+        /// Present retained GPU resources; explicit Clear keeps its original
+        /// per-occurrence 16-byte upload. No rasterization or readback is added.
         pub fn draw(&mut self) -> Result<bool, JsValue> {
             self.ensure_live()?;
             let Some(scene) = self.scene.as_ref() else {
@@ -1900,8 +1926,9 @@ mod web {
                     return Err(error("browser surface validation failed"));
                 }
             };
-            self.renderer
-                .render(
+            let submission = self
+                .renderer
+                .render_with_metrics(
                     scene,
                     &texture.texture.create_view(&Default::default()),
                     wgpu::Color {
@@ -1912,6 +1939,7 @@ mod web {
                     },
                 )
                 .map_err(error)?;
+            self.last_replay = submission.metrics;
             self.queue.present(texture);
             self.frames += 1;
             Ok(true)
@@ -1943,6 +1971,23 @@ mod web {
         pub fn metrics(&self) -> Result<Object, JsValue> {
             let result = Object::new();
             field(&result, "frames", self.frames as f64)?;
+            for (name, value) in [
+                ("lastReplayDraws", self.last_replay.draws as f64),
+                (
+                    "lastReplayTargetClears",
+                    self.last_replay.target_clears as f64,
+                ),
+                (
+                    "lastReplayUniformUploadBytes",
+                    self.last_replay.uniform_upload_bytes as f64,
+                ),
+                (
+                    "lastReplayUniformAllocations",
+                    self.last_replay.uniform_buffer_allocations as f64,
+                ),
+            ] {
+                field(&result, name, value)?;
+            }
             if let Some(scene) = &self.scene {
                 let m = scene.metrics();
                 let layers = scene.layer_metrics();
@@ -1984,6 +2029,15 @@ mod web {
                         layers.image_mask_upload_bytes as f64,
                     ),
                     ("layerSourceDraws", layers.source_draws as f64),
+                    ("layerTargetClears", layers.source_target_clears as f64),
+                    (
+                        "layerReplayUniformBytes",
+                        layers.source_replay_uniform_bytes as f64,
+                    ),
+                    (
+                        "layerReplayUniformAllocations",
+                        layers.source_replay_uniform_allocations as f64,
+                    ),
                     ("layerAdvancedOperations", layers.advanced_operations as f64),
                     ("layerAdvancedPasses", layers.advanced_passes as f64),
                     (

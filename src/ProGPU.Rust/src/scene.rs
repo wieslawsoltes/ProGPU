@@ -24,6 +24,8 @@ use crate::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod clear;
+pub use clear::{ClearColor, TargetAlpha};
 mod layer;
 mod mask;
 pub use layer::{LayerBlend, LayerDraw};
@@ -36,6 +38,7 @@ pub(crate) use text::ResolvedSceneText;
 #[derive(Clone, Debug)]
 pub(crate) enum DrawRange {
     State(usize),
+    Clear(ClearColor),
     Vector(std::ops::Range<u32>),
     #[cfg(feature = "gpu")]
     Text(std::ops::Range<u32>),
@@ -150,6 +153,7 @@ impl MaterialPaint {
 #[derive(Clone, Debug)]
 enum Command {
     Empty,
+    Clear(ClearColor),
     Layer(Box<LayerDraw>),
     PushMask(Box<crate::mask::Mask>),
     PushClip([f32; 4]),
@@ -419,6 +423,7 @@ impl Scene {
         for command in &commands {
             match command.as_ref() {
                 Command::Empty
+                | Command::Clear(_)
                 | Command::PushMask(_)
                 | Command::PushClip(_)
                 | Command::PopScope
@@ -503,6 +508,7 @@ impl Scene {
                 | Command::PushMask(_)
                 | Command::PushClip(_)
                 | Command::PopScope => {}
+                Command::Clear(color) => draws.push(DrawRange::Clear(*color)),
                 Command::Image(draw, blend, bounds) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;

@@ -12,6 +12,8 @@ use winit::{
 #[path = "support/sample_scene.rs"]
 mod sample;
 use sample::sample_scene;
+#[path = "support/clear_scene.rs"]
+mod clear_sample;
 #[path = "support/effect_scene.rs"]
 mod effect_sample;
 #[path = "support/image_scene.rs"]
@@ -27,6 +29,14 @@ mod text_sample;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum CompositeGallery {
+    #[default]
+    None,
+    Layers,
+    Clears,
+}
+
 struct WindowRenderer {
     window: Arc<Window>,
     instance: wgpu::Instance,
@@ -41,7 +51,7 @@ struct WindowRenderer {
     image_scene: bool,
     mask_scene: bool,
     effect_scene: bool,
-    layer_scene: bool,
+    composite_gallery: CompositeGallery,
 }
 
 impl WindowRenderer {
@@ -52,7 +62,7 @@ impl WindowRenderer {
         image_scene: bool,
         mask_scene: bool,
         effect_scene: bool,
-        layer_scene: bool,
+        composite_gallery: CompositeGallery,
     ) -> Result<Self> {
         let window = Arc::new(
             event_loop.create_window(
@@ -112,7 +122,7 @@ impl WindowRenderer {
             image_scene,
             mask_scene,
             effect_scene,
-            layer_scene,
+            composite_gallery,
         };
         state.resize()?;
         state.window.set_visible(true);
@@ -132,7 +142,9 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
-        let source = if self.layer_scene {
+        let source = if self.composite_gallery == CompositeGallery::Clears {
+            clear_sample::clear_scene(self.text_font.clone())?
+        } else if self.composite_gallery == CompositeGallery::Layers {
             layer_sample::layer_scene(self.text_font.clone())?
         } else if self.effect_scene {
             let (scene, metrics) = pollster::block_on(effect_sample::effect_scene(
@@ -162,10 +174,11 @@ impl WindowRenderer {
         };
         let scene = pollster::block_on(self.renderer.prepare_scene(&source, frame))?;
         eprintln!(
-            "prepared: {:?}; layers: {:?}; advanced blends: {:?}",
+            "prepared: {:?}; layers: {:?}; advanced blends: {:?}; per replay: {:?}",
             scene.metrics(),
             scene.layer_metrics(),
-            scene.advanced_blend_metrics()
+            scene.advanced_blend_metrics(),
+            scene.replay_metrics()
         );
         self.config.width = size.width;
         self.config.height = size.height;
@@ -229,7 +242,7 @@ struct App {
     image_scene: bool,
     mask_scene: bool,
     effect_scene: bool,
-    layer_scene: bool,
+    composite_gallery: CompositeGallery,
 }
 
 impl App {
@@ -249,7 +262,7 @@ impl ApplicationHandler for App {
                 self.image_scene,
                 self.mask_scene,
                 self.effect_scene,
-                self.layer_scene,
+                self.composite_gallery,
             )) {
                 Ok(state) => self.state = Some(state),
                 Err(error) => self.fail(event_loop, error),
@@ -306,7 +319,8 @@ fn main() -> Result<()> {
             "--images" => app.image_scene = true,
             "--masks" => app.mask_scene = true,
             "--effects" => app.effect_scene = true,
-            "--layers" => app.layer_scene = true,
+            "--layers" => app.composite_gallery = CompositeGallery::Layers,
+            "--clears" => app.composite_gallery = CompositeGallery::Clears,
             "--text" => {
                 let path = args.next().ok_or("--text requires a font file path")?;
                 app.text_font = Some(progpu::font::ManagedFont::new(std::fs::read(path)?, 0)?);
@@ -323,7 +337,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

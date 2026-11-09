@@ -39,6 +39,12 @@ pub struct LayerMetrics {
     pub advanced_uniform_bytes: u64,
     /// Original advanced resolve/copy geometry payloads.
     pub advanced_geometry_bytes: u64,
+    /// Actual target-storage Clear operations while capturing subtrees.
+    pub source_target_clears: u64,
+    /// Original per-occurrence source Clear uploads during capture.
+    pub source_replay_uniform_bytes: u64,
+    /// Actual source Clear uniform allocations during capture.
+    pub source_replay_uniform_allocations: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -311,6 +317,13 @@ impl LayerMetrics {
         add!(advanced_texture_bytes, advanced.texture_bytes);
         add!(advanced_uniform_bytes, advanced.uniform_bytes);
         add!(advanced_geometry_bytes, advanced.geometry_bytes);
+        let replay = capture.source_replay_metrics();
+        add!(source_target_clears, u64::from(replay.target_clears));
+        add!(source_replay_uniform_bytes, replay.uniform_upload_bytes);
+        add!(
+            source_replay_uniform_allocations,
+            u64::from(replay.uniform_buffer_allocations)
+        );
         let effects = capture.effect_metrics().unwrap_or_default();
         add!(effect_texture_bytes, effects.texture_bytes);
         add!(effect_uniform_bytes, effects.uniform_bytes);
