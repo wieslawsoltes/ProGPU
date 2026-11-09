@@ -17,6 +17,8 @@ mod fixture;
 #[path = "support/managed_script_actions_replay.rs"]
 mod replay;
 use replay::Case;
+#[path = "support/managed_arabic_fallback_cases.rs"]
+mod fallback;
 #[test]
 fn script_actions_require_source_and_keep_source_owners() {
     let font = ManagedFont::new(fixture::fonts().remove(0), 0).unwrap();
@@ -45,6 +47,43 @@ fn script_actions_require_source_and_keep_source_owners() {
         clone.preparation().unwrap().text(),
         buffer.preparation().unwrap().text()
     );
+}
+// Frozen original full outputs also run on ordinary native CI without .NET.
+#[test]
+fn frozen_original_script_actions_all_runtime_profiles() {
+    let mut input =
+        std::io::Cursor::new(include_bytes!("../browser/managed-script-actions.bin").as_slice());
+    let mut magic = [0; 4];
+    input.read_exact(&mut magic).unwrap();
+    assert_eq!(&magic, b"PSA1");
+    let mut fonts = Vec::new();
+    for _ in 0..word(&mut input) {
+        let mut bytes = vec![0; word(&mut input) as usize];
+        input.read_exact(&mut bytes).unwrap();
+        fonts.push(ManagedFont::new(bytes, 0).ok());
+    }
+    let count = word(&mut input);
+    let mut actual = Vec::new();
+    for index in 0..count {
+        let font = word(&mut input) as usize;
+        let request: Vec<_> = (0..word(&mut input)).map(|_| word(&mut input)).collect();
+        let case = Case::from_request(font, &request).unwrap();
+        let bytes = word(&mut input);
+        assert_eq!(bytes % 4, 0);
+        let expected: Vec<_> = (0..bytes / 4).map(|_| word(&mut input)).collect();
+        for profile in [
+            ManagedNormalizationProfile::Unicode15_1,
+            ManagedNormalizationProfile::Unicode16_0,
+            ManagedNormalizationProfile::Unicode17_0,
+        ] {
+            replay::execute(fonts[font].as_ref(), &case, profile, &mut actual);
+            assert_eq!(
+                actual, expected,
+                "frozen original case {index}, {profile:?}"
+            );
+        }
+    }
+    assert_eq!(input.position() as usize, input.get_ref().len());
 }
 fn source(font: usize, script: &str, level: u8, text: Vec<u16>) -> replay::preparation::Case {
     replay::preparation::Case {
@@ -277,7 +316,8 @@ fn corpus(mut emit: impl FnMut(Case, bool)) {
         }
         emit(c, false);
     }
-    joining_corpus(emit);
+    joining_corpus(&mut emit);
+    fallback::corpus(emit);
 }
 
 fn joining_corpus(mut emit: impl FnMut(Case, bool)) {
@@ -627,7 +667,10 @@ fn complete_original_managed_script_actions() {
     if std::env::var_os("PROGPU_RUST_UPDATE_ACTIONS_FIXTURE").is_some() {
         std::fs::write(&path, &fixture).unwrap();
     }
-    assert_eq!(std::fs::read(path).unwrap(), fixture);
+    assert!(
+        std::fs::read(path).unwrap() == fixture,
+        "frozen original fixture differs; regenerate only after complete source comparison"
+    );
     eprintln!(
         "Original managed script actions: {count} cases / {bytes} exact bytes; {browser_count} browser cases / {} bytes",
         fixture.len()

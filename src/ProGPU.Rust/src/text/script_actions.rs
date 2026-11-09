@@ -8,6 +8,8 @@ use crate::font::{FontError, ManagedFont, layout::ManagedGlyphBuffer};
 use normalization::{ManagedNormalizationProfile, NormalizationForm};
 mod joining;
 pub use joining::{ManagedJoiningType, managed_joining_type};
+mod arabic_fallback;
+pub use arabic_fallback::ManagedArabicFallbackFeatures;
 
 /// Original four physical shaping directions, independent of bidi level types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +80,13 @@ pub enum ManagedScriptAction {
     RecordArabicStretch,
     /// Original contextual joining, including Syriac forms and retained context.
     ArabicJoining,
+    /// Original font-dependent presentation forms and ordered fallback ligatures.
+    ArabicFallback {
+        /// The actual source planner's fallback admission.
+        enabled: bool,
+        /// Original whole-buffer feature settings, separate from ranged features.
+        features: ManagedArabicFallbackFeatures,
+    },
     /// Reverse complete original records without reconstructing clusters.
     Reverse,
 }
@@ -238,6 +247,11 @@ impl ManagedGlyphBuffer {
                 &options.pre_context,
                 &options.post_context,
             ),
+            ManagedScriptAction::ArabicFallback { enabled, features } => {
+                if enabled {
+                    arabic_fallback::apply(self, font, features)?;
+                }
+            }
         }
         Ok(())
     }

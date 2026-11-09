@@ -19,12 +19,12 @@ def word(value):
     return struct.pack('<I', value)
 
 
-def font(space_only):
+def font(space_only, identity=False):
     head = bytearray(54)
     struct.pack_into('>H', head, 18, 1000)
-    nominal = struct.pack('>HHIIIIII', 13, 0, 28, 0, 1,
-                          0x20 if space_only else 0, 0x20 if space_only else 0x10ffff,
-                          3 if space_only else 7)
+    nominal = struct.pack('>HHIIIIII', 12 if identity else 13, 0, 28, 0, 1,
+                          0x20 if space_only else 0, 0x20 if space_only else (0xffff if identity else 0x10ffff),
+                          3 if space_only else (0 if identity else 7))
     selector = struct.pack('>HII', 14, 30, 1) + bytes.fromhex('00fe0f') + struct.pack('>III', 0, 21, 1) + bytes.fromhex('0000410000')
     cmap = struct.pack('>HHHHIHHI', 0, 2, 0, 4, 20, 0, 5, 48) + nominal + selector
     result = bytearray(44)
@@ -35,11 +35,13 @@ def font(space_only):
     return result
 
 
-def request(script, points, count, actions):
+def request(script, points, count, actions, fallback=False):
     records=[]
     for i in range(count):
         values=[((i+1)*(n+3)*7) & 255 for n in range(31)]
         values[0]=7;values[1]=i;values[2]=(i//len(points))*len(points);values[3]=i;values[4]=points[i%len(points)]
+        if fallback:
+            values[0]=values[4];values[10]=6
         records.extend(values)
     script=list(script.encode('ascii'))
     values=[len(script),*script,1,1,count,*([65]*count),0,0,len(actions),*actions,count,*records]
@@ -47,7 +49,8 @@ def request(script, points, count, actions):
 
 
 def corpus():
-    fonts=[font(False),font(True)]
+    fallback_only = os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1'
+    fonts=[font(False, fallback_only),font(True)]
     header=word(len(fonts))+b''.join(word(len(f))+f for f in fonts)
     data=bytearray(header);cases=[]
     patterns=[
@@ -66,15 +69,24 @@ def corpus():
         ('joining-transparent','arab',[0x628]+[0x301]*31,[21]),
         ('joining-disabled','latn',[0x628,0x710,0x715],[21]),
     ]
+    if fallback_only:
+        patterns = [
+            ('fallback-forms','arab',[0x628,0x644,0x647,0x678],[47]),
+            ('fallback-triples','arab',[0xfedf,0xfee0,0xfeea,0xfedf,0xfee4,0xfea0],[48]),
+            ('fallback-pairs','arab',[0xfe91,0xfea0,0xfedf,0xfe8e],[48]),
+            ('fallback-marks','arab',[0x651,0x64b,0x651,0x64c,0x651,0x64e],[48]),
+            ('fallback-skipped-marks','arab',[0xfedf]+[0x301]*15+[0xfe8e],[48]),
+            ('fallback-joining-sequence','arab',[0x644,0x644,0x647,0x301,0x644,0x627],[21,63]),
+        ]
     joining_only = os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1'
     if joining_only:
         patterns = [pattern for pattern in patterns if pattern[0].startswith('joining-')]
     for index in range(len(fonts)):
         for name,script,points,actions in patterns:
             for count in [128,4096]:
-                data+=word(index)+request(script,points,count,actions)
-                cases.append(dict(font='space-only' if index else 'full',pattern=name,records=count,script=script,actions=actions))
-    profile_input=header+(word(0)+request('arab',patterns[0 if joining_only else 4][2],4096,[21 if joining_only else 10]))*20
+                data+=word(index)+request(script,points,count,actions,fallback_only)
+                cases.append(dict(font='space-only' if index else ('identity-bmp' if fallback_only else 'full'),pattern=name,records=count,script=script,actions=actions))
+    profile_input=header+(word(0)+request('arab',patterns[0 if joining_only or fallback_only else 4][2],4096,[47 if fallback_only else 21 if joining_only else 10],fallback_only))*20
     return data,cases,profile_input
 
 
@@ -134,11 +146,13 @@ def main():
                 ['src/ProGPU.Text/OpenTypeTextShaper.cs','src/ProGPU.Rust/src/text/script_actions.rs',
                  'src/ProGPU.Rust/src/text/script_actions/joining.rs',
                  'src/ProGPU.Rust/src/text/script_actions/joining_data.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/arabic_fallback.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
             receipt['rust_before_binary_sha256'] = hashlib.sha256(Path(before).read_bytes()).hexdigest()
-        name = 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
+        name = 'managed-arabic-fallback-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_FALLBACK_ONLY') == '1' else 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
         output = ROOT / 'src/ProGPU.Rust/perf' / name
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')

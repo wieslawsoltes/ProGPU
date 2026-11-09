@@ -40,6 +40,30 @@ static class Control
         var stretch=typeof(B).GetMethod("RecordArabicStretch",F)!.CreateDelegate<Action<B>>();
         var reverse=typeof(B).GetMethod("Reverse",F)!.CreateDelegate<Action<B>>();
         var joining=typeof(B).GetMethod("AssignArabicJoiningActions",F)!.CreateDelegate<Action<B,string>>();
+        var fallback=typeof(B).GetMethod("ApplyArabicFallback",F)!.CreateDelegate<Action<B,bool,TextShapingOptions>>();
+        var manual=typeof(B).GetMethod("SetManualJoiners",F)!.CreateDelegate<Action<B,bool>>();
+        var syllable=typeof(B).GetMethod("SetLookupSyllable",F)!.CreateDelegate<Action<B,int,bool>>();
+        var clearLookup=typeof(B).GetMethod("ClearLookupSyllable",F)!.CreateDelegate<Action<B>>();
+        var fallbackOptions=new TextShapingOptions[64];
+        for(int code=22;code<64;code++) {
+            var settings=new List<OpenTypeFeatureSetting>();
+            int index=0;
+            foreach(string tag in new[]{"init","medi","fina","isol","rlig"}) {
+                void Add(string name,int value)=>settings.Add(new OpenTypeFeatureSetting(name,value));
+                switch(code) {
+                    case 22:Add(tag,1);break;
+                    case 23:break;
+                    case 24:Add(tag,1);Add(tag,0);break;
+                    case 25:Add(tag,0);Add(tag,int.MinValue);break;
+                    case 26:Add(tag.ToUpperInvariant(),1);break;
+                    case 27:Add(tag[..3]+"\ud800",1);break;
+                    case 28:Add(tag,-1);Add(tag,1);break;
+                    default:Add(tag,((code-32)>>index)&1);break;
+                }
+                index++;
+            }
+            fallbackOptions[code]=new TextShapingOptions{Features=settings};
+        }
         var joiningMethod=typeof(TtfFont).Assembly.GetType("ProGPU.Text.ArabicJoiningData",true)!.GetMethod("GetJoiningType",F)!;
         var joiningType=(Func<uint,uint>)typeof(Control).GetMethod(nameof(JoiningQuery),F)!.MakeGenericMethod(joiningMethod.ReturnType).Invoke(null,new object[]{joiningMethod})!;
         var modified=typeof(B).GetMethod("GetModifiedCombiningClass",F)!.CreateDelegate<Func<uint,int>>();
@@ -123,6 +147,10 @@ static class Control
                             case 19:stretch(buffer);break;
                             case 20:reverse(buffer);break;
                             case 21:joining(buffer,script);break;
+                            case >=22 and <=28:case >=32 and <=63:fallback(buffer,action!=22,fallbackOptions[action]);break;
+                            case 64:case 65:manual(buffer,action==64);break;
+                            case 66:syllable(buffer,0,true);break;
+                            case 67:clearLookup(buffer);break;
                             default:throw new InvalidDataException("action");
                         }
                     }

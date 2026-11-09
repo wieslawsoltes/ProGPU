@@ -1,6 +1,9 @@
 //! Full original action/state transport shared with browser AOT.
 use progpu::{
-    font::{ManagedFont, layout::ManagedGlyphBuffer},
+    font::{
+        ManagedFont,
+        layout::{ManagedFeatureSetting, ManagedGlyphBuffer},
+    },
     text::{
         ManagedShapingGlyph,
         preparation::*,
@@ -50,8 +53,49 @@ pub fn action(code: u32) -> Option<ManagedScriptAction> {
         19 => RecordArabicStretch,
         20 => Reverse,
         21 => ArabicJoining,
+        22..=28 | 32..=63 => ArabicFallback {
+            enabled: code != 22,
+            features: fallback_features(code),
+        },
         _ => return None,
     })
+}
+fn fallback_features(code: u32) -> ManagedArabicFallbackFeatures {
+    let mut settings = Vec::new();
+    for (index, tag) in [*b"init", *b"medi", *b"fina", *b"isol", *b"rlig"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut add =
+            |tag: [u16; 4], value| settings.push(ManagedFeatureSetting::new(tag, value).unwrap());
+        let tag = tag.map(u16::from);
+        match code {
+            22 => add(tag, 1),
+            23 => {}
+            24 => {
+                add(tag, 1);
+                add(tag, 0);
+            }
+            25 => {
+                add(tag, 0);
+                add(tag, i32::MIN);
+            }
+            26 => {
+                add(tag.map(|v| v - 32), 1);
+            }
+            27 => {
+                let mut bad = tag;
+                bad[3] = 0xd800;
+                add(bad, 1);
+            }
+            28 => {
+                add(tag, -1);
+                add(tag, 1);
+            }
+            _ => add(tag, ((code - 32) >> index & 1) as i32),
+        }
+    }
+    ManagedArabicFallbackFeatures::from_features(&settings)
 }
 impl Case {
     pub fn request(&self) -> Vec<u32> {
@@ -88,7 +132,10 @@ impl Case {
         at += 1;
         let end = at.checked_add(count)?;
         let actions = request.get(at..end)?.to_vec();
-        if actions.iter().any(|&c| action(c).is_none()) {
+        if actions
+            .iter()
+            .any(|&c| action(c).is_none() && !(64..=67).contains(&c))
+        {
             return None;
         }
         at = end;
@@ -177,6 +224,27 @@ pub fn execute(
     let mut error = 0;
     for &code in &case.actions {
         attempted += 1;
+        if (64..=67).contains(&code) {
+            let mut state = buffer.state();
+            match code {
+                64 | 65 => state.traversal.manual_joiners = code == 64,
+                66 => {
+                    state.traversal.restrict_to_syllable = true;
+                    let Some(first) = buffer.glyphs().first() else {
+                        buffer.set_state(state);
+                        error = 4;
+                        break;
+                    };
+                    state.traversal.lookup_syllable = first.use_syllable;
+                }
+                _ => {
+                    state.traversal.restrict_to_syllable = false;
+                    state.traversal.lookup_syllable = 0;
+                }
+            }
+            buffer.set_state(state);
+            continue;
+        }
         let Some(action) = action(code) else {
             error = 5;
             break;

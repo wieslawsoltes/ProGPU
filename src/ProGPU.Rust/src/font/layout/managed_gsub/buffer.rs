@@ -252,7 +252,7 @@ impl ManagedGlyphBuffer {
         }
         Ok(None)
     }
-    pub(super) fn next_component(
+    pub(crate) fn next_component(
         &self,
         start: usize,
         flags: u16,
@@ -325,7 +325,7 @@ impl ManagedGlyphBuffer {
             .context_match_end
             .max(end.clamp(0, self.glyphs.len() as i64) as i32);
     }
-    pub(super) fn replace(&mut self, index: usize, id: u16) -> Result<(), FontError> {
+    pub(crate) fn replace(&mut self, index: usize, id: u16) -> Result<(), FontError> {
         let g = self.glyphs.get_mut(index).ok_or(FontError::InvalidGlyph)?;
         g.glyph_index = id;
         g.substituted = 1;
@@ -392,7 +392,7 @@ impl ManagedGlyphBuffer {
         }
         Ok(())
     }
-    pub(super) fn replace_ligature(&mut self, indices: &[usize], id: u16) -> Result<(), FontError> {
+    pub(crate) fn replace_ligature(&mut self, indices: &[usize], id: u16) -> Result<(), FontError> {
         let Some(&first) = indices.first() else {
             return Ok(());
         };

@@ -168,7 +168,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Current managed variation data | Complete original fvar/avar/gvar/HVAR/GDEF/MVAR admission, normalized immutable instances, lazy tuple cache, simple/component/phantom deltas and MVAR/HVAR/layout queries; 8,772 C# cases / 8,192,752 exact bytes; 96 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, full varied-outline/metrics integration and query/frame performance |
 | Current managed font names | Original name-table decoding, UTF-16 character ranking, stable ordinal deduplication and real axis-name resolution; 236,128 C# cases / 12,151,088 exact bytes; 93 browser controls per DPR | Full font identity/style/metric wrapper, broader discovery/source policies and end-to-end performance |
 | Current managed font and preparation | Owned font/cache/metadata, nominal/symbol/UVS mapping, explicit runtime grapheme and normalization profiles, complete original buffer creation | Varied outlines, source raster policies, fallback and complete shaping orchestration |
-| Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions, Arabic joining and stage-state actions; 736,501 complete C# cases plus complete raw property queries | Complex-script stages, full plan sequencing, positioning initialization and full text pixels |
+| Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions, Arabic joining, presentation fallback and stage-state actions; 914,017 complete C# cases plus complete raw property queries | Complex-script stages, full plan sequencing, positioning initialization and full text pixels |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -726,3 +726,28 @@ normalization runtime. The browser fixture contains 368 complete original cases.
 Set `PROGPU_RUST_ACTIONS_JOINING_ONLY=1` when running the action benchmark for the
 16 joining-only C#/Rust workloads. This action assigns contextual feature forms;
 complete shaping orchestration and rendered text remain separate work.
+
+
+`ManagedScriptAction::ArabicFallback { enabled, features }` retains the original
+presentation fallback action on an actual prepared generation. Capture its five
+whole-buffer feature switches with `ManagedArabicFallbackFeatures::from_features`;
+the last exact UTF-16 setting wins, any nonzero signed value enables it, and missing
+settings remain disabled. The caller supplies the original plan's fallback decision.
+Feature ranges and baseline defaults do not participate in this source operation.
+
+The port retains all 76 presentation-form bases and all three ordered ligature
+passes: three triples, 58 ordinary pairs and five mark pairs, including the original
+private-use targets. Existing GSUB traversal preserves GDEF, ignored marks,
+joiners, syllable bounds, component metadata and full cluster mutation. Invalid
+Unicode keeps the original action error and any preceding mutations.
+`python3 eng/progpu-capture-rust-arabic-fallback.py --check` verifies hash-pinned
+Unicode facts and independently observes the original API; no foreign generated
+source array is transcribed. This check needs .NET 10.
+
+The complete source corpus now matches 914,017 cases / 1,018,793,660 bytes on the
+observed Unicode 17 normalization runtime, retaining every prior case. Its 546
+frozen browser cases run under all three explicit normalization profiles.
+Set `PROGPU_RUST_ACTIONS_FALLBACK_ONLY=1` in the action benchmark for 24 matched
+fallback workloads, including joined text, private-use targets and skipped marks.
+These are action baselines; full source stage sequencing, layout and GPU text
+remain unfinished.
