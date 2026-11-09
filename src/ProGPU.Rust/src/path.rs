@@ -142,6 +142,69 @@ pub struct Path {
     segments: std::sync::Arc<[Segment]>,
     bounds: [f32; 4],
     fill_rule: FillRule,
+    program: Option<std::sync::Arc<RasterProgram>>,
+}
+
+/// Compiler-owned records. Leaf tokens remain relative to this record range;
+/// the raster encoder adjusts segment offsets, never Boolean token indices.
+#[derive(Debug)]
+pub(crate) struct RasterProgram {
+    pub records: Box<[crate::vector::GpuPathRecord]>,
+    pub tokens: Box<[crate::vector::GpuPathRecord]>,
+    pub operation: u32,
+    pub index_b: u32,
+}
+impl RasterProgram {
+    fn validate(&self) -> Result<(), Error> {
+        if self.operation & 0x8000_0000 == 0 {
+            return if (1..=5).contains(&self.operation)
+                && self.index_b == 1
+                && self.records.len() == 2
+                && self.tokens.is_empty()
+            {
+                Ok(())
+            } else {
+                Err(Error::InvalidInput)
+            };
+        }
+        if self.records.is_empty()
+            || self.index_b as usize != self.records.len()
+            || !(1..=63).contains(&self.tokens.len())
+            || (self.operation & 0x7fff_ffff) as usize != self.tokens.len()
+        {
+            return Err(Error::InvalidInput);
+        }
+        let mut depth = 0usize;
+        for record in &self.tokens {
+            if record.segment_count != 0
+                || record.bounds.map(f32::to_bits) != [0; 4]
+                || record.fill_rule != 0
+                || record.pad != 0
+            {
+                return Err(Error::InvalidInput);
+            }
+            let token = record.start_segment;
+            if token & 0x8000_0000 != 0 {
+                if depth < 2 || !(1..=5).contains(&(token & 0x7fff_ffff)) {
+                    return Err(Error::InvalidInput);
+                }
+                depth -= 1;
+            } else {
+                if token != 0x4000_0000 && token as usize >= self.records.len() {
+                    return Err(Error::InvalidInput);
+                }
+                depth += 1;
+                if depth > 16 {
+                    return Err(Error::InvalidInput);
+                }
+            }
+        }
+        if depth == 1 {
+            Ok(())
+        } else {
+            Err(Error::InvalidInput)
+        }
+    }
 }
 
 impl Path {
@@ -168,13 +231,42 @@ impl Path {
             segments,
             bounds,
             fill_rule,
+            program: None,
         })
+    }
+
+    pub(crate) fn with_program(
+        segments: Vec<Segment>,
+        bounds: [f32; 4],
+        fill_rule: FillRule,
+        program: RasterProgram,
+    ) -> Result<Self, Error> {
+        program.validate()?;
+        let mut path = Self::new(segments, bounds, fill_rule)?;
+        for record in &program.records {
+            if record.segment_count == 0
+                || record
+                    .start_segment
+                    .checked_add(record.segment_count)
+                    .is_none_or(|end| end as usize > path.segments.len())
+                || record.fill_rule > 1
+                || record.pad != 0
+                || record.bounds.iter().any(|v| !v.is_finite())
+                || record.bounds[0] > record.bounds[2]
+                || record.bounds[1] > record.bounds[3]
+            {
+                return Err(Error::InvalidInput);
+            }
+        }
+        path.program = Some(std::sync::Arc::new(program));
+        Ok(path)
     }
     pub(crate) fn identity(&self) -> usize {
         std::sync::Arc::as_ptr(&self.segments) as *const Segment as usize
     }
 
-    /// Read the original immutable segment inventory.
+    /// Read the original immutable segment inventory. Boolean inputs retain
+    /// each ordered operand occurrence without reconstructing result contours.
     pub fn segments(&self) -> &[Segment] {
         &self.segments
     }
@@ -182,9 +274,15 @@ impl Path {
     pub fn bounds(&self) -> [f32; 4] {
         self.bounds
     }
-    /// Original fill rule.
+    /// Original root fill rule. Boolean operands retain their own separate
+    /// rules in the compiler-owned program.
     pub fn fill_rule(&self) -> FillRule {
         self.fill_rule
+    }
+
+    /// Whether this input requires the original general Boolean evaluator.
+    pub fn is_boolean(&self) -> bool {
+        self.program.is_some()
     }
 }
 

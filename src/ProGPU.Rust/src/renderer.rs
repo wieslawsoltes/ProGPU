@@ -314,11 +314,14 @@ impl Renderer {
             .iter()
             .map(|(path, request)| (path, *request))
             .collect();
-        let atlas = self
+        let rasterizer = self
             .path_rasterizer
-            .as_ref()
-            .ok_or(Error::UnsupportedExecution)?
-            .rasterize_atlas(&requests)?;
+            .as_mut()
+            .ok_or(Error::UnsupportedExecution)?;
+        if requests.iter().any(|(path, _)| path.is_boolean()) {
+            rasterizer.prepare_boolean().await?;
+        }
+        let atlas = rasterizer.rasterize_atlas(&requests)?;
         self.prepare_geometry(
             &compiled.mesh,
             frame,

@@ -2,12 +2,12 @@
 //! original-source pixel oracle or completed native/browser qualification.
 use progpu::{
     geometry::{Affine, AnalyticPrimitive, Shape},
-    path::{FillRule, Path, Segment},
     scene::{MaterialPaint, PathDraw, PathSampling, Scene},
     vector::{
-        Brush, BrushKind, GradientStop, HatchLineFamily, HatchPattern, HatchPatternSet,
-        LinearGradient, Matrix4, PathGradient, PathGradientBlendStop, PerlinNoise, RadialGradient,
-        SweepGradient, TilePattern, TwoPointConicalGradient,
+        ArcSegment, BooleanOperation, Brush, BrushKind, GradientStop, HatchLineFamily,
+        HatchPattern, HatchPatternSet, LinearGradient, Matrix4, PathFigure, PathGeometry,
+        PathGradient, PathGradientBlendStop, PathSegment, PathSegmentKind, PerlinNoise,
+        RadialGradient, SweepDirection, SweepGradient, TilePattern, TwoPointConicalGradient,
     },
 };
 use std::sync::Arc;
@@ -141,23 +141,69 @@ pub fn material_scene() -> Result<Scene> {
             [x + 100.0, y + 66.0],
         )?;
     }
-    let path = Path::new(
-        vec![
-            Segment::cubic([[0.0, 56.0], [24.0, -18.0], [156.0, -18.0], [180.0, 56.0]]),
-            Segment::line([180.0, 56.0], [0.0, 56.0]),
-        ],
-        [0.0, -18.0, 180.0, 56.0],
-        FillRule::NonZero,
-    )?;
+    // All six original source segment families, including default-unstroked
+    // rational edges, are filled without flattening. The open figure closes
+    // through source fill compilation, not an authored replacement contour.
+    let mut figure = PathFigure::new([0.0, 56.0], false);
+    figure.segments = [
+        PathSegmentKind::Cubic([[24.0, -18.0], [64.0, -18.0], [84.0, 20.0]]),
+        PathSegmentKind::Quadratic([[100.0, -14.0], [116.0, 20.0]]),
+        PathSegmentKind::RationalQuadratic {
+            points: [[140.0, -6.0], [154.0, 20.0]],
+            weight: 0.6,
+        },
+        PathSegmentKind::RationalCubic {
+            points: [[168.0, 0.0], [184.0, 30.0], [180.0, 56.0]],
+            weights: [0.7, 1.2],
+        },
+        PathSegmentKind::Line([160.0, 64.0]),
+        PathSegmentKind::Arc(ArcSegment {
+            end: [8.0, 56.0],
+            size: [90.0, 24.0],
+            rotation: 0.0,
+            large: false,
+            sweep: SweepDirection::Clockwise,
+        }),
+    ]
+    .into_iter()
+    .map(PathSegment::new)
+    .collect();
+    let source = Arc::new(PathGeometry {
+        figures: vec![figure],
+        ..Default::default()
+    });
+    let difference = Arc::new(PathGeometry::combine_deferred(
+        source.clone(),
+        Arc::new(PathGeometry::ellipse([90.0, 40.0], 32.0, 30.0)),
+        BooleanOperation::Difference,
+    ));
+    let nested = PathGeometry::combine_deferred(
+        difference.clone(),
+        Arc::new(PathGeometry::rectangle(100.0, 10.0, 78.0, 45.0)),
+        BooleanOperation::ExclusiveOr,
+    );
+    let ordinary = source
+        .compile_raster_path()?
+        .ok_or("gallery source has no fill")?;
+    let paths = [
+        ordinary.clone(),
+        difference
+            .compile_raster_path()?
+            .ok_or("gallery difference has no fill")?,
+        nested
+            .compile_raster_path()?
+            .ok_or("gallery program has no fill")?,
+        ordinary,
+    ];
     let paint = Arc::new(Brush::new(BrushKind::Linear(LinearGradient::new(
         [0.0, 0.0],
         [180.0, 56.0],
         stops,
     ))));
-    for index in 0..4 {
+    for (index, path) in paths.into_iter().enumerate() {
         scene.draw_material_path(
             PathDraw {
-                path: path.clone(),
+                path,
                 transform: Affine([1.0, 0.0, 0.0, 1.0, 28.0 + index as f32 * 228.0, 552.0]),
                 color: [0.0; 4],
                 sampling: PathSampling::default(),

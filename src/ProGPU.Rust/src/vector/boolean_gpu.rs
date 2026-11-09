@@ -317,6 +317,49 @@ impl BooleanSolver {
         let b = self.resolve(b).await?;
         self.begin(&a, &b, operation).await?.complete().await
     }
+
+    /// Prepare retained fill input, preserving direct/program evaluation when
+    /// admitted. Only the original deferred fallback performs reconstruction.
+    /// Native hosts drive Device::poll while awaiting an actual readback.
+    pub async fn prepare_raster_path(
+        &mut self,
+        path: Arc<PathGeometry>,
+    ) -> Result<Option<crate::path::Path>, PathOperationError> {
+        let mut source = path;
+        loop {
+            match source.compile_raster_path() {
+                Err(Error::UnsupportedExecution) => {
+                    // CompilePathCore can first select a fill-compatible exact
+                    // operand. Preserve that route before invoking Combine.
+                    let mut selected = source.clone();
+                    loop {
+                        let Some(deferred) = &selected.deferred else {
+                            return Err(Error::UnsupportedExecution.into());
+                        };
+                        let (a, b) = deferred.operands();
+                        let operand = match deferred.query_kind() {
+                            CombinedQueryKind::ResultOperandA => Some(a),
+                            CombinedQueryKind::ResultOperandB => Some(b),
+                            _ => None,
+                        };
+                        if let Some(operand) = operand
+                            && (selected.fill_rule == operand.fill_rule
+                                || operand.figures.len() == 1)
+                        {
+                            selected = operand.clone();
+                            continue;
+                        }
+                        source = Arc::new(
+                            self.combine(a.clone(), b.clone(), deferred.operation())
+                                .await?,
+                        );
+                        break;
+                    }
+                }
+                result => return result.map_err(Into::into),
+            }
+        }
+    }
     /// Materialize a complete deferred tree without recursive async stack frames.
     /// Cached bounds classifications do not replace the original Combine route.
     pub async fn resolve(

@@ -30,9 +30,10 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
 | SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic and whole-layer source controls; final layer rendering and native/browser pixels |
 | Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls and final retained GPU lowering |
+| Source fill and Boolean painting | Original all-six-family fill/ordinary/stroke-query compiler, open-fill closure, bounded direct/postfix Boolean raster input, explicit GPU reconstruction fallback, lazy general evaluator and retained material drawing; shared gallery | Original record/float/admission/pixel/lifetime/performance controls; full managed atlas cache/recovery, signed programs and curved-stroke painting remain unfinished |
 | Stroke geometry | Original bounded cap/join writers, separate generic/clipped-Miter/WPF semantics, solid/dashed line-only widening, gap/closed-seam traversal and matching triangle hit tests | Source float/topology/capacity/rejection/performance controls, owning API curve/frame contracts and final GPU paint integration |
 | Geometry hit queries | Original line/rectangle/ellipse fill and stroke tests, path fill with polynomial/rational/arc samples, relative/absolute tolerance, boundary/winding and both deferred operands | Complete source query/admission/default-runtime controls; these input queries do not qualify raster coverage |
-| Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and retained painter integration |
+| Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction; retained fill preparation fallback | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and complete compositor integration |
 | Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, images/effects/interception and full stroke/render pixels |
 | Material GPU integration | Original 256/32-byte registration, all eleven non-image kinds, ordered deduplication/capacity policy, path/hatch/gradient records, retained Perlin tables, immutable pages and shared renderer bindings; native/browser gallery | Complete original byte/default-runtime/pixel/lifetime/performance controls; image/effect materials and full compositor remain unfinished |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
@@ -138,6 +139,18 @@ Dropped work cancels/unmaps its own staging buffer without polling or destroying
 submission-owned resources. Unsupported forced execution modes reject. These
 new paths have static checks only; original runtime, pixel, performance and
 package qualification remains outstanding.
+
+`PathGeometry::compile_fill_path` now lowers all six source segment families,
+retaining filled-figure policy and implicit closure. `compile_path` and
+`compile_stroke_query` keep their separate closure/metadata contracts.
+`compile_raster_path` produces an immutable `path::Path` for `PathDraw`, including
+direct Boolean operands and original bounded postfix programs. None means empty;
+`UnsupportedExecution` requires reconstruction through
+`BooleanSolver::prepare_raster_path`. Standalone `PathRasterizer` users call
+`prepare_boolean().await` before Boolean batches; `Renderer` does so on demand.
+The shared material gallery includes all six source families, subtraction and
+nested Boolean painting. New runtime/source-pixel/performance validation remains
+deferred, as do full managed atlas caching/recovery and curved-stroke painting.
 
 `MaterialTable` ports original managed brush registration, including ordered
 first-equal lookup, unchanged stop order, source capacity fallbacks, independent

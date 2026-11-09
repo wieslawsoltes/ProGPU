@@ -1,4 +1,5 @@
 use super::{ExecutionPath, ExecutionPreference, Path, RasterRequest};
+use crate::vector::GpuPathRecord as Record;
 use crate::{Error, shaders};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
@@ -66,15 +67,6 @@ struct Uniforms {
     path_op_kind: u32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Record {
-    start_segment: u32,
-    segment_count: u32,
-    bounds: [f32; 4],
-    fill_rule: u32,
-    padding: u32,
-}
 const _: () = {
     assert!(size_of::<Uniforms>() == 48);
     assert!(size_of::<Record>() == 32);
@@ -88,13 +80,14 @@ struct Dispatch {
 
 /// Native-compute path rasterization. Optional and created only on demand.
 ///
-/// Uses the canonical operation-zero kernel for all six segment kinds. Signed
-/// and Boolean programs retain separate pending APIs; no segment inventory is
-/// relabeled linear to select a cheaper kernel.
+/// Uses the canonical operation-zero kernel for all six segment kinds. Boolean
+/// batches use the separate original ordinary evaluator, prepared explicitly
+/// on demand. No segment inventory is relabeled linear to select another kernel.
 pub struct PathRasterizer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
+    boolean_pipeline: Option<wgpu::ComputePipeline>,
 }
 
 impl PathRasterizer {
@@ -136,7 +129,39 @@ impl PathRasterizer {
             device: device.clone(),
             queue: queue.clone(),
             pipeline,
+            boolean_pipeline: None,
         })
+    }
+
+    /// Lazily prepare the original general path/Boolean evaluator. Call before
+    /// rasterizing any input with Path::is_boolean(); ordinary-only users keep
+    /// their original single-path compilation and allocation behavior.
+    pub async fn prepare_boolean(&mut self) -> Result<(), Error> {
+        if self.boolean_pipeline.is_some() {
+            return Ok(());
+        }
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("ProGPU canonical Boolean path rasterizer"),
+                source: wgpu::ShaderSource::Wgsl(shaders::PATH.into()),
+            });
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("ProGPU ordinary Boolean path compute"),
+                layout: None,
+                module: &module,
+                entry_point: Some("cs_main_ordinary"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+        if let Some(error) = scope.pop().await {
+            return Err(error.into());
+        }
+        self.boolean_pipeline = Some(pipeline);
+        Ok(())
     }
 
     /// Resolved implementation for performance and quality receipts.
@@ -271,6 +296,13 @@ impl PathRasterizer {
         if paths.len() > 1 << 20 {
             return Err(Error::Capacity);
         }
+        let pipeline = if paths.iter().any(|(path, _)| path.is_boolean()) {
+            self.boolean_pipeline
+                .as_ref()
+                .ok_or(Error::UnsupportedExecution)?
+        } else {
+            &self.pipeline
+        };
         let limits = self.device.limits();
         let binding_limit = limits
             .max_storage_buffer_binding_size
@@ -280,16 +312,23 @@ impl PathRasterizer {
                 .checked_add(path.segments.len())
                 .ok_or(Error::Capacity)
         })?;
+        let total_records = paths.iter().try_fold(0usize, |count, (path, _)| {
+            let added = path
+                .program
+                .as_ref()
+                .map_or(1, |p| p.records.len() + p.tokens.len());
+            count.checked_add(added).ok_or(Error::Capacity)
+        })?;
         if total_segments as u64 > binding_limit / size_of::<super::Segment>() as u64
-            || paths.len() as u64 > binding_limit / size_of::<Record>() as u64
+            || total_records as u64 > binding_limit / size_of::<Record>() as u64
         {
             return Err(Error::Capacity);
         }
-        let mut records = Vec::with_capacity(paths.len());
+        let mut records = Vec::with_capacity(total_records);
         let mut segments = Vec::with_capacity(total_segments);
         let mut uniforms = Vec::with_capacity(paths.len());
         let mut output_size = 0u64;
-        for (index, &(path, request)) in paths.iter().enumerate() {
+        for &(path, request) in paths {
             let [width, height] = request.size;
             if width == 0
                 || height == 0
@@ -327,25 +366,48 @@ impl PathRasterizer {
             start_segment
                 .checked_add(segment_count)
                 .ok_or(Error::Capacity)?;
-            records.push(Record {
-                start_segment,
-                segment_count,
-                bounds: path.bounds,
-                fill_rule: path.fill_rule as u32,
-                padding: 0,
-            });
+            let path_index = u32::try_from(records.len()).map_err(|_| Error::Capacity)?;
+            let (path_index_b, path_op_kind) = if let Some(program) = &path.program {
+                for record in &program.records {
+                    records.push(Record {
+                        start_segment: record
+                            .start_segment
+                            .checked_add(start_segment)
+                            .ok_or(Error::Capacity)?,
+                        ..*record
+                    });
+                }
+                // Tokens are relative leaf record indices or tagged operation/
+                // empty values. Only the program's base record is rebased.
+                records.extend_from_slice(&program.tokens);
+                (
+                    path_index
+                        .checked_add(program.index_b)
+                        .ok_or(Error::Capacity)?,
+                    program.operation,
+                )
+            } else {
+                records.push(Record {
+                    start_segment,
+                    segment_count,
+                    bounds: path.bounds,
+                    fill_rule: path.fill_rule as u32,
+                    pad: 0,
+                });
+                (0, 0)
+            };
             segments.extend_from_slice(&path.segments);
             uniforms.push(Uniforms {
                 origin: request.origin,
                 scale: request.scale,
-                path_index: index as u32,
+                path_index,
                 output_offset_words: u32::try_from(offset / 4).map_err(|_| Error::Capacity)?,
                 output_row_words: u32::try_from(row_bytes / 4).map_err(|_| Error::Capacity)?,
                 width,
                 height,
                 sample_grid: request.sample_grid,
-                path_index_b: 0,
-                path_op_kind: 0,
+                path_index_b,
+                path_op_kind,
             });
         }
         if output_size > binding_limit
@@ -384,7 +446,7 @@ impl PathRasterizer {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        let layout = self.pipeline.get_bind_group_layout(0);
+        let layout = pipeline.get_bind_group_layout(0);
         let bindings: Vec<_> = dispatches
             .iter()
             .map(|dispatch| {
@@ -426,7 +488,7 @@ impl PathRasterizer {
                 label: Some("ProGPU paths"),
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(pipeline);
             for (dispatch, binding) in dispatches.iter().zip(&bindings) {
                 pass.set_bind_group(0, binding, &[]);
                 pass.dispatch_workgroups(dispatch.size[0], dispatch.size[1], dispatch.size[2]);

@@ -5495,3 +5495,106 @@ uploads, native/browser DPI/resize/loss, allocator and throughput/frame baseline
 and original source/provider/application/package qualification. Image/effect and
 intercepted brushes, full retained stroke/path/SVG/text painting, layers/masks/
 compositing, scene cache/archives and platform/release gates remain unfinished.
+
+## Original fill compilation and retained Boolean painting (2026-11-09)
+
+This implementation batch ports original PathAtlas source compilation and
+connects ordinary/direct/program fill inputs to the retained renderer. It follows
+the user's implementation-first sequence: compile and static checks now, complete
+source bytes/pixels/ownership/performance validation after stack assembly. No
+original shader, compiler option, driver policy or dependency is changed.
+
+| Original repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Vector/PathAtlas.cs` | `8b0c65142b0156f505374f1d20a6feff3eea1ed7bec23a1b8ce6f405e7414ccd` | CompilePath/CompileFillPath/CompileStrokeQuery core, original bounds/weights/closure/query metadata, complete hit-definition admission, direct operands and bounded postfix programs; original record/segment/token relocation |
+| `src/ProGPU.Vector/PathQueryFigure.cs` | `4477463bc7dc81493ea783d40f9f17dedd3207782143338d63852db0dda0c4db` | Original move point, first/count, closed/filled metadata; Rust indices are CPU-only usize values, not a new native ABI |
+| `src/ProGPU.Backend/Shaders/PathRasterizer.wgsl` | `b5e6df242fb18d0799ac326de0d4763a0c5cedfd7a5f4f9be9c4045eccc0a362` | Existing unchanged operation-zero and ordinary Boolean entry points, four-pixel packing and 16-by-16 workgroups |
+| `src/ProGPU.Backend/Shaders/PathRasterizerCommon.wgsl` | `b7f0599f533e799c44b11ba1d565e055bd971b80999648511128ad7624002601` | Existing unchanged per-operand fill rules, mask Boolean arithmetic and postfix evaluator |
+
+The earlier cross-engine architecture research remains the design basis: owned
+CPU source generations and target/device GPU resources stay separate, retained
+replay does not recompile geometry, and coverage evaluation stays on the GPU.
+No foreign implementation was consulted or copied. This batch does not replace
+the original ProGPU algorithms with another renderer or a CPU Boolean rasterizer.
+
+`vector/fill.rs` retains ordinary versus fill-only figure admission. Fill closes
+every admitted nonempty figure regardless of its original closed bit; ordinary
+compilation closes only explicitly closed figures. Unstroked source edges still
+participate in fill. Original line, quadratic, cubic, rational quadratic/cubic
+and endpoint-arc payloads remain analytic. Rational weights preserve the original
+positive/finite and coordinate-scale bounds, with the original nested float
+maxima and double limit arithmetic. CPU source compilation does not silently
+sanitize nonfinite coordinates; the existing native GPU admission remains a
+separate gate. Bounds retain original control points and analytic arc extrema,
+NaN/signed-zero minimum/maximum policy, and unchanged arc fallback. Failed
+center conversion emits a line only for distinct endpoints, except that stroke
+queries retain the original degenerate segment and flags.
+
+Stroke queries preserve every figure slot, including move-only/unfilled figures,
+source stroke/smooth flags, original end order and the independent implicit-edge
+flag of one. Combined paths and per-figure cap overrides reject before compiling
+query output. The original one-million-entry admission budget and complete
+definition depth limit of 64 remain. Typed enums/immutable operands exclude raw
+unknown values and null/cyclic source graphs; this is not native wire admission.
+Complete-definition checks retain all original finite points and arc parameters,
+and remain independent of fill pixels or source/provider qualification.
+
+Fill-compatible cached exact-operand results retain the original fill-rule or
+one-figure check. Cached Empty compiles to no record. Other deferred compilation
+returns UnsupportedExecution to synchronous callers. The optional asynchronous
+`BooleanSolver::prepare_raster_path` follows the same exact-operand traversal
+before invoking original A-before-B reconstruction when required; native hosts
+continue to drive device polling for actual readbacks. No failed program is
+replaced by a CPU shape approximation. Source invalid-rational compilation
+retains the original empty fill-cache result; capacity failures and final native
+GPU admission errors are not swallowed as empty results.
+
+Direct ordinary operand pairs retain separate records, bounds and fill rules,
+with operation values 1..5. Other eligible expressions compile in original
+A-before-B postfix order, with at most 63 instructions and 16 live values.
+Cached Empty nodes emit the original empty token; cached exact-operand nodes
+retain the original program shortcut, independent of the ordinary compiler's
+fill-rule check. Empty ordinary leaves still reject program compilation.
+Duplicate leaf occurrences keep separate ordered records and segment copies.
+Program overflow retains the explicit reconstruction route. An iterative task
+stack avoids recursive Rust call frames without inventing a source depth limit.
+
+Immutable `Path` generations own the compiled records/tokens and ordered segment
+inventory. Existing raw Path construction and its finite/weight/bounds/one-million
+segment gate remain unchanged. Compiler-created programs additionally validate
+their complete record ranges, token tags/zeros, operand indices, operation values
+and final stack before publication. Source record bytes remain unchanged. During
+batch encoding, only segment offsets and absolute uniform record/program bases
+are rebased; leaf tokens retain their relative indices. All request/buffer/device
+checks precede GPU resource creation. The existing native extent grouping,
+aligned uniform ranges, packed coverage rows and single submission remain;
+this is not a claim of byte-identical whole-managed-atlas staging allocation.
+
+The existing single-path pipeline remains the route for ordinary-only batches.
+The independent original `cs_main_ordinary` pipeline is created lazily through
+`prepare_boolean`; the retained renderer requests it only when a batch contains
+Boolean input. Mixed batches use that evaluator, preserving source painter order
+in the later retained draw. There is no signed-winding kernel substitution or
+linear classification based on bounds/first segments. Existing default compiler
+options, R8 ownership, coverage/material identity, target phase and submission
+retirement remain. No draw-time CPU coverage, per-path readback or Drop poll is
+introduced. Unsupported forced execution preferences remain unsupported.
+
+The shared authored material gallery now fills an open figure containing all six
+source segment families, then paints direct subtraction, a nested Boolean
+program and a repeated ordinary generation. It exercises integration routes for
+the upcoming native/browser run; it is not an original pixel oracle, runtime
+receipt or performance result. Default sample/gate scenes are unchanged.
+
+Required consolidated controls include original filled/unfilled/open/closed,
+move-only/degenerate, stroke-gap/smooth/cap, rational-limit, arc-fallback and raw
+coordinate bytes; source default-runtime arithmetic; complete query budgets;
+all cached Boolean classifications/fill-rule combinations; every direct operator,
+empty token, duplicate leaf, program count/stack boundary and reconstruction
+fallback; relocation in mixed-size batches; cold/warm GPU coverage/material
+pixels, generation ownership and cancellation; native/browser DPI/resize/loss;
+allocator, throughput, frame and Instruments baselines; and all original source,
+provider, application, platform and package gates. Full managed compiled-path
+caching, atlas growth/eviction/recovery, signed programs, curved-stroke paint,
+clipping/layers/effects/images, final SVG/text painting and release qualification
+remain unfinished.
