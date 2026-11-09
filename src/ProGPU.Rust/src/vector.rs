@@ -1,7 +1,7 @@
 //! Original managed vector geometry and material records. These source-level
 //! figures retain arcs, rational weights and stroke metadata; the independent
 //! native GPU segment wire remains in `path`. Boolean reconstruction and final
-//! material/stroke lowering are separate consumers, not implicit flattening.
+//! GPU material/stroke lowering are separate consumers, not implicit flattening.
 use crate::Error;
 mod arc;
 mod bezier;
@@ -10,9 +10,12 @@ mod boolean;
 mod boolean_gpu;
 mod brush;
 mod dash;
+mod hit_test;
 mod parse;
 mod primitives;
 mod rounded;
+mod stroke;
+mod stroke_path;
 pub use arc::{ArcCenter, ArcShaderParameters};
 pub use bezier::{DEFAULT_LENGTH_SEGMENTS, evaluate_cubic, evaluate_quadratic};
 pub use boolean::{
@@ -23,8 +26,14 @@ pub use boolean::{
 pub use boolean_gpu::{BooleanGpuMetrics, BooleanSolver, BooleanWork, PathOperationError};
 pub use brush::*;
 pub use dash::{DashPattern, DashResult, DashState, PositionedSegment};
+pub use hit_test::{
+    GeometryTolerance, ellipse_contains_fill, ellipse_contains_stroke, line_contains_fill,
+    line_contains_stroke, rectangle_contains_fill, rectangle_contains_stroke,
+};
 pub use parse::PathParseError;
 pub use rounded::RoundedRectangleContour;
+pub use stroke::{MAX_STROKE_TRIANGLES, StrokeCap, StrokeJoin, StrokeJoinFrame, StrokeTriangle};
+pub use stroke_path::WidenedPath;
 
 /// Complete row-major, row-vector 4-by-4 source transform. No perspective or
 /// unused component is discarded when retaining a source frame.

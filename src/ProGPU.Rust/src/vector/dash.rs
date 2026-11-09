@@ -171,7 +171,7 @@ pub(super) fn normalize(intervals: &[f32], state: &mut DashState) -> Result<(), 
     }
     Ok(())
 }
-fn advance(intervals: &[f32], state: &mut DashState, remaining: f32, step: f32) {
+pub(super) fn advance(intervals: &[f32], state: &mut DashState, remaining: f32, step: f32) {
     if step >= remaining - EPSILON {
         state.distance = 0.0;
         state.index = ((state.index as usize + 1) % intervals.len()) as i32;

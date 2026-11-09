@@ -1,0 +1,24 @@
+{
+  "observed_utc": "2026-11-09T16:19:55.162975+00:00",
+  "previous_head": "d655c476e42cbc9365bd1272ba7bdb4dfeca7a27",
+  "scope": "Owned obsolete duplicate external incremental directories; newest generation per crate retained; every removed file/directory older than one hour; no live cargo/rustc observed",
+  "removed_incremental_directories": 79,
+  "removed_logical_bytes": 253115420,
+  "areas": {
+    "debug/incremental": 79
+  },
+  "retained": [
+    "Newest incremental inventory per crate and all recently modified state",
+    "Reusable Cargo dependencies",
+    "Original source and compact validation evidence"
+  ],
+  "static_checks": {
+    "native_all_targets_all_features_clippy": "passed",
+    "wasm_browser_clippy": "passed",
+    "cpu_only_check": "passed",
+    "format": "passed",
+    "diff_whitespace": "passed"
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "runtime_differential_browser_performance_qualification": "deferred until connected stack assembly"
+}

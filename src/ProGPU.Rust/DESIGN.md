@@ -5293,3 +5293,99 @@ integration, and original source/provider/application/package qualification.
 Stroke expansion, material compilation, full retained path atlas/Boolean paint
 programs, final color/text/image/layer/effect rendering and release gates remain
 unfinished. Offline shader validation is not runtime execution evidence.
+
+## Original stroke geometry and geometric hit queries (2026-11-09)
+
+This connected implementation batch directly ports the original bounded cap/join
+writers, line-only retained stroke traversal, and geometric hit-query utilities.
+It follows the requested implementation-first sequence: compile/static checks
+now, complete original differential/browser/performance qualification after stack
+assembly. No external implementation, new dependency, shader change or compiler
+policy change is introduced.
+
+| Original repository source | SHA-256 | Ported scope |
+| --- | --- | --- |
+| `src/ProGPU.Vector/StrokeJoinGeometry.cs` | `6fb7218ec1d12df2b9b1fb9c0777633f1ce74eec90260fd23c6e8ff85cad86ec` | All allocating/writer line/directional joins, generic/WPF/typed-pen policy, miter clipping, reversal, bounded round fans and destination admission |
+| `src/ProGPU.Vector/StrokeCapGeometry.cs` | `c47564c76c3eedaf4d759c532f273f1d66b92ef5f70591dbab558d38ca79df81` | All line/directional flat, square, round and triangle caps, exact fan order and capacity preflight |
+| `src/ProGPU.Vector/StrokePathGeometry.cs` | `4cf9ae2d680d8eff9f44d1ee187877b16623ebaf194ea10c918da5441a375ea7` | Complete original line-only solid/dashed traversal, run/gap/closed seam state, delayed caps, bodies, shared joins and separate geometry/hit sinks |
+| `src/ProGPU.Vector/LineGeometryHitTesting.cs` | `e623cd5508fedbeb924446398970c1caad16693afc7460d8ab418820951fcd3b` | Complete fill/stroke and cap queries, independent degenerate rule, original triangle barycentrics and tolerance |
+| `src/ProGPU.Vector/RectangleGeometryHitTesting.cs` | `107814828900c8b3181bc189c084f63b22de3de41911aa6daf8b4632ff599432` | Complete rounded fill and outer-minus-inner stroke query, original signed-radius normalization and boundary comparisons |
+| `src/ProGPU.Vector/EllipseGeometryHitTesting.cs` | `8769b0c00a5d731f01bb9262eb6923533fb745f1c5eb9db34b68d723aa7898d7` | Complete fill/stroke queries, original axis/finite admission and empty-inner behavior |
+| `src/ProGPU.Vector/PathGeometryHitTesting.cs` | `f29d707f446672efb9e57d657a210febdd724331fe87c2faddff84c63de0b831` | Complete filled-figure sampling, all six segment families, rational weight bounds, tolerance/boundary/even-odd/signed-winding and deferred operand queries |
+
+`stroke.rs` retains the original eight-triangle maximum and 0.0001 epsilon.
+Normalization divides each original component by the computed length. Tangents
+remain actual directional input; line wrappers subtract their original endpoints.
+Generic smooth suppression, WPF smooth-to-Round, WPF exact-reversal extensions,
+MiterOrBevel over-limit bevel and independent explicit clipped-Miter policy remain
+separate. Typed pen admission rejects the same WPF fixed/hairline/MiterOrBevel
+combinations before geometry writes. Raw policy remains on the pen even when its
+current join ignores clipping. Typed Rust enums exclude undefined raw values;
+this API does not reproduce the cap writer's accidental unknown-enum Round route.
+
+Full destination capacity is checked before any triangle write, including round
+and reversal fans. Actual outer points, intersection numerator/denominator order,
+miter comparison, clip points and triangle ordering remain original. Allocating
+round joins intentionally retain `Distance(joinPoint, previousOuterPoint)` as their
+radius, while the writer retains half thickness; they can differ after large-
+coordinate rounding. The bounded common writer selects this source distinction
+explicitly. Rust uses one stack inventory and one owned final allocation for the
+allocating API. Default-runtime SIMD/FMA, MathF/libm bits and allocator/performance
+equivalence remain unqualified; host trigonometry is not source primitive proof.
+
+`stroke_path.rs` keeps the original per-figure finite/line-only admission and
+one-unit hairline sentinel. It does not invent curve flattening or apply an
+implicit transform. The owning API must supply its original flattening tolerance
+and source/device expansion frame. Original figure cap overrides are retained in
+the data model but are not consumed by this utility, matching its source.
+Unstroked segments break runs, dashed gaps reset the original initial phase, and
+all source cap/join/body ordering, delayed start caps and closing-edge decisions
+are retained. Generic widening ignores smooth metadata; WPF widening passes it
+to the shared typed writer. No rounded internal bodies are added behind joins.
+
+The original dash constructor and ordered NormalizeState/Advance arithmetic are
+shared with the earlier analytic dash port. The only nonprogress extension is
+explicit rejection after an initial partial interval and one whole interval
+cycle fail to advance the floating distance; no epsilon is added and the phase
+is not perturbed. Existing malformed infinite phase normalization likewise fails
+explicitly rather than looping. These are documented rejection differences,
+not passing original-source behavior evidence.
+
+The geometry sink preserves original triangle/quad area rejection, winding
+normalization and one closed filled figure per emitted polygon. The hit sink
+keeps its independent signed-edge epsilon and early-hit short circuit; it is not
+replaced by querying the normalized polygon inventory. `WidenedPath { path,
+complete }` exposes original partial output when a later figure rejects. Callers
+must inspect `complete` before publication. `contains_stroke` returns None for
+source rejection and Some(false) for an admitted miss. Allocation errors and
+invalid pen policies return errors; all temporary runs/triangles have bounded
+stack ownership. No renderer mutation occurs in these utilities.
+
+`hit_test.rs` retains primitive-specific relative tolerance extents, signed-radius
+normalization, positive-width/finite gates, inner-boundary exclusion and the
+line helper's independent degenerate cap rule. Path queries skip unfilled figures
+but retain the original implicit closure regardless of `is_closed`, and do not
+filter by stroke participation. They use 16 quadratic or 24 cubic samples and the
+original bounded arc flattening, original adjacent-point deduplication, rational
+weight/coordinate scale limits, boundary tolerance and signed winding. The hit
+cubic evaluator deliberately keeps the original precomputed `tt`/`uu` grouping;
+the separate analytic curve/dash polynomial is not substituted. These samples
+are the original input-query contract, never a GPU raster coverage replacement.
+
+Deferred fill queries retain the original 256-level gate and visit A then B even
+when Boolean short circuit could determine the result. They do not infer hit
+geometry from cached bounds/query kinds. Typed immutable ownership excludes raw
+null/cyclic object graphs; winding accumulation explicitly preserves unchecked
+32-bit wrapping. Source query failure stays distinct from a valid miss.
+
+Required consolidated controls include exact ordered triangles and capacity
+rollback; all caps/joins/limits/reversals/smooth metadata; large coordinates,
+nonfinite/degenerate/source-float cases; normal/fixed/hairline admission and actual
+owning frames; solid/dashed/gap/closed/reversed inventories, phase and delayed caps;
+source partial rejection and early-hit order; primitive boundaries and tolerance;
+all polynomial/rational/arc sampling and weight limits; Boolean operand/depth
+queries; source lifetime, allocations and throughput; shared GPU paint/material
+bounds and final full-frame pixels; and every original Windows/source/provider/
+application/package gate. None is qualified by successful compilation. Final
+material compilation, curved owning-API stroke lowering, retained painter/atlas
+integration, color/text/image/layer/effect drawing and release remain unfinished.

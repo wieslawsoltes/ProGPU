@@ -29,7 +29,9 @@ the pre-positioning sequence, and plans can be reused for their selected script.
 | Dynamic glyph atlases | Original independent R8/RGBA shelves and size classes, growth-before-LRU, exact font-instance cache, bitmap/COLR/SVG/outline routing, capacity retry, nested batches, retained residency and cancellation cleanup | Full original allocation/cache/pixel/lifetime controls deferred; native hinted-source integration and final color-layer drawing remain unfinished |
 | Color font data | sbix strikes/duplicates, CBLC index formats 1–5, CBDT images 17–19, original bitmap presentation metrics, legacy COLR layers/CPAL selection and bounded gzip/UTF-8 SVG documents | Codec byte/error/performance parity, mapped/resident bitmap providers, SVG geometry/brush rendering, COLR paint programs and final text drawing |
 | SVG color layers | Original glyph-ID selection, inherited state, bounded references, path/primitive geometry, transforms, solid/linear/radial fills, stable stops, negative-result cache and COLR-before-SVG selection | XML/runtime primitive arithmetic and whole-layer source controls; final layer rendering and native/browser pixels |
-| Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls, stroke expansion and final retained GPU lowering |
+| Source vector geometry | Complete ordinary figure/segment records, path grammar, primitives/recognizers, finite bounds, full matrix retention, analytic arc transforms/extrema, explicit flattening and polynomial Bezier subcurves | Exact source/default-runtime float controls and final retained GPU lowering |
+| Stroke geometry | Original bounded cap/join writers, separate generic/clipped-Miter/WPF semantics, solid/dashed line-only widening, gap/closed-seam traversal and matching triangle hit tests | Source float/topology/capacity/rejection/performance controls, owning API curve/frame contracts and final GPU paint integration |
+| Geometry hit queries | Original line/rectangle/ellipse fill and stroke tests, path fill with polynomial/rational/arc samples, relative/absolute tolerance, boundary/winding and both deferred operands | Complete source query/admission/default-runtime controls; these input queries do not qualify raster coverage |
 | Boolean geometry | Original canonical rounded-contour containment, deferred query/bounds classification, immediate results, exact solver transport, two canonical GPU passes, readback and ordered contour reconstruction | Full source/default-runtime/GPU/browser output, cancellation/lifetime/performance controls and retained painter integration |
 | Source dashes and materials | Double-to-float dash construction, original ordered line/arc/Bezier traversal, all non-image Brush.cs payloads and admission, pen flags and immutable dash ownership | Source rejection/state/ownership controls, material compilation, images/effects/interception and full stroke/render pixels |
 | Other font/layout/render work | Earlier independent foundations remain available | System discovery/resident fallback, GPU text and remaining engine stack |
@@ -102,11 +104,25 @@ subcurve spans with exact source dash state and independent stroke flags.
 `Brush`/`Pen` retain the non-image source material families, original constructor
 admission, independent join policies and double dash intervals. These are
 production input records/utilities, not yet a complete vector renderer. Boolean
-paint/query integration, stroke body/cap/join expansion, final SVG layer replay, material GPU
+paint integration, final SVG layer replay, material GPU
 compilation and image/effect contracts remain unfinished. Matched source/default-
 runtime floating-point, runtime/browser, quality and performance gates are
 deferred. Explicit nonprogress rejection replaces malformed source loops; see
 the source/ownership/difference ledger in DESIGN.md.
+
+`StrokeCap`, `StrokeJoin` and `Pen::write_join` expose bounded original triangle
+writers with full capacity checks before writes. Actual tangent frames remain
+separate from line-endpoint subtraction. Generic, explicit clipped-Miter,
+MiterOrBevel and WPF smooth/reversal policies retain their original distinctions.
+`PathGeometry::widen_stroke` and `contains_stroke` share the original solid/dashed
+line traversal and geometry/hit sinks. Widening returns `WidenedPath { path,
+complete }`: callers must inspect `complete`, because the original API retains
+earlier output when a later figure rejects. Curves must be flattened by the
+owning API under its own tolerance/frame contract. Original figure cap overrides
+are not consumed by this utility. `contains_fill` and the primitive hit functions
+retain the original geometric input queries, including rational curves and both
+deferred operands. `None` is source rejection, distinct from a valid miss. All
+new stroke/query runtime, source-pixel and performance validation is deferred.
 
 `PathGeometry::combine_deferred` now retains immutable operands and the original
 query classification without materialization. `immediate_boolean` exposes the
@@ -256,7 +272,12 @@ keep compact qualification receipts and reusable active dependencies. Use a fres
 disposable `CARGO_TARGET_DIR` for extracted-package checks: normalized archive
 mtimes can otherwise reuse a stale compiled library in a shared local target.
 
-## Port ledger
+## Earlier validation checkpoints
+
+These rows retain the scope of the earlier measured checkpoints. The current
+implementation table above includes later connected batches whose full runtime,
+source and performance qualification is deferred; older evidence does not qualify
+those additions.
 
 | Domain | Implementation | Remaining qualification |
 | --- | --- | --- |
