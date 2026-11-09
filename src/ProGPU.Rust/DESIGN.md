@@ -3615,3 +3615,59 @@ no optimization is claimed. `perf/managed-script-actions-baseline.json` retains
 all first/warm timing distributions, source allocation counters and binary/source
 hashes. Rust allocation events and end-to-end shaping/rendering qualification
 remain open.
+
+
+## Contextual Arabic joining and Syriac forms
+
+`ManagedScriptAction::ArabicJoining` preserves the original seven-state,
+six-column ProGPU state machine, all 13 admitted script spellings and its separate
+transparent-glyph path. Both retained UTF-16 contexts use the original bound of
+five decoded scalars, counting transparent and malformed scalars; unpaired units
+become one replacement scalar. The backward pre-context decoder retains surrogate
+pair identity. A context only changes the state or prior action; it never creates
+source glyphs or fabricated owners.
+
+Actual source clusters determine interior unsafe-break/concat and safe-tatweel
+flags. Signed minimum clusters, existing flags and all unrelated fields survive.
+The opt-in concat flag and safe-tatweel flag remain independent; no end-of-text or
+beginning-of-text inference replaces the original context traversal. Joining
+scans O(N log R) with O(1) scratch for N glyphs and R property ranges; flag visits
+cover disjoint gaps apart from shared endpoints and do not rescan every suffix.
+No allocations, font queries or GPU work are introduced inside the action.
+
+Property facts are generated independently from hash-pinned public Unicode 17
+[ArabicShaping](https://www.unicode.org/Public/17.0.0/ucd/ArabicShaping.txt) and
+[DerivedJoiningType](https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedJoiningType.txt).
+The original join-causing/dual column and distinct Alaph/Dalath-Rish columns are
+verified by 1,114,114 actual original API observations, including U+110000 and
+UINT_MAX. The 527 nonzero ranges are regenerated and source-checked by
+`eng/progpu-generate-rust-joining.py`; no HarfBuzz-derived generated source array
+is transcribed. Frozen joining facts remain independent of runtime normalization,
+Rune digit/mark categories and grapheme profiles.
+
+The existing required Skia/SkParagraph, DirectWrite/Direct2D/Win2D, WebRender,
+Vello/Parley and HarfBuzz architecture review still governs the reusable CPU
+shaping boundary. [Microsoft Arabic shaping](https://learn.microsoft.com/en-us/typography/script-development/arabic)
+and [Syriac shaping](https://learn.microsoft.com/en-us/typography/script-development/syriac)
+reinforce distinct contextual analysis, feature substitution and positioning.
+Their feature descriptions inform tests, not a replacement for ProGPU's exact
+state/action policy. The port preserves independent Syriac fin2/fin3/med2 forms.
+Full lookup-stage ordering, complex syllable actions, positioning initialization,
+fallback/layout and GPU text remain unfinished.
+
+All preceding 658,040 action cases remain intact. Added controls cover every
+five-column word over the seven classes, all script spellings and flag bytes,
+signed clusters, empty/transparent/malformed contexts and both sides of the
+five-scalar limit. Every raw value through U+110000 is also exercised in complete
+records. The expanded corpus matches 736,501 cases / 896,557,796 bytes locally,
+including 368 frozen browser cases. The direct modified-class/digit/joining fact
+comparison adds independent complete raw-property coverage.
+
+
+The 16 joining-only matched workloads retain three rotating process trials;
+all complete outputs match. Median action times are lower in 15 workloads and
+equal at reported resolution in one. Host load is 6.72/8.04/14.74. The retained
+baseline is not a change-versus-before optimization claim, allocation-event
+measurement or full shaping/frame qualification. Local browser replay passes
+1,107 common/joining checks per DPR with all original pixel/resize/presentation
+gates. Native tests and strict native/WASM lint checks also pass.

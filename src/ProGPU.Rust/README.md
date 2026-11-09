@@ -168,7 +168,7 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | Current managed variation data | Complete original fvar/avar/gvar/HVAR/GDEF/MVAR admission, normalized immutable instances, lazy tuple cache, simple/component/phantom deltas and MVAR/HVAR/layout queries; 8,772 C# cases / 8,192,752 exact bytes; 96 browser controls per DPR | Full TtfFont root/cache/metadata wrapper, full varied-outline/metrics integration and query/frame performance |
 | Current managed font names | Original name-table decoding, UTF-16 character ranking, stable ordinal deduplication and real axis-name resolution; 236,128 C# cases / 12,151,088 exact bytes; 93 browser controls per DPR | Full font identity/style/metric wrapper, broader discovery/source policies and end-to-end performance |
 | Current managed font and preparation | Owned font/cache/metadata, nominal/symbol/UVS mapping, explicit runtime grapheme and normalization profiles, complete original buffer creation | Varied outlines, source raster policies, fallback and complete shaping orchestration |
-| Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions and stage-state actions; 658,040 complete C# cases plus 1,114,113 raw property queries | Complex-script stages, full plan sequencing, positioning initialization and full text pixels |
+| Common managed script actions | Original dotted circle, directional fallback, Hangul, modified combining order, Hebrew, USE diacritics, Thai/Lao, fractions, Arabic joining and stage-state actions; 736,501 complete C# cases plus complete raw property queries | Complex-script stages, full plan sequencing, positioning initialization and full text pixels |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -694,7 +694,7 @@ composition/decomposition and Jamo masks, modified combining-class ordering,
 Hebrew presentation composition, USE diacritic decomposition, Thai/Lao expansion,
 fraction masks, substitution/syllable clearing, Arabic stretch recording and
 whole-record reversal. They do not implement a complete shaping pipeline.
-Complex Indic/Khmer/Myanmar/USE syllables, Arabic joining, vowel constraints,
+Complex Indic/Khmer/Myanmar/USE syllables, vowel constraints,
 ordered stage orchestration, positioning initialization, paragraphs and GPU text
 remain required work.
 
@@ -709,3 +709,20 @@ of 40 matching C#/Rust action workloads, including complete outputs. Actual
 preparation and raw-record restoration are outside action timers. The original
 stable insertion sort and vector shifts retain worst-case quadratic work; no
 end-to-end performance qualification follows from this baseline.
+
+
+`ManagedScriptAction::ArabicJoining` adds original contextual joining for Arabic,
+Syriac and the other admitted cursive scripts. It preserves Syriac Alaph and
+Dalath/Rish forms, transparent glyphs, exact five-scalar pre/post context bounds,
+malformed-unit replacement and source cluster safety/tatweel flags. Joining uses
+frozen Unicode 17 facts independently of normalization and runtime Rune profiles.
+`managed_joining_type` exposes the original raw classification; invalid raw values
+retain NonJoining. Regenerate and compare all 1,114,114 original queries with
+`python3 eng/progpu-generate-rust-joining.py --check` (.NET 10 required).
+
+The expanded `managed_script_actions` source test retains all earlier controls and
+now compares 736,501 cases / 896,557,796 exact bytes on the witnessed Unicode 17
+normalization runtime. The browser fixture contains 368 complete original cases.
+Set `PROGPU_RUST_ACTIONS_JOINING_ONLY=1` when running the action benchmark for the
+16 joining-only C#/Rust workloads. This action assigns contextual feature forms;
+complete shaping orchestration and rendered text remain separate work.

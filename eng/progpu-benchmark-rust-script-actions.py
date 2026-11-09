@@ -61,13 +61,20 @@ def corpus():
         ('thai','thai',[0xe01,0xe48,0xe33],[15]),
         ('fractions','latn',[0x31,0x32,0x2044,0x33,0x34,65],[16]),
         ('stage-state','latn',[65,66,67],[17,18,19,20]),
+        ('joining-arabic','arab',[0x628,0x301,0x627,0x628,0x200c,0x628],[21]),
+        ('joining-syriac','syrc',[0x715,0x710,0x301,0x710,0x628,0x710],[21]),
+        ('joining-transparent','arab',[0x628]+[0x301]*31,[21]),
+        ('joining-disabled','latn',[0x628,0x710,0x715],[21]),
     ]
+    joining_only = os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1'
+    if joining_only:
+        patterns = [pattern for pattern in patterns if pattern[0].startswith('joining-')]
     for index in range(len(fonts)):
         for name,script,points,actions in patterns:
             for count in [128,4096]:
                 data+=word(index)+request(script,points,count,actions)
                 cases.append(dict(font='space-only' if index else 'full',pattern=name,records=count,script=script,actions=actions))
-    profile_input=header+(word(0)+request('arab',patterns[4][2],4096,[10]))*20
+    profile_input=header+(word(0)+request('arab',patterns[0 if joining_only else 4][2],4096,[21 if joining_only else 10]))*20
     return data,cases,profile_input
 
 
@@ -125,11 +132,14 @@ def main():
             csharp_assembly_sha256=hashlib.sha256(assembly.read_bytes()).hexdigest(),
             source_hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in
                 ['src/ProGPU.Text/OpenTypeTextShaper.cs','src/ProGPU.Rust/src/text/script_actions.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/joining.rs',
+                 'src/ProGPU.Rust/src/text/script_actions/joining_data.rs',
                  'src/ProGPU.Rust/src/text/preparation.rs','src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs',
                  'src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs','src/ProGPU.Rust/tests/managed_script_actions.cs']},workloads=cases)
         if before:
             receipt['rust_before_binary_sha256'] = hashlib.sha256(Path(before).read_bytes()).hexdigest()
-        output = ROOT / 'src/ProGPU.Rust/perf/managed-script-actions-baseline.json'
+        name = 'managed-joining-baseline.json' if os.environ.get('PROGPU_RUST_ACTIONS_JOINING_ONLY') == '1' else 'managed-script-actions-baseline.json'
+        output = ROOT / 'src/ProGPU.Rust/perf' / name
         output.write_text(json.dumps(receipt, indent=2)+'\n')
         print(f'{len(cases)} complete-output matched workloads, three trials; {output}')
 

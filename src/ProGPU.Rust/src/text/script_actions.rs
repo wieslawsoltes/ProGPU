@@ -6,6 +6,8 @@
 use super::{ManagedShapingGlyph, preparation::*, unicode::*};
 use crate::font::{FontError, ManagedFont, layout::ManagedGlyphBuffer};
 use normalization::{ManagedNormalizationProfile, NormalizationForm};
+mod joining;
+pub use joining::{ManagedJoiningType, managed_joining_type};
 
 /// Original four physical shaping directions, independent of bidi level types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +76,8 @@ pub enum ManagedScriptAction {
     ClearSyllables,
     /// Record original multiplied-component parity as fixed/repeating stretch.
     RecordArabicStretch,
+    /// Original contextual joining, including Syriac forms and retained context.
+    ArabicJoining,
     /// Reverse complete original records without reconstructing clusters.
     Reverse,
 }
@@ -227,6 +231,13 @@ impl ManagedGlyphBuffer {
                 }
             }
             ManagedScriptAction::Reverse => self.glyphs.reverse(),
+            ManagedScriptAction::ArabicJoining => joining::assign(
+                &mut self.glyphs,
+                script,
+                options.buffer_flags,
+                &options.pre_context,
+                &options.post_context,
+            ),
         }
         Ok(())
     }

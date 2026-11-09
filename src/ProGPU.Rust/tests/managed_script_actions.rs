@@ -277,6 +277,99 @@ fn corpus(mut emit: impl FnMut(Case, bool)) {
         }
         emit(c, false);
     }
+    joining_corpus(emit);
+}
+
+fn joining_corpus(mut emit: impl FnMut(Case, bool)) {
+    let representatives = [0x41, 0xa872, 0x627, 0x628, 0x710, 0x715, 0x301];
+    for (kind, &cp) in representatives.iter().enumerate() {
+        assert_eq!(managed_joining_type(cp) as usize, kind);
+    }
+    // Every five-column word reaches every source state and transparent gap.
+    for word in 0..7usize.pow(5) {
+        let mut value = word;
+        let points: Vec<_> = (0..5)
+            .map(|_| {
+                let point = representatives[value % 7];
+                value /= 7;
+                point
+            })
+            .collect();
+        for flags in [0, 64, 128, 192] {
+            let mut c = raw(0, "arab", (word % 4) as u8, &points, vec![21]);
+            c.source.flags = flags;
+            emit(c, false);
+        }
+    }
+    // All admitted scripts, exact spelling rejection, flags and signed clusters.
+    for (index, script) in [
+        "adlm", "arab", "chrs", "rohg", "mand", "mani", "mong", "nkoo", "ougr", "phag", "phlp",
+        "sogd", "syrc", "latn", "ARAB", "arab ", "",
+    ]
+    .iter()
+    .enumerate()
+    {
+        for flags in 0..=255 {
+            let mut c = raw(
+                0,
+                script,
+                flags % 4,
+                &[0x628, 0x301, 0x710, 0x301, 0x627, 0x715, 0x710],
+                vec![21],
+            );
+            c.source.flags = flags;
+            for (i, glyph) in c.raw.as_mut().unwrap().iter_mut().enumerate() {
+                glyph.cluster = [i32::MAX, -1, -1, i32::MIN, 0, 5, 5][i];
+            }
+            emit(c, flags == [0, 64, 128, 192][index % 4]);
+        }
+    }
+    let contexts: Vec<Vec<u16>> = vec![
+        vec![],
+        vec![0x628],
+        vec![0x715],
+        vec![0x710],
+        vec![0x301],
+        vec![0xd800],
+        vec![0xdc00],
+        vec![0xd800, 0x301],
+        vec![0xd83a, 0xdd00],
+        vec![0xd83a, 0xdd44],
+        vec![0x628, 0x301, 0x301, 0x301, 0x301],
+        vec![0x628, 0x301, 0x301, 0x301, 0x301, 0x301],
+        vec![0x301, 0x301, 0x301, 0x301, 0x628],
+        vec![0x301, 0x301, 0x301, 0x301, 0x301, 0x628],
+    ];
+    for (a, pre) in contexts.iter().enumerate() {
+        for (b, post) in contexts.iter().enumerate() {
+            for points in [
+                &[][..],
+                &[0x301],
+                &[0x628, 0x301],
+                &[0x710, 0x301],
+                &[0x715, 0x301, 0x710],
+                &[0xd800, 0x628, 0x110000, u32::MAX],
+            ] {
+                for flags in [0, 64, 128, 192] {
+                    let mut c = raw(0, "syrc", ((a + b) % 4) as u8, points, vec![21]);
+                    c.source.pre = pre.clone();
+                    c.source.post = post.clone();
+                    c.source.flags = flags;
+                    emit(c, a == b && flags == 192);
+                }
+            }
+        }
+    }
+    let mut block = Vec::new();
+    for cp in 0..=0x110000 {
+        block.push(cp);
+        if block.len() == 512 || cp == 0x110000 {
+            let mut c = raw(0, "arab", 1, &block, vec![21]);
+            c.source.flags = 192;
+            emit(c, false);
+            block.clear();
+        }
+    }
 }
 struct Temporary(PathBuf);
 impl Drop for Temporary {
@@ -366,10 +459,15 @@ fn complete_original_managed_script_actions() {
             .map(u32::from)
             .unwrap_or(u32::MAX);
         assert_eq!(word(&mut facts), digit, "decimal class U+{cp:x}");
+        assert_eq!(
+            word(&mut facts),
+            managed_joining_type(cp) as u32,
+            "joining type U+{cp:x}"
+        );
     }
     assert_eq!(facts.read(&mut [0]).unwrap(), 0);
     eprintln!(
-        "Original modified classes and Rune digits: 1114113 complete raw scalar queries / 8912904 exact bytes"
+        "Original modified classes, Rune digits and joining types: 1114113 complete raw scalar queries / 13369356 exact bytes"
     );
     let font_bytes = fixture::fonts();
     let fonts: Vec<_> = font_bytes

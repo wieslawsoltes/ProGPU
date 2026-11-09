@@ -49,6 +49,7 @@ pub fn action(code: u32) -> Option<ManagedScriptAction> {
         18 => ClearSyllables,
         19 => RecordArabicStretch,
         20 => Reverse,
+        21 => ArabicJoining,
         _ => return None,
     })
 }

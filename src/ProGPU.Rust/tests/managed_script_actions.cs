@@ -8,6 +8,10 @@ using ProGPU.Text.Shaping;
 static class Control
 {
     const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+    static Func<uint,uint> JoiningQuery<T>(MethodInfo method) where T : struct, Enum {
+        var query=method.CreateDelegate<Func<uint,T>>();
+        return point=>Convert.ToUInt32(query(point));
+    }
     delegate B Create<B>(string text, TtfFont font, string script, ShapingClusterLevel level,
                          ShapingBufferFlags flags, ReadOnlyMemory<char> pre, ReadOnlyMemory<char> post);
     delegate bool Select(TtfFont font, string script, out string layout);
@@ -35,6 +39,9 @@ static class Control
         var clearSyllable=typeof(B).GetMethod("ClearSyllables",F)!.CreateDelegate<Action<B>>();
         var stretch=typeof(B).GetMethod("RecordArabicStretch",F)!.CreateDelegate<Action<B>>();
         var reverse=typeof(B).GetMethod("Reverse",F)!.CreateDelegate<Action<B>>();
+        var joining=typeof(B).GetMethod("AssignArabicJoiningActions",F)!.CreateDelegate<Action<B,string>>();
+        var joiningMethod=typeof(TtfFont).Assembly.GetType("ProGPU.Text.ArabicJoiningData",true)!.GetMethod("GetJoiningType",F)!;
+        var joiningType=(Func<uint,uint>)typeof(Control).GetMethod(nameof(JoiningQuery),F)!.MakeGenericMethod(joiningMethod.ReturnType).Invoke(null,new object[]{joiningMethod})!;
         var modified=typeof(B).GetMethod("GetModifiedCombiningClass",F)!.CreateDelegate<Func<uint,int>>();
         var digit=typeof(B).GetMethod("IsDecimalDigit",F)!.CreateDelegate<Func<uint,bool>>();
         var fields = new[] { "GlyphIndex", "Cluster", "GraphemeCluster", "CharacterCluster", "CodePoint", "Flags",
@@ -59,6 +66,7 @@ static class Control
             for(uint point=0;point<=0x110000;point++) {
                 output.Write((uint)modified(point));
                 try {output.Write(digit(point)?1u:0u);}catch(ArgumentException){output.Write(uint.MaxValue);}
+                output.Write(joiningType(point));
             }
             return;
         }
@@ -114,6 +122,7 @@ static class Control
                             case 18:clearSyllable(buffer);break;
                             case 19:stretch(buffer);break;
                             case 20:reverse(buffer);break;
+                            case 21:joining(buffer,script);break;
                             default:throw new InvalidDataException("action");
                         }
                     }
