@@ -7,6 +7,7 @@ use std::sync::Arc;
 mod coverage;
 mod digest;
 mod gdef;
+mod managed_context;
 mod managed_selection;
 mod selection;
 mod table;
@@ -16,6 +17,10 @@ pub use digest::{
     PreparedContext,
 };
 pub use gdef::{Gdef, GlyphClass, OwnedGdef, is_gdef_blocklisted};
+pub use managed_context::{
+    ManagedContextGlyph, ManagedContextInput, ManagedContextState, ManagedContextView,
+    ManagedCoverageMatcher, PreparedManagedContext,
+};
 pub use managed_selection::{
     ManagedEnabledLookup, ManagedFeatureSetting, ManagedLookupSelection, ManagedSelectionRequest,
 };

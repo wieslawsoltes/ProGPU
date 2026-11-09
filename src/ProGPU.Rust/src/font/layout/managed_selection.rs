@@ -1,5 +1,6 @@
 //! Current original C# raw feature policy. This deliberately does not use the
 //! stricter native LayoutTable admission or its different fallback/variation rules.
+use super::managed_context::{self, ContextData, ManagedContextView};
 use super::{Arc, FontError, ManagedGlyphSetDigest, SfntFace, Storage, Tag, fits, u16_at, u32_at};
 use std::collections::{HashMap, HashSet};
 
@@ -69,8 +70,8 @@ pub struct ManagedEnabledLookup {
     pub digest: Option<ManagedGlyphSetDigest>,
 }
 /// Atomically published managed feature selection retaining the original source
-/// generation and complete request. Context preparation and lookup execution are
-/// independent stages; this owner does not claim a complete shaping plan.
+/// generation, complete request and optional original managed context preparation.
+/// Lookup execution remains separate; this is not a complete shaping plan.
 #[derive(Clone, Debug)]
 pub struct ManagedLookupSelection {
     storage: Storage,
@@ -81,6 +82,7 @@ pub struct ManagedLookupSelection {
     extension: u16,
     uses_variations: bool,
     lookups: Vec<ManagedEnabledLookup>,
+    contexts: Vec<(usize, ContextData)>,
 }
 fn copy<T: Copy>(v: &[T]) -> Result<Vec<T>, FontError> {
     let mut out = Vec::new();
@@ -112,6 +114,17 @@ impl ManagedLookupSelection {
             return Err(FontError::Capacity);
         }
         let (lookups, uses_variations) = select(storage.bytes(), request)?;
+        let mut contexts = Vec::new();
+        for (position, lookup) in lookups.iter().enumerate() {
+            if let Some(context) = managed_context::prepare(
+                storage.bytes(),
+                lookup.index,
+                request.extension_lookup_type,
+            )? {
+                contexts.try_reserve(1).map_err(|_| FontError::Capacity)?;
+                contexts.push((position, context));
+            }
+        }
         Ok(Self {
             storage,
             script: copy(request.script)?,
@@ -121,6 +134,7 @@ impl ManagedLookupSelection {
             extension: request.extension_lookup_type,
             uses_variations,
             lookups,
+            contexts,
         })
     }
     /// Frozen original request, including duplicate settings and null language.
@@ -144,6 +158,15 @@ impl ManagedLookupSelection {
     /// Sorted unique lookup IDs and their original winning metadata.
     pub fn lookups(&self) -> &[ManagedEnabledLookup] {
         &self.lookups
+    }
+    /// Original optional context for the selected entry at this slice position.
+    /// The lookup ID itself remains in `lookups()[position].index`.
+    pub fn context(&self, position: usize) -> Option<ManagedContextView<'_>> {
+        let found = self
+            .contexts
+            .binary_search_by_key(&position, |(position, _)| *position)
+            .ok()?;
+        Some(self.contexts[found].1.view(self.storage.bytes()))
     }
     /// A matching null substitution table is still an active managed variation.
     pub fn uses_feature_variations(&self) -> bool {
@@ -487,22 +510,8 @@ fn select(
     Ok((selection.result, uses))
 }
 fn lookup_digest(data: &[u8], index: u16, extension: u16) -> Option<ManagedGlyphSetDigest> {
-    if !fits(data, 8, 2) {
-        return None;
-    }
-    let list = usize::from(u16_at(data, 8));
-    if !fits(data, list, 2)
-        || index >= u16_at(data, list)
-        || !fits(data, list + 2 + usize::from(index) * 2, 2)
-    {
-        return None;
-    }
-    let lookup = list + usize::from(u16_at(data, list + 2 + usize::from(index) * 2));
-    if !fits(data, lookup, 6) {
-        return None;
-    }
-    let kind = u16_at(data, lookup);
-    let count = usize::from(u16_at(data, lookup + 4));
+    let (lookup, kind, count) = managed_context::raw_lookup(data, index)?;
+    let count = usize::from(count);
     if count == 0 {
         return None;
     }

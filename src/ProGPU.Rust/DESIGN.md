@@ -2381,7 +2381,8 @@ Further optimization requires matched Instruments evidence. Reproduce with
 input and binary hashes without disposable binaries.
 
 Managed context preparation has distinct weak coverage admission and ordered glyph
-eligibility; it remains the next independent port stage. Complete shaping defaults,
+eligibility; the later context milestone below covers that independent accelerator.
+Complete shaping defaults,
 GSUB/GPOS execution, fallback, layout and GPU text are not supplied by this milestone.
 No original compiler, shader, source/application or package/pixel gate is relaxed.
 
@@ -2399,4 +2400,108 @@ passes native all-target/all-feature and WASM checks from an independent empty
 target, with 86 exact production/resource/license files and original manifest.
 Temporary package/benchmark outputs and unused benchmark binaries remove
 **601,359,039 measured logical bytes**; source-control auto-cleanup is additional.
+Active caches and compact receipts remain.
+
+
+## Managed context preparation and ordered filtering
+
+The current C# `TryCreateRawContextRequirements`, `RawCoverageMatcher.Contains`,
+`RawContextRequirements.MayMatch` and their actual GlyphSubstitutionBuffer traversal
+are the implementation sources. Native `PreparedContext` remains separate: managed
+preparation admits raw unsorted lists, overlapping/noncontiguous ranges and missing
+lookup-record payloads. Only reversed range endpoints are rejected. Empty coverage
+sets remain real occurrences. The original extension type interpretation, raw
+lookup flags and complete coverage-array admission are preserved. Malformed or
+unsupported optional preparation returns absence, without invalidating selection.
+
+`PreparedManagedContext` owns the exact table/font generation and private validated
+coverage descriptors. The view keeps original list/range order, ignores the same
+range coverage indices, and uses source linear search through four items and source
+inclusive binary search above four. It does not replace a raw managed matcher with
+native strict coverage parsing or sort input to manufacture a match. Original
+backtrack/input/lookahead order remains in public read-only descriptors.
+
+`ManagedLookupSelection` prepares original optional contexts for each selected
+lookup. A sparse ordered inventory retains only present contexts, and lookup by
+selected position uses binary search. No separate context allocation is made when
+none is supported. Source bytes and complete selected request retain the same owner;
+no per-lookup byte copy or independently inferred font identity is introduced.
+
+`ManagedContextInput` borrows exactly the source fields used by this accelerator:
+glyph ID, original code point, substitution byte, raw script-shaper/feature-mask
+bytes and USE syllable. It captures active manual-joiner/restriction/syllable state.
+The original all-glyph digest builds once in O(N); an existing conservative source
+digest can be supplied explicitly and must cover current glyph IDs. This projection
+is not a fabricated complete GlyphRecord, paragraph or font/source generation.
+
+The ordered algorithm first rejects disjoint coverage digests. Flags masked by
+0xFF1E then retain the original conservative true result, leaving GDEF filtering to
+the exact executor. Other flags walk original positions and backtrack/input/lookahead
+requirements. Input preserves ZWNJ as a barrier and optionally ZWJ; context optionally
+preserves ZWNJ and skips ZWJ. Original Mongolian/tag controls, substituted ignorables
+and explicit Hangul mask visibility remain distinct. A syllable mismatch terminates
+traversal. The first input position is read through the original indexer: it returns
+0xffff outside the active syllable, including its possible coverage match, rather
+than skipping or rejecting the position unconditionally. An early differential
+failure exposed this detail; the correction and full original corpus are retained.
+
+Preparation is O(S+C+G), for subtables, coverage occurrences and their source glyph/
+range records; storage O(S+C) retains private offsets/digests instead of copied raw
+coverage arrays. Exact membership is O(1) for at most four items and O(log R) above.
+Query allocation is zero. Ordered matching preserves original worst-case repeated
+context walks (quadratic in glyph count for adversarial skip sequences); no new
+algorithmic shortcut or CPU raster fallback is introduced. Real executor/GDEF
+filtering, staged shaper state and complete glyph mutation remain separate work.
+
+The actual unchanged C# methods pass **56,996 records / 22,558,608 coverage queries /
+1,191,586 ordered matches / 95,829,796 exact bytes**. The control constructs actual
+original GlyphRecord lists and GlyphSubstitutionBuffer instances, sets original
+private traversal state and invokes original methods through typed test delegates.
+It does not translate the managed oracle or fabricate eligibility callbacks.
+Coverage controls include full ushort query inventories, all original fixture
+prefixes, 25,000 mutations, zero/extreme offsets, duplicate/unsorted/overlapping
+records, absent record payloads and raw flags. Every code-point value through 0x110010, including invalid values, runs
+through original ordered traversal. Visibility/mask/syllable byte inventories,
+manual joiners, conservative digests and the original first-position sentinel are
+retained. The preceding 327,015-record full feature-policy oracle remains required.
+
+Seventy browser checks per DPR cover GSUB/GPOS and extension routes, exact/mismatched
+order, source joiner/visibility/syllable policies, raw flags, first-position sentinel,
+four/five-item membership, weak record admission and extreme 32-bit offsets. They
+pass alongside all prior controls, 204,800 offscreen pixels, six unchanged canonical
+shaders, resize and both actual presented canvases. No deadline, shader, compiler,
+driver or original pixel assertion is relaxed.
+
+Eighteen baseline workloads match complete serialized descriptors, digest masks,
+coverage queries and match result bytes. Five warmups precede forty measured rounds;
+query rounds contain 100 calls, with glyph/digest construction and all reflection
+transport/serialization outside timing. Original compiler/JIT defaults remain.
+At 4,096 repeated glyphs, ordered-end p50/p95/p99 µs are
+38.939/40.303/40.945 Rust and 29.047/91.718/92.963 C#; reversed order is
+39.119/39.557/39.808 and 29.791/91.957/93.607. **Rust's large ordered-search median is
+slower; performance parity is not established.** A 4,096-ignorable traversal measures
+7.825/8.055/8.231 and 23.975/24.842/25.419. Two 4,096-item coverages prepare in p50
+4.625 µs Rust and 18.500 µs C#; C# allocates 16,792 bytes for those copied arrays.
+All measured C# queries allocate zero bytes; Rust queries contain no allocations.
+Rust preparation owns shared original bytes while C# copies raw coverage values.
+Load was 3.65/8.45/15.35 with active compilers. These are diagnostic baselines, not
+steady-state JIT, stable speedup or final shaping/frame qualification. Optimization
+requires matched Instruments and representative final workloads. Reproduction:
+`eng/progpu-benchmark-rust-managed-context.py`; `perf/managed-context-*.json` retains
+compact source/input/binary hashes and quantiles without disposable binaries.
+
+Hosted preceding `8c588eef2` run 42542282080 passes full Linux source/package,
+Windows portable and GPU/winit. Its actual managed selector passes 327,015 records
+and 27,595,740 bytes there. Both original and diagnostic browser runs fail final
+DPR 2 with `A valid external Instance reference no longer exists`; macOS is cancelled.
+The earlier original browser success remains recorded. Intermittent browser loss
+is unresolved, and this new context work requires its own hosted qualification.
+
+Strict native all-target/all-feature and WASM Clippy pass. Aggregates pass 69 tests
+with 38 explicit source/GPU controls ignored, and CPU-only passes 67 with 31 ignored.
+Both current managed source controls run separately and pass. A fresh extracted
+crate passes native all-target/all-feature and WASM checks from an independent empty
+target, with 87 exact production/resource/license files and original manifest.
+Temporary package/benchmark outputs and unused benchmark binaries remove
+**606,578,719 measured logical bytes**; source-oracle auto-cleanup is additional.
 Active caches and compact receipts remain.

@@ -47,6 +47,10 @@ name = "managed_feature_selection"
 path = "src/ProGPU.Rust/tests/managed_feature_selection.rs"
 
 [[test]]
+name = "managed_context"
+path = "src/ProGPU.Rust/tests/managed_context.rs"
+
+[[test]]
 name = "shader_validation"
 path = "src/ProGPU.Rust/tests/shader_validation.rs"
 
@@ -218,3 +222,7 @@ path = "src/ProGPU.Rust/examples/selection_benchmark.rs"
 [[example]]
 name = "managed_feature_benchmark"
 path = "src/ProGPU.Rust/examples/managed_feature_benchmark.rs"
+
+[[example]]
+name = "managed_context_benchmark"
+path = "src/ProGPU.Rust/examples/managed_context_benchmark.rs"

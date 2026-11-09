@@ -43,6 +43,7 @@ cargo test --locked --test layout -- --ignored --nocapture
 cargo test --locked --test digest -- --ignored --nocapture
 cargo test --locked --test selection -- --ignored --nocapture
 cargo test --locked --test managed_feature_selection -- --ignored --nocapture
+cargo test --locked --test managed_context -- --ignored --nocapture
 cargo test --locked --lib -- --ignored --nocapture
 # Release baseline; reported CPU submission latency excludes the GPU wait
 cargo run --release --locked --example retained_benchmark
@@ -59,6 +60,7 @@ python3 eng/progpu-benchmark-rust-normalization-profiles.py
 python3 eng/progpu-benchmark-rust-digest.py
 python3 eng/progpu-benchmark-rust-selection.py
 python3 eng/progpu-benchmark-rust-managed-features.py
+python3 eng/progpu-benchmark-rust-managed-context.py
 python3 eng/progpu-benchmark-rust-layout.py
 ```
 
@@ -150,7 +152,8 @@ mtimes can otherwise reuse a stale compiled library in a shared local target.
 | OpenType common tables and GDEF | Borrowed/owned coverage, classes, lazy lookup validation, GDEF classification/mark sets and exact independent blocklist; 6,415,296 native and 5,374,312 actual C# queries; 26 browser controls per DPR | Feature selection, GSUB/GPOS execution, shaping plans and full text integration |
 | Lookup accelerators | Original five-mask native and distinct three-mask managed filters; exact single coverage and owned format-3 context preparation; 39,859 C++ records / 57,233,864 bytes and 15,728,640 C# glyph queries / 201,347,072 bytes; 15 browser controls per DPR | Ordered glyph/GDEF traversal, plan integration and complete source lookup execution |
 | Native feature selection | Exact script/language fallback, required/requested/excluded features, ordered variation records and owned selections; 50,956 native controls / 7,157,396 bytes; 1,728 actual C# shared-policy controls; 16 browser checks per DPR | Staged plans, GSUB/GPOS execution and native-selection performance gap |
-| Current managed feature policy | Separate immutable UTF-16 request, full fallback/value/global precedence, variation substitutions and optional managed digest; 327,015 actual C# controls / 27,595,740 bytes; 20 browser checks per DPR | Managed context preparation, ordered glyph/GDEF traversal, staged shaping and lookup execution |
+| Current managed feature policy | Separate immutable UTF-16 request, full fallback/value/global precedence, variation substitutions and optional managed digest; 327,015 actual C# controls / 27,595,740 bytes; 20 browser checks per DPR | Full GDEF/executor integration, staged shaping and lookup execution |
+| Managed context and ordered matching | Owned raw managed format-3 contexts, exact weak coverage admission and original glyph/indexer/skip rules; 56,996 actual C# source records, 22,558,608 coverage queries and 1,191,586 ordered matches; 70 browser checks per DPR | Full lookup/GDEF execution, staged shaping, layout/text integration and large-query baseline gap |
 | Images, brushes, clips, layers and effects | Pending | Complete retained resource and compositing contracts |
 | Scene compiler, interaction and archives | Ordered CPU compilation, immutable source/atlas generations and within-frame raster sharing | Interaction, archives, culling, cross-generation cache eviction and transport |
 | Performance and distribution | Reproducible retained Release baseline | Matched C#/C++ measurements, platform gates and package consumer |
@@ -346,4 +349,30 @@ ranges and extreme 32-bit variation offsets. The eight-workload baseline verifie
 all selected metadata hashes; 512 static features measure p50 1889.542 µs Rust and
 2715.100 µs C#. Ownership and optional context work differ, and compilation activity
 was present: these are diagnostic construction measurements, not full shaping or
-stable speedup qualification. Managed context preparation/execution remains pending.
+stable speedup qualification. The later context stage below retains its own evidence;
+full lookup execution and staged shaping remain pending.
+
+
+`PreparedManagedContext` retains original raw table/font bytes and optional
+format-3 context metadata. `ManagedLookupSelection::context(position)` borrows
+prepared context for that selected entry; absent contexts require no separate
+allocation. The returned view preserves original backtrack/input/lookahead order,
+lookup flags, three-mask filters and managed linear/binary coverage membership.
+Unsorted/overlapping source inventories retain their original query behavior.
+
+`ManagedContextInput` borrows the original accelerator fields from an immutable
+glyph generation, freezes active joiner/syllable state and builds the source buffer
+digest once. Existing source digests can be reused with `with_digest`; they must
+cover all current glyph IDs. Ordered queries allocate nothing. Input/context
+joiner rules differ, and the original first-position indexer maps out-of-syllable
+glyphs to 0xffff. Flagged GDEF contexts keep the original conservative fast path
+after digest intersection. A positive result still requires exact lookup execution.
+This API neither manufactures complete shaping records nor supplies a full shaper.
+
+The actual C# context parser, matcher and GlyphSubstitutionBuffer pass 95,829,796
+exact bytes, including every scalar through ordered matching, raw visibility and
+syllable bytes, mutations and every fixture prefix. Eighteen preparation/query
+baseline workloads match complete metadata/result bytes. At 4,096 repeated glyphs,
+Rust ordered search is about 39 µs versus C# 29 µs; the gap remains open. Queries
+allocate nothing in Rust by construction and zero measured bytes in C#. Broader
+performance claims require matched Instruments and complete shaping workloads.

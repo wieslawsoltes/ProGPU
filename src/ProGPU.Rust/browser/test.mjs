@@ -332,6 +332,32 @@ try {
           digestCheck(context.subarray(0,context.length-1),extension,10,[1,0,0,0,0xffffffff,0]);
         }
         for(const bad of [new Uint8Array(),digestTable(1,[]),digestSimple.subarray(0,25)]){let caught=false;try{app.layout_digest_query(bad,0,7,0);}catch{caught=true;}check(caught,'WASM invalid digest header');digestChecks++;}
+        let managedContextChecks=0;
+        const contextGlyph=(id,cp=65,sub=0,shaper=0,mask=0,syllable=0)=>[id,cp,sub,shaper,mask,syllable];
+        const contextCheck=(bytes,extension,glyphs,expected,options=[0,0,0])=>{const actual=[...app.managed_context_query(bytes,0,extension,new Uint16Array(),new Uint32Array(glyphs.flat()),new Uint32Array(options))];check(actual[0]===1&&actual.at(-1)===+expected,`WASM managed ordered context ${JSON.stringify(actual)}`);managedContextChecks++;return actual;};
+        for(const [ext,kind] of [[7,5],[9,7]]){for(const wrapped of [false,true]){
+          const sub=[3,2,0,10,16,1,1,10,1,1,20];const b=digestTable(wrapped?ext:kind,wrapped?[1,kind,0,8,...sub]:sub);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(20),contextGlyph(10)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x34f),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x34f,1),contextGlyph(20)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x34f,0,4,1),contextGlyph(20)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x200c),contextGlyph(20)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x200d),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x200d),contextGlyph(20)],false,[1,0,0]);
+          contextCheck(b,ext,[contextGlyph(10,0xad),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(10,65,0,0,0,1),contextGlyph(20)],false,[2,0,0]);
+          for(const flag of [1,16,0x20,0xe1,0x100]){const f=b.slice();new DataView(f.buffer).setUint16(20,flag);contextCheck(f,ext,[contextGlyph(20),contextGlyph(10)],(flag&0xff1e)!==0);}
+        }}
+        const contextSentinel=digestTable(5,[3,1,0,8,1,1,65535]);
+        contextCheck(contextSentinel,7,[contextGlyph(10,65,0,0,0,1)],true,[2,0,1]);
+        for(const [values,expected] of [[[10,3,8,1],[1,1]],[[10,3,8,1,4],[0,1]]]){const b=digestTable(5,[3,1,0,8,1,values.length,...values]);const actual=[...app.managed_context_query(b,0,7,new Uint16Array([10,8]),new Uint32Array(contextGlyph(8)),new Uint32Array([0,0,0]))];check(JSON.stringify(actual.slice(14,16))===JSON.stringify(expected),'WASM original managed linear/binary membership');managedContextChecks++;}
+        const noRecords=digestTable(5,[3,1,65535,8,1,1,10]);contextCheck(noRecords,7,[contextGlyph(10)],true);
+        const chain=digestTable(6,[3,1,14,1,20,1,26,1,1,10,1,1,20,1,1,30]);
+        contextCheck(chain,7,[contextGlyph(10),contextGlyph(99,0x200c),contextGlyph(20),contextGlyph(99,0x200d),contextGlyph(30)],true);
+        contextCheck(chain,7,[contextGlyph(10),contextGlyph(99,0x200c),contextGlyph(20),contextGlyph(99,0x200d),contextGlyph(30)],false,[1,0,0]);
+        for(const offset of [0x7fffffff,0x80000000,0xffffffff]){const b=digestTable(7,[1,5,0,8,3,1,0,8,1,1,10]);new DataView(b.buffer).setUint32(30,offset);check(JSON.stringify([...app.managed_context_query(b,0,7,new Uint16Array(),new Uint32Array(),new Uint32Array([0,0,0]))])==='[0]','WASM managed context extreme extension offset');managedContextChecks++;}
+        check(JSON.stringify([...app.managed_context_query(new Uint8Array(),0,7,new Uint16Array(),new Uint32Array(),new Uint32Array([0,0,0]))])==='[0]','WASM managed optional malformed context');managedContextChecks++;
         let selectionChecks=0;
         const otTag=s=>[...s].reduce((v,c)=>(v*256+c.charCodeAt(0))>>>0,0);
         const selectionFixture=(varied=false)=>{
@@ -562,7 +588,7 @@ try {
         const size=app.dimensions();
         await r.resize(size.width,size.height,size.dpi);
         check(r.draw(),'resume presentation');
-        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, bidiChecks, graphemeChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
       });
     });
     Object.assign(entry,report);

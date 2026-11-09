@@ -872,6 +872,81 @@ mod web {
         }
         Ok(out)
     }
+    /// Original managed context preparation and ordered matching in wasm32.
+    /// Options are manual-joiners/restricted bits, active syllable, full digest.
+    #[wasm_bindgen]
+    pub fn managed_context_query(
+        bytes: Vec<u8>,
+        index: u16,
+        extension: u16,
+        queries: Vec<u16>,
+        records: Vec<u32>,
+        options: Vec<u32>,
+    ) -> Result<Vec<u32>, JsValue> {
+        use progpu::font::{FontError, layout::*};
+        if !records.len().is_multiple_of(6)
+            || options.len() != 3
+            || options[0] > 3
+            || options[1] > 255
+            || options[2] > 1
+        {
+            return Err(error(FontError::InvalidArgument));
+        }
+        let mut glyphs = Vec::new();
+        for g in records.chunks_exact(6) {
+            glyphs.push(ManagedContextGlyph {
+                glyph_index: u16::try_from(g[0]).map_err(error)?,
+                code_point: g[1],
+                substituted: u8::try_from(g[2]).map_err(error)?,
+                script_shaper: u8::try_from(g[3]).map_err(error)?,
+                script_feature_mask: u8::try_from(g[4]).map_err(error)?,
+                use_syllable: u8::try_from(g[5]).map_err(error)?,
+            });
+        }
+        let state = ManagedContextState {
+            manual_joiners: options[0] & 1 != 0,
+            restrict_to_syllable: options[0] & 2 != 0,
+            lookup_syllable: options[1] as u8,
+        };
+        let mut input = ManagedContextInput::new(&glyphs, state);
+        if options[2] != 0 {
+            let mut digest = input.digest();
+            digest.add_range(0, 65535);
+            input = ManagedContextInput::with_digest(&glyphs, state, digest);
+        }
+        let Some(prepared) = PreparedManagedContext::new(bytes, index, extension).map_err(error)?
+        else {
+            return Ok(vec![0]);
+        };
+        let retained = prepared.clone();
+        drop(prepared);
+        let view = retained.view();
+        let mut out = vec![
+            1,
+            u32::from(view.flags()),
+            view.subtables().len() as u32,
+            view.coverage_count() as u32,
+        ];
+        for sub in view.subtables() {
+            out.extend([
+                sub.coverage_offset,
+                sub.coverage_count,
+                u32::from(sub.backtrack_count),
+                u32::from(sub.input_count),
+            ]);
+        }
+        for i in 0..view.coverage_count() {
+            let coverage = view.coverage(i).unwrap();
+            for &mask in coverage.digest().masks() {
+                out.extend([mask as u32, (mask >> 32) as u32]);
+            }
+            for &q in &queries {
+                out.push(u32::from(coverage.contains(q)));
+            }
+        }
+        out.push(u32::from(view.may_match(input)));
+        Ok(out)
+    }
     /// Preserve original source-order and failure-prefix behavior in wasm32.
     #[wasm_bindgen]
     pub fn select_layout_feature(
