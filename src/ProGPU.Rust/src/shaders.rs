@@ -93,11 +93,37 @@ pub const PATH_SIGNED_PACK: &str = shader!("PathSignedWindingCoverage");
 /// Original uniform-backdrop group blending.
 pub const GROUP_BLEND: &str = shader!("GroupBlend");
 /// Original legacy bytecode-effect wrapper; validated body is inserted at preparation.
-pub const WPF_BYTECODE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl");
+pub const WPF_BYTECODE_EFFECT: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl");
 /// Original final-device sample wrapper, with an independent complete input lattice.
-pub const WPF_BYTECODE_SAMPLE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl");
+pub const WPF_BYTECODE_SAMPLE_EFFECT: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl");
 /// Original affine final-device sample wrapper, retaining both cross terms.
-pub const WPF_BYTECODE_AFFINE_EFFECT: &str = include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl");
+pub const WPF_BYTECODE_AFFINE_EFFECT: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl");
+/// Canonical managed WGSL effect vertex/header template.
+pub const WPF_EFFECT_HEADER: &str = include_str!("../../ProGPU.Scene/Shaders/WpfEffectHeader.wgsl");
+/// Canonical managed optional mask declarations.
+pub const WPF_EFFECT_MASK_DECLARATIONS: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfEffectMaskDeclarations.wgsl");
+/// Canonical managed sampled and analytic mask helper.
+pub const WPF_EFFECT_MASK_HELPER: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfEffectMaskHelper.wgsl");
+/// Canonical managed no-mask helper.
+pub const WPF_EFFECT_NO_MASK_HELPER: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfEffectNoMaskHelper.wgsl");
+/// Canonical original pass-through WGSL effect body.
+pub const WPF_EFFECT_PASS_THROUGH: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfEffectPassThrough.wgsl");
+/// Canonical managed straight-alpha fragment wrapper.
+pub const WPF_EFFECT_STRAIGHT_WRAPPER: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfEffectStraightWrapper.wgsl");
+/// Canonical managed premultiplied-alpha fragment wrapper.
+pub const WPF_EFFECT_PREMULTIPLIED_WRAPPER: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfEffectPremultipliedWrapper.wgsl");
+/// Canonical managed straight-to-premultiplied fragment wrapper.
+pub const WPF_EFFECT_STRAIGHT_TO_PREMULTIPLIED_WRAPPER: &str =
+    include_str!("../../ProGPU.Scene/Shaders/WpfEffectStraightToPremultipliedWrapper.wgsl");
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
     ("group_blend", GROUP_BLEND),

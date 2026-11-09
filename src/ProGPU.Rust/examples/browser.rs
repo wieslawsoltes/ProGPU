@@ -7,6 +7,8 @@ mod axis_clip_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/clear_scene.rs"]
 mod clear_sample;
+#[path = "support/color_filter_scene.rs"]
+mod color_filter_sample;
 #[path = "support/compositor_scene.rs"]
 mod compositor_sample;
 #[cfg(target_arch = "wasm32")]
@@ -24,6 +26,8 @@ mod image_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/layer_scene.rs"]
 mod layer_sample;
+#[path = "support/managed_shader_scene.rs"]
+mod managed_shader_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/mask_scene.rs"]
 mod mask_sample;
@@ -1695,6 +1699,8 @@ mod web {
         path_program_scene: bool,
         compositor_scene: bool,
         shader_effect_scene: bool,
+        managed_shader_scene: bool,
+        color_filter_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
@@ -1782,6 +1788,8 @@ mod web {
             path_program_scene: false,
             compositor_scene: false,
             shader_effect_scene: false,
+            managed_shader_scene: false,
+            color_filter_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
@@ -1825,6 +1833,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1854,6 +1864,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1872,6 +1884,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1889,6 +1903,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1906,6 +1922,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1923,6 +1941,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1940,6 +1960,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -1957,6 +1979,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -1974,6 +1998,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -1991,6 +2017,8 @@ mod web {
             self.path_program_scene = false;
             self.compositor_scene = false;
             self.shader_effect_scene = false;
+            self.managed_shader_scene = false;
+            self.color_filter_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -2018,6 +2046,18 @@ mod web {
         pub fn select_shader_effect_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.shader_effect_scene = enabled;
+            Ok(())
+        }
+        /// Select original managed WGSL and independent sampler generations.
+        pub fn select_managed_shader_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.managed_shader_scene = enabled;
+            Ok(())
+        }
+        /// Select original image matrices and retained color-filter graphs.
+        pub fn select_color_filter_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.color_filter_scene = enabled;
             Ok(())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
@@ -2055,6 +2095,32 @@ mod web {
             } else if self.shader_effect_scene {
                 (
                     super::shader_effect_sample::shader_effect_scene(
+                        &mut self.renderer,
+                        &self.device,
+                        &self.queue,
+                        dpi,
+                        [width, height],
+                    )
+                    .await
+                    .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.managed_shader_scene {
+                (
+                    super::managed_shader_sample::managed_shader_scene(
+                        &mut self.renderer,
+                        &self.device,
+                        &self.queue,
+                        dpi,
+                        [width, height],
+                    )
+                    .await
+                    .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.color_filter_scene {
+                (
+                    super::color_filter_sample::color_filter_scene(
                         &mut self.renderer,
                         &self.device,
                         &self.queue,

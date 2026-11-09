@@ -8,8 +8,19 @@ pub use bytecode::translate;
 mod capture;
 pub use capture::{ManagedCaptureFrame, SourceCapture, source_pixels_per_unit};
 mod frame;
+mod managed;
+#[cfg(feature = "gpu")]
+pub use managed::{ManagedShaderDescriptor, ManagedShaderParameters, ManagedShaderSampler};
+pub use managed::{ManagedShaderProgram, ManagedShaderQuad, ManagedShaderVertex};
+#[cfg(feature = "gpu")]
+mod managed_gpu;
 pub use frame::{
     AffineFrameRecord, CaptureFrame, SampleFrame, SampleFrameRecord, SampleLattice, SourceMatrix,
+};
+#[cfg(feature = "gpu")]
+pub use managed_gpu::{
+    ManagedShaderEngine, ManagedShaderFailure, ManagedShaderMask, ManagedShaderMetrics,
+    ManagedShaderRequest, PreparedManagedShader,
 };
 #[cfg(feature = "gpu")]
 mod gpu;

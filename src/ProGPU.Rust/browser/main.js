@@ -62,6 +62,14 @@ window.progpuReady = (async () => {
     renderer.select_shader_effect_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'managed-shaders') {
+    renderer.select_managed_shader_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
+  if (new URLSearchParams(location.search).get('scene') === 'color-filters') {
+    renderer.select_color_filter_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   // Serialize mutable WASM borrows across asynchronous preparation and tests.
   let tail = Promise.resolve();
   const exclusive = action => {

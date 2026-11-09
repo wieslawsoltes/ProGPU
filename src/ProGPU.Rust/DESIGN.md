@@ -7433,3 +7433,29 @@ providers, filter graph execution/matrix draws, managed multi-sampler shaders,
 source capture/revision ownership, semantic transport, atlas recovery and all
 release gates remain unfinished. Historical float/performance/browser/platform
 failures are unchanged. The cleanup receipt records current disk state.
+
+
+## Retained filters and managed shaders continuation (unvalidated)
+
+The next parallel production increment connects direct native Texture matrices,
+complete retained color-filter graphs and managed WGSL with sixteen independent
+sampler registers. Original ImageEffect graph matrix/luma ordering stays separate
+from native Texture matrix-then-luma. Actual GPU normalization, constant-brush,
+child-before-parent render/compute and requested mip passes remain replay-owned.
+No CPU image loop, eager factory GPU work or readback is introduced.
+
+Managed shader parameters/source/layouts, exact alpha conversion and original
+nineteen fixed blends remain immutable and separate from native bytecode policy.
+Actual target preflight, ordinary root masks/materialized chains, explicit local
+masks and binary scissors connect to retained drawing. Direct global mask rows on
+bounded parents retain explicit original source-localization admission; completed
+inverse rows are never rebased. The raw-cache frame metadata algorithm is ported
+for subsequent owning source/capture integration. See updated
+[color-filter notes](notes/color-filter-port.md),
+[shader notes](notes/shader-effect-port.md) and
+[compositor/frame notes](notes/retained-compositor-port.md).
+
+New host selectors author sixteen filter and twelve managed shader panels. Eight
+unchanged managed WGSL fragments enter the package allowlist without being
+relabeled standalone shader modules. No compilation, tests, lint, shader/browser,
+source/performance or package validation ran. All historical gates remain open.

@@ -74,15 +74,15 @@ Re-encoding rereads current source texture contents; immutable parameters do not
 claim external pixels are immutable.
 
 Matrix/luma operations deliberately route to the independent Texture renderer
-and return `UnsupportedExecution` from this compute-only engine. The root agent
-will connect those descriptors to retained draw preparation in the next batch.
+and return `UnsupportedExecution` from this compute-only engine. The subsequent retained integration below connects those descriptors to draw
+preparation while preserving the separate compute-only API boundary.
 Blend operations require the caller's actual full-size premultiplied capture of
 the constant foreground brush, matching original `SKCanvas.RenderColorFilter`;
 the operation's byte color remains in the plan. The engine does not substitute
 a one-texel texture or CPU image fill. Lerp takes its actual two child captures
 and uses original arithmetic coefficients `[0, weight, 1-weight, 0]` with
-premultiplied enforcement. Complete automatic graph execution therefore still
-needs those retained matrix/constant-capture draw integrations.
+premultiplied enforcement. The subsequent retained executor supplies those matrix/constant-capture draws
+and executes the complete dependency plan.
 
 ## Package integration
 
@@ -101,8 +101,6 @@ module boundary and is not a claim of a compilation result.
 
 ## Remaining independent work
 
-- Retained scene matrix/luma drawing and full graph orchestration, including
-  original foreground brush captures, final crop placement, and source ordering.
 - Runtime-effect filter nodes belong to the separate programmable-effect stack;
   this module does not add a placeholder evaluator or silently pass them through.
 - Compatible fragment/SIMD/scalar image execution routes remain explicit rejects
@@ -135,3 +133,74 @@ and retain original shaders. No foreign implementation was read or copied.
 | `src/ProGPU.Native/include/progpu_native.h` | `bf31eab3ad25f079e36391c4d3072bbd15eeab8a94f8cbd04bb9e2d15145e441` |
 | `src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp` | `3b49e72ee4a6d3d6d413f3e5f6eb3772d3894e730a0ec4f1926e6b0642449c32` |
 | `src/ProGPU.Native/src/Scene/progpu_native_semantic_image_resources.cpp` | `3d4dcfd1105259210d9482160a0a7dbde5f9dca4d186efa84847eb4adb896859` |
+
+
+## Retained renderer and graph execution increment
+
+`ImageColorDraw { draw, matrix }` retains the direct native contract independently
+of the image source/sampler key. `Scene::draw_image_color` compiles exact image
+vertices and matrix indices; `PreparedImages::draw_color` selects original
+`fs_main_color_matrix_unmasked` or `fs_main_color_matrix_chain`. The uniform is
+bound in group two when unmasked, group three after the actual mask group when
+masked. The unchanged shader returns straight RGB: fixed-function color blending
+uses SrcAlpha/OneMinusSrcAlpha and alpha uses One/OneMinusSrcAlpha, preserving the
+native producer's fixed-function multiplication and UNORM rounding boundary.
+
+`ColorFilteredImageDraw { draw, filter, maximum_steps }` and
+`Scene::draw_color_filtered_image` retain full-source evaluation before final
+image geometry, source rectangle, opacity, sampler and independent masks/clips.
+The whole plan is bounded to 16,384 operations and accounted against the existing
+combined scene texture/pass budget before allocation. Actual device identity,
+source dimensions, compute/render/binding capabilities and compiled final mesh
+bytes/finiteness are admitted before candidate publication. Intermediate textures
+are original RGBA8Unorm, at the full original source dimensions and DPI one.
+Straight/R8 sources first enter a canonical GPU image capture; already
+premultiplied RGB sources retain their actual sampled generation directly.
+
+The executor preserves child-before-parent order with distinct owned targets:
+
+- Matrix and luma use unchanged `ImageEffect.wgsl`, preserving its neutral-effect
+  arithmetic, original 0.00001 alpha threshold and luma-before-matrix policy.
+  Luma and matrix remain separate graph nodes; there is no cross-node fusion.
+- Constant blend foregrounds are actual full-size analytic solid rectangles from
+  canonical `Vector.wgsl`, painted over a transparent target. No Clear-as-color
+  substitution, one-texel inference or CPU pixel fill is used.
+- Table, HSLA, high contrast, overdraw, blend and lerp reuse the five original
+  compute shaders and immutable prepared resources from the initial increment.
+- Requested final mipmaps use the original GPU `MipGenerator.wgsl`, following a
+  GPU level-zero copy. Each replay regenerates them after the completed graph.
+  Final draw sampling/addressing, patches, transform and projective geometry are
+  compiled against the actual premultiplied output through the ordinary image
+  writer; final outer opacity and coverage are applied only by the consumer.
+
+`Renderer::configure_color_filters` supplies typed compute-route configuration.
+`prepare_color_filters` retains initialized device domains on candidate errors;
+prepared source handles, immutable filter generations, parameters, pipelines and
+outputs own their dependencies independently of renderer caches. Error scopes
+surround pipeline/resource candidates. `encode_sources` appends the ordered
+render/compute/mip passes to the caller encoder before final consumers, without
+queue submission, readback, source callbacks or explicit resource destruction.
+Root integration retains painter order, masks/scissors, ordinary layers, bounded
+advanced blends, target Clear and source-AA group ownership.
+
+`PreparedScene::color_filter_metrics` reports actual final draws, original
+operations, capture/render/compute/mip passes, intermediate storage and immutable
+geometry/parameter bytes. Nested layer/AA aggregates use checked `merge`.
+The shared `examples/support/color_filter_scene.rs` records sixteen authored
+panels spanning direct native matrix/luma, tables, HSLA, high contrast, gamma,
+blend, compose, lerp and overdraw with mask chains, layers, fractional AA clips,
+mips and later painter-order geometry. The gallery has not been executed.
+
+This increment closes the earlier retained matrix/constant-capture/graph wiring
+gap. Runtime-effect filter nodes and the deferred cross-implementation, browser,
+packaging and performance qualification remain independent unfinished work.
+No checks/tests or build/benchmark artifacts were generated.
+
+| Additional original source | SHA-256 |
+|---|---|
+| `src/ProGPU.Native/src/Backend/progpu_native_image_execution.cpp` | `09135c8ead728a45d4e2a65ab9196b2a2a3fbff535b65d8f01816ef37c6b547e` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_mask_chain_pipeline.cpp` | `adb675667452729483eba70f80c4f1d1f5c5c3ddb306dc5aeec438c06b5712d1` |
+| `src/ProGPU.Native/src/Scene/progpu_native_semantic_draw_execution.cpp` | `4dd136cd49ec8dd28e21e7541ba74db83cc6a7b9fe0acd8a7aa8f81a45e7e8b5` |
+| `src/ProGPU.Scene/Shaders/ImageEffect.wgsl` | `994eb88551a7c7db875061fb7b372e5c68b976591faa65c0a80762f0726b45f8` |
+| `src/ProGPU.Backend/Shaders/MipGenerator.wgsl` | `872a81b4bb8c49834f291ea37d6b606f9ecdd27c0213dca5b8351d515d60203c` |
+| `src/ProGPU.Backend/Shaders/Vector.wgsl` | `6d2d92d59341ea91dc33f851c08467f4b4dcd7f270b5f1f638b9f45006e481ed` |

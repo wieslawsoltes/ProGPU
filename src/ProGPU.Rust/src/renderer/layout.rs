@@ -59,6 +59,28 @@ pub(super) fn pipeline(
     family: Family,
     mask: Option<&wgpu::BindGroupLayout>,
 ) -> wgpu::PipelineLayout {
+    pipeline_with_color(device, family, mask, false)
+}
+pub(super) fn image_color(
+    device: &wgpu::Device,
+    mask: Option<&wgpu::BindGroupLayout>,
+) -> wgpu::PipelineLayout {
+    pipeline_with_color(device, Family::Image, mask, true)
+}
+pub(super) fn color_matrix(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    let mut matrix = buffer(2, false, 96);
+    matrix.visibility = wgpu::ShaderStages::FRAGMENT;
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ProGPU original image color-matrix layout"),
+        entries: &[sampler(), texture(1), matrix],
+    })
+}
+fn pipeline_with_color(
+    device: &wgpu::Device,
+    family: Family,
+    mask: Option<&wgpu::BindGroupLayout>,
+    color: bool,
+) -> wgpu::PipelineLayout {
     let mut frame = vec![buffer(0, false, size_of::<Uniforms>() as u64)];
     match family {
         Family::Vector => {
@@ -83,6 +105,10 @@ pub(super) fn pipeline(
     let mut layouts = vec![Some(&frame), Some(&sources)];
     if let Some(mask) = mask {
         layouts.push(Some(mask));
+    }
+    let color_layout = color.then(|| color_matrix(device));
+    if let Some(color) = &color_layout {
+        layouts.push(Some(color));
     }
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("ProGPU explicit retained pipeline layout"),

@@ -26,7 +26,9 @@ mod axis_clip;
 pub use axis_clip::{AxisClipMetrics, AxisClipPass, AxisClipReplayMetrics, PreparedAxisClip};
 mod capture;
 mod clear;
+mod color_filter;
 pub use clear::{RenderSubmission, ReplayMetrics, TargetClearRequest};
+pub use color_filter::ColorFilterMetrics;
 mod groups;
 pub use groups::RetainedAaMetrics;
 use groups::{GroupTarget, PreparedGroup, PreparedGroups};
@@ -40,6 +42,7 @@ mod layout;
 mod mask;
 mod materialized_mask;
 pub use materialized_mask::{CapturedMask, MaskBrushFrame};
+mod managed_shader;
 mod shader_effect;
 mod text;
 pub use capture::CapturedScene;
@@ -167,7 +170,9 @@ pub struct PreparedScene {
     layers: LayerMetrics,
     groups: PreparedGroups,
     image_effects: Option<image_effect::PreparedImageEffects>,
+    color_filters: Option<color_filter::PreparedColorFilteredImages>,
     shaders: Option<shader_effect::PreparedShaders>,
+    managed_shaders: Option<managed_shader::PreparedManagedShaders>,
     advanced: Option<advanced::PreparedAdvanced>,
     clears: Option<clear::PreparedClears>,
     metrics: UploadMetrics,
@@ -194,6 +199,11 @@ impl PreparedScene {
                         .draws
                         .checked_add(child.clip.metrics().resolve_draws)
                         .ok_or(Error::Capacity)?
+                } else if let DrawRange::ManagedShaderEffect(index) = draw {
+                    self.managed_shaders
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw_count(*index)?
                 } else {
                     1
                 };
@@ -203,9 +213,13 @@ impl PreparedScene {
         if self.advanced.is_none() && self.groups.root.as_ref().is_some_and(|r| !r.fixed) {
             count = count.checked_add(1).ok_or(Error::Capacity)?;
         }
+        let filters = self.color_filter_metrics();
         count
             .checked_add(self.image_effect_metrics().blur_passes)
             .and_then(|v| v.checked_add(self.advanced_blend_metrics().render_passes))
+            .and_then(|v| v.checked_add(filters.render_passes))
+            .and_then(|v| v.checked_add(filters.compute_passes))
+            .and_then(|v| v.checked_add(filters.mip_passes))
             .ok_or(Error::Capacity)
     }
     /// Physical frame used when preparing this scene.
@@ -247,7 +261,9 @@ pub struct Renderer {
     text_options: crate::text::glyph::GlyphAtlasOptions,
     images: Option<image::ImageState>,
     image_effects: Option<image_effect::ImageEffectState>,
+    color_filters: Option<color_filter::ColorFilterState>,
     shader_engine: Option<crate::shader_effect::ShaderEffectEngine>,
+    managed_shader_engine: Option<crate::shader_effect::ManagedShaderEngine>,
     masks: Option<mask::MaskState>,
     materialized_masks: Option<materialized_mask::MaterialMaskState>,
     effects: Option<crate::effects::EffectEngine>,
@@ -384,7 +400,9 @@ impl Renderer {
             text_options: Default::default(),
             images: None,
             image_effects: None,
+            color_filters: None,
             shader_engine: None,
+            managed_shader_engine: None,
             masks: None,
             materialized_masks: None,
             effects: None,
@@ -433,15 +451,18 @@ impl Renderer {
         let target = RenderFrame::from(frame);
         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
         self.preflight_shaders(scene, target)?;
+        self.preflight_managed_shaders(scene, target)?;
         if scene.layer_depth() != 0 {
             self.preflight_layers(scene, target)?;
         } else {
             let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
+            let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
             let (states, changes) = scene.compile_states(target.dpi_scale)?;
             self.validate_mask_states(&states)?;
             let (mask_bytes, mask_passes) =
                 self.mask_resource_cost(scene, &states, &changes, target)?;
-            if effect_bytes + mask_bytes > 512 * 1024 * 1024 || effect_passes + mask_passes > 16384
+            if effect_bytes + mask_bytes + filter_bytes > 512 * 1024 * 1024
+                || effect_passes + mask_passes + filter_passes > 16384
             {
                 return Err(Error::Capacity);
             }
@@ -506,9 +527,13 @@ impl Renderer {
         self.validate_geometry(&compiled.mesh, frame)?;
         self.validate_masks(compiled)?;
         self.validate_shaders(compiled, frame)?;
+        self.validate_managed_shaders(compiled, frame)?;
         let (mask_bytes, mask_passes) = self.compiled_mask_cost(compiled, frame)?;
         let (effect_bytes, effect_passes) = self.validate_image_effects(compiled)?;
-        if mask_bytes + effect_bytes > 512 * 1024 * 1024 || mask_passes + effect_passes > 16384 {
+        let (filter_bytes, filter_passes) = self.validate_color_filters(compiled)?;
+        if mask_bytes + effect_bytes + filter_bytes > 512 * 1024 * 1024
+            || mask_passes + effect_passes + filter_passes > 16384
+        {
             return Err(Error::Capacity);
         }
         self.validate_materials(&compiled.mesh, Some(compiled.materials()))?;
@@ -550,6 +575,10 @@ impl Renderer {
         self.prepare_image_effects(compiled, frame, &mut prepared)
             .await?;
         self.prepare_shaders(compiled, frame, &mut prepared).await?;
+        self.prepare_managed_shaders(compiled, frame, &mut prepared)
+            .await?;
+        self.prepare_color_filters(compiled, frame, &mut prepared)
+            .await?;
         self.prepare_advanced(compiled, frame, &mut prepared)
             .await?;
         self.finish_groups(&mut prepared).await?;
@@ -740,7 +769,9 @@ impl Renderer {
             layers: LayerMetrics::default(),
             groups: PreparedGroups::default(),
             image_effects: None,
+            color_filters: None,
             shaders: None,
+            managed_shaders: None,
             advanced: None,
             clears: None,
             metrics: UploadMetrics {
@@ -831,6 +862,9 @@ impl Renderer {
         {
             return Err(Error::InvalidInput);
         }
+        if let Some(filters) = &scene.color_filters {
+            filters.encode_sources(encoder)?;
+        }
         if let Some(effects) = &scene.image_effects {
             effects.encode_sources(encoder);
         }
@@ -912,6 +946,9 @@ impl Renderer {
                     depth_or_array_layers: 1,
                 },
             );
+        }
+        if let Some(filters) = &scene.color_filters {
+            filters.encode_sources(encoder)?;
         }
         if let Some(effects) = &scene.image_effects {
             effects.encode_sources(encoder);
@@ -1002,6 +1039,10 @@ impl Renderer {
                         continue;
                     }
                     pass.set_scissor_rect(x, y, width, height);
+                } else {
+                    // Shader quad clipping belongs to that one draw. Restore
+                    // the parent rectangle before the next unscoped command.
+                    pass.set_scissor_rect(0, 0, scene.frame.width, scene.frame.height);
                 }
                 if let DrawRange::ShaderEffect(index) = draw {
                     scene.shaders.as_ref().ok_or(Error::ResourceDomain)?.draw(
@@ -1009,6 +1050,14 @@ impl Renderer {
                         *index,
                         draw_state.map(|s| s.scissor),
                     )?;
+                    continue;
+                }
+                if let DrawRange::ManagedShaderEffect(index) = draw {
+                    scene
+                        .managed_shaders
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, *index, draw_state.map(|s| s.scissor))?;
                     continue;
                 }
                 if let DrawRange::ImageEffect(index) = draw {
@@ -1020,6 +1069,22 @@ impl Renderer {
                     continue;
                 }
                 let masked = draw_state.and_then(|state| state.binding.as_ref());
+                if let DrawRange::ImageColor(range, binding, matrix) = draw {
+                    scene
+                        .images
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw_color(&mut pass, range.clone(), *binding, *matrix, masked)?;
+                    continue;
+                }
+                if let DrawRange::ColorFilteredImage(index) = draw {
+                    scene
+                        .color_filters
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, *index, masked)?;
+                    continue;
+                }
                 let masked_pipeline = if masked.is_some() {
                     let index = match draw {
                         DrawRange::Vector(_) => 0,
@@ -1040,7 +1105,10 @@ impl Renderer {
                 match draw {
                     DrawRange::State(_)
                     | DrawRange::ImageEffect(_)
-                    | DrawRange::ShaderEffect(_) => unreachable!(),
+                    | DrawRange::ShaderEffect(_)
+                    | DrawRange::ManagedShaderEffect(_)
+                    | DrawRange::ImageColor(..)
+                    | DrawRange::ColorFilteredImage(_) => unreachable!(),
                     DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_) => {
                         unreachable!()
                     }

@@ -56,6 +56,10 @@ pub struct LayerMetrics {
     pub source_masks: crate::mask::MaskCompositionMetrics,
     /// Actual final-device programmable shader resources/draws in child targets.
     pub source_shaders: crate::shader_effect::ShaderEffectMetrics,
+    /// Actual source color-filter graphs and their per-replay passes.
+    pub source_color_filters: ColorFilterMetrics,
+    /// Managed WGSL parameters and final-device shader draws in child targets.
+    pub source_managed_shaders: crate::shader_effect::ManagedShaderMetrics,
 }
 
 #[derive(Clone, Copy)]
@@ -176,15 +180,17 @@ impl Renderer {
     ) -> Result<(), Error> {
         use crate::scene::GroupRef;
         self.preflight_shaders(scene, frame)?;
+        self.preflight_managed_shaders(scene, frame)?;
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         self.validate_mask_states(&states)?;
         let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
+        let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
         let (mask_bytes, mask_passes) = self.mask_resource_cost(scene, &states, &changes, frame)?;
         *bytes = bytes
-            .checked_add(effect_bytes + mask_bytes)
+            .checked_add(effect_bytes + mask_bytes + filter_bytes)
             .ok_or(Error::Capacity)?;
         *passes = passes
-            .checked_add(effect_passes + mask_passes)
+            .checked_add(effect_passes + mask_passes + filter_passes)
             .ok_or(Error::Capacity)?;
         if *bytes > 512 * 1024 * 1024 || *passes > 16 * 1024 {
             return Err(Error::Capacity);
@@ -413,6 +419,10 @@ impl LayerMetrics {
     pub(super) fn add_nested(&mut self, other: Self) -> Result<(), Error> {
         self.source_masks.merge(other.source_masks)?;
         shader_effect::merge_metrics(&mut self.source_shaders, other.source_shaders)?;
+        self.source_color_filters
+            .merge(other.source_color_filters)?;
+        self.source_managed_shaders
+            .merge(other.source_managed_shaders)?;
         self.source_aa.merge(other.source_aa)?;
         self.source_image_effects
             .merge(other.source_image_effects)?;
@@ -502,8 +512,19 @@ impl LayerMetrics {
         self.source_masks.merge(scene.mask_composition_metrics())?;
         self.source_masks.merge(aa.source_masks)?;
         shader_effect::merge_metrics(&mut self.source_shaders, child.source_shaders)?;
+        self.source_color_filters
+            .merge(child.source_color_filters)?;
+        self.source_managed_shaders
+            .merge(child.source_managed_shaders)?;
         shader_effect::merge_metrics(&mut self.source_shaders, scene.shader_effect_metrics())?;
+        self.source_color_filters
+            .merge(scene.color_filter_metrics())?;
+        self.source_managed_shaders
+            .merge(scene.managed_shader_metrics())?;
         shader_effect::merge_metrics(&mut self.source_shaders, aa.source_shaders)?;
+        self.source_color_filters.merge(aa.source_color_filters)?;
+        self.source_managed_shaders
+            .merge(aa.source_managed_shaders)?;
         self.source_image_effects
             .merge(child.source_image_effects)?;
         self.source_image_effects

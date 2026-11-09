@@ -4,6 +4,8 @@ use bytemuck::Zeroable;
 
 mod raster_operation;
 pub use raster_operation::{RasterOperation, RasterPattern};
+mod cache_sampler;
+pub use cache_sampler::CacheSamplerRasterFrame;
 
 /// Actual source presentation and current parent storage domain.
 #[derive(Clone, Copy, Debug, PartialEq)]

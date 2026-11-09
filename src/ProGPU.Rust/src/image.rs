@@ -471,3 +471,53 @@ pub(crate) struct ImageBindingKey {
     pub anisotropy: u8,
     pub address: [ImageAddress; 2],
 }
+
+/// Original native image matrix draw, retaining geometry and color metadata
+/// independently of the shared source/sampler binding.
+#[derive(Clone, Debug)]
+pub struct ImageColorDraw {
+    /// Complete original image/patch inventory and placement.
+    pub draw: ImageDraw,
+    /// Exact original semantic color matrix and after-matrix luma flag.
+    pub matrix: ImageColorMatrix,
+}
+impl ImageColorDraw {
+    /// Whole-inventory admission before recording or GPU mutation.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.draw.validate()?;
+        self.matrix.validate_native()
+    }
+}
+/// Immutable full-source color-filter evaluation followed by the original image
+/// placement. Final draw opacity, sampling and masks do not enter filter nodes.
+#[derive(Clone, Debug)]
+pub struct ColorFilteredImageDraw {
+    /// Original final placement and source sampling domain.
+    pub draw: ImageDraw,
+    /// Actual immutable original filter generation.
+    pub filter: ColorFilter,
+    /// Checked maximum original operations admitted for this graph.
+    pub maximum_steps: usize,
+}
+impl ColorFilteredImageDraw {
+    /// Retain a filter and image with the renderer's bounded default work budget.
+    pub fn new(draw: ImageDraw, filter: ColorFilter) -> Self {
+        Self {
+            draw,
+            filter,
+            maximum_steps: 16384,
+        }
+    }
+    /// Complete CPU-only admission, including original ordered graph expansion.
+    pub fn validate(&self) -> Result<(), Error> {
+        self.draw.validate()?;
+        self.plan().map(|_| ())
+    }
+    /// Freeze actual node/source dependencies; no textures or pixels are evaluated.
+    pub fn plan(&self) -> Result<ColorFilterPlan, Error> {
+        if self.maximum_steps > 16384 {
+            return Err(Error::Capacity);
+        }
+        ColorFilterPlan::new(&self.filter, self.maximum_steps)
+    }
+}

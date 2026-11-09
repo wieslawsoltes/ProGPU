@@ -45,6 +45,10 @@ pub struct RetainedAaMetrics {
     pub source_masks: crate::mask::MaskCompositionMetrics,
     /// Actual final-device programmable shader resources/draws in child targets.
     pub source_shaders: crate::shader_effect::ShaderEffectMetrics,
+    /// Actual source color-filter graphs and their per-replay passes.
+    pub source_color_filters: ColorFilterMetrics,
+    /// Managed WGSL parameters and final-device shader draws in child targets.
+    pub source_managed_shaders: crate::shader_effect::ManagedShaderMetrics,
 }
 #[derive(Default)]
 pub(super) struct PreparedGroups {
@@ -315,6 +319,10 @@ impl RetainedAaMetrics {
     pub(super) fn merge(&mut self, other: Self) -> Result<(), Error> {
         self.source_masks.merge(other.source_masks)?;
         shader_effect::merge_metrics(&mut self.source_shaders, other.source_shaders)?;
+        self.source_color_filters
+            .merge(other.source_color_filters)?;
+        self.source_managed_shaders
+            .merge(other.source_managed_shaders)?;
         self.source_image_effects
             .merge(other.source_image_effects)?;
         macro_rules! add {
@@ -351,8 +359,16 @@ impl RetainedAaMetrics {
         let nested = source.groups.metrics;
         self.source_masks.merge(nested.source_masks)?;
         shader_effect::merge_metrics(&mut self.source_shaders, nested.source_shaders)?;
+        self.source_color_filters
+            .merge(nested.source_color_filters)?;
+        self.source_managed_shaders
+            .merge(nested.source_managed_shaders)?;
         self.source_masks.merge(source.mask_composition_metrics())?;
         shader_effect::merge_metrics(&mut self.source_shaders, source.shader_effect_metrics())?;
+        self.source_color_filters
+            .merge(source.color_filter_metrics())?;
+        self.source_managed_shaders
+            .merge(source.managed_shader_metrics())?;
         self.source_image_effects
             .merge(nested.source_image_effects)?;
         self.source_image_effects

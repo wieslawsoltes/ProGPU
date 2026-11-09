@@ -7,8 +7,10 @@ same canonical shader files as C# and C++ without copied shader forks.
 Latest parallel implementation batch: native PNG decoding, all nine native GPOS
 families and connected native Latin shaping; immutable color filters and five
 original GPU filter kernels; programmable shader translation, v1–v6 resources,
-owned captures/final-device draws; retained ROP3 operations and uniform-backdrop
-blending. Winit/browser selectors author 40 compositor and 12 shader-effect panels.
+owned captures/final-device draws; retained ROP3 and uniform-backdrop blending.
+The continuation connects managed WGSL/16 samplers, full retained color-filter
+graphs and exact Texture matrices; native complex-script orchestration is being
+ported in parallel. Shared hosts also author 16 color-filter and 12 managed shader panels.
 
 **Mandatory implementation-first workflow:** complete the remaining code before
 validation. This entire batch is unvalidated; no compilation, lint, test, shader,
@@ -20,10 +22,10 @@ connects retained rendering, samples and package source inventory.
 | --- | --- | --- |
 | Native GPOS and shaping | All nine lookup families, GDEF filtering, device deltas, attachments, feature planner, design/device legacy kern and owned printable-ASCII/LTR Latin pipeline | Native complex-script orchestration and actual hinted-device producer |
 | PNG codec | Original chunks/CRC, zlib/DEFLATE, color/depth inventory, Adam7, filters, palette/transparency and caller-owned scratch | Color-font/provider integration and all source/error/performance controls |
-| Color filters | Immutable graph/factories, CPU brush colors, exact matrix packets, bounded planner and five owned GPU kernels | Texture matrix drawing, constant captures and complete graph execution |
-| Programmable shader effects | Original bytecode translator, v1–v6 readers/frames, bounded exact-byte cache, legacy capture and painter-ordered final-device draws | Managed multi-sampler/WGSL, nested source capture/revision ownership and source transport |
+| Color filters | Immutable graph/factories, CPU brush colors, exact matrix packets, direct Texture drawing and full retained matrix/table/nonlinear/constant/compose/lerp graph execution with live mipmaps | Runtime-effect filter nodes, remaining image-filter DAG families and all qualification |
+| Programmable shader effects | Original bytecode/v1–v6 stack plus managed WGSL, all 16 samplers, exact alpha/blend policies, actual-target masks and painter-ordered draws | Owned nested source capture/revision/cache realization and source transport |
 | Destination operations | Retained all-code ROP3 with solid/tile/texture patterns, canonical source/compose/copy passes and explicit uniform-backdrop engine | Automatic uniform-target selection/cache, complete source commands and platform policies |
-| Host samples | Shared --compositor / ?scene=compositor and --shader-effects / ?scene=shader-effects | Authored only; compilation and execution deferred |
+| Host samples | Shared compositor/bytecode galleries plus 16 color-filter and 12 managed WGSL panels | Authored only; compilation and execution deferred |
 
 Exact sources, ownership and gaps are recorded in [implementation notes](notes/)
 and the [design ledger](DESIGN.md). No existing evidence qualifies this checkpoint.

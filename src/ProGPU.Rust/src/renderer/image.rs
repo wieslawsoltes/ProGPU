@@ -27,6 +27,7 @@ pub(super) struct ImageState {
     samplers: HashMap<SamplerKey, wgpu::Sampler>,
     mips: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
     composites: HashMap<(LayerBlend, bool), wgpu::RenderPipeline>,
+    color_pipelines: [Option<wgpu::RenderPipeline>; 2],
 }
 pub(super) struct PreparedImages {
     pub pipeline: wgpu::RenderPipeline,
@@ -36,6 +37,8 @@ pub(super) struct PreparedImages {
     pub uniforms: wgpu::BindGroup,
     pub bindings: Vec<wgpu::BindGroup>,
     pub views: Vec<wgpu::TextureView>,
+    color_pipelines: [Option<wgpu::RenderPipeline>; 2],
+    color_bindings: HashMap<(usize, usize), wgpu::BindGroup>,
 }
 
 pub(super) async fn pipeline(
@@ -55,7 +58,13 @@ pub(super) async fn pipeline_entry(
     masked: bool,
     entry: Option<&'static str>,
 ) -> Result<wgpu::RenderPipeline, Error> {
-    let blend_state = if mip || entry == Some("fs_layer_coverage") {
+    let color_matrix = matches!(
+        entry,
+        Some("fs_main_color_matrix_unmasked" | "fs_main_color_matrix_chain")
+    );
+    let blend_state = if color_matrix {
+        Some(wgpu::BlendState::ALPHA_BLENDING)
+    } else if mip || entry == Some("fs_layer_coverage") {
         None
     } else {
         Some(blend.fixed()?)
@@ -85,7 +94,11 @@ pub(super) async fn pipeline_entry(
     let buffers = [layout];
     let mask_layout = masked.then(|| super::layout::mask(device));
     let pipeline_layout = (!mip).then(|| {
-        super::layout::pipeline(device, super::layout::Family::Image, mask_layout.as_ref())
+        if color_matrix {
+            super::layout::image_color(device, mask_layout.as_ref())
+        } else {
+            super::layout::pipeline(device, super::layout::Family::Image, mask_layout.as_ref())
+        }
     });
     let result = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(if mip {
@@ -364,6 +377,28 @@ impl Renderer {
             state.pipeline =
                 Some(pipeline(&self.device, self.format, false, LayerBlend::SrcOver, false).await?);
         }
+        if !compiled.image_colors.is_empty() {
+            for masked in [false, true] {
+                let slot = usize::from(masked);
+                if state.color_pipelines[slot].is_none() {
+                    state.color_pipelines[slot] = Some(
+                        pipeline_entry(
+                            &self.device,
+                            self.format,
+                            false,
+                            LayerBlend::SrcOver,
+                            masked,
+                            Some(if masked {
+                                "fs_main_color_matrix_chain"
+                            } else {
+                                "fs_main_color_matrix_unmasked"
+                            }),
+                        )
+                        .await?,
+                    );
+                }
+            }
+        }
         let mut needed = HashSet::new();
         let mut mask_index = 0;
         for draw in &compiled.draws {
@@ -507,6 +542,55 @@ impl Renderer {
         });
         prepared.metrics.geometry_bytes += vertices.size() + indices.size();
         prepared.metrics.uniform_bytes += size_of::<Uniforms>() as u64;
+        let mut color_bindings = HashMap::new();
+        let matrix_layout = super::layout::color_matrix(device);
+        let matrix_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("ProGPU original matrix compatibility sampler"),
+            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let matrices: Vec<_> = compiled
+            .image_colors
+            .iter()
+            .map(|matrix| {
+                buffer(
+                    "ProGPU immutable image color-matrix",
+                    bytemuck::bytes_of(&matrix.uniforms()),
+                    wgpu::BufferUsages::UNIFORM,
+                )
+            })
+            .collect();
+        for draw in &compiled.draws {
+            if let DrawRange::ImageColor(_, source, matrix) = draw {
+                if !color_bindings.contains_key(&(*source, *matrix)) {
+                    let view = views.get(*source).ok_or(Error::ResourceDomain)?;
+                    let matrix_buffer = matrices.get(*matrix).ok_or(Error::ResourceDomain)?;
+                    color_bindings.insert(
+                        (*source, *matrix),
+                        device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("ProGPU retained image matrix ownership"),
+                            layout: &matrix_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::Sampler(&matrix_sampler),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::TextureView(view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: matrix_buffer.as_entire_binding(),
+                                },
+                            ],
+                        }),
+                    );
+                }
+            }
+        }
+        prepared.metrics.uniform_bytes += matrices.len() as u64 * 96;
         prepared.images = Some(PreparedImages {
             pipeline,
             composites: state.composites.clone(),
@@ -515,7 +599,40 @@ impl Renderer {
             uniforms,
             bindings,
             views,
+            color_pipelines: state.color_pipelines.clone(),
+            color_bindings,
         });
+        Ok(())
+    }
+}
+
+impl PreparedImages {
+    pub(super) fn draw_color(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        range: std::ops::Range<u32>,
+        source: usize,
+        matrix: usize,
+        mask: Option<&wgpu::BindGroup>,
+    ) -> Result<(), Error> {
+        let pipeline = self.color_pipelines[usize::from(mask.is_some())]
+            .as_ref()
+            .ok_or(Error::ResourceDomain)?;
+        let source_binding = self.bindings.get(source).ok_or(Error::ResourceDomain)?;
+        let color = self
+            .color_bindings
+            .get(&(source, matrix))
+            .ok_or(Error::ResourceDomain)?;
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &self.uniforms, &[]);
+        pass.set_bind_group(1, source_binding, &[]);
+        if let Some(mask) = mask {
+            pass.set_bind_group(2, mask, &[]);
+        }
+        pass.set_bind_group(if mask.is_some() { 3 } else { 2 }, color, &[]);
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(range, 0, 0..1);
         Ok(())
     }
 }

@@ -7,7 +7,34 @@ license = "MIT AND Unicode-3.0"
 description = "ProGPU's native Rust rendering engine using canonical WebGPU shaders"
 repository = "https://github.com/wieslawsoltes/ProGPU"
 readme = "src/ProGPU.Rust/README.md"
-include = ["/Cargo.toml", "/Cargo.lock", "/LICENSE", "/src/ProGPU.Rust/**", "/src/ProGPU.Backend/Shaders/*.wgsl", "/src/ProGPU.Scene/Shaders/ImageEffect.wgsl", "/src/ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl", "/src/ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl", "/src/ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl", "/src/ProGPU.Compute/Shaders/ColorTable.wgsl", "/src/ProGPU.Compute/Shaders/NonlinearColorFilter.wgsl", "/src/ProGPU.Compute/Shaders/OverdrawColorFilter.wgsl", "/src/ProGPU.Compute/Shaders/ImageBlend.wgsl", "/src/ProGPU.Compute/Shaders/ArithmeticComposite.wgsl", "/src/ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl", "/src/ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl", "/src/ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl", "/src/ProGPU.Text/UnicodeNormalizationData.bin"]
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/src/ProGPU.Rust/**",
+    "/src/ProGPU.Backend/Shaders/*.wgsl",
+    "/src/ProGPU.Scene/Shaders/ImageEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectHeader.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectMaskDeclarations.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectMaskHelper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectNoMaskHelper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectPassThrough.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectStraightWrapper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectPremultipliedWrapper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectStraightToPremultipliedWrapper.wgsl",
+    "/src/ProGPU.Compute/Shaders/ColorTable.wgsl",
+    "/src/ProGPU.Compute/Shaders/NonlinearColorFilter.wgsl",
+    "/src/ProGPU.Compute/Shaders/OverdrawColorFilter.wgsl",
+    "/src/ProGPU.Compute/Shaders/ImageBlend.wgsl",
+    "/src/ProGPU.Compute/Shaders/ArithmeticComposite.wgsl",
+    "/src/ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl",
+    "/src/ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl",
+    "/src/ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl",
+    "/src/ProGPU.Text/UnicodeNormalizationData.bin",
+]
 
 [lib]
 path = "src/ProGPU.Rust/src/lib.rs"

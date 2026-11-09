@@ -340,6 +340,9 @@ impl Renderer {
                     | DrawRange::Axis(_)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::ShaderEffect(_)
+                    | DrawRange::ManagedShaderEffect(_)
+                    | DrawRange::ImageColor(..)
+                    | DrawRange::ColorFilteredImage(_)
             ) {
                 continue;
             }

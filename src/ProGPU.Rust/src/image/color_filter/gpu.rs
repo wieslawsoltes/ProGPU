@@ -93,6 +93,15 @@ impl PreparedColorFilterCompute {
     pub fn metrics(&self) -> ColorFilterComputeMetrics {
         self.metrics
     }
+    pub(crate) fn encode_owned(&self, encoder: &mut wgpu::CommandEncoder) {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("ProGPU original retained color-filter compute"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.binding, &[]);
+        pass.dispatch_workgroups(self.workgroups[0], self.workgroups[1], 1);
+    }
     /// Original selected GPU execution route.
     pub fn execution_path(&self) -> ExecutionPath {
         ExecutionPath::NativeCompute

@@ -201,6 +201,33 @@ impl Scene {
                     continue;
                 }
             }
+            #[cfg(feature = "gpu")]
+            if let Command::ManagedShaderEffect(draw) = command {
+                let state = &states[current];
+                if draw.mask.is_some() && state.count != 0 {
+                    return Err(Error::UnsupportedExecution);
+                }
+                if !state.materialized
+                    && (state.count > 1
+                        || state.masks[..state.count]
+                            .iter()
+                            .any(|m| m.options[0] > 4.5))
+                {
+                    // The original managed helper consumes one exact mask. Keep
+                    // full ordered chain/area semantics through the established
+                    // GPU coverage producer rather than dropping extra records.
+                    let mut state = state.clone();
+                    state.materialized = true;
+                    state.count = 1;
+                    state.masks = [MaskUniforms::zeroed(); 4];
+                    state.coverage = None;
+                    states.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    current = states.len();
+                    states.push(state);
+                    changes.push(Some(current));
+                    continue;
+                }
+            }
             if matches!(command, Command::Clear(_) | Command::AxisClip(_))
                 && states[current].count != 0
             {

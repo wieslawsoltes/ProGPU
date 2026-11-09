@@ -29,13 +29,18 @@ pub use axis_clip::AxisClipDraw;
 #[cfg(feature = "gpu")]
 pub(crate) use axis_clip::{GroupOutput, GroupRef};
 mod clear;
+mod color_filter;
 pub use clear::{ClearColor, TargetAlpha};
 mod layer;
 mod mask;
 pub use layer::{LayerBlend, LayerDraw};
 #[cfg(feature = "gpu")]
+mod managed_shader;
+#[cfg(feature = "gpu")]
 mod shader_effect;
 mod text;
+#[cfg(feature = "gpu")]
+pub use managed_shader::ManagedShaderEffectDraw;
 #[cfg(feature = "gpu")]
 pub(crate) use mask::CompiledDrawState;
 #[cfg(feature = "gpu")]
@@ -48,8 +53,12 @@ pub(crate) enum DrawRange {
     State(usize),
     Clear(ClearColor),
     ImageEffect(usize),
+    ImageColor(std::ops::Range<u32>, usize, usize),
+    ColorFilteredImage(usize),
     #[cfg(feature = "gpu")]
     ShaderEffect(usize),
+    #[cfg(feature = "gpu")]
+    ManagedShaderEffect(usize),
     #[cfg(feature = "gpu")]
     Axis(usize),
     Vector(std::ops::Range<u32>),
@@ -172,8 +181,12 @@ enum Command {
     Clear(ClearColor),
     Layer(Box<LayerDraw>),
     ImageEffect(Box<crate::image_effect::ImageEffectDraw>),
+    ImageColor(Box<crate::image::ImageColorDraw>),
+    ColorFilteredImage(Box<crate::image::ColorFilteredImageDraw>),
     #[cfg(feature = "gpu")]
     ShaderEffect(Box<ShaderEffectDraw>),
+    #[cfg(feature = "gpu")]
+    ManagedShaderEffect(Box<ManagedShaderEffectDraw>),
     AxisClip(Box<AxisClipDraw>),
     #[cfg(feature = "gpu")]
     ResolvedAxis(usize),
@@ -518,11 +531,14 @@ impl Scene {
                 | Command::Stroke(_)
                 | Command::Image(..)
                 | Command::TileImage(_)
-                | Command::ImageEffect(_) => placements.push(None),
+                | Command::ImageEffect(_)
+                | Command::ImageColor(_)
+                | Command::ColorFilteredImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
-                Command::Glyph(_) | Command::ResolvedAxis(_) | Command::ShaderEffect(_) => {
-                    placements.push(None)
-                }
+                Command::Glyph(_)
+                | Command::ResolvedAxis(_)
+                | Command::ShaderEffect(_)
+                | Command::ManagedShaderEffect(_) => placements.push(None),
                 Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
                 }
@@ -564,8 +580,12 @@ impl Scene {
             draws.push(DrawRange::State(0));
         }
         let mut image_effects = Vec::new();
+        let mut image_colors = Vec::new();
+        let mut color_filtered_images = Vec::new();
         #[cfg(feature = "gpu")]
         let mut shader_effects = Vec::new();
+        #[cfg(feature = "gpu")]
+        let mut managed_shader_effects = Vec::new();
         let mut exact_loads = 0;
         let legacy_solid = Brush::default();
         // A mixed native scene reserves its existing unit-opacity vertex-color
@@ -621,7 +641,51 @@ impl Scene {
                     shader_effects.push(draw.as_ref().clone());
                 }
                 #[cfg(feature = "gpu")]
+                Command::ManagedShaderEffect(draw) => {
+                    draw.validate()?;
+                    managed_shader_effects
+                        .try_reserve(1)
+                        .map_err(|_| Error::Capacity)?;
+                    draws.push(DrawRange::ManagedShaderEffect(managed_shader_effects.len()));
+                    managed_shader_effects.push(draw.as_ref().clone());
+                }
+                #[cfg(feature = "gpu")]
                 Command::ResolvedAxis(index) => draws.push(DrawRange::Axis(*index)),
+                Command::ImageColor(color_draw) => {
+                    color_draw.validate()?;
+                    let draw = &color_draw.draw;
+                    let start =
+                        u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
+                    draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
+                    let end =
+                        u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
+                    if end != start {
+                        let key = draw.binding_key();
+                        let next = images.len();
+                        let binding = *image_bindings.entry(key).or_insert_with(|| {
+                            images.push(ImageBinding {
+                                image: draw.image.clone(),
+                                key,
+                            });
+                            next
+                        });
+                        image_colors.try_reserve(1).map_err(|_| Error::Capacity)?;
+                        draws.push(DrawRange::ImageColor(
+                            start..end,
+                            binding,
+                            image_colors.len(),
+                        ));
+                        image_colors.push(color_draw.matrix);
+                    }
+                }
+                Command::ColorFilteredImage(draw) => {
+                    draw.validate()?;
+                    color_filtered_images
+                        .try_reserve(1)
+                        .map_err(|_| Error::Capacity)?;
+                    draws.push(DrawRange::ColorFilteredImage(color_filtered_images.len()));
+                    color_filtered_images.push(draw.as_ref().clone());
+                }
                 Command::Image(draw, blend, bounds, raster_operation) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
@@ -777,8 +841,12 @@ impl Scene {
             states,
             image_mesh,
             image_effects,
+            image_colors,
+            color_filtered_images,
             #[cfg(feature = "gpu")]
             shader_effects,
+            #[cfg(feature = "gpu")]
+            managed_shader_effects,
             images,
             image_sampling,
             has_tile_images: self
@@ -803,8 +871,12 @@ pub struct CompiledScene {
     pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,
     pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
+    pub(crate) image_colors: Vec<crate::image::ImageColorMatrix>,
+    pub(crate) color_filtered_images: Vec<crate::image::ColorFilteredImageDraw>,
     #[cfg(feature = "gpu")]
     pub(crate) shader_effects: Vec<ShaderEffectDraw>,
+    #[cfg(feature = "gpu")]
+    pub(crate) managed_shader_effects: Vec<ManagedShaderEffectDraw>,
     pub(crate) images: Vec<ImageBinding>,
     pub(crate) image_sampling: ImageSamplingPath,
     pub(crate) has_tile_images: bool,
@@ -823,6 +895,25 @@ impl CompiledScene {
             DrawRange::ImageEffect(index) => Some(&self.image_effects[*index]),
             _ => None,
         })
+    }
+    /// Exact matrix generations in original painter order, separate from image
+    /// bindings and the independently ordered fused ImageEffect operations.
+    pub fn image_colors(&self) -> &[crate::image::ImageColorMatrix] {
+        &self.image_colors
+    }
+    /// Complete immutable filter sources and bounded graph requests in painter order.
+    pub fn color_filtered_images(&self) -> &[crate::image::ColorFilteredImageDraw] {
+        &self.color_filtered_images
+    }
+    /// Native bytecode commands retaining actual source/target frames.
+    #[cfg(feature = "gpu")]
+    pub fn shader_effects(&self) -> &[ShaderEffectDraw] {
+        &self.shader_effects
+    }
+    /// Managed WGSL commands retaining exact parameter and sampler generations.
+    #[cfg(feature = "gpu")]
+    pub fn managed_shader_effects(&self) -> &[ManagedShaderEffectDraw] {
+        &self.managed_shader_effects
     }
     /// Original image vertices in their independent shader stream.
     pub fn image_mesh(&self) -> &Mesh {
