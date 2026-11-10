@@ -212,6 +212,9 @@ pub(super) async fn prepare(
             label: Some("Native clip compute preparation"),
         },
     ))?;
+    let submission_count = (work.preceding.len() as u64)
+        .checked_add(1)
+        .ok_or(Error::Capacity)?;
     for command in work.preceding {
         engine.queue.submit([command]);
     }
@@ -220,6 +223,9 @@ pub(super) async fn prepare(
     let m = raster.metrics();
     let metrics = NativeMaskMetrics {
         texture_bytes: u64::from(size[0]) * u64::from(size[1]) * 3 + m.texture_bytes,
+        texture_allocation_bytes: u64::from(size[0]) * u64::from(size[1]) * 3 + m.texture_bytes,
+        texture_allocations: 4,
+        submission_count,
         uniform_upload_bytes: bytes.len() as u64 + m.uniform_upload_bytes,
         geometry_upload_bytes: m.vertex_upload_bytes
             + m.index_upload_bytes

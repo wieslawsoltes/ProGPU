@@ -128,6 +128,11 @@ impl NativeMaskRequest {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NativeMaskMetrics {
     pub texture_bytes: u64,
+    /// Actual newly allocated storage, separate from retained clip-cache bytes.
+    pub texture_allocation_bytes: u64,
+    pub texture_allocations: u64,
+    /// Actual local mask-engine submissions, excluding nested picture executors.
+    pub submission_count: u64,
     pub texture_upload_bytes: u64,
     pub uniform_upload_bytes: u64,
     pub geometry_upload_bytes: u64,
@@ -147,6 +152,9 @@ impl NativeMaskMetrics {
             };
         }
         add!(texture_bytes);
+        add!(texture_allocation_bytes);
+        add!(texture_allocations);
+        add!(submission_count);
         add!(texture_upload_bytes);
         add!(uniform_upload_bytes);
         add!(geometry_upload_bytes);

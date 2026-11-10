@@ -1,5 +1,6 @@
 //! Original draw-family selection shared by render passes and retained bundles.
 use super::*;
+use crate::native_scene::draw::{NativeAnalyticDraw, NativeGlyphDraw, NativePathDraw};
 use crate::native_scene::engine_resources::PreparedNativeImagePage;
 use std::ops::Range;
 
@@ -160,6 +161,18 @@ impl PreparedNativeDraw {
             .get(draw_index)
             .ok_or(Error::InvalidInput)?;
         let draw = selected.draw;
+        Self::vector_range(pipelines, page, selected.command_index, draw, frame, mask).await
+    }
+    /// The ordered compiler has already proved contiguous native records and
+    /// equal target/scissor/mask scopes. Full backing bounds remain checked here.
+    pub(crate) async fn vector_range(
+        pipelines: &mut NativePipelineCache,
+        page: Arc<NativeVectorRenderPage>,
+        command_index: u32,
+        draw: NativeAnalyticDraw,
+        frame: Arc<NativeFrameBindings>,
+        mask: Option<Arc<NativeMaskBinding>>,
+    ) -> Result<Option<Self>, Error> {
         if draw.vertex_count == 0 && draw.index_count == 0 {
             return Ok(None);
         }
@@ -194,7 +207,7 @@ impl PreparedNativeDraw {
             indices: Some((page.indices.clone(), index_bytes, first..end, 0)),
             vertex_range: 0..0,
             instances: 0..1,
-            command_index: selected.command_index,
+            command_index,
             frame,
             mask,
             source: DrawSource::Vector(page),
@@ -207,6 +220,31 @@ impl PreparedNativeDraw {
         frame: Arc<NativeFrameBindings>,
         mask: Option<Arc<NativeMaskBinding>>,
     ) -> Result<Self, Error> {
+        let selected = *page
+            .source
+            .page()
+            .source()
+            .draws()
+            .get(draw_index)
+            .ok_or(Error::InvalidInput)?;
+        Self::path_range(
+            pipelines,
+            page,
+            selected.command_index,
+            selected.draw,
+            frame,
+            mask,
+        )
+        .await
+    }
+    pub(crate) async fn path_range(
+        pipelines: &mut NativePipelineCache,
+        page: Arc<NativePathRenderPage>,
+        command_index: u32,
+        draw: NativePathDraw,
+        frame: Arc<NativeFrameBindings>,
+        mask: Option<Arc<NativeMaskBinding>>,
+    ) -> Result<Self, Error> {
         let source = page.source.page().source();
         admit_frame(
             pipelines,
@@ -215,8 +253,6 @@ impl PreparedNativeDraw {
             source.scene(),
             page.source.device(),
         )?;
-        let selected = *source.draws().get(draw_index).ok_or(Error::InvalidInput)?;
-        let draw = selected.draw;
         let raster = page.source.page();
         let vertex_bytes = raster.vertices().len() as u64 * 56;
         let index_bytes = raster.indices().len() as u64 * 4;
@@ -254,7 +290,7 @@ impl PreparedNativeDraw {
             )),
             vertex_range: 0..0,
             instances: 0..1,
-            command_index: selected.command_index,
+            command_index,
             frame,
             mask,
             source: DrawSource::Path(page),
@@ -264,6 +300,30 @@ impl PreparedNativeDraw {
         pipelines: &mut NativePipelineCache,
         bindings: Arc<NativeGlyphFrameBindings>,
         draw_index: usize,
+        mask: Option<Arc<NativeMaskBinding>>,
+    ) -> Result<Self, Error> {
+        let selected = *bindings
+            .page
+            .source
+            .page()
+            .source()
+            .draws()
+            .get(draw_index)
+            .ok_or(Error::InvalidInput)?;
+        Self::glyph_range(
+            pipelines,
+            bindings,
+            selected.command_index,
+            selected.draw,
+            mask,
+        )
+        .await
+    }
+    pub(crate) async fn glyph_range(
+        pipelines: &mut NativePipelineCache,
+        bindings: Arc<NativeGlyphFrameBindings>,
+        command_index: u32,
+        draw: NativeGlyphDraw,
         mask: Option<Arc<NativeMaskBinding>>,
     ) -> Result<Self, Error> {
         let page = &bindings.page;
@@ -276,8 +336,6 @@ impl PreparedNativeDraw {
             source.scene(),
             page.source.device(),
         )?;
-        let selected = *source.draws().get(draw_index).ok_or(Error::InvalidInput)?;
-        let draw = selected.draw;
         let instances = page.source.page().instances();
         let end = draw
             .first_instance
@@ -340,7 +398,7 @@ impl PreparedNativeDraw {
             indices: None,
             vertex_range: 0..vertices,
             instances: draw.first_instance..end,
-            command_index: selected.command_index,
+            command_index,
             frame: frame.clone(),
             mask,
             source: DrawSource::Glyph(bindings),

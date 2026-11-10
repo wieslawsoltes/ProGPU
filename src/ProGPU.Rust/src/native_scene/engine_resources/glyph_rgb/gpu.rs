@@ -26,8 +26,8 @@ impl NativeRgbTarget {
         if !f.ignores_alpha()
             || texture.dimension() != wgpu::TextureDimension::D2
             || texture.sample_count() != 1
-            || texture.width() != f.target.width
-            || texture.height() != f.target.height
+            || texture.width() != page.actual_target_size[0]
+            || texture.height() != page.actual_target_size[1]
             || !matches!(
                 texture.format(),
                 wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
@@ -152,8 +152,8 @@ impl NativeRgbGlyphEngine {
             return Err(Error::ResourceDomain);
         }
         if !page.frame.ignores_alpha
-            || target.texture.width() != page.frame.target.width
-            || target.texture.height() != page.frame.target.height
+            || target.texture.width() != page.actual_target_size[0]
+            || target.texture.height() != page.actual_target_size[1]
         {
             return Err(Error::UnsupportedExecution);
         }

@@ -75,6 +75,7 @@ pub struct NativeRgbGlyphPage {
     frame: NativeCommandFrame,
     policy: wire::RgbGlyphDraw,
     scissor: NativeScissor,
+    actual_target_size: [u32; 2],
     tiles: Arc<[NativeRgbGlyphTile]>,
     segments: Arc<[wire::PathSegment]>,
     records: Arc<[GpuGlyphRecord]>,
@@ -106,6 +107,28 @@ impl NativeRgbGlyphPage {
         max_buffer_size: u64,
         engine_flags: u32,
     ) -> Result<Self, Error> {
+        let actual_target_size = [frame.target.width, frame.target.height];
+        Self::compile_for_target(
+            frame,
+            scissor,
+            actual_target_size,
+            max_buffer_size,
+            engine_flags,
+        )
+    }
+    /// Captures the actual pooled attachment size independently of the original
+    /// logical source extent. Translation and clipping retain `frame` unchanged.
+    pub fn compile_for_target(
+        frame: NativeCommandFrame,
+        scissor: NativeScissor,
+        actual_target_size: [u32; 2],
+        max_buffer_size: u64,
+        engine_flags: u32,
+    ) -> Result<Self, Error> {
+        if actual_target_size[0] < frame.target.width || actual_target_size[1] < frame.target.height
+        {
+            return Err(Error::ResourceDomain);
+        }
         let command = frame.command();
         if command.record.kind != SCENE_COMMAND_DRAW_RGB_GLYPH_RUN {
             return Err(Error::InvalidInput);
@@ -115,8 +138,7 @@ impl NativeRgbGlyphPage {
             .ok_or(Error::InvalidInput)?;
         let cursor = NativeStateCursor::new(frame.scene.clone(), frame.source_state_dpi());
         if cursor.has_per_point_guidelines(&frame.state)?
-            || frame.target.width > 4096
-            || frame.target.height > 4096
+            || actual_target_size.into_iter().any(|v| v > 4096)
             || engine_flags
                 & (ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK | ENGINE_GLYPH_SCALAR_CPU_FALLBACK)
                 != 0
@@ -209,6 +231,7 @@ impl NativeRgbGlyphPage {
             frame,
             policy,
             scissor,
+            actual_target_size,
             tiles,
             segments,
             max_buffer_size,
@@ -224,6 +247,9 @@ impl NativeRgbGlyphPage {
     }
     pub fn scissor(&self) -> NativeScissor {
         self.scissor
+    }
+    pub fn actual_target_size(&self) -> [u32; 2] {
+        self.actual_target_size
     }
     pub fn drawable(&self) -> bool {
         self.scissor.drawable && self.scissor.width != 0 && self.scissor.height != 0

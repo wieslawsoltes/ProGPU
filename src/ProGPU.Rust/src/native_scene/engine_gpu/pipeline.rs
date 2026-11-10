@@ -42,6 +42,7 @@ pub enum NativeRenderPipeline {
 }
 /// Device/target-owned cache. Shader and pipeline candidates publish only after
 /// the runtime's validation scope succeeds; shader compiler defaults are intact.
+#[derive(Clone)]
 pub struct NativePipelineCache {
     device: wgpu::Device,
     target_format: wgpu::TextureFormat,

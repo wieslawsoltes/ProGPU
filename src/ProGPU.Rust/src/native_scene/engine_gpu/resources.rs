@@ -55,7 +55,11 @@ impl NativeScenePageEngine {
             format,
             paths: NativePathPageEngine::new(device),
             glyphs: NativeGlyphPageEngine::new(device, queue),
-            images: NativeImagePageEngine::new(device, queue),
+            images: NativeImagePageEngine::new_with_target_format(
+                device,
+                queue,
+                format.texture_format(),
+            ),
             three_d: NativeThreeDPageEngine::new(device, queue, format.texture_format()),
             sentinel: None,
         }

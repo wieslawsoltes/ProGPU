@@ -13,6 +13,11 @@ mod picture_cache;
 /// supplied frame/format. Returned textures retain all actual producer leases.
 /// Preflight excludes the output allocation already counted by the mask request.
 pub trait NativePictureMaskResolver {
+    /// A complete native runtime owns the original bounded raster cache itself.
+    /// Other providers retain the existing mask-engine cache behavior.
+    fn owns_raster_cache(&self) -> bool {
+        false
+    }
     fn preflight(
         &self,
         source: &NativePictureMaskSource,
@@ -32,6 +37,8 @@ pub trait NativePictureMaskResolver {
 pub struct NativePictureMaskCapture {
     pub texture: NativeImageTexture,
     pub metrics: NativeMaskMetrics,
+    /// Actual newly allocated output bytes; zero on a retained raster hit.
+    pub output_texture_bytes: u64,
 }
 enum Program {
     None,
@@ -219,6 +226,8 @@ impl NativeMaskEngine {
         if cold {
             metrics.add(NativeMaskMetrics {
                 texture_bytes: 1,
+                texture_allocation_bytes: 1,
+                texture_allocations: 1,
                 texture_upload_bytes: 1,
                 ..Default::default()
             })?;
@@ -262,6 +271,8 @@ impl NativeMaskEngine {
                 }
                 MaskNode::Coverage(source, bytes) => {
                     metrics.texture_bytes = u64::from(source.width) * u64::from(source.height);
+                    metrics.texture_allocation_bytes = metrics.texture_bytes;
+                    metrics.texture_allocations = 1;
                     metrics.texture_upload_bytes = bytes.len() as u64;
                     if source.width > self.device.limits().max_texture_dimension_2d
                         || source.height > self.device.limits().max_texture_dimension_2d
@@ -334,7 +345,11 @@ impl NativeMaskEngine {
                         self.queue.submit([encoder.finish()]);
                         prepared.retain_submitted(&self.queue);
                         let texture = prepared.texture.clone();
-                        let metrics = prepared.metrics;
+                        let mut metrics = prepared.metrics;
+                        metrics.submission_count = metrics
+                            .submission_count
+                            .checked_add(1)
+                            .ok_or(Error::Capacity)?;
                         self.clip_atlas_size = atlas_size;
                         self.clips = Some(clip::Cache::new(revision, request, prepared));
                         (texture, metrics)
@@ -355,6 +370,8 @@ impl NativeMaskEngine {
                     metrics.uniform_upload_bytes = 224;
                     metrics.texture_bytes =
                         u64::from(request.target.size()[0]) * u64::from(request.target.size()[1]);
+                    metrics.texture_allocation_bytes = metrics.texture_bytes;
+                    metrics.texture_allocations = 1;
                     metrics.render_passes = 1;
                     let prepared = paint::prepare(self, plan, request.target).await?;
                     (
@@ -372,6 +389,8 @@ impl NativeMaskEngine {
                     metrics.uniform_upload_bytes = 224;
                     metrics.texture_bytes =
                         u64::from(request.target.size()[0]) * u64::from(request.target.size()[1]);
+                    metrics.texture_allocation_bytes = metrics.texture_bytes;
+                    metrics.texture_allocations = 1;
                     metrics.render_passes = 1;
                     let prepared = paint::prepare(self, plan, request.target).await?;
                     (
@@ -386,32 +405,44 @@ impl NativeMaskEngine {
                     let (source, uniforms) = sampling::picture(descriptor, scene.clone(), request)?;
                     metrics.texture_bytes =
                         u64::from(source.frame.width) * u64::from(source.frame.height) * 4;
-                    let texture =
-                        if let Some(texture) = self.pictures.find(&source, self.engine_flags) {
-                            metrics.picture_cache_hits = 1;
-                            texture
-                        } else {
-                            let capture = resolver
-                                .prepare(
-                                    source.clone(),
-                                    &self.device,
-                                    &self.queue,
-                                    self.target_format,
-                                )
-                                .await?;
-                            let texture = retain_source(capture.texture, source.scene.clone())?;
-                            if texture.device() != &self.device
-                                || texture.size() != [source.frame.width, source.frame.height]
-                                || texture.texture().format() != self.target_format
-                            {
-                                return Err(Error::ResourceDomain);
-                            }
+                    let texture = if let Some(texture) = (!resolver.owns_raster_cache())
+                        .then(|| self.pictures.find(&source, self.engine_flags))
+                        .flatten()
+                    {
+                        metrics.picture_cache_hits = 1;
+                        metrics.texture_bytes = 0;
+                        texture
+                    } else {
+                        let capture = resolver
+                            .prepare(
+                                source.clone(),
+                                &self.device,
+                                &self.queue,
+                                self.target_format,
+                            )
+                            .await?;
+                        let texture = retain_source(capture.texture, source.scene.clone())?;
+                        if texture.device() != &self.device
+                            || texture.size() != [source.frame.width, source.frame.height]
+                            || texture.texture().format() != self.target_format
+                        {
+                            return Err(Error::ResourceDomain);
+                        }
+                        metrics.texture_bytes = capture.output_texture_bytes;
+                        metrics.texture_allocation_bytes = capture.output_texture_bytes;
+                        metrics.texture_allocations = u64::from(capture.output_texture_bytes != 0);
+                        if !resolver.owns_raster_cache() {
                             metrics.picture_captures = 1;
-                            metrics.add(capture.metrics)?;
+                        }
+                        let mut child = capture.metrics;
+                        child.submission_count = 0;
+                        metrics.add(child)?;
+                        if !resolver.owns_raster_cache() {
                             self.pictures
                                 .retain(source, self.engine_flags, texture.clone());
-                            texture
-                        };
+                        }
+                        texture
+                    };
                     (texture, uniforms, None, MaskSampling::Linear, Program::None)
                 }
                 MaskNode::Composite { opacity, children } => {
@@ -422,6 +453,8 @@ impl NativeMaskEngine {
                     metrics.texture_bytes = u64::from(request.target.size()[0])
                         * u64::from(request.target.size()[1])
                         * 2;
+                    metrics.texture_allocation_bytes = metrics.texture_bytes;
+                    metrics.texture_allocations = 2;
                     metrics.uniform_upload_bytes = children.len() as u64 * 256;
                     metrics.render_passes = children.len() as u32;
                     for child in &prepared {

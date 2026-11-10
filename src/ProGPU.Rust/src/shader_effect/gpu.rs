@@ -66,12 +66,13 @@ pub struct SampleShaderRequest<'a> {
     /// Exact path-produced coverage at this target's physical lattice.
     pub vector_mask: Option<&'a ShaderVectorMask>,
 }
-/// Typed coverage produced only by the original path clip factory. Arbitrary
-/// sampled images cannot be relabeled as original vector-source clipping.
+/// Typed coverage produced by an original path clip factory or an exact owned
+/// native vector-mask resource. Arbitrary sampled images cannot supply this proof.
 #[derive(Debug)]
 pub struct ShaderVectorMask {
     owner: Arc<()>,
     image: GpuImage,
+    view: wgpu::TextureView,
     target: SampleLattice,
 }
 impl ShaderVectorMask {
@@ -126,6 +127,7 @@ pub struct PreparedShaderEffect {
     sampler: GpuImage,
     vector_mask: Option<GpuImage>,
     output: Option<GpuImage>,
+    output_view: Option<wgpu::TextureView>,
     size: [u32; 2],
     metrics: ShaderEffectMetrics,
 }
@@ -227,6 +229,54 @@ impl ShaderEffectEngine {
     /// Original fragment-stage execution route.
     pub fn execution_path(&self) -> ExecutionPath {
         ExecutionPath::GpuShader
+    }
+    /// Accept only a completed native vector resource in the exact actual parent
+    /// frame. Generic sampled coverage never supplies this source proof.
+    pub(crate) fn native_vector_mask(
+        &self,
+        mask: Arc<crate::native_scene::engine_resources::PreparedNativeMask>,
+        scene: &Arc<crate::native_scene::NativeScene>,
+        target: crate::native_scene::engine_resources::NativeMaskTarget,
+        lattice: SampleLattice,
+    ) -> Result<ShaderVectorMask, Error> {
+        use crate::native_scene::{wire, wire::constants::*};
+        let request = mask.request();
+        let actual = request.target();
+        if request.kind() != SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN
+            || !Arc::ptr_eq(request.scene(), scene)
+            || request.composite_state().is_some()
+            || actual.extent != target.extent
+            || actual.presentation != target.presentation
+            || actual.dpi_scale.to_bits() != target.dpi_scale.to_bits()
+            || actual.source_state_dpi.map(f32::to_bits)
+                != target.source_state_dpi.map(f32::to_bits)
+            || lattice.size != target.size()
+        {
+            return Err(Error::ResourceDomain);
+        }
+        let resource = scene
+            .envelope()
+            .resource(request.resource_index())
+            .ok_or(Error::InvalidInput)?;
+        let vector = wire::LayerVectorMask::read(resource.payload).ok_or(Error::InvalidInput)?;
+        if vector.opacity != 1.0
+            || mask.source().device() != &self.device
+            || mask.source().size() != target.size()
+            || mask.source().texture().format() != wgpu::TextureFormat::R8Unorm
+            || mask.source().texture().mip_level_count() != 1
+        {
+            return Err(Error::ResourceDomain);
+        }
+        let view = mask.source().view().clone();
+        let image =
+            GpuImage::from_texture(&self.device, mask.source().texture(), ImageAlpha::Straight)?
+                .with_producer(Arc::new(NativeVectorMaskOwner(mask)));
+        Ok(ShaderVectorMask {
+            owner: self.owner.clone(),
+            image,
+            view,
+            target: lattice,
+        })
     }
     /// Actual cached program variants, including distinct final/affine/masked forms.
     pub fn cached_program_count(&self) -> usize {
@@ -451,6 +501,7 @@ impl ShaderEffectEngine {
         mode: ShaderSampling,
         image: &GpuImage,
         bytes: &[u8],
+        source_view: Option<&wgpu::TextureView>,
     ) -> wgpu::BindGroup {
         let uniforms = self
             .device
@@ -460,7 +511,9 @@ impl ShaderEffectEngine {
                 usage: wgpu::BufferUsages::UNIFORM,
             });
         let sampler = self.sampler(mode);
-        let view = image.texture().create_view(&Default::default());
+        let view = source_view
+            .cloned()
+            .unwrap_or_else(|| image.texture().create_view(&Default::default()));
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ProGPU retained shader sources"),
             layout: &program.layout,
@@ -486,6 +539,25 @@ impl ShaderEffectEngine {
         &mut self,
         request: LegacyShaderRequest<'_>,
     ) -> Result<PreparedShaderEffect, Error> {
+        self.prepare_legacy_views(request, None, None).await
+    }
+    /// Evaluate into an actual caller-owned RGBA8 effect target. The valid
+    /// capture extent may be smaller than this retained allocation.
+    pub async fn prepare_legacy_into(
+        &mut self,
+        request: LegacyShaderRequest<'_>,
+        output: &GpuImage,
+    ) -> Result<PreparedShaderEffect, Error> {
+        let view = output.texture().create_view(&Default::default());
+        self.prepare_legacy_views(request, Some((output, &view)), None)
+            .await
+    }
+    pub(crate) async fn prepare_legacy_views(
+        &mut self,
+        request: LegacyShaderRequest<'_>,
+        output: Option<(&GpuImage, &wgpu::TextureView)>,
+        source_view: Option<&wgpu::TextureView>,
+    ) -> Result<PreparedShaderEffect, Error> {
         let LegacyShaderRequest {
             effect,
             input,
@@ -501,6 +573,22 @@ impl ShaderEffectEngine {
         }
         let source = sampler.unwrap_or(input);
         self.source(source)?;
+        if let Some((output, _)) = output {
+            self.source(output)?;
+            if output.texture().format() != wgpu::TextureFormat::Rgba8Unorm
+                || output.texture().mip_level_count() != 1
+                || !output
+                    .texture()
+                    .usage()
+                    .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+                || (0..2).any(|i| extent[i] > output.size()[i])
+                || output.texture() == input.texture()
+                || output.texture() == source.texture()
+            {
+                return Err(Error::ResourceDomain);
+            }
+        }
+        let allocated = output.is_none();
         let mut uniforms = EffectUniforms {
             constants: effect.capture_constants(derivative, extent)?,
             ..Zeroable::zeroed()
@@ -524,24 +612,31 @@ impl ShaderEffectEngine {
             effect.sampling,
             source,
             bytemuck::bytes_of(&uniforms),
+            source_view,
         );
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("ProGPU original bytecode effect output"),
-            size: wgpu::Extent3d {
-                width: extent[0],
-                height: extent[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let output = GpuImage::from_texture(&self.device, &texture, ImageAlpha::Premultiplied)?;
+        let (output, output_view) = if let Some((output, view)) = output {
+            (output.clone(), view.clone())
+        } else {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("ProGPU original bytecode effect output"),
+                size: wgpu::Extent3d {
+                    width: extent[0],
+                    height: extent[1],
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            let output = GpuImage::from_texture(&self.device, &texture, ImageAlpha::Premultiplied)?;
+            (output, view)
+        };
         if let Some(error) = scope.pop().await {
             return Err(error.into());
         }
@@ -554,11 +649,16 @@ impl ShaderEffectEngine {
             sampler: source.clone(),
             vector_mask: None,
             output: Some(output),
+            output_view: Some(output_view),
             size: extent,
             metrics: ShaderEffectMetrics {
                 bytecode_bytes: effect.program.bytecode().len() as u64,
                 uniform_bytes: 544,
-                output_texture_bytes: u64::from(extent[0]) * u64::from(extent[1]) * 4,
+                output_texture_bytes: if allocated {
+                    u64::from(extent[0]) * u64::from(extent[1]) * 4
+                } else {
+                    0
+                },
                 draws: 1,
             },
         })
@@ -568,6 +668,13 @@ impl ShaderEffectEngine {
     pub async fn prepare_sample(
         &mut self,
         request: SampleShaderRequest<'_>,
+    ) -> Result<PreparedShaderEffect, Error> {
+        self.prepare_sample_view(request, None).await
+    }
+    pub(crate) async fn prepare_sample_view(
+        &mut self,
+        request: SampleShaderRequest<'_>,
+        source_view: Option<&wgpu::TextureView>,
     ) -> Result<PreparedShaderEffect, Error> {
         let SampleShaderRequest {
             effect,
@@ -647,9 +754,9 @@ impl ShaderEffectEngine {
             .program(&effect.program, true, frame.affine, vector_mask.is_some())
             .await?;
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let binding = self.binding(&program, effect.sampling, source, bytes);
+        let binding = self.binding(&program, effect.sampling, source, bytes, source_view);
         let mask = if let Some(mask) = vector_mask {
-            let view = mask.image.texture().create_view(&Default::default());
+            let view = &mask.view;
             Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ProGPU actual target vector coverage"),
                 layout: program.mask_layout.as_ref().ok_or(Error::ResourceDomain)?,
@@ -673,6 +780,7 @@ impl ShaderEffectEngine {
             sampler: source.clone(),
             vector_mask: vector_mask.map(|m| m.image.clone()),
             output: None,
+            output_view: None,
             size: target.size,
             metrics: ShaderEffectMetrics {
                 bytecode_bytes: effect.program.bytecode().len() as u64,
@@ -705,6 +813,7 @@ impl ShaderEffectEngine {
         self.clips = Some(composer);
         Ok(ShaderVectorMask {
             owner: self.owner.clone(),
+            view: prepared.image().texture().create_view(&Default::default()),
             image: prepared.into_image(),
             target: SampleLattice {
                 origin,
@@ -722,37 +831,7 @@ impl ShaderEffectEngine {
         if !Arc::ptr_eq(&self.owner, &prepared.owner) || prepared.program.final_sample {
             return Err(Error::ResourceDomain);
         }
-        let output = prepared.output.as_ref().ok_or(Error::ResourceDomain)?;
-        let view = output.texture().create_view(&Default::default());
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("ProGPU original bytecode capture pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            ..Default::default()
-        });
-        pass.set_pipeline(&prepared.program.pipeline);
-        pass.set_bind_group(0, &prepared.binding, &[]);
-        pass.set_viewport(
-            0.0,
-            0.0,
-            prepared.size[0] as f32,
-            prepared.size[1] as f32,
-            0.0,
-            1.0,
-        );
-        pass.set_scissor_rect(0, 0, prepared.size[0], prepared.size[1]);
-        pass.draw(0..3, 0..1);
-        Ok(prepared.metrics)
+        prepared.encode_owned(encoder)
     }
     /// Draw original final-device evaluation in the caller's actual parent pass.
     /// The caller owns painter order, load policy and subsequent viewport restoration.
@@ -769,12 +848,56 @@ impl ShaderEffectEngine {
 }
 
 impl PreparedShaderEffect {
+    /// Encode the retained original legacy target without consulting current cache state.
+    pub(crate) fn encode_owned(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<ShaderEffectMetrics, Error> {
+        if self.program.final_sample {
+            return Err(Error::ResourceDomain);
+        }
+        let view = self.output_view.as_ref().ok_or(Error::ResourceDomain)?;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("ProGPU original bytecode capture pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            ..Default::default()
+        });
+        pass.set_pipeline(&self.program.pipeline);
+        pass.set_bind_group(0, &self.binding, &[]);
+        pass.set_viewport(0.0, 0.0, self.size[0] as f32, self.size[1] as f32, 0.0, 1.0);
+        pass.set_scissor_rect(0, 0, self.size[0], self.size[1]);
+        pass.draw(0..3, 0..1);
+        Ok(self.metrics)
+    }
     /// Retain exact source/sampler/vector-mask owners after external submission.
     pub fn retain_submitted(&self, queue: &wgpu::Queue) {
         self.input.retain_submitted(queue);
         self.sampler.retain_submitted(queue);
+        if let Some(output) = &self.output {
+            output.retain_submitted(queue);
+        }
         if let Some(mask) = &self.vector_mask {
             mask.retain_submitted(queue);
         }
+    }
+}
+
+struct NativeVectorMaskOwner(Arc<crate::native_scene::engine_resources::PreparedNativeMask>);
+impl std::fmt::Debug for NativeVectorMaskOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeVectorMaskOwner")
+            .field("resource_index", &self.0.request().resource_index())
+            .finish()
     }
 }

@@ -42,3 +42,5 @@ Original SHA-256:
 | `src/ProGPU.Native/src/Backend/progpu_native_geometry_base.hpp` | `85f794649c452e40c177d06aedd341098f0c73cbb56bfe1aabed4b907128a672` |
 | `src/ProGPU.Native/src/Backend/progpu_native_image_layer_resources.cpp` | `8d8fb8816f1db86563b5ab1551446f928bf4915021f095cfc1b8737d2c16d523` |
 | `src/ProGPU.Native/src/Backend/progpu_native_image_execution.cpp` | `09135c8ead728a45d4e2a65ab9196b2a2a3fbff535b65d8f01816ef37c6b547e` |
+
+Native picture runtime continuation: the nested resolver now receives the enclosing native target format and returns `NativePictureImageCapture` with actual preparation metrics. Parent scene engines use `new_with_target_format`; the old standalone constructor retains its explicit RGBA8 domain. The capture source format follows the original helper rather than an unconditional RGBA8 assumption. Per-source preflight allocation estimates are replaced with actual child/output work during preparation, so a retained warm capture reports zero new output work. See [native-picture-runtime-port.md](native-picture-runtime-port.md).

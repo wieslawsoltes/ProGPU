@@ -4,13 +4,14 @@ pub(super) fn compile(
     frame: NativeCommandFrame,
     policy: wire::RgbGlyphDraw,
     scissor: NativeScissor,
+    actual_target_size: [u32; 2],
     tiles: Vec<NativeRgbGlyphTile>,
     segments: Vec<wire::PathSegment>,
     max_buffer_size: u64,
     engine_flags: u32,
     source_vertex_bytes: u64,
 ) -> Result<NativeRgbGlyphPage, Error> {
-    let size = [frame.target.width, frame.target.height];
+    let size = actual_target_size;
     if size.contains(&0)
         || size.into_iter().any(|v| v > 4096)
         || segments.len() as u64 * 48 > max_buffer_size
@@ -216,6 +217,7 @@ pub(super) fn compile(
         frame,
         policy,
         scissor,
+        actual_target_size,
         tiles: tiles.into(),
         segments: segments.into(),
         records: records.into(),

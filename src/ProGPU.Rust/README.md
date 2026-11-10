@@ -25,8 +25,10 @@ Latest connected continuation (2026-11-10), implementation only:
 
 | Port area | Newly connected implementation | Remaining qualification |
 | --- | --- | --- |
-| Native complete preflight and pages | Original layer/shader/draw admission, whole-scene budgets, CPU family compilation and combined immutable GPU resource preparation; exact storage Clear attachment replay | Ordered outer replay, nested capture/cache integration and all original qualification |
-| Native layer targets and RGB | Actual color/depth/effect allocations, stable cache slots, immutable frame rebinding, submission publication and original RGB occurrence kernels | Whole source-order integration, original source/pixel/runtime/browser/performance gates |
+| Native complete renderer | Whole-scene admission and immutable pages connected to ordered bundles, exact pass/depth/scissor transitions, Clear, effects, advanced blends, RGB and queue-owned publication | Standalone R8 child route, cross-generation family/bundle reuse, host/sample integration and all original qualification |
+| Native layers, masks and RGB | Actual pooled color/depth/effect storage, all eight mask producers, backdrop copies, actual-size RGB packets, submitted output caches and skip forecasting | Original source/pixel/runtime/browser/performance gates |
+| Native nested pictures and shader effects | Same-renderer child execution, actual shared pipeline owners, exact source-format captures, bounded image/mask caches, append-copy suffixes and v1–v6 shader replay | Original numeric, device, cache/lifetime, browser, source and performance qualification |
+| Native explicit CPU glyph coverage | Original scalar and cached SIMD coverage, exact padded arena/atlas writes, explicit flags and actual ISA reporting | Original numerical/coverage/provider/browser/performance controls; binary/RGB restrictions preserved |
 | Native document flow | Nested blocks, shared table tracks/cells, exact width/anchor/collision passes, page/column breaks, retained paragraph generations and atomic import/copy/reflow | Original source/error/lifetime/browser/performance controls |
 | Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
 | Native font providers and catalog | Exact host/browser callback selection/cache, raw fallback preferences and fixed style variations; separate native metadata discovery, nominal cmap matching, file ownership, names/style/embedding and resident SFNT/SBIX writers | Native mmap/path-encoding host adapters and all original byte/error/callback/lifetime/browser/performance qualification |
@@ -37,9 +39,9 @@ Latest connected continuation (2026-11-10), implementation only:
 | ImageEffect reuse | Completion-owned parameter/blur pools, original module/pipeline/sampler caches, tracked source/mip/view generations, explicit host-frame aging and actual reuse metrics | Original runtime/pixel/lifetime/browser/performance controls |
 | Surface root flushing | Flush/snapshot of the actual root while save layers remain open, retaining child state and atomic prepared ownership | Existing Rust clip continuation remains distinct; original repeated-flush/clip/backdrop/source pixels |
 | Picture archive transport | Versions 1–10, all 39 command tags and fields, complete brush/pen/path/mesh/patch transport, typed recording and safe bounded scalar/vector IO | Exact bytes/version/error/stream/ownership controls |
-| Native scene stream | Independent native wire and immutable owners; original ordered semantic admission, nested dependencies, typed payload views, canonical packets and generation comparisons; exact admitted hit-page import into GPU-query storage | Native renderer integration and independent execution/provider/target gates; all original byte/error/lifetime/browser/package/performance controls |
-| Native typed builder and identity | Original typed state, brush, path/vector/mesh, image, text, layer/mask/effect, source-input and recorded-hit producers; direct deterministic caller-buffer serialization; family hashes, source-scope collisions and append-only prefix reuse | Full native execution consumers and original source/byte/failure/ownership/SIMD/browser/performance qualification |
-| Native execution state and material pages | Original ordered target/state cursors, frame-prefix/presentation/DPI/guideline/scissor rules, retained allocation budgets and exact brush/style variant pages | Native draw/resource consumers and ordered GPU rendering connection; all original bytes/targets/lifetimes/browser/pixels/performance gates |
+| Native scene stream | Independent native wire and immutable owners; original ordered semantic admission, nested dependencies, typed payload views, canonical packets and generation comparisons; exact admitted hit-page import into GPU-query storage | Independent execution/provider/target gates; all original byte/error/lifetime/browser/package/performance controls |
+| Native typed builder and identity | Original typed state, brush, path/vector/mesh, image, text, layer/mask/effect, source-input and recorded-hit producers; direct deterministic caller-buffer serialization; family hashes, source-scope collisions and append-only prefix reuse | Original source/byte/failure/ownership/SIMD/browser/performance qualification |
+| Native execution state and material pages | Original ordered target/state cursors, frame-prefix/presentation/DPI/guideline/scissor rules, retained allocation budgets and exact brush/style variant pages connected through the renderer | Cross-generation family reuse and all original bytes/targets/lifetimes/browser/pixels/performance gates |
 | Archive rendering and capture | Ordered retained Canvas/Scene replay, original analytic triangle/quad/point/grid routes and explicit source-preserving capture; recorded-picture serialization | Unsupported GPU/provider/source-history records stay explicit; complete native/browser/pixel/performance qualification |
 | Image filter and picture factories | Exact subset/clip/offset filter application, optional context transfer, painted picture captures and full-sampling image/bitmap/surface Canvas producers | Original source/UV/lifetime/format/filter/browser/pixel/performance controls |
 | Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
@@ -59,8 +61,15 @@ Latest connected continuation (2026-11-10), implementation only:
 | CustomGrid and spline extension | Original fullscreen grid shader/quad, and compile-only/no-draw spline extension4 behavior | Original primary multisample, source/runtime/browser/pixel/performance controls |
 
 
-Estimated scope completion: **overall about 68%, implementation about 87%, validation
+Estimated scope completion: **overall about 72%, implementation about 91%, validation
 and qualification about 20%**. These are judgment estimates, not measured coverage.
+
+The connected native renderer is described in [its source provenance](notes/native-scene-renderer-port.md),
+[ordered replay](notes/native-scene-replay-plan-port.md),
+[scene caches](notes/native-scene-cache-port.md),
+[nested pictures](notes/native-picture-runtime-port.md), and
+[explicit CPU glyph coverage](notes/native-scene-cpu-glyph-port.md).
+Implementation continues before validation under the requested port-first order.
 
 The shared `--series` / browser `?scene=series` gallery authors twelve panels for
 both original line/scatter shader families, explicit and packed scatter radii,

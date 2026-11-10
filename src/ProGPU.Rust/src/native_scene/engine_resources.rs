@@ -23,10 +23,13 @@ pub use three_d::{
 };
 #[cfg(feature = "gpu")]
 pub use three_d::{NativeThreeDDepthTarget, NativeThreeDPageEngine, PreparedNativeThreeDPage};
+pub mod advanced_blend;
+pub mod effects;
 mod geometry;
 mod glyph;
 mod glyph_rgb;
 pub mod layers;
+pub mod pictures;
 pub use glyph_rgb::{
     NativeRgbCell, NativeRgbCompositeFrame, NativeRgbGlyphMetrics, NativeRgbGlyphPage,
     NativeRgbGlyphTile, NativeRgbInstance,
@@ -38,8 +41,10 @@ pub use glyph_rgb::{
 };
 pub(crate) mod path;
 pub use glyph::{
-    NativeColorGlyphRaster, NativeGlyphDrawRange, NativeGlyphPage, NativeGlyphPageMetrics,
-    NativeGlyphPaintResource, NativeGlyphRaster, NativeGlyphRasterPage,
+    NativeColorGlyphRaster, NativeGlyphCpuCoverage, NativeGlyphCpuImplementation,
+    NativeGlyphCpuMetrics, NativeGlyphCpuPolicy, NativeGlyphCpuUpload, NativeGlyphDrawRange,
+    NativeGlyphPage, NativeGlyphPageMetrics, NativeGlyphPaintResource, NativeGlyphRaster,
+    NativeGlyphRasterPage,
 };
 pub use path::{
     NativePathDrawRange, NativePathPage, NativePathPageMetrics, NativePathRaster,
@@ -63,8 +68,8 @@ pub use external::{
 pub(crate) use gpu::native_image_sampler;
 #[cfg(feature = "gpu")]
 pub use gpu::{
-    NativeImageLayouts, NativeImagePageEngine, NativePictureImageResolver, PreparedNativeImageDraw,
-    PreparedNativeImagePage,
+    NativeImageLayouts, NativeImagePageEngine, NativePictureImageCapture,
+    NativePictureImageResolver, PreparedNativeImageDraw, PreparedNativeImagePage,
 };
 
 /// Original sideband image role; one source can own three independently sized planes.
@@ -157,3 +162,5 @@ pub use masks::{
     NativeMaskEngine, NativePictureMaskCapture, NativePictureMaskResolver, PreparedNativeMask,
 };
 pub use masks::{NativeMaskMetrics, NativeMaskRequest, NativeMaskTarget, NativePictureMaskSource};
+
+pub mod shader_effects;

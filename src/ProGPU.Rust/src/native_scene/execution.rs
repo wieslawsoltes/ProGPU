@@ -7,6 +7,12 @@ use crate::Error;
 use std::sync::Arc;
 use wire::{WireRecord, constants::*};
 pub mod budget;
+mod replay_plan;
+pub use replay_plan::{
+    NativeReplayAdvanced, NativeReplayBundle, NativeReplayComposite, NativeReplayDraw,
+    NativeReplayEffect, NativeReplayLayerPop, NativeReplayLayerPush, NativeReplayMetrics,
+    NativeReplayOperation, NativeReplayPlan, NativeReplayRgb, NativeReplayShader,
+};
 mod draw_plan;
 pub use draw_plan::{
     NativeDrawCommandCost, NativeDrawExecutionPlan, NativeDrawFamily, NativeDrawPlanMetrics,

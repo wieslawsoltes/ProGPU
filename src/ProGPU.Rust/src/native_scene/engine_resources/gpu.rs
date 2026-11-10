@@ -15,7 +15,7 @@ pub(crate) use layout::image_sampler as native_image_sampler;
 
 /// Actual nested native-picture execution supplied by the owning command engine.
 /// Preflight accounts for additional child work before GPU preparation. The
-/// required RGBA8 output allocation is counted by this page and must be excluded
+/// required source-format output allocation is counted by this page and must be excluded
 /// from the returned child metrics. `prepare` returns that actual rendered
 /// texture with its complete retained source lease.
 pub trait NativePictureImageResolver {
@@ -23,13 +23,21 @@ pub trait NativePictureImageResolver {
         &self,
         source: &NativePictureImageSource,
         device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
     ) -> Result<NativeImageResourceMetrics, Error>;
     fn prepare<'a>(
         &'a mut self,
         source: NativePictureImageSource,
         device: &'a wgpu::Device,
         queue: &'a wgpu::Queue,
-    ) -> Pin<Box<dyn Future<Output = Result<NativeImageTexture, Error>> + 'a>>;
+        target_format: wgpu::TextureFormat,
+    ) -> Pin<Box<dyn Future<Output = Result<NativePictureImageCapture, Error>> + 'a>>;
+}
+/// Actual child work including only newly allocated capture output storage.
+/// Warm retained captures return zero allocation/upload work.
+pub struct NativePictureImageCapture {
+    pub texture: NativeImageTexture,
+    pub metrics: NativeImageResourceMetrics,
 }
 /// Original source shader bindings and their retained source generation.
 pub struct PreparedNativeImageDraw {
@@ -87,7 +95,10 @@ impl PreparedNativeImagePage {
     pub fn replay_metrics(&self) -> NativeImageResourceMetrics {
         NativeImageResourceMetrics {
             draws: self.draws.len() as u64,
-            live_blur_passes: self.metrics.live_blur_passes,
+            // Retained child captures do not render again. Only this page's
+            // actual two-pass Gaussian programs replay in encode_sources.
+            live_blur_passes: self.draws.iter().filter(|draw| draw.blur.is_some()).count() as u64
+                * 2,
             ..Default::default()
         }
     }
@@ -117,6 +128,7 @@ impl PreparedNativeImagePage {
 /// supplied by the separate original native identity/cursor layer, not invented here.
 pub struct NativeImagePageEngine {
     owner: Arc<()>,
+    target_format: wgpu::TextureFormat,
     device: wgpu::Device,
     queue: wgpu::Queue,
     layouts: Option<NativeImageLayouts>,
@@ -126,9 +138,19 @@ pub struct NativeImagePageEngine {
     blur_pipelines: [Option<BlurPipeline>; 2],
 }
 impl NativeImagePageEngine {
+    /// Existing standalone RGBA8 domain. Native parent engines use their actual
+    /// attachment format through `new_with_target_format`.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        Self::new_with_target_format(device, queue, wgpu::TextureFormat::Rgba8Unorm)
+    }
+    pub fn new_with_target_format(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        target_format: wgpu::TextureFormat,
+    ) -> Self {
         Self {
             owner: Arc::new(()),
+            target_format,
             device: device.clone(),
             queue: queue.clone(),
             layouts: None,
@@ -145,6 +167,28 @@ impl NativeImagePageEngine {
         external: &NativeExternalImages,
         pictures: &impl NativePictureImageResolver,
     ) -> Result<NativeImageResourceMetrics, Error> {
+        self.preflight_costs(page, external, pictures, &mut HashMap::new())
+    }
+    fn preflight_costs(
+        &self,
+        page: &NativeImagePage,
+        external: &NativeExternalImages,
+        pictures: &impl NativePictureImageResolver,
+        picture_costs: &mut HashMap<u32, NativeImageResourceMetrics>,
+    ) -> Result<NativeImageResourceMetrics, Error> {
+        picture_costs
+            .try_reserve(picture_capacity(page))
+            .map_err(|_| Error::Capacity)?;
+        if !matches!(
+            self.target_format,
+            wgpu::TextureFormat::Rgba8Unorm
+                | wgpu::TextureFormat::Bgra8Unorm
+                | wgpu::TextureFormat::Rgba8UnormSrgb
+                | wgpu::TextureFormat::Bgra8UnormSrgb
+                | wgpu::TextureFormat::R8Unorm
+        ) {
+            return Err(Error::UnsupportedExecution);
+        }
         if external.device() != &self.device || page.external_images() != external.metadata() {
             return Err(Error::ResourceDomain);
         }
@@ -243,19 +287,18 @@ impl NativeImagePageEngine {
                 NativeImageStorage::Picture { .. } => {
                     if seen.insert(draw.resource_index) {
                         let source = page.picture_source(draw).ok_or(Error::InvalidInput)?;
-                        metrics =
-                            metrics.checked_add(pictures.preflight(&source, &self.device)?)?;
-                        metrics = metrics.checked_add(NativeImageResourceMetrics {
-                            texture_allocations: 1,
-                            texture_bytes: u64::from(source.descriptor.width)
-                                * u64::from(source.descriptor.height)
-                                * 4,
-                            ..Default::default()
-                        })?;
-                        metrics.nested_pictures = metrics
-                            .nested_pictures
-                            .checked_add(1)
-                            .ok_or(Error::Capacity)?;
+                        let cost = pictures
+                            .preflight(&source, &self.device, self.target_format)?
+                            .checked_add(NativeImageResourceMetrics {
+                                texture_allocations: 1,
+                                texture_bytes: u64::from(source.descriptor.width)
+                                    * u64::from(source.descriptor.height)
+                                    * 4,
+                                nested_pictures: 1,
+                                ..Default::default()
+                            })?;
+                        metrics = metrics.checked_add(cost)?;
+                        picture_costs.insert(draw.resource_index, cost);
                     }
                 }
             }
@@ -293,13 +336,14 @@ impl NativeImagePageEngine {
         external: &NativeExternalImages,
         pictures: &mut impl NativePictureImageResolver,
     ) -> Result<PreparedNativeImagePage, Error> {
-        let metrics = self.preflight(&page, external, pictures)?;
+        let mut picture_costs = HashMap::new();
+        let metrics = self.preflight_costs(&page, external, pictures, &mut picture_costs)?;
         // Candidate handles are local until every draw succeeds; replacing an
         // existing retained page is the owning engine's atomic publication step.
         let device = self.device.clone();
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let result = self
-            .prepare_candidate(page, external, pictures, metrics)
+            .prepare_candidate(page, external, pictures, metrics, picture_costs)
             .await;
         let validation = scope.pop().await;
         if let Some(error) = validation {
@@ -312,7 +356,8 @@ impl NativeImagePageEngine {
         page: Arc<NativeImagePage>,
         external: &NativeExternalImages,
         pictures: &mut impl NativePictureImageResolver,
-        metrics: NativeImageResourceMetrics,
+        mut metrics: NativeImageResourceMetrics,
+        picture_costs: HashMap<u32, NativeImageResourceMetrics>,
     ) -> Result<PreparedNativeImagePage, Error> {
         self.samplers
             .try_reserve((11usize * 17 * 9).saturating_sub(self.samplers.len()))
@@ -421,10 +466,20 @@ impl NativeImagePageEngine {
                         existing.clone()
                     } else {
                         let source = page.picture_source(descriptor).ok_or(Error::InvalidInput)?;
-                        let output = pictures.prepare(source, &device, &queue).await?;
+                        let capture = pictures
+                            .prepare(source, &device, &queue, self.target_format)
+                            .await?;
+                        let output = capture.texture;
+                        metrics = subtract_picture_cost(
+                            metrics,
+                            *picture_costs
+                                .get(&descriptor.resource_index)
+                                .ok_or(Error::ResourceDomain)?,
+                        )?
+                        .checked_add(capture.metrics)?;
                         if output.device() != &device
                             || output.size() != [picture.width, picture.height]
-                            || output.texture().format() != wgpu::TextureFormat::Rgba8Unorm
+                            || output.texture().format() != self.target_format
                         {
                             return Err(Error::ResourceDomain);
                         }
@@ -687,4 +742,26 @@ fn picture_capacity(page: &NativeImagePage) -> usize {
         .filter(|d| matches!(d.storage, NativeImageStorage::Picture { .. }))
         .count()
         .min(page.owner().envelope().header().resource_count as usize)
+}
+
+fn subtract_picture_cost(
+    a: NativeImageResourceMetrics,
+    b: NativeImageResourceMetrics,
+) -> Result<NativeImageResourceMetrics, Error> {
+    macro_rules! sub {
+        ($f:ident) => {
+            a.$f.checked_sub(b.$f).ok_or(Error::ResourceDomain)?
+        };
+    }
+    Ok(NativeImageResourceMetrics {
+        draws: sub!(draws),
+        vertex_bytes: sub!(vertex_bytes),
+        index_bytes: sub!(index_bytes),
+        texture_bytes: sub!(texture_bytes),
+        texture_upload_bytes: sub!(texture_upload_bytes),
+        uniform_upload_bytes: sub!(uniform_upload_bytes),
+        texture_allocations: sub!(texture_allocations),
+        nested_pictures: sub!(nested_pictures),
+        live_blur_passes: sub!(live_blur_passes),
+    })
 }

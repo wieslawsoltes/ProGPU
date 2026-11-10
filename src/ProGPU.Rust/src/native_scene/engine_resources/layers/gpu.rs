@@ -211,6 +211,7 @@ pub struct PreparedNativeLayerTargets {
     composite_frame: Option<Arc<NativeFrameBindings>>,
     metrics: NativeLayerResourceMetrics,
 }
+#[derive(Clone)]
 pub struct NativeLayerOutputUpdates {
     owner: Arc<()>,
     epoch: u64,
@@ -243,10 +244,17 @@ impl NativeLayerTargetPool {
     /// pool identity are retained; publication remains the caller's final step.
     pub(crate) fn fork_candidate(&self) -> Self {
         Self {
-            owner: self.owner.clone(), epoch: self.epoch, device: self.device.clone(),
-            format: self.format, residency: self.residency.clone(), samplers: self.samplers.clone(),
-            root: self.root.clone(), slots: self.slots.clone(), identities: self.identities,
-            caches: self.caches, composite_frame: self.composite_frame.clone(),
+            owner: self.owner.clone(),
+            epoch: self.epoch,
+            device: self.device.clone(),
+            format: self.format,
+            residency: self.residency.clone(),
+            samplers: self.samplers.clone(),
+            root: self.root.clone(),
+            slots: self.slots.clone(),
+            identities: self.identities,
+            caches: self.caches,
+            composite_frame: self.composite_frame.clone(),
         }
     }
     pub fn device(&self) -> &wgpu::Device {
@@ -334,6 +342,18 @@ impl NativeLayerTargetPool {
         options: NativeLayerPoolOptions,
     ) -> Result<PreparedNativeLayerTargets, Error> {
         let plan = Arc::new(self.plan(frame, layers, caches, options)?);
+        self.prepare_plan(pipelines, material, plan).await
+    }
+    /// The owning scene transaction has already compiled source operations from
+    /// this exact immutable assignment, before GPU allocation. Keep that owner
+    /// through preparation instead of rebuilding a parallel target inventory.
+    pub(crate) async fn prepare_plan(
+        &mut self,
+        pipelines: &NativePipelineCache,
+        material: Arc<PreparedNativeMaterials>,
+        plan: Arc<NativeLayerTargetPlan>,
+    ) -> Result<PreparedNativeLayerTargets, Error> {
+        let frame = plan.frame;
         self.preflight(pipelines, &material, &plan)?;
         let mut metrics = NativeLayerResourceMetrics::default();
         let mut slots = self.slots.clone();

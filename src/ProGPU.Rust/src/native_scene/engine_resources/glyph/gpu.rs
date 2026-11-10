@@ -4,6 +4,7 @@ use crate::native_scene::engine_resources::path::gpu::{
     self as common, NativeRasterResourceMetrics,
 };
 use std::num::NonZeroU64;
+mod cpu;
 #[derive(Clone)]
 struct Compute {
     layout: wgpu::BindGroupLayout,
@@ -42,6 +43,8 @@ pub struct PreparedNativeGlyphPage {
     compute: Option<(Compute, wgpu::BindGroup)>,
     binary: Option<(Binary, wgpu::BindGroup)>,
     fragment: Option<(Fragment, wgpu::BindGroup)>,
+    cpu_implementation: Option<NativeGlyphCpuImplementation>,
+    cpu_metrics: Option<NativeGlyphCpuMetrics>,
     metrics: NativeRasterResourceMetrics,
 }
 impl NativeGlyphPageEngine {
@@ -65,12 +68,8 @@ impl NativeGlyphPageEngine {
         let source = page.source();
         let flags = source.engine_flags();
         let fragment = flags & ENGINE_GLYPH_RASTER_SHADER_FALLBACK != 0;
-        // These original CPU execution families are deliberately separate from
-        // the GPU producer. Never satisfy a forced CPU policy with GPU coverage.
-        if flags & (ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK | ENGINE_GLYPH_SCALAR_CPU_FALLBACK)
-            != 0
-        {
-            return Err(Error::UnsupportedExecution);
+        if NativeGlyphCpuPolicy::from_engine_flags(flags)?.is_some() {
+            return self.preflight_cpu(page);
         }
         let l = self.device.limits();
         let storage = l.max_storage_buffer_binding_size.min(l.max_buffer_size);
@@ -162,6 +161,9 @@ impl NativeGlyphPageEngine {
         page: Arc<NativeGlyphRasterPage>,
     ) -> Result<Arc<PreparedNativeGlyphPage>, Error> {
         let metrics = self.preflight(&page)?;
+        if NativeGlyphCpuPolicy::from_engine_flags(page.source().engine_flags())?.is_some() {
+            return self.prepare_cpu(page, metrics).await;
+        }
         let fragment = page.source().engine_flags() & ENGINE_GLYPH_RASTER_SHADER_FALLBACK != 0;
         if page.has_vector_glyphs() {
             self.prepare_vector(fragment).await?;
@@ -398,6 +400,8 @@ impl NativeGlyphPageEngine {
             compute,
             binary,
             fragment,
+            cpu_implementation: None,
+            cpu_metrics: None,
             metrics,
         }))
     }
@@ -534,8 +538,14 @@ impl PreparedNativeGlyphPage {
     pub fn metrics(&self) -> NativeRasterResourceMetrics {
         self.metrics
     }
+    pub fn cpu_implementation(&self) -> Option<NativeGlyphCpuImplementation> {
+        self.cpu_implementation
+    }
+    pub fn cpu_metrics(&self) -> Option<NativeGlyphCpuMetrics> {
+        self.cpu_metrics
+    }
     pub fn encode_coverage(&self, encoder: &mut wgpu::CommandEncoder) {
-        if self.page.work_indices().is_empty() {
+        if self.page.work_indices().is_empty() || self.cpu_implementation.is_some() {
             return;
         }
         if let Some((fragment, binding)) = &self.fragment {

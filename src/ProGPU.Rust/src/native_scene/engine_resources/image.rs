@@ -52,6 +52,27 @@ pub struct NativePictureImageSource {
     pub presentation: wire::Presentation,
 }
 impl NativePictureImageSource {
+    /// Retain an actual picture resource without manufacturing an image draw.
+    pub fn from_resource(owner: Arc<NativeScene>, resource_index: u32) -> Result<Self, Error> {
+        let resource = owner
+            .envelope()
+            .resource(resource_index)
+            .ok_or(Error::InvalidInput)?;
+        if resource.record.kind != SCENE_RESOURCE_IMAGE
+            || resource.record.flags & SCENE_IMAGE_PICTURE == 0
+            || resource.record.flags & SCENE_EXTERNAL_IMAGE != 0
+        {
+            return Err(Error::InvalidInput);
+        }
+        let (descriptor, presentation) =
+            values::read_picture_image(resource.payload).ok_or(Error::InvalidInput)?;
+        Ok(Self {
+            owner,
+            resource_index,
+            descriptor,
+            presentation,
+        })
+    }
     pub fn bytes(&self) -> &[u8] {
         self.owner
             .envelope()

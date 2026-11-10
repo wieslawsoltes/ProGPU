@@ -6,6 +6,11 @@ use crate::native_scene::{
     semantic::{glyph_scan, text, values},
 };
 mod compile;
+mod cpu;
+pub use cpu::{
+    NativeGlyphCpuCoverage, NativeGlyphCpuImplementation, NativeGlyphCpuMetrics,
+    NativeGlyphCpuPolicy, NativeGlyphCpuUpload,
+};
 #[cfg(feature = "gpu")]
 mod gpu;
 mod raster;
