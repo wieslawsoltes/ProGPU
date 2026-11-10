@@ -75,6 +75,7 @@ pub(super) struct RenderFrame {
     pub origin: [u32; 2],
     pub source: Option<crate::composition::SourceRenderFrame>,
     pub mask_depth: u16,
+    pub camera: Option<crate::vector::Matrix4>,
 }
 impl std::ops::Deref for RenderFrame {
     type Target = Frame;
@@ -90,6 +91,7 @@ impl From<Frame> for RenderFrame {
             origin: [0; 2],
             source: None,
             mask_depth: 0,
+            camera: None,
         }
     }
 }
@@ -102,6 +104,13 @@ impl RenderFrame {
             uniforms.mvp = source.projection();
             uniforms.canvas_size = source.logical_size().map(|v| v as f32);
             uniforms.dpi_scale = source.dpi_scale();
+        }
+        if let Some(camera) = self.camera {
+            if camera.0.iter().flatten().any(|v| !v.is_finite()) {
+                return Err(Error::InvalidInput);
+            }
+            uniforms.view = bytemuck::cast(camera.0);
+            uniforms.mvp = bytemuck::cast(crate::vector::Matrix4::IDENTITY.0);
         }
         if self.origin == [0; 2] && self.frame == self.root {
             return Ok(uniforms);
@@ -170,6 +179,7 @@ impl RenderFrame {
         Ok(Self {
             root: self.root,
             source: self.source,
+            camera: self.camera,
             mask_depth,
             origin: [left, top],
             frame: Frame {

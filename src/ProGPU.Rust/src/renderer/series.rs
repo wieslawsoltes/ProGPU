@@ -335,11 +335,11 @@ impl SeriesState {
             immediate_size: 0,
         });
         let attributes = wgpu::vertex_attr_array![0=>Float32x2,1=>Float32];
-        let vertex_buffers = [wgpu::VertexBufferLayout {
+        let vertex_buffers = [Some(wgpu::VertexBufferLayout {
             array_stride: 12,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &attributes,
-        }];
+        })];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ProGPU original series pipeline"),
             layout: Some(&pipeline_layout),

@@ -18,7 +18,10 @@ use crate::{
 };
 use std::sync::Arc;
 mod geometry;
+mod materials;
+mod scopes;
 mod text;
+use scopes::CoverageScopes;
 
 /// Actual immutable Unicode preparation and fallback inputs. An absent host
 /// environment does not fabricate the original platform's font discovery facts.
@@ -41,6 +44,8 @@ pub struct ArchiveReplayOptions {
     pub text_context: TextPaintContext,
     /// Required for DrawText shaping; positioned glyph runs own their arrays.
     pub text: Option<Arc<ArchiveTextEnvironment>>,
+    /// Frozen source theme/resource generation; absent input leaves unresolved keys explicit.
+    pub materials: Option<Arc<super::ArchiveMaterialEnvironment>>,
 }
 impl Default for ArchiveReplayOptions {
     fn default() -> Self {
@@ -49,10 +54,19 @@ impl Default for ArchiveReplayOptions {
             opacity: 1.0,
             text_context: TextPaintContext::default(),
             text: None,
+            materials: None,
         }
     }
 }
 impl ArchiveReplayOptions {
+    /// Capture the actual host generation before any retained source publication.
+    pub fn with_material_provider(
+        mut self,
+        provider: &dyn super::ArchiveMaterialProvider,
+    ) -> Result<Self> {
+        self.materials = Some(Arc::new(provider.snapshot()?));
+        Ok(self)
+    }
     pub(crate) fn placed(&self, matrix: Matrix4, opacity: f32) -> Self {
         let mut result = self.clone();
         result.transform = result.transform * matrix;
@@ -77,7 +91,7 @@ impl ArchivePicture {
             scene: Scene::default(),
             opacity: options.opacity,
             opacity_stack: Vec::new(),
-            coverage: Vec::new(),
+            coverage: CoverageScopes::default(),
             blends: 0,
             visited: 0,
             options,
@@ -105,17 +119,12 @@ impl PictureArchive {
         crate::canvas::CanvasPicture::from_archive(self.picture.clone(), self.cull_bounds)
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Scope {
-    Clip,
-    Mask,
-}
 struct Replay {
     scene: Scene,
     options: ArchiveReplayOptions,
     opacity: f32,
     opacity_stack: Vec<f32>,
-    coverage: Vec<Scope>,
+    coverage: CoverageScopes,
     blends: usize,
     visited: usize,
 }
@@ -129,16 +138,46 @@ impl Replay {
         if self.visited > super::MAX_COMMANDS {
             return Err(ArchiveError::Capacity);
         }
-        for command in picture.commands.iter() {
-            if command.use_gpu_transforms {
+        for raw_command in picture.commands.iter() {
+            let resolved;
+            let command = if let Some(environment) = &self.options.materials {
+                resolved = environment.command(raw_command)?;
+                resolved.as_ref()
+            } else {
+                raw_command
+            };
+            let three_d = matches!(command.kind, K::DrawLine3D | K::DrawAcisSolid)
+                || command.kind == K::DrawExtension && matches!(command.extension_id, 1 | 2);
+            if command.use_gpu_transforms && !three_d {
                 return Err(ArchiveError::Unsupported);
             }
-            let transform = if command.transform == Matrix4([[0.0; 4]; 4]) {
-                parent
+            let base = if command.use_gpu_transforms {
+                Matrix4::IDENTITY
             } else {
-                command.transform * parent
+                parent
             };
-            affine(transform)?;
+            let transform = if command.transform == Matrix4([[0.0; 4]; 4]) {
+                base
+            } else {
+                command.transform * base
+            };
+            if !three_d {
+                affine(transform)?;
+            }
+            if three_d {
+                let camera = command
+                    .use_gpu_transforms
+                    .then_some(command.camera_view * parent);
+                self.scene
+                    .draw_archive_three_d(super::ArchiveThreeDDraw::from_picture(
+                        Arc::new(command.clone()),
+                        picture,
+                        transform,
+                        self.opacity,
+                        camera,
+                    )?)?;
+                continue;
+            }
             match command.kind {
                 K::PushOpacity => {
                     self.opacity_stack
@@ -162,26 +201,28 @@ impl Replay {
                     }
                 }
                 K::PushClip => {
-                    clip(&mut self.scene, command.rect, transform)?;
-                    self.scope(Scope::Clip)?;
+                    let geometry = clip(&mut self.scene, command.rect, transform)?;
+                    self.coverage.push_clip(geometry)?;
                 }
                 K::PushGeometryClip => {
                     if let Some(path) = &command.path {
                         let path = Arc::new(path.to_geometry()?);
-                        if let Some([l, t, r, b]) = path.axis_aligned_rectangle_bounds() {
-                            clip(&mut self.scene, [l, t, r - l, b - t], transform)?;
-                        } else {
-                            self.scene.push_mask(Mask::Geometry(GeometryMask {
-                                geometry: path,
-                                transform: affine(transform)?,
-                            }))?;
-                        }
-                        self.scope(Scope::Clip)?;
+                        let geometry =
+                            if let Some([l, t, r, b]) = path.axis_aligned_rectangle_bounds() {
+                                clip(&mut self.scene, [l, t, r - l, b - t], transform)?
+                            } else {
+                                self.scene.push_mask(Mask::Geometry(GeometryMask {
+                                    geometry: path,
+                                    transform: affine(transform)?,
+                                }))?;
+                                true
+                            };
+                        self.coverage.push_clip(geometry)?;
                     }
                 }
-                K::PopClip | K::PopGeometryClip => self.pop(Scope::Clip)?,
+                K::PopClip | K::PopGeometryClip => self.coverage.pop_clip(&mut self.scene)?,
                 K::PushOpacityMask => self.mask(command, transform, level)?,
-                K::PopOpacityMask => self.pop(Scope::Mask)?,
+                K::PopOpacityMask => self.coverage.pop_mask(&mut self.scene)?,
                 K::DrawPicture => {
                     if let Some(child) = &command.picture {
                         self.picture(child, transform, level + 1)?;
@@ -202,9 +243,14 @@ impl Replay {
                     }
                 }
                 K::DrawRect | K::DrawRoundedRect | K::DrawEllipse | K::DrawCircle => {
+                    let Some(command) =
+                        materials::realize(&mut self.scene, command, transform, self.opacity)?
+                    else {
+                        continue;
+                    };
                     geometry::primitive(
                         &mut self.scene,
-                        command,
+                        &command,
                         transform,
                         self.opacity,
                         &self.options,
@@ -280,6 +326,18 @@ impl Replay {
                         self.opacity,
                     )?)?
                 }
+                K::DrawExtension if command.extension_id == 4 => {
+                    geometry::spline(&mut self.scene, picture, command, transform, self.opacity)?;
+                }
+                K::DrawExtension if command.extension_id == 7 => {
+                    self.scene.draw_custom_grid(Arc::new(command.clone()))?;
+                }
+                K::DrawExtension if command.extension_id == 13 => {
+                    #[cfg(feature = "gpu")]
+                    if let Some(parameters) = &command.backdrop_material {
+                        materials::draw(&mut self.scene, parameters, transform, self.opacity)?;
+                    }
+                }
                 // Original serialization rejects actual Texture/Visual/static
                 // resource owners. Their decoded null command is a source no-op.
                 K::DrawTexture | K::DrawVisual | K::DrawStaticDxf => {}
@@ -292,24 +350,6 @@ impl Replay {
         }
         Ok(())
     }
-    fn scope(&mut self, value: Scope) -> Result<()> {
-        self.coverage
-            .try_reserve(1)
-            .map_err(|_| ArchiveError::Capacity)?;
-        self.coverage.push(value);
-        Ok(())
-    }
-    fn pop(&mut self, expected: Scope) -> Result<()> {
-        match self.coverage.last() {
-            None => Ok(()),
-            Some(actual) if *actual == expected => {
-                self.scene.pop_scope()?;
-                self.coverage.pop();
-                Ok(())
-            }
-            _ => Err(ArchiveError::Unsupported),
-        }
-    }
     fn mask(&mut self, command: &ArchiveCommand, transform: Matrix4, level: u32) -> Result<()> {
         let mut source = Scene::default();
         if let Some(picture) = &command.picture {
@@ -320,7 +360,7 @@ impl Replay {
                 scene: Scene::default(),
                 opacity: 1.0,
                 opacity_stack: Vec::new(),
-                coverage: Vec::new(),
+                coverage: CoverageScopes::default(),
                 blends: 0,
                 visited: self.visited,
                 options,
@@ -348,7 +388,7 @@ impl Replay {
             let mask =
                 SourceMask::bounded_brush(Arc::new(brush.to_vector()?), command.rect, transform)?;
             self.scene.push_mask(Mask::Source(mask))?;
-            return self.scope(Scope::Mask);
+            return self.coverage.push_mask();
         } else {
             return Ok(());
         }
@@ -357,7 +397,7 @@ impl Replay {
             command.rect,
             transform,
         )?))?;
-        self.scope(Scope::Mask)
+        self.coverage.push_mask()
     }
 }
 pub(super) fn affine(matrix: Matrix4) -> Result<Affine> {
@@ -379,7 +419,7 @@ pub(super) fn affine(matrix: Matrix4) -> Result<Affine> {
         m[0][0], m[0][1], m[1][0], m[1][1], m[3][0], m[3][1],
     ]))
 }
-fn clip(scene: &mut Scene, rect: [f32; 4], transform: Matrix4) -> Result<()> {
+fn clip(scene: &mut Scene, rect: [f32; 4], transform: Matrix4) -> Result<bool> {
     let [x, y, w, h] = rect;
     let m = transform.0;
     if m[0][1].abs() <= 0.0001 && m[1][0].abs() <= 0.0001 {
@@ -396,7 +436,7 @@ fn clip(scene: &mut Scene, rect: [f32; 4], transform: Matrix4) -> Result<()> {
             transform: affine(transform)?,
         }))?;
     }
-    Ok(())
+    Ok(!(m[0][1].abs() <= 0.0001 && m[1][0].abs() <= 0.0001))
 }
 pub(super) fn blend(value: i32) -> Result<LayerBlend> {
     use LayerBlend::*;

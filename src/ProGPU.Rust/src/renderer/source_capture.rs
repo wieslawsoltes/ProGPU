@@ -59,6 +59,7 @@ impl Renderer {
             root: frame,
             origin: [0; 2],
             source: Some(source),
+            camera: None,
             mask_depth: self
                 .preparation_mask_depth
                 .get()

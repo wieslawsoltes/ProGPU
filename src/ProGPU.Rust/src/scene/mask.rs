@@ -47,6 +47,20 @@ impl CompiledDrawState {
         operation: MaskOperation,
         dpi: f32,
     ) -> Result<(), Error> {
+        let source_clip = if matches!(&mask, Mask::Geometry(_) | Mask::Source(_)) {
+            self.logical_clip
+        } else {
+            None
+        };
+        self.append_mask_with_source_clip(mask, operation, dpi, source_clip)
+    }
+    pub(crate) fn append_mask_with_source_clip(
+        &mut self,
+        mask: Mask,
+        operation: MaskOperation,
+        dpi: f32,
+        source_clip: Option<[f32; 4]>,
+    ) -> Result<(), Error> {
         if self.components.len() == 64 {
             return Err(Error::Capacity);
         }
@@ -62,7 +76,11 @@ impl CompiledDrawState {
         if !replace {
             components.extend_from_slice(&self.components);
         }
-        components.push(MaskComponent { mask, operation });
+        components.push(MaskComponent {
+            mask,
+            operation,
+            source_clip,
+        });
         let direct = components.len() <= 4
             && components.iter().enumerate().all(|(i, c)| {
                 c.operation == MaskOperation::Intersect
@@ -133,9 +151,20 @@ impl Scene {
                     | Command::PushClip(_)
                     | Command::PushClipEdges(_)
                     | Command::PopScope
+                    | Command::PopCoverage { .. }
                     | Command::PushBlend(_)
                     | Command::PopBlend => None,
-                    Command::Series(_) | Command::ArchiveHatch(_) => None,
+                    Command::CustomGrid(_) | Command::Series(_) => None,
+                    Command::ArchiveHatch(draw) if draw.uses_extension_pipeline() => None,
+                    Command::ArchiveThreeD(draw)
+                        if matches!(
+                            draw.route(),
+                            crate::picture_archive::ThreeDRoute::LineExtension
+                                | crate::picture_archive::ThreeDRoute::AcisExtension
+                        ) =>
+                    {
+                        None
+                    }
                     Command::ImageEffect(draw) if draw.mask.is_some() => None,
                     _ => Some(current),
                 }
@@ -225,6 +254,8 @@ impl Scene {
                 && !state.materialized
                 && state.blend.requires_premultiplied()
                 && (glyph
+                    || matches!(command, Command::ArchiveHatch(draw) if !draw.uses_extension_pipeline())
+                    || matches!(command, Command::ArchiveThreeD(draw) if matches!(draw.route(), crate::picture_archive::ThreeDRoute::Line | crate::picture_archive::ThreeDRoute::Acis))
                     || matches!(
                         command,
                         Command::VertexMesh(_)
@@ -350,8 +381,35 @@ impl Scene {
                 continue;
             }
             if matches!(command, Command::PopScope) {
-                let previous = stack.pop().ok_or(Error::InvalidInput)?;
+                let (_, previous) = stack.pop().ok_or(Error::InvalidInput)?;
                 let mut candidate = states[previous].clone();
+                candidate.blend = states[current].blend;
+                states.try_reserve(1).map_err(|_| Error::Capacity)?;
+                current = states.len();
+                states.push(candidate);
+                changes.push(Some(current));
+                continue;
+            }
+            if let Command::PopCoverage { kind, .. } = command {
+                let index = stack
+                    .iter()
+                    .rposition(|(candidate, _)| candidate == kind)
+                    .ok_or(Error::InvalidInput)?;
+                let (_, previous) = stack.remove(index);
+                let mut candidate = match kind {
+                    CoverageKind::Clip => {
+                        let mut value = states[current].clone();
+                        value.clip = states[previous].clip;
+                        value.logical_clip = states[previous].logical_clip;
+                        value
+                    }
+                    CoverageKind::Mask => {
+                        let mut value = states[previous].clone();
+                        value.clip = states[current].clip;
+                        value.logical_clip = states[current].logical_clip;
+                        value
+                    }
+                };
                 candidate.blend = states[current].blend;
                 states.try_reserve(1).map_err(|_| Error::Capacity)?;
                 current = states.len();
@@ -424,7 +482,14 @@ impl Scene {
             }
             states.try_reserve(1).map_err(|_| Error::Capacity)?;
             stack.try_reserve(1).map_err(|_| Error::Capacity)?;
-            stack.push(current);
+            stack.push((
+                if matches!(command, Command::PushClip(_) | Command::PushClipEdges(_)) {
+                    CoverageKind::Clip
+                } else {
+                    CoverageKind::Mask
+                },
+                current,
+            ));
             current = states.len();
             states.push(candidate);
             changes.push(Some(current));

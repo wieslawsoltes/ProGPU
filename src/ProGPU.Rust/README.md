@@ -35,9 +35,14 @@ Latest connected continuation (2026-11-10), implementation only:
 | Hatch boundaries and execution | Exact retained segment/record inventories and canonical dedicated pipeline, preserving ordinary Vector versus explicit extension dispatch | Static-DXF/late-camera/MSAA integration and all source/runtime qualification |
 | GPU line/scatter series | Separate built-in/extension shaders, exact side-buffer selection, immutable CPU/GPU generations, same-device ownership, bounded reuse and actual upload metrics | Original cold/warm, byte/NaN/float/pixel/device/browser/performance controls |
 | Bounded opacity masks | Original declared bounds, active clip, 2-pixel padding/16-pixel storage and direct R8 Vector/Text/HintedGlyphPaint/Texture capture | Unsupported original mask source families stay explicit; all original source/pixel/lifetime/performance gates |
+| Retained interaction | Original command cache, exact primitives/quadtree, path/stroke/source-join/series input, typed source-only scopes and nested raster-bounds traversal | Live source-Visual/hinted producer integration and all source/input qualification |
+| GPU hit queries | Unchanged point/rectangle/ellipse shaders, single-pass and ordered-stage dispatch, same-device immutable index, raw 256-slot outputs/counters and asynchronous mapping | Original full-result/overflow/tie/compiler/runtime/browser/performance/package controls |
+| 3D line and ACIS | Owned source arrays, exact generic/extension dispatch, dedicated pipelines, complete ACIS records and actual target camera generation | General late-camera text/path, static-DXF/Mesh3D providers and all runtime/source qualification |
+| Archive materials and scopes | Original immutable theme/alias environments, backdrop factory/owned parameters, independent axis/shared-mask restoration and frozen source scissors | Actual platform snapshots/non-string keys/mutation producers and all source/provider/pixel gates |
+| CustomGrid and spline extension | Original fullscreen grid shader/quad, and compile-only/no-draw spline extension4 behavior | Original primary multisample, source/runtime/browser/pixel/performance controls |
 
 
-Estimated scope completion: **overall 60–65%, implementation about 80%, validation
+Estimated scope completion: **overall about 65%, implementation about 80–85%, validation
 and qualification about 20%**. These are judgment estimates, not measured coverage.
 
 The shared `--series` / browser `?scene=series` gallery authors twelve panels for
@@ -46,6 +51,11 @@ NaN line breaks, mirrored data and immutable CPU/static GPU generations. It has
 not been compiled or run. See [series provenance](notes/gpu-series-port.md),
 [bounded masks](notes/bounded-opacity-mask-port.md),
 [geometry](notes/archive-geometry-port.md) and [Hatch](notes/picture-archive-hatch-port.md).
+The sample now uses the original [CustomGrid](notes/custom-grid-port.md) extension
+as its background. Further connected producers are documented in the
+[interaction](notes/picture-archive-interaction-port.md),
+[GPU query](notes/gpu-hit-query-port.md), [3D](notes/archive-3d-port.md) and
+[material/scope](notes/archive-material-scopes-port.md) notes.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

@@ -215,6 +215,9 @@ pub struct MaskComponent {
     pub mask: Mask,
     /// Original operation at this position in the ordered chain.
     pub operation: MaskOperation,
+    /// Original logical scissor when a source mask was pushed. Canonical analytic
+    /// masks retain their independent route; painted captures freeze this clip.
+    pub source_clip: Option<[f32; 4]>,
 }
 
 /// Original rounded-mask coverage policy.

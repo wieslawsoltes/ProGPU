@@ -144,6 +144,10 @@ fn place_scene(
             // matrix. Its actual inherited binary clip is placed separately.
             Command::Clear(color) => Command::Clear(*color),
             Command::PopScope => Command::PopScope,
+            Command::PopCoverage { kind, source_clip } => Command::PopCoverage {
+                kind: *kind,
+                source_clip: *source_clip,
+            },
             Command::PushClip(bounds) => clip_command(bounds_edges(*bounds)?, transform)?,
             Command::PushClipEdges(edges) => clip_command(*edges, transform)?,
             Command::PushMask(mask) => Command::PushMask(Box::new(place_mask(mask, transform)?)),
@@ -177,6 +181,7 @@ fn place_scene(
                 placed.validate()?;
                 Command::BackdropMaterial(Box::new(placed))
             }
+            Command::CompileOnly(..) => return Err(Error::UnsupportedExecution),
             Command::ArchiveGeometry(draw) => {
                 Command::ArchiveGeometry(Arc::new(draw.placed(transform)?))
             }
@@ -184,6 +189,9 @@ fn place_scene(
                 Command::ArchiveVector(Arc::new(draw.placed(transform)?))
             }
             Command::ArchiveHatch(draw) => Command::ArchiveHatch(Arc::new(draw.placed(transform)?)),
+            Command::ArchiveThreeD(draw) => {
+                Command::ArchiveThreeD(Arc::new(draw.placed(transform)?))
+            }
             Command::VertexMesh(draw) => {
                 let mut placed = draw.as_ref().clone();
                 placed.transform = draw.transform * transform;
@@ -280,6 +288,7 @@ fn place_scene(
                 placed.draw = place_image(&draw.draw, transform)?;
                 Command::ImageFilteredImage(Box::new(placed))
             }
+            Command::CustomGrid(command) => Command::CustomGrid(command.clone()),
             Command::Series(draw) => Command::Series(Arc::new(draw.placed(transform))),
             Command::ImageEffect(draw) => {
                 let mut placed = draw.as_ref().clone();
@@ -637,9 +646,11 @@ fn preflight_devices(
                     image(pattern)?;
                 }
             }
+            Command::CompileOnly(..) => return Err(Error::UnsupportedExecution),
             Command::ArchiveGeometry(draw) => draw.validate()?,
             Command::ArchiveVector(draw) => draw.validate()?,
             Command::ArchiveHatch(draw) => draw.validate()?,
+            Command::ArchiveThreeD(draw) => draw.validate()?,
             Command::NativeDesignVector(draw) => {
                 draw.validate()
                     .map_err(native_design::native_design_error)?;
@@ -661,6 +672,7 @@ fn preflight_devices(
             Command::ImageFilteredImage(draw) => draw.preflight_source_devices(device)?,
             Command::TileImage(draw) | Command::PlacedTileImage(draw, _) => image(&draw.image)?,
             Command::BackdropMaterial(draw) => draw.preflight_device(device)?,
+            Command::CustomGrid(command) => super::custom_grid::validate(command)?,
             Command::Series(draw) => {
                 if let crate::series::SeriesSource::Gpu(buffer) = &draw.source {
                     if !buffer.is_owned_by(device) {
@@ -783,9 +795,11 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
         match command {
             #[cfg(feature = "gpu")]
             Command::BackdropMaterial(v) => v.opacity *= opacity,
+            Command::CompileOnly(..) => return Err(Error::UnsupportedExecution),
             Command::ArchiveGeometry(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::ArchiveVector(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::ArchiveHatch(v) => *v = Arc::new(v.with_opacity(opacity)?),
+            Command::ArchiveThreeD(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::VertexMesh(v) => v.semantic_opacity *= opacity,
             Command::Analytic(v) => v.color[3] *= opacity,
             Command::Path(v) => v.color[3] *= opacity,
@@ -820,6 +834,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             Command::ImageColor(v) => v.draw.opacity *= opacity,
             Command::ColorFilteredImage(v) => v.draw.opacity *= opacity,
             Command::ImageFilteredImage(v) => v.draw.opacity *= opacity,
+            Command::CustomGrid(_) => {}
             Command::Series(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::ImageEffect(v) => {
                 v.apply_source_opacity(opacity)?;
@@ -847,6 +862,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             | Command::PushBlend(_)
             | Command::PopBlend
             | Command::PopScope
+            | Command::PopCoverage { .. }
             | Command::PushClip(_)
             | Command::PushClipEdges(_)
             | Command::PushMask(_)

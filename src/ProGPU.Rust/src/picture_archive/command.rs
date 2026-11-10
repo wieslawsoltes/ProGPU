@@ -215,6 +215,9 @@ pub struct ArchiveCommand {
     pub vertex_mesh: Option<Arc<ArchiveVertexMesh>>,
     pub vertex_color_blend_mode: VertexColorBlend,
     pub extension_id: i32,
+    /// Actual original source-only DataParam owner. The source archive wire rejects it.
+    #[cfg(feature = "gpu")]
+    pub backdrop_material: Option<Arc<crate::backdrop::BackdropMaterialParameters>>,
     pub int_param: i32,
     pub float_param: f32,
     pub prefer_glyph_atlas: bool,
@@ -289,6 +292,8 @@ impl Default for ArchiveCommand {
             vertex_mesh: Default::default(),
             vertex_color_blend_mode: VertexColorBlend::Clear,
             extension_id: Default::default(),
+            #[cfg(feature = "gpu")]
+            backdrop_material: None,
             int_param: Default::default(),
             float_param: Default::default(),
             prefer_glyph_atlas: Default::default(),
@@ -394,6 +399,8 @@ impl ArchiveCommand {
             vertex_mesh: read_vertex_mesh(reader)?.map(Arc::new),
             vertex_color_blend_mode: color_blend(reader)?,
             extension_id: reader.read()?,
+            #[cfg(feature = "gpu")]
+            backdrop_material: None,
             int_param: reader.read()?,
             float_param: reader.read()?,
             prefer_glyph_atlas: if reader.version >= 9 {
@@ -417,6 +424,10 @@ impl ArchiveCommand {
     }
     pub(super) fn write(&self, writer: &mut Writer, level: u32) -> Result<()> {
         self.validate_version(writer.version)?;
+        #[cfg(feature = "gpu")]
+        if self.backdrop_material.is_some() {
+            return Err(ArchiveError::Unsupported);
+        }
         writer.write(self.kind as i32)?;
         writer.write(self.hit_test_id)?;
         writer.write(self.rect)?;

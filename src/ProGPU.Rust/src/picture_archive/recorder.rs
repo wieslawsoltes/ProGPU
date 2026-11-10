@@ -1,4 +1,5 @@
 //! Explicit typed recording of the original command and side-buffer contract.
+mod materials;
 use super::{
     ArchiveCommand, ArchiveError, ArchivePicture, MAX_ARRAY_ELEMENTS, MAX_COMMANDS, Result,
 };

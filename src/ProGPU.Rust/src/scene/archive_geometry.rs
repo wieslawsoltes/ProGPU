@@ -33,9 +33,25 @@ impl Scene {
                 let (resolved, final_target) = draw.resolve(dpi, offscreen)?;
                 candidate
                     .commands
-                    .try_reserve(resolved.commands.len())
+                    .try_reserve(resolved.commands.len().max(1))
                     .map_err(|_| Error::Capacity)?;
-                candidate.commands.extend(resolved.commands);
+                if draw.compile_only() {
+                    // The original explicit extension records compiled vectors,
+                    // advances the pending range, then invokes a no-op Render.
+                    if resolved.commands.is_empty() {
+                        candidate
+                            .commands
+                            .push(Command::CompileOnly(Box::new(Command::Empty), draw.clone()));
+                    } else {
+                        candidate.commands.extend(
+                            resolved.commands.into_iter().map(|command| {
+                                Command::CompileOnly(Box::new(command), draw.clone())
+                            }),
+                        );
+                    }
+                } else {
+                    candidate.commands.extend(resolved.commands);
+                }
                 candidate.final_target_paths |= final_target;
             } else {
                 candidate.commands.push(command.clone());

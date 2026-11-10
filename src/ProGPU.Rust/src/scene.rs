@@ -38,8 +38,10 @@ mod clear;
 mod color_filter;
 mod image_filter;
 pub use clear::{ClearColor, TargetAlpha};
+mod coverage_scope;
 mod layer;
 mod mask;
+pub(crate) use coverage_scope::CoverageKind;
 pub use layer::{LayerBlend, LayerDraw};
 #[cfg(feature = "gpu")]
 mod managed_shader;
@@ -50,6 +52,7 @@ pub use owned_shader::OwnedShaderEffectDraw;
 #[cfg(feature = "gpu")]
 mod backdrop;
 mod canvas_text;
+mod custom_grid;
 mod hatch;
 mod native_atlas;
 mod native_design;
@@ -59,6 +62,7 @@ mod series;
 mod shader_effect;
 mod source_capture;
 mod text;
+mod three_d;
 #[cfg(feature = "gpu")]
 pub use managed_shader::ManagedShaderEffectDraw;
 #[cfg(feature = "gpu")]
@@ -71,7 +75,10 @@ pub(crate) use text::ResolvedSceneText;
 #[derive(Clone, Debug)]
 pub(crate) enum DrawRange {
     Series(usize),
+    CustomGrid(Range<u32>),
     Hatch(std::ops::Range<u32>),
+    ThreeDLine(std::ops::Range<u32>),
+    ThreeDAcis(std::ops::Range<u32>),
     State(usize),
     #[cfg(feature = "gpu")]
     BackdropMaterial(usize),
@@ -205,9 +212,15 @@ impl MaterialPaint {
 #[derive(Clone, Debug)]
 pub(crate) enum Command {
     Series(Arc<crate::series::SeriesDraw>),
+    CustomGrid(Arc<crate::picture_archive::ArchiveCommand>),
     ArchiveHatch(Arc<crate::picture_archive::ArchiveHatchDraw>),
+    ArchiveThreeD(Arc<crate::picture_archive::ArchiveThreeDDraw>),
     ArchiveVector(Arc<crate::picture_archive::ArchiveVectorDraw>),
     ArchiveGeometry(Arc<crate::picture_archive::ArchiveGeometryDraw>),
+    CompileOnly(
+        Box<Command>,
+        Arc<crate::picture_archive::ArchiveGeometryDraw>,
+    ),
     CanvasTextPath(Arc<canvas_text::CanvasTextPath>),
     NativeDesignAtlas(Arc<crate::text::native_atlas::NativeDesignAtlasDraw>),
     NativeAtlasLease(Arc<crate::text::native_atlas::NativeAtlasPlan>),
@@ -240,6 +253,10 @@ pub(crate) enum Command {
     // Independent original edges after source-capture placement.
     PushClipEdges([f32; 4]),
     PopScope,
+    PopCoverage {
+        kind: CoverageKind,
+        source_clip: bool,
+    },
     Analytic(AnalyticPrimitive),
     VertexMesh(Box<crate::vector::VertexMeshDraw>),
     Path(PathDraw),
@@ -592,7 +609,23 @@ impl Scene {
         commands
             .try_reserve_exact(self.commands.len())
             .map_err(|_| Error::Capacity)?;
+        let mut compile_only = Vec::new();
+        compile_only
+            .try_reserve_exact(self.commands.len())
+            .map_err(|_| Error::Capacity)?;
+        let mut compile_only_owners = Vec::new();
         for command in &self.commands {
+            let command = if let Command::CompileOnly(command, owner) = command {
+                compile_only.push(true);
+                compile_only_owners
+                    .try_reserve(1)
+                    .map_err(|_| Error::Capacity)?;
+                compile_only_owners.push(owner.clone());
+                command.as_ref()
+            } else {
+                compile_only.push(false);
+                command
+            };
             let stroke = match command {
                 Command::Stroke(draw) => Some((draw, &draw.pen.brush)),
                 Command::PlacedStroke(draw, fill_brush) => Some((draw, fill_brush)),
@@ -638,6 +671,9 @@ impl Scene {
         }
         materials.clear();
         let has_materials = commands.iter().any(|command| {
+            if let Command::ArchiveThreeD(draw) = command.as_ref() {
+                return draw.is_active();
+            }
             #[cfg(feature = "gpu")]
             if matches!(command.as_ref(), Command::HintedGlyphPaint(_)) {
                 return true;
@@ -652,6 +688,7 @@ impl Scene {
                     | Command::VertexMesh(_)
                     | Command::ArchiveVector(_)
                     | Command::ArchiveHatch(_)
+                    | Command::ArchiveThreeD(_)
             )
         });
         let mut rasters = Vec::new();
@@ -664,6 +701,7 @@ impl Scene {
                 | Command::NativeAtlasLease(_)
                 | Command::NativeDesignVector(_)
                 | Command::ArchiveGeometry(_)
+                | Command::CompileOnly(..)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
@@ -673,16 +711,19 @@ impl Scene {
                 | Command::PushClip(_)
                 | Command::PushClipEdges(_)
                 | Command::PopScope
+                | Command::PopCoverage { .. }
                 | Command::Analytic(_)
                 | Command::VertexMesh(_)
                 | Command::ArchiveVector(_)
                 | Command::ArchiveHatch(_)
+                | Command::ArchiveThreeD(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
                 | Command::PlacedStroke(..)
                 | Command::Image(..)
                 | Command::TileImage(_)
                 | Command::PlacedTileImage(..)
+                | Command::CustomGrid(_)
                 | Command::Series(_)
                 | Command::ImageEffect(_)
                 | Command::ImageColor(_)
@@ -733,6 +774,14 @@ impl Scene {
         let layout = AtlasLayout::new(rasters.iter().map(|(_, request)| request.size))?;
         let mut mesh = Mesh::default();
         let mut hatches = crate::picture_archive::HatchBatch::default();
+        let mut three_d = crate::picture_archive::ThreeDBatch::default();
+        let camera = commands
+            .iter()
+            .filter_map(|c| match c.as_ref() {
+                Command::ArchiveThreeD(draw) => draw.camera(),
+                _ => None,
+            })
+            .last();
         let mut image_mesh = Mesh::default();
         let mut images = Vec::new();
         let mut image_bindings = HashMap::new();
@@ -750,6 +799,7 @@ impl Scene {
         let mut backdrop_materials = Vec::new();
         let mut image_effects = Vec::new();
         let mut series = Vec::new();
+        let mut custom_grids = Vec::new();
         let mut image_colors = Vec::new();
         let mut color_filtered_images = Vec::new();
         let mut image_filtered_images = Vec::new();
@@ -786,6 +836,7 @@ impl Scene {
                         | Command::PushClip(_)
                         | Command::PushClipEdges(_)
                         | Command::PopScope
+                        | Command::PopCoverage { .. }
                 ) {
                     continue;
                 }
@@ -793,6 +844,9 @@ impl Scene {
             blend::admit_command(command, active_blend)?;
             let brush_index = match command {
                 Command::VertexMesh(draw) => materials.register(Some(&draw.brush), 1.0)?,
+                Command::ArchiveThreeD(draw) if draw.is_active() => {
+                    materials.register(draw.brush().map(Arc::as_ref), draw.opacity())?
+                }
                 Command::ArchiveHatch(draw) if draw.is_active() => {
                     materials.register(Some(&draw.brush()?), draw.opacity())?
                 }
@@ -823,6 +877,7 @@ impl Scene {
                 | Command::NativeAtlasLease(_)
                 | Command::NativeDesignVector(_)
                 | Command::ArchiveGeometry(_)
+                | Command::CompileOnly(..)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
@@ -830,7 +885,8 @@ impl Scene {
                 | Command::PushMaskDifference(_)
                 | Command::PushClip(_)
                 | Command::PushClipEdges(_)
-                | Command::PopScope => {}
+                | Command::PopScope
+                | Command::PopCoverage { .. } => {}
                 Command::Clear(color) => draws.push(DrawRange::Clear(*color)),
                 #[cfg(feature = "gpu")]
                 Command::BackdropMaterial(draw) => {
@@ -840,6 +896,12 @@ impl Scene {
                     }
                     draws.push(DrawRange::BackdropMaterial(backdrop_materials.len()));
                     backdrop_materials.push(draw);
+                }
+                Command::CustomGrid(command) => {
+                    custom_grid::validate(command)?;
+                    custom_grids.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    custom_grid::append(&mut mesh)?;
+                    custom_grids.push(command.clone());
                 }
                 Command::Series(draw) => {
                     draw.validate()?;
@@ -1094,6 +1156,14 @@ impl Scene {
                 Command::VertexMesh(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::ArchiveVector(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::ArchiveHatch(draw) => hatches.append(draw, &mut mesh, brush_index)?,
+                Command::ArchiveThreeD(draw) => {
+                    three_d
+                        .sources
+                        .try_reserve(1)
+                        .map_err(|_| Error::Capacity)?;
+                    draw.append(&mut mesh, brush_index, &mut three_d)?;
+                    three_d.sources.push(draw.clone());
+                }
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
                     // Original native analytic execution expands in the local
@@ -1122,10 +1192,18 @@ impl Scene {
                 }
             }
             let end = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
-            if end != first_index {
-                if matches!(command, Command::ArchiveHatch(draw) if draw.uses_extension_pipeline())
+            if end != first_index && !compile_only[command_index] {
+                if matches!(command, Command::CustomGrid(_)) {
+                    draws.push(DrawRange::CustomGrid(first_index..end));
+                } else if matches!(command, Command::ArchiveHatch(draw) if draw.uses_extension_pipeline())
                 {
                     draws.push(DrawRange::Hatch(first_index..end));
+                } else if matches!(command, Command::ArchiveThreeD(draw) if draw.route() == crate::picture_archive::ThreeDRoute::LineExtension)
+                {
+                    draws.push(DrawRange::ThreeDLine(first_index..end));
+                } else if matches!(command, Command::ArchiveThreeD(draw) if draw.route() == crate::picture_archive::ThreeDRoute::AcisExtension)
+                {
+                    draws.push(DrawRange::ThreeDAcis(first_index..end));
                 } else {
                     append_draw(&mut draws, DrawRange::Vector(first_index..end));
                 }
@@ -1141,7 +1219,10 @@ impl Scene {
         }
         Ok(CompiledScene {
             final_target_paths: self.final_target_paths,
+            compile_only_owners,
             hatches,
+            three_d,
+            camera,
             native_design_leases: self.native_design_leases()?,
             native_atlas_leases: self.native_atlas_leases()?,
             mesh,
@@ -1157,6 +1238,7 @@ impl Scene {
             image_mesh,
             image_effects,
             series,
+            custom_grids,
             #[cfg(feature = "gpu")]
             backdrop_materials,
             image_colors,
@@ -1180,7 +1262,10 @@ impl Scene {
 #[derive(Debug)]
 pub struct CompiledScene {
     pub(crate) final_target_paths: bool,
+    pub(crate) compile_only_owners: Vec<Arc<crate::picture_archive::ArchiveGeometryDraw>>,
     pub(crate) hatches: crate::picture_archive::HatchBatch,
+    pub(crate) three_d: crate::picture_archive::ThreeDBatch,
+    pub(crate) camera: Option<crate::vector::Matrix4>,
     pub(crate) native_atlas_leases: Vec<Arc<crate::text::native_atlas::NativeAtlasPlan>>,
     pub(crate) native_design_leases:
         Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
@@ -1197,6 +1282,7 @@ pub struct CompiledScene {
     pub(crate) image_mesh: Mesh,
     pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
     pub(crate) series: Vec<crate::series::SeriesDraw>,
+    pub(crate) custom_grids: Vec<Arc<crate::picture_archive::ArchiveCommand>>,
     #[cfg(feature = "gpu")]
     pub(crate) backdrop_materials: Vec<crate::backdrop::BackdropMaterialDraw>,
     pub(crate) image_colors: Vec<crate::image::ImageColorMatrix>,

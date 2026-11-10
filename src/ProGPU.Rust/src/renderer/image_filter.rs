@@ -493,6 +493,7 @@ impl Renderer {
             root: pixel_frame,
             origin: [0; 2],
             mask_depth: 1,
+            camera: None,
             source: Some(crate::composition::SourceRenderFrame::image_filter(
                 size,
                 crate::vector::Matrix4::IDENTITY,

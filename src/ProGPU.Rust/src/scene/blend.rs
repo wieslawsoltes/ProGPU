@@ -137,13 +137,17 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
         | Command::PushClip(_)
         | Command::PushClipEdges(_)
         | Command::PopScope
+        | Command::PopCoverage { .. }
         | Command::Clear(_)
         | Command::Analytic(_)
         | Command::VertexMesh(_)
         | Command::ArchiveGeometry(_)
+        | Command::CompileOnly(..)
         | Command::ArchiveVector(_)
+        | Command::CustomGrid(_)
         | Command::Series(_)
         | Command::ArchiveHatch(_)
+        | Command::ArchiveThreeD(_)
         | Command::MaterialAnalytic(..)
         | Command::Path(_)
         | Command::MaterialPath(..)

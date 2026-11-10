@@ -36,16 +36,17 @@ preserves complete side buffers and inactive metadata. Compiled paths, textures,
 resolved text, opaque source/filter owners and lossy source-history cases reject.
 Decoded empty cull bounds remain distinct from the recorder's canonical empty.
 
-Remaining execution boundaries (transport still retains all 39 kinds): late GPU
-camera transforms; source 3D/ACIS/static-DXF/native hinted and remaining extension
-producers; unresolved theme/backdrop materials; crossed clip/mask stack pops that
-cannot be expressed by current Scene LIFO scopes. Picture/brush/stroke opacity
-masks now retain original bounded R8 storage; see `bounded-opacity-mask-port.md`.
-Built-in and explicit extension line/scatter producers are connected separately;
-see `gpu-series-port.md`. Ordinary DrawHatch and explicit extension3 preserve
-their distinct original execution routes. Null decoded texture/visual/static
-records keep source no-op behavior. No GPU resources are invented for absent
-serialized producers.
+Remaining execution boundaries (transport still retains all 39 kinds): general
+late-camera text/path, source static-DXF/Mesh3D/native hinted and remaining external
+extension producers. Original 3D/ACIS source arrays, exact generic/extension routes
+and their actual shared camera target are connected; see `archive-3d-port.md`.
+Theme/backdrop material replay now accepts explicit immutable source environments,
+and crossed axis/shared-mask pops retain original independent inventories; see
+`archive-material-scopes-port.md`. Actual external platform/tree snapshots stay
+explicit. Picture/brush/stroke masks retain bounded R8 storage, and built-in versus
+extension line/scatter, Hatch, CustomGrid and compile-only spline4 preserve their
+original route distinctions. Null decoded texture/visual/static records keep
+source no-op behavior. No resources are invented for absent serialized producers.
 
 No compiler, tests, browser, benchmarks or execution qualification were run.
 Only touched source formatting was performed; original qualification gates stay.

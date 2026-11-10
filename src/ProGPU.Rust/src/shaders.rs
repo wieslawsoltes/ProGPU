@@ -146,10 +146,15 @@ pub const BACKDROP_MATERIAL: &str =
 
 /// Original analytic retained hatch winding and registered-material shader.
 pub const HATCH: &str = include_str!("../../ProGPU.Scene/Shaders/Hatch.wgsl");
+/// Original dedicated source line and ACIS shader modules.
+pub const LINE_3D: &str = include_str!("../../ProGPU.Scene/Shaders/Line3D.wgsl");
+pub const ACIS_SOLID: &str = include_str!("../../ProGPU.Scene/Shaders/AcisSolid.wgsl");
 
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
     ("hatch", HATCH),
+    ("line_3d", LINE_3D),
+    ("acis_solid", ACIS_SOLID),
     ("backdrop_material", BACKDROP_MATERIAL),
     ("group_blend", GROUP_BLEND),
     ("path_signed_leaf", PATH_SIGNED_LEAF),
@@ -184,3 +189,9 @@ pub const GPU_LINE_SERIES: &str = include_str!("../../ProGPU.Scene/Shaders/GpuLi
 /// Original extension scatter shader identity.
 pub const GPU_SCATTER_SERIES: &str =
     include_str!("../../ProGPU.Scene/Shaders/GpuScatterSeries.wgsl");
+
+/// Original point/rectangle/ellipse GPU input queries and ordered stages.
+pub const HIT_TESTING: &str = include_str!("../../ProGPU.Vector/Shaders/GpuHitTesting.wgsl");
+
+/// Original binding-free fullscreen procedural grid extension.
+pub const CUSTOM_GRID: &str = include_str!("../../ProGPU.Scene/Shaders/CustomGrid.wgsl");

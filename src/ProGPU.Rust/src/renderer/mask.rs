@@ -368,8 +368,11 @@ impl Renderer {
                 draw,
                 DrawRange::Advanced(_)
                     | DrawRange::Hatch(_)
+                    | DrawRange::ThreeDLine(_)
+                    | DrawRange::ThreeDAcis(_)
                     | DrawRange::Clear(_)
                     | DrawRange::Axis(_)
+                    | DrawRange::CustomGrid(_)
                     | DrawRange::Series(_)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::BackdropMaterial(_)

@@ -163,7 +163,10 @@ impl Renderer {
             DrawRange::Clear(_)
             | DrawRange::Axis(_)
             | DrawRange::Series(_)
-            | DrawRange::Hatch(_) => None,
+            | DrawRange::Hatch(_)
+            | DrawRange::ThreeDLine(_)
+            | DrawRange::ThreeDAcis(_)
+            | DrawRange::CustomGrid(_) => None,
             DrawRange::ImageEffect(index) if compiled.image_effects[*index].mask.is_some() => None,
             _ => Some(current),
         });
@@ -256,8 +259,16 @@ impl Renderer {
                 current = *index;
                 continue;
             }
-            if !matches!(draw, DrawRange::Clear(_) | DrawRange::Axis(_))
-                && frame.clip_intersects(compiled.states[current].clip)
+            if !matches!(
+                draw,
+                DrawRange::Clear(_)
+                    | DrawRange::Axis(_)
+                    | DrawRange::Hatch(_)
+                    | DrawRange::Series(_)
+                    | DrawRange::ThreeDLine(_)
+                    | DrawRange::ThreeDAcis(_)
+                    | DrawRange::CustomGrid(_)
+            ) && frame.clip_intersects(compiled.states[current].clip)
             {
                 if let DrawRange::ImageEffect(index) = draw
                     && compiled.image_effects[*index].mask.is_some()
@@ -446,6 +457,9 @@ impl Renderer {
             // Bind preceding analytic/sampled masks directly when admitted.
             // Prequantizing an otherwise direct prefix would change source alpha.
             for component in &source.components[..index] {
+                if let Some(edges) = component.source_clip {
+                    recording.push_retained_clip_edges(edges)?;
+                }
                 match component.operation {
                     crate::mask::MaskOperation::Intersect => {
                         recording.push_mask(component.mask.clone())?
@@ -454,8 +468,17 @@ impl Renderer {
                         recording.push_mask_difference(component.mask.clone())?
                     }
                 }
+                if component.source_clip.is_some() {
+                    recording.pop_archive_coverage(crate::scene::CoverageKind::Clip, true)?;
+                }
+            }
+            if let Some(edges) = source.components[index].source_clip {
+                recording.push_retained_clip_edges(edges)?;
             }
             recording.append(&placed)?;
+            if source.components[index].source_clip.is_some() {
+                recording.pop_scope()?;
+            }
             for _ in 0..index {
                 recording.pop_scope()?;
             }
@@ -506,6 +529,7 @@ impl Renderer {
                     self.device.limits().max_texture_dimension_2d,
                 )?,
                 operation: crate::mask::MaskOperation::Intersect,
+                source_clip: None,
             });
             components.extend_from_slice(&source.components[index + 1..]);
             let tail = CompiledDrawState {
@@ -926,12 +950,18 @@ fn resolve_geometry(
     }
     let mut result = CompiledDrawState {
         clip: source.clip,
+        logical_clip: source.logical_clip,
         blend: source.blend,
         ..Default::default()
     };
     for component in source.components.iter() {
         let Mask::Geometry(geometry) = &component.mask else {
-            result.append_mask(component.mask.clone(), component.operation, frame.dpi_scale)?;
+            result.append_mask_with_source_clip(
+                component.mask.clone(),
+                component.operation,
+                frame.dpi_scale,
+                component.source_clip,
+            )?;
             continue;
         };
         let matrix = crate::vector::Matrix4::from_affine(geometry.transform);
@@ -1002,7 +1032,12 @@ fn resolve_geometry(
                 crate::mask::SourceMask::bounded_full(scene, matrix)?
             })
         };
-        result.append_mask(mask, component.operation, frame.dpi_scale)?;
+        result.append_mask_with_source_clip(
+            mask,
+            component.operation,
+            frame.dpi_scale,
+            component.source_clip,
+        )?;
     }
     Ok(result)
 }

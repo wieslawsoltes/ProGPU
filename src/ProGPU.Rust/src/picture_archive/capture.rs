@@ -388,6 +388,17 @@ fn capture_scene(source: &Scene, level: u32) -> Result<Arc<ArchivePicture>> {
     let mut out = Builder::new();
     for command in source.archive_commands()? {
         match command {
+            C::CustomGrid(command) => {
+                if command.point_buffer_count != 0
+                    || command.double_buffer_count != 0
+                    || command.weight_buffer_count != 0
+                    || command.line3d_buffer_count != 0
+                    || command.float_buffer_count != 0
+                {
+                    return Err(ArchiveError::Unsupported);
+                }
+                out.scoped((**command).clone(), 1.0, LayerBlend::SrcOver)?;
+            }
             C::Series(draw) => out.picture(
                 super::series::capture_series(draw)?,
                 Matrix4::IDENTITY,
@@ -428,6 +439,37 @@ fn capture_scene(source: &Scene, level: u32) -> Result<Arc<ArchivePicture>> {
                 _ => return Err(ArchiveError::Unsupported),
             },
             C::PopScope => out.pop()?,
+            C::PopCoverage { kind, source_clip } => {
+                let selected = out
+                    .scopes
+                    .iter()
+                    .rposition(|value| match kind {
+                        crate::scene::CoverageKind::Clip => *value == ArchiveCommandKind::PopClip,
+                        crate::scene::CoverageKind::Mask => *value != ArchiveCommandKind::PopClip,
+                    })
+                    .ok_or(ArchiveError::InvalidData)?;
+                out.scopes.remove(selected);
+                out.push(ArchiveCommand {
+                    kind: if *source_clip {
+                        ArchiveCommandKind::PopClip
+                    } else {
+                        ArchiveCommandKind::PopOpacityMask
+                    },
+                    ..Default::default()
+                })?;
+            }
+            #[cfg(feature = "gpu")]
+            C::BackdropMaterial(draw) => out.scoped(
+                ArchiveCommand {
+                    kind: ArchiveCommandKind::DrawExtension,
+                    extension_id: 13,
+                    backdrop_material: Some(Arc::new(draw.parameters.clone())),
+                    transform: draw.transform,
+                    ..Default::default()
+                },
+                draw.opacity,
+                draw.blend,
+            )?,
             C::VertexMesh(draw) => out.scoped(
                 ArchiveCommand {
                     kind: ArchiveCommandKind::DrawVertexMesh,

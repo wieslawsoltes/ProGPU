@@ -1,14 +1,28 @@
 //! Original versioned owned picture archive, independent of GPU/device handles.
 use std::sync::Arc;
 mod capture;
+mod interaction;
+pub use interaction::{
+    ArchiveHitIndex, ArchiveHitTestCache, CapturedHitCommand, HitNode, HitPrimitive,
+    HitPrimitiveKind, SourceHitGeometry, SourceHitGeometryKind,
+};
+mod three_d;
+pub(crate) use three_d::ThreeDBatch;
+pub use three_d::{ArchiveThreeDDraw, ThreeDRoute};
 mod hatch;
 pub(crate) use hatch::HatchBatch;
 pub use hatch::{ArchiveHatchDraw, GpuHatchRecord, GpuHatchSegment};
 mod command;
+mod environment;
 mod geometry;
 mod geometry_draw;
 mod io;
 mod material;
+pub use environment::{
+    ArchiveElementTheme, ArchiveMaterialEnvironment, ArchiveMaterialProvider,
+    ArchiveResourceDictionary, ArchiveThemeDictionaryKind, ArchiveThemeElement,
+    ArchiveThemeLookupRoot, ArchiveThemeValue,
+};
 mod replay;
 mod vector_draw;
 pub use geometry_draw::{ArchiveGeometryDraw, SplineGeometry};

@@ -8,6 +8,7 @@ pub mod composition;
 pub mod effects;
 pub mod font;
 pub mod geometry;
+pub mod hit_query;
 pub mod image;
 pub mod image_effect;
 pub mod image_filter;

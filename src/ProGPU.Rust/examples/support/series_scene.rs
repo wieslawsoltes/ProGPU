@@ -2,6 +2,7 @@
 use progpu::{
     Error,
     geometry::{Affine, AnalyticPrimitive},
+    picture_archive::{ArchiveCommand, ArchiveCommandKind},
     renderer::Renderer,
     scene::Scene,
     series::{SeriesData, SeriesDraw, SeriesKind, SeriesLayout, SeriesShader},
@@ -27,6 +28,11 @@ pub fn series_scene(renderer: &mut Renderer) -> Result<Scene, Error> {
     broken[28] = f32::NAN;
     let broken: Arc<[f32]> = broken.into();
     let mut scene = Scene::default();
+    scene.draw_custom_grid(Arc::new(ArchiveCommand {
+        kind: ArchiveCommandKind::DrawExtension,
+        extension_id: 7,
+        ..Default::default()
+    }))?;
     for panel in 0..12 {
         let x = 12.0 + (panel % 4) as f32 * 234.0;
         let y = 12.0 + (panel / 4) as f32 * 194.0;

@@ -18,8 +18,10 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod backdrop;
 mod hatch;
+mod three_d;
 pub use backdrop::BackdropMetrics;
 pub use hatch::HatchMetrics;
+pub use three_d::ThreeDMetrics;
 mod advanced;
 mod blend;
 mod uniform_backdrop;
@@ -47,6 +49,7 @@ pub use color_filter::ColorFilterMetrics;
 mod groups;
 pub use groups::RetainedAaMetrics;
 use groups::{GroupTarget, PreparedGroup, PreparedGroups};
+mod custom_grid;
 mod image;
 mod image_effect;
 mod series;
@@ -178,7 +181,9 @@ pub struct UploadMetrics {
 /// GPU resources for a frozen scene and physical frame.
 pub struct PreparedScene {
     final_target_paths: bool,
+    _compile_only_owners: Vec<Arc<crate::picture_archive::ArchiveGeometryDraw>>,
     hatches: Option<hatch::PreparedHatches>,
+    three_d: Option<three_d::PreparedThreeD>,
     frame_buffer: wgpu::Buffer,
     material_buffers: (wgpu::Buffer, wgpu::Buffer),
     _native_atlas_leases: Vec<Arc<crate::text::native_atlas::NativeAtlasPlan>>,
@@ -200,6 +205,7 @@ pub struct PreparedScene {
     groups: PreparedGroups,
     image_effects: Option<image_effect::PreparedImageEffects>,
     series: Option<series::PreparedSeries>,
+    custom_grid: Option<custom_grid::PreparedCustomGrid>,
     color_filters: Option<color_filter::PreparedColorFilteredImages>,
     image_filters: Option<image_filter::PreparedImageFilteredImages>,
     shaders: Option<shader_effect::PreparedShaders>,
@@ -302,6 +308,7 @@ impl PreparedScene {
 /// A single-device vector/text/image renderer with immutable prepared generations.
 pub struct Renderer {
     hatch: Option<hatch::HatchPipeline>,
+    three_d: three_d::ThreeDState,
     owner: Arc<()>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -320,6 +327,7 @@ pub struct Renderer {
     images: Option<image::ImageState>,
     image_effects: Option<image_effect::ImageEffectState>,
     series: Option<series::SeriesState>,
+    custom_grid: Option<wgpu::RenderPipeline>,
     color_filters: Option<color_filter::ColorFilterState>,
     image_filters: Option<image_filter::ImageFilterState>,
     shader_engine: Option<crate::shader_effect::ShaderEffectEngine>,
@@ -452,6 +460,7 @@ impl Renderer {
         }
         Ok(Self {
             hatch: None,
+            three_d: three_d::ThreeDState::default(),
             owner: Arc::new(()),
             device: device.clone(),
             queue: queue.clone(),
@@ -470,6 +479,7 @@ impl Renderer {
             images: None,
             image_effects: None,
             series: None,
+            custom_grid: None,
             color_filters: None,
             image_filters: None,
             shader_engine: None,
@@ -643,6 +653,10 @@ impl Renderer {
         frame: RenderFrame,
         groups: PreparedGroups,
     ) -> Result<PreparedScene, Error> {
+        let frame = RenderFrame {
+            camera: compiled.camera,
+            ..frame
+        };
         if compiled.final_target_paths && frame.mask_depth != 0 {
             return Err(Error::ResourceDomain);
         }
@@ -652,6 +666,7 @@ impl Renderer {
         self.validate_geometry(&compiled.mesh, frame)?;
         self.validate_masks(compiled)?;
         self.validate_hatches(compiled)?;
+        self.validate_three_d(compiled)?;
         self.validate_shaders(compiled, frame)?;
         self.validate_managed_shaders(compiled, frame)?;
         self.validate_backdrops(compiled, frame)?;
@@ -710,14 +725,23 @@ impl Renderer {
         prepared
             ._native_design_leases
             .extend(compiled.native_design_leases.iter().cloned());
+        prepared
+            ._compile_only_owners
+            .try_reserve_exact(compiled.compile_only_owners.len())
+            .map_err(|_| Error::Capacity)?;
+        prepared
+            ._compile_only_owners
+            .extend(compiled.compile_only_owners.iter().cloned());
         prepared.image_source_owners = Some(image_ownership::ImageSourceOwners::capture(compiled));
         prepared.groups = groups;
         self.prepare_images(compiled, frame, &mut prepared).await?;
         self.prepare_hatches(compiled, &mut prepared).await?;
+        self.prepare_three_d(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, frame, &mut prepared).await?;
         self.prepare_draw_blends(compiled, &prepared).await?;
         self.prepare_clears(compiled, &mut prepared).await?;
         self.prepare_series(compiled, frame, &mut prepared).await?;
+        self.prepare_custom_grid(compiled, &mut prepared).await?;
         self.prepare_image_effects(compiled, frame, &mut prepared)
             .await?;
         self.prepare_shaders(compiled, frame, &mut prepared).await?;
@@ -903,7 +927,9 @@ impl Renderer {
         });
         Ok(PreparedScene {
             final_target_paths: false,
+            _compile_only_owners: Vec::new(),
             hatches: None,
+            three_d: None,
             frame_buffer: uniform_buffer,
             material_buffers: (brushes.clone(), records.clone()),
             _native_design_leases: Vec::new(),
@@ -929,6 +955,7 @@ impl Renderer {
             groups: PreparedGroups::default(),
             image_effects: None,
             series: None,
+            custom_grid: None,
             color_filters: None,
             image_filters: None,
             shaders: None,
@@ -1222,6 +1249,15 @@ impl Renderer {
                     // the parent rectangle before the next unscoped command.
                     pass.set_scissor_rect(0, 0, scene.frame.width, scene.frame.height);
                 }
+                if let DrawRange::ThreeDLine(range) | DrawRange::ThreeDAcis(range) = draw {
+                    scene.three_d.as_ref().ok_or(Error::ResourceDomain)?.draw(
+                        &mut pass,
+                        scene,
+                        range.clone(),
+                        matches!(draw, DrawRange::ThreeDAcis(_)),
+                    )?;
+                    continue;
+                }
                 if let DrawRange::Hatch(range) = draw {
                     scene.hatches.as_ref().ok_or(Error::ResourceDomain)?.draw(
                         &mut pass,
@@ -1252,6 +1288,14 @@ impl Renderer {
                         .as_ref()
                         .ok_or(Error::ResourceDomain)?
                         .draw(&mut pass, *index, draw_state.map(|s| s.scissor))?;
+                    continue;
+                }
+                if let DrawRange::CustomGrid(range) = draw {
+                    scene
+                        .custom_grid
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, scene, range.clone());
                     continue;
                 }
                 if let DrawRange::Series(index) = draw {
@@ -1362,7 +1406,10 @@ impl Renderer {
                 match draw {
                     DrawRange::State(_)
                     | DrawRange::Hatch(_)
+                    | DrawRange::ThreeDLine(_)
+                    | DrawRange::ThreeDAcis(_)
                     | DrawRange::HintedText(..)
+                    | DrawRange::CustomGrid(_)
                     | DrawRange::Series(_)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::ShaderEffect(_)

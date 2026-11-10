@@ -64,6 +64,9 @@ impl ArchiveGeometryDraw {
         result.validate()?;
         Ok(result)
     }
+    pub(crate) fn compile_only(&self) -> bool {
+        self.command.kind == ArchiveCommandKind::DrawExtension && self.command.extension_id == 4
+    }
     pub fn command(&self) -> &Arc<ArchiveCommand> {
         &self.command
     }
@@ -112,7 +115,7 @@ impl ArchiveGeometryDraw {
     }
     pub(crate) fn resolve(&self, dpi: f32, offscreen: bool) -> Result<(Scene, bool), Error> {
         self.validate()?;
-        if self.command.kind == ArchiveCommandKind::DrawSpline {
+        if self.command.kind == ArchiveCommandKind::DrawSpline || self.compile_only() {
             return Ok((self.spline_scene()?, false));
         }
         let path = self.path.as_ref().ok_or(Error::InvalidInput)?;
