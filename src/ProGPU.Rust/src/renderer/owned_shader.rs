@@ -358,7 +358,7 @@ impl Renderer {
                 return Err(Error::InvalidInput);
             }
             bytes = bytes
-                .checked_add(u64::from(w) * u64::from(h) * 4)
+                .checked_add(target_texture_bytes(self.format, [w, h])?)
                 .ok_or(Error::Capacity)?;
             count += 1;
             if bytes > 512 * 1024 * 1024 || count > 16384 {

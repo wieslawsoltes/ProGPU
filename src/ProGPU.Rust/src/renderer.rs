@@ -172,6 +172,7 @@ pub struct UploadMetrics {
 
 /// GPU resources for a frozen scene and physical frame.
 pub struct PreparedScene {
+    _native_design_leases: Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
     owner: Arc<()>,
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
@@ -338,6 +339,7 @@ impl Renderer {
                 | wgpu::TextureFormat::Bgra8Unorm
                 | wgpu::TextureFormat::Rgba8UnormSrgb
                 | wgpu::TextureFormat::Bgra8UnormSrgb
+                | wgpu::TextureFormat::Rgba16Float
         ) {
             return Err(Error::InvalidInput);
         }
@@ -653,6 +655,13 @@ impl Renderer {
                 Some(compiled.materials()),
             )?
         };
+        prepared
+            ._native_design_leases
+            .try_reserve_exact(compiled.native_design_leases.len())
+            .map_err(|_| Error::Capacity)?;
+        prepared
+            ._native_design_leases
+            .extend(compiled.native_design_leases.iter().cloned());
         prepared.image_source_owners = Some(image_ownership::ImageSourceOwners::capture(compiled));
         prepared.groups = groups;
         self.prepare_images(compiled, frame, &mut prepared).await?;
@@ -842,6 +851,7 @@ impl Renderer {
             ],
         });
         Ok(PreparedScene {
+            _native_design_leases: Vec::new(),
             owner: self.owner.clone(),
             vertices: vertex_buffer,
             indices: index_buffer,
@@ -1370,4 +1380,21 @@ mod tests {
         assert!(Frame { width: 0, ..frame }.uniforms(8192).is_err());
         assert!(frame.uniforms(32).is_err());
     }
+}
+
+/// Actual admitted color-target storage, independent of R8 coverage and the
+/// original fixed RGBA8 compute-filter outputs. Overflow rejects before allocation.
+fn target_texture_bytes(format: wgpu::TextureFormat, size: [u32; 2]) -> Result<u64, Error> {
+    let texel = match format {
+        wgpu::TextureFormat::Rgba16Float => 8,
+        wgpu::TextureFormat::Rgba8Unorm
+        | wgpu::TextureFormat::Bgra8Unorm
+        | wgpu::TextureFormat::Rgba8UnormSrgb
+        | wgpu::TextureFormat::Bgra8UnormSrgb => 4,
+        _ => return Err(Error::UnsupportedExecution),
+    };
+    u64::from(size[0])
+        .checked_mul(u64::from(size[1]))
+        .and_then(|v| v.checked_mul(texel))
+        .ok_or(Error::Capacity)
 }

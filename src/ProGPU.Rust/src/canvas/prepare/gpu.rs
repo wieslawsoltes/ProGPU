@@ -1,5 +1,7 @@
 use super::*;
-use crate::image::{ColorFilter, ImageContext, ImageResourceError, TextureImage};
+use crate::image::{
+    ColorFilter, ImageContext, ImageResourceError, PictureCaptureSession, TextureImage,
+};
 use crate::image_filter::{
     FilterPlanRequest, FilterTransform, ImageFilter, ImageFilterPlan, ImageFilteredImageDraw,
 };
@@ -26,7 +28,8 @@ impl CanvasPicture {
         if let Some(backdrop) = backdrop {
             source_device(&ImageSource::Gpu(backdrop.gpu_image()), context)?;
         }
-        self.prepare(context, backdrop, 0).await
+        let mut captures = PictureCaptureSession::new(context);
+        self.prepare(context, backdrop, 0, &mut captures).await
     }
     pub(in crate::canvas) fn preflight(
         &self,
@@ -125,12 +128,8 @@ impl CanvasPicture {
                 Command::Leaf(scene) => scene.preflight_source_capture_devices(context.device())?,
                 Command::Layer(layer) => {
                     layer.matrix.affine()?;
-                    // Preserve floating-color intent until the RGBA16 capture route
-                    // exists; never silently substitute an RGBA8 layer.
-                    if layer.description.flags.0 & SaveLayerFlags::F16_COLOR_TYPE.0 != 0 {
-                        return Err(Error::UnsupportedExecution.into());
-                    }
                     let size = layer_size(layer, self.size, context)?;
+                    admit_capture(size, layer_format(layer))?;
                     if let Some(paint) = &layer.description.paint {
                         admit_output_paint(paint, context)?;
                         if let Some(filter) = &paint.image_filter {
@@ -155,6 +154,7 @@ impl CanvasPicture {
         context: &'a ImageContext,
         backdrop: Option<&'a TextureImage>,
         depth: u16,
+        captures: &'a mut PictureCaptureSession,
     ) -> Pin<Box<dyn Future<Output = Result<Scene>> + 'a>> {
         Box::pin(async move {
             if depth >= 256 {
@@ -179,13 +179,14 @@ impl CanvasPicture {
                         blend,
                     } => {
                         let child = picture
-                            .prepare(context, backdrop, depth + 1)
+                            .prepare(context, backdrop, depth + 1, captures)
                             .await?
                             .place_visual_page(matrix.matrix4(), 1.0, false, *opacity, true)?;
                         scope(&mut scene, *blend, |scene| scene.append(&child))?;
                     }
                     Command::Layer(layer) => {
                         let size = layer_size(layer, self.size, context)?;
+                        let format = layer_format(layer);
                         let mut source = Scene::default();
                         for clip in layer.clips.iter() {
                             push_clip(&mut source, clip, self.size)?;
@@ -202,11 +203,17 @@ impl CanvasPicture {
                                     info.height as f32,
                                 ]))?;
                             }
-                            previous.append(&prior.prepare(context, backdrop, depth + 1).await?)?;
-                            let mut initial = capture(context, previous, size).await?;
+                            previous.append(
+                                &prior
+                                    .prepare(context, backdrop, depth + 1, captures)
+                                    .await?,
+                            )?;
+                            let mut initial =
+                                capture_format(captures, previous, size, format).await?;
                             if let Some(filter) = &layer.description.backdrop {
                                 initial = filtered(
                                     context,
+                                    captures,
                                     initial,
                                     filter.clone(),
                                     self.size,
@@ -222,19 +229,24 @@ impl CanvasPicture {
                                 info.height as f32,
                             ]))?;
                         }
-                        source
-                            .append(&layer.source.prepare(context, backdrop, depth + 1).await?)?;
+                        source.append(
+                            &layer
+                                .source
+                                .prepare(context, backdrop, depth + 1, captures)
+                                .await?,
+                        )?;
                         if bounded {
                             source.pop_scope()?;
                         }
                         for _ in layer.clips.iter() {
                             source.pop_scope()?;
                         }
-                        let mut texture = capture(context, source, size).await?;
+                        let mut texture = capture_format(captures, source, size, format).await?;
                         if let Some(paint) = &layer.description.paint {
                             if let Some(filter) = &paint.image_filter {
                                 texture = filtered(
                                     context,
+                                    captures,
                                     texture,
                                     filter.clone(),
                                     self.size,
@@ -245,6 +257,7 @@ impl CanvasPicture {
                             if let Some(filter) = &paint.color_filter {
                                 texture = filtered(
                                     context,
+                                    captures,
                                     texture,
                                     ImageFilter::color_filter(filter.clone(), None, None)?,
                                     self.size,
@@ -317,16 +330,26 @@ impl CanvasPicture {
                                 let identity = std::array::from_fn::<_, 256, _>(|i| i as u8);
                                 let table = transfer.to_srgb_table();
                                 let filter = ColorFilter::tables(&identity, table, table, table)?;
-                                draw = filter_draw_source(context, draw, filter, self.size).await?;
+                                draw =
+                                    filter_draw_source(context, captures, draw, filter, self.size)
+                                        .await?;
                             }
                         }
-                        prepare_image(&mut scene, context, draw, paint.as_deref(), self.size)
-                            .await?;
+                        prepare_image(
+                            &mut scene,
+                            context,
+                            captures,
+                            draw,
+                            paint.as_deref(),
+                            self.size,
+                        )
+                        .await?;
                     }
                     Command::Image { draw, paint } => {
                         prepare_image(
                             &mut scene,
                             context,
+                            captures,
                             draw.clone(),
                             paint.as_deref(),
                             self.size,
@@ -349,13 +372,15 @@ impl CanvasPicture {
                             paint.as_deref(),
                             self.size,
                             context,
+                            captures,
                         )
                         .await?;
                     }
                     Command::Path { paint, .. } | Command::Analytic { paint, .. }
                         if paint.mask_filter.is_some() || paint.fill_brush().is_err() =>
                     {
-                        prepare_painted(&mut scene, context, command, &clips, self.size).await?;
+                        prepare_painted(&mut scene, context, captures, command, &clips, self.size)
+                            .await?;
                     }
                     _ => ordinary(&mut scene, command, self.size)?,
                 }
@@ -448,16 +473,58 @@ fn admit_filter(
     }
     Ok(())
 }
-async fn capture(context: &ImageContext, scene: Scene, size: [u32; 2]) -> Result<TextureImage> {
-    TextureImage::from_picture(context, Arc::new(scene), size, Matrix4::IDENTITY).await
+fn layer_format(layer: &Layer) -> wgpu::TextureFormat {
+    if layer.description.flags.0 & SaveLayerFlags::F16_COLOR_TYPE.0 != 0 {
+        wgpu::TextureFormat::Rgba16Float
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    }
+}
+fn admit_capture(size: [u32; 2], format: wgpu::TextureFormat) -> Result<()> {
+    let bytes = u64::from(size[0])
+        .checked_mul(u64::from(size[1]))
+        .and_then(|v| {
+            v.checked_mul(if format == wgpu::TextureFormat::Rgba16Float {
+                8
+            } else {
+                4
+            })
+        })
+        .ok_or(Error::Capacity)?;
+    if bytes > 256 * 1024 * 1024 {
+        return Err(Error::Capacity.into());
+    }
+    Ok(())
+}
+async fn capture_format(
+    captures: &mut PictureCaptureSession,
+    scene: Scene,
+    size: [u32; 2],
+    format: wgpu::TextureFormat,
+) -> Result<TextureImage> {
+    admit_capture(size, format)?;
+    captures
+        .capture(Arc::new(scene), size, Matrix4::IDENTITY, format)
+        .await
+}
+async fn capture(
+    captures: &mut PictureCaptureSession,
+    scene: Scene,
+    size: [u32; 2],
+) -> Result<TextureImage> {
+    capture_format(captures, scene, size, wgpu::TextureFormat::Rgba8Unorm).await
 }
 async fn filtered(
     context: &ImageContext,
+    captures: &mut PictureCaptureSession,
     source: TextureImage,
     filter: ImageFilter,
     canvas: [f32; 2],
     matrix: CanvasMatrix,
 ) -> Result<TextureImage> {
+    if !captures.context().same_context(context) {
+        return Err(Error::ResourceDomain.into());
+    }
     let size = [source.info().width as u32, source.info().height as u32];
     let mut filtered = ImageFilteredImageDraw::new(
         source.draw([0.0, 0.0, size[0] as f32, size[1] as f32]),
@@ -466,16 +533,19 @@ async fn filtered(
     let mips = filtered.request.source_mip_levels;
     filtered.request = request(size, canvas, matrix);
     filtered.request.source_mip_levels = mips;
-    let output = filtered.plan()?.output_size();
+    let plan = filtered.plan()?;
+    let output = plan.output_size();
+    let format = plan.output_texture_format(source.gpu_image().texture().format())?;
     filtered.draw.source = [0.0, 0.0, output[0] as f32, output[1] as f32];
     filtered.draw.destination = filtered.draw.source;
     filtered.draw.extended_source = true;
     let mut scene = Scene::default();
     scene.draw_image_filtered_image(filtered)?;
-    capture(context, scene, output).await
+    capture_format(captures, scene, output, format).await
 }
 async fn filter_draw_source(
     context: &ImageContext,
+    captures: &mut PictureCaptureSession,
     mut draw: ImageDraw,
     filter: ColorFilter,
     canvas: [f32; 2],
@@ -487,9 +557,16 @@ async fn filter_draw_source(
         draw.image.clone(),
         [0.0, 0.0, size[0] as f32, size[1] as f32],
     ))?;
-    let texture = capture(context, source, size).await?;
+    let format = match &draw.image {
+        ImageSource::Gpu(image) if image.texture().format() == wgpu::TextureFormat::Rgba16Float => {
+            wgpu::TextureFormat::Rgba16Float
+        }
+        _ => wgpu::TextureFormat::Rgba8Unorm,
+    };
+    let texture = capture_format(captures, source, size, format).await?;
     let texture = filtered(
         context,
+        captures,
         texture,
         ImageFilter::color_filter(filter, None, None)?,
         canvas,
@@ -502,12 +579,13 @@ async fn filter_draw_source(
 async fn prepare_image(
     scene: &mut Scene,
     context: &ImageContext,
+    captures: &mut PictureCaptureSession,
     mut draw: ImageDraw,
     paint: Option<&Paint>,
     canvas: [f32; 2],
 ) -> Result<()> {
     if let Some(filter) = paint.and_then(|p| p.color_filter.as_ref()) {
-        draw = filter_draw_source(context, draw, filter.clone(), canvas).await?;
+        draw = filter_draw_source(context, captures, draw, filter.clone(), canvas).await?;
     }
     image(scene, draw, paint)?;
     Ok(())
@@ -530,6 +608,7 @@ fn push_layer_bounds(
 async fn prepare_painted(
     scene: &mut Scene,
     context: &ImageContext,
+    captures: &mut PictureCaptureSession,
     command: &Command,
     clips: &[Clip],
     canvas: [f32; 2],
@@ -599,9 +678,10 @@ async fn prepare_painted(
         }
     } else {
         let shader = plain.shader_source().ok_or(Error::UnsupportedExecution)?;
-        let empty = capture(context, Scene::default(), size).await?;
+        let empty = capture(captures, Scene::default(), size).await?;
         let shader = filtered(
             context,
+            captures,
             empty,
             ImageFilter::shader(Some(shader), plain.dither, None)?,
             canvas,
@@ -651,9 +731,10 @@ async fn prepare_painted(
         }
     }
     if let Some(mask) = &paint.mask_filter {
-        let input = capture(context, source, size).await?;
+        let input = capture(captures, source, size).await?;
         let output = filtered(
             context,
+            captures,
             input,
             mask.image_filter(matrix)?,
             canvas,

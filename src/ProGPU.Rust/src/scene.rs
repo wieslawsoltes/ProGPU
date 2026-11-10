@@ -51,6 +51,7 @@ mod backdrop;
 mod shader_effect;
 mod source_capture;
 mod text;
+mod native_design;
 #[cfg(feature = "gpu")]
 pub use managed_shader::ManagedShaderEffectDraw;
 #[cfg(feature = "gpu")]
@@ -194,6 +195,8 @@ impl MaterialPaint {
 
 #[derive(Clone, Debug)]
 enum Command {
+    NativeDesignVector(Arc<crate::text::native_design_geometry::NativeDesignVectorDraw>),
+    NativeDesignLease(Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>),
     #[cfg(feature = "gpu")]
     BackdropMaterial(Box<crate::backdrop::BackdropMaterialDraw>),
     Empty,
@@ -543,6 +546,9 @@ impl Scene {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
         }
+        if let Some(expanded) = self.expand_native_design(dpi_scale)? {
+            return expanded.compile_with_sampling(dpi_scale, materials, image_sampling);
+        }
         if self.has_text() || self.layer_depth != 0 {
             return Err(Error::UnsupportedExecution);
         }
@@ -617,6 +623,8 @@ impl Scene {
         for command in &commands {
             match command.as_ref() {
                 Command::Empty
+                | Command::NativeDesignLease(_)
+                | Command::NativeDesignVector(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
                 | Command::Clear(_)
@@ -759,6 +767,8 @@ impl Scene {
             let first_index = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             match command {
                 Command::Empty
+                | Command::NativeDesignLease(_)
+                | Command::NativeDesignVector(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
                 | Command::PushMask(_)
@@ -1061,6 +1071,7 @@ impl Scene {
             return Err(Error::InvalidInput);
         }
         Ok(CompiledScene {
+            native_design_leases: self.native_design_leases()?,
             mesh,
             rasters,
             layout,
@@ -1095,6 +1106,7 @@ impl Scene {
 /// Frozen CPU compilation that can be prepared on a worker without a GPU.
 #[derive(Debug)]
 pub struct CompiledScene {
+    pub(crate) native_design_leases: Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
     pub(crate) mesh: Mesh,
     pub(crate) rasters: Vec<(Path, RasterRequest)>,
     pub(crate) layout: AtlasLayout,

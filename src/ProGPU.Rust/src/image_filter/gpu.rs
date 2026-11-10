@@ -601,6 +601,7 @@ fn plan<'a>(
                     | wgpu::TextureFormat::Bgra8Unorm
                     | wgpu::TextureFormat::Rgba8UnormSrgb
                     | wgpu::TextureFormat::Bgra8UnormSrgb
+                    | wgpu::TextureFormat::Rgba16Float
             )
         {
             return Err(Error::InvalidInput);
@@ -627,7 +628,7 @@ fn plan<'a>(
     for mip in 0..mip_levels {
         let level_bytes = u64::from((size[0] >> mip).max(1))
             .checked_mul(u64::from((size[1] >> mip).max(1)))
-            .and_then(|value| value.checked_mul(4))
+            .and_then(|value| value.checked_mul(u64::from(format.block_copy_size(None)?)))
             .ok_or(Error::Capacity)?;
         bytes = bytes.checked_add(level_bytes).ok_or(Error::Capacity)?;
     }

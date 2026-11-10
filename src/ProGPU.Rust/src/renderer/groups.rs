@@ -173,7 +173,7 @@ impl Renderer {
     }
     pub(super) fn create_group_target(&self, frame: RenderFrame) -> Result<GpuImage, Error> {
         frame.uniforms(self.device.limits().max_texture_dimension_2d)?;
-        if u64::from(frame.width) * u64::from(frame.height) * 4 > 256 * 1024 * 1024 {
+        if target_texture_bytes(self.format, [frame.width, frame.height])? > 256 * 1024 * 1024 {
             return Err(Error::Capacity);
         }
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {

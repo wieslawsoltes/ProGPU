@@ -212,6 +212,12 @@ pub(super) fn begin(
     caching: ImageCachingHint,
 ) -> Result<TextureReadbackWork, ImageResourceError> {
     image.context().admit()?;
+    // Original SKImage readback is a four-byte RGBA/BGRA contract. F16 canvas
+    // targets are genuine sampled/rendered storage, never reinterpreted through
+    // that byte layout or silently converted merely to satisfy this API.
+    if image.storage.image.texture().format() == wgpu::TextureFormat::Rgba16Float {
+        return Err(ImageResourceError::TextureContract);
+    }
     if let Some(pixels) = &image.storage.portable {
         return Ok(TextureReadbackWork {
             ready: Some(ready(image, pixels.clone(), true)?),

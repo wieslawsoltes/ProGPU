@@ -13,6 +13,7 @@ use crate::{
     scene::LayerBlend,
 };
 mod capture;
+mod format;
 mod gaussian;
 mod preflight;
 mod source;

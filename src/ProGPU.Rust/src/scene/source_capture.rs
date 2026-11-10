@@ -81,6 +81,18 @@ fn place_scene(
     for command in &source.commands {
         let placed = match command {
             Command::Empty => Command::Empty,
+            Command::NativeDesignLease(plan) => Command::NativeDesignLease(plan.clone()),
+            Command::NativeDesignVector(draw) => {
+                let mut context = draw.context();
+                context.transform = context.transform * transform;
+                context.dpi_scale = frame.dpi_scale();
+                context.use_mvp = false;
+                context.gpu_transforms_active = false;
+                context.camera_view = Matrix4::IDENTITY;
+                context.suppress_cached_cleartype |= frame.suppress_cached_cleartype();
+                Command::NativeDesignVector(Arc::new(draw.with_context(context)
+                    .map_err(native_design::native_design_error)?))
+            }
             Command::PushBlend(blend) => Command::PushBlend(*blend),
             Command::PopBlend => Command::PopBlend,
             Command::CachedPicture(draw) => {
@@ -581,6 +593,10 @@ fn preflight_devices(
                     image(pattern)?;
                 }
             }
+            Command::NativeDesignVector(draw) => {
+                draw.validate().map_err(native_design::native_design_error)?;
+            }
+            Command::NativeDesignLease(_) => {}
             Command::HintedText(record) => {
                 record.0.validate(record.1)?;
                 if let Some(brush) = &record.0.image_brush {
@@ -718,6 +734,11 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             | Command::TextPath(_, p, _) => p.semantic_opacity *= opacity,
             Command::Stroke(v) | Command::PlacedStroke(v, _) => v.semantic_opacity *= opacity,
             Command::Text(v) => v.1.semantic_opacity *= opacity,
+            Command::NativeDesignVector(v) => {
+                let mut context = v.context();
+                context.semantic_opacity *= opacity;
+                *v = Arc::new(v.with_context(context).map_err(native_design::native_design_error)?);
+            }
             Command::HintedText(v) => {
                 v.1.semantic_opacity *= opacity;
                 v.0.validate(v.1)?;
@@ -748,6 +769,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             | Command::Glyph(_)
             | Command::HintedGlyphPaint(_) => return Err(Error::UnsupportedExecution),
             Command::Empty
+            | Command::NativeDesignLease(_)
             | Command::Clear(_)
             | Command::PushBlend(_)
             | Command::PopBlend

@@ -242,15 +242,17 @@ impl Renderer {
         if !linear
             && !matches!(
                 self.format,
-                wgpu::TextureFormat::Rgba8UnormSrgb | wgpu::TextureFormat::Bgra8UnormSrgb
+                wgpu::TextureFormat::Rgba8UnormSrgb
+                    | wgpu::TextureFormat::Bgra8UnormSrgb
+                    | wgpu::TextureFormat::Rgba16Float
             )
         {
             return Err(Error::UnsupportedExecution);
         }
         let advanced = linear || plan.initializes_background();
         let [_, _, w, h] = plan.extent();
-        let bytes = u64::from(w) * u64::from(h) * 4;
-        let parent_bytes = u64::from(frame.parent[2]) * u64::from(frame.parent[3]) * 4;
+        let bytes = target_texture_bytes(self.format, [w, h])?;
+        let parent_bytes = target_texture_bytes(self.format, [frame.parent[2], frame.parent[3]])?;
         let total = if advanced {
             bytes
                 .checked_mul(2)
@@ -554,12 +556,12 @@ impl Renderer {
             bytemuck::cast_slice(&[0u32, 1, 2, 0, 2, 3]),
             wgpu::BufferUsages::INDEX,
         );
-        let source_bytes = u64::from(w) * u64::from(h) * 4;
+        let source_bytes = target_texture_bytes(self.format, [w, h])?;
         let metrics = AxisClipMetrics {
             source_texture_bytes: source_bytes,
             coverage_texture_bytes: if advanced { source_bytes } else { 0 },
             output_texture_bytes: if advanced {
-                u64::from(parent_size[0]) * u64::from(parent_size[1]) * 4
+                target_texture_bytes(self.format, parent_size)?
             } else {
                 0
             },

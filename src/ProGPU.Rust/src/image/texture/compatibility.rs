@@ -114,24 +114,31 @@ impl TextureImage {
         size: [u32; 2],
         matrix: crate::vector::Matrix4,
     ) -> Result<Self, ImageResourceError> {
-        context.admit()?;
-        let frame = crate::composition::SourceRenderFrame::image_filter(size, matrix)?;
-        let mut renderer = crate::Renderer::new(
-            context.device(),
-            context.queue(),
+        Self::from_picture_with_format(
+            context,
+            picture,
+            size,
+            matrix,
             wgpu::TextureFormat::Rgba8Unorm,
         )
-        .await?;
-        let capture = renderer.capture_source_scene(picture, frame).await?;
-        let info = ImageInfo::new(size[0] as i32, size[1] as i32);
-        Self::from_texture(
-            context,
-            capture.image().clone(),
-            info,
-            TextureOwnership::Owned,
-            None,
-        )
+        .await
     }
+    /// Original SaveLayer capture target selection. Float layers preserve their
+    /// actual RGBA16F storage through source drawing, snapshots and texture reuse;
+    /// ordinary picture factories continue to select RGBA8. This does not extend
+    /// the separate original four-byte image readback/portable-raster contract.
+    pub async fn from_picture_with_format(
+        context: &ImageContext,
+        picture: impl Into<Arc<crate::Scene>>,
+        size: [u32; 2],
+        matrix: crate::vector::Matrix4,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, ImageResourceError> {
+        PictureCaptureSession::new(context)
+            .capture(picture, size, matrix, format)
+            .await
+    }
+
     /// Original PeekPixels gate and selected-format materialization. A texture-only
     /// image returns None; direct read_pixels remains available independently.
     pub async fn peek_pixels(

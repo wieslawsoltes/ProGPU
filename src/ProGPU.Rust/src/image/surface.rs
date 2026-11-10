@@ -188,6 +188,7 @@ impl<'pixels> RenderSurface<'pixels> {
                     | wgpu::TextureFormat::Bgra8Unorm
                     | wgpu::TextureFormat::Rgba8UnormSrgb
                     | wgpu::TextureFormat::Bgra8UnormSrgb
+                    | wgpu::TextureFormat::Rgba16Float
             )
         {
             return Err(ImageResourceError::TextureContract);

@@ -1170,6 +1170,13 @@ pub(super) fn prepare_mips_format(
     metrics: &mut ColorFilterMetrics,
 ) -> Result<Mips, Error> {
     let (bytes, levels) = mip_storage(input.size());
+    let bytes = bytes
+        .checked_mul(if format == wgpu::TextureFormat::Rgba16Float {
+            2
+        } else {
+            1
+        })
+        .ok_or(Error::Capacity)?;
     let (output, _) = output_format(device, input.size(), levels, format)?;
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("ProGPU original filtered-image linear mips"),

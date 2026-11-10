@@ -145,7 +145,7 @@ impl Renderer {
         changes: &[Option<usize>],
         frame: RenderFrame,
     ) -> Result<(u64, u32), Error> {
-        mask_cost(states, scene.used_mask_states(changes), frame)
+        mask_cost(states, scene.used_mask_states(changes), frame, self.format)
     }
     pub(super) fn compiled_mask_cost(
         &self,
@@ -162,7 +162,7 @@ impl Renderer {
             DrawRange::ImageEffect(index) if compiled.image_effects[*index].mask.is_some() => None,
             _ => Some(current),
         });
-        mask_cost(&compiled.states, used, frame)
+        mask_cost(&compiled.states, used, frame, self.format)
     }
 
     /// Render original compiled vector/path/stroke material alpha to R8 with
@@ -310,7 +310,7 @@ impl Renderer {
         let mut state = None;
         let mut textures = HashSet::new();
         // Whole active inventory before allocating any mask output.
-        mask_cost(&resolved, used.iter().copied(), frame)?;
+        mask_cost(&resolved, used.iter().copied(), frame, self.format)?;
         // Stable state order preserves deterministic uploads and submission order.
         for (index, source) in resolved.iter_mut().enumerate() {
             if !source.materialized || !used.contains(&index) {
@@ -726,6 +726,7 @@ fn mask_cost(
     states: &[CompiledDrawState],
     used: impl Iterator<Item = usize>,
     frame: RenderFrame,
+    format: wgpu::TextureFormat,
 ) -> Result<(u64, u32), Error> {
     let mut identities = HashSet::new();
     let mut bytes = 0u64;
@@ -760,7 +761,10 @@ fn mask_cost(
             if matches!(&component.mask, Mask::Source(_) | Mask::Geometry(_)) {
                 // Actual whole-root RGBA source plus prefix R8 accumulations.
                 bytes = bytes
-                    .checked_add(u64::from(frame.root.width) * u64::from(frame.root.height) * 6)
+                    .checked_add(
+                        target_texture_bytes(format, [frame.root.width, frame.root.height])?
+                            + u64::from(frame.root.width) * u64::from(frame.root.height) * 2,
+                    )
                     .ok_or(Error::Capacity)?;
                 passes = passes
                     .checked_add(source.components.len() as u32 + 1)

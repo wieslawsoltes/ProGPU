@@ -30,3 +30,6 @@ pub use simple::{
     build_simple_glyph_run_into, fill_simple_glyph_advances, is_simple_formatting_control,
     read_simple_code_point, simple_glyph_run_requirements,
 };
+
+/// Actual native design-unit outline ownership and explicit vector Scene replay.
+pub mod native_design_geometry;

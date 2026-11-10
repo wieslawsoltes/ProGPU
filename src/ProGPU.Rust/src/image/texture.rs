@@ -12,6 +12,8 @@ use std::{
     },
 };
 mod compatibility;
+mod picture;
+pub use picture::PictureCaptureSession;
 mod readback;
 pub use compatibility::TextureRasterView;
 mod upload;
@@ -186,6 +188,7 @@ impl TextureImage {
                     | wgpu::TextureFormat::Bgra8Unorm
                     | wgpu::TextureFormat::Rgba8UnormSrgb
                     | wgpu::TextureFormat::Bgra8UnormSrgb
+                    | wgpu::TextureFormat::Rgba16Float
             )
         {
             return Err(ImageResourceError::TextureContract);
@@ -394,13 +397,12 @@ pub(super) fn byte_count(size: [u32; 2]) -> Result<usize, ImageResourceError> {
     usize::try_from(u64::from(size[0]) * u64::from(size[1]) * 4).map_err(|_| Error::Capacity.into())
 }
 pub(super) fn native_info(image: &GpuImage, mut info: ImageInfo) -> ImageInfo {
-    info.color_type = if matches!(
-        image.texture().format(),
-        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
-    ) {
-        PixelColorType::Bgra8888
-    } else {
-        PixelColorType::Rgba8888
+    info.color_type = match image.texture().format() {
+        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb => {
+            PixelColorType::Bgra8888
+        }
+        wgpu::TextureFormat::Rgba16Float => PixelColorType::RgbaF16,
+        _ => PixelColorType::Rgba8888,
     };
     info.alpha_type = if image.alpha() == ImageAlpha::Straight {
         PixelAlphaType::Straight

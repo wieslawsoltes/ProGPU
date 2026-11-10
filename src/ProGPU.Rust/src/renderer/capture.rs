@@ -89,10 +89,8 @@ impl Renderer {
         scene
             .render_frame
             .uniforms(self.device.limits().max_texture_dimension_2d)?;
-        let capture_bytes = u64::from(scene.frame.width)
-            .checked_mul(u64::from(scene.frame.height))
-            .and_then(|bytes| bytes.checked_mul(4))
-            .ok_or(Error::Capacity)?;
+        let capture_bytes =
+            target_texture_bytes(self.format, [scene.frame.width, scene.frame.height])?;
         if let Some(chain) = effects {
             chain.plan([scene.frame.dpi_scale; 2])?;
         }

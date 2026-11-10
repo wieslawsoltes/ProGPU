@@ -71,21 +71,22 @@ pub(super) async fn prepare(
     paint: Option<&Paint>,
     canvas: [f32; 2],
     context: &ImageContext,
+    captures: &mut PictureCaptureSession,
 ) -> Result<()> {
     let mut draw = match source {
         ImageBatchSource::Image(image) => layout.image_draw(image.clone(), sampling)?,
         ImageBatchSource::Texture(image) => {
-            texture_draw(image, layout, sampling, canvas, context).await?
+            texture_draw(image, layout, sampling, canvas, context, captures).await?
         }
         ImageBatchSource::Raster(source) => {
             let image = TextureImage::from_raster(context, source, RasterExecution::default())?;
-            texture_draw(&image, layout, sampling, canvas, context).await?
+            texture_draw(&image, layout, sampling, canvas, context, captures).await?
         }
     };
     draw.transform = matrix.affine()?;
     // The layout's fixed/atlas colors have already received original CPU color
     // filtering. The full source texture receives its own independent filter.
-    prepare_image(scene, context, draw, paint, canvas).await
+    prepare_image(scene, context, captures, draw, paint, canvas).await
 }
 async fn texture_draw(
     source: &TextureImage,
@@ -93,6 +94,7 @@ async fn texture_draw(
     sampling: RasterSampling,
     canvas: [f32; 2],
     context: &ImageContext,
+    captures: &mut PictureCaptureSession,
 ) -> Result<ImageDraw> {
     let (gpu, region) = source.for_context(context)?;
     let full = region == [0, 0, gpu.size()[0], gpu.size()[1]];
@@ -124,7 +126,7 @@ async fn texture_draw(
             let identity = std::array::from_fn::<_, 256, _>(|i| i as u8);
             let table = transfer.to_srgb_table();
             let filter = ColorFilter::tables(&identity, table, table, table)?;
-            draw = filter_draw_source(context, draw, filter, canvas).await?;
+            draw = filter_draw_source(context, captures, draw, filter, canvas).await?;
         }
     }
     Ok(draw)

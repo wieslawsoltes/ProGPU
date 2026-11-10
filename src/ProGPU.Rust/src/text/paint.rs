@@ -10,6 +10,8 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 mod outlines;
 mod placement;
+mod vector_policy;
+pub(crate) use vector_policy::{VectorGlyphRasterInputs, vector_glyph_raster_policy};
 #[cfg(feature = "gpu")]
 mod resolve;
 #[cfg(feature = "gpu")]

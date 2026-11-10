@@ -410,9 +410,10 @@ impl Renderer {
         let limits = self.device.limits();
         let count = u32::try_from(pending.len()).map_err(|_| Error::Capacity)?;
         let uniform_bytes = u64::from(count) * ALIGNMENT;
-        let mut texture_bytes = advanced_texture_bytes([frame.width, frame.height], source_size)?;
+        let mut texture_bytes =
+            advanced_texture_bytes(self.format, [frame.width, frame.height], source_size)?;
         if prepared.groups.root.is_some() {
-            texture_bytes -= u64::from(frame.width) * u64::from(frame.height) * 4;
+            texture_bytes -= target_texture_bytes(self.format, [frame.width, frame.height])?;
         }
         if u64::from(count) + host_pending.len() as u64 > 16 * 1024
             || uniform_bytes > limits.max_buffer_size
@@ -983,13 +984,12 @@ impl PreparedAdvanced {
         pass.draw_indexed(0..6, 0, 0..1);
     }
 }
-pub(super) fn advanced_texture_bytes(frame: [u32; 2], source: [u32; 2]) -> Result<u64, Error> {
-    let bytes = |size: [u32; 2]| {
-        u64::from(size[0])
-            .checked_mul(u64::from(size[1]))
-            .and_then(|v| v.checked_mul(4))
-            .ok_or(Error::Capacity)
-    };
+pub(super) fn advanced_texture_bytes(
+    format: wgpu::TextureFormat,
+    frame: [u32; 2],
+    source: [u32; 2],
+) -> Result<u64, Error> {
+    let bytes = |size| target_texture_bytes(format, size);
     let root = bytes(frame)?;
     let source = bytes(source)?;
     if root > 256 * 1024 * 1024 || source > 256 * 1024 * 1024 {

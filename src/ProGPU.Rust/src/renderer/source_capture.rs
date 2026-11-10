@@ -46,7 +46,7 @@ impl Renderer {
             return Err(Error::ResourceDomain);
         }
         let [width, height] = source.size();
-        if u64::from(width) * u64::from(height) * 4 > 256 * 1024 * 1024 {
+        if target_texture_bytes(self.format, [width, height])? > 256 * 1024 * 1024 {
             return Err(Error::Capacity);
         }
         let frame = Frame {

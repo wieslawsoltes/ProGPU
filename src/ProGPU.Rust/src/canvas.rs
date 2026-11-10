@@ -10,6 +10,8 @@ use crate::{
 use std::sync::Arc;
 mod clip;
 mod drawing;
+mod drawable;
+pub use drawable::{CanvasDrawable, CanvasDrawableSource, DrawableSnapshot};
 mod matrix;
 mod texture_batch;
 pub use drawing::CanvasPointMode;

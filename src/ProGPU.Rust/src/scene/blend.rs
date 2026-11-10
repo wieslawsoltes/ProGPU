@@ -119,6 +119,8 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
     }
     match command {
         Command::Empty
+        | Command::NativeDesignLease(_)
+        | Command::NativeDesignVector(_)
         | Command::PushBlend(_)
         | Command::PopBlend
         | Command::PushMask(_)

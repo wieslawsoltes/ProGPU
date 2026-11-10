@@ -136,7 +136,7 @@ impl Renderer {
                 self.source_target(source)?;
                 let [w, h] = source.size();
                 bytes = bytes
-                    .checked_add(u64::from(w) * u64::from(h) * 4)
+                    .checked_add(target_texture_bytes(self.format, [w, h])?)
                     .ok_or(Error::Capacity)?;
             }
         }

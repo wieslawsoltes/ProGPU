@@ -261,7 +261,8 @@ impl Renderer {
                             advanced_source[1] = advanced_source[1].max(target.height);
                         }
                         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
-                        let allocation = u64::from(target.width) * u64::from(target.height) * 4;
+                        let allocation =
+                            target_texture_bytes(self.format, [target.width, target.height])?;
                         if allocation > 256 * 1024 * 1024 {
                             return Err(Error::Capacity);
                         }
@@ -292,8 +293,10 @@ impl Renderer {
                     if target.clip_intersects(clip) {
                         has_axis = true;
                         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
-                        let source_bytes = u64::from(target.width) * u64::from(target.height) * 4;
-                        let parent_bytes = u64::from(frame.width) * u64::from(frame.height) * 4;
+                        let source_bytes =
+                            target_texture_bytes(self.format, [target.width, target.height])?;
+                        let parent_bytes =
+                            target_texture_bytes(self.format, [frame.width, frame.height])?;
                         if source_bytes > 256 * 1024 * 1024 || parent_bytes > 256 * 1024 * 1024 {
                             return Err(Error::Capacity);
                         }
@@ -314,13 +317,17 @@ impl Renderer {
         if advanced_source != [0; 2] {
             *bytes = bytes
                 .checked_add(advanced::advanced_texture_bytes(
+                    self.format,
                     [frame.width, frame.height],
                     advanced_source,
                 )?)
                 .ok_or(Error::Capacity)?;
         } else if has_axis {
             *bytes = bytes
-                .checked_add(u64::from(frame.width) * u64::from(frame.height) * 4)
+                .checked_add(target_texture_bytes(
+                    self.format,
+                    [frame.width, frame.height],
+                )?)
                 .ok_or(Error::Capacity)?;
         }
         if *bytes > 512 * 1024 * 1024 {
@@ -418,7 +425,7 @@ impl Renderer {
                         groups.root =
                             Some(GroupTarget::new(self.create_group_target(frame)?, false));
                         groups.metrics.texture_bytes =
-                            u64::from(frame.width) * u64::from(frame.height) * 4;
+                            target_texture_bytes(self.format, [frame.width, frame.height])?;
                     }
                     let parent = &groups.root.as_ref().ok_or(Error::ResourceDomain)?.image;
                     let prepared = self.prepare_axis_clip(parent, &plan).await?;

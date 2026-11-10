@@ -57,8 +57,8 @@ pub use gpu::GpuImage;
 mod texture;
 #[cfg(feature = "gpu")]
 pub use texture::{
-    ImageCachingHint, ImageContext, ImageResourceError, TextureImage, TextureOwnership,
-    TextureRasterView, TextureReadback, TextureReadbackWork, TextureRelease,
+    ImageCachingHint, ImageContext, ImageResourceError, PictureCaptureSession, TextureImage,
+    TextureOwnership, TextureRasterView, TextureReadback, TextureReadbackWork, TextureRelease,
 };
 #[cfg(feature = "gpu")]
 mod surface;

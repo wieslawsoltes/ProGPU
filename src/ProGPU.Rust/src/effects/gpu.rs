@@ -183,6 +183,7 @@ impl EffectEngine {
                     | wgpu::TextureFormat::Bgra8Unorm
                     | wgpu::TextureFormat::Rgba8UnormSrgb
                     | wgpu::TextureFormat::Bgra8UnormSrgb
+                    | wgpu::TextureFormat::Rgba16Float
             )
         {
             return Err(Error::InvalidInput);

@@ -38,14 +38,46 @@ fn draw_cost(
     draw.preflight_source_devices(&renderer.device)?;
     image_source(renderer, &draw.draw.image)?;
     let plan = draw.plan()?;
+    let source_format = if ImageFilteredImageDraw::needs_normalization(&draw.draw.image) {
+        wgpu::TextureFormat::Rgba8Unorm
+    } else {
+        match &draw.draw.image {
+            ImageSource::Gpu(image) => image.texture().format(),
+            ImageSource::Pixels(_) => wgpu::TextureFormat::Rgba8Unorm,
+        }
+    };
+    let formats = plan.texture_formats(source_format)?;
+    let mut extra_float_bytes = 0u64;
+    for (index, step) in plan.steps().iter().enumerate() {
+        if formats[index + 1] == wgpu::TextureFormat::Rgba16Float {
+            let mut extra = 0u64;
+            for mip in 0..step.mip_levels {
+                extra = extra
+                    .checked_add(
+                        u64::from((step.size[0] >> mip).max(1))
+                            * u64::from((step.size[1] >> mip).max(1))
+                            * 4,
+                    )
+                    .ok_or(Error::Capacity)?;
+            }
+            extra_float_bytes = extra_float_bytes
+                .checked_add(extra)
+                .ok_or(Error::Capacity)?;
+        }
+    }
     let r = plan.resources();
     let mut total = (
-        r.texture_bytes,
+        r.texture_bytes
+            .checked_add(extra_float_bytes)
+            .ok_or(Error::Capacity)?,
         r.render_passes
             .checked_add(r.compute_passes)
             .and_then(|v| v.checked_add(r.copy_passes))
             .ok_or(Error::Capacity)?,
     );
+    if total.0 > plan.request().maximum_texture_bytes {
+        return Err(Error::Capacity);
+    }
     let limits = renderer.device.limits();
     if limits.max_bind_groups < 4
         || limits.max_uniform_buffer_binding_size < 288
@@ -246,6 +278,15 @@ fn draw_cost(
             }
         }
         let (bytes, levels) = cf::mip_storage(plan.output_size());
+        let bytes = bytes
+            .checked_mul(
+                if formats[plan.output() as usize] == wgpu::TextureFormat::Rgba16Float {
+                    2
+                } else {
+                    1
+                },
+            )
+            .ok_or(Error::Capacity)?;
         add_cost(&mut total, (bytes, levels - 1))?;
     }
     if total.0 > draw.request.maximum_texture_bytes || total.1 > 16_384 {
@@ -317,6 +358,7 @@ pub(super) fn image_source(renderer: &Renderer, source: &ImageSource) -> Result<
                 | wgpu::TextureFormat::Bgra8Unorm
                 | wgpu::TextureFormat::Rgba8UnormSrgb
                 | wgpu::TextureFormat::Bgra8UnormSrgb
+                | wgpu::TextureFormat::Rgba16Float
                 | wgpu::TextureFormat::R8Unorm
         ) {
             return Err(Error::UnsupportedExecution);

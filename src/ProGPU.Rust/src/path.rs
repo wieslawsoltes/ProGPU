@@ -148,6 +148,8 @@ pub struct Path {
     bounds: [f32; 4],
     fill_rule: FillRule,
     program: Option<std::sync::Arc<RasterProgram>>,
+    // Lifetime-only source metadata; never participates in path/raster identity.
+    source_owner: Option<std::sync::Arc<dyn std::fmt::Debug + Send + Sync>>,
 }
 
 /// Compiler-owned records. Leaf tokens remain relative to this record range;
@@ -253,7 +255,17 @@ impl Path {
             bounds,
             fill_rule,
             program: None,
+            source_owner: None,
         })
+    }
+
+    /// Retain actual source metadata through path clones and placed replay.
+    /// The owner must not contain this path or otherwise form a reference cycle.
+    pub(crate) fn retain_source_owner(
+        &mut self,
+        owner: std::sync::Arc<dyn std::fmt::Debug + Send + Sync>,
+    ) {
+        self.source_owner = Some(owner);
     }
 
     pub(crate) fn with_program(

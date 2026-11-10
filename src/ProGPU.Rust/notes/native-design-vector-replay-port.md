@@ -1,0 +1,27 @@
+# Native design outlines and explicit vector Scene replay
+
+Original ProGPU source inventory (SHA-256):
+
+| Source | SHA-256 |
+| --- | --- |
+| `src/ProGPU.Native/src/Text/Font/progpu_native_font_bounds.cpp` | `5b548ac58ffcb322683f703e551eaccb6ebbfb5ab3ca39b8df47a53eed15d584` |
+| `src/ProGPU.Native/src/Text/progpu_native_true_type_outline.cpp` | `c3c74442ff50cfbfd3bff29227afd0dcbe6d9225d43eb731c128da63f4a48a2e` |
+| `src/ProGPU.Native/src/Text/progpu_native_true_type_varied_outline.cpp` | `81d25e910201142a0a115a0bf001017706f47e2bac26577f98fffa6512ad4475` |
+| `src/ProGPU.Native/src/Text/progpu_native_cff_outline.cpp` | `7b84668538b3911fc234ee7ccb8b894a21ca1678a95f64a46be4a2bc7382dc13` |
+| `src/ProGPU.Native/src/Text/progpu_native_cff_type2.cpp` | `220e9014fcc21f2c4a86c47fa632b2fc0fe7ace992fec79595f882badfdb849c` |
+| `src/ProGPU.Native/src/Text/progpu_native_cff_type2_operators.cpp` | `9025683153da2329e11d50fa758fdf6b60e7d995fab8f831ddb8d7a3de8a482c` |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` |
+
+This connected composition uses the already ported original native TrueType/composite, gvar, CFF1 and CFF2 decoders, the original native family-selection order, and Compositor's explicit vector-glyph writer (`CompileVectorGlyphPath`, `CreatePositionedGlyphOutline`, coverage gamma and text path policy). The generic native paragraph ABI itself publishes positioning, not a general unhinted Scene factory. This API therefore explicitly names vector replay; it does not impersonate the native MIL atlas producer, a managed shaper, a hinted outline capture or a source pixel qualification. Existing DESIGN.md architecture references inform ownership only; no external implementation is used.
+
+`NativeDesignGeometry::new` accepts an actual `NativeDesignParagraph`, `NativeFragmentParagraph` or `NativeVerticalText` through `NativeDesignGeometrySource`. Every glyph resolves through its retained real native run/font/normalized coordinates and original placed source index. Synthetic ellipsis uses its original primary face with an explicit owner tag. Tabs/inline objects remain distinct nonfont slots. No-ink glyphs retain their actual decoded font owner and empty record inventory. Source positions/advances, style scale and source ownership stay immutable; selected views do not create shaping records. Coordinates are shared per actual run, and each distinct font/glyph/coordinate inventory decodes once.
+
+`NativeDesignVectorDraw::{all,selected}` freezes original selection order (including duplicates and no-ink slots), complete style paints, translation, rotation and context. Original font size is explicit paint input: `font_size / units_per_em` must equal the actual geometry scale bit-for-bit; the API does not reconstruct an allegedly original size from a floating product. This is explicit monochrome outline material rendering; color bitmap/layer presentation is a separate route.
+
+`NativeDesignVectorPainter::prepare` retains original 1/128 vector phase quantization, bounded 4096-entry outline/phase/scale/skew cache, positioned coordinate operation order, separate Y sign, synthetic bold passes, and original material opacity. Canonical closed native segment streams remain streams; figures are not guessed from coincident contour endpoints. Shared `text::paint::vector_glyph_raster_policy` computes original transform/camera gamma, 24-pixel threshold, grayscale transfer, sample/phase grids and DPI/zoom policy. It is available to deferred managed Canvas text-path preparation with identical source semantics.
+
+`Scene::draw_native_design_vector` records source metadata only. New `scene/native_design.rs` expands complete candidates to existing `TextPath` commands at the actual target before draw-state/material compilation. Source capture composes actual target transforms/DPI before expansion. No renderer shader or new GPU kernel is substituted. The current Scene route keeps its existing affine 2D/no-late-camera admission. Prepared paths carry their actual whole geometry through a private lifetime-only `Path` lease; path coordinates, bounds, raster identity and clones are unchanged. Geometry owners contain no replay Path, so there is no owner cycle.
+
+An ownership-only `NativeDesignLease` command retains the complete actual plan even when every selected slot has no ink. It has no painted bounds, draw, source callback or inferred device policy. CPU `CompiledScene` and GPU `PreparedScene` retain these same owners independently of path-cache retirement. Original Scene source placement and semantic opacity remain attached to actual draw commands, not to the ownership marker. Complete source/paint admission precedes cache mutation; failed preparation/recording publishes no partial command append. Geometry slot and segment copies preflight their complete capacities and never rerun fonts.
+
+Independent remaining layers: ordinary native glyph-atlas specialization/cache policy, color font presentation on this native source route, fragment-specific horizontal interaction, full multi-style vertical orchestration and document-subtree layout. This increment does not qualify the independent actual FreeType backend, Microsoft source pixels, packages or browser execution. Per the mandatory implementation-first instruction, no compilation, tests, fixtures, browser runs or benchmarks were performed. Only new/touched source formatting was used, and no build artifacts were generated.
