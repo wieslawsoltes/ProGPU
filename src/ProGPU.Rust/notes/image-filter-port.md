@@ -192,3 +192,54 @@ factories/planning. Immutable Arc owners preserve sources beyond caller retireme
 
 No current-head build or execution success, performance improvement, browser
 support qualification or professional release readiness is claimed by this note.
+
+
+## Retained execution continuation (2026-11-10; unvalidated)
+
+`ImageFilteredImageDraw` now connects the complete plan to Scene/Renderer through
+owned result generations. The request freezes filter source/canvas metadata
+independently of final consumer placement. All 24 kinds now have execution:
+original Gaussian axes, exact managed ImageEffect matrices/tints, all color and
+five image compute families, source-over merge/offset, true transformed crop,
+ordered tile draws and independent Image/Picture/Shader source capture.
+
+Every intermediate, child renderer, source recording, pipeline, binding and result
+remains owned through replay. Each captured scene uses RGBA8Unorm, original pixel
+projection/DPI one and an independently retained Renderer. Child scenes encode on
+the consumer encoder; preparation performs no effect/capture submission and replay
+runs no source callbacks. Existing path/text/image preparation keeps its own
+ordinary upload/raster submissions. Whole-plan/device/owner/resource admission
+precedes candidate creation; failures publish no prepared graph and restore actual
+image/filter engine state. Nested source policies use their independent admission.
+
+Shader sources now retain original raw-image policy, picture tile modes/filter
+and composed arithmetic. Implementation includes original bounded tile ranges,
+mirrored placement, picture tile area/dimension limits, local-matrix wrappers,
+selected image transfer before tiling, shader color-filter captures and the exact
+solid-background/two-point-conical SrcOver brush fast path. Direct Perlin sources
+retain the original inverse filter-frame adjustment; wrapped/general shader
+sources keep their different original canvas policy. Explicit shader-local zero
+matrices remain singular, independently of the filter-frame default sentinel.
+
+New production files: `image_filter/draw.rs`, `renderer/image_filter.rs` and
+`renderer/image_filter/{capture,gaussian,preflight,source}.rs`. Original shared
+color-filter capture helpers are exposed internally; separate target-frame and
+same-format mip helpers preserve existing callers. Final mips retain actual
+source format, including the zero-radius morphology/identity routes. Metrics
+separate canonical passes/copies, capture resources and nested source replay.
+
+Remaining production gates are original runtime shader/blender language sources,
+non-2D source-picture placement, and non-affine nested shader local-matrix concat.
+Those reject explicitly. Full source-provider ownership, default-runtime numeric
+casts/inverse transcripts, native/managed pixels and all browser/performance/package
+qualification remain open. No compiler, tests, lint, shaders, browser or benchmarks
+were run; formatting only. No build/trace artifacts were created.
+
+Additional directly consulted original source SHA-256:
+
+| Original source | SHA-256 |
+| --- | --- |
+| `src/SkiaSharp/SKMatrix.cs` | `a1a0fb70cb138510b7407bf41de5b3d88fb6e3f34bde01dd948d1128268b54e3` |
+| `src/ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` |
+| `src/ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl` | `7ffc9636c103bddbbf13e7ba5fc253d4e9a02c26478edc5e5a38ef9a81de8834` |
+| `src/ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl` | `fc700b1b057b369588960ce485d8bf07a0cb9a6f06e8611f794c1d990f32080c` |

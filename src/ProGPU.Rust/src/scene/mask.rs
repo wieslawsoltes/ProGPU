@@ -46,6 +46,7 @@ impl CompiledDrawState {
         let direct = components.len() <= 4
             && components.iter().enumerate().all(|(i, c)| {
                 c.operation == MaskOperation::Intersect
+                    && !matches!(c.mask, Mask::Path(_))
                     && (i == 0 || matches!(c.mask, Mask::Analytic(_) | Mask::AxisClipEdges(_)))
             });
         self.masks = [MaskUniforms::zeroed(); 4];
@@ -54,9 +55,13 @@ impl CompiledDrawState {
         self.count = if direct { components.len() } else { 1 };
         // Validate every original record even when it will be materialized later.
         for (i, c) in components.iter().enumerate() {
-            let uniforms = c.mask.uniforms(dpi)?;
-            if direct {
-                self.masks[i] = uniforms;
+            if matches!(c.mask, Mask::Path(_)) {
+                c.mask.validate()?;
+            } else {
+                let uniforms = c.mask.uniforms(dpi)?;
+                if direct {
+                    self.masks[i] = uniforms;
+                }
             }
         }
         if direct {

@@ -18,9 +18,13 @@ mod latin;
 pub use complex::{
     NativeBufferFlags, NativeClusterLevel, NativeComplexKind, NativeComplexRequest,
     NativeComplexRequirements, NativeComplexRun, NativeComplexScratch, NativeComplexShaper,
-    NativeDeviceFragmentSource, NativeDeviceFrame, NativeDeviceMarkBounds, NativeDeviceSource,
-    NativeDeviceSpaceKind, NativeDeviceStretchScratch, NativeFallbackBounds, NativeFragmentContext,
-    NativeRun, NativeShapeRequest, NativeShapeRequirements, NativeShapeScratch, NativeShaper,
+    NativeDeviceError, NativeDeviceFragmentSource, NativeDeviceFrame, NativeDeviceMarkBounds,
+    NativeDevicePositionedSlice, NativeDevicePositioningRecipe, NativeDeviceRun,
+    NativeDeviceSource, NativeDeviceSpaceKind, NativeDeviceStretchScratch, NativeFallbackBounds,
+    NativeFragmentContext, NativeHintPolicy, NativeHintedBatch, NativeHintedCaptureError,
+    NativeHintedGlyph, NativeHintedMetrics, NativeHintedProjection, NativeHintedProjectionError,
+    NativeHintedProvider, NativeHintedRequest, NativeOutlineLoadPolicy, NativeRun,
+    NativeShapeRequest, NativeShapeRequirements, NativeShapeScratch, NativeShaper,
     NativeShapingRoute, apply_native_device_arabic_stretch, apply_native_device_fallback_marks,
     apply_native_device_space, resolve_native_language_tag, resolve_native_shaping_route,
 };
@@ -220,6 +224,16 @@ impl Stage {
         attachments: &mut [GposAttachment],
         options: GposOptions<'_>,
     ) -> Result<(), FontError> {
+        self.position_with_device(plan, glyphs, attachments, options, None)
+    }
+    fn position_with_device(
+        &self,
+        plan: &NativeFeaturePlan,
+        glyphs: &mut [ShapingGlyph],
+        attachments: &mut [GposAttachment],
+        options: GposOptions<'_>,
+        device: Option<crate::font::layout::GposDeviceFrame<'_>>,
+    ) -> Result<(), FontError> {
         let table = self.selection.table().view();
         let mut state = GposState::default();
         for (&lookup, resolution) in self.selection.lookups().iter().zip(&self.resolutions) {
@@ -235,13 +249,21 @@ impl Stage {
                             glyphs,
                             attachments,
                             options,
-                            None,
+                            device,
                             &mut state,
                         )?;
                     }
                 }
             } else {
-                table.apply_gpos(lookup, None, glyphs, attachments, options, None, &mut state)?;
+                table.apply_gpos(
+                    lookup,
+                    None,
+                    glyphs,
+                    attachments,
+                    options,
+                    device,
+                    &mut state,
+                )?;
             }
         }
         Ok(())

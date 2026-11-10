@@ -45,7 +45,7 @@ impl ColorFilterMetrics {
     }
 }
 #[derive(Clone)]
-struct DrawResources {
+pub(super) struct DrawResources {
     pipeline: wgpu::RenderPipeline,
     groups: Vec<wgpu::BindGroup>,
     vertices: wgpu::Buffer,
@@ -53,7 +53,22 @@ struct DrawResources {
     index_count: u32,
 }
 impl DrawResources {
-    fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
+    pub(super) fn draw_masked(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        mask: &wgpu::BindGroup,
+    ) {
+        pass.set_pipeline(pipeline);
+        for (index, group) in self.groups.iter().enumerate() {
+            pass.set_bind_group(index as u32, group, &[]);
+        }
+        pass.set_bind_group(2, mask, &[]);
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..self.index_count, 0, 0..1);
+    }
+    pub(super) fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.pipeline);
         for (index, group) in self.groups.iter().enumerate() {
             pass.set_bind_group(index as u32, group, &[]);
@@ -63,13 +78,13 @@ impl DrawResources {
         pass.draw_indexed(0..self.index_count, 0, 0..1);
     }
 }
-struct Capture {
+pub(super) struct Capture {
     draw: DrawResources,
-    output: GpuImage,
+    pub(super) output: GpuImage,
     view: wgpu::TextureView,
 }
 impl Capture {
-    fn encode(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub(super) fn encode(&self, encoder: &mut wgpu::CommandEncoder) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("ProGPU original full-source color-filter capture"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -91,13 +106,13 @@ enum FilterPass {
     Compute(PreparedColorFilterCompute),
 }
 impl FilterPass {
-    fn encode(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub(super) fn encode(&self, encoder: &mut wgpu::CommandEncoder) {
         match self {
             Self::Render(p) => p.encode(encoder),
             Self::Compute(p) => p.encode_owned(encoder),
         }
     }
-    fn output(&self) -> &GpuImage {
+    pub(super) fn output(&self) -> &GpuImage {
         match self {
             Self::Render(p) => &p.output,
             Self::Compute(p) => p.output(),
@@ -108,14 +123,14 @@ struct MipPass {
     source: wgpu::BindGroup,
     target: wgpu::TextureView,
 }
-struct Mips {
+pub(super) struct Mips {
     input: GpuImage,
-    output: GpuImage,
+    pub(super) output: GpuImage,
     pipeline: wgpu::RenderPipeline,
     passes: Vec<MipPass>,
 }
 impl Mips {
-    fn encode(&self, encoder: &mut wgpu::CommandEncoder) {
+    pub(super) fn encode(&self, encoder: &mut wgpu::CommandEncoder) {
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: self.input.texture(),
@@ -226,14 +241,14 @@ impl PreparedScene {
             .map_or_else(Default::default, |f| f.metrics)
     }
 }
-fn source_needs_capture(source: &ImageSource) -> bool {
+pub(super) fn source_needs_capture(source: &ImageSource) -> bool {
     source.alpha() != ImageAlpha::Premultiplied
         || match source {
             ImageSource::Pixels(i) => i.format() == ImageFormat::R8,
             ImageSource::Gpu(i) => i.texture().format() == wgpu::TextureFormat::R8Unorm,
         }
 }
-fn mip_storage(mut size: [u32; 2]) -> (u64, u32) {
+pub(super) fn mip_storage(mut size: [u32; 2]) -> (u64, u32) {
     let mut bytes = 0;
     let mut levels = 0;
     loop {
@@ -609,7 +624,7 @@ impl Renderer {
         Ok(())
     }
 }
-fn buffer(
+pub(super) fn buffer(
     device: &wgpu::Device,
     label: &str,
     bytes: &[u8],
@@ -621,10 +636,18 @@ fn buffer(
         usage,
     })
 }
-fn output(
+pub(super) fn output(
     device: &wgpu::Device,
     size: [u32; 2],
     levels: u32,
+) -> Result<(GpuImage, wgpu::TextureView), Error> {
+    output_format(device, size, levels, wgpu::TextureFormat::Rgba8Unorm)
+}
+pub(super) fn output_format(
+    device: &wgpu::Device,
+    size: [u32; 2],
+    levels: u32,
+    format: wgpu::TextureFormat,
 ) -> Result<(GpuImage, wgpu::TextureView), Error> {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("ProGPU private original filter capture"),
@@ -636,7 +659,7 @@ fn output(
         mip_level_count: levels,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
+        format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::COPY_SRC
@@ -686,7 +709,7 @@ fn source_binding(
         ],
     }))
 }
-fn prepare_image(
+pub(super) fn prepare_image(
     device: &wgpu::Device,
     images: &mut image::ImageState,
     pipeline: &wgpu::RenderPipeline,
@@ -724,7 +747,7 @@ fn prepare_image(
         index_count: u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?,
     })
 }
-fn prepare_capture_image(
+pub(super) fn prepare_capture_image(
     device: &wgpu::Device,
     images: &mut image::ImageState,
     pipeline: &wgpu::RenderPipeline,
@@ -766,11 +789,20 @@ fn add_compute_metrics(
         .ok_or(Error::Capacity)?;
     Ok(())
 }
-fn prepare_solid(
+pub(super) fn prepare_solid(
     renderer: &Renderer,
     pipeline: &wgpu::RenderPipeline,
     color: [u8; 4],
     frame: Frame,
+    metrics: &mut ColorFilterMetrics,
+) -> Result<Capture, Error> {
+    prepare_solid_target(renderer, pipeline, color, frame.into(), metrics)
+}
+pub(super) fn prepare_solid_target(
+    renderer: &Renderer,
+    pipeline: &wgpu::RenderPipeline,
+    color: [u8; 4],
+    frame: RenderFrame,
     metrics: &mut ColorFilterMetrics,
 ) -> Result<Capture, Error> {
     let mut mesh = Mesh::default();
@@ -836,7 +868,7 @@ fn prepare_solid(
         view,
     })
 }
-async fn solid_pipeline(device: &wgpu::Device) -> Result<wgpu::RenderPipeline, Error> {
+pub(super) async fn solid_pipeline(device: &wgpu::Device) -> Result<wgpu::RenderPipeline, Error> {
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("ProGPU original solid capture vector shader"),
@@ -878,7 +910,7 @@ async fn solid_pipeline(device: &wgpu::Device) -> Result<wgpu::RenderPipeline, E
     }
     Ok(pipeline)
 }
-async fn matrix_pipeline(device: &wgpu::Device) -> Result<wgpu::RenderPipeline, Error> {
+pub(super) async fn matrix_pipeline(device: &wgpu::Device) -> Result<wgpu::RenderPipeline, Error> {
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("ProGPU original managed filter matrix shader"),
@@ -965,12 +997,22 @@ async fn matrix_pipeline(device: &wgpu::Device) -> Result<wgpu::RenderPipeline, 
     }
     Ok(pipeline)
 }
-fn prepare_matrix(
+pub(super) fn prepare_matrix(
     device: &wgpu::Device,
     pipeline: &wgpu::RenderPipeline,
     input: &GpuImage,
     matrix: crate::image::ImageColorMatrix,
     frame: Frame,
+    metrics: &mut ColorFilterMetrics,
+) -> Result<Capture, Error> {
+    prepare_matrix_target(device, pipeline, input, matrix, frame.into(), metrics)
+}
+pub(super) fn prepare_matrix_target(
+    device: &wgpu::Device,
+    pipeline: &wgpu::RenderPipeline,
+    input: &GpuImage,
+    matrix: crate::image::ImageColorMatrix,
+    frame: RenderFrame,
     metrics: &mut ColorFilterMetrics,
 ) -> Result<Capture, Error> {
     let draw = ImageEffectDraw::new(
@@ -1105,14 +1147,29 @@ fn prepare_matrix(
         view,
     })
 }
-fn prepare_mips(
+pub(super) fn prepare_mips(
     device: &wgpu::Device,
     pipeline: &wgpu::RenderPipeline,
     input: GpuImage,
     metrics: &mut ColorFilterMetrics,
 ) -> Result<Mips, Error> {
+    prepare_mips_format(
+        device,
+        pipeline,
+        input,
+        wgpu::TextureFormat::Rgba8Unorm,
+        metrics,
+    )
+}
+pub(super) fn prepare_mips_format(
+    device: &wgpu::Device,
+    pipeline: &wgpu::RenderPipeline,
+    input: GpuImage,
+    format: wgpu::TextureFormat,
+    metrics: &mut ColorFilterMetrics,
+) -> Result<Mips, Error> {
     let (bytes, levels) = mip_storage(input.size());
-    let (output, _) = output(device, input.size(), levels)?;
+    let (output, _) = output_format(device, input.size(), levels, format)?;
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("ProGPU original filtered-image linear mips"),
         min_filter: wgpu::FilterMode::Linear,

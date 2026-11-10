@@ -64,12 +64,8 @@ fn place_scene(
             // matrix. Its actual inherited binary clip is placed separately.
             Command::Clear(color) => Command::Clear(*color),
             Command::PopScope => Command::PopScope,
-            Command::PushClip(bounds) => {
-                Command::PushClipEdges(place_edges(bounds_edges(*bounds)?, transform)?)
-            }
-            Command::PushClipEdges(edges) => {
-                Command::PushClipEdges(place_edges(*edges, transform)?)
-            }
+            Command::PushClip(bounds) => clip_command(bounds_edges(*bounds)?, transform)?,
+            Command::PushClipEdges(edges) => clip_command(*edges, transform)?,
             Command::PushMask(mask) => Command::PushMask(Box::new(place_mask(mask, transform)?)),
             Command::PushMaskDifference(mask) => {
                 Command::PushMaskDifference(Box::new(place_mask(mask, transform)?))
@@ -79,7 +75,7 @@ fn place_scene(
                 let child = place_scene(&layer.scene, frame, depth + 1, inverse)?;
                 let edges = layer
                     .bounds_edges()
-                    .map(|edges| place_edges(edges, transform))
+                    .map(|edges| storage_edges(edges, transform))
                     .transpose()?;
                 let mut placed = layer.as_ref().clone();
                 placed.scene = Arc::new(child);
@@ -87,6 +83,9 @@ fn place_scene(
                 Command::Layer(Box::new(placed))
             }
             Command::AxisClip(axis) => {
+                if !axis_aligned(transform) {
+                    return Err(Error::UnsupportedExecution);
+                }
                 let edges = place_edges(axis.bounds_edges(), transform)?;
                 let child = place_scene(axis.scene(), frame, depth + 1, inverse)?;
                 Command::AxisClip(Box::new(axis.placed(Arc::new(child), edges)))
@@ -166,6 +165,11 @@ fn place_scene(
                 placed.draw = place_image(&draw.draw, transform)?;
                 Command::ColorFilteredImage(Box::new(placed))
             }
+            Command::ImageFilteredImage(draw) => {
+                let mut placed = draw.as_ref().clone();
+                placed.draw = place_image(&draw.draw, transform)?;
+                Command::ImageFilteredImage(Box::new(placed))
+            }
             Command::ImageEffect(draw) => {
                 // These are the original explicitly supplied texture quad
                 // positions, never already-rasterized vector/path vertices.
@@ -187,12 +191,19 @@ fn place_scene(
                 Command::PlacedTileImage(draw.clone(), placed)
             }
             #[cfg(feature = "gpu")]
+            Command::OwnedShaderEffect(draw) => {
+                let mut placed = draw.as_ref().clone();
+                placed.transform = draw.transform * transform;
+                placed.validate()?;
+                Command::OwnedShaderEffect(Box::new(placed))
+            }
+            #[cfg(feature = "gpu")]
             Command::ShaderEffect(_)
             | Command::ManagedShaderEffect(_)
             | Command::ResolvedAxis(_)
             | Command::Glyph(_) => {
                 // All four carry an already-selected target/atlas generation.
-                // Future owned source scopes prepare in this actual target; no
+                // Owned source scopes above prepare in this actual target; no
                 // evaluated effect resampling or frozen-parent retargeting.
                 return Err(Error::UnsupportedExecution);
             }
@@ -228,11 +239,18 @@ fn place_mask(mask: &Mask, transform: Matrix4) -> Result<Mask, Error> {
     let mut placed = mask.clone();
     match &mut placed {
         Mask::Analytic(source) if source.policy == AnalyticMaskPolicy::AxisClipArea => {
+            if !axis_aligned(transform) {
+                return Err(Error::UnsupportedExecution);
+            }
             return Mask::axis_clip_edges(place_edges(bounds_edges(source.bounds)?, transform)?);
         }
         Mask::AxisClipEdges(source) => {
+            if !axis_aligned(transform) {
+                return Err(Error::UnsupportedExecution);
+            }
             return Mask::axis_clip_edges(place_edges(source.edges(), transform)?);
         }
+        Mask::Path(source) => source.transform = compose(source.transform, transform)?,
         Mask::Analytic(source) => source.transform = compose(source.transform, transform)?,
         Mask::Coverage(source) => source.transform = compose(source.transform, transform)?,
         Mask::Texture(source) => source.transform = compose(source.transform, transform)?,
@@ -245,7 +263,7 @@ fn place_mask(mask: &Mask, transform: Matrix4) -> Result<Mask, Error> {
 fn compose(source: Affine, transform: Matrix4) -> Result<Affine, Error> {
     affine(Matrix4::from_affine(source) * transform)
 }
-fn affine(matrix: Matrix4) -> Result<Affine, Error> {
+pub(super) fn affine(matrix: Matrix4) -> Result<Affine, Error> {
     let m = matrix.0;
     if m.iter().flatten().any(|v| !v.is_finite()) {
         return Err(Error::InvalidInput);
@@ -282,8 +300,14 @@ pub(super) fn validate_edges(edges: [f32; 4]) -> Result<(), Error> {
 }
 fn place_edges(edges: [f32; 4], transform: Matrix4) -> Result<[f32; 4], Error> {
     validate_edges(edges)?;
-    // SourceRenderFrame admits only positive-axis placement. Preserve the two
-    // original endpoint evaluations, including original Vector2 multiply order.
+    // Original implicit/cache frames use the exact positive-axis endpoint
+    // route. Independent filter frames can additionally reflect or swap axes.
+    if !axis_aligned(transform) {
+        return Err(Error::UnsupportedExecution);
+    }
+    if transform.0[0][0] <= 0.0 || transform.0[1][1] <= 0.0 {
+        return storage_edges(edges, transform);
+    }
     let [left, top] = transform.transform_point([edges[0], edges[1]]);
     let [right, bottom] = transform.transform_point([edges[2], edges[3]]);
     let result = [left, top, right, bottom];
@@ -407,13 +431,18 @@ impl Scene {
         &self,
         device: &wgpu::Device,
     ) -> Result<(), Error> {
-        preflight_devices(self, device, 0)
+        preflight_devices(self, device, 0, 0)
     }
 }
 #[cfg(feature = "gpu")]
-fn preflight_devices(source: &Scene, device: &wgpu::Device, depth: u8) -> Result<(), Error> {
+fn preflight_devices(
+    source: &Scene,
+    device: &wgpu::Device,
+    depth: u8,
+    owned_depth: u16,
+) -> Result<(), Error> {
     use crate::image_effect::ImageEffectSource;
-    if depth > 16 {
+    if depth > 16 || owned_depth >= 256 {
         return Err(Error::Capacity);
     }
     if source.scope_depth != 0 {
@@ -443,12 +472,16 @@ fn preflight_devices(source: &Scene, device: &wgpu::Device, depth: u8) -> Result
     };
     for command in &source.commands {
         match command {
-            Command::Layer(layer) => preflight_devices(&layer.scene, device, depth + 1)?,
-            Command::AxisClip(axis) => preflight_devices(axis.scene(), device, depth + 1)?,
+            Command::Layer(layer) => {
+                preflight_devices(&layer.scene, device, depth + 1, owned_depth)?
+            }
+            Command::AxisClip(axis) => {
+                preflight_devices(axis.scene(), device, depth + 1, owned_depth)?
+            }
             Command::PushMask(mask) | Command::PushMaskDifference(mask) => match mask.as_ref() {
                 Mask::Coverage(mask) => extent(mask.image.size())?,
                 Mask::Texture(mask) => image(&mask.source)?,
-                Mask::Analytic(_) | Mask::AxisClipEdges(_) => {}
+                Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::Path(_) => {}
             },
             Command::Image(draw, _, _, operation) => {
                 image(&draw.image)?;
@@ -462,6 +495,7 @@ fn preflight_devices(source: &Scene, device: &wgpu::Device, depth: u8) -> Result
             }
             Command::ImageColor(draw) => image(&draw.draw.image)?,
             Command::ColorFilteredImage(draw) => image(&draw.draw.image)?,
+            Command::ImageFilteredImage(draw) => draw.preflight_source_devices(device)?,
             Command::TileImage(draw) | Command::PlacedTileImage(draw, _) => image(&draw.image)?,
             Command::ImageEffect(draw) => {
                 match &draw.source {
@@ -477,6 +511,10 @@ fn preflight_devices(source: &Scene, device: &wgpu::Device, depth: u8) -> Result
                     image(mask)?;
                 }
             }
+            Command::OwnedShaderEffect(draw) => {
+                draw.validate()?;
+                preflight_devices(draw.recording.scene(), device, 0, owned_depth + 1)?;
+            }
             Command::ShaderEffect(_)
             | Command::ManagedShaderEffect(_)
             | Command::ResolvedAxis(_)
@@ -485,4 +523,76 @@ fn preflight_devices(source: &Scene, device: &wgpu::Device, depth: u8) -> Result
         }
     }
     Ok(())
+}
+
+fn axis_aligned(transform: Matrix4) -> bool {
+    let m = transform.0;
+    (m[0][1] == 0.0 && m[1][0] == 0.0) || (m[0][0] == 0.0 && m[1][1] == 0.0)
+}
+fn storage_edges(edges: [f32; 4], transform: Matrix4) -> Result<[f32; 4], Error> {
+    validate_edges(edges)?;
+    if transform.0[0][1] == 0.0
+        && transform.0[1][0] == 0.0
+        && transform.0[0][0] > 0.0
+        && transform.0[1][1] > 0.0
+    {
+        return place_edges(edges, transform);
+    }
+    let [l, t, r, b] = edges;
+    let corners = [[l, t], [r, t], [r, b], [l, b]].map(|p| transform.transform_point(p));
+    if corners.iter().flatten().any(|v| !v.is_finite()) {
+        return Err(Error::InvalidInput);
+    }
+    let first = corners[0];
+    let mut result = [first[0], first[1], first[0], first[1]];
+    for point in &corners[1..] {
+        result = [
+            result[0].min(point[0]),
+            result[1].min(point[1]),
+            result[2].max(point[0]),
+            result[3].max(point[1]),
+        ];
+    }
+    Ok(result)
+}
+fn clip_command(edges: [f32; 4], transform: Matrix4) -> Result<Command, Error> {
+    validate_edges(edges)?;
+    affine(transform)?;
+    if axis_aligned(transform) {
+        return Ok(Command::PushClipEdges(place_edges(edges, transform)?));
+    }
+    if edges[0] == edges[2] || edges[1] == edges[3] {
+        return Ok(Command::PushClipEdges([0.0; 4]));
+    }
+    let [l, t, r, b] = edges;
+    let points = [[l, t], [r, t], [r, b], [l, b]];
+    let segments = (0..4)
+        .map(|i| crate::path::Segment::line(points[i], points[(i + 1) % 4]))
+        .collect::<Vec<_>>();
+    let path = crate::path::Path::new(segments, edges, crate::path::FillRule::NonZero)?;
+    let mask = Mask::Path(crate::mask::ClipPath {
+        path,
+        transform: affine(transform)?,
+        sample_grid: 1,
+        operation: crate::mask::MaskOperation::Intersect,
+    });
+    mask.validate()?;
+    Ok(Command::PushMask(Box::new(mask)))
+}
+impl Scene {
+    /// Original filter Picture/Crop PushClip: preserve all transformed rectangle
+    /// edges. Non-axis geometry takes the actual binary source path-mask route.
+    pub(crate) fn push_image_filter_clip(
+        &mut self,
+        edges: [f32; 4],
+        transform: Matrix4,
+    ) -> Result<(), Error> {
+        let command = clip_command(edges, transform)?;
+        let depth = self.scope_depth.checked_add(1).ok_or(Error::Capacity)?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(command);
+        self.scope_depth = depth;
+        self.has_scopes = true;
+        Ok(())
+    }
 }

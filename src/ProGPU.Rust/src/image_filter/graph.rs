@@ -73,7 +73,7 @@ impl FilterSampling {
     pub fn magnifier_mode(self) -> u32 {
         if self.mode == ImageSampling::Cubic {
             2
-        } else if self.mode == ImageSampling::Nearest && self.anisotropy == 0 {
+        } else if self.mode == ImageSampling::Nearest && self.anisotropy <= 0 {
             0
         } else {
             1
@@ -178,6 +178,8 @@ pub enum FilterShaderSource {
         sampling: FilterSampling,
         /// Original shader local frame.
         matrix: Matrix4,
+        /// Original raw-image policy bypassing selected-source color conversion.
+        is_raw: bool,
     },
     /// Actual picture shader recording and its original local frame/tile bounds.
     Picture {
@@ -187,6 +189,10 @@ pub enum FilterShaderSource {
         matrix: Matrix4,
         /// Original tile rectangle.
         tile: FilterRect,
+        /// Independent original horizontal and vertical tile modes.
+        tile_modes: [FilterTileMode; 2],
+        /// Original picture tile nearest/linear reconstruction.
+        sampling: crate::image::ImageSampling,
     },
     /// Ordered original composed shader children.
     Compose {
@@ -194,8 +200,10 @@ pub enum FilterShaderSource {
         background: Arc<FilterShaderSource>,
         /// Original source child.
         foreground: Arc<FilterShaderSource>,
-        /// Original shader blend mode.
+        /// Original shader blend mode, used when arithmetic is absent.
         mode: LayerBlend,
+        /// Original independent arithmetic-composed shader policy.
+        arithmetic: Option<FilterArithmetic>,
     },
     /// Retained local-matrix wrapper; never flattened into child metadata.
     LocalMatrix {

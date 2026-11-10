@@ -164,6 +164,7 @@ impl Renderer {
         }
         let effect_metrics = result?;
         self.queue.submit([commands]);
+        self.submitted_owned_shader_frame(scene);
         if let Some(engine) = engine {
             self.effects = Some(engine);
         }

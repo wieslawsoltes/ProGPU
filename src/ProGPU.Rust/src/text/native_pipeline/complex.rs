@@ -29,8 +29,12 @@ mod syllables;
 mod use_shaper;
 pub use route::{NativeShapingRoute, resolve_native_language_tag, resolve_native_shaping_route};
 pub use run::{
-    NativeDeviceFragmentSource, NativeFragmentContext, NativeRun, NativeShapeRequest,
-    NativeShapeRequirements, NativeShapeScratch, NativeShaper,
+    NativeDeviceError, NativeDeviceFragmentSource, NativeDevicePositionedSlice,
+    NativeDevicePositioningRecipe, NativeDeviceRun, NativeFragmentContext, NativeHintPolicy,
+    NativeHintedBatch, NativeHintedCaptureError, NativeHintedGlyph, NativeHintedMetrics,
+    NativeHintedProjection, NativeHintedProjectionError, NativeHintedProvider, NativeHintedRequest,
+    NativeOutlineLoadPolicy, NativeRun, NativeShapeRequest, NativeShapeRequirements,
+    NativeShapeScratch, NativeShaper,
 };
 /// Compatibility name for the original complex request API.
 pub type NativeComplexRequest<'a> = NativeShapeRequest<'a>;

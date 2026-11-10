@@ -5,6 +5,9 @@ use crate::font::HorizontalAdvanceInstance;
 #[path = "verify.rs"]
 mod verify;
 pub use verify::{NativeDeviceFragmentSource, NativeFragmentContext};
+#[path = "native_device.rs"]
+mod native_device;
+pub use native_device::*;
 
 /// Original native request for one font/script/direction run.
 /// Indic and USE retain the supplied original normalization-plan owner.
@@ -392,6 +395,26 @@ impl NativeShaper {
         post_context: &[UnicodeScalar],
         glyph_limit: usize,
     ) -> Result<(), FontError> {
+        self.shape_core(
+            source,
+            scratch,
+            flags,
+            pre_context,
+            post_context,
+            glyph_limit,
+            None,
+        )
+    }
+    fn shape_core(
+        &self,
+        source: &[UnicodeScalar],
+        scratch: &mut NativeShapeScratch,
+        flags: NativeBufferFlags,
+        pre_context: &[UnicodeScalar],
+        post_context: &[UnicodeScalar],
+        glyph_limit: usize,
+        mut device: Option<&mut native_device::DeviceOwner<'_>>,
+    ) -> Result<(), FontError> {
         scratch.glyph_count = 0;
         let r = self.requirements(source)?;
         if glyph_limit > scratch.glyphs.len()
@@ -399,7 +422,7 @@ impl NativeShaper {
             || self.route.arabic_joining
                 && (scratch.actions.len() < r.script_action_capacity
                     || scratch.joining_flags.len() < r.script_action_capacity)
-            || scratch.bounds.len() < r.bounds_capacity
+            || device.is_none() && scratch.bounds.len() < r.bounds_capacity
             || scratch.stretch_runs.len() < scratch.glyphs.len()
             || scratch.categories.len() < r.glyph_capacity
             || scratch.syllables.len() < r.glyph_capacity
@@ -581,6 +604,16 @@ impl NativeShaper {
             context.apply_run(shaping_input, &mut b, lookups, indices)?;
             input::process_ignorables(&self.font, self.route.direction, flags, &mut b)?;
             let count = b.count;
+            if let Some(owner) = device.as_deref_mut() {
+                return owner.position(
+                    self,
+                    &mut b,
+                    &mut attachments[..count],
+                    attachment_states,
+                    gdef,
+                    flags,
+                );
+            }
             self.position(
                 b.glyphs_mut(),
                 &mut attachments[..count],

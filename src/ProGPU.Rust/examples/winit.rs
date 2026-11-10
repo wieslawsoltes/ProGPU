@@ -24,6 +24,8 @@ mod compositor_sample;
 mod effect_sample;
 #[path = "support/image_effect_scene.rs"]
 mod image_effect_sample;
+#[path = "support/image_filter_scene.rs"]
+mod image_filter_sample;
 #[path = "support/image_scene.rs"]
 mod image_sample;
 #[path = "support/layer_scene.rs"]
@@ -36,6 +38,8 @@ mod mask_sample;
 mod material_sample;
 #[path = "support/materialized_mask_scene.rs"]
 mod materialized_mask_sample;
+#[path = "support/owned_shader_scene.rs"]
+mod owned_shader_sample;
 #[path = "support/path_program_scene.rs"]
 mod path_program_sample;
 #[path = "support/retained_aa_scene.rs"]
@@ -62,6 +66,8 @@ enum CompositeGallery {
     ShaderEffects,
     ManagedShaders,
     ColorFilters,
+    ImageFilters,
+    OwnedShaders,
 }
 
 struct WindowRenderer {
@@ -212,6 +218,10 @@ impl WindowRenderer {
                 dpi,
                 [frame.width, frame.height],
             ))?
+        } else if self.composite_gallery == CompositeGallery::ImageFilters {
+            pollster::block_on(image_filter_sample::image_filter_scene())?
+        } else if self.composite_gallery == CompositeGallery::OwnedShaders {
+            pollster::block_on(owned_shader_sample::owned_shader_scene())?
         } else if self.composite_gallery == CompositeGallery::ColorFilters {
             pollster::block_on(color_filter_sample::color_filter_scene(
                 &mut self.renderer,
@@ -432,6 +442,8 @@ fn main() -> Result<()> {
             "--shader-effects" => app.composite_gallery = CompositeGallery::ShaderEffects,
             "--managed-shaders" => app.composite_gallery = CompositeGallery::ManagedShaders,
             "--color-filters" => app.composite_gallery = CompositeGallery::ColorFilters,
+            "--image-filters" => app.composite_gallery = CompositeGallery::ImageFilters,
+            "--owned-shaders" => app.composite_gallery = CompositeGallery::OwnedShaders,
             "--path-programs" => app.composite_gallery = CompositeGallery::PathPrograms,
             "--materialized-masks" => app.composite_gallery = CompositeGallery::MaterializedMasks,
             "--image-effects" => app.composite_gallery = CompositeGallery::ImageEffects,
@@ -451,7 +463,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

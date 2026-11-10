@@ -3,7 +3,9 @@
 use crate::Error;
 use std::sync::Arc;
 mod color_space;
+mod draw;
 mod graph;
+pub use draw::ImageFilteredImageDraw;
 mod parameters;
 mod plan;
 mod transform;

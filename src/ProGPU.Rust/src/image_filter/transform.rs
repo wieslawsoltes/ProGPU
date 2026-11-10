@@ -162,6 +162,11 @@ impl FilterTransform {
     pub fn inverse_effective(self) -> Option<Matrix4> {
         inverse(self.effective())
     }
+    /// Invert an explicit source-local matrix without applying the filter-frame
+    /// all-zero sentinel. A zero shader local matrix remains singular.
+    pub fn inverse_raw(self) -> Option<Matrix4> {
+        inverse(self.0)
+    }
     /// Ordered full row-vector frame product, retaining all sixteen components.
     pub fn concatenate(self, following: Matrix4) -> Matrix4 {
         multiply(self.effective(), following)

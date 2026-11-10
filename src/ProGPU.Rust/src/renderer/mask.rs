@@ -343,6 +343,7 @@ impl Renderer {
                     | DrawRange::ManagedShaderEffect(_)
                     | DrawRange::ImageColor(..)
                     | DrawRange::ColorFilteredImage(_)
+                    | DrawRange::ImageFilteredImage(_)
             ) {
                 continue;
             }

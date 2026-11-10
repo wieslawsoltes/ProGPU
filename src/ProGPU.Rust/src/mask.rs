@@ -222,6 +222,9 @@ pub enum Mask {
     Analytic(AnalyticMask),
     /// Original area coverage with independently placed source far edges.
     AxisClipEdges(AxisClipMaskEdges),
+    /// Original path raster coverage. The path record must use Intersect;
+    /// ordered intersection/difference belongs to the containing mask scope.
+    Path(ClipPath),
     /// Original immutable coverage bitmap.
     Coverage(CoverageMask),
     /// Original red/alpha sampled source, including an owned GPU generation.
@@ -306,6 +309,15 @@ impl Mask {
     /// Whole-descriptor native admission, independent of a future target DPI.
     pub fn validate(&self) -> Result<(), Error> {
         let (bounds, transform, opacity) = match self {
+            Self::Path(path) => {
+                if !matches!(path.sample_grid, 1 | 4 | 8)
+                    || path.operation != MaskOperation::Intersect
+                {
+                    return Err(Error::InvalidInput);
+                }
+                path.transform.scales()?;
+                return Ok(());
+            }
             Self::AxisClipEdges(mask) => {
                 let [left, top, right, bottom] = mask.edges;
                 return if mask.edges.iter().all(|v| v.is_finite()) && left <= right && top <= bottom
@@ -359,6 +371,7 @@ impl Mask {
         }
         let mut out = MaskUniforms::zeroed();
         match self {
+            Self::Path(_) => return Err(Error::UnsupportedExecution),
             Self::AxisClipEdges(mask) => {
                 out.bounds = (f32x4::from(mask.edges) * f32x4::splat(dpi) + f32x4::ZERO).to_array();
                 out.coordinate0[0] = 1.0;

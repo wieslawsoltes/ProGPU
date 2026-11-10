@@ -47,6 +47,10 @@ pub struct RetainedAaMetrics {
     pub source_shaders: crate::shader_effect::ShaderEffectMetrics,
     /// Actual source color-filter graphs and their per-replay passes.
     pub source_color_filters: ColorFilterMetrics,
+    /// Actual full image-filter DAG work in deferred child scenes.
+    pub source_image_filters: ImageFilterMetrics,
+    /// Actual nested owned shader capture/cache preparation work.
+    pub source_owned_shaders: OwnedShaderMetrics,
     /// Managed WGSL parameters and final-device shader draws in child targets.
     pub source_managed_shaders: crate::shader_effect::ManagedShaderMetrics,
 }
@@ -323,6 +327,10 @@ impl RenderFrame {
 impl RetainedAaMetrics {
     pub(super) fn merge(&mut self, other: Self) -> Result<(), Error> {
         self.source_masks.merge(other.source_masks)?;
+        self.source_image_filters
+            .merge(other.source_image_filters)?;
+        self.source_owned_shaders
+            .merge(other.source_owned_shaders)?;
         shader_effect::merge_metrics(&mut self.source_shaders, other.source_shaders)?;
         self.source_color_filters
             .merge(other.source_color_filters)?;
@@ -363,12 +371,20 @@ impl RetainedAaMetrics {
     ) -> Result<(), Error> {
         let nested = source.groups.metrics;
         self.source_masks.merge(nested.source_masks)?;
+        self.source_image_filters
+            .merge(nested.source_image_filters)?;
+        self.source_owned_shaders
+            .merge(nested.source_owned_shaders)?;
         shader_effect::merge_metrics(&mut self.source_shaders, nested.source_shaders)?;
         self.source_color_filters
             .merge(nested.source_color_filters)?;
         self.source_managed_shaders
             .merge(nested.source_managed_shaders)?;
         self.source_masks.merge(source.mask_composition_metrics())?;
+        self.source_image_filters
+            .merge(source.image_filter_metrics())?;
+        self.source_owned_shaders
+            .merge(source.owned_shader_metrics())?;
         shader_effect::merge_metrics(&mut self.source_shaders, source.shader_effect_metrics())?;
         self.source_color_filters
             .merge(source.color_filter_metrics())?;

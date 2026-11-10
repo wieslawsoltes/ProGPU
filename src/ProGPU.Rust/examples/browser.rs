@@ -20,6 +20,8 @@ mod font_scene;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/image_effect_scene.rs"]
 mod image_effect_sample;
+#[path = "support/image_filter_scene.rs"]
+mod image_filter_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/image_scene.rs"]
 mod image_sample;
@@ -37,6 +39,8 @@ mod material_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/materialized_mask_scene.rs"]
 mod materialized_mask_sample;
+#[path = "support/owned_shader_scene.rs"]
+mod owned_shader_sample;
 #[path = "support/path_program_scene.rs"]
 mod path_program_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1701,6 +1705,8 @@ mod web {
         shader_effect_scene: bool,
         managed_shader_scene: bool,
         color_filter_scene: bool,
+        image_filter_scene: bool,
+        owned_shader_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
         effect_metrics: super::effect_sample::GalleryMetrics,
@@ -1790,6 +1796,8 @@ mod web {
             shader_effect_scene: false,
             managed_shader_scene: false,
             color_filter_scene: false,
+            image_filter_scene: false,
+            owned_shader_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
             effect_metrics: Default::default(),
@@ -1835,6 +1843,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.text_font = None;
             self.image_scene = false;
             Ok(())
@@ -1866,6 +1876,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.material_scene = false;
             self.text_font = None;
             Ok(())
@@ -1886,6 +1898,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.image_scene = false;
             self.material_scene = false;
             Ok(())
@@ -1905,6 +1919,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1924,6 +1940,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1943,6 +1961,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1962,6 +1982,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -1981,6 +2003,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -2000,6 +2024,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -2019,6 +2045,8 @@ mod web {
             self.shader_effect_scene = false;
             self.managed_shader_scene = false;
             self.color_filter_scene = false;
+            self.image_filter_scene = false;
+            self.owned_shader_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -2058,6 +2086,18 @@ mod web {
         pub fn select_color_filter_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.color_filter_scene = enabled;
+            Ok(())
+        }
+        /// Select the complete original 24-kind retained filter gallery.
+        pub fn select_image_filter_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.image_filter_scene = enabled;
+            Ok(())
+        }
+        /// Select owned nested shader recipes at their actual physical targets.
+        pub fn select_owned_shader_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.owned_shader_scene = enabled;
             Ok(())
         }
         /// Prepare a new physical frame; zero extents suspend presentation.
@@ -2116,6 +2156,20 @@ mod web {
                     )
                     .await
                     .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.image_filter_scene {
+                (
+                    super::image_filter_sample::image_filter_scene()
+                        .await
+                        .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.owned_shader_scene {
+                (
+                    super::owned_shader_sample::owned_shader_scene()
+                        .await
+                        .map_err(error)?,
                     Default::default(),
                 )
             } else if self.color_filter_scene {

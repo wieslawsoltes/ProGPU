@@ -6,6 +6,7 @@ use crate::{
 };
 use std::sync::Arc;
 mod color_filter;
+mod color_space;
 pub use color_filter::{
     ColorFilter, ColorFilterKind, ColorFilterOperation, ColorFilterPlan, ColorFilterStep,
     ColorTableLayout, ColorTables, HighContrast, ImageColorMatrix, ImageColorUniforms, InvertStyle,
@@ -14,6 +15,10 @@ pub use color_filter::{
 #[cfg(feature = "gpu")]
 pub use color_filter::{
     ColorFilterComputeEngine, ColorFilterComputeMetrics, PreparedColorFilterCompute,
+};
+pub use color_space::{
+    ColorPrimariesCicp, ColorSpace, ColorSpaceIccProfile, ColorSpacePrimaries,
+    ColorSpaceTransferFunction, ColorSpaceTransferFunctionKind, ColorSpaceXyz, ColorTransferCicp,
 };
 mod png;
 pub use png::{

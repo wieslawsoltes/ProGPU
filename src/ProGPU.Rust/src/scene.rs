@@ -24,18 +24,24 @@ use crate::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod animation;
 mod axis_clip;
 pub use axis_clip::AxisClipDraw;
 #[cfg(feature = "gpu")]
 pub(crate) use axis_clip::{GroupOutput, GroupRef};
 mod clear;
 mod color_filter;
+mod image_filter;
 pub use clear::{ClearColor, TargetAlpha};
 mod layer;
 mod mask;
 pub use layer::{LayerBlend, LayerDraw};
 #[cfg(feature = "gpu")]
 mod managed_shader;
+#[cfg(feature = "gpu")]
+mod owned_shader;
+#[cfg(feature = "gpu")]
+pub use owned_shader::OwnedShaderEffectDraw;
 #[cfg(feature = "gpu")]
 mod shader_effect;
 mod source_capture;
@@ -56,6 +62,7 @@ pub(crate) enum DrawRange {
     ImageEffect(usize),
     ImageColor(std::ops::Range<u32>, usize, usize),
     ColorFilteredImage(usize),
+    ImageFilteredImage(usize),
     #[cfg(feature = "gpu")]
     ShaderEffect(usize),
     #[cfg(feature = "gpu")]
@@ -184,10 +191,13 @@ enum Command {
     ImageEffect(Box<crate::image_effect::ImageEffectDraw>),
     ImageColor(Box<crate::image::ImageColorDraw>),
     ColorFilteredImage(Box<crate::image::ColorFilteredImageDraw>),
+    ImageFilteredImage(Box<crate::image_filter::ImageFilteredImageDraw>),
     #[cfg(feature = "gpu")]
     ShaderEffect(Box<ShaderEffectDraw>),
     #[cfg(feature = "gpu")]
     ManagedShaderEffect(Box<ManagedShaderEffectDraw>),
+    #[cfg(feature = "gpu")]
+    OwnedShaderEffect(Box<OwnedShaderEffectDraw>),
     AxisClip(Box<AxisClipDraw>),
     #[cfg(feature = "gpu")]
     ResolvedAxis(usize),
@@ -549,12 +559,15 @@ impl Scene {
                 | Command::PlacedTileImage(..)
                 | Command::ImageEffect(_)
                 | Command::ImageColor(_)
-                | Command::ColorFilteredImage(_) => placements.push(None),
+                | Command::ColorFilteredImage(_)
+                | Command::ImageFilteredImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
                 Command::Glyph(_)
                 | Command::ResolvedAxis(_)
                 | Command::ShaderEffect(_)
                 | Command::ManagedShaderEffect(_) => placements.push(None),
+                #[cfg(feature = "gpu")]
+                Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
                 }
@@ -598,6 +611,7 @@ impl Scene {
         let mut image_effects = Vec::new();
         let mut image_colors = Vec::new();
         let mut color_filtered_images = Vec::new();
+        let mut image_filtered_images = Vec::new();
         #[cfg(feature = "gpu")]
         let mut shader_effects = Vec::new();
         #[cfg(feature = "gpu")]
@@ -705,6 +719,14 @@ impl Scene {
                     draws.push(DrawRange::ColorFilteredImage(color_filtered_images.len()));
                     color_filtered_images.push(draw.as_ref().clone());
                 }
+                Command::ImageFilteredImage(draw) => {
+                    draw.validate()?;
+                    image_filtered_images
+                        .try_reserve(1)
+                        .map_err(|_| Error::Capacity)?;
+                    draws.push(DrawRange::ImageFilteredImage(image_filtered_images.len()));
+                    image_filtered_images.push(draw.as_ref().clone());
+                }
                 Command::Image(draw, blend, bounds, raster_operation) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
@@ -800,6 +822,8 @@ impl Scene {
                         ),
                     );
                 }
+                #[cfg(feature = "gpu")]
+                Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_) | Command::Layer(_) | Command::AxisClip(_) => {
                     return Err(Error::UnsupportedExecution);
                 }
@@ -868,6 +892,7 @@ impl Scene {
             image_effects,
             image_colors,
             color_filtered_images,
+            image_filtered_images,
             #[cfg(feature = "gpu")]
             shader_effects,
             #[cfg(feature = "gpu")]
@@ -898,6 +923,7 @@ pub struct CompiledScene {
     pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
     pub(crate) image_colors: Vec<crate::image::ImageColorMatrix>,
     pub(crate) color_filtered_images: Vec<crate::image::ColorFilteredImageDraw>,
+    pub(crate) image_filtered_images: Vec<crate::image_filter::ImageFilteredImageDraw>,
     #[cfg(feature = "gpu")]
     pub(crate) shader_effects: Vec<ShaderEffectDraw>,
     #[cfg(feature = "gpu")]
@@ -929,6 +955,10 @@ impl CompiledScene {
     /// Complete immutable filter sources and bounded graph requests in painter order.
     pub fn color_filtered_images(&self) -> &[crate::image::ColorFilteredImageDraw] {
         &self.color_filtered_images
+    }
+    /// Complete original image-filter graphs and independent canvas requests.
+    pub fn image_filtered_images(&self) -> &[crate::image_filter::ImageFilteredImageDraw] {
+        &self.image_filtered_images
     }
     /// Native bytecode commands retaining actual source/target frames.
     #[cfg(feature = "gpu")]

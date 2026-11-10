@@ -355,8 +355,44 @@ impl Renderer {
             .transpose()?;
         let mut inputs = Vec::new();
         let mut producers = Vec::new();
+        let mut path_programs = Vec::new();
         for component in source.components.iter() {
+            let mut path_program = None;
             let (image, uniforms, sampling, producer) = match &component.mask {
+                Mask::Path(path) => {
+                    // Keep the exact original root-coordinate path/frame. Its
+                    // full-root R8 output is sampled at this actual child origin;
+                    // no completed coefficients or quantized path phase are rebased.
+                    let root_size = [frame.root.width, frame.root.height];
+                    let plan = crate::mask::ClipPlan::new(
+                        std::slice::from_ref(path),
+                        root_size,
+                        frame.dpi_scale,
+                    )?;
+                    state
+                        .composer
+                        .set_signed_winding_policy(self.signed_winding_policy);
+                    let prepared = state.composer.prepare_clip(&plan).await?;
+                    let image = prepared.image().clone();
+                    let uniforms = MaskUniforms {
+                        coordinate0: [
+                            -(frame.origin[0] as f32),
+                            -(frame.origin[1] as f32),
+                            0.0,
+                            0.0,
+                        ],
+                        coordinate1: [
+                            1.0 / root_size[0] as f32,
+                            1.0 / root_size[1] as f32,
+                            0.0,
+                            0.0,
+                        ],
+                        options: [1.0, 1.0, 0.0, 1.0],
+                        ..Zeroable::zeroed()
+                    };
+                    path_program = Some(prepared);
+                    (image, uniforms, MaskSampling::Nearest, None)
+                }
                 Mask::Analytic(_) | Mask::AxisClipEdges(_) => {
                     let direct =
                         CompiledDrawState::direct(component.mask.clone(), frame.dpi_scale)?;
@@ -407,6 +443,7 @@ impl Renderer {
                 operation: component.operation,
             });
             producers.push(producer);
+            path_programs.push(path_program);
         }
         let prepared = state.composer.prepare_sampled(&inputs, size).await?;
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
@@ -468,6 +505,9 @@ impl Renderer {
                 label: Some("ProGPU bounded retained mask composition"),
             });
         for (index, producer) in producers.iter().enumerate() {
+            if let Some(path) = &path_programs[index] {
+                path.encode_owned(&mut encoder);
+            }
             if let Some(binding) = producer {
                 let (vertices, indices, frame, image, view) =
                     geometry.as_ref().ok_or(Error::ResourceDomain)?;
@@ -489,6 +529,12 @@ impl Renderer {
         self.queue.submit([command]);
         let mut metrics = prepared.metrics();
         uploads.uniform_bytes += metrics.uniform_bytes;
+        for path in path_programs.iter().flatten() {
+            let source_metrics = path.metrics();
+            uploads.uniform_bytes += source_metrics.uniform_bytes;
+            uploads.geometry_bytes += source_metrics.geometry_bytes;
+            metrics.merge(source_metrics)?;
+        }
         if let Some((vertices, indices, ..)) = &geometry {
             let count = producers.iter().filter(|p| p.is_some()).count() as u32;
             metrics.render_passes += count;
@@ -496,7 +542,7 @@ impl Renderer {
             metrics.uniform_bytes += 224 + u64::from(count) * 384;
             metrics.geometry_bytes += vertices.size() + indices.size();
             uploads.uniform_bytes += 224;
-            uploads.geometry_bytes += metrics.geometry_bytes;
+            uploads.geometry_bytes += vertices.size() + indices.size();
         }
         Ok((prepared.into_image(), metrics))
     }
@@ -565,6 +611,23 @@ fn mask_cost(
         passes = passes
             .checked_add((source.components.len() + analytic) as u32)
             .ok_or(Error::Capacity)?;
+        for component in source.components.iter() {
+            if let Mask::Path(path) = &component.mask {
+                let root_size = [frame.root.width, frame.root.height];
+                let plan = crate::mask::ClipPlan::new(
+                    std::slice::from_ref(path),
+                    root_size,
+                    frame.dpi_scale,
+                )?;
+                let path_bytes = u64::from(root_size[0])
+                    .checked_mul(u64::from(root_size[1]))
+                    .and_then(|v| v.checked_mul(3))
+                    .and_then(|v| v.checked_add(u64::from(plan.atlas_size()).pow(2)))
+                    .ok_or(Error::Capacity)?;
+                bytes = bytes.checked_add(path_bytes).ok_or(Error::Capacity)?;
+                passes = passes.checked_add(2).ok_or(Error::Capacity)?;
+            }
+        }
         if bytes > 512 * 1024 * 1024 || passes > 16384 {
             return Err(Error::Capacity);
         }

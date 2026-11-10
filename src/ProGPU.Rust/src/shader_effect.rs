@@ -10,8 +10,18 @@ pub use capture::{ManagedCaptureFrame, SourceCapture, source_pixels_per_unit};
 mod frame;
 mod managed;
 #[cfg(feature = "gpu")]
+mod owned;
+#[cfg(feature = "gpu")]
+pub use crate::renderer::{OwnedShaderTargetFrame, ShaderEffectPreparationContext};
+#[cfg(feature = "gpu")]
 pub use managed::{ManagedShaderDescriptor, ManagedShaderParameters, ManagedShaderSampler};
 pub use managed::{ManagedShaderProgram, ManagedShaderQuad, ManagedShaderVertex};
+#[cfg(feature = "gpu")]
+pub use owned::{
+    OwnedShaderEffectDescriptor, OwnedShaderEffectParameters, OwnedShaderEffectRecording,
+    OwnedShaderEffectSampler, OwnedShaderEffectSource, OwnedShaderEffectTexture,
+    ShaderEffectPreparation,
+};
 #[cfg(feature = "gpu")]
 mod managed_gpu;
 pub use frame::{

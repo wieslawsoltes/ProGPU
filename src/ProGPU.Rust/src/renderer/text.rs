@@ -292,13 +292,16 @@ impl Renderer {
 pub(super) struct TreePreparation<'a> {
     pub renderer: &'a mut Renderer,
     protected: bool,
+    previous: bool,
     complete: bool,
 }
 impl<'a> TreePreparation<'a> {
     pub fn new(renderer: &'a mut Renderer, protected: bool) -> Self {
+        let previous = renderer.text_tree_active;
         Self {
             renderer,
-            protected,
+            protected: protected || previous,
+            previous,
             complete: false,
         }
     }
@@ -309,19 +312,20 @@ impl<'a> TreePreparation<'a> {
     pub async fn finish(mut self, scene: &mut PreparedScene) -> Result<(), Error> {
         self.renderer.refresh_private_text_tree(scene)?;
         if self.protected
+            && !self.previous
             && let Some(mut state) = self.renderer.text.take()
         {
             state.atlas.end_batch().await?;
             self.renderer.text = Some(state);
         }
-        self.renderer.text_tree_active = false;
+        self.renderer.text_tree_active = self.previous;
         self.complete = true;
         Ok(())
     }
 }
 impl Drop for TreePreparation<'_> {
     fn drop(&mut self) {
-        self.renderer.text_tree_active = false;
+        self.renderer.text_tree_active = self.previous;
         if self.protected && !self.complete {
             self.renderer.text.take();
         }

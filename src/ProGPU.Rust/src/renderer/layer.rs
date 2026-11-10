@@ -58,6 +58,10 @@ pub struct LayerMetrics {
     pub source_shaders: crate::shader_effect::ShaderEffectMetrics,
     /// Actual source color-filter graphs and their per-replay passes.
     pub source_color_filters: ColorFilterMetrics,
+    /// Actual full image-filter DAG work in these captured source subtrees.
+    pub source_image_filters: ImageFilterMetrics,
+    /// Actual nested owned shader capture/cache preparation work.
+    pub source_owned_shaders: OwnedShaderMetrics,
     /// Managed WGSL parameters and final-device shader draws in child targets.
     pub source_managed_shaders: crate::shader_effect::ManagedShaderMetrics,
 }
@@ -188,18 +192,20 @@ impl Renderer {
         passes: &mut u32,
     ) -> Result<(), Error> {
         use crate::scene::GroupRef;
+        self.preflight_owned_shaders(scene, frame)?;
         self.preflight_shaders(scene, frame)?;
         self.preflight_managed_shaders(scene, frame)?;
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         self.validate_mask_states(&states)?;
         let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
         let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
+        let (image_filter_bytes, image_filter_passes) = self.preflight_image_filters(scene)?;
         let (mask_bytes, mask_passes) = self.mask_resource_cost(scene, &states, &changes, frame)?;
         *bytes = bytes
-            .checked_add(effect_bytes + mask_bytes + filter_bytes)
+            .checked_add(effect_bytes + mask_bytes + filter_bytes + image_filter_bytes)
             .ok_or(Error::Capacity)?;
         *passes = passes
-            .checked_add(effect_passes + mask_passes + filter_passes)
+            .checked_add(effect_passes + mask_passes + filter_passes + image_filter_passes)
             .ok_or(Error::Capacity)?;
         if *bytes > 512 * 1024 * 1024 || *passes > 16 * 1024 {
             return Err(Error::Capacity);
@@ -318,12 +324,17 @@ impl Renderer {
         fixed_root: Option<crate::image::GpuImage>,
     ) -> Result<PreparedScene, Error> {
         use crate::scene::{GroupOutput, GroupRef};
+        self.preflight_owned_shaders(scene, frame)?;
+        let (resolved_owned, owned) = self.prepare_owned_shader_scene(scene, frame).await?;
+        let scene = &resolved_owned;
         let mut groups = PreparedGroups::default();
         if let Some(root) = fixed_root {
             groups.root = Some(GroupTarget::new(root, true));
         }
         if scene.layer_depth() == 0 {
-            return self.prepare_flat_scene(scene, frame, groups).await;
+            let mut prepared = self.prepare_flat_scene(scene, frame, groups).await?;
+            prepared.owned_shaders = owned;
+            return Ok(prepared);
         }
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         let mut current = 0;
@@ -420,6 +431,7 @@ impl Renderer {
         let resolved = scene.replace_groups(outputs)?;
         let mut prepared = self.prepare_flat_scene(&resolved, frame, groups).await?;
         prepared.layers = metrics;
+        prepared.owned_shaders = owned;
         self.refresh_private_text_tree(&mut prepared)?;
         Ok(prepared)
     }
@@ -427,6 +439,10 @@ impl Renderer {
 impl LayerMetrics {
     pub(super) fn add_nested(&mut self, other: Self) -> Result<(), Error> {
         self.source_masks.merge(other.source_masks)?;
+        self.source_image_filters
+            .merge(other.source_image_filters)?;
+        self.source_owned_shaders
+            .merge(other.source_owned_shaders)?;
         shader_effect::merge_metrics(&mut self.source_shaders, other.source_shaders)?;
         self.source_color_filters
             .merge(other.source_color_filters)?;
@@ -518,8 +534,18 @@ impl LayerMetrics {
         let source = scene.metrics;
         let aa = scene.retained_aa_metrics();
         self.source_masks.merge(child.source_masks)?;
+        self.source_image_filters
+            .merge(child.source_image_filters)?;
+        self.source_owned_shaders
+            .merge(child.source_owned_shaders)?;
         self.source_masks.merge(scene.mask_composition_metrics())?;
+        self.source_image_filters
+            .merge(scene.image_filter_metrics())?;
+        self.source_owned_shaders
+            .merge(scene.owned_shader_metrics())?;
         self.source_masks.merge(aa.source_masks)?;
+        self.source_image_filters.merge(aa.source_image_filters)?;
+        self.source_owned_shaders.merge(aa.source_owned_shaders)?;
         shader_effect::merge_metrics(&mut self.source_shaders, child.source_shaders)?;
         self.source_color_filters
             .merge(child.source_color_filters)?;

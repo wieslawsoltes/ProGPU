@@ -94,11 +94,13 @@ device execution. Only ProGPU-owned implementation is ported.
 
 ## Remaining independent boundaries and evidence
 
-Actual hinted outline/metric production, preparation of the complete final-GSUB
-descriptor inventory, capture-positioning/capture-boundary owners, source replay
-placement, and the full `device_shape_run_services` orchestration are still
-independent work. The new interfaces consume actual retained captures; they do
-not create them or infer source GDI/GDI+/DirectWrite raster policy. Native
+The subsequent [native device run port](native-device-run-port.md) connects the
+complete final-GSUB descriptor preparation, capture-positioning/capture-boundary
+owners, device run services and independent fragment captures to an explicit
+actual-provider trait. Actual hinted outline/metric production and source replay
+writers remain independent work. These interfaces consume actual retained
+captures; they do not execute the interpreter or infer source GDI/GDI+/DirectWrite
+raster policy. Native
 paragraph fallback/bidi itemization and source/browser/provider/package integration
 also remain independent. The previously documented native Hangul producer/consumer
 flag mismatch remains unchanged.

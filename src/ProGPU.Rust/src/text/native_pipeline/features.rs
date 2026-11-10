@@ -125,6 +125,15 @@ pub struct NativeFeaturePlan {
     settings: Vec<NativeFeature>,
 }
 impl NativeFeaturePlan {
+    pub(super) fn try_copy(&self) -> Result<Self, FontError> {
+        Ok(Self {
+            route: self.route,
+            base: copy_vec(&self.base)?,
+            explicit: copy_vec(&self.explicit)?,
+            requested: copy_vec(&self.requested)?,
+            settings: copy_vec(&self.settings)?,
+        })
+    }
     /// Normalize public native requests and apply the original script policy.
     /// Global unsigned values clamp to `i32::MAX`; ranged values remain exact.
     pub fn new(route: NativeFeatureRoute, features: &[NativeFeature]) -> Result<Self, FontError> {

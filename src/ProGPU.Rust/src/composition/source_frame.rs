@@ -17,6 +17,7 @@ pub struct SourceRenderFrame {
     empty: bool,
     effect: Option<ManagedCaptureFrame>,
     cache: Option<CacheSamplerRasterFrame>,
+    image_filter: bool,
 }
 impl SourceRenderFrame {
     fn create(
@@ -83,6 +84,7 @@ impl SourceRenderFrame {
             empty,
             effect: None,
             cache: None,
+            image_filter: false,
         })
     }
     /// Original implicit-input capture. Physical-origin captures project their
@@ -155,6 +157,46 @@ impl SourceRenderFrame {
         result.cache = Some(frame);
         Ok(result)
     }
+    /// Original SKCanvas image-filter source capture: pixel-sized projection,
+    /// semantic DPI one and the complete source-to-filter command transform.
+    /// Full finite 2D affine transforms are retained. Perspective source geometry
+    /// requires its independent source compiler and is rejected here.
+    pub fn image_filter(size: [u32; 2], transform: Matrix4) -> Result<Self, Error> {
+        let transform = if transform.0.iter().flatten().all(|v| *v == 0.0) {
+            Matrix4::IDENTITY
+        } else {
+            transform
+        };
+        let m = transform.0;
+        if m.iter().flatten().any(|v| !v.is_finite()) {
+            return Err(Error::InvalidInput);
+        }
+        if m[0][2] != 0.0
+            || m[0][3] != 0.0
+            || m[1][2] != 0.0
+            || m[1][3] != 0.0
+            || m[2] != [0.0, 0.0, 1.0, 0.0]
+            || m[3][2] != 0.0
+            || m[3][3] != 1.0
+        {
+            return Err(Error::UnsupportedExecution);
+        }
+        let mut frame = Self::create(
+            size,
+            size.map(|v| v as f32),
+            1.0,
+            Matrix4::IDENTITY,
+            false,
+            false,
+        )?;
+        frame.placement = transform;
+        frame.image_filter = true;
+        Ok(frame)
+    }
+    /// Whether the source is an original full-frame image-filter capture.
+    pub fn is_image_filter(self) -> bool {
+        self.image_filter
+    }
     /// Actual physical texture allocation.
     pub fn size(self) -> [u32; 2] {
         self.size
@@ -198,6 +240,7 @@ impl SourceRenderFrame {
     /// Exact immutable target identity, including every original metadata bit.
     pub fn same_frame(self, other: Self) -> bool {
         self.size == other.size
+            && self.image_filter == other.image_filter
             && self.logical_size == other.logical_size
             && self.logical_extent.map(f32::to_bits) == other.logical_extent.map(f32::to_bits)
             && self.dpi.to_bits() == other.dpi.to_bits()

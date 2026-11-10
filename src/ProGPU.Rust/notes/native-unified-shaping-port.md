@@ -95,8 +95,9 @@ the complete captured-device space/fallback-mark/stretch policy algorithms.
 
 * Actual hinted-device font/outline/metric producer, captured descriptor mapping,
   callback-owned positioning/boundary capture and source providers remain separate.
-  The typed 26.6 policy interfaces do not construct the actual hinted generation
-  or connect the complete prepare/capture/device-shaper provider lifecycle.
+  The subsequent [device run port](native-device-run-port.md) connects the complete
+  prepare/capture/device-shaper lifecycle to an explicit actual-provider trait;
+  it does not implement the native hinted interpreter/capture producer.
 * Native paragraph font fallback and bidi/run itemization/provider orchestration
   remain independent of the complete selected-font single-run stage families.
 * Original source application/package/browser execution and native/managed

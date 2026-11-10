@@ -11,7 +11,7 @@ use progpu::{
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub fn color_filter_scene(
+pub async fn color_filter_scene(
     _renderer: &mut Renderer,
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,

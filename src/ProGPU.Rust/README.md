@@ -13,8 +13,12 @@ graphs, exact Texture matrices and connected native Indic/USE/Myanmar/Khmer
 orchestration. Unified native ordinary/Arabic/Hangul/Hebrew/Thai-Lao shaping,
 fallback marks, stretch, fragment Verify and explicit captured-device arithmetic
 are now connected. Full 24-kind image-filter descriptions/planning and five compute
-engines are ported, alongside actual source-frame and raw-cache scene captures.
-Shared hosts also author 16 color-filter and 12 managed shader panels.
+engines are now connected to retained execution and actual source captures. Owned
+nested shader recipes retain per-target captures/parameters with rollback and
+completed-submission cache retirement. Actual hinted-device run orchestration
+consumes an explicit owned provider; its real interpreter producer remains separate.
+Shared hosts also author 16 color-filter, 12 managed shader, 24 full image-filter
+and 12 owned nested-shader panels. These additions have not been compiled or run.
 
 **Mandatory implementation-first workflow:** complete the remaining code before
 validation. This entire batch is unvalidated; no compilation, lint, test, shader,
@@ -24,14 +28,15 @@ connects retained rendering, samples and package source inventory.
 
 | Latest parallel slice | Implemented | Remaining integration |
 | --- | --- | --- |
-| Native GPOS and shaping | All nine families and unified ordinary/Arabic/USE/Hangul/Hebrew/Thai-Lao/Indic/Myanmar/Khmer stages; complete design-unit positioning, fallback/stretch, safe-fragment Verify and explicit captured-device 26.6 algorithms | Actual hinted producer and full native device orchestration; all source/browser/performance qualification |
+| Native GPOS and shaping | All nine families and unified ordinary/Arabic/USE/Hangul/Hebrew/Thai-Lao/Indic/Myanmar/Khmer stages; complete design-unit positioning, fallback/stretch, safe-fragment Verify and explicit captured-device 26.6 algorithms | Actual hinted producer; all source/browser/performance qualification |
 | PNG codec | Original chunks/CRC, zlib/DEFLATE, color/depth inventory, Adam7, filters, palette/transparency and caller-owned scratch | Color-font/provider integration and all source/error/performance controls |
-| Color filters | Immutable graph/factories, CPU brush colors, exact matrix packets, direct Texture drawing and full retained matrix/table/nonlinear/constant/compose/lerp graph execution with live mipmaps | Runtime-effect filter nodes, remaining image-filter DAG families and all qualification |
-| Programmable shader effects | Original bytecode/v1–v6 stack plus managed WGSL, all 16 samplers, exact alpha/blend policies, actual-target masks and painter-ordered draws; source-frame/raw-cache capture foundation | Owned nested recipes/target-cache transaction, full source visual policy and source transport |
-| Full image-filter DAG | All 24 original kinds, immutable factories, source-rebound bounded planning, transfer functions, exact parameter records and five canonical compute engines | Retained plan executor and source leaves; runtime-source implementations and complete color-space providers |
-| Source captures | Original independent physical/projection/logical/DPI frames, pre-raster source placement, exact clip/mask edges, complete device preflight and owned raw-cache source/revision/device generations | Owned nested shader preparation; full source transport and original pixels/lifetime/performance qualification |
+| Color filters | Immutable graph/factories, CPU brush colors, exact matrix packets, direct Texture drawing and full retained matrix/table/nonlinear/constant/compose/lerp graph execution with live mipmaps | Runtime-effect filter nodes and all qualification |
+| Programmable shader effects | Original bytecode/v1–v6 plus managed WGSL/16 samplers, owned source/recording recipes, complete actual-target cache/rollback, immutable sampler/input captures and deferred completed-frame retirement | Full source visual policy/transport, perspective source compilation and all qualification |
+| Full image-filter DAG | All 24 original kinds, immutable factories, source-rebound bounded planning and actual retained GPU result table, Gaussian/color/five compute engines, source captures, full clips and wrappers | Original runtime sources, perspective picture frames and non-affine nested shader transforms remain explicit gaps; all qualification |
+| Source captures | Original independent physical/projection/logical/DPI frames, pre-raster source placement, exact clip/mask edges, complete device preflight and owned raw-cache source/revision/device generations | Full source transport and original pixels/lifetime/performance qualification |
+| Color spaces and animation | Original ICC ownership/parser, XYZ/primaries/CICP/RGB factories and conversion adapters; complete keyframe/easing/spring/expression timing | Visual property binding, full source integration and all numerical/runtime qualification |
 | Destination operations | Retained all-code ROP3 with solid/tile/texture patterns, canonical source/compose/copy passes and explicit uniform-backdrop engine | Automatic uniform-target selection/cache, complete source commands and platform policies |
-| Host samples | Shared compositor/bytecode galleries plus 16 color-filter and 12 managed WGSL panels | Authored only; compilation and execution deferred |
+| Host samples | Shared compositor/bytecode galleries plus 16 color-filter, 12 managed WGSL, 24 full image-filter and 12 owned nested-shader panels | Authored only; compilation and execution deferred |
 
 Exact sources, ownership and gaps are recorded in [implementation notes](notes/)
 and the [design ledger](DESIGN.md). No existing evidence qualifies this checkpoint.
