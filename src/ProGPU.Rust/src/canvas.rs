@@ -18,6 +18,7 @@ mod texture_batch;
 pub use drawing::CanvasPointMode;
 mod picture;
 mod prepare;
+mod primitives;
 pub use picture::{PictureRecorder, RecordedPicture};
 #[cfg(feature = "gpu")]
 mod surface;

@@ -148,7 +148,11 @@ impl Canvas {
     }
     /// Original analytic rectangle bounds are left/top/right/bottom.
     pub fn draw_rect(&mut self, bounds: [f32; 4], paint: &Paint) -> Result<(), Error> {
-        let b = xywh(bounds);
+        self.draw_rect_xywh(xywh(bounds), paint)
+    }
+    /// Original x/y/width/height rectangle preserves the supplied dimensions;
+    /// endpoint reconstruction is used only by its actual source geometry.
+    pub fn draw_rect_xywh(&mut self, b: [f32; 4], paint: &Paint) -> Result<(), Error> {
         self.push(Command::Analytic {
             geometry: Arc::new(PathGeometry::rectangle(b[0], b[1], b[2], b[3])),
             shape: crate::geometry::Shape::Rectangle,
