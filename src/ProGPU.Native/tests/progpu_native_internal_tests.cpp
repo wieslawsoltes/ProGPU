@@ -675,9 +675,10 @@ void span_command_lists_hold_one_reference_and_replay_exactly() {
         const auto hash = hash_words(1U, store.data(), first_count);
         require(hash == hash_words(1U, store.data(), first_count));
         require(hash != hash_words(2U, store.data(), first_count));
+        require(first_count > 0U);
         std::vector<std::uint64_t> changed(
             store.data(), store.data() + first_count);
-        changed.back() ^= 1U;
+        changed[first_count - 1U] ^= 1U;
         require(hash != hash_words(1U, changed.data(), changed.size()));
 
         // A moved store takes the references with it.
