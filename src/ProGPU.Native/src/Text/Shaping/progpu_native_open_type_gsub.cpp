@@ -18,6 +18,11 @@ namespace {
 enum class apply_result : std::uint8_t {
     no_match,
     applied,
+    // A contextual rule matched and changed nothing: a rule without nested
+    // lookups (an exception rule), or one whose nested lookups did not apply.
+    // The first matching rule ends the lookup at its position, so no later
+    // rule or subtable is tried there.
+    matched,
     malformed,
     insufficient_buffer
 };
@@ -532,7 +537,7 @@ apply_result apply_context_records(
             options.gdef,
             options.restricted_syllable);
         if (target >= count) {
-            return apply_result::no_match;
+            continue;
         }
         const apply_result nested = apply_lookup_at(
             gsub,
@@ -548,7 +553,7 @@ apply_result apply_context_records(
         }
         changed |= nested == apply_result::applied;
     }
-    return changed ? apply_result::applied : apply_result::no_match;
+    return changed ? apply_result::applied : apply_result::matched;
 }
 
 apply_result apply_context_format3(
@@ -1655,6 +1660,13 @@ bool try_apply_open_type_gsub_lookup(
             if (result == apply_result::insufficient_buffer) {
                 set_error(error, font_error::insufficient_buffer);
                 return false;
+            }
+            if (result == apply_result::matched) {
+                // The matched input sequence is consumed as it is.
+                if (!reverse && context_match_end > iteration) {
+                    iteration = std::min(context_match_end, glyph_count);
+                }
+                break;
             }
             if (result == apply_result::applied) {
                 applied = true;

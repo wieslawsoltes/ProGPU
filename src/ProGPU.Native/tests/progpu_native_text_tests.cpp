@@ -1814,6 +1814,76 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     require(applied && glyphs[1U].glyph_id == 12U);
 }
 
+void open_type_gsub_exception_rule_ends_the_lookup_at_its_position() {
+    // Lookup 0 is ChainContextSubst with two format 3 subtables. The first is
+    // an exception rule: glyph 5 after glyph 1, with no nested lookup. The
+    // second substitutes every glyph 5 through lookup 1. The first rule that
+    // matches ends the lookup at its position, so a glyph 5 after glyph 1
+    // stays, and the others become glyph 12.
+    std::array<std::byte, 92U> table{};
+    write_u16(table, 0U, 1U);
+    write_u16(table, 4U, 10U);
+    write_u16(table, 6U, 12U);
+    write_u16(table, 8U, 14U);
+    write_u16(table, 14U, 2U);
+    write_u16(table, 16U, 6U);
+    write_u16(table, 18U, 58U);
+    write_u16(table, 20U, 6U);
+    write_u16(table, 24U, 2U);
+    write_u16(table, 26U, 10U);
+    write_u16(table, 28U, 24U);
+    write_u16(table, 30U, 3U);
+    write_u16(table, 32U, 1U);
+    write_u16(table, 34U, 30U);
+    write_u16(table, 36U, 1U);
+    write_u16(table, 38U, 36U);
+    write_u16(table, 40U, 0U);
+    write_u16(table, 42U, 0U);
+    write_u16(table, 44U, 3U);
+    write_u16(table, 46U, 0U);
+    write_u16(table, 48U, 1U);
+    write_u16(table, 50U, 22U);
+    write_u16(table, 52U, 0U);
+    write_u16(table, 54U, 1U);
+    write_u16(table, 56U, 0U);
+    write_u16(table, 58U, 1U);
+    write_u16(table, 60U, 1U);
+    write_u16(table, 62U, 1U);
+    write_u16(table, 64U, 1U);
+    write_u16(table, 66U, 1U);
+    write_u16(table, 68U, 1U);
+    write_u16(table, 70U, 5U);
+    write_u16(table, 72U, 1U);
+    write_u16(table, 76U, 1U);
+    write_u16(table, 78U, 8U);
+    write_u16(table, 80U, 1U);
+    write_u16(table, 82U, 6U);
+    write_u16(table, 84U, 7U);
+    write_u16(table, 86U, 1U);
+    write_u16(table, 88U, 1U);
+    write_u16(table, 90U, 5U);
+
+    open_type_layout_table_view gsub{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(table, gsub, &error));
+    std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{1U}, shaping_glyph{5U},
+        shaping_glyph{2U}, shaping_glyph{5U}};
+    std::uint32_t count = 4U;
+    bool applied = false;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 4U && glyphs[0U].glyph_id == 1U &&
+        glyphs[1U].glyph_id == 5U && glyphs[2U].glyph_id == 2U &&
+        glyphs[3U].glyph_id == 12U);
+
+    glyphs = {shaping_glyph{1U}, shaping_glyph{5U}};
+    count = 2U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(!applied && count == 2U && glyphs[1U].glyph_id == 5U);
+}
+
 void open_type_gsub_context_contraction_advances_in_mutated_space() {
     // Lookup 0 is ContextSubst format 3 for [5, 6]. Its nested lookup 1
     // contracts that pair to ligature glyph 12. Repeating the same pair in a
@@ -14359,6 +14429,7 @@ int main() {
     open_type_gsub_basic_lookups_use_caller_owned_storage();
     open_type_gsub_reverse_chaining_matches_bounded_context();
     open_type_gsub_context_format3_applies_bounded_nested_lookups();
+    open_type_gsub_exception_rule_ends_the_lookup_at_its_position();
     open_type_gsub_context_contraction_advances_in_mutated_space();
     open_type_gsub_context_glyph_and_class_rules_are_bounded();
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
