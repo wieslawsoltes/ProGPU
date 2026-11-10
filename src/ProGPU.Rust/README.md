@@ -28,7 +28,8 @@ Latest connected continuation (2026-11-10), implementation only:
 | Native document flow | Nested blocks, shared table tracks/cells, exact width/anchor/collision passes, page/column breaks, retained paragraph generations and atomic import/copy/reflow | Original source/error/lifetime/browser/performance controls |
 | Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
 | Native font providers and catalog | Exact host/browser callback selection/cache, raw fallback preferences and fixed style variations; separate native metadata discovery, nominal cmap matching, file ownership, names/style/embedding and resident SFNT/SBIX writers | Native mmap/path-encoding host adapters and all original byte/error/callback/lifetime/browser/performance qualification |
-| Native color/bitmap font queries | Original COLR/CPAL, SVG/raw-gzip, sbix and CBLC/CBDT views, capacity-first decode and source renderability ordering | Full SVG layer execution and actual bitmap/source/provider/pixel qualification |
+| Native color/bitmap font queries | Original COLR/CPAL, SVG/raw-gzip, sbix and CBLC/CBDT views, capacity-first decode and source renderability ordering | Actual bitmap/source/provider/pixel qualification |
+| Native SVG glyph layers | Bounded byte XML/path/primitives/reference/gradient production, atomic four-buffer output, retained source/font owners and canonical path/material drawing | Host f64 versus native long-double arithmetic, actual text placement/provider integration and all original byte/pixel/browser/performance gates |
 | Font subsets | Native and managed glyph-ID-preserving/compact producers, independent malformed-composite policies, original remap/long loca/horizontal metrics/table checksums and atomic caller output | Original byte/error/capacity/ownership/browser/package/performance controls |
 | Font storage and residency | Safe owned/static/shared leases, exact SFNT/SBIX glyph extraction, demand bitmap cache, instance-identity matching and actual execution metrics | Native mapped storage explicitly unavailable; original byte/error/lifetime/performance and host-provider controls |
 | ImageEffect reuse | Completion-owned parameter/blur pools, original module/pipeline/sampler caches, tracked source/mip/view generations, explicit host-frame aging and actual reuse metrics | Original runtime/pixel/lifetime/browser/performance controls |
@@ -93,6 +94,9 @@ The separate managed subset facade retains its original malformed-input policies
 [Ordinary late-camera text](notes/late-camera-text-port.md) and
 [mixed static DXF](notes/static-dxf-port.md) now have connected production routes;
 all new execution remains unvalidated.
+The [native SVG layer producer](notes/native-svg-layer-port.md) now connects
+owned font documents through parsing to retained canonical drawing. Its reported
+host-f64 number policy remains an explicit source-arithmetic qualification gap.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

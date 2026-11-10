@@ -5,6 +5,8 @@ use crate::font::{FontData, FontError, SfntFace};
 use std::sync::Arc;
 mod glyph;
 pub use glyph::*;
+mod svg;
+pub use svg::*;
 mod preferences;
 pub use preferences::{
     NativeFallbackPreferences, fallback_family_preferences, fallback_family_preferences_bytes,
