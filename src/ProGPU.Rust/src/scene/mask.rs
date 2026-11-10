@@ -7,11 +7,15 @@ use wide::f32x4;
 #[derive(Clone, Debug)]
 pub(crate) struct CompiledDrawState {
     pub blend: LayerBlend,
+    /// Original logical clip edges used by extension QuadClipper before projection.
+    pub logical_clip: Option<[f32; 4]>,
     pub masks: [MaskUniforms; 4],
     pub count: usize,
     pub coverage: Option<TextureMask>,
     pub components: Arc<[MaskComponent]>,
     pub materialized: bool,
+    /// Proven one-to-one actual-target R8 output, never an unrelated sampled mask.
+    pub local_coverage: bool,
     /// Physical left/top/right/bottom integer half-open boundaries.
     pub clip: Option<[u32; 4]>,
 }
@@ -19,11 +23,13 @@ impl Default for CompiledDrawState {
     fn default() -> Self {
         Self {
             blend: LayerBlend::SrcOver,
+            logical_clip: None,
             masks: [MaskUniforms::zeroed(); 4],
             count: 0,
             coverage: None,
             components: Arc::from([]),
             materialized: false,
+            local_coverage: false,
             clip: None,
         }
     }
@@ -265,6 +271,27 @@ impl Scene {
                 }
             }
             #[cfg(feature = "gpu")]
+            if let Command::BackdropMaterial(_) = command {
+                let state = &states[current];
+                if !state.materialized
+                    && (state.count > 1
+                        || state.masks[..state.count]
+                            .iter()
+                            .any(|m| m.options[0] > 4.5))
+                {
+                    let mut state = state.clone();
+                    state.materialized = true;
+                    state.count = 1;
+                    state.masks = [MaskUniforms::zeroed(); 4];
+                    state.coverage = None;
+                    states.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    current = states.len();
+                    states.push(state);
+                    changes.push(Some(current));
+                    continue;
+                }
+            }
+            #[cfg(feature = "gpu")]
             if let Command::ManagedShaderEffect(draw) = command {
                 let state = &states[current];
                 if draw.mask.is_some() && state.count != 0 {
@@ -360,6 +387,16 @@ impl Scene {
                         source_capture::validate_edges(*bounds)?;
                         *bounds
                     };
+                    candidate.logical_clip = Some(if let Some(old) = candidate.logical_clip {
+                        [
+                            edges[0].max(old[0]),
+                            edges[1].max(old[1]),
+                            edges[2].min(old[2]),
+                            edges[3].min(old[3]),
+                        ]
+                    } else {
+                        edges
+                    });
                     let projected =
                         (f32x4::from(edges) * f32x4::splat(dpi) + f32x4::ZERO).to_array();
                     if projected.iter().any(|v| !v.is_finite()) {

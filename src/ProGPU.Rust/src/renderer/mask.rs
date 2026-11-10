@@ -370,6 +370,7 @@ impl Renderer {
                     | DrawRange::Clear(_)
                     | DrawRange::Axis(_)
                     | DrawRange::ImageEffect(_)
+                    | DrawRange::BackdropMaterial(_)
                     | DrawRange::ShaderEffect(_)
                     | DrawRange::ManagedShaderEffect(_)
                     | DrawRange::ImageColor(..)

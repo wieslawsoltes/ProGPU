@@ -16,6 +16,8 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+mod backdrop;
+pub use backdrop::BackdropMetrics;
 mod advanced;
 mod blend;
 mod uniform_backdrop;
@@ -194,6 +196,7 @@ pub struct PreparedScene {
     cached_pictures: cached_picture::PreparedCachedPictures,
     owned_shader_frame: u64,
     advanced: Option<advanced::PreparedAdvanced>,
+    backdrops: Option<backdrop::PreparedBackdrops>,
     clears: Option<clear::PreparedClears>,
     metrics: UploadMetrics,
 }
@@ -219,6 +222,13 @@ impl PreparedScene {
                         .draws
                         .checked_add(child.clip.metrics().resolve_draws)
                         .ok_or(Error::Capacity)?
+                } else if let DrawRange::BackdropMaterial(index) = draw {
+                    let backdrops = self.backdrops.as_ref().ok_or(Error::ResourceDomain)?;
+                    if backdrops.is_host(*index) {
+                        0
+                    } else {
+                        backdrops.draw_count(*index)?
+                    }
                 } else if let DrawRange::ManagedShaderEffect(index) = draw {
                     self.managed_shaders
                         .as_ref()
@@ -299,6 +309,7 @@ pub struct Renderer {
     materialized_masks: Option<materialized_mask::MaterialMaskState>,
     effects: Option<crate::effects::EffectEngine>,
     advanced: Option<advanced::AdvancedState>,
+    backdrop_state: backdrop::BackdropState,
     axis_clip: Option<axis_clip::AxisClipState>,
     clear: Option<clear::ClearPipeline>,
     image_sampling: Option<crate::image::ImageSamplingPath>,
@@ -445,6 +456,7 @@ impl Renderer {
             materialized_masks: None,
             effects: None,
             advanced: None,
+            backdrop_state: Default::default(),
             axis_clip: None,
             clear: None,
             image_sampling: None,
@@ -510,6 +522,7 @@ impl Renderer {
     ) -> Result<PreparedScene, Error> {
         let _target_depth = self.enter_target_depth(target);
         self.preflight_owned_shaders(scene, target)?;
+        self.preflight_backdrops(scene, target)?;
         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
         self.preflight_shaders(scene, target)?;
         self.preflight_managed_shaders(scene, target)?;
@@ -593,6 +606,7 @@ impl Renderer {
         self.validate_masks(compiled)?;
         self.validate_shaders(compiled, frame)?;
         self.validate_managed_shaders(compiled, frame)?;
+        self.validate_backdrops(compiled, frame)?;
         self.prepare_draw_blends(compiled).await?;
         let (mask_bytes, mask_passes) = self.compiled_mask_cost(compiled, frame)?;
         let (effect_bytes, effect_passes) = self.validate_image_effects(compiled)?;
@@ -648,6 +662,8 @@ impl Renderer {
         self.prepare_color_filters(compiled, frame, &mut prepared)
             .await?;
         self.prepare_image_filters(compiled, frame, &mut prepared)
+            .await?;
+        self.prepare_backdrops(compiled, frame, &mut prepared)
             .await?;
         self.prepare_advanced(compiled, frame, &mut prepared)
             .await?;
@@ -849,6 +865,7 @@ impl Renderer {
             cached_pictures: Default::default(),
             owned_shader_frame: self.owned_shaders.frame_number(),
             advanced: None,
+            backdrops: None,
             clears: None,
             metrics: UploadMetrics {
                 geometry_bytes: (vertices.len() + indices.len()) as u64,
@@ -1133,6 +1150,14 @@ impl Renderer {
                     // the parent rectangle before the next unscoped command.
                     pass.set_scissor_rect(0, 0, scene.frame.width, scene.frame.height);
                 }
+                if let DrawRange::BackdropMaterial(index) = draw {
+                    scene
+                        .backdrops
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, *index, None)?;
+                    continue;
+                }
                 if let DrawRange::ShaderEffect(index) = draw {
                     scene.shaders.as_ref().ok_or(Error::ResourceDomain)?.draw(
                         &mut pass,
@@ -1234,7 +1259,10 @@ impl Renderer {
                     | DrawRange::ImageColor(..)
                     | DrawRange::ColorFilteredImage(_)
                     | DrawRange::ImageFilteredImage(_) => unreachable!(),
-                    DrawRange::Advanced(_) | DrawRange::Clear(_) | DrawRange::Axis(_) => {
+                    DrawRange::Advanced(_)
+                    | DrawRange::Clear(_)
+                    | DrawRange::Axis(_)
+                    | DrawRange::BackdropMaterial(_) => {
                         unreachable!()
                     }
                     DrawRange::Vector(range) => {

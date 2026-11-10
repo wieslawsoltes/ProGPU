@@ -140,8 +140,13 @@ pub const WPF_EFFECT_PREMULTIPLIED_WRAPPER: &str =
 /// Canonical managed straight-to-premultiplied fragment wrapper.
 pub const WPF_EFFECT_STRAIGHT_TO_PREMULTIPLIED_WRAPPER: &str =
     include_str!("../../ProGPU.Scene/Shaders/WpfEffectStraightToPremultipliedWrapper.wgsl");
+/// Canonical managed backdrop material, including original mask and host coverage.
+pub const BACKDROP_MATERIAL: &str =
+    include_str!("../../ProGPU.Scene/Shaders/BackdropMaterial.wgsl");
+
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("backdrop_material", BACKDROP_MATERIAL),
     ("group_blend", GROUP_BLEND),
     ("path_signed_leaf", PATH_SIGNED_LEAF),
     ("path_signed_rows", PATH_SIGNED_ROWS),

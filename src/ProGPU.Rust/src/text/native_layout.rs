@@ -6,6 +6,8 @@ use super::{
     unicode::{UnicodeScalar, line_break::LineBreakKind},
 };
 use crate::font::{FontError, layout::GposDirection};
+mod vertical;
+pub use vertical::*;
 mod scan;
 mod visual;
 mod writer;

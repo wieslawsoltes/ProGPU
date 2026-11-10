@@ -5,6 +5,7 @@ use super::*;
 #[derive(Debug)]
 pub(super) struct ImageSourceOwners {
     _images: Vec<crate::image::ImageSource>,
+    _backdrops: Vec<crate::backdrop::BackdropMaterialDraw>,
     _states: Vec<crate::scene::CompiledDrawState>,
     _effects: Vec<crate::image_effect::ImageEffectDraw>,
     _colors: Vec<crate::image::ColorFilteredImageDraw>,
@@ -16,6 +17,7 @@ impl ImageSourceOwners {
     pub(super) fn capture(source: &CompiledScene) -> Arc<Self> {
         Arc::new(Self {
             _images: source.images.iter().map(|v| v.image.clone()).collect(),
+            _backdrops: source.backdrop_materials.clone(),
             _states: source.states.clone(),
             _effects: source.image_effects.clone(),
             _colors: source.color_filtered_images.clone(),
@@ -32,6 +34,9 @@ impl PreparedScene {
     pub fn retain_submitted_images(&self, queue: &wgpu::Queue) {
         if let Some(owners) = self.image_source_owners.clone() {
             queue.on_submitted_work_done(move || drop(owners));
+        }
+        if let Some(backdrops) = &self.backdrops {
+            backdrops.retain_submitted(queue);
         }
         if let Some(images) = &self.images {
             images.retain_submitted(queue);

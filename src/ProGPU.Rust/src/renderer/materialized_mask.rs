@@ -271,6 +271,7 @@ impl Renderer {
             } else {
                 let mut input = source.clone();
                 input.clip = None;
+                input.logical_clip = None;
                 let base =
                     resolve_geometry(&input, frame, self.device.limits().max_texture_dimension_2d)?;
                 normalized.insert(identity, base.clone());
@@ -278,6 +279,15 @@ impl Renderer {
             };
             let mut result = base;
             result.blend = source.blend;
+            result.logical_clip = match (result.logical_clip, source.logical_clip) {
+                (Some(a), Some(b)) => Some([
+                    a[0].max(b[0]),
+                    a[1].max(b[1]),
+                    a[2].min(b[2]),
+                    a[3].min(b[3]),
+                ]),
+                (a, b) => a.or(b),
+            };
             result.clip = match (result.clip, source.clip) {
                 (Some(a), Some(b)) => Some([
                     a[0].max(b[0]),
@@ -355,6 +365,7 @@ impl Renderer {
             ];
             source.count = 1;
             source.materialized = false;
+            source.local_coverage = true;
         }
         if let Some(state) = state {
             self.materialized_masks = Some(state);
@@ -831,6 +842,20 @@ fn resolve_geometry(
                 .get(1)
                 .and_then(|s| s.clip)
                 .ok_or(Error::ResourceDomain)?;
+            let logical = states
+                .get(1)
+                .and_then(|s| s.logical_clip)
+                .ok_or(Error::ResourceDomain)?;
+            result.logical_clip = Some(if let Some(old) = result.logical_clip {
+                [
+                    old[0].max(logical[0]),
+                    old[1].max(logical[1]),
+                    old[2].min(logical[2]),
+                    old[3].min(logical[3]),
+                ]
+            } else {
+                logical
+            });
             result.clip = Some(if let Some(old) = result.clip {
                 [
                     old[0].max(clip[0]),

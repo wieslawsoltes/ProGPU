@@ -147,6 +147,18 @@ struct Operation {
     first_vertex: u64,
     source_range: Option<std::ops::Range<u32>>,
 }
+struct HostOperation {
+    draw_index: usize,
+    state_index: Option<usize>,
+    backdrop: usize,
+    source: wgpu::BindGroup,
+    scissor: [u32; 4],
+}
+#[derive(Clone, Copy)]
+enum OrderedOperation {
+    Blend(usize),
+    Backdrop(usize),
+}
 pub(super) struct PreparedAdvanced {
     state: AdvancedState,
     root: wgpu::TextureView,
@@ -160,6 +172,8 @@ pub(super) struct PreparedAdvanced {
     indices: wgpu::Buffer,
     copy_vertex: u64,
     operations: Vec<Operation>,
+    hosts: Vec<HostOperation>,
+    order: Vec<OrderedOperation>,
     pub metrics: AdvancedBlendMetrics,
 }
 
@@ -245,11 +259,26 @@ impl Renderer {
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
         let mut pending = Vec::<(usize, Option<usize>, &AdvancedImage, [u32; 4], [u32; 4])>::new();
+        let mut host_pending = Vec::new();
         let mut mask_index = None;
         let mut source_size = [0u32; 2];
         for (index, draw) in compiled.draws.iter().enumerate() {
             match draw {
                 DrawRange::State(index) => mask_index = Some(*index),
+                DrawRange::BackdropMaterial(backdrop)
+                    if prepared
+                        .backdrops
+                        .as_ref()
+                        .is_some_and(|v| v.is_host(*backdrop)) =>
+                {
+                    let scissor = mask_index
+                        .and_then(|i| prepared.masks.as_ref().and_then(|m| m.states.get(i)))
+                        .map_or([0, 0, frame.width, frame.height], |s| s.scissor);
+                    if scissor[2] != 0 && scissor[3] != 0 {
+                        host_pending.try_reserve(1).map_err(|_| Error::Capacity)?;
+                        host_pending.push((index, mask_index, *backdrop, scissor));
+                    }
+                }
                 DrawRange::Advanced(draw) => {
                     if draw.blend.is_fixed() && draw.raster_operation.is_none() {
                         return Err(Error::ResourceDomain);
@@ -309,9 +338,10 @@ impl Renderer {
                 _ => {}
             }
         }
-        if pending.is_empty() {
+        if pending.is_empty() && host_pending.is_empty() {
             return Ok(());
         }
+        source_size = source_size.map(|v| v.max(1));
         let limits = self.device.limits();
         let count = u32::try_from(pending.len()).map_err(|_| Error::Capacity)?;
         let uniform_bytes = u64::from(count) * ALIGNMENT;
@@ -319,7 +349,7 @@ impl Renderer {
         if prepared.groups.root.is_some() {
             texture_bytes -= u64::from(frame.width) * u64::from(frame.height) * 4;
         }
-        if count > 16 * 1024
+        if u64::from(count) + host_pending.len() as u64 > 16 * 1024
             || uniform_bytes > limits.max_buffer_size
             || limits.min_uniform_buffer_offset_alignment == 0
             || !ALIGNMENT.is_multiple_of(u64::from(limits.min_uniform_buffer_offset_alignment))
@@ -377,12 +407,52 @@ impl Renderer {
             texture_bytes,
             uniform_bytes,
             prepared.groups.root.as_ref(),
-            prepared.images.as_ref().ok_or(Error::ResourceDomain)?,
+            prepared.images.as_ref(),
         );
         if let Some(error) = scope.pop().await {
             return Err(error.into());
         }
-        prepared.advanced = Some(result?);
+        let mut result = result?;
+        result
+            .hosts
+            .try_reserve_exact(host_pending.len())
+            .map_err(|_| Error::Capacity)?;
+        result
+            .order
+            .try_reserve_exact(host_pending.len())
+            .map_err(|_| Error::Capacity)?;
+        for (draw_index, state_index, backdrop, scissor) in host_pending {
+            let source = prepared
+                .backdrops
+                .as_ref()
+                .ok_or(Error::ResourceDomain)?
+                .host_binding(&self.device, backdrop, &result.root)?;
+            result.hosts.push(HostOperation {
+                draw_index,
+                state_index,
+                backdrop,
+                source,
+                scissor,
+            });
+        }
+        result
+            .order
+            .extend((0..result.hosts.len()).map(OrderedOperation::Backdrop));
+        result.order.sort_by_key(|operation| match operation {
+            OrderedOperation::Blend(i) => result.operations[*i].draw_index,
+            OrderedOperation::Backdrop(i) => result.hosts[*i].draw_index,
+        });
+        result.metrics.operations = result
+            .metrics
+            .operations
+            .checked_add(result.hosts.len() as u32)
+            .ok_or(Error::Capacity)?;
+        result.metrics.render_passes = result
+            .metrics
+            .render_passes
+            .checked_add(result.hosts.len() as u32 * 3)
+            .ok_or(Error::Capacity)?;
+        prepared.advanced = Some(result);
         self.advanced = Some(state);
         Ok(())
     }
@@ -397,7 +467,7 @@ impl Renderer {
         texture_bytes: u64,
         uniform_bytes: u64,
         root_owner: Option<&GroupTarget>,
-        images: &image::PreparedImages,
+        images: Option<&image::PreparedImages>,
     ) -> Result<PreparedAdvanced, Error> {
         let device = &self.device;
         let create = |size: [u32; 2], label| -> Result<GpuImage, Error> {
@@ -556,7 +626,11 @@ impl Renderer {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(match draw.pattern_binding {
-                            Some(index) => images.views.get(index).ok_or(Error::ResourceDomain)?,
+                            Some(index) => images
+                                .ok_or(Error::ResourceDomain)?
+                                .views
+                                .get(index)
+                                .ok_or(Error::ResourceDomain)?,
                             None => &source,
                         }),
                     },
@@ -617,7 +691,9 @@ impl Renderer {
             vertices,
             indices,
             copy_vertex,
+            order: (0..operations.len()).map(OrderedOperation::Blend).collect(),
             operations,
+            hosts: Vec::new(),
             metrics,
         })
     }
@@ -630,10 +706,56 @@ impl Renderer {
         target: &wgpu::TextureView,
         mut load: wgpu::LoadOp<wgpu::Color>,
     ) -> Result<(), Error> {
-        let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
         let mut first = 0;
         let mut initial_state = None;
-        for operation in &advanced.operations {
+        for step in &advanced.order {
+            if let OrderedOperation::Backdrop(index) = step {
+                let operation = &advanced.hosts[*index];
+                self.encode_span(
+                    encoder,
+                    scene,
+                    &advanced.root,
+                    load,
+                    first..operation.draw_index,
+                    initial_state,
+                )?;
+                advanced.copy(
+                    encoder,
+                    &advanced.output,
+                    &advanced.root_copy,
+                    wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                );
+                {
+                    let mut pass = begin(
+                        encoder,
+                        &advanced.output,
+                        wgpu::LoadOp::Load,
+                        "ProGPU painter-position host backdrop",
+                    );
+                    let [x, y, w, h] = operation.scissor;
+                    pass.set_scissor_rect(x, y, w, h);
+                    scene
+                        .backdrops
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, operation.backdrop, Some(&operation.source))?;
+                }
+                advanced.copy(
+                    encoder,
+                    &advanced.root,
+                    &advanced.output_copy,
+                    wgpu::LoadOp::Load,
+                );
+                first = operation.draw_index + 1;
+                initial_state = operation.state_index;
+                load = wgpu::LoadOp::Load;
+                continue;
+            }
+            let OrderedOperation::Blend(index) = step else {
+                unreachable!()
+            };
+            let operation = &advanced.operations[*index];
+            let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
             self.encode_span(
                 encoder,
                 scene,

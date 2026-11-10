@@ -180,11 +180,13 @@ impl Renderer {
                 return Err(Error::UnsupportedExecution);
             }
             let mut uniforms = state.masks[0];
-            if compiled.states[current].materialized {
+            if state.local_coverage {
                 // This actual full-target R8 producer has a proven one-to-one
                 // local texture lattice. Preserve reciprocals and all other words.
                 uniforms.coordinate0[0] = 0.0;
                 uniforms.coordinate0[1] = 0.0;
+            } else if frame.origin != [0; 2] {
+                return Err(Error::UnsupportedExecution);
             }
             let mask = if let Some(coverage) = &state.coverage {
                 let source = self.masks.as_mut().ok_or(Error::ResourceDomain)?.image(

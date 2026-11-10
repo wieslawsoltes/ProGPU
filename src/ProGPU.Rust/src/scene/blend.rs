@@ -87,6 +87,8 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
             Ok(())
         }
         #[cfg(feature = "gpu")]
+        Command::BackdropMaterial(draw) if draw.blend == LayerBlend::SrcOver => Ok(()),
+        #[cfg(feature = "gpu")]
         Command::Glyph(_) | Command::HintedGlyphPaint(_) => Ok(()),
         // Other families own independent blend/filter contracts. Their remaining
         // scope transport rejects instead of silently using source-over.

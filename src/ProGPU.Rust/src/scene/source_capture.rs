@@ -119,6 +119,13 @@ fn place_scene(
                 let child = place_scene(axis.scene(), frame, depth + 1, inverse)?;
                 Command::AxisClip(Box::new(axis.placed(Arc::new(child), edges)))
             }
+            #[cfg(feature = "gpu")]
+            Command::BackdropMaterial(draw) => {
+                let mut placed = draw.as_ref().clone();
+                placed.transform = draw.transform * transform;
+                placed.validate()?;
+                Command::BackdropMaterial(Box::new(placed))
+            }
             Command::VertexMesh(draw) => {
                 let mut placed = draw.as_ref().clone();
                 placed.transform = draw.transform * transform;
@@ -587,6 +594,7 @@ fn preflight_devices(
             }
             Command::ImageFilteredImage(draw) => draw.preflight_source_devices(device)?,
             Command::TileImage(draw) | Command::PlacedTileImage(draw, _) => image(&draw.image)?,
+            Command::BackdropMaterial(draw) => draw.preflight_device(device)?,
             Command::ImageEffect(draw) => {
                 match &draw.source {
                     ImageEffectSource::Rgb(source) => image(source)?,
@@ -700,6 +708,8 @@ impl Scene {
 fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
     for command in &mut scene.commands {
         match command {
+            #[cfg(feature = "gpu")]
+            Command::BackdropMaterial(v) => v.opacity *= opacity,
             Command::VertexMesh(v) => v.semantic_opacity *= opacity,
             Command::Analytic(v) => v.color[3] *= opacity,
             Command::Path(v) => v.color[3] *= opacity,

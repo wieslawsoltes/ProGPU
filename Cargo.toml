@@ -8,6 +8,7 @@ description = "ProGPU's native Rust rendering engine using canonical WebGPU shad
 repository = "https://github.com/wieslawsoltes/ProGPU"
 readme = "src/ProGPU.Rust/README.md"
 include = [
+    "/src/ProGPU.Scene/Shaders/BackdropMaterial.wgsl",
     "/Cargo.toml",
     "/Cargo.lock",
     "/LICENSE",

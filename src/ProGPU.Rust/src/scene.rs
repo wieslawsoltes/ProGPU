@@ -46,6 +46,8 @@ mod owned_shader;
 #[cfg(feature = "gpu")]
 pub use owned_shader::OwnedShaderEffectDraw;
 #[cfg(feature = "gpu")]
+mod backdrop;
+#[cfg(feature = "gpu")]
 mod shader_effect;
 mod source_capture;
 mod text;
@@ -61,6 +63,8 @@ pub(crate) use text::ResolvedSceneText;
 #[derive(Clone, Debug)]
 pub(crate) enum DrawRange {
     State(usize),
+    #[cfg(feature = "gpu")]
+    BackdropMaterial(usize),
     Clear(ClearColor),
     ImageEffect(usize),
     ImageColor(std::ops::Range<u32>, usize, usize),
@@ -190,6 +194,8 @@ impl MaterialPaint {
 
 #[derive(Clone, Debug)]
 enum Command {
+    #[cfg(feature = "gpu")]
+    BackdropMaterial(Box<crate::backdrop::BackdropMaterialDraw>),
     Empty,
     PushBlend(LayerBlend),
     PopBlend,
@@ -632,7 +638,8 @@ impl Scene {
                 | Command::ColorFilteredImage(_)
                 | Command::ImageFilteredImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
-                Command::Glyph(_)
+                Command::BackdropMaterial(_)
+                | Command::Glyph(_)
                 | Command::HintedGlyphPaint(_)
                 | Command::ResolvedAxis(_)
                 | Command::ShaderEffect(_)
@@ -686,6 +693,8 @@ impl Scene {
         if self.inherited_clip.is_some() {
             draws.push(DrawRange::State(0));
         }
+        #[cfg(feature = "gpu")]
+        let mut backdrop_materials = Vec::new();
         let mut image_effects = Vec::new();
         let mut image_colors = Vec::new();
         let mut color_filtered_images = Vec::new();
@@ -758,6 +767,15 @@ impl Scene {
                 | Command::PushClipEdges(_)
                 | Command::PopScope => {}
                 Command::Clear(color) => draws.push(DrawRange::Clear(*color)),
+                #[cfg(feature = "gpu")]
+                Command::BackdropMaterial(draw) => {
+                    let mut draw = draw.as_ref().clone();
+                    if active_blend != LayerBlend::SrcOver {
+                        draw.blend = active_blend;
+                    }
+                    draws.push(DrawRange::BackdropMaterial(backdrop_materials.len()));
+                    backdrop_materials.push(draw);
+                }
                 Command::ImageEffect(draw) => {
                     draw.validate()?;
                     image_effects.try_reserve(1).map_err(|_| Error::Capacity)?;
@@ -1047,6 +1065,8 @@ impl Scene {
             states,
             image_mesh,
             image_effects,
+            #[cfg(feature = "gpu")]
+            backdrop_materials,
             image_colors,
             color_filtered_images,
             image_filtered_images,
@@ -1079,6 +1099,8 @@ pub struct CompiledScene {
     pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,
     pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
+    #[cfg(feature = "gpu")]
+    pub(crate) backdrop_materials: Vec<crate::backdrop::BackdropMaterialDraw>,
     pub(crate) image_colors: Vec<crate::image::ImageColorMatrix>,
     pub(crate) color_filtered_images: Vec<crate::image::ColorFilteredImageDraw>,
     pub(crate) image_filtered_images: Vec<crate::image_filter::ImageFilteredImageDraw>,

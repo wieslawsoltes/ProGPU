@@ -197,6 +197,7 @@ impl Renderer {
         bytes: &mut u64,
         passes: &mut u32,
     ) -> Result<(), Error> {
+        self.preflight_backdrops(scene, frame)?;
         use crate::scene::GroupRef;
         self.preflight_owned_shaders(scene, frame)?;
         self.preflight_shaders(scene, frame)?;
