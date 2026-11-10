@@ -292,7 +292,7 @@ bool is_valid_semantic_text_style(
     const progpu_native_scene_text_style& style) noexcept {
     return is_finite(style.color) &&
         style.text_rendering_mode <= PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE &&
-        style.coverage_transfer <= 13U &&
+        style.coverage_transfer <= 78U &&
         (style.coverage_transfer == 0U || style.text_rendering_mode == PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE) &&
         style.reserved1 == 0U &&
         style.reserved2 == 0U;

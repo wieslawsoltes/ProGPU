@@ -17,7 +17,7 @@ bindgen headers/wgpu.h --allowlist-function 'wgpu.*' --allowlist-type 'WGPU.*' -
 bindgen native/progpu_native_scene_builder_c.h --allowlist-function 'progpu_native_scene_builder_.*' \
   --allowlist-type 'progpu_native_scene_builder' --no-recursive-allowlist --raw-line 'use crate::progpu::*;' \
   --no-doc-comments --use-core -o src/scene_builder.rs -- -I"$INCLUDE" -Inative
-bindgen native/progpu_native_font_c.h --allowlist-function 'progpu_native_font_(catalog|face|data)_.*' \
-  --allowlist-type 'progpu_native_font_(catalog|face|style|face_info|face_metrics|glyph_bounds)' \
+bindgen native/progpu_native_font_c.h --allowlist-function 'progpu_native_font_(catalog|face|data|outline)_.*' \
+  --allowlist-type 'progpu_native_font_(catalog|face|style|face_info|face_metrics|glyph_bounds|outline_growth)' \
   --allowlist-var 'PROGPU_NATIVE_FONT_(SLANT|OUTLINE)_.*' --no-recursive-allowlist \
   --raw-line 'use crate::progpu::*;' --no-doc-comments --use-core -o src/font.rs -- -I"$INCLUDE" -Inative

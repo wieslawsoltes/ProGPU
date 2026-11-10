@@ -979,6 +979,17 @@ progpu_native_status render_glyphs(
     std::uint64_t outline_upload_bytes = 0U;
     std::uint32_t rasterized_glyph_count = 0U;
     std::uint32_t required_atlas_size = engine->glyph_atlas_size;
+    // A scene keeps the coverage of its glyphs in the atlas across raster
+    // rebuilds: an outline the atlas cache holds is not rasterized again and
+    // keeps its tile. A direct glyph frame owns the atlas for its payload and
+    // packs it from the origin, as before.
+    const bool persistent_atlas = engine->semantic_glyph_draw_active;
+    struct pending_atlas_tile {
+        std::uint32_t outline_index;
+        std::uint64_t hash;
+    };
+    std::vector<pending_atlas_tile> pending_atlas_tiles;
+    glyph_atlas_cursor atlas_cursor{};
 
     if (!compiled_payload_hit) {
         engine->glyph_cache_valid = false;
@@ -994,11 +1005,15 @@ progpu_native_status render_glyphs(
                 records.reserve(frame->outline_count);
                 uniforms.reserve(frame->outline_count);
                 raster_work_indices.reserve(frame->outline_count);
-                std::unordered_map<glyph_raster_identity, std::uint32_t,
-                    glyph_raster_identity_hash> shared_rasters;
+                std::unordered_map<hashed_glyph_raster_identity, std::uint32_t,
+                    hashed_glyph_raster_identity_hash> shared_rasters;
                 shared_rasters.reserve(frame->outline_count);
                 engine->glyph_rasters.clear();
                 engine->glyph_rasters.reserve(frame->outline_count);
+                if (!persistent_atlas) {
+                    // The direct frame overwrites the tiles a scene kept.
+                    engine->glyph_atlas_cache.clear();
+                }
                 for (std::size_t index = 0U;
                      index < frame->segment_count;
                      ++index) {
@@ -1010,10 +1025,23 @@ progpu_native_status render_glyphs(
                     }
                 }
 
-                std::uint32_t atlas_x = 2U;
-                std::uint32_t atlas_y = 2U;
-                std::uint32_t row_height = 0U;
                 std::uint32_t output_offset = 0U;
+                // At most two rounds: when the tiles the atlas keeps leave no
+                // room for the new ones at its largest size, the atlas starts
+                // over and the frame is packed alone.
+                for (bool packed = false; !packed;) {
+                records.clear();
+                uniforms.clear();
+                raster_work_indices.clear();
+                shared_rasters.clear();
+                pending_atlas_tiles.clear();
+                engine->glyph_rasters.clear();
+                has_binary_glyphs = false;
+                has_vector_glyphs = false;
+                output_offset = 0U;
+                required_atlas_size = engine->glyph_atlas_size;
+                atlas_cursor = engine->glyph_atlas_cache.cursor();
+                bool atlas_full = false;
                 for (std::size_t index = 0U;
                      index < frame->outline_count;
                      ++index) {
@@ -1083,9 +1111,10 @@ progpu_native_status render_glyphs(
                         static_cast<std::uint32_t>(outline.segment_count),
                         outline.min_x, outline.min_y, outline.max_x, outline.max_y,
                         binary ? 1U : 0U, 0U});
-                    const auto identity = make_glyph_raster_identity(outline,
-                        std::span(frame->segments, frame->segment_count).subspan(
-                            outline.segment_offset, outline.segment_count));
+                    const auto identity = make_hashed_glyph_raster_identity(
+                        make_glyph_raster_identity(outline,
+                            std::span(frame->segments, frame->segment_count).subspan(
+                                outline.segment_offset, outline.segment_count)));
                     const auto [entry, inserted] = shared_rasters.try_emplace(
                         identity, static_cast<std::uint32_t>(index));
                     if (!inserted) {
@@ -1096,28 +1125,63 @@ progpu_native_status render_glyphs(
                         uniforms.push_back(uniforms[entry->second]);
                         continue;
                     }
-                    raster_work_indices.push_back(static_cast<std::uint32_t>(index));
-                    while (width + 4U > required_atlas_size &&
-                           required_atlas_size < native_max_atlas_size) {
-                        required_atlas_size *= 2U;
-                    }
-                    if (atlas_x + width + 2U > required_atlas_size) {
-                        atlas_x = 2U;
-                        atlas_y += row_height + 2U;
-                        row_height = 0U;
-                    }
-                    while (atlas_y + height + 2U > required_atlas_size &&
-                           required_atlas_size < native_max_atlas_size) {
-                        required_atlas_size *= 2U;
-                    }
-                    if (atlas_y + height + 2U > required_atlas_size) {
-                        return engine->fail(
-                            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
-                            "The retained native glyph set does not fit the bounded atlas.");
-                    }
                     const std::uint32_t output_bytes_per_row = align_up(
                         width,
                         webgpu_copy_row_alignment);
+                    if (persistent_atlas) {
+                        if (const auto* tile = engine->glyph_atlas_cache.find(
+                                identity.hash, identity.identity)) {
+                            // The coverage is in the atlas: no raster work.
+                            engine->glyph_rasters.push_back({
+                                tile->atlas_x,
+                                tile->atlas_y,
+                                tile->width,
+                                tile->height,
+                                0U,
+                                output_bytes_per_row,
+                                tile->x_start,
+                                tile->y_start
+                            });
+                            uniforms.push_back({
+                                tile->x_start,
+                                tile->y_start,
+                                outline.raster_scale,
+                                static_cast<std::uint32_t>(index),
+                                0U,
+                                output_bytes_per_row / 4U,
+                                tile->width,
+                                tile->height,
+                                outline.subpixel_x,
+                                static_cast<float>(tile->atlas_x),
+                                static_cast<float>(tile->atlas_y),
+                                0.0F
+                            });
+                            continue;
+                        }
+                    }
+                    std::uint32_t atlas_x = 0U;
+                    std::uint32_t atlas_y = 0U;
+                    if (!place_glyph_atlas_tile(
+                            atlas_cursor,
+                            width,
+                            height,
+                            native_max_atlas_size,
+                            required_atlas_size,
+                            atlas_x,
+                            atlas_y)) {
+                        if (engine->glyph_atlas_cache.empty()) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                                "The retained native glyph set does not fit the bounded atlas.");
+                        }
+                        atlas_full = true;
+                        break;
+                    }
+                    raster_work_indices.push_back(static_cast<std::uint32_t>(index));
+                    if (persistent_atlas) {
+                        pending_atlas_tiles.push_back({
+                            static_cast<std::uint32_t>(index), identity.hash});
+                    }
                     output_offset = align_up(
                         output_offset,
                         webgpu_copy_offset_alignment);
@@ -1155,8 +1219,14 @@ progpu_native_status render_glyphs(
                         0.0F
                     });
                     output_offset = static_cast<std::uint32_t>(next_output);
-                    atlas_x += width + 2U;
-                    row_height = std::max(row_height, height);
+                }
+                if (atlas_full) {
+                    // Nothing was written yet: forget the tiles before any of
+                    // them is overwritten.
+                    engine->glyph_atlas_cache.clear();
+                    continue;
+                }
+                packed = true;
                 }
                 coverage_staging_bytes = output_offset;
                 rasterized_glyph_count = static_cast<std::uint32_t>(
@@ -1377,7 +1447,10 @@ progpu_native_status render_glyphs(
     }
     if (!create_glyph_resources(*engine, has_vector_glyphs) ||
         (has_binary_glyphs && !create_binary_glyph_resources(*engine)) ||
-        !resize_glyph_atlas(*engine, required_atlas_size)) {
+        !resize_glyph_atlas(
+            *engine,
+            required_atlas_size,
+            persistent_atlas && !engine->glyph_atlas_cache.empty())) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native glyph atlas WebGPU resources could not be created.");
@@ -1428,8 +1501,10 @@ progpu_native_status render_glyphs(
             engine->glyph_gpu_cache_valid = retain_compiled_payload;
         }
     }
+    // A rebuild whose outlines are all in the atlas has no raster work.
+    const bool raster_work = rebuild_rasters && !raster_work_indices.empty();
     progpu_native_engine::raster_resource_lease temporary_lease(
-        *engine, rebuild_rasters && frame->outline_count != 0U);
+        *engine, raster_work);
     auto& temporary = temporary_lease.get();
     std::vector<std::byte> uniform_bytes;
     std::vector<std::byte> cpu_coverage;
@@ -1443,7 +1518,7 @@ progpu_native_status render_glyphs(
     const bool glyph_intrinsic_simd_fallback =
         (engine->engine_flags &
             PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK) != 0U;
-    if (rebuild_rasters && frame->outline_count != 0U) {
+    if (raster_work) {
         if (glyph_cpu_fallback) {
             if (!rasterize_glyph_coverage_cpu(
                     *frame,
@@ -1874,6 +1949,26 @@ progpu_native_status render_glyphs(
     }
     }
 
+    if (persistent_atlas && rebuild_rasters) {
+        // The raster work of the new tiles is encoded: the atlas keeps them.
+        try {
+            for (const auto& pending : pending_atlas_tiles) {
+                const auto& outline = frame->outlines[pending.outline_index];
+                const auto& raster = engine->glyph_rasters[pending.outline_index];
+                engine->glyph_atlas_cache.insert(
+                    pending.hash,
+                    make_glyph_raster_identity(outline,
+                        std::span(frame->segments, frame->segment_count).subspan(
+                            outline.segment_offset, outline.segment_count)),
+                    {raster.atlas_x, raster.atlas_y, raster.width, raster.height,
+                        raster.x_start, raster.y_start});
+            }
+            engine->glyph_atlas_cache.set_cursor(atlas_cursor);
+        } catch (const std::bad_alloc&) {
+            // The tiles stay valid for this payload; later payloads rasterize.
+            engine->glyph_atlas_cache.clear();
+        }
+    }
     engine->glyph_raster_generation = engine->glyph_atlas_generation;
     engine->glyph_raster_dpi_scale = frame->dpi_scale;
     engine->glyph_raster_cache_valid = retain_compiled_payload;

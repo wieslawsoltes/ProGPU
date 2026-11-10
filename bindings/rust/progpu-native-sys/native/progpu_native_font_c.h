@@ -151,6 +151,26 @@ int progpu_native_font_face_resolve_style(const progpu_native_font_face* face,
 int progpu_native_font_face_get_outline(const progpu_native_font_face* face, uint16_t glyph,
     const int16_t* coordinates, size_t coordinate_count, const progpu_native_path_segment** segments,
     size_t* segment_count, progpu_native_font_glyph_bounds* bounds);
+/* How far the edges of a glyph outline move outwards, by the side they face, in the units of
+ * the outline (Y up). Negative values move them inwards. */
+typedef struct progpu_native_font_outline_growth {
+    float left;
+    float bottom;
+    float right;
+    float top;
+} progpu_native_font_outline_growth;
+/* Grows one glyph outline by a box: every edge moves outwards by the growth of the side it
+ * faces, so stems gain left + right, bars gain bottom + top, slanted strokes gain both and
+ * counters lose the same; unequal sides also shift the glyph. A host uses it to give text the
+ * weight of a platform's own rasterizer. The result has more segments than the source (curves
+ * are cut where they turn, joints are closed along the box) and is meant for the nonzero
+ * winding rule; it is borrowed from storage of the calling thread, valid until its next call of
+ * this function, and it is the source itself when there is nothing to grow (no growth, an
+ * outline without area). The source may be what get_outline lent. The grown segments are a
+ * different raster identity, so a glyph cache keeps both weights apart by itself. */
+int progpu_native_font_outline_embolden(const progpu_native_path_segment* source, size_t source_count,
+    const progpu_native_font_outline_growth* growth, const progpu_native_path_segment** segments,
+    size_t* segment_count, progpu_native_font_glyph_bounds* bounds);
 
 #ifdef __cplusplus
 }

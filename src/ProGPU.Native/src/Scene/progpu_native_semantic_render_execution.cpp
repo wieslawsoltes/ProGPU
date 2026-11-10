@@ -3839,6 +3839,8 @@ progpu_native_status render_scene(
 
     const auto discard_encoder = [&]() noexcept {
         // Prepared coverage is not resident if its command encoder is abandoned.
+        // The atlas cache may hold tiles that encoder was to write.
+        engine->glyph_atlas_cache.clear();
         engine->glyph_raster_cache_valid = false;
         engine->glyph_cache_valid = false;
         engine->glyph_gpu_cache_valid = false;

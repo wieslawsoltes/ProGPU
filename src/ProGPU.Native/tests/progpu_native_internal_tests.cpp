@@ -248,6 +248,85 @@ void glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets() {
     require(table.at(original) == 3U && table.at(changed) == 7U);
 }
 
+void glyph_atlas_cache_keeps_tiles_across_rebuilds_and_restarts_when_full() {
+    using namespace progpu::native;
+    const std::uint32_t maximum = 64U;
+    std::array<progpu_native_path_segment, 3U> segments{};
+    segments[1].p1.x = 1.0F;
+    segments[2].p1.x = 2.0F;
+    const auto outline_of = [](std::size_t segment) {
+        return progpu_native_glyph_outline{
+            segment, 1U, 0.0F, 0.0F, 10.0F, 12.0F, 1.0F, 0.0F};
+    };
+    const auto identity_of = [&](std::size_t segment) {
+        return make_hashed_glyph_raster_identity(make_glyph_raster_identity(
+            outline_of(segment), std::span(segments).subspan(segment, 1U)));
+    };
+
+    // The first rebuild places two tiles; the row wraps before the atlas grows.
+    glyph_atlas_cache cache;
+    require(cache.empty() && cache.cursor().x == 2U && cache.cursor().y == 2U);
+    auto cursor = cache.cursor();
+    std::uint32_t required = 32U;
+    std::uint32_t x = 0U;
+    std::uint32_t y = 0U;
+    const auto first = identity_of(0U);
+    const auto second = identity_of(1U);
+    require(place_glyph_atlas_tile(cursor, 20U, 20U, maximum, required, x, y));
+    require(x == 2U && y == 2U && required == 32U);
+    cache.insert(first.hash, first.identity, {x, y, 20U, 20U, -4.0F, -16.0F});
+    require(place_glyph_atlas_tile(cursor, 20U, 20U, maximum, required, x, y));
+    require(x == 2U && y == 24U && required == 64U);
+    cache.insert(second.hash, second.identity, {x, y, 20U, 20U, -4.0F, -16.0F});
+    cache.set_cursor(cursor);
+    require(cache.size() == 2U);
+
+    // A later rebuild finds both by their bytes (not by their arena offsets)
+    // and places only the new outline, after the tiles the atlas keeps.
+    auto moved_segments = segments;
+    auto moved = outline_of(0U);
+    moved.segment_offset = 77U;
+    const auto first_again = make_hashed_glyph_raster_identity(
+        make_glyph_raster_identity(moved, std::span(moved_segments).subspan(0U, 1U)));
+    const auto* kept = cache.find(first_again.hash, first_again.identity);
+    require(kept != nullptr && kept->atlas_x == 2U && kept->atlas_y == 2U &&
+        kept->x_start == -4.0F && kept->y_start == -16.0F);
+    kept = cache.find(second.hash, second.identity);
+    require(kept != nullptr && kept->atlas_x == 2U && kept->atlas_y == 24U);
+    const auto third = identity_of(2U);
+    require(cache.find(third.hash, third.identity) == nullptr);
+    // An equal hash is not an equal identity.
+    require(cache.find(first.hash, third.identity) == nullptr);
+    auto other_phase = outline_of(0U);
+    other_phase.subpixel_x = 0.25F;
+    const auto phased = make_hashed_glyph_raster_identity(
+        make_glyph_raster_identity(other_phase, std::span(segments).subspan(0U, 1U)));
+    require(cache.find(phased.hash, phased.identity) == nullptr);
+    cursor = cache.cursor();
+    required = 64U;
+    require(place_glyph_atlas_tile(cursor, 20U, 20U, maximum, required, x, y));
+    require(x == 24U && y == 24U && required == 64U);
+    cache.insert(third.hash, third.identity, {x, y, 20U, 20U, -4.0F, -16.0F});
+    cache.set_cursor(cursor);
+    require(cache.find(first.hash, first.identity)->atlas_y == 2U);
+    require(cache.find(second.hash, second.identity)->atlas_y == 24U);
+    require(cache.size() == 3U);
+
+    // The atlas at its largest size has no third row: the caller starts over.
+    cursor = cache.cursor();
+    require(!place_glyph_atlas_tile(cursor, 20U, 20U, maximum, required, x, y));
+    cache.clear();
+    require(cache.empty() && cache.find(first.hash, first.identity) == nullptr);
+    cursor = cache.cursor();
+    required = 64U;
+    require(place_glyph_atlas_tile(cursor, 20U, 20U, maximum, required, x, y));
+    require(x == 2U && y == 2U);
+    // A tile larger than the largest atlas never fits.
+    cursor = {};
+    required = 32U;
+    require(!place_glyph_atlas_tile(cursor, 20U, 61U, maximum, required, x, y));
+}
+
 void native_texture_copy_staging_uses_portable_d3d12_alignment() {
     using progpu::native::align_up;
     using progpu::native::align_up_u64;
@@ -1288,8 +1367,18 @@ void semantic_text_style_page_is_validated_deduplicated_and_retained() {
         std::memcpy(storage.data() + style_resource.payload_offset, &explicit_style, sizeof(explicit_style));
         require(!progpu::native::semantic::validate_text_style_table(storage.data(), style_resource, error_offset));
     }
+    for (std::uint32_t power = 14U; power <= 78U; ++power) {
+        auto power_style = style;
+        power_style.text_rendering_mode = PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE;
+        power_style.coverage_transfer = power;
+        std::memcpy(storage.data() + style_resource.payload_offset, &power_style, sizeof(power_style));
+        require(progpu::native::semantic::validate_text_style_table(storage.data(), style_resource, error_offset));
+        power_style.text_rendering_mode = PROGPU_NATIVE_SCENE_TEXT_CLEARTYPE;
+        std::memcpy(storage.data() + style_resource.payload_offset, &power_style, sizeof(power_style));
+        require(!progpu::native::semantic::validate_text_style_table(storage.data(), style_resource, error_offset));
+    }
     auto invalid_style = style;
-    invalid_style.coverage_transfer = 14U;
+    invalid_style.coverage_transfer = 79U;
     std::memcpy(storage.data() + style_resource.payload_offset, &invalid_style, sizeof(invalid_style));
     require(!progpu::native::semantic::validate_text_style_table(storage.data(), style_resource, error_offset));
     invalid_style = style;
@@ -2418,6 +2507,7 @@ int main() {
     semantic_glyph_resource_identity_requires_exact_raster_bytes();
     path_size_batches_keep_original_uniforms_and_bound_work();
     glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets();
+    glyph_atlas_cache_keeps_tiles_across_rebuilds_and_restarts_when_full();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();

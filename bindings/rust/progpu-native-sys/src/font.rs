@@ -294,3 +294,36 @@ unsafe extern "C" {
         bounds: *mut progpu_native_font_glyph_bounds,
     ) -> ::core::ffi::c_int;
 }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct progpu_native_font_outline_growth {
+    pub left: f32,
+    pub bottom: f32,
+    pub right: f32,
+    pub top: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of progpu_native_font_outline_growth"]
+        [::core::mem::size_of::<progpu_native_font_outline_growth>() - 16usize];
+    ["Alignment of progpu_native_font_outline_growth"]
+        [::core::mem::align_of::<progpu_native_font_outline_growth>() - 4usize];
+    ["Offset of field: progpu_native_font_outline_growth::left"]
+        [::core::mem::offset_of!(progpu_native_font_outline_growth, left) - 0usize];
+    ["Offset of field: progpu_native_font_outline_growth::bottom"]
+        [::core::mem::offset_of!(progpu_native_font_outline_growth, bottom) - 4usize];
+    ["Offset of field: progpu_native_font_outline_growth::right"]
+        [::core::mem::offset_of!(progpu_native_font_outline_growth, right) - 8usize];
+    ["Offset of field: progpu_native_font_outline_growth::top"]
+        [::core::mem::offset_of!(progpu_native_font_outline_growth, top) - 12usize];
+};
+unsafe extern "C" {
+    pub fn progpu_native_font_outline_embolden(
+        source: *const progpu_native_path_segment,
+        source_count: usize,
+        growth: *const progpu_native_font_outline_growth,
+        segments: *mut *const progpu_native_path_segment,
+        segment_count: *mut usize,
+        bounds: *mut progpu_native_font_glyph_bounds,
+    ) -> ::core::ffi::c_int;
+}

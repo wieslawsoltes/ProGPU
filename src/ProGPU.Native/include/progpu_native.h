@@ -1719,7 +1719,11 @@ typedef struct progpu_native_scene_draw_brushes {
 typedef struct progpu_native_scene_text_style {
     progpu_native_color color;
     uint32_t text_rendering_mode;
-    /* 0 legacy; 1..13 explicit GDI+ grayscale contrast 0..12. */
+    /*
+     * 0 legacy; 1..13 explicit GDI+ grayscale contrast 0..12; 14..78 the
+     * exponent e = 0.5 + (value - 14) / 32 of alpha = 1 - (1 - coverage)^e,
+     * for callers that match a measured text weight.
+     */
     uint32_t coverage_transfer;
     uint32_t reserved1;
     uint32_t reserved2;

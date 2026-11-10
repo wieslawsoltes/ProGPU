@@ -83,9 +83,11 @@ bool resize_path_atlas(
     progpu_native_engine& engine,
     std::uint32_t requested_size);
 
+// `preserve_content` copies the coverage of the atlas into the larger one.
 bool resize_glyph_atlas(
     progpu_native_engine& engine,
-    std::uint32_t requested_size);
+    std::uint32_t requested_size,
+    bool preserve_content);
 
 bool refresh_text_atlas_bind_group(progpu_native_engine& engine);
 

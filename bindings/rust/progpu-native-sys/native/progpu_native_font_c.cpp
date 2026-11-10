@@ -500,4 +500,29 @@ int progpu_native_font_face_get_outline(const progpu_native_font_face* face, uin
     }
 }
 
+int progpu_native_font_outline_embolden(const progpu_native_path_segment* source, size_t source_count,
+    const progpu_native_font_outline_growth* growth, const progpu_native_path_segment** segments,
+    size_t* segment_count, progpu_native_font_glyph_bounds* bounds) {
+    if (segments != nullptr) *segments = nullptr;
+    if (segment_count != nullptr) *segment_count = 0U;
+    if (bounds != nullptr) *bounds = {};
+    if (growth == nullptr || segments == nullptr || segment_count == nullptr) return 0;
+    if (source == nullptr && source_count != 0U) return 0;
+    try {
+        const std::span<const progpu_native_path_segment> outline{source, source_count};
+        // Storage of its own: the source is usually what get_outline lent.
+        thread_local std::vector<progpu_native_path_segment> grown;
+        const text::outline_growth sides{growth->left, growth->bottom, growth->right, growth->top};
+        const auto result = text::embolden_outline(outline, sides, grown)
+            ? std::span<const progpu_native_path_segment>{grown}
+            : outline;
+        *segments = result.data();
+        *segment_count = result.size();
+        if (bounds != nullptr) *bounds = control_box(result);
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
 } // extern "C"

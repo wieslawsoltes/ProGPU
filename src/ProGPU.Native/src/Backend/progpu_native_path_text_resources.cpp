@@ -40,7 +40,9 @@ progpu::native::webgpu::texture_usage_flags glyph_atlas_usage(
     using usage_flags = progpu::native::webgpu::texture_usage_flags;
     usage_flags usage =
         static_cast<usage_flags>(WGPUTextureUsage_TextureBinding) |
-        static_cast<usage_flags>(WGPUTextureUsage_CopyDst);
+        static_cast<usage_flags>(WGPUTextureUsage_CopyDst) |
+        // A growing atlas copies the coverage it keeps into the larger one.
+        static_cast<usage_flags>(WGPUTextureUsage_CopySrc);
     if (raster_shader_fallback) {
         usage |= static_cast<usage_flags>(
             WGPUTextureUsage_RenderAttachment);
@@ -775,7 +777,8 @@ bool resize_path_atlas(
 
 bool resize_glyph_atlas(
     progpu_native_engine& engine,
-    std::uint32_t requested_size) {
+    std::uint32_t requested_size,
+    bool preserve_content) {
     if (requested_size <= engine.glyph_atlas_size) {
         return true;
     }
@@ -816,13 +819,52 @@ bool resize_glyph_atlas(
     }
     wgpuBindGroupRelease(engine.text_atlas_bind_group);
     engine.text_atlas_bind_group = group;
+    bool preserved = false;
+    if (preserve_content && old_texture != nullptr) {
+        // The copy is its own submission, ahead of whatever is encoded for the
+        // new atlas afterwards.
+        WGPUCommandEncoderDescriptor encoder_descriptor{};
+        encoder_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native glyph atlas growth encoder");
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+            engine.device, &encoder_descriptor);
+        if (encoder != nullptr) {
+            progpu::native::webgpu::image_copy_texture source{};
+            source.texture = old_texture;
+            source.aspect = WGPUTextureAspect_All;
+            progpu::native::webgpu::image_copy_texture destination{};
+            destination.texture = texture;
+            destination.aspect = WGPUTextureAspect_All;
+            const WGPUExtent3D extent{
+                engine.glyph_atlas_size, engine.glyph_atlas_size, 1U};
+            wgpuCommandEncoderCopyTextureToTexture(
+                encoder, &source, &destination, &extent);
+            WGPUCommandBufferDescriptor command_descriptor{};
+            command_descriptor.label = progpu::native::webgpu::string_view(
+                "ProGPU native glyph atlas growth commands");
+            WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+                encoder, &command_descriptor);
+            wgpuCommandEncoderRelease(encoder);
+            if (command != nullptr) {
+                engine.submit(command);
+                wgpuCommandBufferRelease(command);
+                preserved = true;
+            }
+        }
+    }
+    if (!preserved) {
+        // The larger atlas starts empty: nothing the cache holds is in it.
+        engine.glyph_atlas_cache.clear();
+    }
     wgpuTextureViewRelease(old_view);
     wgpuTextureDestroy(old_texture);
     wgpuTextureRelease(old_texture);
     engine.glyph_atlas_size = requested_size;
     ++engine.glyph_atlas_generation;
     ++engine.glyph_atlas_growth_count;
-    return true;
+    // A caller that placed tiles next to the kept ones cannot go on without
+    // them.
+    return preserved || !preserve_content;
 }
 
 bool refresh_text_atlas_bind_group(progpu_native_engine& engine) {

@@ -196,6 +196,77 @@ fn a_glyph_has_an_advance_and_an_unhinted_outline_in_design_units() {
 }
 
 #[test]
+fn an_outline_grows_by_the_side_it_faces() {
+    let catalog = system_catalog();
+    let (_, _, face) = text_family(&catalog);
+    let units = f32::from(metrics(&face).units_per_em);
+    let step = units / 100.0;
+    // Sideways by one step, upwards by two, not at all downwards.
+    let growth = progpu_native_font_outline_growth { left: step, bottom: 0.0, right: step, top: 2.0 * step };
+    let end_of = |segment: &progpu_native_path_segment| match segment.kind {
+        kind if kind == PROGPU_NATIVE_PATH_SEGMENT_LINE as u32 => segment.p1,
+        kind if kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC as u32 => segment.p2,
+        _ => segment.p3,
+    };
+    for character in ['l', 'o', 'H', 'e', '8', 'x'] {
+        let (plain, plain_bounds) = outline(&face, glyph(&face, character), &[]);
+        // SAFETY: the source is owned by this test; the grown segments are borrowed from the
+        // calling thread and copied before its next call.
+        let (heavy, heavy_bounds) = unsafe {
+            let mut bounds: progpu_native_font_glyph_bounds = core::mem::zeroed();
+            let mut segments = ptr::null();
+            let mut count = 0usize;
+            assert_ne!(progpu_native_font_outline_embolden(plain.as_ptr(), plain.len(), &growth, &mut segments, &mut count, &mut bounds), 0);
+            (core::slice::from_raw_parts(segments, count).to_vec(), bounds)
+        };
+        for (grown, expected, name) in [
+            (plain_bounds.x_min - heavy_bounds.x_min, step, "left"),
+            (plain_bounds.y_min - heavy_bounds.y_min, 0.0, "bottom"),
+            (heavy_bounds.x_max - plain_bounds.x_max, step, "right"),
+            (heavy_bounds.y_max - plain_bounds.y_max, 2.0 * step, "top"),
+        ] {
+            assert!((grown - expected).abs() < step * 0.05, "{character}: the {name} side grew by {grown}, expected {expected}");
+        }
+        // Curves are cut and joints closed, so there are more segments, and every contour of
+        // the plain outline is still one closed contour.
+        assert!(heavy.len() >= plain.len(), "{character}: {} segments from {}", heavy.len(), plain.len());
+        let contours = |segments: &[progpu_native_path_segment]| {
+            let mut starts = vec![0usize];
+            for index in 1..segments.len() {
+                let end = end_of(&segments[index - 1]);
+                if end.x != segments[index].p0.x || end.y != segments[index].p0.y {
+                    starts.push(index);
+                }
+            }
+            starts.push(segments.len());
+            for pair in starts.windows(2) {
+                let (first, last) = (&segments[pair[0]], &segments[pair[1] - 1]);
+                let end = end_of(last);
+                assert!(end.x == first.p0.x && end.y == first.p0.y, "{character}: an open contour");
+            }
+            starts.len() - 1
+        };
+        assert_eq!(contours(&heavy), contours(&plain), "{character}: the contours stay what they were");
+    }
+    // Nothing to grow: the source comes back. No segments: an empty result.
+    let (plain, plain_bounds) = outline(&face, glyph(&face, 'o'), &[]);
+    let none = progpu_native_font_outline_growth { left: 0.0, bottom: 0.0, right: 0.0, top: 0.0 };
+    // SAFETY: as above.
+    unsafe {
+        let mut bounds: progpu_native_font_glyph_bounds = core::mem::zeroed();
+        let mut segments = ptr::null();
+        let mut count = 0usize;
+        assert_ne!(progpu_native_font_outline_embolden(plain.as_ptr(), plain.len(), &none, &mut segments, &mut count, &mut bounds), 0);
+        assert!(ptr::eq(segments, plain.as_ptr()) && count == plain.len());
+        assert_eq!((bounds.x_min, bounds.y_max), (plain_bounds.x_min, plain_bounds.y_max));
+        assert_ne!(progpu_native_font_outline_embolden(ptr::null(), 0, &growth, &mut segments, &mut count, &mut bounds), 0);
+        assert_eq!((count, bounds.x_min, bounds.x_max), (0, 0.0, 0.0));
+        assert_eq!(progpu_native_font_outline_embolden(ptr::null(), 3, &growth, &mut segments, &mut count, ptr::null_mut()), 0);
+        assert_eq!(progpu_native_font_outline_embolden(plain.as_ptr(), plain.len(), ptr::null(), &mut segments, &mut count, ptr::null_mut()), 0);
+    }
+}
+
+#[test]
 fn a_face_from_bytes_answers_as_the_face_of_the_catalog() {
     let catalog = system_catalog();
     let (_, index, face) = text_family(&catalog);

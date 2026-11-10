@@ -317,6 +317,8 @@ using ::progpu::native::text::is_sfnt_simple_formatting_control;
 using ::progpu::native::text::try_read_sfnt_simple_code_point;
 using ::progpu::native::text::try_fill_sfnt_simple_glyph_advances;
 using ::progpu::native::text::sfnt_glyph_bounds;
+using ::progpu::native::text::embolden_outline;
+using ::progpu::native::text::outline_growth;
 using ::progpu::native::text::sfnt_gvar_header;
 using ::progpu::native::text::sfnt_gvar_tuple_data;
 using ::progpu::native::text::sfnt_gvar_deltas;
