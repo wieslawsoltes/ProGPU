@@ -346,7 +346,12 @@ struct semantic_render_bundle_span {
     std::shared_ptr<const semantic_rgb_glyph_packet> rgb_glyphs;
     semantic_replay_kind kind = semantic_replay_kind::bundle;
     progpu_native_color clear_color{};
+    // A span of kind bundle draws either by this bundle or, when it has none,
+    // by its command list, replayed into the pass: the words from
+    // command_offset on in the command store of the compiled scene.
     WGPURenderBundle bundle = nullptr;
+    std::uint64_t command_offset = 0U;
+    std::uint32_t command_count = 0U;
     std::uint32_t clip_x = 0U;
     std::uint32_t clip_y = 0U;
     std::uint32_t clip_width = 0U;

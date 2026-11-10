@@ -831,6 +831,7 @@ set(PROGPU_NATIVE_SCENE_SOURCES
     src/Scene/progpu_native_semantic_update_execution.cpp
     src/Scene/progpu_native_semantic_render_execution.cpp
     src/Scene/progpu_native_semantic_replay.hpp
+    src/Scene/progpu_native_semantic_span_commands.hpp
     src/Scene/progpu_native_semantic_glyph_identity.hpp
     src/Scene/progpu_native_semantic_glyph_keys.hpp
     src/Backend/progpu_native_glyph_outline_registry.hpp
@@ -2189,6 +2190,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
         src/Scene/progpu_native_semantic_effect_cache.hpp
         src/Scene/progpu_native_semantic_draw_merge.hpp
         src/Scene/progpu_native_semantic_replay.hpp
+        src/Scene/progpu_native_semantic_span_commands.hpp
         src/Scene/progpu_native_semantic_glyph_identity.hpp
         src/Scene/progpu_native_semantic_glyph_keys.hpp
         src/Scene/progpu_native_semantic_state.cpp

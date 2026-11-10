@@ -16,6 +16,7 @@
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_webgpu_compat.hpp"
 #include "progpu_native_semantic_replay.hpp"
+#include "progpu_native_semantic_span_commands.hpp"
 #include "progpu_native_submission_resources.hpp"
 #include "progpu_native_webgpu_resources.hpp"
 #include "progpu_native_memory_inventory.hpp"
@@ -47,6 +48,53 @@ using progpu::native::native_glyph_raster;
 using progpu::native::native_initial_atlas_size;
 using progpu::native::native_path_raster;
 using progpu::native::vector_vertex;
+
+// The reference counting of the handles a span command list names.
+struct semantic_span_handle_ops final {
+    using handle_kind = progpu::native::span_commands::handle_kind;
+
+    static void retain(handle_kind kind, std::uintptr_t handle) noexcept {
+        switch (kind) {
+            case handle_kind::pipeline:
+                wgpuRenderPipelineAddRef(
+                    reinterpret_cast<WGPURenderPipeline>(handle));
+                break;
+            case handle_kind::bind_group:
+                wgpuBindGroupAddRef(
+                    reinterpret_cast<WGPUBindGroup>(handle));
+                break;
+            case handle_kind::buffer:
+                wgpuBufferAddRef(reinterpret_cast<WGPUBuffer>(handle));
+                break;
+        }
+    }
+
+    static void release(handle_kind kind, std::uintptr_t handle) noexcept {
+        switch (kind) {
+            case handle_kind::pipeline:
+                wgpuRenderPipelineRelease(
+                    reinterpret_cast<WGPURenderPipeline>(handle));
+                break;
+            case handle_kind::bind_group:
+                wgpuBindGroupRelease(
+                    reinterpret_cast<WGPUBindGroup>(handle));
+                break;
+            case handle_kind::buffer:
+                wgpuBufferRelease(reinterpret_cast<WGPUBuffer>(handle));
+                break;
+        }
+    }
+
+    static void release_bundle(std::uintptr_t bundle) noexcept {
+        wgpuRenderBundleRelease(reinterpret_cast<WGPURenderBundle>(bundle));
+    }
+};
+
+using semantic_span_command_store =
+    progpu::native::span_commands::command_store<semantic_span_handle_ops>;
+using semantic_span_bundle_cache =
+    progpu::native::span_commands::kept_bundle_cache<
+        semantic_span_handle_ops>;
 
 struct progpu_native_engine {
     progpu::native::diagnostics::compute_trace compute_trace;
@@ -544,6 +592,13 @@ struct progpu_native_engine {
     std::uint32_t semantic_hit_test_path_segment_count = 0U;
     std::uint32_t semantic_hit_test_requested_result_count = 0U;
     std::vector<semantic_render_bundle_span> semantic_render_bundle_spans;
+    // The command lists of the spans above that have no bundle, and the
+    // bundles kept across scene updates for the lists that repeat.
+    semantic_span_command_store semantic_span_commands;
+    semantic_span_bundle_cache semantic_span_bundles;
+    // True until the compiled spans were drawn again unchanged once: that
+    // frame turns the lists worth a bundle into bundles.
+    bool semantic_span_promotion_pending = false;
     std::vector<semantic_effect_dispatch> semantic_effect_dispatches;
     std::array<semantic_layer_slot,
         progpu::native::semantic::layer_slot_count> semantic_layer_slots{};
@@ -1347,6 +1402,8 @@ struct progpu_native_engine {
             }
         }
         semantic_render_bundle_spans.clear();
+        semantic_span_commands.clear();
+        semantic_span_promotion_pending = false;
         semantic_effect_dispatches.clear();
         semantic_render_bundle_valid = false;
         semantic_render_bundle_scene_hash = 0U;
@@ -1764,6 +1821,7 @@ struct progpu_native_engine {
             retained_raster_resources.clear();
         }
         release_semantic_render_bundle();
+        semantic_span_bundles.clear();
         release_semantic_layer_resources();
         release_semantic_image_page();
         semantic_picture_cache.clear();

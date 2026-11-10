@@ -4044,6 +4044,8 @@ progpu_native_status render_scene(
         engine->semantic_glyph_instance_count = 0U;
     };
 
+    std::uint32_t profile_span_direct_count = 0U;
+    std::uint32_t profile_span_kept_count = 0U;
     std::uint32_t profile_bundle_create_count = 0U;
     std::uint32_t profile_bundle_finish_count = 0U;
     std::uint32_t profile_bundle_release_count = 0U;
@@ -4537,7 +4539,14 @@ progpu_native_status render_scene(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The retained semantic clip-span table could not be allocated.");
         }
+        // A span that uses depth is encoded into a bundle at once, as its
+        // draws are. Every other span records its commands: they are
+        // replayed into the pass, or come from a bundle kept for them.
         WGPURenderBundleEncoder bundle_encoder = nullptr;
+        semantic_span_command_store compiled_commands;
+        bool recording_span = false;
+        std::size_t active_command_begin = 0U;
+        engine->semantic_span_bundles.begin_compile();
         std::uint32_t semantic_effect_uniform_cursor = 0U;
         std::uint32_t active_bundle_draw_count = 0U;
         bool active_bundle_uses_depth = false;
@@ -4622,31 +4631,55 @@ progpu_native_status render_scene(
                 ? cpu_clock::now() : cpu_clock::time_point{};
             switch (pending_kind) {
                 case pending_draw_kind::analytic:
-                    status = encode_semantic_analytic_bundle_draw(
-                        *engine,
-                        bundle_encoder,
-                        pending_analytic_draw,
-                        active_target_layer,
-                        active_mask.mask_bind_group,
-                        active_mask.mask_chain_bind_group);
+                    status = recording_span
+                        ? record_semantic_analytic_draw(
+                            *engine,
+                            compiled_commands,
+                            pending_analytic_draw,
+                            active_target_layer,
+                            active_mask.mask_bind_group,
+                            active_mask.mask_chain_bind_group)
+                        : encode_semantic_analytic_bundle_draw(
+                            *engine,
+                            bundle_encoder,
+                            pending_analytic_draw,
+                            active_target_layer,
+                            active_mask.mask_bind_group,
+                            active_mask.mask_chain_bind_group);
                     break;
                 case pending_draw_kind::path:
-                    status = encode_semantic_path_bundle_draw(
-                        *engine,
-                        bundle_encoder,
-                        pending_path_draw,
-                        active_target_layer,
-                        active_mask.mask_bind_group,
-                        active_mask.mask_chain_bind_group);
+                    status = recording_span
+                        ? record_semantic_path_draw(
+                            *engine,
+                            compiled_commands,
+                            pending_path_draw,
+                            active_target_layer,
+                            active_mask.mask_bind_group,
+                            active_mask.mask_chain_bind_group)
+                        : encode_semantic_path_bundle_draw(
+                            *engine,
+                            bundle_encoder,
+                            pending_path_draw,
+                            active_target_layer,
+                            active_mask.mask_bind_group,
+                            active_mask.mask_chain_bind_group);
                     break;
                 case pending_draw_kind::glyph:
-                    status = encode_semantic_glyph_bundle_draw(
-                        *engine,
-                        bundle_encoder,
-                        pending_glyph_draw,
-                        active_target_layer,
-                        active_mask.mask_bind_group,
-                        active_mask.mask_chain_bind_group);
+                    status = recording_span
+                        ? record_semantic_glyph_draw(
+                            *engine,
+                            compiled_commands,
+                            pending_glyph_draw,
+                            active_target_layer,
+                            active_mask.mask_bind_group,
+                            active_mask.mask_chain_bind_group)
+                        : encode_semantic_glyph_bundle_draw(
+                            *engine,
+                            bundle_encoder,
+                            pending_glyph_draw,
+                            active_target_layer,
+                            active_mask.mask_bind_group,
+                            active_mask.mask_chain_bind_group);
                     break;
                 case pending_draw_kind::none:
                     return PROGPU_NATIVE_STATUS_SUCCESS;
@@ -4664,43 +4697,108 @@ progpu_native_status render_scene(
             return status;
         };
         const auto finish_active_bundle = [&]() {
-            if (bundle_encoder == nullptr) {
+            if (bundle_encoder == nullptr && !recording_span) {
                 return PROGPU_NATIVE_STATUS_SUCCESS;
             }
             const auto flush_status = flush_pending_draw();
             if (flush_status != PROGPU_NATIVE_STATUS_SUCCESS) {
                 return flush_status;
             }
-            WGPURenderBundleDescriptor finish_descriptor{};
-            finish_descriptor.label = progpu::native::webgpu::string_view(
-                "ProGPU retained semantic clip-span bundle");
-            const auto finish_begin = trace_encode_checkpoints
-                ? cpu_clock::now() : cpu_clock::time_point{};
-            WGPURenderBundle bundle = wgpuRenderBundleEncoderFinish(
-                bundle_encoder,
-                &finish_descriptor);
-            if (trace_encode_checkpoints) {
-                ++profile_bundle_finish_count;
-                profile_bundle_finish_ns += stage_nanoseconds(
-                    finish_begin, cpu_clock::now());
-            }
-            const auto release_begin = trace_encode_checkpoints
-                ? cpu_clock::now() : cpu_clock::time_point{};
-            wgpuRenderBundleEncoderRelease(bundle_encoder);
-            if (trace_encode_checkpoints) {
-                ++profile_bundle_release_count;
-                profile_bundle_release_ns += stage_nanoseconds(
-                    release_begin, cpu_clock::now());
-            }
-            bundle_encoder = nullptr;
-            if (bundle == nullptr) {
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "A retained semantic clip-span bundle could not be finished.");
-            }
             semantic_render_bundle_span operation{};
             operation.kind = semantic_replay_kind::bundle;
-            operation.bundle = bundle;
+            if (recording_span) {
+                recording_span = false;
+                const std::size_t command_count =
+                    compiled_commands.size() - active_command_begin;
+                if (compiled_commands.failed() ||
+                    command_count >
+                        std::numeric_limits<std::uint32_t>::max()) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                        "The commands of a semantic clip span could not be retained.");
+                }
+                operation.command_offset = active_command_begin;
+                operation.command_count =
+                    static_cast<std::uint32_t>(command_count);
+                if (active_bundle_draw_count >=
+                    progpu::native::span_commands::kept_bundle_min_draws) {
+                    // Enough draws for a bundle to pay off once the span
+                    // repeats: use the bundle kept for exactly these
+                    // commands, or make it when the compile before this one
+                    // met them too.
+                    const auto* words =
+                        compiled_commands.data() + active_command_begin;
+                    const auto format =
+                        static_cast<std::uint32_t>(engine->target_format);
+                    const auto hash =
+                        progpu::native::span_commands::hash_words(
+                            format, words, command_count);
+                    auto& kept = engine->semantic_span_bundles;
+                    auto bundle = reinterpret_cast<WGPURenderBundle>(
+                        kept.find(hash, format, words, command_count));
+                    if (bundle != nullptr) {
+                        wgpuRenderBundleAddRef(bundle);
+                        ++profile_span_kept_count;
+                    } else if (kept.met_before(hash)) {
+                        const auto finish_begin = trace_encode_checkpoints
+                            ? cpu_clock::now() : cpu_clock::time_point{};
+                        bundle = create_semantic_span_bundle(
+                            *engine, words, command_count);
+                        if (trace_encode_checkpoints) {
+                            ++profile_bundle_create_count;
+                            ++profile_bundle_finish_count;
+                            profile_bundle_finish_ns += stage_nanoseconds(
+                                finish_begin, cpu_clock::now());
+                        }
+                        if (bundle == nullptr) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                                "A kept semantic clip-span bundle could not be finished.");
+                        }
+                        if (kept.insert(
+                                hash, format, words, command_count,
+                                reinterpret_cast<std::uintptr_t>(bundle))) {
+                            wgpuRenderBundleAddRef(bundle);
+                        }
+                    } else {
+                        kept.note(hash);
+                    }
+                    operation.bundle = bundle;
+                }
+                if (operation.bundle == nullptr) {
+                    ++profile_span_direct_count;
+                }
+            } else {
+                WGPURenderBundleDescriptor finish_descriptor{};
+                finish_descriptor.label =
+                    progpu::native::webgpu::string_view(
+                        "ProGPU retained semantic clip-span bundle");
+                const auto finish_begin = trace_encode_checkpoints
+                    ? cpu_clock::now() : cpu_clock::time_point{};
+                WGPURenderBundle bundle = wgpuRenderBundleEncoderFinish(
+                    bundle_encoder,
+                    &finish_descriptor);
+                if (trace_encode_checkpoints) {
+                    ++profile_bundle_finish_count;
+                    profile_bundle_finish_ns += stage_nanoseconds(
+                        finish_begin, cpu_clock::now());
+                }
+                const auto release_begin = trace_encode_checkpoints
+                    ? cpu_clock::now() : cpu_clock::time_point{};
+                wgpuRenderBundleEncoderRelease(bundle_encoder);
+                if (trace_encode_checkpoints) {
+                    ++profile_bundle_release_count;
+                    profile_bundle_release_ns += stage_nanoseconds(
+                        release_begin, cpu_clock::now());
+                }
+                bundle_encoder = nullptr;
+                if (bundle == nullptr) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "A retained semantic clip-span bundle could not be finished.");
+                }
+                operation.bundle = bundle;
+            }
             operation.clip_x = active_scissor.x;
             operation.clip_y = active_scissor.y;
             operation.clip_width = active_scissor.width;
@@ -4739,31 +4837,34 @@ progpu_native_status render_scene(
             semantic_scissor target_extent,
             const progpu_native_scene_presentation& target_presentation,
             bool uses_depth) {
-            WGPURenderBundleEncoderDescriptor bundle_descriptor{};
-            bundle_descriptor.label = progpu::native::webgpu::string_view(
-                uses_depth
-                    ? "ProGPU retained semantic 3D bundle encoder"
-                    : "ProGPU retained semantic 2D bundle encoder");
-            bundle_descriptor.colorFormatCount = 1U;
-            bundle_descriptor.colorFormats = &engine->target_format;
-            bundle_descriptor.depthStencilFormat = uses_depth
-                ? WGPUTextureFormat_Depth24Plus
-                : WGPUTextureFormat_Undefined;
-            bundle_descriptor.sampleCount = 1U;
-            const auto create_begin = trace_encode_checkpoints
-                ? cpu_clock::now() : cpu_clock::time_point{};
-            bundle_encoder = wgpuDeviceCreateRenderBundleEncoder(
-                engine->device,
-                &bundle_descriptor);
-            if (trace_encode_checkpoints) {
-                ++profile_bundle_create_count;
-                profile_bundle_create_ns += stage_nanoseconds(
-                    create_begin, cpu_clock::now());
-            }
-            if (bundle_encoder == nullptr) {
-                return engine->fail(
-                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "A retained semantic clip-span encoder could not be created.");
+            if (uses_depth) {
+                WGPURenderBundleEncoderDescriptor bundle_descriptor{};
+                bundle_descriptor.label =
+                    progpu::native::webgpu::string_view(
+                        "ProGPU retained semantic 3D bundle encoder");
+                bundle_descriptor.colorFormatCount = 1U;
+                bundle_descriptor.colorFormats = &engine->target_format;
+                bundle_descriptor.depthStencilFormat =
+                    WGPUTextureFormat_Depth24Plus;
+                bundle_descriptor.sampleCount = 1U;
+                const auto create_begin = trace_encode_checkpoints
+                    ? cpu_clock::now() : cpu_clock::time_point{};
+                bundle_encoder = wgpuDeviceCreateRenderBundleEncoder(
+                    engine->device,
+                    &bundle_descriptor);
+                if (trace_encode_checkpoints) {
+                    ++profile_bundle_create_count;
+                    profile_bundle_create_ns += stage_nanoseconds(
+                        create_begin, cpu_clock::now());
+                }
+                if (bundle_encoder == nullptr) {
+                    return engine->fail(
+                        PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                        "A retained semantic clip-span encoder could not be created.");
+                }
+            } else {
+                recording_span = true;
+                active_command_begin = compiled_commands.size();
             }
             active_scissor = scissor;
             active_target_layer = target_layer;
@@ -5954,7 +6055,15 @@ progpu_native_status render_scene(
                         if (status == PROGPU_NATIVE_STATUS_SUCCESS) {
                             const auto draw_begin = trace_encode_checkpoints
                                 ? cpu_clock::now() : cpu_clock::time_point{};
-                            status = encode_semantic_image_bundle_draw(
+                            status = recording_span
+                                ? record_semantic_image_draw(
+                                    *engine,
+                                    compiled_commands,
+                                    semantic_image_page.draws[draw_index],
+                                    current_target_layer,
+                                    active_mask.mask_bind_group,
+                                    active_mask.mask_chain_bind_group)
+                                : encode_semantic_image_bundle_draw(
                                     *engine,
                                     bundle_encoder,
                                     semantic_image_page.draws[draw_index],
@@ -6099,7 +6208,15 @@ progpu_native_status render_scene(
             semantic_layer_uniform_upload_bytes +=
                 semantic_effect_uniform_data.size();
         }
+        if (compiled_commands.failed()) {
+            return fail_bundle(engine->fail(
+                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                "The commands of the semantic clip spans could not be retained."));
+        }
         engine->semantic_render_bundle_spans = std::move(compiled_spans);
+        engine->semantic_span_commands = std::move(compiled_commands);
+        engine->semantic_span_bundles.end_compile();
+        engine->semantic_span_promotion_pending = true;
         engine->semantic_effect_dispatches =
             std::move(compiled_effect_dispatches);
         engine->semantic_render_bundle_valid = true;
@@ -6116,6 +6233,47 @@ progpu_native_status render_scene(
         draw_calls = engine->semantic_render_bundle_draw_call_count;
         family_switches =
             engine->semantic_render_bundle_family_switch_count;
+        if (engine->semantic_span_promotion_pending) {
+            // The compiled scene is drawn again as it is. Its command lists
+            // repeat from here on, so every list with enough draws becomes
+            // a bundle now. A list that cannot is still replayed directly.
+            engine->semantic_span_promotion_pending = false;
+            auto& kept = engine->semantic_span_bundles;
+            const auto format =
+                static_cast<std::uint32_t>(engine->target_format);
+            for (auto& span : engine->semantic_render_bundle_spans) {
+                if (span.kind != semantic_replay_kind::bundle ||
+                    span.bundle != nullptr ||
+                    span.draw_call_count <
+                        progpu::native::span_commands::
+                            kept_bundle_min_draws) {
+                    continue;
+                }
+                const auto* words = engine->semantic_span_commands.data() +
+                    span.command_offset;
+                const auto hash =
+                    progpu::native::span_commands::hash_words(
+                        format, words, span.command_count);
+                auto bundle = reinterpret_cast<WGPURenderBundle>(
+                    kept.find(hash, format, words, span.command_count));
+                if (bundle != nullptr) {
+                    wgpuRenderBundleAddRef(bundle);
+                    ++profile_span_kept_count;
+                } else {
+                    bundle = create_semantic_span_bundle(
+                        *engine, words, span.command_count);
+                    ++profile_bundle_create_count;
+                    ++profile_bundle_finish_count;
+                    if (bundle != nullptr &&
+                        kept.insert(
+                            hash, format, words, span.command_count,
+                            reinterpret_cast<std::uintptr_t>(bundle))) {
+                        wgpuRenderBundleAddRef(bundle);
+                    }
+                }
+                span.bundle = bundle;
+            }
+        }
     }
     uniform_upload_bytes += semantic_layer_uniform_upload_bytes;
     if (engine->semantic_destination_sampling_active !=
@@ -6144,6 +6302,7 @@ progpu_native_status render_scene(
         std::fprintf(stderr,
             "ProGPU native semantic bundle operations: scene=%llu, "
             "generation=%llu, commands=%u, spans=%zu, "
+            "direct=%u, kept=%u, keptBundles=%zu, "
             "create=%u/%.3fms, draw=%u/%.3fms, finish=%u/%.3fms, "
             "release=%u/%.3fms, mask=%u/%.3fms, "
             "advancedBlend=%u/%.3fms, otherMs=%.3f\n",
@@ -6151,6 +6310,8 @@ progpu_native_status render_scene(
             static_cast<unsigned long long>(frame->generation),
             header.command_count,
             engine->semantic_render_bundle_spans.size(),
+            profile_span_direct_count, profile_span_kept_count,
+            engine->semantic_span_bundles.size(),
             profile_bundle_create_count, to_ms(profile_bundle_create_ns),
             profile_bundle_draw_count, to_ms(profile_bundle_draw_ns),
             profile_bundle_finish_count, to_ms(profile_bundle_finish_ns),
@@ -6184,6 +6345,8 @@ progpu_native_status render_scene(
         bool color_initialized = semantic_preserve_target_active;
         bool depth_initialized = false;
         bool active_pass_uses_depth = false;
+        // What the open pass was last given by the spans replayed into it.
+        progpu::native::span_commands::replay_state direct_state{};
         const auto finish_pass = [&]() noexcept {
             if (pass != nullptr) {
                 wgpuRenderPassEncoderEnd(pass);
@@ -6238,6 +6401,7 @@ progpu_native_status render_scene(
                 color_initialized = true;
                 depth_initialized = depth_initialized || uses_depth;
                 active_pass_uses_depth = uses_depth;
+                direct_state.reset();
             }
             return pass != nullptr;
         };
@@ -6266,8 +6430,24 @@ progpu_native_status render_scene(
                 span.clip_y,
                 span.clip_width,
                 span.clip_height);
-            wgpuRenderPassEncoderExecuteBundles(
-                pass, 1U, &span.bundle);
+            if (span.bundle != nullptr) {
+                wgpuRenderPassEncoderExecuteBundles(
+                    pass, 1U, &span.bundle);
+                // Executing a bundle leaves the pass without a pipeline,
+                // bind groups or buffers.
+                direct_state.reset();
+            } else if (!replay_semantic_span_commands(
+                    pass,
+                    engine->semantic_span_commands.data() +
+                        span.command_offset,
+                    span.command_count,
+                    direct_state)) {
+                finish_pass();
+                discard_encoder();
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The commands of a semantic clip span could not be replayed.");
+            }
             executed_draw_calls += span.draw_call_count;
         }
         finish_pass();
@@ -6419,8 +6599,12 @@ progpu_native_status render_scene(
             return fail_replay(
                 "The semantic isolated-layer root pass could not be created.");
         }
+        progpu::native::span_commands::replay_state direct_state{};
+        bool last_was_direct = false;
         for (const auto& operation :
              engine->semantic_render_bundle_spans) {
+            const bool previous_was_direct = last_was_direct;
+            last_was_direct = false;
             if (skipped_cached_depth != 0U) {
                 if (operation.kind == semantic_replay_kind::push_layer) {
                     ++skipped_cached_depth;
@@ -6673,6 +6857,7 @@ progpu_native_status render_scene(
                     return fail_replay("The RGB glyph source-order continuation pass could not be created.");
                 continue;
             }
+            bool direct_state_continues = previous_was_direct;
             if (operation.target_layer != active_target_layer ||
                 operation.uses_depth != active_pass_uses_depth) {
                 finish_pass();
@@ -6683,6 +6868,7 @@ progpu_native_status render_scene(
                     return fail_replay(
                         "A semantic isolated-layer continuation pass could not be created.");
                 }
+                direct_state_continues = false;
             }
             wgpuRenderPassEncoderSetScissorRect(
                 pass,
@@ -6690,10 +6876,28 @@ progpu_native_status render_scene(
                 operation.clip_y,
                 operation.clip_width,
                 operation.clip_height);
-            wgpuRenderPassEncoderExecuteBundles(
-                pass,
-                1U,
-                &operation.bundle);
+            if (operation.bundle != nullptr) {
+                wgpuRenderPassEncoderExecuteBundles(
+                    pass,
+                    1U,
+                    &operation.bundle);
+            } else {
+                // The state of the pass is known only while nothing but
+                // directly replayed spans drew into it.
+                if (!direct_state_continues) {
+                    direct_state.reset();
+                }
+                if (!replay_semantic_span_commands(
+                        pass,
+                        engine->semantic_span_commands.data() +
+                            operation.command_offset,
+                        operation.command_count,
+                        direct_state)) {
+                    return fail_replay(
+                        "The commands of a semantic clip span could not be replayed.");
+                }
+                last_was_direct = true;
+            }
             executed_draw_calls += operation.draw_call_count;
         }
         finish_pass();

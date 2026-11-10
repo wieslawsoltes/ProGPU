@@ -59,6 +59,176 @@ struct semantic_render_bundle_commands final {
     }
 };
 
+// Writes the commands of a draw into the command list of its span.
+struct semantic_span_record_commands final {
+    using encoder_type = semantic_span_command_store*;
+
+    static void set_pipeline(
+        encoder_type store,
+        WGPURenderPipeline pipeline) noexcept {
+        store->set_pipeline(reinterpret_cast<std::uintptr_t>(pipeline));
+    }
+
+    static void set_bind_group(
+        encoder_type store,
+        std::uint32_t index,
+        WGPUBindGroup bind_group) noexcept {
+        store->set_bind_group(
+            index, reinterpret_cast<std::uintptr_t>(bind_group));
+    }
+
+    // A list binds the whole buffer and leaves the ranges to its draws. With
+    // the bytes in use bound instead, content added or removed anywhere in
+    // the scene would change the list of every span, and none of them would
+    // find its kept bundle again.
+    static void set_vertex_buffer(
+        encoder_type store,
+        WGPUBuffer buffer,
+        std::uint64_t) noexcept {
+        store->set_vertex_buffer(
+            reinterpret_cast<std::uintptr_t>(buffer), WGPU_WHOLE_SIZE);
+    }
+
+    static void set_index_buffer(
+        encoder_type store,
+        WGPUBuffer buffer,
+        std::uint64_t) noexcept {
+        store->set_index_buffer(
+            reinterpret_cast<std::uintptr_t>(buffer), WGPU_WHOLE_SIZE);
+    }
+
+    static void draw(
+        encoder_type store,
+        std::uint32_t vertex_count,
+        std::uint32_t instance_count,
+        std::uint32_t first_vertex,
+        std::uint32_t first_instance) noexcept {
+        store->draw(
+            vertex_count, instance_count, first_vertex, first_instance);
+    }
+
+    static void draw_indexed(
+        encoder_type store,
+        std::uint32_t index_count,
+        std::uint32_t first_index,
+        std::int32_t base_vertex) noexcept {
+        store->draw_indexed(index_count, first_index, base_vertex);
+    }
+};
+
+// Does the commands of a list on a render pass.
+struct semantic_span_pass_sink final {
+    using encoder_type = WGPURenderPassEncoder;
+
+    static void set_pipeline(
+        encoder_type pass, std::uintptr_t pipeline) noexcept {
+        wgpuRenderPassEncoderSetPipeline(
+            pass, reinterpret_cast<WGPURenderPipeline>(pipeline));
+    }
+
+    static void set_bind_group(
+        encoder_type pass,
+        std::uint32_t index,
+        std::uintptr_t bind_group) noexcept {
+        wgpuRenderPassEncoderSetBindGroup(
+            pass, index, reinterpret_cast<WGPUBindGroup>(bind_group),
+            0U, nullptr);
+    }
+
+    static void set_vertex_buffer(
+        encoder_type pass,
+        std::uintptr_t buffer,
+        std::uint64_t size) noexcept {
+        wgpuRenderPassEncoderSetVertexBuffer(
+            pass, 0U, reinterpret_cast<WGPUBuffer>(buffer), 0U, size);
+    }
+
+    static void set_index_buffer(
+        encoder_type pass,
+        std::uintptr_t buffer,
+        std::uint64_t size) noexcept {
+        wgpuRenderPassEncoderSetIndexBuffer(
+            pass, reinterpret_cast<WGPUBuffer>(buffer),
+            WGPUIndexFormat_Uint32, 0U, size);
+    }
+
+    static void draw(
+        encoder_type pass,
+        std::uint32_t vertex_count,
+        std::uint32_t instance_count,
+        std::uint32_t first_vertex,
+        std::uint32_t first_instance) noexcept {
+        wgpuRenderPassEncoderDraw(
+            pass, vertex_count, instance_count, first_vertex,
+            first_instance);
+    }
+
+    static void draw_indexed(
+        encoder_type pass,
+        std::uint32_t index_count,
+        std::uint32_t first_index,
+        std::int32_t base_vertex) noexcept {
+        wgpuRenderPassEncoderDrawIndexed(
+            pass, index_count, 1U, first_index, base_vertex, 0U);
+    }
+};
+
+// Does the commands of a list on a bundle encoder, with the calls a draw
+// encoded straight into a bundle makes.
+struct semantic_span_bundle_sink final {
+    using encoder_type = WGPURenderBundleEncoder;
+
+    static void set_pipeline(
+        encoder_type encoder, std::uintptr_t pipeline) noexcept {
+        semantic_render_bundle_commands::set_pipeline(
+            encoder, reinterpret_cast<WGPURenderPipeline>(pipeline));
+    }
+
+    static void set_bind_group(
+        encoder_type encoder,
+        std::uint32_t index,
+        std::uintptr_t bind_group) noexcept {
+        semantic_render_bundle_commands::set_bind_group(
+            encoder, index, reinterpret_cast<WGPUBindGroup>(bind_group));
+    }
+
+    static void set_vertex_buffer(
+        encoder_type encoder,
+        std::uintptr_t buffer,
+        std::uint64_t size) noexcept {
+        semantic_render_bundle_commands::set_vertex_buffer(
+            encoder, reinterpret_cast<WGPUBuffer>(buffer), size);
+    }
+
+    static void set_index_buffer(
+        encoder_type encoder,
+        std::uintptr_t buffer,
+        std::uint64_t size) noexcept {
+        semantic_render_bundle_commands::set_index_buffer(
+            encoder, reinterpret_cast<WGPUBuffer>(buffer), size);
+    }
+
+    static void draw(
+        encoder_type encoder,
+        std::uint32_t vertex_count,
+        std::uint32_t instance_count,
+        std::uint32_t first_vertex,
+        std::uint32_t first_instance) noexcept {
+        semantic_render_bundle_commands::draw(
+            encoder, vertex_count, instance_count, first_vertex,
+            first_instance);
+    }
+
+    static void draw_indexed(
+        encoder_type encoder,
+        std::uint32_t index_count,
+        std::uint32_t first_index,
+        std::int32_t base_vertex) noexcept {
+        semantic_render_bundle_commands::draw_indexed(
+            encoder, index_count, first_index, base_vertex);
+    }
+};
+
 WGPUBindGroup select_semantic_analytic_uniform_bind_group(
     progpu_native_engine& engine,
     std::uint32_t target_layer) noexcept {
@@ -508,6 +678,95 @@ progpu_native_status encode_semantic_image_bundle_draw(
     return encode_semantic_image_draw<semantic_render_bundle_commands>(
         engine, encoder, draw, target_layer, mask_bind_group,
         mask_chain_bind_group);
+}
+
+progpu_native_status record_semantic_analytic_draw(
+    progpu_native_engine& engine,
+    semantic_span_command_store& store,
+    const semantic_analytic_draw& draw,
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group,
+    WGPUBindGroup mask_chain_bind_group) {
+    return encode_semantic_analytic_draw<semantic_span_record_commands>(
+        engine, &store, draw, target_layer, mask_bind_group,
+        mask_chain_bind_group);
+}
+
+progpu_native_status record_semantic_path_draw(
+    progpu_native_engine& engine,
+    semantic_span_command_store& store,
+    const semantic_path_draw& draw,
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group,
+    WGPUBindGroup mask_chain_bind_group) {
+    return encode_semantic_path_draw<semantic_span_record_commands>(
+        engine, &store, draw, target_layer, mask_bind_group,
+        mask_chain_bind_group);
+}
+
+progpu_native_status record_semantic_glyph_draw(
+    progpu_native_engine& engine,
+    semantic_span_command_store& store,
+    const semantic_glyph_draw& draw,
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group,
+    WGPUBindGroup mask_chain_bind_group) {
+    return encode_semantic_glyph_draw<semantic_span_record_commands>(
+        engine, &store, draw, target_layer, mask_bind_group,
+        mask_chain_bind_group);
+}
+
+progpu_native_status record_semantic_image_draw(
+    progpu_native_engine& engine,
+    semantic_span_command_store& store,
+    const semantic_image_draw& draw,
+    std::uint32_t target_layer,
+    WGPUBindGroup mask_bind_group,
+    WGPUBindGroup mask_chain_bind_group) {
+    return encode_semantic_image_draw<semantic_span_record_commands>(
+        engine, &store, draw, target_layer, mask_bind_group,
+        mask_chain_bind_group);
+}
+
+bool replay_semantic_span_commands(
+    WGPURenderPassEncoder pass,
+    const std::uint64_t* words,
+    std::size_t count,
+    progpu::native::span_commands::replay_state& state) {
+    return pass != nullptr &&
+        progpu::native::span_commands::replay<semantic_span_pass_sink>(
+            pass, words, count, state);
+}
+
+WGPURenderBundle create_semantic_span_bundle(
+    progpu_native_engine& engine,
+    const std::uint64_t* words,
+    std::size_t count) {
+    WGPURenderBundleEncoderDescriptor descriptor{};
+    descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU kept semantic clip-span bundle encoder");
+    descriptor.colorFormatCount = 1U;
+    descriptor.colorFormats = &engine.target_format;
+    descriptor.depthStencilFormat = WGPUTextureFormat_Undefined;
+    descriptor.sampleCount = 1U;
+    WGPURenderBundleEncoder encoder = wgpuDeviceCreateRenderBundleEncoder(
+        engine.device, &descriptor);
+    if (encoder == nullptr) {
+        return nullptr;
+    }
+    progpu::native::span_commands::replay_state state{};
+    const bool replayed =
+        progpu::native::span_commands::replay<semantic_span_bundle_sink>(
+            encoder, words, count, state);
+    WGPURenderBundle bundle = nullptr;
+    if (replayed) {
+        WGPURenderBundleDescriptor finish_descriptor{};
+        finish_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU kept semantic clip-span bundle");
+        bundle = wgpuRenderBundleEncoderFinish(encoder, &finish_descriptor);
+    }
+    wgpuRenderBundleEncoderRelease(encoder);
+    return bundle;
 }
 
 } // namespace progpu::native::execution
