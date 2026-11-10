@@ -67,6 +67,7 @@ device_gpos::gpos_device_frame make_gpos_control_frame(const progpu::native::tex
     return frame;
 }
 
+using progpu::native::text::embolden_outline;
 using progpu::native::text::font_catalog_error;
 using progpu::native::text::font_catalog_face_info;
 using progpu::native::text::font_catalog_scan_metrics;
@@ -1812,6 +1813,76 @@ void open_type_gsub_context_format3_applies_bounded_nested_lookups() {
     require(try_apply_open_type_gsub_lookup(
         gsub, 0U, glyphs, count, {}, applied, &error));
     require(applied && glyphs[1U].glyph_id == 12U);
+}
+
+void open_type_gsub_exception_rule_ends_the_lookup_at_its_position() {
+    // Lookup 0 is ChainContextSubst with two format 3 subtables. The first is
+    // an exception rule: glyph 5 after glyph 1, with no nested lookup. The
+    // second substitutes every glyph 5 through lookup 1. The first rule that
+    // matches ends the lookup at its position, so a glyph 5 after glyph 1
+    // stays, and the others become glyph 12.
+    std::array<std::byte, 92U> table{};
+    write_u16(table, 0U, 1U);
+    write_u16(table, 4U, 10U);
+    write_u16(table, 6U, 12U);
+    write_u16(table, 8U, 14U);
+    write_u16(table, 14U, 2U);
+    write_u16(table, 16U, 6U);
+    write_u16(table, 18U, 58U);
+    write_u16(table, 20U, 6U);
+    write_u16(table, 24U, 2U);
+    write_u16(table, 26U, 10U);
+    write_u16(table, 28U, 24U);
+    write_u16(table, 30U, 3U);
+    write_u16(table, 32U, 1U);
+    write_u16(table, 34U, 30U);
+    write_u16(table, 36U, 1U);
+    write_u16(table, 38U, 36U);
+    write_u16(table, 40U, 0U);
+    write_u16(table, 42U, 0U);
+    write_u16(table, 44U, 3U);
+    write_u16(table, 46U, 0U);
+    write_u16(table, 48U, 1U);
+    write_u16(table, 50U, 22U);
+    write_u16(table, 52U, 0U);
+    write_u16(table, 54U, 1U);
+    write_u16(table, 56U, 0U);
+    write_u16(table, 58U, 1U);
+    write_u16(table, 60U, 1U);
+    write_u16(table, 62U, 1U);
+    write_u16(table, 64U, 1U);
+    write_u16(table, 66U, 1U);
+    write_u16(table, 68U, 1U);
+    write_u16(table, 70U, 5U);
+    write_u16(table, 72U, 1U);
+    write_u16(table, 76U, 1U);
+    write_u16(table, 78U, 8U);
+    write_u16(table, 80U, 1U);
+    write_u16(table, 82U, 6U);
+    write_u16(table, 84U, 7U);
+    write_u16(table, 86U, 1U);
+    write_u16(table, 88U, 1U);
+    write_u16(table, 90U, 5U);
+
+    open_type_layout_table_view gsub{};
+    font_error error = font_error::invalid_argument;
+    require(open_type_layout_table_view::try_create(table, gsub, &error));
+    std::array<shaping_glyph, 4U> glyphs{
+        shaping_glyph{1U}, shaping_glyph{5U},
+        shaping_glyph{2U}, shaping_glyph{5U}};
+    std::uint32_t count = 4U;
+    bool applied = false;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(applied && count == 4U && glyphs[0U].glyph_id == 1U &&
+        glyphs[1U].glyph_id == 5U && glyphs[2U].glyph_id == 2U &&
+        glyphs[3U].glyph_id == 12U);
+
+    glyphs = {shaping_glyph{1U}, shaping_glyph{5U}};
+    count = 2U;
+    require(try_apply_open_type_gsub_lookup(
+        gsub, 0U, glyphs, count, {}, applied, &error));
+    require(!applied && count == 2U && glyphs[1U].glyph_id == 5U);
 }
 
 void open_type_gsub_context_contraction_advances_in_mutated_space() {
@@ -14332,6 +14403,219 @@ void anchor_width_policy_requires_real_remeasurement() {
         0, false, 0, result, &error));
 }
 
+// Outline weight on shapes whose answer is known: a ring of two rectangles in
+// both winding directions, a diamond, a circle of quadratics, a polygon with
+// joints that turn into the fill, and the cases with nothing to grow.
+void outline_weight_grows_contours_by_a_box() {
+    using progpu::native::text::outline_growth;
+    const auto line = [](float x0, float y0, float x1, float y1) {
+        progpu_native_path_segment segment{};
+        segment.p0 = {x0, y0};
+        segment.p1 = {x1, y1};
+        segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        return segment;
+    };
+    const auto near = [](double left, double right) {
+        return std::fabs(left - right) < 1e-3;
+    };
+    const auto end_of = [](const progpu_native_path_segment& segment) {
+        return segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE ? segment.p1
+            : (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC ? segment.p2 : segment.p3);
+    };
+    // The area inside lines and quadratics, by the sign of the direction.
+    const auto area_of = [](std::span<const progpu_native_path_segment> segments) {
+        const auto cross = [](progpu_native_point a, progpu_native_point b) {
+            return static_cast<double>(a.x) * b.y - static_cast<double>(b.x) * a.y;
+        };
+        double twice = 0.0;
+        for (const auto& segment : segments) {
+            if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+                twice += cross(segment.p0, segment.p1);
+            } else {
+                twice += (2.0 * cross(segment.p0, segment.p1) + 2.0 * cross(segment.p1, segment.p2)
+                    + cross(segment.p0, segment.p2)) / 3.0;
+            }
+        }
+        return twice * 0.5;
+    };
+    struct extent { float x0 = 1e9F, y0 = 1e9F, x1 = -1e9F, y1 = -1e9F; };
+    const auto extent_of = [&](std::span<const progpu_native_path_segment> segments) {
+        extent box{};
+        for (const auto& segment : segments) {
+            for (const auto point : {segment.p0, end_of(segment)}) {
+                box.x0 = std::min(box.x0, point.x);
+                box.y0 = std::min(box.y0, point.y);
+                box.x1 = std::max(box.x1, point.x);
+                box.y1 = std::max(box.y1, point.y);
+            }
+        }
+        return box;
+    };
+    const auto closed = [&](std::span<const progpu_native_path_segment> segments) {
+        for (std::size_t index = 0U; index < segments.size(); ++index) {
+            const auto end = end_of(segments[index]);
+            const auto start = segments[(index + 1U) % segments.size()].p0;
+            if (end.x != start.x || end.y != start.y) return false;
+        }
+        return true;
+    };
+    std::vector<progpu_native_path_segment> grown;
+
+    // A stem gains left and right, a bar bottom and top; the counter loses
+    // them, and right angles stay right angles.
+    for (const bool reversed : {false, true}) {
+        // Outer square 0..10, inner square 3..7 wound the other way.
+        std::vector<progpu_native_path_segment> ring{
+            line(0, 0, 10, 0), line(10, 0, 10, 10), line(10, 10, 0, 10), line(0, 10, 0, 0),
+            line(3, 3, 3, 7), line(3, 7, 7, 7), line(7, 7, 7, 3), line(7, 3, 3, 3)};
+        if (reversed) {
+            for (auto& segment : ring) std::swap(segment.p0, segment.p1);
+            std::reverse(ring.begin(), ring.begin() + 4);
+            std::reverse(ring.begin() + 4, ring.end());
+        }
+        require(embolden_outline(ring, outline_growth{1.0F, 0.0F, 1.0F, 2.0F}, grown));
+        require(grown.size() == 8U);
+        const std::span<const progpu_native_path_segment> all{grown};
+        const auto outer = extent_of(all.first(4U));
+        const auto inner = extent_of(all.subspan(4U));
+        require(near(outer.x0, -1.0) && near(outer.x1, 11.0) && near(outer.y0, 0.0) && near(outer.y1, 12.0));
+        require(near(inner.x0, 4.0) && near(inner.x1, 6.0) && near(inner.y0, 5.0) && near(inner.y1, 7.0));
+        require(closed(all.first(4U)) && closed(all.subspan(4U)));
+    }
+
+    // A diamond: every edge moves to the corner of the box it faces and the
+    // joints are closed along the box, so the area is that of the sum.
+    {
+        const std::vector<progpu_native_path_segment> diamond{
+            line(10, 0, 0, 10), line(0, 10, -10, 0), line(-10, 0, 0, -10), line(0, -10, 10, 0)};
+        require(embolden_outline(diamond, outline_growth{1.0F, 0.5F, 2.0F, 3.0F}, grown));
+        require(grown.size() == 8U && closed(grown));
+        const auto box = extent_of(grown);
+        require(near(box.x0, -11.0) && near(box.x1, 12.0) && near(box.y0, -10.5) && near(box.y1, 13.0));
+        require(near(area_of(grown), 200.0 + 3.0 * 20.0 + 3.5 * 20.0 + 3.0 * 3.5));
+        // The first edge moved by the right and the top growth.
+        require(near(grown[0].p0.x, 12.0) && near(grown[0].p0.y, 3.0));
+        require(near(grown[0].p1.x, 2.0) && near(grown[0].p1.y, 13.0));
+    }
+
+    // A circle of radius 8 from eight quadratics that cross the axes in their
+    // middle: four of them are cut where they turn, each piece moves as a
+    // whole, and the area is that of the circle, its extent times the box and
+    // the box.
+    {
+        std::vector<progpu_native_path_segment> circle;
+        const double pi = 3.14159265358979323846;
+        const double step = pi / 4.0;
+        const double control_radius = 8.0 / std::cos(step / 2.0);
+        for (int index = 0; index < 8; ++index) {
+            const double a0 = step * (index - 0.5);
+            const double a1 = a0 + step;
+            const double middle = a0 + step / 2.0;
+            progpu_native_path_segment segment{};
+            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC;
+            segment.p0 = {static_cast<float>(8.0 * std::cos(a0)), static_cast<float>(8.0 * std::sin(a0))};
+            segment.p1 = {static_cast<float>(control_radius * std::cos(middle)),
+                static_cast<float>(control_radius * std::sin(middle))};
+            segment.p2 = {static_cast<float>(8.0 * std::cos(a1)), static_cast<float>(8.0 * std::sin(a1))};
+            circle.push_back(segment);
+        }
+        for (std::size_t index = 0U; index < circle.size(); ++index) {
+            circle[index].p2 = circle[(index + 1U) % circle.size()].p0;
+        }
+        const double extent = 8.0 * (std::cos(step / 2.0) + 1.0 / std::cos(step / 2.0));
+        require(embolden_outline(circle, outline_growth{0.5F, 0.0F, 0.5F, 1.0F}, grown));
+        require(grown.size() == 16U && closed(grown));
+        const auto box = extent_of(grown);
+        require(near(box.x0, -extent / 2.0 - 0.5) && near(box.x1, extent / 2.0 + 0.5));
+        require(near(box.y0, -extent / 2.0) && near(box.y1, extent / 2.0 + 1.0));
+        require(std::fabs(area_of(grown) - (area_of(circle) + 1.0 * extent + 1.0 * extent + 1.0)) < 1e-2);
+    }
+
+    // A chevron in both directions: its notch turns into the fill, where the
+    // closing lines overlap the grown fill. Under the winding rule a point is
+    // inside exactly when the box around it reaches the chevron.
+    for (const bool reversed : {false, true}) {
+        std::vector<progpu_native_point> polygon{
+            {0.0F, 0.0F}, {6.0F, 3.0F}, {12.0F, 0.0F}, {12.0F, 5.0F}, {6.0F, 9.0F}, {0.0F, 5.0F}};
+        if (reversed) std::reverse(polygon.begin(), polygon.end());
+        std::vector<progpu_native_path_segment> chevron;
+        for (std::size_t index = 0U; index < polygon.size(); ++index) {
+            const auto a = polygon[index];
+            const auto b = polygon[(index + 1U) % polygon.size()];
+            chevron.push_back(line(a.x, a.y, b.x, b.y));
+        }
+        const outline_growth growth{0.7F, 0.3F, 1.1F, 0.45F};
+        require(embolden_outline(chevron, growth, grown));
+        require(closed(grown));
+        for (const auto& segment : grown) require(segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE);
+        const auto winding = [](std::span<const progpu_native_path_segment> segments, double x, double y) {
+            int count = 0;
+            for (const auto& segment : segments) {
+                const double x0 = segment.p0.x, y0 = segment.p0.y, x1 = segment.p1.x, y1 = segment.p1.y;
+                if ((y0 <= y) == (y1 <= y)) continue;
+                const double at = x0 + (y - y0) / (y1 - y0) * (x1 - x0);
+                if (at > x) count += y1 > y0 ? 1 : -1;
+            }
+            return count;
+        };
+        const auto crosses = [](double ax, double ay, double bx, double by,
+                                 double cx, double cy, double dx, double dy) {
+            const auto side = [](double px, double py, double qx, double qy, double rx, double ry) {
+                return (qx - px) * (ry - py) - (qy - py) * (rx - px);
+            };
+            return side(ax, ay, bx, by, cx, cy) * side(ax, ay, bx, by, dx, dy) < 0.0
+                && side(cx, cy, dx, dy, ax, ay) * side(cx, cy, dx, dy, bx, by) < 0.0;
+        };
+        // Whether the box around the point, mirrored, reaches the chevron.
+        const auto reaches = [&](double x, double y) {
+            const double x0 = x - growth.right, x1 = x + growth.left;
+            const double y0 = y - growth.top, y1 = y + growth.bottom;
+            for (const auto point : polygon) {
+                if (point.x > x0 && point.x < x1 && point.y > y0 && point.y < y1) return true;
+            }
+            const double corners[4][2] = {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+            for (const auto& corner : corners) {
+                if (winding(chevron, corner[0], corner[1]) != 0) return true;
+            }
+            for (const auto& segment : chevron) {
+                for (int index = 0; index < 4; ++index) {
+                    const auto& a = corners[index];
+                    const auto& b = corners[(index + 1) % 4];
+                    if (crosses(segment.p0.x, segment.p0.y, segment.p1.x, segment.p1.y, a[0], a[1], b[0], b[1])) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        for (int row = 0; row < 60; ++row) {
+            for (int column = 0; column < 80; ++column) {
+                const double x = -2.0 + column * 0.2137 + 0.0113;
+                const double y = -2.0 + row * 0.2291 + 0.0171;
+                require((winding(grown, x, y) != 0) == reaches(x, y));
+            }
+        }
+    }
+
+    // Nothing to grow: no area, an unknown kind, no growth, a growth that is
+    // not a number. The destination is empty and the source is the result.
+    const std::vector<progpu_native_path_segment> flat{line(0, 0, 5, 0), line(5, 0, 0, 0)};
+    require(!embolden_outline(flat, outline_growth{1.0F, 1.0F, 1.0F, 1.0F}, grown) && grown.empty());
+    std::vector<progpu_native_path_segment> unknown{
+        line(0, 0, 10, 0), line(10, 0, 10, 10), line(10, 10, 0, 0)};
+    unknown[1].kind = 99U;
+    require(!embolden_outline(unknown, outline_growth{1.0F, 1.0F, 1.0F, 1.0F}, grown) && grown.empty());
+    const std::vector<progpu_native_path_segment> square{
+        line(0, 0, 10, 0), line(10, 0, 10, 10), line(10, 10, 0, 10), line(0, 10, 0, 0)};
+    require(!embolden_outline(square, outline_growth{}, grown) && grown.empty());
+    require(!embolden_outline(square,
+        outline_growth{std::numeric_limits<float>::quiet_NaN(), 0.0F, 0.0F, 0.0F}, grown) && grown.empty());
+    // A negative growth thins.
+    require(embolden_outline(square, outline_growth{-1.0F, -1.0F, -1.0F, -1.0F}, grown));
+    const auto thin = extent_of(grown);
+    require(grown.size() == 4U && near(thin.x0, 1.0) && near(thin.y0, 1.0) && near(thin.x1, 9.0) && near(thin.y1, 9.0));
+}
+
 int main() {
     anchor_width_policy_requires_real_remeasurement();
     measured_floaters_pack_free_intervals();
@@ -14359,6 +14643,7 @@ int main() {
     open_type_gsub_basic_lookups_use_caller_owned_storage();
     open_type_gsub_reverse_chaining_matches_bounded_context();
     open_type_gsub_context_format3_applies_bounded_nested_lookups();
+    open_type_gsub_exception_rule_ends_the_lookup_at_its_position();
     open_type_gsub_context_contraction_advances_in_mutated_space();
     open_type_gsub_context_glyph_and_class_rules_are_bounded();
     open_type_gsub_chaining_glyph_rules_apply_nested_lookup();
@@ -14447,5 +14732,6 @@ int main() {
     production_inter_font_decodes_real_simple_outline();
     production_inter_variable_font_matches_fvar_axes();
     production_inter_shaping_is_stable_and_reusable();
+    outline_weight_grows_contours_by_a_box();
     return 0;
 }

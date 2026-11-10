@@ -473,6 +473,20 @@ void progpu_native_engine_destroy(progpu_native_engine* engine) {
     delete engine;
 }
 
+progpu_native_status progpu_native_engine_adopt_owner_thread(
+    progpu_native_engine* engine) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    const std::thread::id owner = std::this_thread::get_id();
+    for (progpu_native_engine* current = engine;
+         current != nullptr;
+         current = current->semantic_picture_child_engine.get()) {
+        current->owner_thread = owner;
+    }
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
 progpu_native_status progpu_native_engine_mark_device_lost(
     progpu_native_engine* engine) {
     return progpu::native::recovery::mark_device_lost(engine);

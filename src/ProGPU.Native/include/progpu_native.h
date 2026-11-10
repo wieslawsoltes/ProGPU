@@ -1095,7 +1095,15 @@ typedef struct progpu_native_rect {
 typedef enum progpu_native_primitive_kind {
     PROGPU_NATIVE_PRIMITIVE_RECTANGLE = 0,
     PROGPU_NATIVE_PRIMITIVE_ELLIPSE = 1,
-    PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE = 2
+    PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE = 2,
+    /* The Gaussian-blurred coverage of a rounded rectangle (a drop shadow) in
+     * closed form, in the analytic batch: x/y/width/height and corner_radius
+     * describe the shadow's rounded rectangle (spread and offset applied), and
+     * stroke_thickness is the standard deviation of the blur in local units
+     * (finite and positive). Flags must be zero; the color is solid (a scene
+     * brush must be solid). The quad extends three deviations beyond the
+     * rectangle. Clipping the shadow out of its element is the caller's. */
+    PROGPU_NATIVE_PRIMITIVE_SHADOW = 3
 } progpu_native_primitive_kind;
 
 enum {
@@ -1711,7 +1719,11 @@ typedef struct progpu_native_scene_draw_brushes {
 typedef struct progpu_native_scene_text_style {
     progpu_native_color color;
     uint32_t text_rendering_mode;
-    /* 0 legacy; 1..13 explicit GDI+ grayscale contrast 0..12. */
+    /*
+     * 0 legacy; 1..13 explicit GDI+ grayscale contrast 0..12; 14..78 the
+     * exponent e = 0.5 + (value - 14) / 32 of alpha = 1 - (1 - coverage)^e,
+     * for callers that match a measured text weight.
+     */
     uint32_t coverage_transfer;
     uint32_t reserved1;
     uint32_t reserved2;
@@ -2513,6 +2525,86 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_stroke_query(
     const progpu_native_geometry_query_pen* pen, const float* dashes, uint32_t dash_count,
     const progpu_native_affine_2d* world_transform, const progpu_native_point* point, float tolerance,
     progpu_native_image_rect* bounds, uint32_t* has_bounds, uint32_t* contains);
+
+/* Bounds of a query geometry (the figures, segments and segment flags of
+ * geometry_stroke_query; every figure, filled or not) after world_transform
+ * (null = identity): the tight bounds of its lines, curves and arcs and of the
+ * start point of every figure. Inputs are borrowed for the call, <= 2^20
+ * figures/segments. Both output addresses are required and zeroed before
+ * validation; a geometry without figures has has_bounds = 0. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_bounds(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, const uint8_t* segment_flags, uint32_t segment_count,
+    const progpu_native_affine_2d* world_transform, progpu_native_image_rect* bounds, uint32_t* has_bounds);
+
+/* Owned canonical segments of a geometry result. */
+typedef struct progpu_native_geometry_path progpu_native_geometry_path;
+
+/* The outline of a stroke: the area a pen covers along a query geometry, with
+ * the transport, pen, dash and world-order rules of geometry_stroke_query, as
+ * filled contours of canonical line and cubic segments (curves are kept, not
+ * flattened) and their fill rule. Each contour is contiguous and closed, and a
+ * discontinuity begins the next: the input layout of geometry_fill_contains and
+ * geometry_combine. On success result owns the immutable segment view until
+ * geometry_path_destroy; empty coverage has no segments. All output addresses
+ * are required and zeroed before validation; inputs are not retained. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_geometry_widen(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, const uint8_t* segment_flags, uint32_t segment_count,
+    const progpu_native_geometry_query_pen* pen, const float* dashes, uint32_t dash_count,
+    const progpu_native_affine_2d* world_transform, float tolerance,
+    progpu_native_geometry_path** result, const progpu_native_path_segment** outline,
+    uint32_t* outline_count, uint32_t* fill_rule);
+
+PROGPU_NATIVE_API void progpu_native_geometry_path_destroy(progpu_native_geometry_path* path);
+
+/* Arc-length measure of the contours of a path: the native port of ProGPU's
+ * managed SKPathMeasure. Figures use the query-figure layout above and partition
+ * the canonical segments in order; flags bit 0 closes a figure, bit 1 is
+ * ignored and other bits must be zero. Every figure with a positive length is
+ * one contour, in order; force_closed closes every contour. Curves keep their
+ * kind and are measured by chords of a subdivision until a chord is within
+ * 0.5 / resolution_scale of its curve (finite and positive; 1 for user units),
+ * with the curvature tests of Skia's contour measure. Inputs are borrowed for
+ * the call, <= 2^20 figures and segments; *measure is zeroed before
+ * validation. A measure is immutable: calls on one measure may run
+ * concurrently, destroy must not race them. No engine, device or GPU. */
+typedef struct progpu_native_path_measure progpu_native_path_measure;
+
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_create(
+    const progpu_native_geometry_query_figure* figures, uint32_t figure_count,
+    const progpu_native_path_segment* segments, uint32_t segment_count,
+    uint32_t force_closed, float resolution_scale, progpu_native_path_measure** measure);
+
+PROGPU_NATIVE_API void progpu_native_path_measure_destroy(progpu_native_path_measure* measure);
+
+/* The number of contours; zero for a null measure. */
+PROGPU_NATIVE_API uint32_t progpu_native_path_measure_contour_count(
+    const progpu_native_path_measure* measure);
+
+/* Length and closed state (0 or 1) of a contour; either output may be null.
+ * INVALID_ARGUMENT for a null measure or a contour index out of range. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_contour(
+    const progpu_native_path_measure* measure, uint32_t contour, float* length, uint32_t* closed);
+
+/* Position and unit tangent at a distance along a contour, pinned to
+ * [0, length]; a degenerate tangent is zero. Either output may be null.
+ * INVALID_ARGUMENT for a null measure, a contour out of range or a NaN distance. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_position_tangent(
+    const progpu_native_path_measure* measure, uint32_t contour, float distance,
+    progpu_native_point* position, progpu_native_point* tangent);
+
+/* The piece of a contour between two distances (start pinned to zero, stop to
+ * the length) as canonical segments: the exact pieces of the original curves in
+ * their kinds, contiguous, the first starting at the point at start; an empty
+ * piece is one zero-length line, which a stroke caps. *count receives the number
+ * of segments: zero when the pinned start is after the pinned stop or a distance
+ * is NaN. With null segments and zero capacity only the count is written; a
+ * smaller nonzero capacity returns INVALID_ARGUMENT with the required count. */
+PROGPU_NATIVE_API progpu_native_status progpu_native_path_measure_segment(
+    const progpu_native_path_measure* measure, uint32_t contour,
+    float start_distance, float stop_distance,
+    progpu_native_path_segment* segments, uint32_t capacity, uint32_t* count);
 
 /* Values and storage intentionally match ProGPU.Vector.GpuHitTesting and the
  * canonical GpuHitTesting.wgsl storage-buffer contract. The C declarations
@@ -3445,6 +3537,18 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_create(
     const progpu_native_engine_options* options,
     progpu_native_engine** engine);
 PROGPU_NATIVE_API void progpu_native_engine_destroy(
+    progpu_native_engine* engine);
+/*
+ * Makes the calling thread the owner thread of the engine and of the engines
+ * it owns. The engine keeps no thread-local state: owner-thread affinity is
+ * its guard against concurrent entry. A host that serializes every engine
+ * call under one lock, and renders from more than one thread under it (a
+ * render thread and the thread of a synchronous resize), adopts the engine
+ * on the thread that enters next. The caller guarantees that no other thread
+ * is inside the engine, or enters it, until this thread has left it. Performs
+ * no WebGPU call and is valid after a device loss.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_adopt_owner_thread(
     progpu_native_engine* engine);
 /*
  * Owner-thread host hook for an asynchronously reported device loss. It is

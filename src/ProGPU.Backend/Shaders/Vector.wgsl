@@ -1457,6 +1457,46 @@ fn analytic_shape_distance(
     return -1.0;
 }
 
+// Closed-form drop shadow: the coverage of a rounded box convolved with an
+// isotropic Gaussian. A box blur is separable, so for each row of the rounded
+// profile the x direction integrates exactly through erf; the y direction is
+// sampled at four points over the rows within three deviations, weighted by
+// the Gaussian (the rounded-box shadow integral of Evan Wallace, also used by
+// GPUI). Exact for square corners up to the erf approximation (absolute error
+// below 5e-4) and the four-point quadrature. O(1): four rows, no textures.
+fn shadow_erf(value: vec2<f32>) -> vec2<f32> {
+    let s = sign(value);
+    let a = abs(value);
+    var r = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
+    r = r * r;
+    return s - s / (r * r);
+}
+
+fn shadow_row_coverage(x: f32, y: f32, sigma: f32, corner: f32, halfSize: vec2<f32>) -> f32 {
+    let delta = min(halfSize.y - corner - abs(y), 0.0);
+    let curved = halfSize.x - corner + sqrt(max(0.0, corner * corner - delta * delta));
+    let integral = 0.5 + 0.5 * shadow_erf(
+        (vec2<f32>(x) + vec2<f32>(-curved, curved)) * (0.70710678 / sigma));
+    return integral.y - integral.x;
+}
+
+fn blurred_rounded_box_coverage(point: vec2<f32>, halfSize: vec2<f32>, corner: f32, sigma: f32) -> f32 {
+    let low = point.y - halfSize.y;
+    let high = point.y + halfSize.y;
+    let start = clamp(-3.0 * sigma, low, high);
+    let end = clamp(3.0 * sigma, low, high);
+    let step = (end - start) * 0.25;
+    var y = start + step * 0.5;
+    var value = 0.0;
+    let weight = step / (2.50662827 * sigma);
+    for (var index = 0; index < 4; index = index + 1) {
+        value = value + shadow_row_coverage(point.x, point.y - y, sigma, corner, halfSize) *
+            exp(-(y * y) / (2.0 * sigma * sigma)) * weight;
+        y = y + step;
+    }
+    return clamp(value, 0.0, 1.0);
+}
+
 // Returns the exact signed distance and its local-space gradient for an
 // axis-aligned box with an optional circular corner radius. The gradient is
 // analytic everywhere except the SDF's intentional medial-axis ties, where a
@@ -1668,6 +1708,14 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32, targetBrushFrame: bool) -
         let antialiasedAlpha = 1.0 - smoothstep(-0.5 * fw, 0.5 * fw, d_shape);
         let aliasedAlpha = select(0.0, 1.0, d_shape <= 0.0);
         shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
+    } else if (sType == 28u) {
+        // Drop shadow: strokeThickness is the deviation, cornerRadius the
+        // clamped radius of the shadow's box (centered local coordinates).
+        shapeAlpha = blurred_rounded_box_coverage(
+            input.texCoord,
+            input.shapeSize * 0.5,
+            input.cornerRadius,
+            max(input.strokeThickness, 0.0001));
     } else if (sType == 12u) {
         // Fixed-quad elliptical arc stroke SDF. Under non-conformal transforms
         // every value remains in command-local coordinates and only the quad

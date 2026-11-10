@@ -124,6 +124,7 @@ def embedded_identity(build, pin):
     data = (build / "edit-word-icu-source" / pin["dataPath"]).read_bytes()
     if hashlib.sha256(data).hexdigest() != pin["dataSha256"]:
         raise ValueError("ICU original release data changed before embedding verification")
+    data = EMBED.embedded_data(data, pin)
     expected = hashlib.sha256()
     for chunk in EMBED.source_chunks(data):
         expected.update(chunk.encode("utf-8"))

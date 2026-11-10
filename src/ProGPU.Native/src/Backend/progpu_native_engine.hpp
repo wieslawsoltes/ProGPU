@@ -7,6 +7,7 @@
 #include "progpu_native_compute_trace.hpp"
 #include "progpu_native_geometry_base.hpp"
 #include "progpu_native_geometry_spline.hpp"
+#include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_budget.hpp"
@@ -202,6 +203,8 @@ struct progpu_native_engine {
     std::vector<gpu_glyph_instance> glyph_instances;
     std::vector<float> glyph_source_alphas;
     std::vector<native_glyph_raster> glyph_rasters;
+    // The coverage the scene path keeps in the atlas across raster rebuilds.
+    progpu::native::glyph_atlas_cache glyph_atlas_cache;
     // Raster identity is independent of positioned instances and scene revision.
     // Own the validated bytes: callers may replace or mutate their next batch.
     std::vector<progpu_native_glyph_outline> glyph_raster_outlines;

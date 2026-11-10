@@ -635,7 +635,7 @@ the exact producer receipt despite unchanged object data. The SDK retains the
 original archive hash and all identity checks; installation must not reindex
 the file or rewrite the receipt to bless a changed payload.
 
-The dependency helper's 19 CPU-only tests pass using synthetic archives, not a
+The dependency helper's 21 CPU-only tests pass using synthetic archives, not a
 real ICU build. They cover all six actual object-format/RID identities, modified
 source/header/data/notices, added include inputs, changed configured source paths,
 wrong architectures, typed receipt controls, Release-only packaging, partial
@@ -644,6 +644,37 @@ control retains the exact selected ICU archive in sanitizer builds. Bash syntax,
 package-project XML and diff whitespace checks pass. No ICU source download, native dependency build,
 renderer execution, package production or CI dispatch was performed for this
 dependency-wiring checkpoint.
+
+### The embedded data subset
+
+The classifier uses ICU for one line break iterator (`ubrk_open(UBRK_LINE,
+"en_US")`) over dictionary text and for script lookups (`uscript_getCode`,
+`uscript_getScript`, `uscript_hasScript`). ICU 78 compiles its core property
+data (scripts, script extensions, property names, line break classes) into the
+common library, so the lookups need no data items, and the line iterator needs
+its break-iterator bundles (`brkitr/root.res`, `en.res`, `en_US.res`,
+`res_index.res`), its rules (`brkitr/line.brk`) and the dictionaries of the
+scripts its rules break by dictionary (Thai, Lao, Khmer and Burmese). It never
+opens a word, sentence, title or phrase iterator, so `cjdict.dict`, the other
+rule files and every locale, collation, zone, unit, currency and conversion
+item are dead weight.
+
+`eng/native-edit-word-icu.json` therefore pins, beside the hash of the original
+`icudt78l.dat`, the kept `dataItems` and the hash of the subset
+(`embeddedDataSha256`). `eng/progpu-embed-edit-word-icu-data.py` verifies the
+original file, rewrites it as a valid little-endian offset-TOC common data file
+with exactly those items (the header unchanged, the original items
+byte-for-byte in their original sorted order, 16-byte aligned and padded with
+`0xaa` as ICU's packager does), verifies the subset's hash and embeds it; the
+dependency receipt recomputes the same subset from the verified original data
+before comparing the generated source. The embedded data drops from
+33,107,232 to 1,065,568 bytes, and the macOS ARM64 renderer library with the
+ICU dependency from about 38.9 MB to 7.1 MB (built without the FreeType
+dependency for this measurement), with the same classifier results: the
+dictionary-script requests of `progpu_native_edit_word_boundary_tests` and the
+text tests pass on the subset. The helper's CPU-only tests cover the subset
+writer (kept items byte-for-byte, alignment, a missing item, a malformed file)
+and a changed subset identity.
 
 ## Retained drawing-generation capture
 

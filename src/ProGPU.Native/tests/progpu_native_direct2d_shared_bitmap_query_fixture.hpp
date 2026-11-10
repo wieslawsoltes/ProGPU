@@ -123,6 +123,8 @@ private:
 inline bool shared_bitmap_query_failure_contract(compat::render_target* target,
     compat::bitmap* source, compat::scene_render_target_native* scene) {
     using response = shared_bitmap_query_source::response;
+    // Every object is used below without a further check.
+    if (target == nullptr || source == nullptr || scene == nullptr) return false;
     struct fault_case {
         response storage;
         response scene;

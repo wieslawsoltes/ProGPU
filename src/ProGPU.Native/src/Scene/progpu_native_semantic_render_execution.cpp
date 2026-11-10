@@ -1066,7 +1066,9 @@ progpu_native_status render_scene(
                         apply_semantic_transform(primitive, state);
                         apply_analytic_material(primitive, *brush);
                     }
-                    valid = is_valid_semantic_analytic(primitive);
+                    valid = is_valid_semantic_analytic(primitive) &&
+                        (primitive.kind != PROGPU_NATIVE_PRIMITIVE_SHADOW || brush == nullptr ||
+                            brush->type == PROGPU_NATIVE_SCENE_BRUSH_SOLID);
                 }
                 break;
             }
@@ -3837,6 +3839,8 @@ progpu_native_status render_scene(
 
     const auto discard_encoder = [&]() noexcept {
         // Prepared coverage is not resident if its command encoder is abandoned.
+        // The atlas cache may hold tiles that encoder was to write.
+        engine->glyph_atlas_cache.clear();
         engine->glyph_raster_cache_valid = false;
         engine->glyph_cache_valid = false;
         engine->glyph_gpu_cache_valid = false;

@@ -4245,6 +4245,34 @@ private:
     std::unique_ptr<implementation> implementation_;
 };
 
+// How far the edges of a glyph outline move outwards, by the side they face,
+// in the units of the outline (Y up). Negative values move them inwards.
+struct outline_growth {
+    float left = 0.0F;
+    float bottom = 0.0F;
+    float right = 0.0F;
+    float top = 0.0F;
+};
+
+// Grows a glyph outline by a box: every edge moves outwards by the growth of
+// the side its normal faces, so a stem gains `left + right`, a bar gains
+// `bottom + top`, a slanted stroke gains both, and counters lose the same.
+// This is the weight of a rasterizer that widens glyphs by a fixed amount
+// along each axis; unequal sides also shift the glyph, the way such a
+// rasterizer does. The source is one glyph: closed contours in sequence, a new
+// contour starting where a segment does not begin at the end of the one
+// before; the fill direction comes from the signed area of the whole outline.
+// Curves are cut where they turn in x or in y, and joints are closed along the
+// box, so the result has more segments than the source and may overlap itself
+// at joints that turn into the fill: it is meant for the nonzero winding rule
+// glyphs are filled with. Returns false, with an empty destination, when there
+// is nothing to grow (no growth, an outline without area, an unknown segment
+// kind): the source is then the result. Linear in the segment count.
+bool embolden_outline(
+    std::span<const progpu_native_path_segment> source,
+    const outline_growth& growth,
+    std::vector<progpu_native_path_segment>& destination);
+
 } // namespace progpu::native::text
 
 #endif

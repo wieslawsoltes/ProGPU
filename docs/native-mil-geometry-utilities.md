@@ -22,7 +22,8 @@ mapped rather than cast as native wire data.
 Original implementation provenance: `portable_path_geometry::CompareWithGeometry`
 in `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp` at parent
 `f3b30893` supplies the unchanged comparison body, extracted into
-`compare_normalized_fill_contours`. The COM method still uses it and retains its
+`compare_normalized_fill_contours` (now in the neutral Geometry module,
+`src/Geometry/progpu_native_path_core.cpp`). The COM method still uses it and retains its
 existing empty-operand rejection. The new utility uses the same original
 `create_native_fill_geometry`, `extract_outline_contours`, ordered boolean
 arrangement and boundary-contact helpers. It outlines each operand once. Its
@@ -116,14 +117,144 @@ spans. Missing exports/modules fail explicitly; no alternative renderer or
 approximate result is selected. `NativeMilGeometryCombineMode` already describes
 the four operations and is reused; the utility does not require a MIL channel.
 
+## Path measures — the native port of SKPathMeasure
+
+`progpu_native_path_measure_*` measures the contours of a path given as query
+figures over canonical segments: `create` (figures, segments, `force_closed`,
+`resolution_scale`), `contour_count`, `contour` (length, closed),
+`position_tangent` and `segment`, then `destroy`. It is the C++ port of ProGPU's
+managed `SKPathMeasure` (`src/SkiaSharp/SKPathMeasure.cs`), the more mature
+implementation, and lives in the device-independent `progpu_native_geometry`
+library (`src/Geometry/progpu_native_path_measure.*`); its C ABI
+(`src/Geometry/progpu_native_path_measure_abi.cpp`) is compiled into every
+renderer library, beside the other geometry utilities of
+`src/Geometry/progpu_native_geometry_utility.cpp`. Native UI hosts (the Rust
+bindings of `bindings/rust/progpu-native-sys` first) get the contour length, the
+point and tangent at a distance and the piece of a path between two distances
+without a managed runtime.
+
+From the managed measure it keeps the contour model (every figure with a
+positive length is a contour, in order; a closed figure, or every figure with
+`force_closed`, measures its closing line), the sample and location model (a
+distance is found by binary search over cumulative chord distances and mapped
+to a segment parameter by interpolation within its segment) and the tangent
+rules (the endpoint fallbacks for coincident control points). It improves on it
+in three ways:
+
+- **Subdivision by curvature, not a fixed step count.** Curves are split in
+  halves until a chord is within `0.5 / resolution_scale` of its curve, with the
+  curvature tests of Skia's contour measure (the control-point deviation of
+  quadratics and cubics, the midpoint deviation of conics), down to a span of
+  2^-20, so lengths agree with Skia-based hosts and stay accurate for large
+  curves. Arcs use the midpoint test; rational cubics also test the points at
+  one and two thirds, which sees inflections. Computation is in double.
+- **All canonical kinds.** Lines, quadratics, cubics, arcs (center, radii and
+  angles of the record), rational quadratics and rational cubics are measured
+  and sliced in their own kind. A piece is the exact sub-curve: de Casteljau for
+  polynomials, homogeneous de Casteljau for rational curves with the result
+  returned to standard form (end weights one; the rational cubic's interior
+  weights are `z_i / (z0^((3-i)/3) z3^(i/3))`), and the sub-range of angles for
+  arcs. Nothing is flattened into lines.
+- **No per-call allocation of the measure.** A measure is built once and is
+  immutable; its queries do not allocate, and `segment` allocates only its
+  result.
+
+Distances are pinned as in Skia: a position query pins to `[0, length]`; a
+piece pins start to zero and stop to the length, returns no segments when the
+pinned start is after the pinned stop, and returns one zero-length line for an
+empty piece (which a stroke caps). The piece's segments are contiguous and
+start at the point at the start distance; whether that point begins a new
+figure is the caller's choice. `segment` writes the count only with a null
+buffer, or returns `INVALID_ARGUMENT` with the required count for a short one.
+Invalid transport (non-finite values, unknown kinds, non-positive weights,
+negative radii, a partition gap, a non-positive resolution) is rejected before
+any work; no C++ exception crosses the ABI.
+
+Tests: `path_measures` in `tests/progpu_native_geometry_utility_tests.cpp` (a
+closed rectangle with its closing line, multi-segment, empty and inverted
+pieces, short buffers; cubic, arc and conic quarter and half circles against
+their closed-form lengths; every kind sliced into its own kind, the piece's ends
+at the measured positions and its length half of the whole) and
+`bindings/rust/progpu-native-sys/tests/path_measure.rs` through the Rust
+bindings.
+
+## Geometry bounds and widened outlines
+
+`progpu_native_geometry_bounds` and `progpu_native_geometry_widen` complete the
+queries a native UI host needs of a geometry, over the query transport of
+`progpu_native_geometry_stroke_query` (figures, segments and segment flags):
+
+- `geometry_bounds` returns the tight bounds of the lines, curves and arcs and
+  of every figure's start point after an optional world transform, with
+  `has_bounds = 0` for a geometry without figures. It is the shared core's
+  `GetBounds` of the query geometry.
+- `geometry_widen` returns the area a pen covers (caps, joins, miter limit,
+  dashes, the world transform applied after widening) as filled contours of
+  canonical line and cubic segments with their fill rule, in the input layout of
+  `geometry_fill_contains` and `geometry_combine`, so a widened geometry can be
+  filled, hit-tested and combined again. It is the shared core's
+  `get_widened_outline_segments`: the production widening and its SIMD kernels,
+  curves kept. The result owns its segment view until
+  `progpu_native_geometry_path_destroy`.
+
+Both share the transport and pen validation and the status mapping of the
+stroke query (`src/Geometry/progpu_native_geometry_utility.cpp`). Test:
+`bounds_and_widen` (transformed and curved bounds, an empty geometry, flat and
+square caps checked by fill containment of the outline and against the stroke
+query's bounds, rejected pens).
+
+## Neutral geometry module
+
+The device-independent path, Boolean and stroke code is owned by the neutral
+Geometry module (`progpu_native_geometry`, namespace `progpu::native::geometry`),
+not by the Direct2D compatibility layer:
+
+- `include/progpu_native_geometry_types.hpp`: the vocabulary (points, matrices,
+  rectangle edges, segments, arcs, triangles, stroke style properties, the path
+  enums) and a 32-bit `status` whose values equal the COM results the Direct2D
+  layer reports. It includes no Direct2D or COM header.
+- `src/Geometry/progpu_native_path_core.hpp`/`.cpp`: recorded path data
+  (`path_data`), plain C++ sinks and collectors (`simplified_sink`, `path_sink`,
+  `polygon_contours_collector`, `widened_bounds_collector`), and the operations
+  over a recorded path: bounds, widened bounds, stroke and fill containment,
+  simplification, tessellation, outline, area, length, point at length,
+  widening, the Boolean combination and comparison of outline contours, and the
+  widened outline export. The flattening, polygon Boolean/normalization,
+  triangulation, stroke containment, widening, dash run and SIMD kernels moved
+  unchanged.
+- `src/Geometry/progpu_native_path_builder.cpp`: the path recorder and the
+  canonical fill, stroke and query segment transports.
+- `src/Geometry/progpu_native_geometry_primitives.*`: transform and arc
+  validation, endpoint arcs to cubics, stroke style validation (moved from the
+  Direct2D behavior core, which forwards to them).
+- `src/Geometry/progpu_native_curve_dash.hpp`: the curve dash runs (moved from
+  `src/Mil/progpu_native_mil_curve_dash.hpp`, which now forwards and keeps the
+  `mil::curve_dash` namespace as an alias).
+
+Direct2D and MIL are clients. The Direct2D path geometry
+(`src/Direct2D/progpu_native_direct2d_path.cpp`) keeps only its COM objects and
+plumbing: reference counting, factory identity, the state and argument checks
+that precede an algorithm, conversion between the Direct2D C structs and the
+neutral types (identical layouts, asserted in `progpu_native_direct2d_core.hpp`;
+the point-free types and the path enums are shared directly), and streaming of
+results into the caller's COM sinks. Its `detail::` bridge functions keep their
+signatures for MIL and the tests. The C ABI
+(`src/Geometry/progpu_native_geometry_utility.cpp`) calls only the Geometry
+module: no Direct2D factory, COM object or stroke style object is created for a
+query, and every validation rule, status mapping and output contract is
+unchanged.
+
 ## Original implementation provenance and performance boundaries
 
 Only original ProGPU implementation is reused:
 
-- `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp`:
-  `create_native_fill_geometry`, `polygon_contours_sink`,
-  `portable_path_geometry::CombineWithGeometry`, outline/arrangement helpers,
-  intrinsic candidate bounds and fill classification.
+- `src/ProGPU.Native/src/Direct2D/progpu_native_direct2d_path.cpp` (now
+  `src/ProGPU.Native/src/Geometry/progpu_native_path_core.cpp` and
+  `progpu_native_path_builder.cpp`): `create_native_fill_geometry` (now
+  `build_native_fill_path`), `polygon_contours_sink` (now
+  `polygon_contours_collector`), `portable_path_geometry::CombineWithGeometry`
+  (now `path_combine` and `combine_outline_contours`), outline/arrangement
+  helpers, intrinsic candidate bounds and fill classification.
 - `src/ProGPU.Native/src/Mil/progpu_native_mil.cpp`:
   `resolve_combined_stroke_outline` already consumes that same core, establishing
   why this utility must share actual boundaries rather than concatenate operand
@@ -238,7 +369,9 @@ algorithm. Existing source primitive identity fast paths remain in place.
 
 `progpu_native_geometry_fill_contains` and `NativeGeometryUtilities.FillContains`
 reuse `create_native_fill_geometry` and `portable_path_geometry::FillContainsPoint`
-in the original ProGPU-owned `progpu_native_direct2d_path.cpp`. The exported ABI
+in the original ProGPU-owned `progpu_native_direct2d_path.cpp`, now
+`build_native_fill_path` and `path_fill_contains_point` of the neutral Geometry
+module (`src/Geometry/progpu_native_path_core.cpp`). The exported ABI
 is additive and uses existing point/path records plus a caller-owned uint result;
 no new wire record or module interface is introduced. Both WGPU-native and Dawn
 wrappers use the same source. There is one pinned span crossing and no output
@@ -312,14 +445,18 @@ and `NativeGeometryQueryPen` through the existing contract generator; handwritte
 partials add typed-cap/join constructors but do not duplicate field declarations.
 Both managed backend wrappers pin caller spans for one synchronous call, use
 blittable Matrix3x2/point/output records, retain no inputs and allocate no output
-objects. Native construction owns one factory/path/style for the query and
-releases them on every return. This is independent of GPU/device creation and
+objects. Native construction owns one recorded path of the neutral Geometry
+module and a by-value pen style (the caller's dashes stay borrowed) for the
+query, and releases them on every return; no Direct2D factory or COM object is
+created. This is independent of GPU/device creation and
 does not activate operating-system COM. The ABI is additive; existing record
 layouts and ABI version remain unchanged. No named-module interface changes.
 
 Original ProGPU provenance: the canonical line/quadratic/cubic/arc emitter was
-factored from `create_native_geometry` in `progpu_native_direct2d_path.cpp` and
-is shared by existing MIL/fill construction and the new multi-figure adapter.
+factored from `create_native_geometry` in `progpu_native_direct2d_path.cpp` (now
+`write_native_path`/`write_native_query_path` in
+`src/Geometry/progpu_native_path_builder.cpp`) and is shared by existing MIL/fill
+construction and the new multi-figure adapter.
 Arc splitting retains unstroked flags on every internally emitted piece and
 forces only internal smooth joins. Bounds use `get_widened_outline_bounds`,
 the same emitted-coverage helper used by MIL; hits use the existing Direct2D

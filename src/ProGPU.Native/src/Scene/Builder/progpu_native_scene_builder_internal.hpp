@@ -194,7 +194,9 @@ inline bool finite_rect(const progpu_native_image_rect& value) noexcept {
 
 inline bool finite_primitive(
     const progpu_native_analytic_primitive& value) noexcept {
-    return value.kind <= PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE &&
+    return value.kind <= PROGPU_NATIVE_PRIMITIVE_SHADOW &&
+        (value.kind != PROGPU_NATIVE_PRIMITIVE_SHADOW ||
+            (value.flags == 0U && value.stroke_thickness > 0.0F)) &&
         (value.flags & ~(PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED |
             PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
             PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE |

@@ -11,6 +11,18 @@
   "licenseSha256": "e55522d81edc687a341a4411e0776e54ca654e90147f354a90458aaced4116af",
   "dataPath": "icu/source/data/in/icudt78l.dat",
   "dataSha256": "d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b",
+  "dataItems": [
+    "icudt78l/brkitr/burmesedict.dict",
+    "icudt78l/brkitr/en.res",
+    "icudt78l/brkitr/en_US.res",
+    "icudt78l/brkitr/khmerdict.dict",
+    "icudt78l/brkitr/laodict.dict",
+    "icudt78l/brkitr/line.brk",
+    "icudt78l/brkitr/res_index.res",
+    "icudt78l/brkitr/root.res",
+    "icudt78l/brkitr/thaidict.dict"
+  ],
+  "embeddedDataSha256": "3ccfbfe7df30c64398f151beba75148013be1e606187d1f50e8a7d1704540af8",
   "libraryKind": "private static",
   "symbolSuffix": "_progpu_edit",
   "dictionaryAdmission": "Thai only; original complete-source line iterator"
