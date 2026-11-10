@@ -215,10 +215,16 @@ bool is_valid_semantic_glyph_outline(
     const progpu_native_scene_glyph_outline& outline,
     std::uint64_t segment_count,
     std::uint64_t* coverage_bytes) noexcept {
-    if (outline.segment_count == 0U ||
-        outline.segment_offset > segment_count ||
-        outline.segment_count > segment_count - outline.segment_offset ||
-        !std::isfinite(outline.min_x) || !std::isfinite(outline.min_y) ||
+    return outline.segment_count != 0U &&
+        outline.segment_offset <= segment_count &&
+        outline.segment_count <= segment_count - outline.segment_offset &&
+        is_valid_semantic_glyph_raster(outline, coverage_bytes);
+}
+
+bool is_valid_semantic_glyph_raster(
+    const progpu_native_scene_glyph_outline& outline,
+    std::uint64_t* coverage_bytes) noexcept {
+    if (!std::isfinite(outline.min_x) || !std::isfinite(outline.min_y) ||
         !std::isfinite(outline.max_x) || !std::isfinite(outline.max_y) ||
         outline.max_x <= outline.min_x || outline.max_y <= outline.min_y ||
         !std::isfinite(outline.raster_scale) ||

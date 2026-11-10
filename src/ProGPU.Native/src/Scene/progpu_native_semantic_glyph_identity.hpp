@@ -33,10 +33,10 @@ struct glyph_resource_identity_hash {
     std::size_t operator()(const glyph_resource_identity& value) const noexcept {
         const std::array<std::uint64_t, 3U> sizes{
             value.flags, value.outlines.size(), value.segments.size()};
-        auto hash = append_fnv1a64(14695981039346656037ULL,
+        auto hash = append_content_hash64(14695981039346656037ULL,
             sizes.data(), sizeof(sizes));
-        hash = append_fnv1a64(hash, value.outlines.data(), value.outlines.size());
-        return static_cast<std::size_t>(append_fnv1a64(
+        hash = append_content_hash64(hash, value.outlines.data(), value.outlines.size());
+        return static_cast<std::size_t>(append_content_hash64(
             hash, value.segments.data(), value.segments.size()));
     }
 };

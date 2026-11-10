@@ -243,7 +243,7 @@ progpu_native_status render_image(
             vertex.stroke_thickness = 0.0F;
             vertex.shape_type = 0.0F;
         }
-        engine->image_payload_hash = append_fnv1a64(
+        engine->image_payload_hash = append_content_hash64(
             14695981039346656037ULL,
             engine->image_vertices.data(),
             sizeof(engine->image_vertices));
@@ -409,29 +409,29 @@ progpu_native_status render_image(
     }
 
     std::uint64_t payload_hash = engine->image_payload_hash;
-    payload_hash = append_fnv1a64(
+    payload_hash = append_content_hash64(
         payload_hash,
         &frame->image_revision,
         sizeof(frame->image_revision));
-    payload_hash = append_fnv1a64(
+    payload_hash = append_content_hash64(
         payload_hash,
         &frame->sampling,
         sizeof(frame->sampling));
-    payload_hash = append_fnv1a64(
+    payload_hash = append_content_hash64(
         payload_hash,
         &sampler_options.max_anisotropy,
         sizeof(sampler_options.max_anisotropy));
     if (frame->sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) {
-        payload_hash = append_fnv1a64(
+        payload_hash = append_content_hash64(
             payload_hash,
             &cubic_b,
             sizeof(cubic_b));
-        payload_hash = append_fnv1a64(
+        payload_hash = append_content_hash64(
             payload_hash,
             &cubic_c,
             sizeof(cubic_c));
     }
-    payload_hash = append_fnv1a64(
+    payload_hash = append_content_hash64(
         payload_hash,
         &frame->mask_revision,
         sizeof(frame->mask_revision));

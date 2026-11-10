@@ -1,6 +1,7 @@
 #include "progpu_native_scene_builder_internal.hpp"
 
 #include "progpu_native_semantic_validation.hpp"
+#include "progpu_native_semantic_glyph_keys.hpp"
 #include "progpu_native_semantic_rgb_glyph.hpp"
 #include "../../Text/Font/progpu_native_binary_glyph_contract.hpp"
 
@@ -137,6 +138,45 @@ bool semantic_scene_builder::add_glyph_outlines(
     }
 }
 
+bool semantic_scene_builder::add_glyph_keys(
+    std::span<const progpu_native_scene_glyph_key> keys,
+    std::uint32_t& resource_index) noexcept {
+    resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (keys.empty() || keys.size() > (1U << 20U) ||
+        implementation_->resources.size() >=
+            PROGPU_NATIVE_SCENE_MAX_RESOURCES) {
+        return implementation_->fail(scene_build_error::invalid_argument);
+    }
+    for (const auto& key : keys) {
+        if (!semantic::is_valid_glyph_key(key)) {
+            return implementation_->fail(scene_build_error::invalid_argument);
+        }
+    }
+    try {
+        scene_builder_detail::reserve_append(
+            implementation_->resources, 1U);
+        implementation::resource_entry resource{};
+        resource.record.struct_size = sizeof(resource.record);
+        resource.record.kind = PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN;
+        resource.record.flags = PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS;
+        resource.record.resource_id = implementation_->resources.size() + 1U;
+        resource.record.generation = implementation_->generation;
+        resource.payload = copy_bytes(keys);
+        resource.glyph_outline_count = static_cast<std::uint32_t>(keys.size());
+        resource.glyph_outline_keys = true;
+        resource_index = static_cast<std::uint32_t>(
+            implementation_->resources.size());
+        implementation_->resources.push_back(std::move(resource));
+        implementation_->error = scene_build_error::none;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return implementation_->fail(scene_build_error::out_of_memory);
+    } catch (...) {
+        return implementation_->fail(scene_build_error::invalid_state);
+    }
+}
+
 bool semantic_scene_builder::add_color_glyph_bitmaps(
     std::span<const progpu_native_scene_color_glyph_bitmap> bitmaps,
     std::span<const std::byte> rgba_pixels,
@@ -195,6 +235,7 @@ bool semantic_scene_builder::draw_rgb_glyph_run(
     const auto& resource = implementation_->resources[glyph_resource_index];
     if (resource.record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN ||
         (resource.record.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U ||
+        resource.glyph_outline_keys ||
         resource.glyph_outline_count == 0U || resource.glyph_outline_count > 65536U ||
         resource.auxiliary.size() / sizeof(progpu_native_path_segment) > 1048576U)
         return implementation_->fail(scene_build_error::invalid_argument);

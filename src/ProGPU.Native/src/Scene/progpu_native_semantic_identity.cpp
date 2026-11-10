@@ -28,7 +28,7 @@ std::uint64_t presentation_content_hash(std::uint64_t content_hash,
         presentation.viewport_width, presentation.viewport_height,
         std::bit_cast<std::uint32_t>(presentation.dpi_scale_x),
         std::bit_cast<std::uint32_t>(presentation.dpi_scale_y)};
-    const auto hash = append_fnv1a64(content_hash, identity.data(), sizeof(identity));
+    const auto hash = append_content_hash64(content_hash, identity.data(), sizeof(identity));
     return hash == 0U ? 1U : hash;
 }
 
@@ -79,15 +79,15 @@ std::uint64_t finish(std::uint64_t hash) noexcept {
 std::uint64_t append_identity(
     std::uint64_t hash,
     const progpu_native_scene_resource& resource) noexcept {
-    hash = append_fnv1a64(hash, &resource.kind, sizeof(resource.kind));
-    hash = append_fnv1a64(hash, &resource.flags, sizeof(resource.flags));
-    hash = append_fnv1a64(
+    hash = append_content_hash64(hash, &resource.kind, sizeof(resource.kind));
+    hash = append_content_hash64(hash, &resource.flags, sizeof(resource.flags));
+    hash = append_content_hash64(
         hash, &resource.resource_id, sizeof(resource.resource_id));
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash, &resource.generation, sizeof(resource.generation));
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash, &resource.payload_size, sizeof(resource.payload_size));
-    return append_fnv1a64(
+    return append_content_hash64(
         hash, &resource.auxiliary_size, sizeof(resource.auxiliary_size));
 }
 
@@ -114,7 +114,7 @@ std::uint64_t append_resource_reference(
             PROGPU_NATIVE_SCENE_NO_INDEX
         ? 0U
         : resource_index < header.resource_count ? 1U : 2U;
-    hash = append_fnv1a64(hash, &marker, sizeof(marker));
+    hash = append_content_hash64(hash, &marker, sizeof(marker));
     if (marker != 1U) {
         return hash;
     }
@@ -142,7 +142,7 @@ std::uint64_t append_command_record(
     semantic_command.state_index = 0U;
     semantic_command.resource_index = 0U;
     semantic_command.payload_offset = 0U;
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash, &semantic_command, sizeof(semantic_command));
     return append_resource_reference(
         hash, bytes, header, command.resource_index);
@@ -156,7 +156,7 @@ std::uint64_t append_command(
     bool include_payload) noexcept {
     hash = append_command_record(hash, bytes, header, command);
     if (include_payload && command.payload_size != 0U) {
-        hash = append_fnv1a64(
+        hash = append_content_hash64(
             hash,
             bytes + command.payload_offset,
             command.payload_size);
@@ -179,13 +179,13 @@ std::uint64_t append_3d_command(
         sizeof(progpu_native_scene_mesh_3d_materials);
     if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH ||
         command.payload_size < camera_size + material_header_size) {
-        return append_fnv1a64(
+        return append_content_hash64(
             hash,
             bytes + command.payload_offset,
             command.payload_size);
     }
 
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash,
         bytes + command.payload_offset,
         camera_size);
@@ -194,10 +194,10 @@ std::uint64_t append_3d_command(
     const std::uint32_t brush_resource_index =
         materials.brush_resource_index;
     materials.brush_resource_index = 0U;
-    hash = append_fnv1a64(hash, &materials, sizeof(materials));
+    hash = append_content_hash64(hash, &materials, sizeof(materials));
     hash = append_resource_reference(
         hash, bytes, header, brush_resource_index);
-    return append_fnv1a64(
+    return append_content_hash64(
         hash,
         bytes + command.payload_offset + camera_size + material_header_size,
         command.payload_size - camera_size - material_header_size);
@@ -212,7 +212,7 @@ std::uint64_t append_scope_command(
     if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER ||
         command.payload_size < sizeof(progpu_native_scene_layer)) {
         if (command.payload_size != 0U) {
-            hash = append_fnv1a64(
+            hash = append_content_hash64(
                 hash,
                 bytes + command.payload_offset,
                 command.payload_size);
@@ -235,7 +235,7 @@ std::uint64_t append_scope_command(
     if (has_composite_state) {
         layer.reserved0 = 0U;
     }
-    hash = append_fnv1a64(hash, &layer, sizeof(layer));
+    hash = append_content_hash64(hash, &layer, sizeof(layer));
     hash = append_resource_reference(
         hash, bytes, header, mask_resource_index);
     hash = append_resource_reference(
@@ -279,9 +279,9 @@ std::uint64_t append_brush_mapping(
     std::uint32_t command_index,
     const progpu_native_scene_command& command,
     std::uint32_t effective_state_index) noexcept {
-    hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
-    hash = append_fnv1a64(hash, &command.kind, sizeof(command.kind));
-    hash = append_fnv1a64(hash, &command.flags, sizeof(command.flags));
+    hash = append_content_hash64(hash, &command_index, sizeof(command_index));
+    hash = append_content_hash64(hash, &command.kind, sizeof(command.kind));
+    hash = append_content_hash64(hash, &command.flags, sizeof(command.flags));
     hash = append_effective_state(
         hash, bytes, header, effective_state_index);
     if (command.payload_size < sizeof(progpu_native_scene_draw_brushes)) {
@@ -292,14 +292,14 @@ std::uint64_t append_brush_mapping(
     const std::uint32_t brush_resource_index =
         draw.brush_resource_index;
     draw.brush_resource_index = 0U;
-    hash = append_fnv1a64(hash, &draw, sizeof(draw));
+    hash = append_content_hash64(hash, &draw, sizeof(draw));
     hash = append_resource_reference(
         hash, bytes, header, brush_resource_index);
     const auto remaining = command.payload_size - sizeof(draw);
     if (draw.brush_count <= remaining / sizeof(std::uint32_t)) {
         const auto index_bytes = static_cast<std::size_t>(draw.brush_count) *
             sizeof(std::uint32_t);
-        hash = append_fnv1a64(
+        hash = append_content_hash64(
             hash,
             bytes + command.payload_offset + sizeof(draw),
             index_bytes);
@@ -314,7 +314,7 @@ std::uint64_t append_style_mapping(
     std::uint32_t command_index,
     const progpu_native_scene_command& command,
     std::uint32_t effective_state_index) noexcept {
-    hash = append_fnv1a64(hash, &command_index, sizeof(command_index));
+    hash = append_content_hash64(hash, &command_index, sizeof(command_index));
     hash = append_effective_state(
         hash, bytes, header, effective_state_index);
     if (command.payload_size < sizeof(progpu_native_scene_glyph_draw)) {
@@ -322,7 +322,7 @@ std::uint64_t append_style_mapping(
     }
     const auto draw = read_record<progpu_native_scene_glyph_draw>(
         bytes, command.payload_offset);
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash, &draw.style_index, sizeof(draw.style_index));
     return append_resource_reference(
         hash, bytes, header, draw.style_resource_index);
@@ -342,14 +342,14 @@ std::uint64_t append_glyph_command(
         auto draw = read_record<progpu_native_scene_painted_glyph_draw>(bytes, command.payload_offset);
         const auto paint_resource_index = draw.paint_resource_index;
         draw.paint_resource_index = 0U;
-        hash = append_fnv1a64(hash, &draw, sizeof(draw));
+        hash = append_content_hash64(hash, &draw, sizeof(draw));
         hash = append_resource_reference(hash, bytes, header, paint_resource_index);
-        return append_fnv1a64(hash, bytes + command.payload_offset + sizeof(draw),
+        return append_content_hash64(hash, bytes + command.payload_offset + sizeof(draw),
             command.payload_size - sizeof(draw));
     }
     if ((command.flags & PROGPU_NATIVE_SCENE_GLYPH_STYLED) == 0U ||
         command.payload_size < sizeof(progpu_native_scene_glyph_draw)) {
-        return append_fnv1a64(
+        return append_content_hash64(
             hash,
             bytes + command.payload_offset,
             command.payload_size);
@@ -359,10 +359,10 @@ std::uint64_t append_glyph_command(
     const std::uint32_t style_resource_index =
         draw.style_resource_index;
     draw.style_resource_index = 0U;
-    hash = append_fnv1a64(hash, &draw, sizeof(draw));
+    hash = append_content_hash64(hash, &draw, sizeof(draw));
     hash = append_resource_reference(
         hash, bytes, header, style_resource_index);
-    return append_fnv1a64(
+    return append_content_hash64(
         hash,
         bytes + command.payload_offset + sizeof(draw),
         command.payload_size - sizeof(draw));
@@ -514,7 +514,7 @@ semantic_content_hashes compute_content_hashes(
             analytic_commands = append_command(
                 analytic_commands, bytes, header, command, false);
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_COVERAGE) {
-                analytic_commands = append_fnv1a64(analytic_commands,
+                analytic_commands = append_content_hash64(analytic_commands,
                     bytes + command.payload_offset + command.payload_size - sizeof(progpu_native_scene_source_coverage_frame),
                     sizeof(progpu_native_scene_source_coverage_frame));
             }
@@ -533,7 +533,7 @@ semantic_content_hashes compute_content_hashes(
             path_commands = append_command(
                 path_commands, bytes, header, command, false);
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_SOURCE_PATH) {
-                path_commands = append_fnv1a64(path_commands,
+                path_commands = append_content_hash64(path_commands,
                     bytes + command.payload_offset + command.payload_size - sizeof(progpu_native_scene_source_coverage_frame),
                     sizeof(progpu_native_scene_source_coverage_frame));
             }
@@ -557,7 +557,7 @@ semantic_content_hashes compute_content_hashes(
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
                 // Paint variants retain global command ownership and effective
                 // opacity; a family-local geometry identity is insufficient.
-                brush_commands = append_fnv1a64(brush_commands, &index, sizeof(index));
+                brush_commands = append_content_hash64(brush_commands, &index, sizeof(index));
                 brush_commands = append_glyph_command(brush_commands, bytes, header, command);
                 brush_commands = append_effective_state(brush_commands, bytes, header, effective_state_index);
                 const auto paint = read_record<progpu_native_scene_glyph_paint>(bytes,
@@ -632,18 +632,18 @@ semantic_content_hashes compute_content_hashes(
         std::uint64_t commands,
         std::uint64_t primary,
         std::uint64_t secondary = 0U) noexcept {
-        auto hash = append_fnv1a64(seed, &commands, sizeof(commands));
-        hash = append_fnv1a64(hash, &primary, sizeof(primary));
+        auto hash = append_content_hash64(seed, &commands, sizeof(commands));
+        hash = append_content_hash64(hash, &primary, sizeof(primary));
         if (secondary != 0U) {
-            hash = append_fnv1a64(hash, &secondary, sizeof(secondary));
+            hash = append_content_hash64(hash, &secondary, sizeof(secondary));
         }
         return finish(hash);
     };
     const auto resource_only = [](std::uint64_t seed,
                                   std::uint64_t commands,
                                   std::uint64_t resources) noexcept {
-        auto hash = append_fnv1a64(seed, &commands, sizeof(commands));
-        return finish(append_fnv1a64(
+        auto hash = append_content_hash64(seed, &commands, sizeof(commands));
+        return finish(append_content_hash64(
             hash, &resources, sizeof(resources)));
     };
     // Resource ids and generations are unique only within their scene owner.
@@ -651,9 +651,9 @@ semantic_content_hashes compute_content_hashes(
     // captures, so equal-sized resource1/generation1 in another scene must not
     // reuse the previous scene's material or draw page. Scene generation stays
     // excluded: unchanged resources in a new frame still retain their pages.
-    auto owner_seed = append_fnv1a64(fnv_offset, &header.scene_id, sizeof(header.scene_id));
+    auto owner_seed = append_content_hash64(fnv_offset, &header.scene_id, sizeof(header.scene_id));
     if (resource_scope != 0U)
-        owner_seed = append_fnv1a64(owner_seed, &resource_scope, sizeof(resource_scope));
+        owner_seed = append_content_hash64(owner_seed, &resource_scope, sizeof(resource_scope));
     result.brush = combine(
         owner_seed ^ 0x01U, brush_commands, brushes);
     result.text_style = combine(
@@ -668,11 +668,11 @@ semantic_content_hashes compute_content_hashes(
     result.glyph = combine(
         owner_seed ^ 0x05U, glyph_commands, glyphs);
     if (glyph_uses_text_styles) {
-        result.glyph = finish(append_fnv1a64(
+        result.glyph = finish(append_content_hash64(
             result.glyph, &result.text_style, sizeof(result.text_style)));
     }
     if (glyph_uses_material_paints) {
-        result.glyph = finish(append_fnv1a64(
+        result.glyph = finish(append_content_hash64(
             result.glyph, &result.brush, sizeof(result.brush)));
     }
     result.image = combine(

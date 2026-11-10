@@ -80,7 +80,7 @@ inline bool validate_rgb_glyph_draw(const std::byte* bytes,
     std::memcpy(&resource, bytes + header.resource_offset +
         std::uint64_t{command.resource_index} * header.resource_stride, sizeof(resource));
     if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN ||
-        (resource.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U || resource.payload_size == 0U ||
+        (resource.flags & (PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS | PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS)) != 0U || resource.payload_size == 0U ||
         resource.payload_size % sizeof(progpu_native_scene_glyph_outline) != 0U || resource.auxiliary_size == 0U ||
         resource.auxiliary_size % sizeof(progpu_native_path_segment) != 0U) return false;
     const auto outlines = resource.payload_size / sizeof(progpu_native_scene_glyph_outline);

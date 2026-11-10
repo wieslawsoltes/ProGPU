@@ -94,6 +94,8 @@ progpu_native_status create_engine(
             result->pipeline = shared_vector_pipeline->pipeline;
             result->uniform_layout = shared_vector_pipeline->uniform_layout;
             result->borrows_shared_vector_pipeline = true;
+            // A nested picture names the outlines registered with its parent.
+            result->glyph_outlines = shared_vector_pipeline->glyph_outlines;
             if (shared_vector_pipeline->analytic_pipeline != nullptr) {
                 if (!shared_vector_pipeline->analytic_resources_ready ||
                     shared_vector_pipeline->analytic_uniform_layout == nullptr ||
@@ -499,6 +501,77 @@ progpu_native_status progpu_native_engine_update_scene(
     progpu_native_scene_metrics* metrics) {
     return progpu::native::execution::update_scene(
         engine, stream, stream_size, metrics);
+}
+
+progpu_native_status progpu_native_engine_register_glyph_outlines(
+    progpu_native_engine* engine,
+    const progpu_native_registered_glyph_outline* outlines,
+    size_t outline_count,
+    const progpu_native_path_segment* segments,
+    size_t segment_count) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Glyph outline registration is owner-thread affine.");
+    }
+    if ((outlines == nullptr && outline_count != 0U) ||
+        (segments == nullptr && segment_count != 0U) ||
+        outline_count > (1U << 20U) || segment_count > (1U << 24U)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+            "A glyph outline registration has invalid arrays or exceeds the native safety bound.");
+    }
+    try {
+        using registry = progpu::native::glyph_outline_registry;
+        switch (engine->glyph_outlines->add(
+            {outlines, outline_count}, {segments, segment_count})) {
+            case registry::result::registered:
+                break;
+            case registry::result::invalid_outline:
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A registered glyph outline has an invalid segment range, segment or bounds.");
+            case registry::result::released_face:
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A glyph outline was registered under a face number that was released.");
+            case registry::result::other_content:
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                    "A glyph outline key is already registered with other content.");
+        }
+    } catch (const std::bad_alloc&) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The glyph outlines could not be registered.");
+    }
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
+}
+
+progpu_native_status progpu_native_engine_release_glyph_face(
+    progpu_native_engine* engine,
+    uint64_t face) {
+    if (engine == nullptr) {
+        return PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+    }
+    if (!engine->is_owner_thread()) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_WRONG_THREAD,
+            "Glyph outline registration is owner-thread affine.");
+    }
+    try {
+        engine->glyph_outlines->release_face(face);
+    } catch (const std::bad_alloc&) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+            "The released glyph face could not be recorded.");
+    }
+    engine->last_error.clear();
+    return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 
 progpu_native_status progpu_native_engine_bind_scene_external_images(

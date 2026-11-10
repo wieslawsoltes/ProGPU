@@ -227,13 +227,29 @@ void normalize_group_mask_radii(
     normalize_group_mask_radii_impl(mask);
 }
 
-std::uint64_t append_fnv1a64(
+std::uint64_t append_content_hash64(
     std::uint64_t hash,
     const void* data,
     std::size_t size) noexcept {
+    constexpr std::uint64_t multiplier = 0x9E3779B97F4A7C15ULL;
     const auto* bytes = static_cast<const std::uint8_t*>(data);
-    for (std::size_t index = 0; index < size; ++index) {
-        hash = (hash ^ bytes[index]) * 1099511628211ULL;
+    while (size >= sizeof(std::uint64_t)) {
+        std::uint64_t word = 0U;
+        std::memcpy(&word, bytes, sizeof(word));
+        hash = (hash ^ word) * multiplier;
+        hash ^= hash >> 32U;
+        bytes += sizeof(word);
+        size -= sizeof(word);
+    }
+    if (size != 0U) {
+        // The count of the remaining bytes sits in the top byte, so a short
+        // tail differs from the same bytes followed by zeros.
+        std::uint64_t word = static_cast<std::uint64_t>(size) << 56U;
+        for (std::size_t index = 0U; index < size; ++index) {
+            word |= static_cast<std::uint64_t>(bytes[index]) << (index * 8U);
+        }
+        hash = (hash ^ word) * multiplier;
+        hash ^= hash >> 32U;
     }
     return hash;
 }

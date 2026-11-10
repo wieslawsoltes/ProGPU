@@ -27,7 +27,12 @@ struct resolved_draw_state {
         PROGPU_NATIVE_MAX_GROUP_EFFECTS> group_effects{};
 };
 
-std::uint64_t append_fnv1a64(
+// The content identities of the engine: a 64-bit hash that reads eight bytes
+// per step. One call covers one byte range; a range split over two calls at a
+// multiple of eight bytes gives the same value, any other split does not. The
+// values live in memory only: nothing stores or compares them across
+// processes.
+std::uint64_t append_content_hash64(
     std::uint64_t hash,
     const void* data,
     std::size_t size) noexcept;

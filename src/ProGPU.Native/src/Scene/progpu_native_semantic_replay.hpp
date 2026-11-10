@@ -3,6 +3,7 @@
 // Internal semantic replay records are compiled only after the selected
 // WebGPU C header has declared the WGPU handle types.
 #include "progpu_native.h"
+#include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
@@ -13,6 +14,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 struct semantic_analytic_page {
@@ -72,6 +74,11 @@ struct semantic_glyph_page {
     // 64-bit execution reinterprets it after layout assertions; wasm32
     // performs one checked narrowing translation at execution time.
     std::vector<progpu_native_scene_glyph_outline> outlines;
+    // Parallel to outlines when the page holds outlines registered with the
+    // engine, empty otherwise: the registry serial of an outline, or zero for
+    // an outline whose segments are in this page. A registered outline has no
+    // segment range here.
+    std::vector<std::uint64_t> outline_entries;
     std::vector<progpu_native_path_segment> segments;
     std::vector<progpu_native_positioned_glyph> glyphs;
     std::vector<std::uint32_t> style_indices;
@@ -87,6 +94,28 @@ struct semantic_glyph_page {
     std::vector<std::uint32_t> color_bitmap_indices;
     std::vector<semantic_color_glyph_raster> color_rasters;
     std::vector<semantic_glyph_draw> draws;
+};
+
+// The registered outlines one frame names, found while the frame is checked:
+// each distinct (outline, raster scale, subpixel phase) once, however many
+// glyph resources name it, and for every key of every keyed resource the
+// index of its distinct outline.
+struct semantic_glyph_key_frame {
+    std::unordered_map<progpu::native::glyph_atlas_key, std::uint32_t,
+        progpu::native::glyph_atlas_key_hash> indices;
+    std::vector<progpu_native_scene_glyph_outline> outlines;
+    std::vector<std::uint64_t> serials;
+    std::vector<std::uint32_t> remap;
+    // By resource index: where the keys of that resource start in remap.
+    std::vector<std::uint64_t> resource_starts;
+
+    void reset() noexcept {
+        indices.clear();
+        outlines.clear();
+        serials.clear();
+        remap.clear();
+        resource_starts.clear();
+    }
 };
 
 struct semantic_glyph_paint_uniform_binding {

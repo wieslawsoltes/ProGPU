@@ -628,17 +628,17 @@ progpu_native_status render_paths(
                 engine->path_dpi_scale = frame->dpi_scale;
                 engine->path_opacity = draw_state.opacity;
                 engine->path_payload_hash = 14695981039346656037ULL;
-                engine->path_payload_hash = append_fnv1a64(
+                engine->path_payload_hash = append_content_hash64(
                     engine->path_payload_hash,
                     engine->path_vertices.data(),
                     engine->path_vertices.size() *
                         sizeof(progpu::native::vector_vertex));
-                engine->path_payload_hash = append_fnv1a64(
+                engine->path_payload_hash = append_content_hash64(
                     engine->path_payload_hash,
                     engine->path_indices.data(),
                     engine->path_indices.size() * sizeof(std::uint32_t));
                 if (!semantic_materials) {
-                    engine->path_payload_hash = append_fnv1a64(
+                    engine->path_payload_hash = append_content_hash64(
                         engine->path_payload_hash,
                         engine->path_brush_bytes.data(),
                         engine->path_brush_bytes.size());
@@ -659,16 +659,16 @@ progpu_native_status render_paths(
         set_brush_opacity(engine->path_brush_bytes, draw_state.opacity);
         engine->path_opacity = draw_state.opacity;
         engine->path_payload_hash = 14695981039346656037ULL;
-        engine->path_payload_hash = append_fnv1a64(
+        engine->path_payload_hash = append_content_hash64(
             engine->path_payload_hash,
             engine->path_vertices.data(),
             engine->path_vertices.size() *
                 sizeof(progpu::native::vector_vertex));
-        engine->path_payload_hash = append_fnv1a64(
+        engine->path_payload_hash = append_content_hash64(
             engine->path_payload_hash,
             engine->path_indices.data(),
             engine->path_indices.size() * sizeof(std::uint32_t));
-        engine->path_payload_hash = append_fnv1a64(
+        engine->path_payload_hash = append_content_hash64(
             engine->path_payload_hash,
             engine->path_brush_bytes.data(),
             engine->path_brush_bytes.size());
@@ -1582,9 +1582,9 @@ progpu_native_status render_paths(
             PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U) {
         payload_hash = retain_compiled_payload
             ? engine->path_payload_hash
-            : append_fnv1a64(
-                append_fnv1a64(
-                    append_fnv1a64(
+            : append_content_hash64(
+                append_content_hash64(
+                    append_content_hash64(
                         14695981039346656037ULL,
                         engine->path_vertices.data(),
                         vertex_bytes),
