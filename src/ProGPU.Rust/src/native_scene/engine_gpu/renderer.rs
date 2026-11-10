@@ -18,8 +18,12 @@ mod compile;
 mod metrics;
 mod pictures;
 mod prepare;
+#[path = "recovery.rs"]
+mod recovery;
 mod reuse;
 use compile::NativeSceneCandidate;
+use recovery::NativeDeviceRecovery;
+pub use recovery::{NativeRetainedCpuState, NativeSceneRecoveryError};
 use reuse::NativeReplayReuse;
 
 /// Explicit native policies. Ordinary rendering remains on the owned shaders;
@@ -144,7 +148,9 @@ impl NativeSceneRenderer {
         attachment: NativeRenderAttachment,
         external: NativeExternalImages,
     ) -> Result<NativeSceneRenderMetrics, Error> {
+        self.core.recovery.require_gpu()?;
         self.core.admit_attachment(frame, &attachment, &external)?;
+        let scene = self.core.retain_scene_for_render(scene, resource_scope)?;
         self.core.bind_cache(resource_scope, &external)?;
         let options = self.core.compile_options(resource_scope);
         let retained = self
@@ -155,11 +161,13 @@ impl NativeSceneRenderer {
         let plan = if let Some(plan) = retained {
             plan
         } else {
-            Arc::new(NativeSceneResourcePlan::compile(
+            Arc::new(NativeSceneResourcePlan::compile_with_retained_materials(
                 scene,
                 frame,
                 external.metadata(),
                 options,
+                self.core.recovery.brushes(),
+                self.core.recovery.styles(),
             )?)
         };
         self.pictures.bind_external_images(external.clone())?;
@@ -175,6 +183,7 @@ impl NativeSceneRenderer {
         attachment: NativeRenderAttachment,
         external: NativeExternalImages,
     ) -> Result<NativeSceneRenderMetrics, Error> {
+        self.core.recovery.require_gpu()?;
         self.core.admit_plan(&plan, &external)?;
         self.core
             .admit_attachment(plan.frame(), &attachment, &external)?;
@@ -186,6 +195,7 @@ impl NativeSceneRenderer {
 }
 
 struct NativeSceneGpuContext {
+    recovery: NativeDeviceRecovery,
     device: wgpu::Device,
     queue: wgpu::Queue,
     format: NativeTargetFormat,
@@ -222,6 +232,7 @@ impl NativeSceneGpuContext {
         let options = options.validate()?;
         let target = format.texture_format();
         Ok(Self {
+            recovery: NativeDeviceRecovery::new(),
             device: device.clone(),
             queue: queue.clone(),
             format,
@@ -258,6 +269,7 @@ impl NativeSceneGpuContext {
         options
     }
     fn bind_cache(&mut self, scope: u64, external: &NativeExternalImages) -> Result<(), Error> {
+        self.recovery.require_gpu()?;
         if self
             .cache
             .as_ref()
@@ -279,6 +291,7 @@ impl NativeSceneGpuContext {
         plan: &NativeSceneResourcePlan,
         external: &NativeExternalImages,
     ) -> Result<(), Error> {
+        self.recovery.require_gpu()?;
         if plan.options().borrows_shared_vector_pipeline != self.borrows_shared_vector_pipeline {
             return Err(Error::ResourceDomain);
         }
@@ -290,6 +303,7 @@ impl NativeSceneGpuContext {
         attachment: &NativeRenderAttachment,
         external: &NativeExternalImages,
     ) -> Result<(), Error> {
+        self.recovery.require_gpu()?;
         if attachment.device() != &self.device
             || external.device() != &self.device
             || attachment.format() != self.format

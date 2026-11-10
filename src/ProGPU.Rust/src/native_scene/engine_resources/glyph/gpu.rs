@@ -46,6 +46,7 @@ pub struct PreparedNativeGlyphPage {
     cpu_implementation: Option<NativeGlyphCpuImplementation>,
     cpu_metrics: Option<NativeGlyphCpuMetrics>,
     metrics: NativeRasterResourceMetrics,
+    coverage_ready: bool,
 }
 impl NativeGlyphPageEngine {
     /// Device and queue must belong to the same actual request.
@@ -403,6 +404,7 @@ impl NativeGlyphPageEngine {
             cpu_implementation: None,
             cpu_metrics: None,
             metrics,
+            coverage_ready: false,
         }))
     }
     async fn prepare_vector(&mut self, fragment: bool) -> Result<(), Error> {
@@ -508,6 +510,30 @@ impl NativeGlyphPageEngine {
     }
 }
 impl PreparedNativeGlyphPage {
+    /// New source metadata with genuinely retained submitted atlas/paint data.
+    /// Admission belongs to the original family-key cache, not to caller hashes.
+    pub(crate) fn rebind_completed(&self, page: Arc<NativeGlyphRasterPage>) -> Self {
+        Self {
+            device: self.device.clone(),
+            page,
+            gray: self.gray.clone(),
+            gray_view: self.gray_view.clone(),
+            color: self.color.clone(),
+            color_view: self.color_view.clone(),
+            sampler: self.sampler.clone(),
+            instances: self.instances.clone(),
+            paints: self.paints.clone(),
+            coverage: None,
+            _buffers: Vec::new(),
+            compute: None,
+            binary: None,
+            fragment: None,
+            cpu_implementation: self.cpu_implementation,
+            cpu_metrics: self.cpu_metrics.map(|_| Default::default()),
+            metrics: Default::default(),
+            coverage_ready: true,
+        }
+    }
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
@@ -545,7 +571,10 @@ impl PreparedNativeGlyphPage {
         self.cpu_metrics
     }
     pub fn encode_coverage(&self, encoder: &mut wgpu::CommandEncoder) {
-        if self.page.work_indices().is_empty() || self.cpu_implementation.is_some() {
+        if self.coverage_ready
+            || self.page.work_indices().is_empty()
+            || self.cpu_implementation.is_some()
+        {
             return;
         }
         if let Some((fragment, binding)) = &self.fragment {

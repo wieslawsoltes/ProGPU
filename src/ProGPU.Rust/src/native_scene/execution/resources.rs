@@ -49,6 +49,19 @@ impl NativeSceneResourcePlan {
         external: &[NativeExternalImageInfo],
         options: NativeSceneCompileOptions,
     ) -> Result<Self, Error> {
+        Self::compile_with_retained_materials(scene, frame, external, options, None, None)
+    }
+    /// Device-independent material caches are the only compiled pages copied by
+    /// native device recreation. Every target/geometry/external-resource proof
+    /// below is rebuilt from the actual new options and immutable scene owner.
+    pub(crate) fn compile_with_retained_materials(
+        scene: Arc<NativeScene>,
+        frame: NativeSceneFrame,
+        external: &[NativeExternalImageInfo],
+        options: NativeSceneCompileOptions,
+        retained_brushes: Option<&Arc<NativeBrushPage>>,
+        retained_styles: Option<&Arc<NativeTextStylePage>>,
+    ) -> Result<Self, Error> {
         validate_engine_flags(u64::from(options.engine_flags))?;
         if options.maximum_buffer_bytes == 0
             || options.maximum_storage_bytes == 0
@@ -67,11 +80,19 @@ impl NativeSceneResourcePlan {
         let hashes = scene.content_hashes(options.resource_scope);
         // Original material family identities are independent. Both retain the
         // same source owner; they must never be equated to one scene-wide hash.
-        let materials = Arc::new(NativeBrushPage::compile(scene.clone(), hashes.brush)?);
-        let styles = Arc::new(NativeTextStylePage::compile(
-            scene.clone(),
-            hashes.text_style,
-        )?);
+        let materials =
+            match retained_brushes.and_then(|page| page.rebind(scene.clone(), hashes.brush)) {
+                Some(page) => Arc::new(page),
+                None => Arc::new(NativeBrushPage::compile(scene.clone(), hashes.brush)?),
+            };
+        let styles =
+            match retained_styles.and_then(|page| page.rebind(scene.clone(), hashes.text_style)) {
+                Some(page) => Arc::new(page),
+                None => Arc::new(NativeTextStylePage::compile(
+                    scene.clone(),
+                    hashes.text_style,
+                )?),
+            };
         let draws = Arc::new(NativeDrawExecutionPlan::compile(
             scene.clone(),
             frame,

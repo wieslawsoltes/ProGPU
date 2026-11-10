@@ -183,6 +183,7 @@ impl NativeGlyphPageEngine {
             cpu_implementation: Some(coverage.implementation()),
             cpu_metrics: Some(coverage.metrics()),
             metrics,
+            coverage_ready: false,
         }))
     }
 }

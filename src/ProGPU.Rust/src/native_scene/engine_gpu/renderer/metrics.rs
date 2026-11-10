@@ -255,7 +255,7 @@ pub(super) fn prepared(
         cache_hits: u32::from(warm_pages),
         ..Default::default()
     };
-    let paint_bytes = if warm_pages {
+    let paint_bytes = if warm_pages || pages.glyphs.uniform_upload_bytes == 0 {
         0
     } else {
         plan.glyphs().map_or(0, |g| g.paints().len() as u64 * 96)
@@ -286,8 +286,8 @@ pub(super) fn prepared(
         result.advanced.coverage_texture_bytes,
     ])?;
     result.texture_allocations = sum([
-        u64::from(!warm_pages && resources.pages.paths().is_some()),
-        u64::from(!warm_pages && resources.pages.glyphs().is_some()) * 2,
+        u64::from(pages.paths.texture_bytes != 0),
+        u64::from(pages.glyphs.texture_bytes != 0) * 2,
         pages.images.texture_allocations,
         pages.three_d.texture_allocations,
         layer_allocations(result.layers)?,

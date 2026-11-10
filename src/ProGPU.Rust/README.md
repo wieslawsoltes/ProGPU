@@ -25,11 +25,11 @@ Latest connected continuation (2026-11-10), implementation only:
 
 | Port area | Newly connected implementation | Remaining qualification |
 | --- | --- | --- |
-| Native complete renderer | Whole-scene admission and immutable pages connected to ordered bundles, exact pass/depth/scissor transitions, Clear, effects, advanced blends, RGB and queue-owned publication | Cross-generation family/bundle reuse, host/sample integration and all original qualification; original standalone R8 exclusion remains |
+| Native complete renderer | Whole-scene admission, ordered bundles/pass/depth/scissor transitions, Clear/effects/blends/RGB, submitted family reuse and explicit device-loss CPU recreation | Cross-generation bundle reuse and all original qualification; original standalone R8 exclusion remains |
 | Native layers, masks and RGB | Actual pooled color/depth/effect storage, all eight mask producers, backdrop copies, actual-size RGB packets, submitted output caches and skip forecasting | Original source/pixel/runtime/browser/performance gates |
 | Native nested pictures and shader effects | Same-renderer child execution, actual shared pipeline owners, exact source-format captures, bounded image/mask caches, append-copy suffixes and v1–v6 shader replay | Original numeric, device, cache/lifetime, browser, source and performance qualification |
 | Native explicit CPU glyph coverage | Original scalar and cached SIMD coverage, exact padded arena/atlas writes, explicit flags and actual ISA reporting | Original numerical/coverage/provider/browser/performance controls; binary/RGB restrictions preserved |
-| Native warm replay and hosts | Submitted same-owner bundle/parameter reuse, fresh RGB and live blur; actual native gallery in winit and browser with vectors, paths, images, nested pictures, masks, effects, blends and optional owned-font text | Cross-generation family reuse and all original source/runtime/browser/performance qualification; authored hosts have not run |
+| Native warm replay and hosts | Submitted same-owner bundles/parameters and independent cross-generation material/vector/path/glyph/image GPU reuse, current CPU owners, fresh RGB and live blur; actual winit/browser native gallery | Cross-generation ordered bundle reuse and all original source/runtime/browser/performance qualification; authored hosts have not run |
 | Native document flow | Nested blocks, shared table tracks/cells, exact width/anchor/collision passes, page/column breaks, retained paragraph generations and atomic import/copy/reflow | Original source/error/lifetime/browser/performance controls |
 | Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
 | Native font providers and catalog | Exact host/browser callback selection/cache, raw fallback preferences and fixed style variations; separate native metadata discovery, nominal cmap matching, file ownership, names/style/embedding and resident SFNT/SBIX writers | Native mmap/path-encoding host adapters and all original byte/error/callback/lifetime/browser/performance qualification |
@@ -42,7 +42,7 @@ Latest connected continuation (2026-11-10), implementation only:
 | Picture archive transport | Versions 1–10, all 39 command tags and fields, complete brush/pen/path/mesh/patch transport, typed recording and safe bounded scalar/vector IO | Exact bytes/version/error/stream/ownership controls |
 | Native scene stream | Independent native wire and immutable owners; original ordered semantic admission, nested dependencies, typed payload views, canonical packets and generation comparisons; exact admitted hit-page import into GPU-query storage | Independent execution/provider/target gates; all original byte/error/lifetime/browser/package/performance controls |
 | Native typed builder and identity | Original typed state, brush, path/vector/mesh, image, text, layer/mask/effect, source-input and recorded-hit producers; direct deterministic caller-buffer serialization; family hashes, source-scope collisions and append-only prefix reuse | Original source/byte/failure/ownership/SIMD/browser/performance qualification |
-| Native execution state and material pages | Original ordered target/state cursors, frame-prefix/presentation/DPI/guideline/scissor rules, retained allocation budgets and exact brush/style variant pages connected through the renderer | Cross-generation family reuse and all original bytes/targets/lifetimes/browser/pixels/performance gates |
+| Native execution state and material pages | Original ordered target/state cursors, frame-prefix/presentation/DPI/guideline/scissor rules, retained allocation budgets and independently reused brush/style pages with current source owners | Original bytes/targets/lifetimes/browser/pixels/performance gates |
 | Archive rendering and capture | Ordered retained Canvas/Scene replay, original analytic triangle/quad/point/grid routes and explicit source-preserving capture; recorded-picture serialization | Unsupported GPU/provider/source-history records stay explicit; complete native/browser/pixel/performance qualification |
 | Image filter and picture factories | Exact subset/clip/offset filter application, optional context transfer, painted picture captures and full-sampling image/bitmap/surface Canvas producers | Original source/UV/lifetime/format/filter/browser/pixel/performance controls |
 | Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
@@ -50,7 +50,7 @@ Latest connected continuation (2026-11-10), implementation only:
 | Late-camera vectors/text | Original ordinary +100 route for fourteen vector/path/stroke kinds; text/glyph runs retain original shared-style/flag ordering, per-command coverage camera, final shared target camera and exact source placement | Remaining provider/extension families and all source/runtime/pixel/performance qualification; original hinted restrictions remain |
 | Mixed static DXF | Analytic/path/stroke/spline/mesh/Hatch/text compilation, original +200/clip/flag and flush ordering, immutable atlas/material uploads, final retained glyph pass and actual Scene extension0 execution | Remaining providers/nested/3D and special mask/clip/source cases; all original qualification |
 | Static retained text | Original 112-byte analytic glyph instances, actual font/outline owners, canonical RetainedGlyph shader, exclusive frozen glyph-atlas option and exact target masks/blends | Original integer/hinted static restrictions retained; full byte/float/runtime/pixel/lifetime/performance gates |
-| Native color-glyph replay | Original managed native-scene selection over native COLR/SVG/bitmap producers, palette/strike/bearing policy, color-only font owners and ordered retained drawing | External JPEG/TIFF providers, SVG numeric/history and codec equivalence; all original qualification |
+| Native color-glyph replay | Original native-scene COLR/SVG/bitmap selection, palettes/strikes/bearings, retained source owners and checked atomic JPEG/PNG decode; explicit bitmap providers | JPEG codec equivalence, explicit TIFF provider policy, SVG numeric/history and all original qualification |
 | GPU line/scatter series | Separate built-in/extension shaders, exact side-buffer selection, immutable CPU/GPU generations, same-device ownership, bounded reuse and actual upload metrics | Original cold/warm, byte/NaN/float/pixel/device/browser/performance controls |
 | Bounded opacity masks | Original declared bounds, active clip, 2-pixel padding/16-pixel storage and direct R8 Vector/Text/HintedGlyphPaint/Texture capture | Unsupported original mask source families stay explicit; all original source/pixel/lifetime/performance gates |
 | Retained interaction | Original command cache/quadtree, strict immutable source-Visual/command/glyph ownership, exact clip/template traversal and paragraph-backed hinted interaction | Actual platform producer adapters and all source/input/lifetime qualification |
@@ -76,6 +76,14 @@ The native engine gallery is selected with `--native-scene` or browser
 presentation. See [gallery ownership](notes/native-scene-gallery.md) and
 [warm replay](notes/native-scene-warm-replay-port.md). Neither host has been
 executed for this increment.
+
+The continuation adds [independent GPU family reuse](notes/native-scene-family-reuse-port.md),
+[explicit device-loss recovery](notes/native-scene-device-recovery-port.md) and
+[owned JPEG bitmap decoding](notes/native-jpeg-bitmap-port.md). Recreation retains
+CPU scene/material state and requires a new actual device; GPU resources and
+external bindings are not copied. TIFF remains an explicit provider capability,
+matching the original default decoder's selected-source miss. These additions
+have only been source formatted.
 
 The shared `--series` / browser `?scene=series` gallery authors twelve panels for
 both original line/scatter shader families, explicit and packed scatter radii,

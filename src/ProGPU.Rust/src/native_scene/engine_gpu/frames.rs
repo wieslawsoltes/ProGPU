@@ -110,6 +110,13 @@ impl NativeSceneFrames {
                 glyphs[i] = Some(old.clone());
                 continue;
             }
+            if let Some(binding) = previous
+                .and_then(|p| p.glyphs[i].as_ref())
+                .and_then(|old| old.rebind(page.clone(), frame.clone()))
+            {
+                glyphs[i] = Some(Arc::new(binding));
+                continue;
+            }
             let binding =
                 NativeGlyphFrameBindings::prepare(pipelines, page.clone(), frame.clone()).await?;
             metrics.glyph_paint_binding_allocations +=

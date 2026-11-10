@@ -8,6 +8,16 @@ pub struct NativeTextStylePage {
     command_styles: Arc<[u32]>,
 }
 impl NativeTextStylePage {
+    /// Reuse only the independently hashed CPU style/remap arrays. No atlas,
+    /// phase, GPU storage or external source belongs to this cache.
+    pub(crate) fn rebind(&self, scene: Arc<NativeScene>, hash: u64) -> Option<Self> {
+        if hash != self.scene_hash {
+            return None;
+        }
+        let mut result = self.clone();
+        result.scene = scene;
+        Some(result)
+    }
     pub fn compile(scene: Arc<NativeScene>, scene_hash: u64) -> Result<Self, Error> {
         let mut styles = allocate(32)?;
         styles.push(wire::TextStyle::default());

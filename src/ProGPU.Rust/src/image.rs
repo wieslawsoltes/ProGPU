@@ -22,6 +22,10 @@ pub use color_space::{
     ColorSpaceTransferFunction, ColorSpaceTransferFunctionKind, ColorSpaceXyz, ColorTransferCicp,
 };
 mod encoded;
+mod jpeg;
+pub use jpeg::{
+    JpegDecodeError, JpegDecodeLimits, JpegDecodeRequirements, JpegDecoder, JpegPixelLayout,
+};
 mod png;
 pub(crate) use png::{inflate_native_deflate, inflate_native_zlib};
 pub mod raster;

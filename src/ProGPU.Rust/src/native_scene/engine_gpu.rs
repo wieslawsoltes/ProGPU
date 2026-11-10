@@ -21,7 +21,10 @@ mod replay;
 pub use bundle::PreparedNativeReplayBundle;
 pub use composite::PreparedNativeLayerDraw;
 pub use frames::{NativeSceneFrameMetrics, NativeSceneFrames};
-pub use renderer::{NativeSceneRenderMetrics, NativeSceneRenderer, NativeSceneRendererOptions};
+pub use renderer::{
+    NativeRetainedCpuState, NativeSceneRecoveryError, NativeSceneRenderMetrics,
+    NativeSceneRenderer, NativeSceneRendererOptions,
+};
 pub use replay::NativeReplayExecutionMetrics;
 mod resources;
 mod target;

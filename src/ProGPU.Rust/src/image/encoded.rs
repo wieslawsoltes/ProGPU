@@ -134,13 +134,43 @@ pub trait EncodedRasterDecoder {
 pub struct ImageCrateRasterDecoder;
 impl EncodedRasterDecoder for ImageCrateRasterDecoder {
     fn decode_rgba(&self, source: &[u8]) -> Result<EncodedRaster, EncodedImageError> {
-        let rgba = ::image::load_from_memory(source)
-            .map_err(|e| EncodedImageError::Raster(e.to_string()))?
-            .into_rgba8();
-        Ok(EncodedRaster {
-            size: [rgba.width(), rgba.height()],
-            rgba: rgba.into_raw(),
-        })
+        if source.len() > i32::MAX as usize {
+            return Err(EncodedImageError::Capacity);
+        }
+        let mut reader = ::image::ImageReader::new(std::io::Cursor::new(source))
+            .with_guessed_format()
+            .map_err(|e| EncodedImageError::Raster(e.to_string()))?;
+        // Original producers ask for one straight-RGBA image. TIFF is an admitted
+        // font metadata tag, not a format supplied by their StbImageSharp backend.
+        // Keep that capability stable even if an unrelated Cargo feature later
+        // enables TIFF in the dependency. Explicit caller providers stay separate.
+        if reader.format() == Some(::image::ImageFormat::Tiff) {
+            return Err(EncodedImageError::Raster(
+                "TIFF requires an explicit raster provider".into(),
+            ));
+        }
+        if reader.format() == Some(::image::ImageFormat::Jpeg) {
+            return super::jpeg::JpegDecoder::new(source)
+                .and_then(super::jpeg::JpegDecoder::decode_rgba)
+                .map_err(super::jpeg::JpegDecodeError::encoded);
+        }
+        // Preserve the source's uncapped byte-array policy and final headerless
+        // TGA attempt; format selection belongs to actual bytes, not a font tag.
+        reader.no_limits();
+        if reader.format().is_none() {
+            reader.set_format(::image::ImageFormat::Tga);
+        }
+        let decoded = reader.decode().map_err(|e| match e {
+            ::image::ImageError::Limits(_) => EncodedImageError::Capacity,
+            other => EncodedImageError::Raster(other.to_string()),
+        })?;
+        let size = [decoded.width(), decoded.height()];
+        let count = rgba_byte_count(size)?;
+        let rgba = decoded.into_rgba8().into_raw();
+        if rgba.len() != count {
+            return Err(EncodedImageError::RasterInventory);
+        }
+        Ok(EncodedRaster { size, rgba })
     }
 }
 /// Actual owned DIB conversion route; bitstream/RLE control remains dependent

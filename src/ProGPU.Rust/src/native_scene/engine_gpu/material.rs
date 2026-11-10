@@ -67,6 +67,18 @@ impl PreparedNativeMaterials {
         brushes: Arc<NativeBrushPage>,
         styles: Arc<NativeTextStylePage>,
     ) -> Result<Self, Error> {
+        Self::prepare_retained(device, queue, brushes, styles, None, None).await
+    }
+    /// Original independent brush/gradient and style ownership hashes. New
+    /// wrappers retain the new CPU scene even when one buffer family survives.
+    pub(crate) async fn prepare_retained(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        brushes: Arc<NativeBrushPage>,
+        styles: Arc<NativeTextStylePage>,
+        prior_brush: Option<&Self>,
+        prior_style: Option<&Self>,
+    ) -> Result<Self, Error> {
         if !Arc::ptr_eq(brushes.scene(), styles.scene()) {
             return Err(Error::ResourceDomain);
         }
@@ -81,9 +93,34 @@ impl PreparedNativeMaterials {
         let brush_capacity = capacity(brush_size, 64 * 256, maximum)?;
         let gradient_capacity = capacity(gradient_size, 32, maximum)?;
         let style_capacity = capacity(style_size, 32, maximum)?;
-        let brush_bytes = encode(brushes.brushes(), brush_size)?;
-        let gradient_bytes = encode(brushes.gradient_stops(), gradient_size)?;
-        let style_bytes = encode(styles.styles(), style_size)?;
+        let retained_brush = prior_brush.filter(|p| {
+            p.device == *device
+                && brushes.scene_hash() != 0
+                && brushes.scene_hash() == p.brushes.scene_hash()
+                && brushes.brushes().len() == p.brushes.brushes().len()
+                && brushes.gradient_stops().len() == p.brushes.gradient_stops().len()
+        });
+        let retained_style = prior_style.filter(|p| {
+            p.device == *device
+                && styles.scene_hash() != 0
+                && styles.scene_hash() == p.styles.scene_hash()
+                && styles.styles().len() == p.styles.styles().len()
+        });
+        let brush_bytes = if retained_brush.is_none() {
+            encode(brushes.brushes(), brush_size)?
+        } else {
+            Vec::new()
+        };
+        let gradient_bytes = if retained_brush.is_none() {
+            encode(brushes.gradient_stops(), gradient_size)?
+        } else {
+            Vec::new()
+        };
+        let style_bytes = if retained_style.is_none() {
+            encode(styles.styles(), style_size)?
+        } else {
+            Vec::new()
+        };
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let make = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -93,12 +130,22 @@ impl PreparedNativeMaterials {
                 mapped_at_creation: false,
             })
         };
-        let brush_buffer = make("Native immutable brush page", brush_capacity);
-        let gradient_buffer = make("Native immutable gradient page", gradient_capacity);
-        let style_buffer = make("Native immutable text-style page", style_capacity);
-        queue.write_buffer(&brush_buffer, 0, &brush_bytes);
-        queue.write_buffer(&gradient_buffer, 0, &gradient_bytes);
-        queue.write_buffer(&style_buffer, 0, &style_bytes);
+        let (brush_buffer, gradient_buffer) = if let Some(prior) = retained_brush {
+            (prior.brush_buffer.clone(), prior.gradient_buffer.clone())
+        } else {
+            let b = make("Native immutable brush page", brush_capacity);
+            let g = make("Native immutable gradient page", gradient_capacity);
+            queue.write_buffer(&b, 0, &brush_bytes);
+            queue.write_buffer(&g, 0, &gradient_bytes);
+            (b, g)
+        };
+        let style_buffer = if let Some(prior) = retained_style {
+            prior.style_buffer.clone()
+        } else {
+            let s = make("Native immutable text-style page", style_capacity);
+            queue.write_buffer(&s, 0, &style_bytes);
+            s
+        };
         if let Some(error) = scope.pop().await {
             return Err(error.into());
         }
@@ -110,10 +157,18 @@ impl PreparedNativeMaterials {
             gradient_buffer,
             style_buffer,
             metrics: NativeMaterialGpuMetrics {
-                brush_upload_bytes: brush_size,
-                gradient_upload_bytes: gradient_size,
-                style_upload_bytes: style_size,
-                allocated_bytes: brush_capacity + gradient_capacity + style_capacity,
+                brush_upload_bytes: brush_bytes.len() as u64,
+                gradient_upload_bytes: gradient_bytes.len() as u64,
+                style_upload_bytes: style_bytes.len() as u64,
+                allocated_bytes: if retained_brush.is_none() {
+                    brush_capacity + gradient_capacity
+                } else {
+                    0
+                } + if retained_style.is_none() {
+                    style_capacity
+                } else {
+                    0
+                },
             },
         })
     }

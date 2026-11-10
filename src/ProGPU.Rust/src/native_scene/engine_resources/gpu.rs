@@ -40,6 +40,7 @@ pub struct NativePictureImageCapture {
     pub metrics: NativeImageResourceMetrics,
 }
 /// Original source shader bindings and their retained source generation.
+#[derive(Clone)]
 pub struct PreparedNativeImageDraw {
     pub descriptor: NativeImageDrawPage,
     pub source: NativeImageTexture,
@@ -77,6 +78,38 @@ pub struct PreparedNativeImagePage {
     external: NativeExternalImages,
 }
 impl PreparedNativeImagePage {
+    /// The owning native family cache has matched the complete original image
+    /// key and actual external views. Retain captured textures/programs while
+    /// publishing current source command descriptors and their scene owner.
+    pub(crate) fn rebind(
+        &self,
+        page: Arc<NativeImagePage>,
+        external: NativeExternalImages,
+    ) -> Result<Self, Error> {
+        if page.draws().len() != self.draws.len() || !self.external.same_bindings(&external) {
+            return Err(Error::ResourceDomain);
+        }
+        let mut draws = Vec::new();
+        draws
+            .try_reserve_exact(self.draws.len())
+            .map_err(|_| Error::Capacity)?;
+        for (old, descriptor) in self.draws.iter().zip(page.draws()) {
+            let mut draw = old.clone();
+            draw.descriptor = descriptor.clone();
+            draws.push(draw);
+        }
+        Ok(Self {
+            owner: self.owner.clone(),
+            device: self.device.clone(),
+            page,
+            vertices: self.vertices.clone(),
+            quad_indices: self.quad_indices.clone(),
+            draws,
+            layouts: self.layouts.clone(),
+            metrics: self.replay_metrics(),
+            external,
+        })
+    }
     pub fn page(&self) -> &Arc<NativeImagePage> {
         &self.page
     }

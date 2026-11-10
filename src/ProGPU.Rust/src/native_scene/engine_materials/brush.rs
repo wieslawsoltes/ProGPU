@@ -15,6 +15,16 @@ pub struct NativeBrushPage {
     command_draws: Arc<[NativeBrushDraw]>,
 }
 impl NativeBrushPage {
+    /// Native cache identity is the original brush-family hash. Rebinding owns
+    /// the new admitted command stream while sharing only immutable CPU arrays.
+    pub(crate) fn rebind(&self, scene: Arc<NativeScene>, hash: u64) -> Option<Self> {
+        if hash != self.scene_hash {
+            return None;
+        }
+        let mut result = self.clone();
+        result.scene = scene;
+        Some(result)
+    }
     pub fn compile(scene: Arc<NativeScene>, scene_hash: u64) -> Result<Self, Error> {
         let mut brushes = allocate(64)?;
         let mut stops = allocate(64)?;

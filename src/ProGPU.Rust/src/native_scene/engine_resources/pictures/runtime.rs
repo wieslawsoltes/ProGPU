@@ -30,6 +30,11 @@ pub trait NativePictureExecutorFactory {
 /// Required actual native renderer. Success means the supplied attachment has
 /// been rendered and submitted; all source/prepared owners must survive completion.
 pub trait NativePictureExecutor {
+    /// Mark the actual owned child terminal without releasing its GPU state.
+    /// A custom executor must explicitly implement this lifecycle contract.
+    fn mark_device_lost(&mut self) -> Result<(), Error> {
+        Err(Error::UnsupportedExecution)
+    }
     fn execute<'a>(
         &'a mut self,
         request: Arc<NativePictureExecutionRequest>,
@@ -114,6 +119,8 @@ pub struct NativePictureCapture {
 /// context. The child owns its own nested runtime; all levels share only actual
 /// device/external owners, factory, residency and a short-lived recursion guard.
 pub struct NativePictureRuntime {
+    owner_thread: std::thread::ThreadId,
+    device_lost: bool,
     device: wgpu::Device,
     queue: wgpu::Queue,
     format: NativeTargetFormat,
@@ -149,6 +156,8 @@ impl NativePictureRuntime {
             return Err(Error::InvalidInput);
         }
         Ok(Self {
+            owner_thread: std::thread::current().id(),
+            device_lost: false,
             device: device.clone(),
             queue: queue.clone(),
             format,
@@ -166,6 +175,29 @@ impl NativePictureRuntime {
             mask_work: NativePictureWorkMetrics::default(),
             outputs: NativePictureOutputMetrics::default(),
         })
+    }
+    /// The original loss notification walks only the actual owned child chain.
+    /// Cached output leases and CPU preflight snapshots are not evicted here.
+    pub fn mark_device_lost(&mut self) -> Result<(), Error> {
+        if self.owner_thread != std::thread::current().id() {
+            return Err(Error::ResourceDomain);
+        }
+        self.device_lost = true;
+        if let Some(child) = &mut self.child {
+            child.executor.mark_device_lost()?;
+            child.pictures.mark_device_lost()?;
+        }
+        Ok(())
+    }
+    pub fn is_device_lost(&self) -> bool {
+        self.device_lost
+    }
+    fn require_live(&self) -> Result<(), Error> {
+        if self.device_lost || self.owner_thread != std::thread::current().id() {
+            Err(Error::ResourceDomain)
+        } else {
+            Ok(())
+        }
     }
     /// Reset this parent invocation's diagnostic totals. Descendants are
     /// aggregated by their actual executor result exactly once.
@@ -264,6 +296,7 @@ impl NativePictureRuntime {
     /// The complete ordered sideband table retains selected view identity.
     /// Cache entries keep their own old table; changing this one never mutates it.
     pub fn bind_external_images(&mut self, external: NativeExternalImages) -> Result<bool, Error> {
+        self.require_live()?;
         if external.device() != &self.device {
             return Err(Error::ResourceDomain);
         }
@@ -279,6 +312,7 @@ impl NativePictureRuntime {
         queue: Option<&wgpu::Queue>,
         format: wgpu::TextureFormat,
     ) -> Result<(), Error> {
+        self.require_live()?;
         if device != &self.device
             || queue.is_some_and(|q| q != &self.queue)
             || format != self.format.texture_format()
@@ -462,6 +496,7 @@ impl NativePictureRuntime {
             .or_else(|| self.preflight_state.clone())
     }
     fn shadow(&self, external: &NativeExternalImages) -> Result<Self, Error> {
+        self.require_live()?;
         let mut shadow = Self::new(
             &self.device,
             &self.queue,
@@ -585,6 +620,7 @@ impl NativePictureRuntime {
         self.factory.preflight(&request, &self.external, &pictures)
     }
     fn admit_output(&self, recipe: &Recipe) -> Result<(), Error> {
+        self.require_live()?;
         let d = recipe.descriptor;
         let limits = self.device.limits();
         if d.width == 0

@@ -22,6 +22,19 @@ pub struct NativeVectorRenderPage {
     metrics: NativeVectorGpuMetrics,
 }
 impl NativeVectorRenderPage {
+    /// Called only after the page engine matches the original submitted family
+    /// key, complete draw inventory and actual layout construction.
+    pub(crate) fn rebind(&self, source: Arc<NativeVectorPage>) -> Self {
+        Self {
+            device: self.device.clone(),
+            source,
+            vertices: self.vertices.clone(),
+            indices: self.indices.clone(),
+            atlas: self.atlas.clone(),
+            sentinel: self.sentinel.clone(),
+            metrics: Default::default(),
+        }
+    }
     pub fn preflight(
         device: &wgpu::Device,
         source: &NativeVectorPage,
@@ -154,6 +167,12 @@ pub struct NativePathRenderPage {
     pub(super) atlas: wgpu::BindGroup,
 }
 impl NativePathRenderPage {
+    pub(crate) fn rebind(&self, source: Arc<PreparedNativePathPage>) -> Self {
+        Self {
+            source,
+            atlas: self.atlas.clone(),
+        }
+    }
     pub fn page(&self) -> &Arc<PreparedNativePathPage> {
         &self.source
     }
@@ -205,6 +224,18 @@ pub struct NativeGlyphRenderPage {
     pub(super) paints: Option<Arc<NativeGlyphPaintBindings>>,
 }
 impl NativeGlyphRenderPage {
+    pub(crate) fn rebind(
+        &self,
+        source: Arc<PreparedNativeGlyphPage>,
+        paints: Option<Arc<NativeGlyphPaintBindings>>,
+    ) -> Self {
+        Self {
+            source,
+            atlas: self.atlas.clone(),
+            empty_mask: self.empty_mask.clone(),
+            paints,
+        }
+    }
     pub fn page(&self) -> &Arc<PreparedNativeGlyphPage> {
         &self.source
     }
@@ -255,6 +286,30 @@ pub struct NativeGlyphFrameBindings {
     pub(super) paint: Option<wgpu::BindGroup>,
 }
 impl NativeGlyphFrameBindings {
+    /// A new source generation may reuse the actual original tuple of GPU
+    /// buffers. Keep current source/frame owners while retaining its binding.
+    pub(crate) fn rebind(
+        &self,
+        page: Arc<NativeGlyphRenderPage>,
+        frame: Arc<NativeFrameBindings>,
+    ) -> Option<Self> {
+        let old = self.frame.material();
+        let next = frame.material();
+        if self.frame.buffer != frame.buffer
+            || old.brush_buffer != next.brush_buffer
+            || old.gradient_buffer != next.gradient_buffer
+            || self.page.source.paints() != page.source.paints()
+            || !Arc::ptr_eq(page.source.page().source().scene(), next.brushes().scene())
+            || self.paint.is_some() != !page.source.page().source().paints().is_empty()
+        {
+            return None;
+        }
+        Some(Self {
+            page,
+            frame,
+            paint: self.paint.clone(),
+        })
+    }
     pub fn page(&self) -> &Arc<NativeGlyphRenderPage> {
         &self.page
     }

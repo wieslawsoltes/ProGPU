@@ -38,8 +38,14 @@ impl NativeSceneGpuContext {
         external: NativeExternalImages,
         pictures: &mut NativePictureRuntime,
     ) -> Result<NativeSceneRenderMetrics, Error> {
+        self.recovery.require_gpu()?;
         self.admit_plan(&plan, &external)?;
         self.admit_attachment(plan.frame(), &attachment, &external)?;
+        // Only the actual same-parent scratch child may replace independent
+        // captures reusing public scene IDs/generations. Public roots retain
+        // the original monotone source-update contract.
+        self.recovery
+            .retain_plan(&plan, self.borrows_shared_vector_pipeline)?;
         if !pictures.external_images().same_bindings(&external) {
             return Err(Error::ResourceDomain);
         }
@@ -408,6 +414,7 @@ impl NativeSceneGpuContext {
         // Only successful submission makes this candidate the engine's current
         // target/cache generation. Every previous owner survives its consumers.
         self.layers = pool;
+        self.pages.commit_submitted(&pages, &self.queue)?;
         self.cache
             .as_mut()
             .ok_or(Error::ResourceDomain)?

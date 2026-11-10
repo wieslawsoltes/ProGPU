@@ -19,6 +19,21 @@ pub struct NativeGlyphPaintBindings {
     layout: wgpu::BindGroupLayout,
 }
 impl NativeGlyphPaintBindings {
+    /// The family cache has retained exact paint records, layout and external
+    /// views. Rebinding never reruns a source producer or invents a texture.
+    pub(crate) fn rebind(
+        &self,
+        page: Arc<PreparedNativeGlyphPage>,
+        external: NativeExternalImages,
+    ) -> Self {
+        Self {
+            page,
+            external,
+            bindings: self.bindings.clone(),
+            textures: self.textures.clone(),
+            layout: self.layout.clone(),
+        }
+    }
     pub fn preflight(
         device: &wgpu::Device,
         page: &PreparedNativeGlyphPage,

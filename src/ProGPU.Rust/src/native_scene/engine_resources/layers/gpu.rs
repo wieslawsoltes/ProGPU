@@ -751,10 +751,7 @@ async fn prepare_frame(
     if let Some(previous) = previous {
         if previous.uniforms().to_bytes() == uniforms.to_bytes() {
             let old = previous.material();
-            if old.brush_buffer == material.brush_buffer
-                && old.gradient_buffer == material.gradient_buffer
-                && old.style_buffer == material.style_buffer
-            {
+            if Arc::ptr_eq(old, &material) {
                 return Ok(previous.clone());
             }
             let result =

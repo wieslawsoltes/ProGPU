@@ -26,6 +26,9 @@ pub enum NativeColorError {
     Geometry(#[from] NativeDesignGeometryError),
     #[error(transparent)]
     Drawing(#[from] Error),
+    /// Retained error value for callers with explicit codec capability admission.
+    /// The default selected-strike decoder now returns an ordinary decode miss
+    /// for unsupported TIFF, matching the original managed producer.
     #[error("selected color bitmap format {0:?} requires an explicit raster decoder")]
     ExternalBitmapDecoderRequired(crate::font::Tag),
 }
@@ -131,7 +134,9 @@ impl NativeColorResolver {
         self.paths.clear();
         self.cache.clear();
     }
-    /// Complete native lookup/decoded-image selection. Explicit external raster
+    /// Complete native lookup/decoded-image selection. Default PNG/JPEG results
+    /// use their owned decoder routes; unsupported TIFF is a selected-source miss.
+    /// Explicit external raster
     /// providers are not cached by a borrowed trait-object address: those results
     /// are owned only by the returned immutable generation/replay.
     pub fn resolve(

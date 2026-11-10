@@ -1,7 +1,7 @@
 //! Original embedded sbix/CBLC/CBDT selection and presentation metrics.
 use super::*;
 use crate::font::bytes;
-use std::{io::Cursor, ops::Range};
+use std::ops::Range;
 mod cbdt;
 mod sbix;
 
@@ -63,6 +63,7 @@ impl ManagedBitmapGlyph {
 #[derive(Debug)]
 pub struct DecodedBitmapGlyph {
     pixels: Vec<u8>,
+    source: ManagedBitmapGlyph,
     /// Actual decoded width/height, independent of font-table metric dimensions.
     pub size: [u32; 2],
     /// Original resolved baseline offset, preserving sbix/CBDT policy.
@@ -73,6 +74,10 @@ pub struct DecodedBitmapGlyph {
     pub raster_scale: f32,
 }
 impl DecodedBitmapGlyph {
+    /// Actual selected font/table/payload generation retained by this decode.
+    pub fn source(&self) -> &ManagedBitmapGlyph {
+        &self.source
+    }
     /// Tightly packed straight-alpha RGBA8, without ICC or EXIF transformation.
     pub fn pixels(&self) -> &[u8] {
         &self.pixels
@@ -174,31 +179,32 @@ impl ManagedFont {
         glyph: u16,
         target_ppem: f32,
     ) -> Result<Option<DecodedBitmapGlyph>, FontError> {
+        self.decode_bitmap_glyph_with(glyph, target_ppem, &crate::image::ImageCrateRasterDecoder)
+    }
+    /// Explicit codec provider for the selected immutable payload. It may supply
+    /// TIFF independently of the original default decoder's capabilities. Failed
+    /// decoding never selects another strike or retries CBDT after selected sbix.
+    pub fn decode_bitmap_glyph_with(
+        &self,
+        glyph: u16,
+        target_ppem: f32,
+        decoder: &dyn crate::image::EncodedRasterDecoder,
+    ) -> Result<Option<DecodedBitmapGlyph>, FontError> {
         if !target_ppem.is_finite() || target_ppem <= 0.0 {
             return Ok(None);
         }
         let Some(bitmap) = self.try_bitmap_glyph(glyph, target_ppem)? else {
             return Ok(None);
         };
-        let mut reader =
-            match image::ImageReader::new(Cursor::new(bitmap.data())).with_guessed_format() {
-                Ok(reader) => reader,
-                Err(_) => return Ok(None),
-            };
-        // Preserve original admission: no unrelated default 512 MiB codec cap.
-        // Address-space/allocation failures still surface as Capacity below.
-        reader.no_limits();
-        // The original codec tries headerless TGA last when no recognized
-        // signature matched. Keep this distinct from trusting the font tag.
-        if reader.format().is_none() {
-            reader.set_format(image::ImageFormat::Tga);
-        }
-        let decoded = match reader.decode() {
-            Ok(image) => image,
-            Err(image::ImageError::Limits(_)) => return Err(FontError::Capacity),
+        let decoded = match decoder.decode_rgba(bitmap.data()) {
+            Ok(decoded) => decoded,
+            Err(crate::image::EncodedImageError::Capacity)
+            | Err(crate::image::EncodedImageError::Image(crate::Error::Capacity)) => {
+                return Err(FontError::Capacity);
+            }
             Err(_) => return Ok(None),
         };
-        let size = [decoded.width(), decoded.height()];
+        let size = decoded.size;
         if size.contains(&0) || size.iter().any(|&v| v > i32::MAX as u32) {
             return Ok(None);
         }
@@ -206,7 +212,7 @@ impl ManagedFont {
         if length > i32::MAX as u64 {
             return Err(FontError::Capacity);
         }
-        let pixels = decoded.into_rgba8().into_raw();
+        let pixels = decoded.rgba;
         if pixels.len() as u64 != length {
             return Ok(None);
         }
@@ -246,6 +252,7 @@ impl ManagedFont {
         }
         Ok(Some(DecodedBitmapGlyph {
             pixels,
+            source: bitmap,
             size,
             bearing,
             render_size,

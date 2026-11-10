@@ -1,6 +1,7 @@
 //! Native family preparation after whole-scene admission. All pages form one
 //! immutable candidate; source providers run only during image preparation.
 use super::*;
+mod reuse;
 use crate::native_scene::{
     engine_resources::{
         NativeExternalImages, NativeGlyphPageEngine, NativeGlyphPaintBindings,
@@ -33,6 +34,7 @@ pub struct NativeScenePageEngine {
     images: NativeImagePageEngine,
     three_d: NativeThreeDPageEngine,
     sentinel: Option<(NativeImageTexture, wgpu::Sampler)>,
+    families: reuse::FamilyCache,
 }
 pub struct PreparedNativeScenePages {
     owner: Arc<()>,
@@ -45,6 +47,7 @@ pub struct PreparedNativeScenePages {
     images: Option<Arc<PreparedNativeImagePage>>,
     three_d: Option<Arc<PreparedNativeThreeDPage>>,
     metrics: NativeScenePageMetrics,
+    frame_layout: wgpu::BindGroupLayout,
 }
 impl NativeScenePageEngine {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: NativeTargetFormat) -> Self {
@@ -62,6 +65,7 @@ impl NativeScenePageEngine {
             ),
             three_d: NativeThreeDPageEngine::new(device, queue, format.texture_format()),
             sentinel: None,
+            families: Default::default(),
         }
     }
     pub fn device(&self) -> &wgpu::Device {
@@ -123,59 +127,81 @@ impl NativeScenePageEngine {
         }
         self.preflight(&source, external, pictures)?;
         let plan = source.source();
+        let identity = cache::NativeReplayCacheIdentity::from_plan(plan);
         let material = Arc::new(
-            PreparedNativeMaterials::prepare(
+            PreparedNativeMaterials::prepare_retained(
                 &self.device,
                 &self.queue,
                 plan.materials().clone(),
                 plan.text_styles().clone(),
+                self.families.brushes(plan.materials().scene_hash()),
+                self.families.styles(plan.text_styles().scene_hash()),
             )
             .await?,
         );
         let vector = if let Some(p) = plan.vector() {
-            Some(Arc::new(
-                NativeVectorRenderPage::prepare(pipelines, p.clone()).await?,
-            ))
+            if let Some(retained) = self.families.vector(&identity, plan, pipelines) {
+                Some(retained)
+            } else {
+                Some(Arc::new(
+                    NativeVectorRenderPage::prepare(pipelines, p.clone()).await?,
+                ))
+            }
         } else {
             None
         };
         let paths = if let Some(p) = source.paths() {
-            let raster = self.paths.prepare(p.clone()).await?;
-            Some(Arc::new(
-                NativePathRenderPage::prepare(pipelines, raster).await?,
-            ))
+            if let Some(retained) = self.families.paths(&identity, plan, p, pipelines) {
+                Some(retained)
+            } else {
+                let raster = self.paths.prepare(p.clone()).await?;
+                Some(Arc::new(
+                    NativePathRenderPage::prepare(pipelines, raster).await?,
+                ))
+            }
         } else {
             None
         };
         let glyphs = if let Some(p) = source.glyphs() {
-            let raster = self.glyphs.prepare(p.clone()).await?;
-            let paints = if p.source().paints().is_empty() {
-                None
+            if let Some(retained) = self
+                .families
+                .glyphs(&identity, plan, p, external, pipelines)
+            {
+                Some(retained)
             } else {
-                self.ensure_sentinel().await?;
-                let (texture, sampler) = self.sentinel.as_ref().ok_or(Error::ResourceDomain)?;
-                Some(
-                    NativeGlyphPaintBindings::prepare(
-                        &self.device,
-                        raster.clone(),
-                        external,
-                        &pipelines.layouts().image.texture,
-                        texture,
-                        sampler,
+                let raster = self.glyphs.prepare(p.clone()).await?;
+                let paints = if p.source().paints().is_empty() {
+                    None
+                } else {
+                    self.ensure_sentinel().await?;
+                    let (texture, sampler) = self.sentinel.as_ref().ok_or(Error::ResourceDomain)?;
+                    Some(
+                        NativeGlyphPaintBindings::prepare(
+                            &self.device,
+                            raster.clone(),
+                            external,
+                            &pipelines.layouts().image.texture,
+                            texture,
+                            sampler,
+                        )
+                        .await?,
                     )
-                    .await?,
-                )
-            };
-            Some(Arc::new(
-                NativeGlyphRenderPage::prepare(pipelines, raster, paints).await?,
-            ))
+                };
+                Some(Arc::new(
+                    NativeGlyphRenderPage::prepare(pipelines, raster, paints).await?,
+                ))
+            }
         } else {
             None
         };
         let images = if let Some(p) = plan.images() {
-            Some(Arc::new(
-                self.images.prepare(p.clone(), external, pictures).await?,
-            ))
+            if let Some(retained) = self.families.images(&identity, plan, external, pipelines)? {
+                Some(retained)
+            } else {
+                Some(Arc::new(
+                    self.images.prepare(p.clone(), external, pictures).await?,
+                ))
+            }
         } else {
             None
         };
@@ -211,7 +237,23 @@ impl NativeScenePageEngine {
             images,
             three_d,
             metrics,
+            frame_layout: pipelines.layouts().frame.clone(),
         }))
+    }
+    /// Publish independent family owners only after the actual submitted replay
+    /// completed its coverage writes. Abandoned preparation cannot certify ink.
+    pub fn commit_submitted(
+        &mut self,
+        pages: &Arc<PreparedNativeScenePages>,
+        queue: &wgpu::Queue,
+    ) -> Result<(), Error> {
+        self.admit(pages)?;
+        if queue != &self.queue {
+            return Err(Error::ResourceDomain);
+        }
+        self.families.submitted(pages);
+        pages.retain_submitted(queue);
+        Ok(())
     }
     async fn ensure_sentinel(&mut self) -> Result<(), Error> {
         if self.sentinel.is_some() {

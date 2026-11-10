@@ -7,11 +7,13 @@ pub(super) struct BlurPipeline {
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
 }
+#[derive(Clone)]
 pub(super) struct PreparedBlur {
     pub output: NativeImageTexture,
     intermediate: NativeImageTexture,
     passes: [BlurPass; 2],
 }
+#[derive(Clone)]
 struct BlurPass {
     pipeline: wgpu::RenderPipeline,
     binding: wgpu::BindGroup,

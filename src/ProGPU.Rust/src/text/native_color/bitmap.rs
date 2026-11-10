@@ -1,11 +1,13 @@
 //! Owned bitmap decoder boundary and original TtfFont presentation equations.
 use super::*;
 use crate::image::{EncodedRasterDecoder, Image, ImageAlpha};
-/// Actual decoder route. Native PNG policy is independent of the external
-/// raster backend used by the managed source; neither implies JPEG/TIFF support.
+/// Actual decoder route. Native PNG retains its original owned algorithm;
+/// JPEG uses the safe dependency boundary. TIFF remains an explicit provider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeBitmapDecodeExecution {
     NativePng,
+    /// Safe owned JPEG adapter; this is not an original C++ JPEG codec.
+    JpegCodec,
     ExternalRaster,
 }
 #[derive(Clone, Debug)]
@@ -47,9 +49,19 @@ pub(super) fn decode(
     let (image, execution) = if let Some(decoder) = decoder {
         let decoded = match decoder.decode_rgba(data.bytes) {
             Ok(v) => v,
-            Err(crate::image::EncodedImageError::Capacity) => return Err(Error::Capacity.into()),
+            Err(crate::image::EncodedImageError::Capacity)
+            | Err(crate::image::EncodedImageError::Image(Error::Capacity)) => {
+                return Err(Error::Capacity.into());
+            }
             Err(_) => return Ok(None),
         };
+        let length = u64::from(decoded.size[0])
+            .checked_mul(u64::from(decoded.size[1]))
+            .and_then(|n| n.checked_mul(4))
+            .ok_or(Error::Capacity)?;
+        if decoded.size.contains(&0) || decoded.rgba.len() as u64 != length {
+            return Ok(None);
+        }
         (
             Image::rgba8(decoded.size, ImageAlpha::Straight, decoded.rgba)?,
             NativeBitmapDecodeExecution::ExternalRaster,
@@ -64,10 +76,21 @@ pub(super) fn decode(
             Err(_) => return Ok(None),
         };
         (image, NativeBitmapDecodeExecution::NativePng)
+    } else if data.graphic_type == crate::font::Tag::new(*b"jpg ") {
+        let image = match Image::decode_jpeg(data.bytes) {
+            Ok(image) => image,
+            Err(crate::image::JpegDecodeError::Capacity)
+            | Err(crate::image::JpegDecodeError::Image(Error::Capacity)) => {
+                return Err(Error::Capacity.into());
+            }
+            Err(_) => return Ok(None),
+        };
+        (image, NativeBitmapDecodeExecution::JpegCodec)
     } else {
-        return Err(NativeColorError::ExternalBitmapDecoderRequired(
-            data.graphic_type,
-        ));
+        // A TIFF tag selects a source payload; the original default raster
+        // provider cannot decode TIFF. Keep the selected-source failure (and no
+        // CBDT retry), while the explicit decoder above may supply that capability.
+        return Ok(None);
     };
     let [width, height] = image.size();
     if width == 0

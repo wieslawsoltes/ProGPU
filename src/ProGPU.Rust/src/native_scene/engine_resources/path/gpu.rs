@@ -43,6 +43,7 @@ pub struct PreparedNativeRaster<P: NativeRasterPlan> {
     phases: Vec<OwnedPhase>,
     _buffers: Vec<wgpu::Buffer>,
     metrics: NativeRasterResourceMetrics,
+    coverage_ready: bool,
 }
 /// Original command-buffer boundaries. Submit `preceding` individually in
 /// order, then continue recording consumers in `encoder` on the same queue.
@@ -278,6 +279,7 @@ impl NativePathPageEngine {
             phases: owned,
             _buffers: buffers,
             metrics,
+            coverage_ready: false,
         }))
     }
     async fn prepare_pipelines(&mut self, plan: &[Phase]) -> Result<(), Error> {
@@ -336,6 +338,25 @@ impl NativePathPageEngine {
     }
 }
 impl<P: NativeRasterPlan + 'static> PreparedNativeRaster<P> {
+    /// The native family cache admits matching original keys and atlas layout
+    /// only after successful submission. The new source owns current command
+    /// ranges; immutable GPU storage remains the actual prior allocation.
+    pub(crate) fn rebind_completed(&self, source: Arc<P>) -> Self {
+        Self {
+            device: self.device.clone(),
+            source,
+            texture: self.texture.clone(),
+            view: self.view.clone(),
+            sampler: self.sampler.clone(),
+            vertices: self.vertices.clone(),
+            indices: self.indices.clone(),
+            coverage: self.coverage.clone(),
+            phases: Vec::new(),
+            _buffers: Vec::new(),
+            metrics: Default::default(),
+            coverage_ready: true,
+        }
+    }
     pub fn device(&self) -> &wgpu::Device {
         &self.device
     }
@@ -364,6 +385,12 @@ impl<P: NativeRasterPlan + 'static> PreparedNativeRaster<P> {
         &self,
         mut encoder: wgpu::CommandEncoder,
     ) -> Result<NativePathCoverageCommands, Error> {
+        if self.coverage_ready {
+            return Ok(NativePathCoverageCommands {
+                preceding: Vec::new(),
+                encoder,
+            });
+        }
         let split = !self.source.combine_uniforms().is_empty()
             || !self.source.signed_combine_uniforms().is_empty();
         let mut preceding = allocate(self.phases.len() + 1)?;

@@ -68,6 +68,10 @@ impl NativePictureExecutorFactory for NativeScenePictureFactory {
     }
 }
 impl NativePictureExecutor for NativeSceneGpuContext {
+    fn mark_device_lost(&mut self) -> Result<(), Error> {
+        NativeSceneGpuContext::mark_device_lost(self)
+            .map_err(recovery::NativeSceneRecoveryError::into_render_error)
+    }
     fn execute<'a>(
         &'a mut self,
         request: Arc<NativePictureExecutionRequest>,
