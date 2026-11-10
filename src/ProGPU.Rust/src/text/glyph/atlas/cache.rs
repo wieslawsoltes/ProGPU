@@ -4,6 +4,14 @@ use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug)]
 pub(super) enum Key {
+    Native(Arc<crate::text::native_atlas::NativeAtlasRaster>),
+    // Upload identity excludes raster size/phase: all four original descriptor
+    // slots share the same exact GPU outline record and segment arena.
+    NativeSlot(Arc<crate::text::native_atlas::NativeAtlasRaster>),
+    NativeColor {
+        source: Arc<crate::text::native_atlas::NativeColorGlyphBatch>,
+        index: u32,
+    },
     Font {
         font: ManagedFont,
         glyph: u16,
@@ -45,6 +53,28 @@ impl Key {
 impl PartialEq for Key {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Self::NativeSlot(a), Self::NativeSlot(b)) => {
+                a.record().bounds.map(f32::to_bits) == b.record().bounds.map(f32::to_bits)
+                    && bytemuck::cast_slice::<_, u8>(a.segments())
+                        == bytemuck::cast_slice::<_, u8>(b.segments())
+            }
+            (Self::Native(a), Self::Native(b)) => {
+                a.record().bounds.map(f32::to_bits) == b.record().bounds.map(f32::to_bits)
+                    && a.scale().to_bits() == b.scale().to_bits()
+                    && a.phase() == b.phase()
+                    && bytemuck::cast_slice::<_, u8>(a.segments())
+                        == bytemuck::cast_slice::<_, u8>(b.segments())
+            }
+            (
+                Self::NativeColor {
+                    source: a,
+                    index: ai,
+                },
+                Self::NativeColor {
+                    source: b,
+                    index: bi,
+                },
+            ) => Arc::ptr_eq(a, b) && ai == bi,
             (
                 Self::Font {
                     font: a,
@@ -78,6 +108,20 @@ impl Hash for Key {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
+            Self::NativeSlot(raster) => {
+                raster.record().bounds.map(f32::to_bits).hash(state);
+                bytemuck::cast_slice::<_, u8>(raster.segments()).hash(state);
+            }
+            Self::Native(raster) => {
+                raster.record().bounds.map(f32::to_bits).hash(state);
+                raster.scale().to_bits().hash(state);
+                raster.phase().hash(state);
+                bytemuck::cast_slice::<_, u8>(raster.segments()).hash(state);
+            }
+            Self::NativeColor { source, index } => {
+                (Arc::as_ptr(source) as usize).hash(state);
+                index.hash(state);
+            }
             Self::Font {
                 font,
                 glyph,

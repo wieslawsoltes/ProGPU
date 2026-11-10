@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 mod cache;
 mod font;
 mod hinted;
+mod native;
 mod packing;
 use cache::{Cache, CachedGlyph, Key};
 use packing::{Region, Shelf};
@@ -67,6 +68,20 @@ impl Default for GlyphAtlasOptions {
             maximum_size: 2048,
             initial_color_size: 64,
             maximum_color_size: 512,
+            rasterizer: GlyphRasterizerOptions::default(),
+        }
+    }
+}
+impl GlyphAtlasOptions {
+    /// Original native coverage/color dimensions, for callers opting into the
+    /// native text route. Generic managed defaults remain unchanged; the actual
+    /// device limits still govern construction and allocation admission.
+    pub fn native() -> Self {
+        Self {
+            initial_size: 1024,
+            maximum_size: 4096,
+            initial_color_size: 256,
+            maximum_color_size: 4096,
             rasterizer: GlyphRasterizerOptions::default(),
         }
     }

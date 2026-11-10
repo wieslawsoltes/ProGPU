@@ -33,3 +33,6 @@ pub use simple::{
 
 /// Actual native design-unit outline ownership and explicit vector Scene replay.
 pub mod native_design_geometry;
+
+/// Ordinary native atlas placement and explicit original color-bitmap transport.
+pub mod native_atlas;

@@ -89,6 +89,23 @@ fn place_scene(
                 text::validate_context(draw.context)?;
                 Command::CanvasTextPath(Arc::new(draw))
             }
+            Command::NativeAtlasLease(plan) => Command::NativeAtlasLease(plan.clone()),
+            Command::NativeDesignAtlas(draw) => {
+                let m = transform.0;
+                if m.iter().flatten().any(|v| !v.is_finite())
+                    || m[0][2] != 0.0 || m[0][3] != 0.0 || m[1][2] != 0.0 || m[1][3] != 0.0
+                    || m[2] != [0.0, 0.0, 1.0, 0.0] || m[3][2] != 0.0 || m[3][3] != 1.0 {
+                    return Err(Error::UnsupportedExecution);
+                }
+                let mut context = draw.frame().then([f64::from(m[0][0]), f64::from(m[0][1]),
+                    f64::from(m[1][0]), f64::from(m[1][1]), f64::from(m[3][0]), f64::from(m[3][1])])?;
+                context.suppress_cleartype |= frame.suppress_cached_cleartype();
+                let placed = draw.with_frame(context)?;
+                // Full actual-DPI admission, including explicit color generations,
+                // precedes any source device callback or renderer mutation.
+                placed.prepare(frame.dpi_scale())?;
+                Command::NativeDesignAtlas(Arc::new(placed))
+            }
             Command::NativeDesignLease(plan) => Command::NativeDesignLease(plan.clone()),
             Command::NativeDesignVector(draw) => {
                 let mut context = draw.context();
@@ -605,7 +622,8 @@ fn preflight_devices(
                     .map_err(native_design::native_design_error)?;
             }
             Command::CanvasTextPath(draw) => text::validate_context(draw.context)?,
-            Command::NativeDesignLease(_) => {}
+            Command::NativeDesignLease(_) | Command::NativeAtlasLease(_) => {}
+            Command::NativeDesignAtlas(draw) => draw.validate()?,
             Command::HintedText(record) => {
                 record.0.validate(record.1)?;
                 if let Some(brush) = &record.0.image_brush {
@@ -748,6 +766,10 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
                 draw.context.semantic_opacity *= opacity;
                 *v = Arc::new(draw);
             }
+            Command::NativeDesignAtlas(v) => {
+                let mut frame = v.frame(); frame.opacity *= opacity;
+                *v = Arc::new(v.with_frame(frame)?);
+            }
             Command::NativeDesignVector(v) => {
                 let mut context = v.context();
                 context.semantic_opacity *= opacity;
@@ -785,6 +807,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             | Command::HintedGlyphPaint(_) => return Err(Error::UnsupportedExecution),
             Command::Empty
             | Command::NativeDesignLease(_)
+            | Command::NativeAtlasLease(_)
             | Command::Clear(_)
             | Command::PushBlend(_)
             | Command::PopBlend

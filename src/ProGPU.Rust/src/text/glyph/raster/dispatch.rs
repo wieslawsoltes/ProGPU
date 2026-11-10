@@ -178,6 +178,29 @@ impl GlyphRasterizer {
         if size.contains(&0) || u64::from(row) * u64::from(size[1]) != pixels.len() as u64 {
             return Err(Error::InvalidInput);
         }
+        self.write_color_glyph_rows(target, origin, size, row, pixels)
+            .await
+    }
+    /// Original native retained bitmap upload, preserving row padding and the
+    /// final row's exact pixel extent without copying or repacking source bytes.
+    pub async fn write_color_glyph_rows(
+        &mut self,
+        target: &GlyphColorTexture,
+        origin: [u32; 2],
+        size: [u32; 2],
+        row: u32,
+        pixels: &[u8],
+    ) -> Result<(), Error> {
+        if !Arc::ptr_eq(&target.0.owner, &self.owner) {
+            return Err(Error::ResourceDomain);
+        }
+        let tight = size[0].checked_mul(4).ok_or(Error::Capacity)?;
+        if size.contains(&0)
+            || row < tight
+            || u64::from(row) * u64::from(size[1] - 1) + u64::from(tight) != pixels.len() as u64
+        {
+            return Err(Error::InvalidInput);
+        }
         for axis in 0..2 {
             if origin[axis] > target.0.size[axis] || size[axis] > target.0.size[axis] - origin[axis]
             {

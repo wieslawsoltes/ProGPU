@@ -172,6 +172,7 @@ pub struct UploadMetrics {
 
 /// GPU resources for a frozen scene and physical frame.
 pub struct PreparedScene {
+    _native_atlas_leases: Vec<Arc<crate::text::native_atlas::NativeAtlasPlan>>,
     _native_design_leases: Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
     owner: Arc<()>,
     vertices: wgpu::Buffer,
@@ -655,6 +656,8 @@ impl Renderer {
                 Some(compiled.materials()),
             )?
         };
+        prepared._native_atlas_leases.try_reserve_exact(compiled.native_atlas_leases.len()).map_err(|_| Error::Capacity)?;
+        prepared._native_atlas_leases.extend(compiled.native_atlas_leases.iter().cloned());
         prepared
             ._native_design_leases
             .try_reserve_exact(compiled.native_design_leases.len())
@@ -852,6 +855,7 @@ impl Renderer {
         });
         Ok(PreparedScene {
             _native_design_leases: Vec::new(),
+            _native_atlas_leases: Vec::new(),
             owner: self.owner.clone(),
             vertices: vertex_buffer,
             indices: index_buffer,

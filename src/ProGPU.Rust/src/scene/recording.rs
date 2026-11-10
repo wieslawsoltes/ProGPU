@@ -4,7 +4,7 @@ impl Scene {
     pub(crate) fn recorded_operation_count(&self) -> usize {
         self.commands
             .iter()
-            .filter(|command| !matches!(command, Command::Empty | Command::NativeDesignLease(_)))
+            .filter(|command| !matches!(command, Command::Empty | Command::NativeDesignLease(_) | Command::NativeAtlasLease(_)))
             .count()
     }
     pub(crate) fn recorded_storage_bytes(&self) -> usize {

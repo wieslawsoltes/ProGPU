@@ -264,7 +264,16 @@ impl Scene {
         plans
             .try_reserve_exact(self.commands.len())
             .map_err(|_| Error::Capacity)?;
+        let mut native_plans = Vec::new();
+        native_plans
+            .try_reserve_exact(self.commands.len())
+            .map_err(|_| Error::Capacity)?;
         for command in &self.commands {
+            native_plans.push(if let Command::NativeDesignAtlas(draw) = command {
+                Some(draw.prepare(dpi)?)
+            } else {
+                None
+            });
             plans.push(if let Command::Text(record) = command {
                 let (draw, mut context) = record.as_ref().clone();
                 context.dpi_scale = dpi;
@@ -289,7 +298,7 @@ impl Scene {
         };
         let mut styles = Vec::new();
         let mut paths = HashMap::new();
-        for (command, plan) in self.commands.iter().zip(plans) {
+        for ((command, plan), native_plan) in self.commands.iter().zip(plans).zip(native_plans) {
             scene.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
             if let Some(plan) = plan {
                 let (resolved, run_styles) = painter
@@ -343,6 +352,30 @@ impl Scene {
                             }
                         }
                     }
+                }
+            } else if let Some(plan) = native_plan {
+                let resolved = plan.resolve_pending(atlas).await?;
+                let base = styles.len();
+                let count = base
+                    .checked_add(resolved.styles.len())
+                    .ok_or(Error::Capacity)?;
+                if count > (1 << 24) {
+                    return Err(Error::Capacity);
+                }
+                styles
+                    .try_reserve(resolved.styles.len())
+                    .map_err(|_| Error::Capacity)?;
+                styles.extend_from_slice(&resolved.styles);
+                scene
+                    .commands
+                    .try_reserve(resolved.instances.len() + 1)
+                    .map_err(|_| Error::Capacity)?;
+                scene
+                    .commands
+                    .push(Command::NativeAtlasLease(resolved.source));
+                for mut instance in resolved.instances {
+                    instance.brush_index += base as f32;
+                    scene.commands.push(Command::Glyph(instance));
                 }
             } else if let Command::HintedText(record) = command {
                 let mut context = record.1;

@@ -49,6 +49,7 @@ pub use owned_shader::OwnedShaderEffectDraw;
 mod backdrop;
 mod canvas_text;
 mod native_design;
+mod native_atlas;
 #[cfg(feature = "gpu")]
 mod shader_effect;
 mod source_capture;
@@ -198,6 +199,8 @@ impl MaterialPaint {
 #[derive(Clone, Debug)]
 enum Command {
     CanvasTextPath(Arc<canvas_text::CanvasTextPath>),
+    NativeDesignAtlas(Arc<crate::text::native_atlas::NativeDesignAtlasDraw>),
+    NativeAtlasLease(Arc<crate::text::native_atlas::NativeAtlasPlan>),
     NativeDesignVector(Arc<crate::text::native_design_geometry::NativeDesignVectorDraw>),
     NativeDesignLease(Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>),
     #[cfg(feature = "gpu")]
@@ -421,7 +424,7 @@ impl Scene {
     pub(crate) fn has_text(&self) -> bool {
         self.commands
             .iter()
-            .any(|command| matches!(command, Command::Text(_) | Command::HintedText(_)))
+            .any(|command| matches!(command, Command::Text(_) | Command::HintedText(_) | Command::NativeDesignAtlas(_)))
     }
     /// Recorded text and its source context, in original scene order. CPU-only
     /// consumers can inspect/plan these records without any GPU dependency.
@@ -630,6 +633,7 @@ impl Scene {
             match command.as_ref() {
                 Command::Empty
                 | Command::NativeDesignLease(_)
+                | Command::NativeAtlasLease(_)
                 | Command::NativeDesignVector(_)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
@@ -663,6 +667,7 @@ impl Scene {
                 Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
                 Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_)
+                | Command::NativeDesignAtlas(_)
                 | Command::HintedText(_)
                 | Command::Layer(_)
                 | Command::AxisClip(_) => {
@@ -775,6 +780,7 @@ impl Scene {
             match command {
                 Command::Empty
                 | Command::NativeDesignLease(_)
+                | Command::NativeAtlasLease(_)
                 | Command::NativeDesignVector(_)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
@@ -974,6 +980,7 @@ impl Scene {
                 Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
                 Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_)
+                | Command::NativeDesignAtlas(_)
                 | Command::HintedText(_)
                 | Command::Layer(_)
                 | Command::AxisClip(_) => {
@@ -1080,6 +1087,7 @@ impl Scene {
         }
         Ok(CompiledScene {
             native_design_leases: self.native_design_leases()?,
+            native_atlas_leases: self.native_atlas_leases()?,
             mesh,
             rasters,
             layout,
@@ -1114,6 +1122,7 @@ impl Scene {
 /// Frozen CPU compilation that can be prepared on a worker without a GPU.
 #[derive(Debug)]
 pub struct CompiledScene {
+    pub(crate) native_atlas_leases: Vec<Arc<crate::text::native_atlas::NativeAtlasPlan>>,
     pub(crate) native_design_leases:
         Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
     pub(crate) mesh: Mesh,
