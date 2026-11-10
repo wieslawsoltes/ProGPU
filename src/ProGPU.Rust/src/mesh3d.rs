@@ -5,6 +5,11 @@ use crate::{
     vector::{Brush, Matrix4},
 };
 use std::sync::Arc;
+mod camera;
+pub use camera::{
+    Camera, CameraControlUpdate, CameraMatrices, CameraNavigation, CameraNavigationKey,
+    CameraProjectionError, OrthographicCamera, PerspectiveCamera, ProjectionCamera,
+};
 mod geometry;
 mod lighting;
 mod material;

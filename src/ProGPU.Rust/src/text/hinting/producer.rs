@@ -253,7 +253,8 @@ pub trait NativeHintedLibraryBackend {
 }
 /// Required actual driver implementation. It must own the face/library/source,
 /// translate original failures, preserve raw output, and execute only the exact
-/// selected flags. This crate supplies orchestration, not a FreeType binding.
+/// selected flags. The opt-in pinned FreeType adapter supplies the actual
+/// original dependency; portable builds keep this explicit provider boundary.
 pub trait NativeHintedFaceBackend {
     /// Query the actual current face inventory.
     fn information(&self) -> NativeHintedFaceInfo;
@@ -276,6 +277,19 @@ pub trait NativeHintedFaceBackend {
         glyph: u32,
         flags: NativeHintedLoadFlags,
     ) -> Result<NativeHintedSlot<'_>, NativeHintedCaptureError>;
+    /// Transfer an actual already-checked owned slot without a second array copy.
+    /// Backends exposing only a borrowed slot keep the original immediate-copy
+    /// behavior. The owned route must preserve the same actual format/check proof.
+    fn capture_glyph(
+        &mut self,
+        glyph: u32,
+        flags: NativeHintedLoadFlags,
+    ) -> Result<NativeHintedGlyph, NativeHintedCaptureError> {
+        let slot = self
+            .load_glyph(glyph, flags)
+            .map_err(|_| NativeHintedCaptureError::HintingFailed)?;
+        capture_slot(glyph, slot)
+    }
 }
 /// Actual external dependency factory. Receipt verification and loaded-module
 /// lookup happen in this backend before library initialization, independently of
@@ -366,9 +380,13 @@ pub fn create_native_hinted_face<F: NativeHintedBackendFactory>(
         return Err(NativeHintedCaptureError::UnsupportedFont);
     }
     if info.multiple_masters {
-        let axes = backend
-            .variation_axes()
-            .map_err(|_| NativeHintedCaptureError::InvalidArgument)?;
+        let axes = backend.variation_axes().map_err(|error| {
+            if error == NativeHintedCaptureError::ResourceExhausted {
+                error
+            } else {
+                NativeHintedCaptureError::InvalidArgument
+            }
+        })?;
         if axes.is_empty()
             || axes.len() != request.variation_coordinates_16_16.len()
             || axes
@@ -382,13 +400,25 @@ pub fn create_native_hinted_face<F: NativeHintedBackendFactory>(
         }
         backend
             .set_variations(&request.variation_coordinates_16_16)
-            .map_err(|_| NativeHintedCaptureError::InvalidArgument)?;
+            .map_err(|error| {
+                if error == NativeHintedCaptureError::ResourceExhausted {
+                    error
+                } else {
+                    NativeHintedCaptureError::InvalidArgument
+                }
+            })?;
     } else if !request.variation_coordinates_16_16.is_empty() {
         return Err(NativeHintedCaptureError::InvalidArgument);
     }
     let metrics = backend
         .request_nominal_size(request.pixels_per_em_26_6)
-        .map_err(|_| NativeHintedCaptureError::InvalidArgument)?;
+        .map_err(|error| {
+            if error == NativeHintedCaptureError::InvalidFont {
+                error
+            } else {
+                NativeHintedCaptureError::InvalidArgument
+            }
+        })?;
     if metrics.units_per_em == 0 || metrics.scale_16_16.iter().any(|&scale| scale <= 0) {
         return Err(NativeHintedCaptureError::InvalidFont);
     }
@@ -434,35 +464,21 @@ impl<B: NativeHintedFaceBackend> NativeHintedFace<B> {
             .map_err(|_| NativeHintedCaptureError::ResourceExhausted)?;
         let flags = NativeHintedLoadFlags::for_policy(self.request.outline_policy);
         for &glyph in glyph_ids {
-            let slot = self
-                .backend
-                .load_glyph(glyph, flags)
-                .map_err(|_| NativeHintedCaptureError::HintingFailed)?;
-            if slot.glyph_id != glyph
-                || !slot.outline_format
-                || !slot.outline_check_succeeded
-                || slot.points_26_6.len() != slot.tags.len()
-                || slot.points_26_6.len() > i16::MAX as usize
-                || slot.contour_ends.len() > i16::MAX as usize
+            let captured = self.backend.capture_glyph(glyph, flags).map_err(|error| {
+                if error == NativeHintedCaptureError::ResourceExhausted {
+                    error
+                } else {
+                    NativeHintedCaptureError::HintingFailed
+                }
+            })?;
+            if captured.glyph_id != glyph
+                || captured.points_26_6.len() != captured.tags.len()
+                || captured.points_26_6.len() > i16::MAX as usize
+                || captured.contour_ends.len() > i16::MAX as usize
             {
                 return Err(NativeHintedCaptureError::HintingFailed);
             }
-            let m = slot.metrics;
-            glyphs.push(NativeHintedGlyph {
-                glyph_id: glyph,
-                advance_26_6: m.advance_26_6,
-                horizontal_bearing_26_6: m.horizontal_bearing_26_6,
-                size_26_6: m.size_26_6,
-                horizontal_advance_26_6: m.horizontal_advance_26_6,
-                vertical_bearing_26_6: m.vertical_bearing_26_6,
-                vertical_advance_26_6: m.vertical_advance_26_6,
-                linear_advances_16_16: m.linear_advances_16_16,
-                side_bearing_deltas_26_6: m.side_bearing_deltas_26_6,
-                outline_flags: slot.outline_flags,
-                points_26_6: copy(slot.points_26_6)?,
-                tags: copy(slot.tags)?,
-                contour_ends: copy(slot.contour_ends)?,
-            });
+            glyphs.push(captured);
         }
         let batch = NativeHintedBatch::from_capture(
             self.font.clone(),
@@ -473,4 +489,35 @@ impl<B: NativeHintedFaceBackend> NativeHintedFace<B> {
         .map_err(|_| NativeHintedCaptureError::HintingFailed)?;
         Ok(Arc::new(batch))
     }
+}
+
+fn capture_slot(
+    glyph: u32,
+    slot: NativeHintedSlot<'_>,
+) -> Result<NativeHintedGlyph, NativeHintedCaptureError> {
+    if slot.glyph_id != glyph
+        || !slot.outline_format
+        || !slot.outline_check_succeeded
+        || slot.points_26_6.len() != slot.tags.len()
+        || slot.points_26_6.len() > i16::MAX as usize
+        || slot.contour_ends.len() > i16::MAX as usize
+    {
+        return Err(NativeHintedCaptureError::HintingFailed);
+    }
+    let m = slot.metrics;
+    Ok(NativeHintedGlyph {
+        glyph_id: glyph,
+        advance_26_6: m.advance_26_6,
+        horizontal_bearing_26_6: m.horizontal_bearing_26_6,
+        size_26_6: m.size_26_6,
+        horizontal_advance_26_6: m.horizontal_advance_26_6,
+        vertical_bearing_26_6: m.vertical_bearing_26_6,
+        vertical_advance_26_6: m.vertical_advance_26_6,
+        linear_advances_16_16: m.linear_advances_16_16,
+        side_bearing_deltas_26_6: m.side_bearing_deltas_26_6,
+        outline_flags: slot.outline_flags,
+        points_26_6: copy(slot.points_26_6)?,
+        tags: copy(slot.tags)?,
+        contour_ends: copy(slot.contour_ends)?,
+    })
 }

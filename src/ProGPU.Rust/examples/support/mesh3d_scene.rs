@@ -7,10 +7,10 @@ use progpu::{
     image::{GpuImage, ImageAlpha, ImageSampling},
     mask::AnalyticMask,
     mesh3d::{
-        DiffuseMaterial3D, Light3D, LightKind3D, Mesh3DViewport, MeshEdge3D, MeshEdgeDisplay,
-        MeshEdgeStyle, MeshEdgeTopology, MeshGeometry3D, MeshMaterial3D, MeshModel3D,
-        MeshTextureEffect, MeshTextureLease, MeshTexturePresentation, MeshVisual3D, RenderMode3D,
-        ShadingMode3D,
+        Camera, DiffuseMaterial3D, Light3D, LightKind3D, Mesh3DViewport, MeshEdge3D,
+        MeshEdgeDisplay, MeshEdgeStyle, MeshEdgeTopology, MeshGeometry3D, MeshMaterial3D,
+        MeshModel3D, MeshTextureEffect, MeshTextureLease, MeshTexturePresentation, MeshVisual3D,
+        OrthographicCamera, PerspectiveCamera, ProjectionCamera, RenderMode3D, ShadingMode3D,
     },
     picture_archive::ArchiveBrush,
     scene::{Mesh3DViewportDraw, Scene},
@@ -52,19 +52,13 @@ pub fn mesh3d_scene(device: &wgpu::Device, queue: &wgpu::Queue, dpi: f32) -> Res
             ..Default::default()
         },
     ]);
-    // Authored right-handed orthographic camera; WebGPU depth remains 0..1.
-    let projection = Matrix4([
-        [0.72, 0.0, 0.0, 0.0],
-        [0.0, 0.8064, 0.0, 0.0],
-        [0.0, 0.0, -0.1, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]);
-    let view = Matrix4([
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, -4.0, 1.0],
-    ]);
+    let mut camera_base = ProjectionCamera::default();
+    camera_base.set_view([0.0, 0.0, 4.0], [0.0, 0.0, -4.0]);
+    camera_base.set_near_plane_distance(0.125);
+    camera_base.set_far_plane_distance(1000.0);
+    let mut orthographic = OrthographicCamera::new(camera_base);
+    orthographic.set_width(2.8);
+    let perspective = PerspectiveCamera::new(camera_base);
     let rotation = Matrix4([
         [0.866_025_4, 0.0, -0.5, 0.0],
         [0.0, 1.0, 0.0, 0.0],
@@ -193,7 +187,18 @@ pub fn mesh3d_scene(device: &wgpu::Device, queue: &wgpu::Queue, dpi: f32) -> Res
             ..Default::default()
         }
         .compile_source(&[source], None)?;
-        let mut draw = Mesh3DViewportDraw::from_display(Arc::new(viewport), projection, view, dpi)?;
+        let camera = if index % 3 == 2 {
+            Camera::Perspective(perspective)
+        } else {
+            Camera::Orthographic(orthographic)
+        };
+        let matrices = camera.matrices(viewport.viewport_size)?;
+        let mut draw = Mesh3DViewportDraw::from_display(
+            Arc::new(viewport),
+            matrices.projection,
+            matrices.view,
+            dpi,
+        )?;
         draw.transform = Matrix4::from_affine(Affine([1.0, 0.0, 0.0, 1.0, x + 8.0, y + 22.0]));
         if index == 5 {
             // Parent coverage belongs to the ordinary texture consumer, not the

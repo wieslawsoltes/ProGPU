@@ -61,6 +61,7 @@ path = "src/ProGPU.Rust/src/lib.rs"
 [features]
 default = ["gpu"]
 gpu = ["dep:wgpu"]
+native-freetype = ["dep:progpu-freetype"]
 window = ["gpu", "dep:winit", "dep:pollster"]
 browser = ["gpu", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:web-sys"]
 
@@ -74,6 +75,9 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 roxmltree = { version = "0.21.2", default-features = false, features = ["std"] }
 wide = "=0.7.33"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+progpu-freetype = { version = "0.1.0", path = "src/ProGPU.Rust/freetype", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "=0.2.130", optional = true }

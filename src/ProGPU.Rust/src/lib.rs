@@ -3,6 +3,11 @@
 //! See the crate README for the parity ledger. Unported families are not silently
 //! approximated. GPU programs are embedded from the canonical production WGSL.
 
+#[cfg(all(feature = "native-freetype", target_arch = "wasm32"))]
+compile_error!(
+    "native-freetype requires an original verified native dependency; browser outline providers remain independent"
+);
+
 pub mod canvas;
 pub mod composition;
 pub mod effects;

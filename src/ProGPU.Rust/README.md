@@ -16,7 +16,8 @@ are now connected. Full 24-kind image-filter descriptions/planning and five comp
 engines are now connected to retained execution and actual source captures. Owned
 nested shader recipes retain per-target captures/parameters with rollback and
 completed-submission cache retirement. Actual hinted-device run orchestration
-consumes an explicit owned provider; its real interpreter producer remains separate.
+consumes the explicit owned provider; the optional original pinned FreeType
+producer is now connected through a separate safe API companion.
 Shared hosts also author 16 color-filter, 12 managed shader, 24 full image-filter
 and 12 owned nested-shader panels. These additions have not been compiled or run.
 
@@ -25,6 +26,7 @@ Latest connected continuation (2026-11-10), implementation only:
 | Port area | Newly connected implementation | Remaining qualification |
 | --- | --- | --- |
 | Native document flow | Nested blocks, shared table tracks/cells, exact width/anchor/collision passes, page/column breaks, retained paragraph generations and atomic import/copy/reflow | Original source/error/lifetime/browser/performance controls |
+| Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
 | Font storage and residency | Safe owned/static/shared leases, exact SFNT/SBIX glyph extraction, demand bitmap cache, instance-identity matching and actual execution metrics | Native mapped storage explicitly unavailable; original byte/error/lifetime/performance and host-provider controls |
 | ImageEffect reuse | Completion-owned parameter/blur pools, original module/pipeline/sampler caches, tracked source/mip/view generations, explicit host-frame aging and actual reuse metrics | Original runtime/pixel/lifetime/browser/performance controls |
 | Surface root flushing | Flush/snapshot of the actual root while save layers remain open, retaining child state and atomic prepared ownership | Existing Rust clip continuation remains distinct; original repeated-flush/clip/backdrop/source pixels |
@@ -39,11 +41,12 @@ Latest connected continuation (2026-11-10), implementation only:
 | GPU hit queries | Unchanged point/rectangle/ellipse shaders, single-pass and ordered-stage dispatch, same-device immutable index, raw 256-slot outputs/counters and asynchronous mapping | Original full-result/overflow/tie/compiler/runtime/browser/performance/package controls |
 | 3D line and ACIS | Owned source arrays, exact generic/extension dispatch, dedicated pipelines, complete ACIS records and actual target camera generation | General late-camera text/path, static-DXF providers and all runtime/source qualification |
 | Mesh3D viewport | Complete geometry/material/light/edge producers, canonical solid/wireframe/edge pipelines, depth/MSAA, frozen resource budgets, source texture leases, retained output and six native/browser panels | Original compile/byte/pixel/lifetime/runtime/browser/performance controls; encoder-wide blur dedup and actual platform providers |
+| Mesh3D cameras | Original perspective/orthographic projection, raw property/change semantics, view/inverse transform and orbit/pan/wheel/key navigation; shared sample uses both cameras | Exact source/runtime math and host pointer/focus/capture/event dispatch; all pixels and performance |
 | Archive materials and scopes | Original immutable theme/alias environments, backdrop factory/owned parameters, independent axis/shared-mask restoration and frozen source scissors | Actual platform snapshots/non-string keys/mutation producers and all source/provider/pixel gates |
 | CustomGrid and spline extension | Original fullscreen grid shader/quad, and compile-only/no-draw spline extension4 behavior | Original primary multisample, source/runtime/browser/pixel/performance controls |
 
 
-Estimated scope completion: **overall about 66%, implementation about 85%, validation
+Estimated scope completion: **overall about 67%, implementation about 86%, validation
 and qualification about 20%**. These are judgment estimates, not measured coverage.
 
 The shared `--series` / browser `?scene=series` gallery authors twelve panels for
@@ -61,6 +64,14 @@ The shared `--mesh3d` / browser `?scene=mesh3d` gallery has six retained 3D pane
 See [viewport integration](notes/mesh3d-retained-port.md),
 [Mesh3D sources](notes/mesh3d-source-port.md), [Mesh3D GPU](notes/mesh3d-gpu-port.md)
 and [source input](notes/source-visual-input-port.md). These additions remain unexecuted.
+The [camera/navigation](notes/mesh3d-camera-port.md) and
+[actual hinted producer](notes/native-freetype-binding-port.md) are also implemented.
+`native-freetype` is opt-in and requires `PROGPU_FREETYPE_MANIFEST` for an original
+prepared native installation; default and browser builds do not load it. The main
+crate still forbids unsafe code; the [companion](freetype/README.md) isolates the
+private C ABI and exports exclusive safe owners. Existing all-feature CI needs
+that explicit dependency provisioning during the deferred qualification phase.
+The dependency lock was updated offline without building or running any verifier.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

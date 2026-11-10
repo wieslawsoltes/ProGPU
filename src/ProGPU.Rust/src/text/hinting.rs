@@ -8,6 +8,10 @@ use super::native_pipeline::{
 };
 use crate::font::SfntFace;
 use std::sync::Arc;
+#[cfg(all(feature = "native-freetype", not(target_arch = "wasm32")))]
+mod freetype;
+#[cfg(all(feature = "native-freetype", not(target_arch = "wasm32")))]
+pub use freetype::*;
 mod cache;
 mod geometry;
 mod outline;
