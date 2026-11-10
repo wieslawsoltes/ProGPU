@@ -47,6 +47,12 @@ inline bool build_semantic_glyph_sharing_fixture(bool reference,
     if (reference) {
         for (std::uint32_t index = 0U; index < 3U; ++index)
             segments[index * 4U].p2.x = static_cast<float>(index + (variant == 9U ? 4U : 1U));
+    } else if (variant == 9U) {
+        // The engine keeps coverage across frames by its exact raster bytes.
+        // The packed subject carries bytes no earlier variant used, the same
+        // in its three outlines, so this frame rasterizes them, once.
+        for (std::uint32_t index = 0U; index < 3U; ++index)
+            segments[index * 4U].p2.x = 8.0F;
     }
     const bool packed = reference || variant == 9U;
     if (packed) {
@@ -138,8 +144,12 @@ void verify_semantic_glyph_sharing(Render render, Require require) {
             require(cold.coverage_staging_bytes != 0U,
                 "changed glyph raster identity reused stale coverage");
         }
-        if (variant == 7U || variant == 8U) require(cold.coverage_staging_bytes != 0U,
-            "DPI changes failed to invalidate retained glyph coverage");
+        // Coverage is a function of the outline bytes, bounds, raster scale
+        // and subpixel phase alone; the DPI only places it. The outlines of
+        // these two frames are the ones the first frame rasterized: the engine
+        // still holds that coverage and the pixels above match the reference.
+        if (variant == 7U || variant == 8U) require(cold.coverage_staging_bytes == 0U,
+            "a DPI change rasterized glyph coverage the engine already holds");
         if (variant == 8U) require(pixels == original_pixels,
             "glyph sharing failed to restore original output after mutations/DPI change");
         std::fprintf(stderr, "Glyph sharing: variant=%u dpi=%.1f coverage=%llu reference=%llu exact pixels passed\n",
