@@ -18,11 +18,11 @@ pub(super) struct Cached {
     bounds: Option<[i16; 4]>,
 }
 #[derive(Clone, Copy, Debug, Default)]
-struct Extents {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
+pub(super) struct Extents {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
 }
 fn reduce(segments: &[crate::path::Segment]) -> Option<[i16; 4]> {
     let mut min = [f32::INFINITY; 2];
@@ -203,8 +203,113 @@ fn position(
     glyph.offset_y = clamped(i64::from(y));
     Ok(())
 }
+pub(super) trait Policy {
+    fn base(&mut self, index: usize, glyph: u16) -> Result<Option<(Extents, i32)>, FontError>;
+    fn prepare_base(
+        &self,
+        base: &mut Extents,
+        glyph: ShapingGlyph,
+        width: i32,
+    ) -> Result<(), FontError>;
+    fn split(
+        &self,
+        base: &mut Extents,
+        component: i32,
+        count: u8,
+        direction: GposDirection,
+    ) -> Result<(), FontError>;
+    fn accumulate(
+        &self,
+        glyph: ShapingGlyph,
+        sign: i64,
+        x: &mut i64,
+        y: &mut i64,
+    ) -> Result<(), FontError>;
+    fn position(
+        &mut self,
+        glyph: &mut ShapingGlyph,
+        index: usize,
+        class: i32,
+        base: &mut Extents,
+        direction: GposDirection,
+        units: i32,
+        x: i64,
+        y: i64,
+    ) -> Result<(), FontError>;
+}
+impl Policy for Source<'_> {
+    fn base(&mut self, _index: usize, glyph: u16) -> Result<Option<(Extents, i32)>, FontError> {
+        let Some(base) = self.extents(glyph)? else {
+            return Ok(None);
+        };
+        let width = self.advance.design_advance_width(glyph)?.round_ties_even();
+        if !width.is_finite()
+            || f64::from(width) < f64::from(i32::MIN)
+            || f64::from(width) > f64::from(i32::MAX)
+        {
+            return Err(FontError::InvalidFace);
+        }
+        Ok(Some((base, width as i32)))
+    }
+    fn prepare_base(
+        &self,
+        base: &mut Extents,
+        glyph: ShapingGlyph,
+        width: i32,
+    ) -> Result<(), FontError> {
+        base.y += glyph.offset_y;
+        base.x = 0;
+        base.width = width;
+        Ok(())
+    }
+    fn split(
+        &self,
+        base: &mut Extents,
+        component: i32,
+        count: u8,
+        direction: GposDirection,
+    ) -> Result<(), FontError> {
+        let selected = if direction == GposDirection::LeftToRight {
+            component
+        } else {
+            i32::from(count) - 1 - component
+        };
+        base.x += selected * base.width / i32::from(count);
+        base.width /= i32::from(count);
+        Ok(())
+    }
+    fn accumulate(
+        &self,
+        glyph: ShapingGlyph,
+        sign: i64,
+        x: &mut i64,
+        y: &mut i64,
+    ) -> Result<(), FontError> {
+        *x += sign * i64::from(glyph.advance_x);
+        *y += sign * i64::from(glyph.advance_y);
+        Ok(())
+    }
+    fn position(
+        &mut self,
+        glyph: &mut ShapingGlyph,
+        _index: usize,
+        class: i32,
+        base: &mut Extents,
+        direction: GposDirection,
+        units: i32,
+        x: i64,
+        y: i64,
+    ) -> Result<(), FontError> {
+        position(self, glyph, class, base, direction, units)?;
+        glyph.advance_x = 0;
+        glyph.advance_y = 0;
+        glyph.offset_x = clamped(i64::from(glyph.offset_x) + x);
+        glyph.offset_y = clamped(i64::from(glyph.offset_y) + y);
+        Ok(())
+    }
+}
 fn base_marks(
-    source: &mut Source<'_>,
+    source: &mut impl Policy,
     g: &mut [ShapingGlyph],
     direction: GposDirection,
     metadata: &[GposAttachment],
@@ -212,23 +317,11 @@ fn base_marks(
     end: usize,
     units: i32,
 ) -> Result<(), FontError> {
-    let Some(mut base) = source.extents(g[start].glyph_id as u16)? else {
+    let Some((mut base, width)) = source.base(start, g[start].glyph_id as u16)? else {
         return Ok(());
     };
-    let width = source
-        .advance
-        .design_advance_width(g[start].glyph_id as u16)?
-        .round_ties_even();
-    if !width.is_finite()
-        || f64::from(width) < f64::from(i32::MIN)
-        || f64::from(width) > f64::from(i32::MAX)
-    {
-        return Err(FontError::InvalidFace);
-    }
     mark_dependency(g, start, end);
-    base.y += g[start].offset_y;
-    base.x = 0;
-    base.width = width as i32;
+    source.prepare_base(&mut base, g[start], width)?;
     let forward = matches!(
         direction,
         GposDirection::LeftToRight | GposDirection::TopToBottom
@@ -258,8 +351,7 @@ fn base_marks(
         );
         if c == 0 {
             let sign = if forward { -1 } else { 1 };
-            x += sign * i64::from(g[index].advance_x);
-            y += sign * i64::from(g[index].advance_y);
+            source.accumulate(g[index], sign, &mut x, &mut y)?;
             continue;
         }
         if count > 1 {
@@ -273,31 +365,23 @@ fn base_marks(
                 last_component = component;
                 last_class = 255;
                 component_extents = base;
-                let selected = if direction == GposDirection::LeftToRight {
-                    component
-                } else {
-                    i32::from(count) - 1 - component
-                };
-                component_extents.x += selected * component_extents.width / i32::from(count);
-                component_extents.width /= i32::from(count);
+                source.split(&mut component_extents, component, count, direction)?;
             }
         }
         if last_class != c {
             last_class = c;
             class_extents = component_extents;
         }
-        position(
-            source,
+        source.position(
             &mut g[index],
+            index,
             c,
             &mut class_extents,
             direction,
             units,
+            x,
+            y,
         )?;
-        g[index].advance_x = 0;
-        g[index].advance_y = 0;
-        g[index].offset_x = clamped(i64::from(g[index].offset_x) + x);
-        g[index].offset_y = clamped(i64::from(g[index].offset_y) + y);
     }
     Ok(())
 }
@@ -311,6 +395,22 @@ pub(super) fn apply(
     cache: &mut [Cached],
     generation: u64,
 ) -> Result<(), FontError> {
+    let mut source = Source {
+        font,
+        advance,
+        policy,
+        cache,
+        generation,
+    };
+    apply_with(font, g, direction, metadata, &mut source)
+}
+pub(super) fn apply_with(
+    font: &SfntFace,
+    g: &mut [ShapingGlyph],
+    direction: GposDirection,
+    metadata: &[GposAttachment],
+    source: &mut impl Policy,
+) -> Result<(), FontError> {
     if direction == GposDirection::Unspecified || metadata.len() < g.len() {
         return Err(FontError::InvalidArgument);
     }
@@ -322,13 +422,6 @@ pub(super) fn apply(
         .filter(|h| h.units_per_em != 0)
         .ok_or(FontError::InvalidFace)?
         .units_per_em;
-    let mut source = Source {
-        font,
-        advance,
-        policy,
-        cache,
-        generation,
-    };
     let mut cluster_start = 0;
     for index in 1..=g.len() {
         if index < g.len()
@@ -350,15 +443,7 @@ pub(super) fn apply(
                 {
                     end += 1;
                 }
-                base_marks(
-                    &mut source,
-                    g,
-                    direction,
-                    metadata,
-                    base,
-                    end,
-                    i32::from(units),
-                )?;
+                base_marks(source, g, direction, metadata, base, end, i32::from(units))?;
                 base = end;
             }
         }

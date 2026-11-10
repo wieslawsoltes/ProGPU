@@ -144,6 +144,8 @@ pub struct LayerDraw {
     /// Select linear filtering for fixed blends; false uses nearest. Advanced
     /// blends retain the original native linear source-resolve binding.
     pub linear_sampling: bool,
+    // A public bounds edit invalidates this private source-placement witness.
+    placed_bounds: Option<([u32; 4], [f32; 4])>,
 }
 impl LayerDraw {
     /// An isolated source-over group with unit opacity and parent-sized bounds.
@@ -158,7 +160,27 @@ impl LayerDraw {
             blend: LayerBlend::SrcOver,
             effects: None,
             linear_sampling: true,
+            placed_bounds: None,
         }
+    }
+    /// Original independent source edges when this is a placed capture command.
+    pub(crate) fn bounds_edges(&self) -> Option<[f32; 4]> {
+        self.bounds.map(|bounds| {
+            if let Some((witness, edges)) = self.placed_bounds
+                && witness == bounds.map(f32::to_bits)
+            {
+                return edges;
+            }
+            let [x, y, w, h] = bounds;
+            [x, y, x + w, y + h]
+        })
+    }
+    pub(super) fn place_bounds(&mut self, edges: Option<[f32; 4]>) {
+        self.bounds = edges.map(|e| [e[0], e[1], e[2] - e[0], e[3] - e[1]]);
+        self.placed_bounds = self
+            .bounds
+            .zip(edges)
+            .map(|(b, e)| (b.map(f32::to_bits), e));
     }
     pub(crate) fn validate(&self) -> Result<(), Error> {
         if self.scene.scope_depth != 0

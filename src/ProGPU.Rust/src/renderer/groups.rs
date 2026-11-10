@@ -300,9 +300,14 @@ impl RenderFrame {
         parent: Option<&AxisClipPlan>,
     ) -> Result<AxisClipPlan, Error> {
         match parent {
-            Some(p) => p.child(draw.bounds(), draw.initializes_background()),
-            None => AxisClipPlan::new(
+            Some(p) => p.child_edges(
                 draw.bounds(),
+                draw.bounds_edges(),
+                draw.initializes_background(),
+            ),
+            None => AxisClipPlan::new_edges(
+                draw.bounds(),
+                draw.bounds_edges(),
                 AxisClipFrame {
                     root_size: [self.root.width, self.root.height],
                     parent: [self.origin[0], self.origin[1], self.width, self.height],

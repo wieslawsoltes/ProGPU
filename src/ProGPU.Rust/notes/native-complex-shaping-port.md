@@ -105,15 +105,15 @@ connects the ordinary-script, Arabic (including USE overlap), Hangul, Hebrew,
 Thai/Lao, fallback-mark and stretch families through `NativeShaper`.
 `NativeComplex*` names remain aliases to that shared run owner.
 
-* The source `Verify` flag requires the independent fragment verification/replay
-  family. This entry point explicitly rejects it rather than omitting verification.
+* The subsequent [native-verify-device-policy-port.md](native-verify-device-policy-port.md)
+  connects the original Verify family and captured-device policy arithmetic.
 * Actual hinted-device metric/outline preparation, device descriptor mapping,
   positioning/boundary capture and provider callbacks remain independent work.
   These are design-unit runs; existing device GPOS contracts are not a hinted
   font producer or source-policy qualification.
 * Paragraph fallback, bidi itemization and source application/package/browser
-  qualification remain independent. The exact device mark/stretch policies and
-  actual hinted metric producer remain outside the connected design-unit writer.
+  qualification remain independent. Actual hinted metric production and complete
+  prepared-device orchestration remain outside the design-unit writer.
 
 ## Architecture and deferred validation
 

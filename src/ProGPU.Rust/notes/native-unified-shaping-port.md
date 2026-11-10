@@ -89,15 +89,14 @@ above. No foreign implementation or managed shaping executor is imported.
 
 ## Independent remaining source families
 
-* `Verify` remains explicitly rejected. The original whole-result checks,
-  source-cluster/input boundary mapping, context slicing, per-fragment reshaping,
-  unsafe-to-break comparisons and verification failure publication in
-  `progpu_native_open_type_shaper.cpp:1366–1617` remain to be ported together.
+The subsequent [native-verify-device-policy-port.md](native-verify-device-policy-port.md)
+connects automatic/native fragment Verify, actual-device fragment callbacks, and
+the complete captured-device space/fallback-mark/stretch policy algorithms.
+
 * Actual hinted-device font/outline/metric producer, captured descriptor mapping,
   callback-owned positioning/boundary capture and source providers remain separate.
-  Device 26.6 fallback-mark geometry and stretch descriptor/width transport are
-  not implemented by the design-unit writer. Existing native GPOS/device contracts
-  do not qualify that producer or replace these remaining device policies.
+  The typed 26.6 policy interfaces do not construct the actual hinted generation
+  or connect the complete prepare/capture/device-shaper provider lifecycle.
 * Native paragraph font fallback and bidi/run itemization/provider orchestration
   remain independent of the complete selected-font single-run stage families.
 * Original source application/package/browser execution and native/managed

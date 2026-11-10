@@ -11,6 +11,7 @@ use crate::{
 pub struct CapturedScene {
     image: GpuImage,
     frame: Frame,
+    source_frame: Option<crate::composition::SourceRenderFrame>,
     source_metrics: UploadMetrics,
     replay_metrics: ReplayMetrics,
     capture_bytes: u64,
@@ -34,6 +35,10 @@ impl CapturedScene {
     /// Actual source physical target, with its original scalar DPI.
     pub fn frame(&self) -> Frame {
         self.frame
+    }
+    /// Complete original source projection/placement metadata, when captured.
+    pub fn source_frame(&self) -> Option<crate::composition::SourceRenderFrame> {
+        self.source_frame
     }
     /// Earlier source preparation metrics, not counted again as capture uploads.
     /// Per-occurrence target Clear uploads are reported by `source_replay_metrics`.
@@ -82,7 +87,7 @@ impl Renderer {
             return Err(Error::ResourceDomain);
         }
         scene
-            .frame
+            .render_frame
             .uniforms(self.device.limits().max_texture_dimension_2d)?;
         let capture_bytes = u64::from(scene.frame.width)
             .checked_mul(u64::from(scene.frame.height))
@@ -165,6 +170,7 @@ impl Renderer {
         Ok(CapturedScene {
             image,
             frame: scene.frame,
+            source_frame: scene.render_frame.source,
             source_metrics: scene.metrics,
             replay_metrics: scene.replay_metrics(),
             capture_bytes,

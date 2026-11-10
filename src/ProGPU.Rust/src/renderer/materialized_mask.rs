@@ -341,7 +341,7 @@ impl Renderer {
         let has_analytic = source
             .components
             .iter()
-            .any(|c| matches!(c.mask, Mask::Analytic(_)));
+            .any(|c| matches!(c.mask, Mask::Analytic(_) | Mask::AxisClipEdges(_)));
         let pipeline = if has_analytic {
             Some(state.coverage(&self.device).await?)
         } else {
@@ -357,7 +357,7 @@ impl Renderer {
         let mut producers = Vec::new();
         for component in source.components.iter() {
             let (image, uniforms, sampling, producer) = match &component.mask {
-                Mask::Analytic(_) => {
+                Mask::Analytic(_) | Mask::AxisClipEdges(_) => {
                     let direct =
                         CompiledDrawState::direct(component.mask.clone(), frame.dpi_scale)?;
                     let binding =
@@ -555,7 +555,7 @@ fn mask_cost(
         let analytic = source
             .components
             .iter()
-            .filter(|c| matches!(c.mask, Mask::Analytic(_)))
+            .filter(|c| matches!(c.mask, Mask::Analytic(_) | Mask::AxisClipEdges(_)))
             .count();
         bytes = bytes
             .checked_add(

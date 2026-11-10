@@ -7,6 +7,7 @@ use super::*;
 pub struct AxisClipDraw {
     scene: Arc<Scene>,
     bounds: [f32; 4],
+    placed_edges: Option<[f32; 4]>,
 }
 
 impl AxisClipDraw {
@@ -17,6 +18,20 @@ impl AxisClipDraw {
     /// Original logical x/y/width/height, before physical allocation rounding.
     pub fn bounds(&self) -> [f32; 4] {
         self.bounds
+    }
+    /// Independent source edges; never reconstruct a placed far edge from width.
+    pub(crate) fn bounds_edges(&self) -> [f32; 4] {
+        self.placed_edges.unwrap_or_else(|| {
+            let [x, y, w, h] = self.bounds;
+            [x, y, x + w, y + h]
+        })
+    }
+    pub(super) fn placed(&self, scene: Arc<Scene>, edges: [f32; 4]) -> Self {
+        Self {
+            scene,
+            bounds: [edges[0], edges[1], edges[2] - edges[0], edges[3] - edges[1]],
+            placed_edges: Some(edges),
+        }
     }
     /// Whether recorded storage Clear occurs inward of this group's nearest
     /// ordinary owner. Physical empty/binary clips are resolved at preparation;
@@ -55,6 +70,7 @@ impl Scene {
         self.commands.push(Command::AxisClip(Box::new(AxisClipDraw {
             scene: source,
             bounds,
+            placed_edges: None,
         })));
         Ok(())
     }

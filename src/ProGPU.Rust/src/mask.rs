@@ -201,11 +201,27 @@ pub struct CoverageMask {
     pub opacity: f32,
 }
 
+/// Exact independent target-logical axis edges retained by source capture.
+/// Construction remains internal so callers cannot bypass the original area
+/// mask's identity mapping, zero-radii and unit-opacity admission.
+#[derive(Clone, Debug)]
+pub struct AxisClipMaskEdges {
+    edges: [f32; 4],
+}
+impl AxisClipMaskEdges {
+    /// Original left/top/right/bottom, without a width reconstruction.
+    pub fn edges(&self) -> [f32; 4] {
+        self.edges
+    }
+}
+
 /// Retained coverage source. Recorders retain pixels without copying them.
 #[derive(Clone, Debug)]
 pub enum Mask {
     /// Native analytic rounded rectangle or explicit axis area.
     Analytic(AnalyticMask),
+    /// Original area coverage with independently placed source far edges.
+    AxisClipEdges(AxisClipMaskEdges),
     /// Original immutable coverage bitmap.
     Coverage(CoverageMask),
     /// Original red/alpha sampled source, including an owned GPU generation.
@@ -282,9 +298,23 @@ fn inverse(m: [f64; 6]) -> Result<[f64; 6], Error> {
     Ok(result)
 }
 impl Mask {
+    pub(crate) fn axis_clip_edges(edges: [f32; 4]) -> Result<Self, Error> {
+        let result = Self::AxisClipEdges(AxisClipMaskEdges { edges });
+        result.validate()?;
+        Ok(result)
+    }
     /// Whole-descriptor native admission, independent of a future target DPI.
     pub fn validate(&self) -> Result<(), Error> {
         let (bounds, transform, opacity) = match self {
+            Self::AxisClipEdges(mask) => {
+                let [left, top, right, bottom] = mask.edges;
+                return if mask.edges.iter().all(|v| v.is_finite()) && left <= right && top <= bottom
+                {
+                    Ok(())
+                } else {
+                    Err(Error::InvalidInput)
+                };
+            }
             Self::Analytic(mask) => {
                 if mask
                     .radii_x
@@ -329,6 +359,12 @@ impl Mask {
         }
         let mut out = MaskUniforms::zeroed();
         match self {
+            Self::AxisClipEdges(mask) => {
+                out.bounds = (f32x4::from(mask.edges) * f32x4::splat(dpi) + f32x4::ZERO).to_array();
+                out.coordinate0[0] = 1.0;
+                out.coordinate1[1] = 1.0;
+                out.options = [5.0, 1.0, 0.0, 0.0];
+            }
             Self::Analytic(mask) => {
                 let [x, y, w, h] = mask.bounds;
                 let edges = [x, y, x + w, y + h];

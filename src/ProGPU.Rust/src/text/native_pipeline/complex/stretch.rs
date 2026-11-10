@@ -3,16 +3,16 @@ use super::*;
 use crate::font::HorizontalAdvanceInstance;
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Run {
-    start: usize,
-    end: usize,
-    copies: u32,
-    remaining: i32,
-    overlap: i32,
+    pub start: usize,
+    pub end: usize,
+    pub copies: u32,
+    pub remaining: i32,
+    pub overlap: i32,
 }
-fn stretch(g: ShapingGlyph) -> bool {
+pub(super) fn stretch(g: ShapingGlyph) -> bool {
     matches!(joining::action(g), 8 | 9)
 }
-fn word(cp: u32) -> bool {
+pub(super) fn word(cp: u32) -> bool {
     use GeneralCategory::*;
     matches!(cp, 0xad | 0x34f | 0x61c)
         || matches!(
@@ -41,8 +41,8 @@ fn width(advance: &HorizontalAdvanceInstance, g: ShapingGlyph) -> Result<i32, Fo
     }
     Ok(rounded as i32)
 }
-fn runs(
-    advance: &HorizontalAdvanceInstance,
+pub(super) fn runs(
+    mut width_at: impl FnMut(usize, ShapingGlyph) -> Result<i32, FontError>,
     g: &[ShapingGlyph],
     rtl: bool,
     out: &mut [Run],
@@ -66,7 +66,8 @@ fn runs(
         let mut repeating_count = 0usize;
         while index > 0 && stretch(glyph(index - 1)) {
             index -= 1;
-            let w = i64::from(width(advance, glyph(index))?);
+            let source_index = if rtl { index } else { g.len() - index - 1 };
+            let w = i64::from(width_at(source_index, glyph(index))?);
             if joining::action(glyph(index)) == 8 {
                 fixed_width += w;
                 fixed_count += 1;
@@ -134,7 +135,7 @@ pub(super) fn apply(
     rtl: bool,
     scratch: &mut [Run],
 ) -> Result<(), FontError> {
-    let (capacity, n) = runs(advance, b.glyphs(), rtl, scratch)?;
+    let (capacity, n) = runs(|_, g| width(advance, g), b.glyphs(), rtl, scratch)?;
     if b.storage.len() < capacity {
         return Err(FontError::Capacity);
     }

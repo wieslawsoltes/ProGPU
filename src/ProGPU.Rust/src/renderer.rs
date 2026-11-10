@@ -25,6 +25,8 @@ pub use uniform_backdrop::{
 mod axis_clip;
 pub use axis_clip::{AxisClipMetrics, AxisClipPass, AxisClipReplayMetrics, PreparedAxisClip};
 mod capture;
+mod source_capture;
+pub use source_capture::{CacheSamplerRaster, CaptureSourceIdentity, CapturedSourceScene};
 mod clear;
 mod color_filter;
 pub use clear::{RenderSubmission, ReplayMetrics, TargetClearRequest};
@@ -167,6 +169,7 @@ pub struct PreparedScene {
     masks: Option<mask::PreparedMasks>,
     frame: Frame,
     origin: [u32; 2],
+    render_frame: RenderFrame,
     layers: LayerMetrics,
     groups: PreparedGroups,
     image_effects: Option<image_effect::PreparedImageEffects>,
@@ -448,7 +451,15 @@ impl Renderer {
         scene: &Scene,
         frame: Frame,
     ) -> Result<PreparedScene, Error> {
-        let target = RenderFrame::from(frame);
+        self.prepare_target_scene(scene, RenderFrame::from(frame))
+            .await
+    }
+
+    async fn prepare_target_scene(
+        &mut self,
+        scene: &Scene,
+        target: RenderFrame,
+    ) -> Result<PreparedScene, Error> {
         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
         self.preflight_shaders(scene, target)?;
         self.preflight_managed_shaders(scene, target)?;
@@ -766,6 +777,7 @@ impl Renderer {
             masks: None,
             frame: frame.frame,
             origin: frame.origin,
+            render_frame: frame,
             layers: LayerMetrics::default(),
             groups: PreparedGroups::default(),
             image_effects: None,

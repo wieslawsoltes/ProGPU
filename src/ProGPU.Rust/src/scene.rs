@@ -38,6 +38,7 @@ pub use layer::{LayerBlend, LayerDraw};
 mod managed_shader;
 #[cfg(feature = "gpu")]
 mod shader_effect;
+mod source_capture;
 mod text;
 #[cfg(feature = "gpu")]
 pub use managed_shader::ManagedShaderEffectDraw;
@@ -193,12 +194,16 @@ enum Command {
     PushMask(Box<crate::mask::Mask>),
     PushMaskDifference(Box<crate::mask::Mask>),
     PushClip([f32; 4]),
+    // Independent original edges after source-capture placement.
+    PushClipEdges([f32; 4]),
     PopScope,
     Analytic(AnalyticPrimitive),
     Path(PathDraw),
     MaterialAnalytic(AnalyticPrimitive, MaterialPaint),
     MaterialPath(PathDraw, MaterialPaint),
     Stroke(StrokeDraw),
+    // Independent local material if directed-cap preparation selects fill coverage.
+    PlacedStroke(StrokeDraw, Arc<Brush>),
     Text(Box<(TextDraw, TextPaintContext)>),
     TextPath(PathDraw, MaterialPaint, TextPathPolicy),
     #[cfg(feature = "gpu")]
@@ -210,6 +215,8 @@ enum Command {
         Option<crate::composition::RasterOperation>,
     ),
     TileImage(Box<TileImageDraw>),
+    // Tile UVs are evaluated in the original output frame before placement.
+    PlacedTileImage(Box<TileImageDraw>, crate::vector::Matrix4),
 }
 
 /// Ordered retained commands; recording and CPU compilation perform no GPU work.
@@ -467,13 +474,18 @@ impl Scene {
             .try_reserve_exact(self.commands.len())
             .map_err(|_| Error::Capacity)?;
         for command in &self.commands {
-            let resolved = if let Command::Stroke(draw) = command {
+            let stroke = match command {
+                Command::Stroke(draw) => Some((draw, &draw.pen.brush)),
+                Command::PlacedStroke(draw, fill_brush) => Some((draw, fill_brush)),
+                _ => None,
+            };
+            let resolved = if let Some((draw, fill_brush)) = stroke {
                 draw.prepare()?.map(|prepared| match prepared {
                     PreparedStroke::Stroke(draw) => Command::Stroke(draw),
                     PreparedStroke::Empty => Command::Empty,
                     PreparedStroke::Fill(path) => {
                         let m = draw.frame.transform.0;
-                        let color = match draw.pen.brush.kind {
+                        let color = match fill_brush.kind {
                             BrushKind::Solid(color) => color,
                             _ => [1.0; 4],
                         };
@@ -491,7 +503,7 @@ impl Scene {
                                 },
                             },
                             MaterialPaint {
-                                brush: draw.pen.brush.clone(),
+                                brush: fill_brush.clone(),
                                 semantic_opacity: draw.semantic_opacity,
                             },
                         )
@@ -513,6 +525,7 @@ impl Scene {
                     | Command::MaterialPath(..)
                     | Command::TextPath(..)
                     | Command::Stroke(_)
+                    | Command::PlacedStroke(..)
             )
         });
         let mut rasters = Vec::new();
@@ -525,12 +538,15 @@ impl Scene {
                 | Command::PushMask(_)
                 | Command::PushMaskDifference(_)
                 | Command::PushClip(_)
+                | Command::PushClipEdges(_)
                 | Command::PopScope
                 | Command::Analytic(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
+                | Command::PlacedStroke(..)
                 | Command::Image(..)
                 | Command::TileImage(_)
+                | Command::PlacedTileImage(..)
                 | Command::ImageEffect(_)
                 | Command::ImageColor(_)
                 | Command::ColorFilteredImage(_) => placements.push(None),
@@ -612,7 +628,9 @@ impl Scene {
                 | Command::TextPath(_, paint, _) => {
                     materials.register(Some(&paint.brush), paint.semantic_opacity)?
                 }
-                Command::Stroke(draw) if draw.is_renderable()? => {
+                Command::Stroke(draw) | Command::PlacedStroke(draw, _)
+                    if draw.is_renderable()? =>
+                {
                     materials.register(Some(&draw.pen.brush), draw.semantic_opacity)?
                 }
                 // Legacy draws keep their vertex colors and unit opacity even
@@ -625,6 +643,7 @@ impl Scene {
                 | Command::PushMask(_)
                 | Command::PushMaskDifference(_)
                 | Command::PushClip(_)
+                | Command::PushClipEdges(_)
                 | Command::PopScope => {}
                 Command::Clear(color) => draws.push(DrawRange::Clear(*color)),
                 Command::ImageEffect(draw) => {
@@ -750,10 +769,14 @@ impl Scene {
                         append_draw(&mut draws, DrawRange::Image(start..end, binding, *blend));
                     }
                 }
-                Command::TileImage(draw) => {
+                Command::TileImage(draw) | Command::PlacedTileImage(draw, _) => {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
-                    image_mesh.push_quad(draw.vertices()?)?;
+                    let mut vertices = draw.vertices()?;
+                    if let Command::PlacedTileImage(_, transform) = command {
+                        source_capture::place_quad(&mut vertices, *transform)?;
+                    }
+                    image_mesh.push_quad(vertices)?;
                     let key = ImageBindingKey {
                         source: draw.image.identity(),
                         sampling: crate::image::ImageSampling::Linear,
@@ -788,7 +811,9 @@ impl Scene {
                     glyphs.push(*instance);
                     append_draw(&mut draws, DrawRange::Text(index..end));
                 }
-                Command::Stroke(draw) => draw.append(&mut mesh, brush_index)?,
+                Command::Stroke(draw) | Command::PlacedStroke(draw, _) => {
+                    draw.append(&mut mesh, brush_index)?
+                }
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
                     // Original native analytic execution expands in the local
@@ -852,7 +877,7 @@ impl Scene {
             has_tile_images: self
                 .commands
                 .iter()
-                .any(|c| matches!(c, Command::TileImage(_))),
+                .any(|c| matches!(c, Command::TileImage(_) | Command::PlacedTileImage(..))),
         })
     }
 }

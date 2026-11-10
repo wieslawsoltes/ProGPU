@@ -104,6 +104,9 @@ pub enum FontError {
     /// The source requires an outline route not implemented by this adapter.
     #[error("font requires an unsupported outline fallback")]
     UnsupportedOutline = 8,
+    /// Original native safe-boundary fragment replay differs from the full run.
+    #[error("native shaping verification failed")]
+    VerificationFailed = 10,
 }
 
 /// Original directory entry selected by ordinary native table lookup.

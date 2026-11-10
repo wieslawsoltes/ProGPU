@@ -46,7 +46,7 @@ impl CompiledDrawState {
         let direct = components.len() <= 4
             && components.iter().enumerate().all(|(i, c)| {
                 c.operation == MaskOperation::Intersect
-                    && (i == 0 || matches!(c.mask, Mask::Analytic(_)))
+                    && (i == 0 || matches!(c.mask, Mask::Analytic(_) | Mask::AxisClipEdges(_)))
             });
         self.masks = [MaskUniforms::zeroed(); 4];
         self.coverage = None;
@@ -99,6 +99,7 @@ impl Scene {
                     | Command::PushMask(_)
                     | Command::PushMaskDifference(_)
                     | Command::PushClip(_)
+                    | Command::PushClipEdges(_)
                     | Command::PopScope => None,
                     Command::ImageEffect(draw) if draw.mask.is_some() => None,
                     _ => Some(current),
@@ -243,9 +244,10 @@ impl Scene {
                 continue;
             }
             let mut candidate = match command {
-                Command::PushMask(_) | Command::PushMaskDifference(_) | Command::PushClip(_) => {
-                    states[current].clone()
-                }
+                Command::PushMask(_)
+                | Command::PushMaskDifference(_)
+                | Command::PushClip(_)
+                | Command::PushClipEdges(_) => states[current].clone(),
                 _ => {
                     changes.push(None);
                     continue;
@@ -263,12 +265,17 @@ impl Scene {
                         dpi,
                     )?;
                 }
-                Command::PushClip(bounds) => {
-                    validate_clip(*bounds)?;
-                    let [x, y, w, h] = *bounds;
-                    let projected = (f32x4::from([x, y, x + w, y + h]) * f32x4::splat(dpi)
-                        + f32x4::ZERO)
-                        .to_array();
+                Command::PushClip(bounds) | Command::PushClipEdges(bounds) => {
+                    let edges = if matches!(command, Command::PushClip(_)) {
+                        validate_clip(*bounds)?;
+                        let [x, y, w, h] = *bounds;
+                        [x, y, x + w, y + h]
+                    } else {
+                        source_capture::validate_edges(*bounds)?;
+                        *bounds
+                    };
+                    let projected =
+                        (f32x4::from(edges) * f32x4::splat(dpi) + f32x4::ZERO).to_array();
                     if projected.iter().any(|v| !v.is_finite()) {
                         return Err(Error::InvalidInput);
                     }

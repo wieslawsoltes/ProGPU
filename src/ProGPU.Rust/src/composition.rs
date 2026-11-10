@@ -6,6 +6,8 @@ mod raster_operation;
 pub use raster_operation::{RasterOperation, RasterPattern};
 mod cache_sampler;
 pub use cache_sampler::CacheSamplerRasterFrame;
+mod source_frame;
+pub use source_frame::SourceRenderFrame;
 
 /// Actual source presentation and current parent storage domain.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,6 +52,25 @@ impl AxisClipPlan {
         frame: AxisClipFrame,
         initialize_from_background: bool,
     ) -> Result<Self, Error> {
+        let [x, y, width, height] = bounds;
+        if width < 0.0 || height < 0.0 {
+            return Err(Error::InvalidInput);
+        }
+        Self::new_edges(
+            bounds,
+            [x, y, x + width, y + height],
+            frame,
+            initialize_from_background,
+        )
+    }
+    // Source captures retain transformed near/far edges independently; XYWH is
+    // bookkeeping only and cannot round-trip the original far endpoints.
+    pub(crate) fn new_edges(
+        bounds: [f32; 4],
+        edges: [f32; 4],
+        frame: AxisClipFrame,
+        initialize_from_background: bool,
+    ) -> Result<Self, Error> {
         if frame.root_size.contains(&0) {
             return Err(Error::InvalidInput);
         }
@@ -65,14 +86,15 @@ impl AxisClipPlan {
             x.checked_add(w).ok_or(Error::Capacity)?;
             y.checked_add(h).ok_or(Error::Capacity)?;
         }
-        let [x, y, w, h] = bounds;
-        if !bounds.iter().all(|v| v.is_finite()) || w < 0.0 || h < 0.0 {
+        if !bounds.iter().chain(&edges).all(|v| v.is_finite())
+            || edges[2] < edges[0]
+            || edges[3] < edges[1]
+        {
             return Err(Error::InvalidInput);
         }
         let [dx, dy] = frame.dpi;
         let [vx, vy, _, _] = frame.viewport;
-        let projected = (wide::f32x4::from([x, y, x + w, y + h])
-            * wide::f32x4::from([dx, dy, dx, dy])
+        let projected = (wide::f32x4::from(edges) * wide::f32x4::from([dx, dy, dx, dy])
             + wide::f32x4::from([vx as f32, vy as f32, vx as f32, vy as f32]))
         .to_array();
         if !projected.iter().all(|v| v.is_finite()) {
@@ -124,11 +146,28 @@ impl AxisClipPlan {
     /// Plan an immediately nested source AA clip, retaining every original
     /// ancestor. Use `new` after an ordinary layer to stop the ratio chain.
     pub fn child(&self, bounds: [f32; 4], initialize_from_background: bool) -> Result<Self, Error> {
+        let [x, y, width, height] = bounds;
+        if width < 0.0 || height < 0.0 {
+            return Err(Error::InvalidInput);
+        }
+        self.child_edges(
+            bounds,
+            [x, y, x + width, y + height],
+            initialize_from_background,
+        )
+    }
+    pub(crate) fn child_edges(
+        &self,
+        bounds: [f32; 4],
+        edges: [f32; 4],
+        initialize_from_background: bool,
+    ) -> Result<Self, Error> {
         if self.ancestor_count == 15 {
             return Err(Error::Capacity);
         }
-        let mut child = Self::new(
+        let mut child = Self::new_edges(
             bounds,
+            edges,
             AxisClipFrame {
                 parent: self.extent,
                 ..self.frame

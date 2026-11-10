@@ -3,7 +3,7 @@
 //! [`NativeShaper`] connects original ordinary, joining, Hangul and complex
 //! script stages to owned design-unit positioned runs. [`NativeLatinShaper`]
 //! retains its independent printable-ASCII specialization. Native hinting and
-//! fragment verification remain separate provider boundaries.
+//! device fragment production remain separate provider boundaries.
 use super::ShapingGlyph;
 use crate::font::layout::{
     Gdef, GlyphClass, GposAttachment, GposDirection, GposOptions, GposState, GsubOptions,
@@ -18,9 +18,11 @@ mod latin;
 pub use complex::{
     NativeBufferFlags, NativeClusterLevel, NativeComplexKind, NativeComplexRequest,
     NativeComplexRequirements, NativeComplexRun, NativeComplexScratch, NativeComplexShaper,
-    NativeFallbackBounds, NativeRun, NativeShapeRequest, NativeShapeRequirements,
-    NativeShapeScratch, NativeShaper, NativeShapingRoute, resolve_native_language_tag,
-    resolve_native_shaping_route,
+    NativeDeviceFragmentSource, NativeDeviceFrame, NativeDeviceMarkBounds, NativeDeviceSource,
+    NativeDeviceSpaceKind, NativeDeviceStretchScratch, NativeFallbackBounds, NativeFragmentContext,
+    NativeRun, NativeShapeRequest, NativeShapeRequirements, NativeShapeScratch, NativeShaper,
+    NativeShapingRoute, apply_native_device_arabic_stretch, apply_native_device_fallback_marks,
+    apply_native_device_space, resolve_native_language_tag, resolve_native_shaping_route,
 };
 pub use features::{
     NativeFeature, NativeFeaturePlan, NativeFeatureRoute, NativeFeatureSetting,

@@ -1,6 +1,6 @@
 //! Original native special-space mapping and design-unit metrics.
 use super::*;
-fn fallback(cp: u32) -> u8 {
+pub(super) fn fallback(cp: u32) -> u8 {
     match cp {
         0x20 | 0xa0 => 18,
         0x2000 | 0x2002 => 2,

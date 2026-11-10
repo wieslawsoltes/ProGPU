@@ -67,6 +67,7 @@ pub(super) struct RenderFrame {
     pub frame: Frame,
     pub(super) root: Frame,
     pub origin: [u32; 2],
+    pub source: Option<crate::composition::SourceRenderFrame>,
 }
 impl std::ops::Deref for RenderFrame {
     type Target = Frame;
@@ -80,6 +81,7 @@ impl From<Frame> for RenderFrame {
             frame,
             root: frame,
             origin: [0; 2],
+            source: None,
         }
     }
 }
@@ -87,6 +89,12 @@ impl RenderFrame {
     pub fn uniforms(self, maximum: u32) -> Result<Uniforms, Error> {
         self.frame.uniforms(maximum)?;
         let mut uniforms = self.root.uniforms(maximum)?;
+        if let Some(source) = self.source {
+            uniforms.projection = source.projection();
+            uniforms.mvp = source.projection();
+            uniforms.canvas_size = source.logical_size().map(|v| v as f32);
+            uniforms.dpi_scale = source.dpi_scale();
+        }
         if self.origin == [0; 2] && self.frame == self.root {
             return Ok(uniforms);
         }
@@ -117,11 +125,11 @@ impl RenderFrame {
     }
     pub(super) fn child(self, layer: &LayerDraw) -> Result<Self, Error> {
         layer.validate()?;
-        let Some([x, y, width, height]) = layer.bounds else {
+        let Some(logical_edges) = layer.bounds_edges() else {
             return Ok(self);
         };
         // Original native four independent presentation lanes, including +0.
-        let edges: [f32; 4] = (wide::f32x4::from([x, y, x + width, y + height])
+        let edges: [f32; 4] = (wide::f32x4::from(logical_edges)
             * wide::f32x4::splat(self.dpi_scale)
             + wide::f32x4::splat(0.0))
         .into();
@@ -152,6 +160,7 @@ impl RenderFrame {
         let empty = edges[2] <= edges[0] || edges[3] <= edges[1];
         Ok(Self {
             root: self.root,
+            source: self.source,
             origin: [left, top],
             frame: Frame {
                 width: if empty { 0 } else { right.saturating_sub(left) },

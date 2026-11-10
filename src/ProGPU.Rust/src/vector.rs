@@ -94,16 +94,16 @@ impl std::ops::Mul for Matrix4 {
     /// Compose complete source row-vector matrices, preserving all sixteen
     /// components. Default-runtime SIMD/FMA bit qualification remains separate.
     fn mul(self, rhs: Self) -> Self {
-        let mut result = [[0.0; 4]; 4];
-        for (row, output) in result.iter_mut().enumerate() {
-            for (column, value) in output.iter_mut().enumerate() {
-                *value = self.0[row][0] * rhs.0[0][column]
-                    + self.0[row][1] * rhs.0[1][column]
-                    + self.0[row][2] * rhs.0[2][column]
-                    + self.0[row][3] * rhs.0[3][column];
-            }
-        }
-        Self(result)
+        // Independent columns use intrinsic SIMD; every lane retains the
+        // original four separate products and left-associated additions.
+        let rows = rhs.0.map(wide::f32x4::from);
+        Self(self.0.map(|row| {
+            (wide::f32x4::splat(row[0]) * rows[0]
+                + wide::f32x4::splat(row[1]) * rows[1]
+                + wide::f32x4::splat(row[2]) * rows[2]
+                + wide::f32x4::splat(row[3]) * rows[3])
+                .to_array()
+        }))
     }
 }
 

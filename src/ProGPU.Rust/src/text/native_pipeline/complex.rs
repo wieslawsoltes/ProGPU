@@ -6,6 +6,12 @@ use crate::text::unicode::{self, GeneralCategory, ManagedIndicProperties, Unicod
 use unicode::grapheme::{self, GraphemeCluster, GraphemePolicy};
 use unicode::normalization::{NormalizationData, NormalizationForm, NormalizationPlan};
 mod arabic_fallback;
+mod device;
+pub use device::{
+    NativeDeviceFrame, NativeDeviceMarkBounds, NativeDeviceSource, NativeDeviceSpaceKind,
+    NativeDeviceStretchScratch, apply_native_device_arabic_stretch,
+    apply_native_device_fallback_marks, apply_native_device_space,
+};
 mod fallback_marks;
 pub use fallback_marks::NativeFallbackBounds;
 mod indic;
@@ -23,7 +29,8 @@ mod syllables;
 mod use_shaper;
 pub use route::{NativeShapingRoute, resolve_native_language_tag, resolve_native_shaping_route};
 pub use run::{
-    NativeRun, NativeShapeRequest, NativeShapeRequirements, NativeShapeScratch, NativeShaper,
+    NativeDeviceFragmentSource, NativeFragmentContext, NativeRun, NativeShapeRequest,
+    NativeShapeRequirements, NativeShapeScratch, NativeShaper,
 };
 /// Compatibility name for the original complex request API.
 pub type NativeComplexRequest<'a> = NativeShapeRequest<'a>;
@@ -81,7 +88,7 @@ impl NativeBufferFlags {
     pub const REMOVE_DEFAULT_IGNORABLES: Self = Self(8);
     /// Suppress beginning and broken-cluster dotted-circle insertion.
     pub const DO_NOT_INSERT_DOTTED_CIRCLE: Self = Self(16);
-    /// Original fragment verification; requires the independent provider route.
+    /// Original safe-boundary fragment verification with separate output storage.
     pub const VERIFY: Self = Self(32);
     /// Original request to retain unsafe-to-concatenate output dependencies.
     pub const PRODUCE_UNSAFE_TO_CONCAT: Self = Self(64);
