@@ -55,8 +55,10 @@ inline void initialize_color_attachment(
 using proc_resolver = void* (*)(void* context, const char* name);
 
 #define PROGPU_NATIVE_DAWN_PROC_LIST(X) \
+    X(BindGroupAddRef) \
     X(BindGroupLayoutRelease) \
     X(BindGroupRelease) \
+    X(BufferAddRef) \
     X(BufferDestroy) \
     X(BufferGetConstMappedRange) \
     X(BufferGetMapState) \
@@ -123,8 +125,10 @@ using proc_resolver = void* (*)(void* context, const char* name);
     X(RenderBundleEncoderSetIndexBuffer) \
     X(RenderBundleEncoderSetPipeline) \
     X(RenderBundleEncoderSetVertexBuffer) \
+    X(RenderBundleAddRef) \
     X(RenderBundleRelease) \
     X(RenderPipelineGetBindGroupLayout) \
+    X(RenderPipelineAddRef) \
     X(RenderPipelineRelease) \
     X(SamplerRelease) \
     X(ShaderModuleRelease) \
@@ -497,10 +501,14 @@ inline WGPUVertexAttribute vertex_attribute(
 } // namespace progpu::native::webgpu
 
 #if defined(PROGPU_NATIVE_DAWN_ABI)
+#define wgpuBindGroupAddRef \
+    (::progpu::native::webgpu::active_dispatch().wgpuBindGroupAddRef)
 #define wgpuBindGroupLayoutRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuBindGroupLayoutRelease)
 #define wgpuBindGroupRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuBindGroupRelease)
+#define wgpuBufferAddRef \
+    (::progpu::native::webgpu::active_dispatch().wgpuBufferAddRef)
 #define wgpuBufferDestroy \
     (::progpu::native::webgpu::active_dispatch().wgpuBufferDestroy)
 #define wgpuBufferGetConstMappedRange \
@@ -619,10 +627,14 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderSetPipeline)
 #define wgpuRenderBundleEncoderSetVertexBuffer \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleEncoderSetVertexBuffer)
+#define wgpuRenderBundleAddRef \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleAddRef)
 #define wgpuRenderBundleRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderBundleRelease)
 #define wgpuRenderPipelineGetBindGroupLayout \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPipelineGetBindGroupLayout)
+#define wgpuRenderPipelineAddRef \
+    (::progpu::native::webgpu::active_dispatch().wgpuRenderPipelineAddRef)
 #define wgpuRenderPipelineRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuRenderPipelineRelease)
 #define wgpuSamplerRelease \
@@ -651,4 +663,10 @@ inline WGPUVertexAttribute vertex_attribute(
     (::progpu::native::webgpu::active_dispatch().wgpuTextureRelease)
 #define wgpuTextureViewRelease \
     (::progpu::native::webgpu::active_dispatch().wgpuTextureViewRelease)
+#else
+// The pinned header has the older names of the calls that take a reference.
+#define wgpuBindGroupAddRef wgpuBindGroupReference
+#define wgpuBufferAddRef wgpuBufferReference
+#define wgpuRenderBundleAddRef wgpuRenderBundleReference
+#define wgpuRenderPipelineAddRef wgpuRenderPipelineReference
 #endif

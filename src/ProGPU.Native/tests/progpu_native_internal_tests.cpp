@@ -24,6 +24,7 @@
 #include "progpu_native_semantic_image_tests.hpp"
 #include "progpu_native_semantic_layer_mask_tests.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
+#include "progpu_native_semantic_span_commands.hpp"
 #include "progpu_native_scene.hpp"
 #include "progpu_native_scene_builder_tests.hpp"
 #include "progpu_native_semantic_state.hpp"
@@ -55,6 +56,7 @@ static_assert(progpu::native::glyph_path_transfer(0xD08U) == -13.0F);
 #include <thread>
 #include <cstdio>
 #include <source_location>
+#include <string>
 #include <unordered_map>
 
 namespace {
@@ -506,6 +508,361 @@ void glyph_keys_are_validated_exactly() {
         key.raster_scale = scale;
         require(!semantic::is_valid_glyph_key(key));
     }
+}
+
+// The references a test holds, by handle, and the calls a replay made.
+struct span_test_ops {
+    static inline std::unordered_map<std::uintptr_t, int> references;
+    static inline std::unordered_map<std::uintptr_t, int> bundle_releases;
+
+    static void retain(
+        progpu::native::span_commands::handle_kind,
+        std::uintptr_t handle) noexcept {
+        ++references[handle];
+    }
+    static void release(
+        progpu::native::span_commands::handle_kind,
+        std::uintptr_t handle) noexcept {
+        --references[handle];
+    }
+    static void release_bundle(std::uintptr_t bundle) noexcept {
+        ++bundle_releases[bundle];
+    }
+    static int held(std::uintptr_t handle) {
+        const auto found = references.find(handle);
+        return found == references.end() ? 0 : found->second;
+    }
+    static int released(std::uintptr_t bundle) {
+        const auto found = bundle_releases.find(bundle);
+        return found == bundle_releases.end() ? 0 : found->second;
+    }
+    static void reset() {
+        references.clear();
+        bundle_releases.clear();
+    }
+};
+
+struct span_test_sink {
+    using encoder_type = std::string*;
+
+    static void set_pipeline(std::string* out, std::uintptr_t handle) {
+        *out += "P" + std::to_string(handle) + " ";
+    }
+    static void set_bind_group(
+        std::string* out, std::uint32_t slot, std::uintptr_t handle) {
+        *out += "G" + std::to_string(slot) + ":" + std::to_string(handle) + " ";
+    }
+    static void set_vertex_buffer(
+        std::string* out, std::uintptr_t handle, std::uint64_t size) {
+        *out += "V" + std::to_string(handle) + "/" + std::to_string(size) + " ";
+    }
+    static void set_index_buffer(
+        std::string* out, std::uintptr_t handle, std::uint64_t size) {
+        *out += "I" + std::to_string(handle) + "/" + std::to_string(size) + " ";
+    }
+    static void draw(
+        std::string* out,
+        std::uint32_t vertex_count,
+        std::uint32_t instance_count,
+        std::uint32_t first_vertex,
+        std::uint32_t first_instance) {
+        *out += "D" + std::to_string(vertex_count) + "," +
+            std::to_string(instance_count) + "," +
+            std::to_string(first_vertex) + "," +
+            std::to_string(first_instance) + " ";
+    }
+    static void draw_indexed(
+        std::string* out,
+        std::uint32_t index_count,
+        std::uint32_t first_index,
+        std::int32_t base_vertex) {
+        *out += "X" + std::to_string(index_count) + "," +
+            std::to_string(first_index) + "," +
+            std::to_string(base_vertex) + " ";
+    }
+};
+
+void span_command_lists_hold_one_reference_and_replay_exactly() {
+    using namespace progpu::native::span_commands;
+    using store_type = command_store<span_test_ops>;
+    span_test_ops::reset();
+    {
+        store_type store;
+        // Span one: two draws that share everything but the group of slot 1.
+        store.set_pipeline(10U);
+        store.set_bind_group(0U, 20U);
+        store.set_bind_group(1U, 21U);
+        store.set_vertex_buffer(30U, 4096U);
+        store.set_index_buffer(31U, 512U);
+        store.draw_indexed(6U, 0U, 0);
+        store.set_pipeline(10U);
+        store.set_bind_group(0U, 20U);
+        store.set_bind_group(1U, 22U);
+        store.set_vertex_buffer(30U, 4096U);
+        store.set_index_buffer(31U, 512U);
+        store.draw_indexed(6U, 6U, -4);
+        const std::size_t first_count = store.size();
+        // Span two: the same pipeline and groups, an instanced draw whose
+        // counts use every bit.
+        store.set_pipeline(10U);
+        store.set_bind_group(0U, 20U);
+        store.set_vertex_buffer(30U, 8192U);
+        store.draw(4U, 0xFFFFFFFFU, 0x80000000U, 7U);
+        require(!store.failed());
+        // One reference for every handle, however often it is named.
+        require(store.held_count() == 6U);
+        for (std::uintptr_t handle : {10U, 20U, 21U, 22U, 30U, 31U}) {
+            require(span_test_ops::held(handle) == 1);
+        }
+
+        // A replay into a pass with nothing set gives every command once and
+        // leaves out what is set already.
+        std::string out;
+        replay_state state{};
+        require(replay<span_test_sink>(
+            &out, store.data(), first_count, state));
+        require(out ==
+            "P10 G0:20 G1:21 V30/4096 I31/512 X6,0,0 "
+            "G1:22 X6,6,-4 ");
+        // The next span goes on from the state of the pass. The buffer is the
+        // same one with another size, so it is set again.
+        out.clear();
+        require(replay<span_test_sink>(
+            &out,
+            store.data() + first_count,
+            store.size() - first_count,
+            state));
+        require(out == "V30/8192 D4,4294967295,2147483648,7 ");
+        // After something else drew into the pass nothing is taken as set.
+        out.clear();
+        state.reset();
+        require(replay<span_test_sink>(
+            &out,
+            store.data() + first_count,
+            store.size() - first_count,
+            state));
+        require(out == "P10 G0:20 V30/8192 D4,4294967295,2147483648,7 ");
+
+        // The handles of a list, each once and with its kind.
+        std::vector<held_handle> handles;
+        require(collect_handles(store.data(), first_count, handles));
+        require(handles.size() == 6U);
+        require(handles[0].kind == handle_kind::pipeline &&
+            handles[0].handle == 10U);
+        require(handles[2].kind == handle_kind::bind_group &&
+            handles[2].handle == 21U);
+        require(handles[3].kind == handle_kind::buffer &&
+            handles[3].handle == 30U);
+
+        // A list that was cut short, an unknown command and a slot out of
+        // range are refused and nothing is called for them.
+        out.clear();
+        state.reset();
+        require(!replay<span_test_sink>(
+            &out, store.data(), first_count - 1U, state));
+        const std::array<std::uint64_t, 2U> unknown{9U, 1U};
+        require(!replay<span_test_sink>(
+            &out, unknown.data(), unknown.size(), state));
+        const std::array<std::uint64_t, 2U> bad_slot{
+            op_set_bind_group | (4ULL << 8U), 1U};
+        out.clear();
+        require(!replay<span_test_sink>(
+            &out, bad_slot.data(), bad_slot.size(), state));
+        require(out.empty());
+
+        // The words are the identity of a list: one changed handle or count
+        // is another hash, and the seed keeps target formats apart.
+        const auto hash = hash_words(1U, store.data(), first_count);
+        require(hash == hash_words(1U, store.data(), first_count));
+        require(hash != hash_words(2U, store.data(), first_count));
+        require(first_count > 0U);
+        std::vector<std::uint64_t> changed(
+            store.data(), store.data() + first_count);
+        changed[first_count - 1U] ^= 1U;
+        require(hash != hash_words(1U, changed.data(), changed.size()));
+
+        // A moved store takes the references with it.
+        store_type moved = std::move(store);
+        require(store.size() == 0U && store.held_count() == 0U);
+        require(moved.held_count() == 6U);
+        require(span_test_ops::held(30U) == 1);
+        store_type assigned;
+        assigned.set_pipeline(40U);
+        require(span_test_ops::held(40U) == 1);
+        assigned = std::move(moved);
+        require(span_test_ops::held(40U) == 0);
+        require(assigned.held_count() == 6U);
+        require(span_test_ops::held(22U) == 1);
+        assigned.clear();
+        require(assigned.size() == 0U);
+        for (std::uintptr_t handle : {10U, 20U, 21U, 22U, 30U, 31U}) {
+            require(span_test_ops::held(handle) == 0);
+        }
+
+        // A null handle or a slot the pass does not have marks the store.
+        store_type bad;
+        bad.set_pipeline(0U);
+        require(bad.failed());
+        store_type bad_group;
+        bad_group.set_bind_group(4U, 5U);
+        require(bad_group.failed() && span_test_ops::held(5U) == 0);
+        // The destructor releases what is still held.
+        store_type last;
+        last.set_vertex_buffer(50U, 16U);
+        require(span_test_ops::held(50U) == 1);
+    }
+    require(span_test_ops::held(50U) == 0);
+}
+
+void kept_span_bundles_follow_the_content_of_their_lists() {
+    using namespace progpu::native::span_commands;
+    using store_type = command_store<span_test_ops>;
+    using cache_type = kept_bundle_cache<span_test_ops>;
+    span_test_ops::reset();
+    constexpr std::uint32_t format = 23U;
+    const auto record = [](store_type& store, std::uintptr_t group) {
+        const std::size_t begin = store.size();
+        store.set_pipeline(10U);
+        store.set_bind_group(0U, group);
+        store.set_vertex_buffer(30U, 64U);
+        store.draw(4U, 1U, 0U, 0U);
+        return begin;
+    };
+    {
+        cache_type cache;
+        // What the engine does with the list of a span in one compile.
+        // Returns the bundle the span draws by, zero when it is replayed.
+        std::uintptr_t next_bundle = 1000U;
+        std::uint32_t made = 0U;
+        const auto compile_span = [&](const store_type& store,
+                std::size_t begin, std::size_t count,
+                std::uint32_t list_format) -> std::uintptr_t {
+            const auto* words = store.data() + begin;
+            const auto hash = hash_words(list_format, words, count);
+            if (const auto kept = cache.find(hash, list_format, words, count);
+                kept != 0U) {
+                return kept;
+            }
+            if (cache.met_before(hash)) {
+                const auto bundle = next_bundle++;
+                ++made;
+                require(cache.insert(hash, list_format, words, count, bundle));
+                return bundle;
+            }
+            cache.note(hash);
+            return 0U;
+        };
+
+        // Compile 1: both lists are new and are replayed directly.
+        store_type first;
+        cache.begin_compile();
+        const auto a1 = record(first, 20U);
+        const auto b1 = record(first, 21U);
+        const auto length = b1 - a1;
+        require(compile_span(first, a1, length, format) == 0U);
+        require(compile_span(first, b1, length, format) == 0U);
+        cache.end_compile();
+        require(cache.size() == 0U && made == 0U);
+
+        // Compile 2: the same lists again, so each becomes a bundle. The
+        // entry holds a reference of its own on every handle.
+        store_type second;
+        cache.begin_compile();
+        const auto a2 = record(second, 20U);
+        const auto b2 = record(second, 21U);
+        const auto bundle_a = compile_span(second, a2, length, format);
+        const auto bundle_b = compile_span(second, b2, length, format);
+        cache.end_compile();
+        require(bundle_a == 1000U && bundle_b == 1001U && made == 2U);
+        require(cache.size() == 2U);
+        first.clear();
+        require(span_test_ops::held(20U) == 2);
+        require(span_test_ops::held(21U) == 2);
+        require(span_test_ops::held(10U) == 3);
+
+        // Compile 3: one list changed. The other is found by its content and
+        // nothing is made; the changed one is replayed directly, and the
+        // bundle nobody asked for is released with its references.
+        store_type third;
+        cache.begin_compile();
+        const auto a3 = record(third, 20U);
+        const auto c3 = record(third, 22U);
+        require(compile_span(third, a3, length, format) == bundle_a);
+        require(compile_span(third, c3, length, format) == 0U);
+        cache.end_compile();
+        second.clear();
+        require(made == 2U && cache.size() == 1U);
+        require(span_test_ops::released(bundle_b) == 1);
+        require(span_test_ops::released(bundle_a) == 0);
+        require(span_test_ops::held(21U) == 0);
+        require(span_test_ops::held(20U) == 2);
+
+        // Compile 4: the changed list repeats and becomes a bundle now. The
+        // same words for another target format are another list.
+        store_type fourth;
+        cache.begin_compile();
+        const auto a4 = record(fourth, 20U);
+        const auto c4 = record(fourth, 22U);
+        require(compile_span(fourth, a4, length, format + 1U) == 0U);
+        require(compile_span(fourth, a4, length, format) == bundle_a);
+        const auto bundle_c = compile_span(fourth, c4, length, format);
+        cache.end_compile();
+        third.clear();
+        require(bundle_c == 1002U && made == 3U && cache.size() == 2U);
+
+        // A list that was not met in the compile just before starts again:
+        // being met twice with a compile between does not make a bundle.
+        store_type fifth;
+        cache.begin_compile();
+        const auto d5 = record(fifth, 23U);
+        require(compile_span(fifth, d5, length, format) == 0U);
+        cache.end_compile();
+        require(cache.size() == 0U);
+        require(span_test_ops::released(bundle_a) == 1);
+        require(span_test_ops::released(bundle_c) == 1);
+        store_type sixth;
+        cache.begin_compile();
+        const auto a6 = record(sixth, 20U);
+        require(compile_span(sixth, a6, length, format) == 0U);
+        cache.end_compile();
+        store_type seventh;
+        cache.begin_compile();
+        const auto d7 = record(seventh, 23U);
+        require(compile_span(seventh, d7, length, format) == 0U);
+        const auto a7 = record(seventh, 20U);
+        const auto bundle_a7 = compile_span(seventh, a7, length, format);
+        require(bundle_a7 == 1003U);
+        cache.end_compile();
+        require(cache.size() == 1U);
+
+        // A compile that fails ends without end_compile: what is kept stays
+        // until a compile that completes does not ask for it.
+        cache.begin_compile();
+        cache.begin_compile();
+        store_type eighth;
+        const auto a8 = record(eighth, 20U);
+        require(compile_span(eighth, a8, length, format) == bundle_a7);
+        cache.end_compile();
+        require(cache.size() == 1U);
+        require(span_test_ops::released(bundle_a7) == 0);
+
+        // A list that is not well formed is not kept and its bundle stays
+        // with the caller.
+        const std::array<std::uint64_t, 2U> unknown{9U, 1U};
+        require(!cache.insert(5U, format, unknown.data(), unknown.size(), 77U));
+        require(span_test_ops::released(77U) == 0);
+        fourth.clear();
+        fifth.clear();
+        sixth.clear();
+        seventh.clear();
+        eighth.clear();
+        require(span_test_ops::held(20U) == 1);
+        // The cache releases what it holds when it goes.
+    }
+    require(span_test_ops::released(1003U) == 1);
+    require(span_test_ops::held(20U) == 0);
+    require(span_test_ops::held(10U) == 0);
+    require(span_test_ops::held(30U) == 0);
 }
 
 void content_hash_reads_words_and_keeps_ranges_apart() {
@@ -2740,6 +3097,8 @@ int main() {
     glyph_atlas_cache_finds_registered_outlines_by_key();
     glyph_keys_are_validated_exactly();
     content_hash_reads_words_and_keeps_ranges_apart();
+    span_command_lists_hold_one_reference_and_replay_exactly();
+    kept_span_bundles_follow_the_content_of_their_lists();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();
