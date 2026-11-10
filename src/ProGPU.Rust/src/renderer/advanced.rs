@@ -5,6 +5,18 @@ use crate::{
     scene::{AdvancedImage, LayerBlend},
 };
 
+mod hinted;
+use hinted::HintedSource;
+
+type PendingSource = (
+    usize,
+    Option<usize>,
+    AdvancedImage,
+    [u32; 4],
+    [u32; 4],
+    Option<HintedSource>,
+);
+
 const ALIGNMENT: u64 = 256;
 
 /// Actual destination-aware resources and work for one prepared target.
@@ -141,7 +153,8 @@ struct Operation {
     draw_index: usize,
     state_index: Option<usize>,
     source_binding: usize,
-    resolve_frame: wgpu::BindGroup,
+    resolve_frame: Option<wgpu::BindGroup>,
+    hinted: Option<HintedSource>,
     blend_binding: wgpu::BindGroup,
     scissor: [u32; 4],
     first_vertex: u64,
@@ -258,7 +271,7 @@ impl Renderer {
         frame: RenderFrame,
         prepared: &mut PreparedScene,
     ) -> Result<(), Error> {
-        let mut pending = Vec::<(usize, Option<usize>, &AdvancedImage, [u32; 4], [u32; 4])>::new();
+        let mut pending = Vec::<PendingSource>::new();
         let mut host_pending = Vec::new();
         let mut mask_index = None;
         let mut source_size = [0u32; 2];
@@ -279,11 +292,47 @@ impl Renderer {
                         host_pending.push((index, mask_index, *backdrop, scissor));
                     }
                 }
+                DrawRange::HintedText(range, vertex_count, Some(binding)) => {
+                    let current = compiled
+                        .states
+                        .get(mask_index.unwrap_or(0))
+                        .ok_or(Error::ResourceDomain)?;
+                    if current.blend.is_fixed() {
+                        continue;
+                    }
+                    let scissor = mask_index
+                        .and_then(|i| prepared.masks.as_ref().and_then(|m| m.states.get(i)))
+                        .map_or([0, 0, frame.width, frame.height], |s| s.scissor);
+                    let bounds = hinted::bounds(compiled, range, frame, scissor)?;
+                    let [_, _, w, h] = bounds;
+                    if w == 0 || h == 0 {
+                        continue;
+                    }
+                    source_size[0] = source_size[0].max(w);
+                    source_size[1] = source_size[1].max(h);
+                    pending.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    pending.push((
+                        index,
+                        mask_index,
+                        AdvancedImage {
+                            binding: *binding,
+                            blend: current.blend,
+                            bounds: Some(bounds),
+                            opacity: 1.0,
+                            raster_operation: None,
+                            source_range: None,
+                            pattern_binding: None,
+                        },
+                        [0, 0, w, h],
+                        bounds,
+                        Some(HintedSource::new(range.clone(), *vertex_count)),
+                    ));
+                }
                 DrawRange::Advanced(draw) => {
                     if draw.blend.is_fixed() && draw.raster_operation.is_none() {
                         return Err(Error::ResourceDomain);
                     }
-                    let bounds = match draw.bounds {
+                    let mut bounds = match draw.bounds {
                         Some(bounds) => bounds,
                         None => raster_bounds(
                             compiled,
@@ -291,6 +340,22 @@ impl Renderer {
                             frame,
                         )?,
                     };
+                    if draw.bounds.is_none() {
+                        let [cx, cy, cw, ch] = mask_index
+                            .and_then(|i| prepared.masks.as_ref().and_then(|m| m.states.get(i)))
+                            .map_or([0, 0, frame.width, frame.height], |s| s.scissor);
+                        let [x, y, w, h] = bounds;
+                        let left = x.max(frame.origin[0] + cx);
+                        let top = y.max(frame.origin[1] + cy);
+                        let right = (x + w).min(frame.origin[0] + cx + cw);
+                        let bottom = (y + h).min(frame.origin[1] + cy + ch);
+                        bounds = [
+                            left,
+                            top,
+                            right.saturating_sub(left),
+                            bottom.saturating_sub(top),
+                        ];
+                    }
                     let [x, y, w, h] = bounds;
                     if w == 0 || h == 0 {
                         continue;
@@ -333,7 +398,7 @@ impl Renderer {
                     source_size[0] = source_size[0].max(w);
                     source_size[1] = source_size[1].max(h);
                     pending.try_reserve(1).map_err(|_| Error::Capacity)?;
-                    pending.push((index, mask_index, draw, scissor, bounds));
+                    pending.push((index, mask_index, draw.clone(), scissor, bounds, None));
                 }
                 _ => {}
             }
@@ -357,8 +422,9 @@ impl Renderer {
         {
             return Err(Error::Capacity);
         }
-        let needs_mask = pending.iter().any(|(_, index, draw, _, _)| {
-            draw.raster_operation.is_none()
+        let needs_mask = pending.iter().any(|(_, index, draw, _, _, hinted)| {
+            hinted.is_none()
+                && draw.source_range.is_none()
                 && index.is_some_and(|i| {
                     prepared
                         .masks
@@ -376,8 +442,9 @@ impl Renderer {
             );
         }
         for masked in [false, true] {
-            if pending.iter().any(|(_, index, draw, _, _)| {
-                draw.raster_operation.is_some()
+            if pending.iter().any(|(_, index, draw, _, _, hinted)| {
+                hinted.is_none()
+                    && draw.source_range.is_some()
                     && index.is_some_and(|i| {
                         prepared
                             .masks
@@ -462,7 +529,7 @@ impl Renderer {
         &self,
         state: &AdvancedState,
         frame: RenderFrame,
-        pending: Vec<(usize, Option<usize>, &AdvancedImage, [u32; 4], [u32; 4])>,
+        pending: Vec<PendingSource>,
         source_size: [u32; 2],
         texture_bytes: u64,
         uniform_bytes: u64,
@@ -539,7 +606,7 @@ impl Renderer {
         data.try_reserve_exact(uniform_bytes as usize)
             .map_err(|_| Error::Capacity)?;
         data.resize(uniform_bytes as usize, 0u8);
-        for (index, (_, _, draw, _, bounds)) in pending.iter().enumerate() {
+        for (index, (_, _, draw, _, bounds, _)) in pending.iter().enumerate() {
             let [x, y, w, h] = *bounds;
             let mut uniforms = SamplingUniforms {
                 // Preserve native subtraction AFTER each integer-to-float conversion.
@@ -570,7 +637,7 @@ impl Renderer {
         operations
             .try_reserve_exact(pending.len())
             .map_err(|_| Error::Capacity)?;
-        for (index, (draw_index, state_index, draw, scissor, bounds)) in
+        for (index, (draw_index, state_index, draw, scissor, bounds, mut hinted)) in
             pending.into_iter().enumerate()
         {
             let [x, y, w, h] = bounds;
@@ -581,7 +648,7 @@ impl Renderer {
             }
             .uniforms(device.limits().max_texture_dimension_2d)?;
             uniforms.render_origin = [x as f32, y as f32];
-            if draw.raster_operation.is_some() {
+            if draw.source_range.is_some() || hinted.is_some() {
                 // Original managed bounded-source frame. Keep multiplication
                 // before division and original global source pixel origin.
                 let sw = source_size[0] as f32;
@@ -607,10 +674,24 @@ impl Renderer {
                 uniforms.projection = projection;
                 uniforms.mvp = projection;
                 uniforms.canvas_size = [x as f32, y as f32];
-                uniforms.pad0 = 2.0;
+                uniforms.pad0 = if draw.raster_operation.is_some() {
+                    2.0
+                } else {
+                    1.0
+                };
                 uniforms.render_origin = [0.0; 2];
             }
-            let resolve_frame = frame_binding(device, &state.copy, uniforms);
+            let resolve_frame = if let Some(hinted) = hinted.as_mut() {
+                hinted.uniform = Some(buffer(
+                    device,
+                    "ProGPU original hinted bounded frame",
+                    bytemuck::bytes_of(&uniforms),
+                    wgpu::BufferUsages::UNIFORM,
+                ));
+                None
+            } else {
+                Some(frame_binding(device, &state.copy, uniforms))
+            };
             let blend_binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ProGPU immutable original advanced blend binding"),
                 layout: &state.layout,
@@ -651,6 +732,7 @@ impl Renderer {
                 state_index,
                 source_binding: draw.binding,
                 resolve_frame,
+                hinted,
                 blend_binding,
                 scissor,
                 first_vertex,
@@ -755,7 +837,6 @@ impl Renderer {
                 unreachable!()
             };
             let operation = &advanced.operations[*index];
-            let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
             self.encode_span(
                 encoder,
                 scene,
@@ -779,44 +860,59 @@ impl Renderer {
                 );
                 let [x, y, w, h] = operation.scissor;
                 pass.set_scissor_rect(x, y, w, h);
-                pass.set_pipeline(if operation.source_range.is_some() {
-                    advanced.state.raster[usize::from(mask.is_some())]
-                        .as_ref()
-                        .ok_or(Error::ResourceDomain)?
-                } else if mask.is_some() {
-                    advanced
-                        .state
-                        .masked
-                        .as_ref()
-                        .ok_or(Error::ResourceDomain)?
+                if operation.hinted.is_some() {
+                    self.draw_advanced_hinted(&mut pass, scene, operation, mask)?;
                 } else {
-                    &advanced.state.copy
-                });
-                pass.set_bind_group(0, &operation.resolve_frame, &[]);
-                pass.set_bind_group(
-                    1,
-                    images
-                        .bindings
-                        .get(operation.source_binding)
-                        .ok_or(Error::ResourceDomain)?,
-                    &[],
-                );
-                if let Some(mask) = mask {
-                    pass.set_bind_group(2, mask, &[]);
-                }
-                if let Some(range) = &operation.source_range {
-                    pass.set_vertex_buffer(0, images.vertices.slice(..));
-                    pass.set_index_buffer(images.indices.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(range.clone(), 0, 0..1);
-                } else {
-                    pass.set_vertex_buffer(
-                        0,
+                    let images = scene.images.as_ref().ok_or(Error::ResourceDomain)?;
+                    pass.set_pipeline(if operation.source_range.is_some() {
+                        advanced.state.raster[usize::from(mask.is_some())]
+                            .as_ref()
+                            .ok_or(Error::ResourceDomain)?
+                    } else if mask.is_some() {
                         advanced
-                            .vertices
-                            .slice(operation.first_vertex..operation.first_vertex + 224),
+                            .state
+                            .masked
+                            .as_ref()
+                            .ok_or(Error::ResourceDomain)?
+                    } else {
+                        &advanced.state.copy
+                    });
+                    pass.set_bind_group(
+                        0,
+                        operation
+                            .resolve_frame
+                            .as_ref()
+                            .ok_or(Error::ResourceDomain)?,
+                        &[],
                     );
-                    pass.set_index_buffer(advanced.indices.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..6, 0, 0..1);
+                    pass.set_bind_group(
+                        1,
+                        images
+                            .bindings
+                            .get(operation.source_binding)
+                            .ok_or(Error::ResourceDomain)?,
+                        &[],
+                    );
+                    if let Some(mask) = mask {
+                        pass.set_bind_group(2, mask, &[]);
+                    }
+                    if let Some(range) = &operation.source_range {
+                        pass.set_vertex_buffer(0, images.vertices.slice(..));
+                        pass.set_index_buffer(images.indices.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(range.clone(), 0, 0..1);
+                    } else {
+                        pass.set_vertex_buffer(
+                            0,
+                            advanced
+                                .vertices
+                                .slice(operation.first_vertex..operation.first_vertex + 224),
+                        );
+                        pass.set_index_buffer(
+                            advanced.indices.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        pass.draw_indexed(0..6, 0, 0..1);
+                    }
                 }
             }
             {

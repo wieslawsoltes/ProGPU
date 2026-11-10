@@ -2,12 +2,14 @@
 use super::*;
 
 pub(in crate::renderer) struct HintedPaintState {
-    pipelines: [wgpu::RenderPipeline; 2],
+    pipelines: [wgpu::RenderPipeline; 4],
     placeholder: wgpu::BindGroup,
 }
 pub(in crate::renderer) struct PreparedHintedPaint {
     bindings: wgpu::BindGroup,
     placeholder: wgpu::BindGroup,
+    buffers: [wgpu::Buffer; 3],
+    layout: wgpu::BindGroupLayout,
 }
 impl HintedPaintState {
     pub(super) async fn new(renderer: &Renderer) -> Result<Self, Error> {
@@ -20,7 +22,13 @@ impl HintedPaintState {
         let pipeline_layout = layout::hinted_text(device);
         let attributes = wgpu::vertex_attr_array![0=>Float32x2, 1=>Float32x2, 2=>Float32x2,
             3=>Float32x4, 4=>Float32x4, 5=>Float32x4, 6=>Float32x4, 7=>Float32, 8=>Uint32];
-        let pipelines = ["fs_main_unmasked", "fs_main_mask_chain"].map(|entry| {
+        let pipelines = [
+            "fs_main_unmasked",
+            "fs_main_mask_chain",
+            "fs_main_premultiplied_unmasked",
+            "fs_main_mask_chain_premultiplied",
+        ]
+        .map(|entry| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("ProGPU original direct hinted glyph material"),
                 layout: Some(&pipeline_layout),
@@ -43,7 +51,11 @@ impl HintedPaintState {
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: renderer.format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend: Some(if entry.contains("premultiplied") {
+                            wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING
+                        } else {
+                            wgpu::BlendState::ALPHA_BLENDING
+                        }),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -180,6 +192,8 @@ impl HintedPaintState {
         Ok(PreparedHintedPaint {
             bindings,
             placeholder: self.placeholder.clone(),
+            buffers,
+            layout: self.pipelines[0].get_bind_group_layout(0),
         })
     }
     pub(in crate::renderer) fn draw(
@@ -191,13 +205,17 @@ impl HintedPaintState {
         mask: Option<&wgpu::BindGroup>,
         texture: Option<&wgpu::BindGroup>,
         pipeline: Option<&wgpu::RenderPipeline>,
+        frame: Option<&wgpu::BindGroup>,
+        source_premultiplied: bool,
     ) -> Result<(), Error> {
         let paint = text.hinted.as_ref().ok_or(Error::ResourceDomain)?;
         if !matches!(vertex_count, 6 | 12) {
             return Err(Error::InvalidInput);
         }
-        pass.set_pipeline(pipeline.unwrap_or(&self.pipelines[usize::from(mask.is_some())]));
-        pass.set_bind_group(0, &paint.bindings, &[]);
+        pass.set_pipeline(pipeline.unwrap_or(
+            &self.pipelines[usize::from(mask.is_some()) + 2 * usize::from(source_premultiplied)],
+        ));
+        pass.set_bind_group(0, frame.unwrap_or(&paint.bindings), &[]);
         pass.set_bind_group(1, &text.atlas, &[]);
         if let Some(mask) = mask {
             pass.set_bind_group(2, mask, &[]);
@@ -206,5 +224,36 @@ impl HintedPaintState {
         pass.set_vertex_buffer(0, text.instances.slice(..));
         pass.draw(0..vertex_count, range);
         Ok(())
+    }
+}
+
+impl PreparedHintedPaint {
+    pub(in crate::renderer) fn with_frame(
+        &self,
+        device: &wgpu::Device,
+        uniform: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ProGPU retained hinted bounded source frame"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.buffers[0].as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.buffers[1].as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.buffers[2].as_entire_binding(),
+                },
+            ],
+        })
     }
 }

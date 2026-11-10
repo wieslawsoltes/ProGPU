@@ -22,7 +22,7 @@ pub(super) struct PreparedText {
     pub instances: wgpu::Buffer,
     pub bindings: wgpu::BindGroup,
     pub atlas: wgpu::BindGroup,
-    hinted: Option<PreparedHintedPaint>,
+    pub(in crate::renderer) hinted: Option<PreparedHintedPaint>,
     residency: GlyphAtlasResidency,
     statistics: GlyphAtlasStatistics,
 }
@@ -310,6 +310,7 @@ impl Renderer {
             }
             prepared.metrics.uniform_bytes += size_of::<Uniforms>() as u64;
             prepared.text = Some(state.upload(self, &compiled, resolved, frame)?);
+            self.finish_advanced_text(&mut prepared)?;
         }
         self.text = Some(state);
         Ok(prepared)

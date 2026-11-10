@@ -205,6 +205,7 @@ impl PreparedScene {
     fn draw_count(&self) -> Result<u32, Error> {
         let mut drawable = true;
         let mut count = 0u32;
+        let mut blend = crate::scene::LayerBlend::SrcOver;
         for draw in &self.draws {
             if let DrawRange::State(index) = draw {
                 let state = self
@@ -213,7 +214,11 @@ impl PreparedScene {
                     .and_then(|m| m.states.get(*index))
                     .ok_or(Error::ResourceDomain)?;
                 drawable = state.scissor[2] != 0 && state.scissor[3] != 0;
-            } else if drawable && !matches!(draw, DrawRange::Advanced(_)) {
+                blend = state.blend;
+            } else if drawable
+                && !matches!(draw, DrawRange::Advanced(_))
+                && !(matches!(draw, DrawRange::HintedText(_, _, Some(_))) && !blend.is_fixed())
+            {
                 let draws = if let DrawRange::Axis(i) = draw {
                     let child = self.groups.children.get(*i).ok_or(Error::ResourceDomain)?;
                     child
@@ -607,7 +612,6 @@ impl Renderer {
         self.validate_shaders(compiled, frame)?;
         self.validate_managed_shaders(compiled, frame)?;
         self.validate_backdrops(compiled, frame)?;
-        self.prepare_draw_blends(compiled).await?;
         let (mask_bytes, mask_passes) = self.compiled_mask_cost(compiled, frame)?;
         let (effect_bytes, effect_passes) = self.validate_image_effects(compiled)?;
         let (filter_bytes, filter_passes) = self.validate_color_filters(compiled)?;
@@ -653,6 +657,7 @@ impl Renderer {
         prepared.groups = groups;
         self.prepare_images(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, frame, &mut prepared).await?;
+        self.prepare_draw_blends(compiled, &prepared).await?;
         self.prepare_clears(compiled, &mut prepared).await?;
         self.prepare_image_effects(compiled, frame, &mut prepared)
             .await?;
@@ -1210,6 +1215,11 @@ impl Renderer {
                     continue;
                 }
                 if let DrawRange::HintedText(range, vertex_count, binding) = draw {
+                    if binding.is_some() && !blend.is_fixed() {
+                        // Nonempty sources are consumed at this exact painter
+                        // position by the destination executor; empty sources skip.
+                        continue;
+                    }
                     let state = self.text.as_ref().ok_or(Error::ResourceDomain)?;
                     let text = scene.text.as_ref().ok_or(Error::ResourceDomain)?;
                     let texture = binding
@@ -1221,6 +1231,16 @@ impl Renderer {
                                 .ok_or(Error::ResourceDomain)
                         })
                         .transpose()?;
+                    let source_premultiplied = binding
+                        .map(|index| {
+                            scene
+                                .images
+                                .as_ref()
+                                .ok_or(Error::ResourceDomain)?
+                                .source_premultiplied(index)
+                        })
+                        .transpose()?
+                        .unwrap_or(false);
                     state.hinted.as_ref().ok_or(Error::ResourceDomain)?.draw(
                         &mut pass,
                         text,
@@ -1228,8 +1248,14 @@ impl Renderer {
                         *vertex_count,
                         masked,
                         texture,
-                        self.draw_blends
-                            .get(blend::Family::Hinted, blend, masked.is_some())?,
+                        self.draw_blends.get(
+                            blend::Family::Hinted,
+                            blend,
+                            masked.is_some(),
+                            source_premultiplied,
+                        )?,
+                        None,
+                        source_premultiplied,
                     )?;
                     continue;
                 }
@@ -1268,7 +1294,7 @@ impl Renderer {
                     DrawRange::Vector(range) => {
                         pass.set_pipeline(
                             self.draw_blends
-                                .get(blend::Family::Vector, blend, masked.is_some())?
+                                .get(blend::Family::Vector, blend, masked.is_some(), false)?
                                 .unwrap_or_else(|| masked_pipeline.unwrap_or(&self.pipeline)),
                         );
                         pass.set_bind_group(0, &scene.bindings, &[]);
@@ -1285,7 +1311,7 @@ impl Renderer {
                         let text = scene.text.as_ref().ok_or(Error::ResourceDomain)?;
                         pass.set_pipeline(
                             self.draw_blends
-                                .get(blend::Family::Text, blend, masked.is_some())?
+                                .get(blend::Family::Text, blend, masked.is_some(), false)?
                                 .unwrap_or_else(|| masked_pipeline.unwrap_or(&state.pipeline)),
                         );
                         pass.set_bind_group(0, &text.bindings, &[]);

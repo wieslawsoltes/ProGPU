@@ -3,13 +3,11 @@
 use super::*;
 
 impl Scene {
-    /// Push original per-draw destination blending. Fixed-function modes retain
-    /// their actual geometry and fragment coverage; no isolated layer is created.
-    /// Destination-reading vector modes require their independent resolve path.
+    /// Push the original family-specific compositor blend policy. Images and
+    /// spatial hinted paint resolve destination-reading modes; ordinary vectors
+    /// and text use `LayerBlend::managed_vector_effective_mode` and original
+    /// fixed factors. Semantic isolated layers keep their separate exact resolve.
     pub fn push_blend(&mut self, blend: LayerBlend) -> Result<(), Error> {
-        if !blend.is_fixed() {
-            return Err(Error::UnsupportedExecution);
-        }
         let depth = self.scope_depth.checked_add(1).ok_or(Error::Capacity)?;
         let blend_depth = self.blend_depth.checked_add(1).ok_or(Error::Capacity)?;
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
@@ -45,13 +43,71 @@ impl LayerBlend {
                 | Self::Xor
                 | Self::DstOver
                 | Self::Modulate
+                | Self::Multiply
+                | Self::Screen
+                | Self::Darken
+                | Self::Lighten
+                | Self::Exclusion
         )
+    }
+    /// Original managed Vector/Text selection. The five extra fixed-factor
+    /// modes retain their original formulas, including their distinct alpha
+    /// equations. Remaining advanced modes fall back to SrcOver, as in the
+    /// original RenderPipelineCache; this does not claim exact layer blending.
+    pub fn managed_vector_effective_mode(self) -> Self {
+        match self {
+            Self::Overlay
+            | Self::ColorDodge
+            | Self::ColorBurn
+            | Self::HardLight
+            | Self::SoftLight
+            | Self::Difference
+            | Self::Hue
+            | Self::Saturation
+            | Self::Color
+            | Self::Luminosity => Self::SrcOver,
+            _ => self,
+        }
     }
     #[cfg(feature = "gpu")]
     pub(crate) fn straight_draw_state(self) -> Result<wgpu::BlendState, Error> {
-        let mut state = self.fixed()?;
-        if matches!(self, Self::SrcOver | Self::Src | Self::Plus) {
-            state.color.src_factor = wgpu::BlendFactor::SrcAlpha;
+        use wgpu::{BlendComponent as C, BlendFactor as F, BlendOperation as O};
+        let component = |src_factor, dst_factor, operation| C {
+            src_factor,
+            dst_factor,
+            operation,
+        };
+        let over_alpha = component(F::One, F::OneMinusSrcAlpha, O::Add);
+        let extra = match self {
+            Self::Multiply => Some(wgpu::BlendState {
+                color: component(F::Dst, F::OneMinusSrcAlpha, O::Add),
+                alpha: over_alpha,
+            }),
+            Self::Screen => Some(wgpu::BlendState {
+                color: component(F::One, F::OneMinusSrc, O::Add),
+                alpha: component(F::One, F::OneMinusSrc, O::Add),
+            }),
+            Self::Darken | Self::Lighten => Some(wgpu::BlendState {
+                color: component(
+                    F::One,
+                    F::One,
+                    if self == Self::Darken { O::Min } else { O::Max },
+                ),
+                alpha: component(F::One, F::One, O::Max),
+            }),
+            Self::Exclusion => Some(wgpu::BlendState {
+                color: component(F::OneMinusDst, F::OneMinusSrc, O::Add),
+                alpha: over_alpha,
+            }),
+            _ => None,
+        };
+        if let Some(state) = extra {
+            return Ok(state);
+        }
+        let selected = self.managed_vector_effective_mode();
+        let mut state = selected.fixed()?;
+        if matches!(selected, Self::SrcOver | Self::Src | Self::Plus) {
+            state.color.src_factor = F::SrcAlpha;
         }
         Ok(state)
     }
@@ -87,7 +143,11 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
             Ok(())
         }
         #[cfg(feature = "gpu")]
-        Command::BackdropMaterial(draw) if draw.blend == LayerBlend::SrcOver => Ok(()),
+        Command::BackdropMaterial(draw)
+            if blend.is_fixed() && draw.blend == LayerBlend::SrcOver =>
+        {
+            Ok(())
+        }
         #[cfg(feature = "gpu")]
         Command::Glyph(_) | Command::HintedGlyphPaint(_) => Ok(()),
         // Other families own independent blend/filter contracts. Their remaining

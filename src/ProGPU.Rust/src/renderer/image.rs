@@ -648,3 +648,14 @@ impl PreparedImages {
         }
     }
 }
+
+impl PreparedImages {
+    pub(super) fn source_premultiplied(&self, index: usize) -> Result<bool, Error> {
+        Ok(self
+            .sources
+            .get(index)
+            .ok_or(Error::ResourceDomain)?
+            .alpha()
+            == crate::image::ImageAlpha::Premultiplied)
+    }
+}

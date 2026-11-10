@@ -12,7 +12,7 @@ pub(super) enum Family {
 }
 #[derive(Default)]
 pub(super) struct DrawBlendPipelines {
-    pipelines: HashMap<(Family, LayerBlend, bool), wgpu::RenderPipeline>,
+    pipelines: HashMap<(Family, LayerBlend, bool, bool), wgpu::RenderPipeline>,
 }
 impl DrawBlendPipelines {
     pub(super) fn get(
@@ -20,12 +20,13 @@ impl DrawBlendPipelines {
         family: Family,
         blend: LayerBlend,
         masked: bool,
+        source_premultiplied: bool,
     ) -> Result<Option<&wgpu::RenderPipeline>, Error> {
         if blend == LayerBlend::SrcOver {
             return Ok(None);
         }
         self.pipelines
-            .get(&(family, blend, masked))
+            .get(&(family, blend, masked, source_premultiplied))
             .map(Some)
             .ok_or(Error::ResourceDomain)
     }
@@ -36,19 +37,24 @@ impl DrawBlendPipelines {
         family: Family,
         blend: LayerBlend,
         masked: bool,
+        source_premultiplied: bool,
     ) -> Result<(), Error> {
-        let key = (family, blend, masked);
+        let key = (family, blend, masked, source_premultiplied);
         if blend == LayerBlend::SrcOver || self.pipelines.contains_key(&key) {
             return Ok(());
         }
-        let blend_state = blend.straight_draw_state()?;
+        let blend_state = if source_premultiplied {
+            blend.fixed()?
+        } else {
+            blend.straight_draw_state()?
+        };
         self.pipelines.try_reserve(1).map_err(|_| Error::Capacity)?;
         let source = match family {
             Family::Vector => shaders::VECTOR,
             Family::Text => shaders::TEXT,
             Family::Hinted => shaders::HINTED_GLYPH_PAINT,
         };
-        let premultiplied = blend.requires_premultiplied();
+        let premultiplied = source_premultiplied || blend.requires_premultiplied();
         let entry = match (family, masked, premultiplied) {
             (_, false, false) => "fs_main_unmasked",
             (_, false, true) => "fs_main_premultiplied_unmasked",
@@ -128,6 +134,7 @@ impl Renderer {
     pub(super) async fn prepare_draw_blends(
         &mut self,
         compiled: &CompiledScene,
+        prepared: &PreparedScene,
     ) -> Result<(), Error> {
         let mut state = 0;
         for draw in &compiled.draws {
@@ -135,7 +142,12 @@ impl Renderer {
                 state = *index;
                 continue;
             }
-            let current = compiled.states.get(state).ok_or(Error::ResourceDomain)?;
+            let current = prepared
+                .masks
+                .as_ref()
+                .and_then(|masks| masks.resolved.get(state))
+                .or_else(|| compiled.states.get(state))
+                .ok_or(Error::ResourceDomain)?;
             if current.blend == LayerBlend::SrcOver {
                 continue;
             }
@@ -145,6 +157,11 @@ impl Renderer {
                 DrawRange::HintedText(..) => Family::Hinted,
                 _ => continue,
             };
+            if matches!(draw, DrawRange::HintedText(_, _, Some(_))) && !current.blend.is_fixed() {
+                // The bounded advanced source pass uses the original SrcOver
+                // hinted pipeline and resolves this mode against its actual target.
+                continue;
+            }
             if family != Family::Hinted
                 && current.blend.requires_premultiplied()
                 && current.count > 1
@@ -158,6 +175,18 @@ impl Renderer {
                     family,
                     current.blend,
                     current.count != 0,
+                    match draw {
+                        DrawRange::HintedText(_, _, Some(index)) => {
+                            compiled
+                                .images
+                                .get(*index)
+                                .ok_or(Error::ResourceDomain)?
+                                .image
+                                .alpha()
+                                == crate::image::ImageAlpha::Premultiplied
+                        }
+                        _ => false,
+                    },
                 )
                 .await?;
         }

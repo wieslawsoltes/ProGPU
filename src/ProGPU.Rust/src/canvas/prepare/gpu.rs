@@ -336,10 +336,9 @@ fn source_device(source: &ImageSource, context: &ImageContext) -> Result<()> {
     }
     Ok(())
 }
-fn admit_blend(blend: LayerBlend) -> Result<()> {
-    if !blend.is_fixed() {
-        return Err(Error::UnsupportedExecution.into());
-    }
+fn admit_blend(_blend: LayerBlend) -> Result<()> {
+    // The typed enum retains all original compositor modes. Exact execution is
+    // selected per draw family by Scene, not by a canvas-wide fixed-mode gate.
     Ok(())
 }
 fn admit_output_paint(paint: &Paint, context: &ImageContext) -> Result<()> {

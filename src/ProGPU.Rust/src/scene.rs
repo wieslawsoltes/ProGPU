@@ -852,7 +852,7 @@ impl Scene {
                     let blend = &selected_blend;
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
-                    if blend.is_fixed() || raster_operation.is_some() {
+                    if blend.is_fixed() || raster_operation.is_some() || bounds.is_none() {
                         draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
                     }
                     let key = draw.binding_key();
@@ -895,9 +895,8 @@ impl Scene {
                                 bounds: *bounds,
                                 opacity: draw.opacity,
                                 raster_operation: raster_operation.clone(),
-                                source_range: raster_operation
-                                    .as_ref()
-                                    .map(|_| start..image_mesh.indices().len() as u32),
+                                source_range: (raster_operation.is_some() || bounds.is_none())
+                                    .then(|| start..image_mesh.indices().len() as u32),
                                 pattern_binding,
                             }));
                         }
@@ -909,7 +908,7 @@ impl Scene {
                     }
                     let end =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
-                    if end != start && raster_operation.is_none() {
+                    if end != start && blend.is_fixed() && raster_operation.is_none() {
                         append_draw(&mut draws, DrawRange::Image(start..end, binding, *blend));
                     }
                 }
@@ -935,14 +934,23 @@ impl Scene {
                         });
                         next
                     });
-                    append_draw(
-                        &mut draws,
-                        DrawRange::Image(
-                            start..start.checked_add(6).ok_or(Error::Capacity)?,
+                    let range = start..start.checked_add(6).ok_or(Error::Capacity)?;
+                    if active_blend.is_fixed() {
+                        append_draw(&mut draws, DrawRange::Image(range, binding, active_blend));
+                    } else {
+                        #[cfg(feature = "gpu")]
+                        draws.push(DrawRange::Advanced(AdvancedImage {
                             binding,
-                            active_blend,
-                        ),
-                    );
+                            blend: active_blend,
+                            bounds: None,
+                            opacity: 1.0,
+                            raster_operation: None,
+                            source_range: Some(range),
+                            pattern_binding: None,
+                        }));
+                        #[cfg(not(feature = "gpu"))]
+                        return Err(Error::UnsupportedExecution);
+                    }
                 }
                 #[cfg(feature = "gpu")]
                 Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
