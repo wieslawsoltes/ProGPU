@@ -379,6 +379,50 @@ pub(super) fn prepared(
     Ok(result)
 }
 
+/// The entire submitted replay generation is retained. Only current live-image
+/// programs and newly prepared RGB occurrences perform work before replay; all
+/// mask/frame/material/effect/shader parameter uploads remain zero.
+pub(super) fn reused(
+    resources: &NativePreparedReplayResources,
+    rgb: &[Option<PreparedNativeRgbGlyphPage>],
+) -> Result<NativeSceneRenderMetrics, Error> {
+    let images = resources
+        .pages
+        .images()
+        .map_or(Default::default(), |p| p.replay_metrics());
+    let three_d = resources
+        .pages
+        .three_d()
+        .map_or(Default::default(), |p| p.replay_metrics());
+    let mut result = NativeSceneRenderMetrics {
+        frame: frame(resources.source.source()),
+        pages: NativeScenePageMetrics {
+            images,
+            three_d,
+            ..Default::default()
+        },
+        compute_passes: count(images.live_blur_passes)?,
+        live_blur_passes: images.live_blur_passes,
+        cache_hits: 1,
+        ..Default::default()
+    };
+    result.frame.family_switch_count = count(resources.source.metrics().family_switches)?;
+    for packet in rgb.iter().flatten() {
+        let m = packet.metrics();
+        add(&mut result.frame.vertex_upload_bytes, m.vertex_upload_bytes)?;
+        add(
+            &mut result.frame.uniform_upload_bytes,
+            m.uniform_upload_bytes,
+        )?;
+        add(&mut result.texture_bytes, m.texture_bytes)?;
+        add(
+            &mut result.texture_allocations,
+            u64::from(packet.page().drawable()) * 2,
+        )?;
+    }
+    Ok(result)
+}
+
 pub(super) fn executed(
     result: &mut NativeSceneRenderMetrics,
     execution: NativeReplayExecutionMetrics,

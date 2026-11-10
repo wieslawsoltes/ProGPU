@@ -48,6 +48,8 @@ mod materialized_mask_sample;
 mod mesh3d_sample;
 #[path = "support/mesh_scene.rs"]
 mod mesh_sample;
+#[path = "support/native_scene_gallery.rs"]
+mod native_scene_sample;
 #[path = "support/owned_shader_scene.rs"]
 mod owned_shader_sample;
 #[path = "support/path_effect_scene.rs"]
@@ -93,6 +95,7 @@ enum CompositeGallery {
     PathEffects,
     Meshes,
     Mesh3D,
+    NativeScene,
     BackdropBlends,
     Archives,
     Series,
@@ -110,6 +113,7 @@ struct WindowRenderer {
     renderer: Renderer,
     scene: Option<prepared_frame::PreparedFrame>,
     visual_root: Option<progpu::composition::visual::Visual>,
+    native_gallery: Option<native_scene_sample::NativeSceneGallery>,
     material_scene: bool,
     text_font: Option<progpu::font::ManagedFont>,
     image_scene: bool,
@@ -183,6 +187,7 @@ impl WindowRenderer {
             renderer,
             scene: None,
             visual_root: None,
+            native_gallery: None,
             material_scene,
             text_font,
             image_scene,
@@ -211,6 +216,32 @@ impl WindowRenderer {
             height: size.height,
             dpi_scale: dpi,
         };
+        if self.composite_gallery == CompositeGallery::NativeScene {
+            let mut gallery = native_scene_sample::NativeSceneGallery::new(
+                &self.device,
+                &self.queue,
+                [size.width, size.height],
+                dpi,
+                self.text_font.clone(),
+            )?;
+            pollster::block_on(gallery.render())?;
+            let prepared =
+                pollster::block_on(self.renderer.prepare_scene(gallery.presentation(), frame))?;
+            eprintln!(
+                "native scene target: {:?}; supplied font: {}; cold work: {:?}",
+                gallery.target_size(),
+                gallery.has_font(),
+                gallery.cold_metrics()
+            );
+            self.config.width = size.width;
+            self.config.height = size.height;
+            self.surface.configure(&self.device, &self.config);
+            self.scene = Some(prepared.into());
+            self.native_gallery = Some(gallery);
+            self.window.request_redraw();
+            return Ok(());
+        }
+        self.native_gallery = None;
         if self.composite_gallery == CompositeGallery::Visuals {
             if self.visual_root.is_none() {
                 self.visual_root = Some(visual_sample::visual_scene()?);
@@ -387,6 +418,14 @@ impl WindowRenderer {
             .image_effect_frame
             .checked_add(1)
             .ok_or("frame counter exhausted")?;
+        if self.scene.is_some() {
+            if let Some(gallery) = &mut self.native_gallery {
+                pollster::block_on(gallery.render())?;
+                if self.image_effect_frame == 0 {
+                    eprintln!("native scene retained work: {:?}", gallery.metrics());
+                }
+            }
+        }
         let Some(scene) = self.scene.as_ref() else {
             return Ok(false);
         };
@@ -531,6 +570,7 @@ fn main() -> Result<()> {
             "--cached-pictures" => app.composite_gallery = CompositeGallery::CachedPictures,
             "--meshes" => app.composite_gallery = CompositeGallery::Meshes,
             "--mesh3d" => app.composite_gallery = CompositeGallery::Mesh3D,
+            "--native-scene" => app.composite_gallery = CompositeGallery::NativeScene,
             "--series" => app.composite_gallery = CompositeGallery::Series,
             "--static-dxf" => app.composite_gallery = CompositeGallery::StaticDxf,
             "--archives" => app.composite_gallery = CompositeGallery::Archives,
@@ -556,7 +596,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --meshes, --mesh3d, --backdrop-blends, --archives, --series, --static-dxf, --visuals, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --meshes, --mesh3d, --native-scene, --backdrop-blends, --archives, --series, --static-dxf, --visuals, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

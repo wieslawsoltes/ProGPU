@@ -94,6 +94,10 @@ window.progpuReady = (async () => {
     renderer.select_visual_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'native-scene') {
+    renderer.select_native_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   if (new URLSearchParams(location.search).get('scene') === 'mesh3d') {
     renderer.select_mesh3d_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
@@ -129,6 +133,7 @@ window.progpuReady = (async () => {
       const selectedScene = new URLSearchParams(location.search).get('scene');
       if (selectedScene === 'static-dxf') renderer.select_static_dxf_scene(true);
       if (selectedScene === 'archives') renderer.select_archive_scene(true);
+      if (selectedScene === 'native-scene') renderer.select_native_scene(true);
       const next = dimensions();
       await renderer.resize(next.width, next.height, next.dpi);
       size = next;
@@ -143,9 +148,12 @@ window.progpuReady = (async () => {
         await renderer.resize(next.width, next.height, next.dpi);
         size = next;
       }
+      await renderer.render_native_scene();
       renderer.draw();
       const m = renderer.metrics();
-      status.textContent = `${m.width} × ${m.height} · ${m.draws} draws · ${m.glyphInstances} glyphs · ${m.pathRasters} paths · ${m.materialBrushes} materials`;
+      status.textContent = m.nativeScene
+        ? `${m.width} × ${m.height} · native: ${m.nativeDraws} draws · ${m.nativeComputePasses} compute passes · ${m.nativeSubmissions} submissions · ${m.nativeCacheHits} cache hits`
+        : `${m.width} × ${m.height} · ${m.draws} draws · ${m.glyphInstances} glyphs · ${m.pathRasters} paths · ${m.materialBrushes} materials`;
     });
     requestAnimationFrame(frame);
   }
@@ -153,7 +161,7 @@ window.progpuReady = (async () => {
   window.addEventListener('pagehide', () => { stopped = true; });
   // Drain entered JavaScript work, then submit a final frame with an explicit
   // queue-completion signal. The host awaits that signal before compositor capture.
-  const pause = () => { stopped = true; return exclusive(() => renderer.begin_capture()); };
+  const pause = () => { stopped = true; return exclusive(async () => { await renderer.render_native_scene(); return renderer.begin_capture(); }); };
   return { renderer, exclusive, errors, dimensions, pause, decode_simple_glyph, decode_glyph_outline, decode_cff_outline, normalize_font_variation, item_variation_values, decode_cff2_outline, decode_variation_runs, interpolate_gvar_deltas, decode_gvar_metadata, apply_gvar_simple, gvar_component_metrics, horizontal_font_metrics, design_font_advance, vertical_font_metrics, simple_font_run, simple_font_advances, unicode_properties, script_properties, decode_unicode_utf8, decode_unicode_utf16, resolve_bidi_utf16, segment_graphemes_utf16, managed_grapheme_utf16, managed_prepare_text, managed_script_actions, grapheme_starts_utf16, resolve_line_breaks_utf16, normalize_utf16, normalize_utf16_profile, normalization_plan_lookup, layout_table_query, layout_digest_query, select_layout, select_layout_feature, select_managed_layout, managed_context_query, apply_gsub, apply_managed_gsub, managed_feature_query, apply_managed_stage, apply_managed_gpos, apply_managed_positioning, managed_variation_instance, managed_font_names, managed_font_state, managed_font_mapping, gdef_blocklisted };
 })();
 window.progpuReady.catch(e => { status.textContent = String(e); });

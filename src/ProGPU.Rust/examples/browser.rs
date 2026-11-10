@@ -51,6 +51,9 @@ mod materialized_mask_sample;
 mod mesh3d_sample;
 #[path = "support/mesh_scene.rs"]
 mod mesh_sample;
+#[cfg(target_arch = "wasm32")]
+#[path = "support/native_scene_gallery.rs"]
+mod native_scene_sample;
 #[path = "support/owned_shader_scene.rs"]
 mod owned_shader_sample;
 #[path = "support/path_effect_scene.rs"]
@@ -1739,6 +1742,8 @@ mod web {
         path_effect_scene: bool,
         mesh_scene: bool,
         mesh3d_scene: bool,
+        native_scene: bool,
+        native_gallery: Option<super::native_scene_sample::NativeSceneGallery>,
         backdrop_blend_scene: bool,
         archive_scene: bool,
         series_scene: bool,
@@ -1840,6 +1845,8 @@ mod web {
             path_effect_scene: false,
             mesh_scene: false,
             mesh3d_scene: false,
+            native_scene: false,
+            native_gallery: None,
             backdrop_blend_scene: false,
             archive_scene: false,
             series_scene: false,
@@ -1896,6 +1903,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -1938,6 +1947,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -1969,6 +1980,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -1999,6 +2012,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2029,6 +2044,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2059,6 +2076,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2089,6 +2108,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2119,6 +2140,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2149,6 +2172,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2179,6 +2204,8 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.mesh3d_scene = false;
+            self.native_scene = false;
+            self.native_gallery = None;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2262,6 +2289,27 @@ mod web {
             self.backdrop_blend_scene = enabled;
             Ok(())
         }
+        /// Select the original native stream builder/resource/execution stack.
+        pub fn select_native_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.native_scene = enabled;
+            self.scene = None;
+            Ok(())
+        }
+        /// Execute the native retained generation before its ordinary presentation
+        /// draw. Callers await this method; no source work runs during draw().
+        pub async fn render_native_scene(&mut self) -> Result<(), JsValue> {
+            self.ensure_live()?;
+            if self.native_scene && self.scene.is_some() {
+                self.native_gallery
+                    .as_mut()
+                    .ok_or_else(|| error("native gallery has not been prepared"))?
+                    .render()
+                    .await
+                    .map_err(error)?;
+            }
+            self.ensure_live()
+        }
         /// Select retained Mesh3D models, depth, lighting and textured materials.
         pub fn select_mesh3d_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
@@ -2301,6 +2349,41 @@ mod web {
                 .map_err(error)?;
             if width == 0 || height == 0 {
                 self.scene = None;
+                return Ok(());
+            }
+            if self.native_scene {
+                let mut gallery = super::native_scene_sample::NativeSceneGallery::new(
+                    &self.device,
+                    &self.queue,
+                    [width, height],
+                    dpi,
+                    self.text_font.clone(),
+                )
+                .map_err(error)?;
+                gallery.render().await.map_err(error)?;
+                let prepared = self
+                    .renderer
+                    .prepare_scene(
+                        gallery.presentation(),
+                        Frame {
+                            width,
+                            height,
+                            dpi_scale: dpi,
+                        },
+                    )
+                    .await
+                    .map_err(error)?;
+                self.ensure_live()?;
+                self.config.width = width;
+                self.config.height = height;
+                self.canvas.set_width(width);
+                self.canvas.set_height(height);
+                self.surface.configure(&self.device, &self.config);
+                self.scene = Some(prepared.into());
+                self.native_gallery = Some(gallery);
+                self.materialized_mask_sources = Default::default();
+                self.effect_metrics = Default::default();
+                self.axis_clip_metrics = Default::default();
                 return Ok(());
             }
             if self.visual_scene {
@@ -2608,6 +2691,85 @@ mod web {
         pub fn metrics(&self) -> Result<Object, JsValue> {
             let result = Object::new();
             field(&result, "frames", self.frames as f64)?;
+            if let Some(gallery) = &self.native_gallery {
+                let native = gallery.metrics();
+                let target = gallery.target_size();
+                for (name, value) in [
+                    ("nativeScene", 1.0),
+                    ("nativeTargetWidth", target[0] as f64),
+                    ("nativeTargetHeight", target[1] as f64),
+                    (
+                        "nativeTargetBytes",
+                        u64::from(target[0]) as f64 * u64::from(target[1]) as f64 * 4.0,
+                    ),
+                    (
+                        "nativeSuppliedFont",
+                        if gallery.has_font() { 1.0 } else { 0.0 },
+                    ),
+                    ("nativeCommands", native.frame.command_count as f64),
+                    ("nativeDraws", native.frame.draw_call_count as f64),
+                    ("nativeSubmissions", native.frame.submission_count as f64),
+                    (
+                        "nativeVertexUploadBytes",
+                        native.frame.vertex_upload_bytes as f64,
+                    ),
+                    (
+                        "nativeIndexUploadBytes",
+                        native.frame.index_upload_bytes as f64,
+                    ),
+                    (
+                        "nativeTextureUploadBytes",
+                        native.frame.texture_upload_bytes as f64,
+                    ),
+                    (
+                        "nativeUniformUploadBytes",
+                        native.frame.uniform_upload_bytes as f64,
+                    ),
+                    ("nativeTextureBytes", native.texture_bytes as f64),
+                    (
+                        "nativeTextureAllocations",
+                        native.texture_allocations as f64,
+                    ),
+                    ("nativeRenderPasses", native.render_passes as f64),
+                    ("nativeComputePasses", native.compute_passes as f64),
+                    ("nativePathRasters", native.path_rasters as f64),
+                    ("nativeNestedCaptures", native.nested_captures as f64),
+                    ("nativeCacheHits", native.cache_hits as f64),
+                ] {
+                    field(&result, name, value)?;
+                }
+                if let Some(cold) = gallery.cold_metrics() {
+                    for (name, value) in [
+                        ("nativeColdTextureBytes", cold.texture_bytes as f64),
+                        (
+                            "nativeColdTextureAllocations",
+                            cold.texture_allocations as f64,
+                        ),
+                        (
+                            "nativeColdVertexUploadBytes",
+                            cold.frame.vertex_upload_bytes as f64,
+                        ),
+                        (
+                            "nativeColdIndexUploadBytes",
+                            cold.frame.index_upload_bytes as f64,
+                        ),
+                        (
+                            "nativeColdTextureUploadBytes",
+                            cold.frame.texture_upload_bytes as f64,
+                        ),
+                        (
+                            "nativeColdUniformUploadBytes",
+                            cold.frame.uniform_upload_bytes as f64,
+                        ),
+                        ("nativeColdSubmissions", cold.frame.submission_count as f64),
+                        ("nativeColdComputePasses", cold.compute_passes as f64),
+                        ("nativeColdNestedCaptures", cold.nested_captures as f64),
+                    ] {
+                        field(&result, name, value)?;
+                    }
+                }
+            }
+
             let aa = self.axis_clip_metrics;
             for (name, value) in [
                 ("axisClipGroups", aa.groups as f64),

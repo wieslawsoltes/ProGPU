@@ -54,6 +54,16 @@ impl NativeSceneGpuContext {
             .as_ref()
             .and_then(|c| c.prepared_pages(&plan, &external));
         let warm_pages = retained.is_some();
+        if let (Some(reuse), Some(pages), Some(pipelines)) =
+            (&self.reuse, retained.as_ref(), self.pipelines.as_ref())
+        {
+            if let Some(resources) = reuse.lookup(&plan, pages, &external, pipelines, &self.layers)
+            {
+                return self
+                    .render_reused(resources, attachment, external, pictures)
+                    .await;
+            }
+        }
         let candidate = NativeSceneCandidate::new(
             plan.clone(),
             &self.layers,
@@ -358,6 +368,7 @@ impl NativeSceneGpuContext {
             effects,
             advanced,
             masks,
+            prepare_masks: true,
             bundles,
             layer_draws,
             backdrops,
@@ -402,6 +413,7 @@ impl NativeSceneGpuContext {
             .ok_or(Error::ResourceDomain)?
             .commit_prepared_submitted(pages, &self.queue)?;
         self.previous_frames = Some(frames);
+        self.reuse = Some(NativeReplayReuse::submitted(resources, external, pipelines));
         if let Some(page) = candidate.raster.paths() {
             self.path_atlas_size = page.atlas_size();
         }

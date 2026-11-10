@@ -25,10 +25,11 @@ Latest connected continuation (2026-11-10), implementation only:
 
 | Port area | Newly connected implementation | Remaining qualification |
 | --- | --- | --- |
-| Native complete renderer | Whole-scene admission and immutable pages connected to ordered bundles, exact pass/depth/scissor transitions, Clear, effects, advanced blends, RGB and queue-owned publication | Standalone R8 child route, cross-generation family/bundle reuse, host/sample integration and all original qualification |
+| Native complete renderer | Whole-scene admission and immutable pages connected to ordered bundles, exact pass/depth/scissor transitions, Clear, effects, advanced blends, RGB and queue-owned publication | Cross-generation family/bundle reuse, host/sample integration and all original qualification; original standalone R8 exclusion remains |
 | Native layers, masks and RGB | Actual pooled color/depth/effect storage, all eight mask producers, backdrop copies, actual-size RGB packets, submitted output caches and skip forecasting | Original source/pixel/runtime/browser/performance gates |
 | Native nested pictures and shader effects | Same-renderer child execution, actual shared pipeline owners, exact source-format captures, bounded image/mask caches, append-copy suffixes and v1–v6 shader replay | Original numeric, device, cache/lifetime, browser, source and performance qualification |
 | Native explicit CPU glyph coverage | Original scalar and cached SIMD coverage, exact padded arena/atlas writes, explicit flags and actual ISA reporting | Original numerical/coverage/provider/browser/performance controls; binary/RGB restrictions preserved |
+| Native warm replay and hosts | Submitted same-owner bundle/parameter reuse, fresh RGB and live blur; actual native gallery in winit and browser with vectors, paths, images, nested pictures, masks, effects, blends and optional owned-font text | Cross-generation family reuse and all original source/runtime/browser/performance qualification; authored hosts have not run |
 | Native document flow | Nested blocks, shared table tracks/cells, exact width/anchor/collision passes, page/column breaks, retained paragraph generations and atomic import/copy/reflow | Original source/error/lifetime/browser/performance controls |
 | Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
 | Native font providers and catalog | Exact host/browser callback selection/cache, raw fallback preferences and fixed style variations; separate native metadata discovery, nominal cmap matching, file ownership, names/style/embedding and resident SFNT/SBIX writers | Native mmap/path-encoding host adapters and all original byte/error/callback/lifetime/browser/performance qualification |
@@ -70,6 +71,11 @@ The connected native renderer is described in [its source provenance](notes/nati
 [nested pictures](notes/native-picture-runtime-port.md), and
 [explicit CPU glyph coverage](notes/native-scene-cpu-glyph-port.md).
 Implementation continues before validation under the requested port-first order.
+The native engine gallery is selected with `--native-scene` or browser
+`?scene=native-scene`; it renders an owned native attachment before GPU
+presentation. See [gallery ownership](notes/native-scene-gallery.md) and
+[warm replay](notes/native-scene-warm-replay-port.md). Neither host has been
+executed for this increment.
 
 The shared `--series` / browser `?scene=series` gallery authors twelve panels for
 both original line/scatter shader families, explicit and packed scatter radii,

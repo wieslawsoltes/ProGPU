@@ -106,6 +106,7 @@ impl NativeDrawExecutionPlan {
         max_buffer_size: u64,
         antialias_padding: f32,
     ) -> Result<Self, Error> {
+        validate_engine_flags(u64::from(engine_flags))?;
         if !Arc::ptr_eq(&scene, materials.scene())
             || !Arc::ptr_eq(&scene, styles.scene())
             || !engine_resources::external_info_valid(external)

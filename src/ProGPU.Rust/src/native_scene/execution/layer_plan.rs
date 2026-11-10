@@ -8,7 +8,9 @@ mod aggregate;
 mod shader;
 pub use aggregate::{NativeSceneBudgetInput, NativeSceneExecutionBudget};
 
-/// Original color attachment formats; R8 is reserved for owned mask-child engines.
+/// Original color attachment formats plus internal R8 mask attachments. The
+/// public native engine admits only the four color formats; picture children
+/// retain their actual parent's format and cannot originate an R8 engine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NativeTargetFormat {
     Rgba8Unorm,

@@ -141,6 +141,7 @@ impl NativePictureRuntime {
         residency: Arc<NativeResidencyBudget>,
         factory: Arc<dyn NativePictureExecutorFactory>,
     ) -> Result<Self, Error> {
+        crate::native_scene::execution::validate_engine_flags(u64::from(options.engine_flags))?;
         if external.device() != device
             || !options.antialias_padding_pixels.is_finite()
             || options.antialias_padding_pixels <= 0.0

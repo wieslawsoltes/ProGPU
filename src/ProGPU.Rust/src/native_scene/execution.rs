@@ -7,6 +7,8 @@ use crate::Error;
 use std::sync::Arc;
 use wire::{WireRecord, constants::*};
 pub mod budget;
+mod flags;
+pub use flags::validate_engine_flags;
 mod replay_plan;
 pub use replay_plan::{
     NativeReplayAdvanced, NativeReplayBundle, NativeReplayComposite, NativeReplayDraw,

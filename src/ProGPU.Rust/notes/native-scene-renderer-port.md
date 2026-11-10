@@ -59,11 +59,16 @@ whole-page cache does not claim those source performance properties. Explicit
 scene update APIs preserve raw snapshot identity, generation failures and
 external view ordering independently of pixel output publication.
 
-The complete standalone R8 child-renderer route remains an implementation gap:
-native target metadata and raw R8 mask production exist, while the renderer's
-eager mask/shader engine constructors currently admit only their color-target
-formats. This is distinct from the connected parent-format picture-mask capture
-and must not be described as R8 renderer parity.
+The original public engine admits only RGBA8/BGRA8 and their sRGB variants.
+Its private picture-child constructor requires the actual parent's same format.
+R8 remains an internal mask/clip attachment, not a missing standalone engine
+policy. Parent-format picture-mask captures do not expand that original gate.
+The complete six-flag constructor admission is shared by CPU compilation and
+renderer options, including empty scenes and mutually exclusive glyph/sampler
+policies. Source: `Backend/progpu_native.cpp`, SHA-256
+`e124d2f9c53fe67c9fc8ab3b17094514dda00dcb28888678a8eae3fcd331c989`, and
+`Backend/progpu_native_pipeline.cpp`, SHA-256
+`064c54ee475982af9dc6d6191ca5769582b6e82be7b0edb8f4dcbdacd48eecb4`.
 
 Original FrameMetrics preserve the source's accounting categories; detailed
 page and subtree metrics retain additional physical work separately. Existing

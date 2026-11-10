@@ -49,6 +49,7 @@ impl NativeSceneResourcePlan {
         external: &[NativeExternalImageInfo],
         options: NativeSceneCompileOptions,
     ) -> Result<Self, Error> {
+        validate_engine_flags(u64::from(options.engine_flags))?;
         if options.maximum_buffer_bytes == 0
             || options.maximum_storage_bytes == 0
             || options.maximum_storage_bytes > options.maximum_buffer_bytes

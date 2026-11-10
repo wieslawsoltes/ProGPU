@@ -18,7 +18,9 @@ mod compile;
 mod metrics;
 mod pictures;
 mod prepare;
+mod reuse;
 use compile::NativeSceneCandidate;
+use reuse::NativeReplayReuse;
 
 /// Explicit native policies. Ordinary rendering remains on the owned shaders;
 /// the original CPU glyph flags select their separate explicit producers.
@@ -37,6 +39,7 @@ impl Default for NativeSceneRendererOptions {
 }
 impl NativeSceneRendererOptions {
     fn validate(self) -> Result<Self, Error> {
+        execution::validate_engine_flags(u64::from(self.engine_flags))?;
         if !self.antialias_padding_pixels.is_finite() || self.antialias_padding_pixels <= 0.0 {
             return Err(Error::InvalidInput);
         }
@@ -204,6 +207,7 @@ struct NativeSceneGpuContext {
     glyph_atlas_size: u32,
     previous_frames: Option<Arc<NativeSceneFrames>>,
     cache: Option<NativeSceneCache>,
+    reuse: Option<NativeReplayReuse>,
 }
 impl NativeSceneGpuContext {
     fn new(
@@ -244,6 +248,7 @@ impl NativeSceneGpuContext {
             glyph_atlas_size: 1024,
             previous_frames: None,
             cache: None,
+            reuse: None,
         })
     }
     fn compile_options(&self, resource_scope: u64) -> NativeSceneCompileOptions {

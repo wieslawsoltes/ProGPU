@@ -125,6 +125,7 @@ impl NativeMaskEngine {
         target_format: wgpu::TextureFormat,
         engine_flags: u64,
     ) -> Result<Self, Error> {
+        crate::native_scene::execution::validate_engine_flags(engine_flags)?;
         if !matches!(
             target_format,
             wgpu::TextureFormat::Rgba8Unorm

@@ -38,6 +38,9 @@ pub(crate) struct NativePreparedReplayResources {
     pub effects: Option<Arc<PreparedNativeEffects>>,
     pub advanced: Option<Arc<PreparedNativeAdvancedBlends>>,
     pub masks: Vec<Arc<PreparedNativeMask>>,
+    /// Immutable mask programs run only before the generation's first submitted
+    /// use. Warm reuse retains their actual completed texture owners.
+    pub prepare_masks: bool,
     pub bundles: Vec<Option<Arc<PreparedNativeReplayBundle>>>,
     pub layer_draws: Vec<Option<Arc<PreparedNativeLayerDraw>>>,
     pub backdrops: Vec<Option<Arc<PreparedNativeBackdrop>>>,

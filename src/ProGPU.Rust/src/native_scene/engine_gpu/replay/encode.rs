@@ -45,8 +45,10 @@ impl NativePreparedReplayResources {
         // Masks contain only immutable retained work. Vector/picture captures
         // already completed during preparation; brush/composite work is encoded
         // before its first consumer, never through a callback in a render pass.
-        for mask in &self.masks {
-            mask.encode(&mut encoder);
+        if self.prepare_masks {
+            for mask in &self.masks {
+                mask.encode(&mut encoder);
+            }
         }
         let source = self.source.source();
         let draw_count = source.draws().metrics().draw_count;
