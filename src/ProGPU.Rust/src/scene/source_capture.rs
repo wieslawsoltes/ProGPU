@@ -304,6 +304,9 @@ fn place_scene(
                 Command::ImageFilteredImage(Box::new(placed))
             }
             Command::CustomGrid(command) => Command::CustomGrid(command.clone()),
+            Command::StaticDxf(draw) => Command::StaticDxf(Arc::new(
+                draw.placed(transform, frame.suppress_cached_cleartype())?,
+            )),
             Command::Series(draw) => Command::Series(Arc::new(draw.placed(transform))),
             #[cfg(feature = "gpu")]
             Command::Mesh3D(draw) => Command::Mesh3D(Arc::new(draw.placed(transform)?)),
@@ -704,6 +707,12 @@ fn preflight_devices(
                 }
             }
             Command::CustomGrid(command) => super::custom_grid::validate(command)?,
+            Command::StaticDxf(draw) => {
+                draw.validate()?;
+                if let Some(buffer) = &draw.buffer {
+                    crate::picture_archive::StaticDxfEngine::preflight_upload(device, buffer)?;
+                }
+            }
             Command::Series(draw) => {
                 if let crate::series::SeriesSource::Gpu(buffer) = &draw.source {
                     if !buffer.is_owned_by(device) {
@@ -873,7 +882,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             Command::ImageColor(v) => v.draw.opacity *= opacity,
             Command::ColorFilteredImage(v) => v.draw.opacity *= opacity,
             Command::ImageFilteredImage(v) => v.draw.opacity *= opacity,
-            Command::CustomGrid(_) => {}
+            Command::CustomGrid(_) | Command::StaticDxf(_) => {}
             Command::Series(v) => *v = Arc::new(v.with_opacity(opacity)?),
             #[cfg(feature = "gpu")]
             Command::Mesh3D(v) => *v = Arc::new(v.with_opacity(opacity)?),

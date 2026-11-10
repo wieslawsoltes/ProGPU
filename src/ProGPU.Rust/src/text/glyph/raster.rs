@@ -201,6 +201,9 @@ const INITIAL_SEGMENTS: u32 = 896;
 const OUTLINE_CHUNK: usize = 256 * 1024;
 const OUTLINE_BUDGET: u64 = 4 * 1024 * 1024;
 impl GlyphRasterizer {
+    pub(super) fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
     /// Create the selected canonical grayscale route with original compiler
     /// defaults. Automatic prefers admitted compute limits, then the equivalent
     /// fragment route. Binary is compute-only and compiled on first explicit use.

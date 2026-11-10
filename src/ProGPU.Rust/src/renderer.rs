@@ -54,7 +54,9 @@ mod image;
 mod image_effect;
 mod mesh3d;
 mod series;
+mod static_dxf;
 pub use series::{GpuSeriesBuffer, SeriesMetrics};
+pub use static_dxf::StaticDxfFrameMetrics;
 mod image_filter;
 mod image_ownership;
 pub use image_effect::ImageEffectMetrics;
@@ -159,7 +161,8 @@ pub struct UploadMetrics {
     pub glyph_instances: u32,
     /// Actual text style storage uploaded, including its required placeholder.
     pub text_style_bytes: u64,
-    /// Actual outline, raster uniform and color bitmap upload bytes during preparation.
+    /// Actual outline, raster uniform, color bitmap and retained static text
+    /// buffer upload bytes during preparation.
     pub glyph_upload_bytes: u64,
     /// Actual submitted glyph coverage requests during preparation.
     pub rasterized_glyphs: u64,
@@ -206,6 +209,7 @@ pub struct PreparedScene {
     groups: PreparedGroups,
     image_effects: Option<image_effect::PreparedImageEffects>,
     series: Option<series::PreparedSeries>,
+    static_dxf: Option<static_dxf::PreparedStaticDxfDraws>,
     mesh3d_sources: Vec<Arc<crate::mesh3d::PreparedMesh3D>>,
     custom_grid: Option<custom_grid::PreparedCustomGrid>,
     color_filters: Option<color_filter::PreparedColorFilteredImages>,
@@ -247,6 +251,11 @@ impl PreparedScene {
                         .draws
                         .checked_add(child.clip.metrics().resolve_draws)
                         .ok_or(Error::Capacity)?
+                } else if let DrawRange::StaticDxf(index) = draw {
+                    self.static_dxf
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw_count(*index)?
                 } else if let DrawRange::Series(index) = draw {
                     self.series
                         .as_ref()
@@ -329,6 +338,7 @@ pub struct Renderer {
     images: Option<image::ImageState>,
     image_effects: Option<image_effect::ImageEffectState>,
     series: Option<series::SeriesState>,
+    static_dxf_engine: Option<crate::picture_archive::StaticDxfEngine>,
     mesh3d: Option<crate::mesh3d::Mesh3DEngine>,
     mesh3d_frame: Option<u64>,
     mesh3d_plans: mesh3d::Mesh3DPlans,
@@ -484,6 +494,7 @@ impl Renderer {
             images: None,
             image_effects: None,
             series: None,
+            static_dxf_engine: None,
             mesh3d: None,
             mesh3d_frame: None,
             mesh3d_plans: Default::default(),
@@ -590,6 +601,7 @@ impl Renderer {
         if scene.layer_depth() != 0 {
             self.preflight_layers(scene, target)?;
         } else {
+            let (static_bytes, static_passes) = self.preflight_static_dxf(scene, target)?;
             let (mesh_bytes, mesh_passes) = self.preflight_mesh3d(scene)?;
             let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
             let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
@@ -599,14 +611,16 @@ impl Renderer {
             self.validate_mask_states(&states)?;
             let (mask_bytes, mask_passes) =
                 self.mask_resource_cost(scene, &states, &changes, target)?;
-            if mesh_bytes
+            if static_bytes
+                + mesh_bytes
                 + effect_bytes
                 + mask_bytes
                 + filter_bytes
                 + image_filter_bytes
                 + cached_bytes
                 > 512 * 1024 * 1024
-                || mesh_passes
+                || static_passes
+                    + mesh_passes
                     + effect_passes
                     + mask_passes
                     + filter_passes
@@ -694,12 +708,15 @@ impl Renderer {
         self.validate_shaders(compiled, frame)?;
         self.validate_managed_shaders(compiled, frame)?;
         self.validate_backdrops(compiled, frame)?;
+        let (static_bytes, static_passes) = self.validate_static_dxf(compiled, frame)?;
         let (mask_bytes, mask_passes) = self.compiled_mask_cost(compiled, frame)?;
         let (effect_bytes, effect_passes) = self.validate_image_effects(compiled)?;
         let (filter_bytes, filter_passes) = self.validate_color_filters(compiled)?;
         let (image_filter_bytes, image_filter_passes) = self.validate_image_filters(compiled)?;
-        if mask_bytes + effect_bytes + filter_bytes + image_filter_bytes > 512 * 1024 * 1024
-            || mask_passes + effect_passes + filter_passes + image_filter_passes > 16384
+        if static_bytes + mask_bytes + effect_bytes + filter_bytes + image_filter_bytes
+            > 512 * 1024 * 1024
+            || static_passes + mask_passes + effect_passes + filter_passes + image_filter_passes
+                > 16384
         {
             return Err(Error::Capacity);
         }
@@ -762,6 +779,8 @@ impl Renderer {
         self.prepare_hatches(compiled, &mut prepared).await?;
         self.prepare_three_d(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, frame, &mut prepared).await?;
+        self.prepare_static_dxf(compiled, frame, &mut prepared)
+            .await?;
         self.prepare_draw_blends(compiled, &prepared).await?;
         self.prepare_clears(compiled, &mut prepared).await?;
         self.prepare_series(compiled, frame, &mut prepared).await?;
@@ -979,6 +998,7 @@ impl Renderer {
             groups: PreparedGroups::default(),
             image_effects: None,
             series: None,
+            static_dxf: None,
             mesh3d_sources: Vec::new(),
             custom_grid: None,
             color_filters: None,
@@ -1325,6 +1345,14 @@ impl Renderer {
                         .draw(&mut pass, scene, range.clone());
                     continue;
                 }
+                if let DrawRange::StaticDxf(index) = draw {
+                    scene
+                        .static_dxf
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, *index)?;
+                    continue;
+                }
                 if let DrawRange::Series(index) = draw {
                     scene
                         .series
@@ -1437,6 +1465,7 @@ impl Renderer {
                     | DrawRange::ThreeDAcis(_)
                     | DrawRange::HintedText(..)
                     | DrawRange::CustomGrid(_)
+                    | DrawRange::StaticDxf(_)
                     | DrawRange::Series(_)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::ShaderEffect(_)

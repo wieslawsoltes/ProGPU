@@ -307,7 +307,10 @@ impl Scene {
                 }
             }
             #[cfg(feature = "gpu")]
-            if let Command::BackdropMaterial(_) = command {
+            if matches!(
+                command,
+                Command::BackdropMaterial(_) | Command::StaticDxf(_)
+            ) {
                 let state = &states[current];
                 if !state.materialized
                     && (state.count > 1

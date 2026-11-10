@@ -106,7 +106,10 @@ fn paragraph_items(
     }
     Ok(output)
 }
-pub(super) fn build(source: NativeDesignGeometrySource) -> Result<Arc<NativeDesignGeometry>> {
+pub(super) fn build(
+    source: NativeDesignGeometrySource,
+    color_sources: bool,
+) -> Result<Arc<NativeDesignGeometry>> {
     let items = match &source {
         NativeDesignGeometrySource::Paragraph(p) => paragraph_items(
             p.source(),
@@ -174,8 +177,11 @@ pub(super) fn build(source: NativeDesignGeometrySource) -> Result<Arc<NativeDesi
         styles: Vec::new(),
         outlines: Vec::new(),
         slots: reserved(items.len())?,
+        glyph_sources: reserved(items.len())?,
     };
     let mut cache = HashMap::new();
+    let mut glyph_sources: HashMap<(u32, u16, Arc<[i16]>), Arc<NativeDesignGlyphSource>> =
+        HashMap::new();
     let mut styles = HashMap::new();
     for (index, item) in items.into_iter().enumerate() {
         let record = item.record;
@@ -208,9 +214,34 @@ pub(super) fn build(source: NativeDesignGeometrySource) -> Result<Arc<NativeDesi
                 styles.insert(style_key, i);
                 i
             };
+            if glyph >= font.glyph_count().ok_or(FontError::InvalidFace)? {
+                return Err(FontError::InvalidGlyph.into());
+            }
             let key = (record.font_index, glyph, item.coordinates);
+            let glyph_source = if let Some(source) = glyph_sources.get(&key) {
+                source.clone()
+            } else {
+                let source = Arc::new(NativeDesignGlyphSource {
+                    font: font.clone(),
+                    glyph,
+                    coordinates: key.2.clone(),
+                });
+                glyph_sources
+                    .try_reserve(1)
+                    .map_err(|_| FontError::Capacity)?;
+                glyph_sources.insert(key.clone(), source.clone());
+                source
+            };
+            result.glyph_sources.push(Some(glyph_source));
             let outline = if let Some(&i) = cache.get(&key) {
-                i
+                Some(i)
+            } else if color_sources
+                && !((font.table(Tag::new(*b"glyf")).is_some()
+                    && font.table(Tag::new(*b"loca")).is_some())
+                    || font.table(Tag::new(*b"CFF ")).is_some()
+                    || font.table(Tag::new(*b"CFF2")).is_some())
+            {
+                None
             } else {
                 let outline = Arc::new(NativeDesignOutline::new(font, glyph, &key.2)?);
                 let i = result.outlines.len() as u32;
@@ -221,10 +252,11 @@ pub(super) fn build(source: NativeDesignGeometrySource) -> Result<Arc<NativeDesi
                 cache.try_reserve(1).map_err(|_| FontError::Capacity)?;
                 result.outlines.push(outline);
                 cache.insert(key, i);
-                i
+                Some(i)
             };
-            (Some(style), Some(outline))
+            (Some(style), outline)
         } else {
+            result.glyph_sources.push(None);
             (None, None)
         };
         result.slots.push(NativeDesignGeometrySlot {

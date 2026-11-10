@@ -1,4 +1,4 @@
-//! Original mixed static-DXF vector producer and immutable execution generation.
+//! Original mixed static-DXF vector/text producer and immutable generation.
 use super::{
     ArchiveCommand, ArchiveCommandKind as K, ArchiveMaterialEnvironment, ArchivePicture,
     ArchiveReplayOptions,
@@ -13,6 +13,8 @@ use crate::{
 use std::{ops::Range, sync::Arc};
 mod clip;
 mod compact;
+mod text;
+pub use text::{StaticRetainedGlyphGeometry, StaticRetainedGlyphInstance};
 #[cfg(feature = "gpu")]
 mod gpu;
 #[cfg(feature = "gpu")]
@@ -29,6 +31,8 @@ pub struct StaticDxfCompileOptions {
     pub static_zoom: f32,
     pub offscreen: bool,
     pub materials: Option<Arc<ArchiveMaterialEnvironment>>,
+    /// Actual Unicode/fallback generation for original DrawText layout.
+    pub text: Option<Arc<super::ArchiveTextEnvironment>>,
 }
 impl Default for StaticDxfCompileOptions {
     fn default() -> Self {
@@ -37,6 +41,7 @@ impl Default for StaticDxfCompileOptions {
             static_zoom: 1.0,
             offscreen: false,
             materials: None,
+            text: None,
         }
     }
 }
@@ -47,10 +52,12 @@ impl Default for StaticDxfCompileOptions {
 pub enum StaticDxfBatchKind {
     Vector,
     Hatch,
+    Text,
 }
 #[derive(Clone, Debug)]
 pub struct StaticDxfBatch {
     pub kind: StaticDxfBatchKind,
+    /// Vector/Hatch index range or Text instance range, in its original stream.
     pub indices: Range<u32>,
 }
 
@@ -60,64 +67,38 @@ struct Data {
     options: StaticDxfCompileOptions,
     compiled: CompiledScene,
     batches: Vec<StaticDxfBatch>,
+    retained_glyphs: StaticRetainedGlyphGeometry,
+    #[cfg(feature = "gpu")]
+    glyph_atlas: Option<Arc<text::FrozenAtlas>>,
 }
 
 /// A complete static source generation with original geometry, path raster
-/// requests, material arena and painter-ordered Vector/Hatch ranges.
+/// requests, materials, original Vector/Text/Hatch flush ranges and final retained
+/// analytic glyph pass. Actual source owners survive independent target replay.
 #[derive(Clone, Debug)]
 pub struct StaticDxfBuffer(Arc<Data>);
 impl StaticDxfBuffer {
     /// Original DrawingContext/provider path. All accepted command fields and
     /// inactive side buffers remain owned independently from execution lowering.
+    /// Retained outline/color/vector text is synchronous. Commands requiring an
+    /// actual glyph atlas use `compile_with_glyph_atlas` under the GPU feature.
     pub fn compile(
         source: Arc<ArchivePicture>,
         options: StaticDxfCompileOptions,
     ) -> Result<Self, Error> {
-        Self::compile_source(source, options, true)
+        Self::compile_source(source, options, true, None)
     }
     fn compile_source(
         source: Arc<ArchivePicture>,
         options: StaticDxfCompileOptions,
         provider: bool,
+        prepared_text: Option<text::Compilation>,
     ) -> Result<Self, Error> {
-        if !options.dpi_scale.is_finite() || options.dpi_scale <= 0.0 {
-            return Err(Error::InvalidInput);
-        }
-        u32::try_from(source.commands.len()).map_err(|_| Error::Capacity)?;
-        // Whole-family admission precedes private geometry/atlas work.
-        for c in source.commands.iter() {
-            match c.kind {
-                K::DrawRect
-                | K::DrawRoundedRect
-                | K::DrawEllipse
-                | K::DrawCircle
-                | K::FillTriangle
-                | K::FillQuad
-                | K::DrawPointBatch
-                | K::DrawDotGrid
-                | K::DrawDeviceDotGrid
-                | K::DrawVertexMesh
-                | K::DrawHatch
-                | K::DrawLine
-                | K::DrawBezier
-                | K::DrawCubicBezier
-                | K::DrawPolyline
-                | K::DrawPath
-                | K::DrawSpline
-                | K::PushClip
-                | K::PopClip
-                | K::PushOpacity
-                | K::PopOpacity
-                | K::PushGeometryClip
-                | K::PopGeometryClip
-                | K::PushOpacityMask
-                | K::PopOpacityMask
-                | K::PushBlendMode
-                | K::PopBlendMode => {}
-                K::DrawExtension if matches!(c.extension_id, 3 | 4) => {}
-                _ => return Err(Error::UnsupportedExecution),
-            }
-        }
+        admit_source(&source, &options)?;
+        let mut text = match prepared_text {
+            Some(value) => value,
+            None => text::compile(&source, &options)?,
+        };
         let mut scene = crate::scene::Scene::default();
         let mut clips = clip::Clips::default();
         let mut contexts = Vec::new();
@@ -129,7 +110,7 @@ impl StaticDxfBuffer {
         replay.materials = options.materials.clone();
         replay.text_context.dpi_scale = options.dpi_scale;
         replay.text_context.static_zoom = options.static_zoom;
-        for source_command in source.commands.iter() {
+        for (command_index, source_command) in source.commands.iter().enumerate() {
             let mut command = source_command.clone();
             let transform = if command.transform == Matrix4([[0.0; 4]; 4]) {
                 Matrix4::IDENTITY
@@ -179,10 +160,14 @@ impl StaticDxfBuffer {
                 command.double_buffer_count = 0;
                 command.weight_buffer_count = 0;
             }
-            let execution = source.with_commands(Arc::from([command]));
-            let chunk = execution
-                .to_scene_with(replay.clone())
-                .map_err(super::drawing_error)?;
+            let chunk = if matches!(command.kind, K::DrawText | K::DrawGlyphRun) {
+                text.chunks.remove(&command_index).unwrap_or_default()
+            } else {
+                let execution = source.with_commands(Arc::from([command]));
+                execution
+                    .to_scene_with(replay.clone())
+                    .map_err(super::drawing_error)?
+            };
             let (chunk, marked) = chunk.resolve_static_dxf_chunk(
                 options.dpi_scale,
                 options.offscreen,
@@ -214,6 +199,9 @@ impl StaticDxfBuffer {
             options,
             compiled,
             batches,
+            retained_glyphs: text.retained,
+            #[cfg(feature = "gpu")]
+            glyph_atlas: text.atlas,
         })))
     }
     /// No-provider source overload. The original helper consumes inline point,
@@ -229,6 +217,7 @@ impl StaticDxfBuffer {
             }),
             options,
             false,
+            None,
         )
     }
     pub fn source(&self) -> &Arc<ArchivePicture> {
@@ -264,8 +253,128 @@ impl StaticDxfBuffer {
     }
     pub fn is_empty(&self) -> bool {
         self.mesh().indices().is_empty()
+            && self.0.retained_glyphs.is_empty()
+            && self.text_instance_count() == 0
     }
     pub fn same_generation(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
+    pub(crate) fn identity(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
+    pub fn retained_glyphs(&self) -> &StaticRetainedGlyphGeometry {
+        &self.0.retained_glyphs
+    }
+    pub fn text_instance_count(&self) -> usize {
+        #[cfg(feature = "gpu")]
+        {
+            self.0.compiled.glyphs.len()
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            0
+        }
+    }
+    /// Exact frozen legacy atlas instances after the source's final flag pass.
+    #[cfg(feature = "gpu")]
+    pub fn text_instances(&self) -> &[crate::text::paint::GlyphInstance] {
+        &self.0.compiled.glyphs
+    }
+    #[cfg(feature = "gpu")]
+    pub fn glyph_atlas_statistics(&self) -> Option<crate::text::glyph::GlyphAtlasStatistics> {
+        self.0.glyph_atlas.as_ref().map(|v| v.statistics)
+    }
+    /// Actual glyph producer work already completed during explicit compilation.
+    #[cfg(feature = "gpu")]
+    pub fn glyph_producer_metrics(&self) -> Option<crate::text::glyph::GlyphGpuMetrics> {
+        self.0.glyph_atlas.as_ref().map(|v| v.producer_metrics)
+    }
+    /// Exact live frame-uniform allocation for this source at one target.
+    pub fn target_uniform_bytes(&self, masked: bool) -> u64 {
+        224 + if masked
+            && self
+                .batches()
+                .iter()
+                .any(|b| b.kind == StaticDxfBatchKind::Vector && !b.indices.is_empty())
+        {
+            96
+        } else {
+            0
+        } + if self.text_instance_count() != 0 || !self.retained_glyphs().is_empty() {
+            96
+        } else {
+            0
+        }
+    }
+    /// Complete static source compilation with an exclusively transferred actual
+    /// glyph atlas. The buffer freezes its slots/textures for its whole lifetime;
+    /// cancellation/error drops the private atlas instead of exposing half a batch.
+    #[cfg(feature = "gpu")]
+    pub async fn compile_with_glyph_atlas(
+        source: Arc<ArchivePicture>,
+        options: StaticDxfCompileOptions,
+        atlas: crate::text::glyph::GlyphAtlas,
+    ) -> Result<Self, Error> {
+        admit_source(&source, &options)?;
+        let text = text::compile_with_atlas(&source, &options, atlas).await?;
+        Self::compile_source(source, options, true, Some(text))
+    }
+    /// The original inline-array overload with the same exclusive atlas contract.
+    #[cfg(feature = "gpu")]
+    pub async fn compile_commands_with_glyph_atlas(
+        commands: Arc<[ArchiveCommand]>,
+        options: StaticDxfCompileOptions,
+        atlas: crate::text::glyph::GlyphAtlas,
+    ) -> Result<Self, Error> {
+        let source = Arc::new(ArchivePicture {
+            commands,
+            ..Default::default()
+        });
+        admit_source(&source, &options)?;
+        let text = text::compile_with_atlas(&source, &options, atlas).await?;
+        Self::compile_source(source, options, false, Some(text))
+    }
+}
+
+fn admit_source(source: &ArchivePicture, options: &StaticDxfCompileOptions) -> Result<(), Error> {
+    if !options.dpi_scale.is_finite() || options.dpi_scale <= 0.0 {
+        return Err(Error::InvalidInput);
+    }
+    u32::try_from(source.commands.len()).map_err(|_| Error::Capacity)?;
+    // Whole-family admission precedes private geometry/atlas work.
+    for c in source.commands.iter() {
+        match c.kind {
+            K::DrawRect
+            | K::DrawRoundedRect
+            | K::DrawEllipse
+            | K::DrawCircle
+            | K::FillTriangle
+            | K::FillQuad
+            | K::DrawPointBatch
+            | K::DrawDotGrid
+            | K::DrawDeviceDotGrid
+            | K::DrawVertexMesh
+            | K::DrawHatch
+            | K::DrawLine
+            | K::DrawBezier
+            | K::DrawCubicBezier
+            | K::DrawPolyline
+            | K::DrawPath
+            | K::DrawSpline
+            | K::PushClip
+            | K::PopClip
+            | K::PushOpacity
+            | K::PopOpacity
+            | K::PushGeometryClip
+            | K::PopGeometryClip
+            | K::PushOpacityMask
+            | K::PopOpacityMask
+            | K::PushBlendMode
+            | K::PopBlendMode => {}
+            K::DrawText | K::DrawGlyphRun => {}
+            K::DrawExtension if matches!(c.extension_id, 3 | 4) => {}
+            _ => return Err(Error::UnsupportedExecution),
+        }
+    }
+    Ok(())
 }

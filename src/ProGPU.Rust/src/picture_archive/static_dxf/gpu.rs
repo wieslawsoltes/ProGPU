@@ -11,6 +11,7 @@ use bytemuck::{Pod, Zeroable};
 use std::{collections::HashMap, sync::Weak};
 use wgpu::util::DeviceExt;
 mod pipeline;
+mod text;
 use pipeline::Pipeline;
 
 /// Actual static target. The mask is an already-resolved original target-local
@@ -69,6 +70,10 @@ pub struct StaticDxfMetrics {
     pub source_commands: u32,
     pub vector_draws: u32,
     pub hatch_draws: u32,
+    pub text_draws: u32,
+    pub retained_glyph_draws: u32,
+    pub text_upload_bytes: u64,
+    pub glyph_texture_bytes: u64,
     pub path_rasters: u32,
     pub geometry_upload_bytes: u64,
     pub material_upload_bytes: u64,
@@ -80,6 +85,12 @@ pub struct StaticDxfMetrics {
     pub generation_cache_hits: u32,
 }
 impl StaticDxfMetrics {
+    pub fn draw_count(self) -> u64 {
+        u64::from(self.vector_draws)
+            + u64::from(self.hatch_draws)
+            + u64::from(self.text_draws)
+            + u64::from(self.retained_glyph_draws)
+    }
     fn source(source: &StaticDxfBuffer) -> Self {
         Self {
             source_commands: source.source().commands.len() as u32,
@@ -94,6 +105,13 @@ impl StaticDxfMetrics {
                 .filter(|b| b.kind == StaticDxfBatchKind::Hatch && !b.indices.is_empty())
                 .count() as u32,
             path_rasters: source.path_raster_count() as u32,
+            text_draws: source
+                .batches()
+                .iter()
+                .filter(|b| b.kind == StaticDxfBatchKind::Text && !b.indices.is_empty())
+                .count() as u32,
+            retained_glyph_draws: u32::from(!source.retained_glyphs().is_empty()),
+            glyph_texture_bytes: text::texture_bytes(source),
             ..Default::default()
         }
     }
@@ -109,6 +127,7 @@ struct Uploaded {
     hatch_segments: Option<wgpu::Buffer>,
     coverage: Option<CoverageAtlas>,
     resident: u64,
+    text: Option<text::UploadedText>,
 }
 /// Retained static vector/material/boundary/coverage generation shared by targets.
 #[derive(Clone)]
@@ -140,6 +159,7 @@ struct Prepared {
     vector: Option<(Arc<Pipeline>, VectorBindings)>,
     hatch: Option<(Arc<Pipeline>, wgpu::BindGroup)>,
     metrics: StaticDxfMetrics,
+    text: Option<text::PreparedText>,
 }
 /// Frozen target camera, blend, mask and pipeline ownership. No mutation or
 /// callbacks occur while the caller's actual render pass is being encoded.
@@ -182,7 +202,23 @@ impl PreparedStaticDxf {
             if batch.indices.is_empty() {
                 continue;
             }
+            if batch.kind == StaticDxfBatchKind::Text {
+                self.0
+                    .text
+                    .as_ref()
+                    .ok_or(Error::ResourceDomain)?
+                    .draw_atlas(
+                        pass,
+                        resources.text.as_ref().ok_or(Error::ResourceDomain)?,
+                        batch.indices.clone(),
+                    )?;
+                family = Some(batch.kind);
+                draws += 1;
+                continue;
+            }
             if family != Some(batch.kind) {
+                pass.set_vertex_buffer(0, resources.vertices.slice(..));
+                pass.set_index_buffer(resources.indices.slice(..), wgpu::IndexFormat::Uint32);
                 match batch.kind {
                     StaticDxfBatchKind::Vector => {
                         let (pipeline, bindings) =
@@ -200,10 +236,23 @@ impl PreparedStaticDxf {
                         pass.set_pipeline(&pipeline.pipeline);
                         pass.set_bind_group(0, binding, &[]);
                     }
+                    StaticDxfBatchKind::Text => return Err(Error::ResourceDomain),
                 }
                 family = Some(batch.kind);
             }
             pass.draw_indexed(batch.indices.clone(), 0, 0..1);
+            draws += 1;
+        }
+        let count = u32::try_from(self.source().retained_glyphs().instances().len())
+            .map_err(|_| Error::Capacity)?;
+        if count != 0
+            && self
+                .0
+                .text
+                .as_ref()
+                .ok_or(Error::ResourceDomain)?
+                .draw_retained(pass, count)?
+        {
             draws += 1;
         }
         Ok(draws)
@@ -232,6 +281,7 @@ pub struct StaticDxfEngine {
     rasterizer: Option<PathRasterizer>,
     white: wgpu::Texture,
     sampler: wgpu::Sampler,
+    text: text::TextEngine,
 }
 impl StaticDxfEngine {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
@@ -286,6 +336,7 @@ impl StaticDxfEngine {
             rasterizer: None,
             white,
             sampler,
+            text: text::TextEngine::default(),
         })
     }
     pub fn device(&self) -> &wgpu::Device {
@@ -303,6 +354,7 @@ impl StaticDxfEngine {
         self.uploads.retain(|_, v| v.strong_count() > 0);
     }
     pub fn preflight_upload(device: &wgpu::Device, source: &StaticDxfBuffer) -> Result<u64, Error> {
+        let text_bytes = text::preflight(device, source)?;
         let compiled = &source.0.compiled;
         let storage = [
             bytes::<GpuBrush>(source.materials().brushes().len().max(1))?,
@@ -327,10 +379,10 @@ impl StaticDxfEngine {
             return Err(Error::Capacity);
         }
         let atlas = u64::from(source.atlas_size()).pow(2);
-        let total = storage
-            .iter()
-            .chain(&geometry)
-            .try_fold(atlas, |sum, v| sum.checked_add(*v).ok_or(Error::Capacity))?;
+        let total = storage.iter().chain(&geometry).try_fold(
+            atlas.checked_add(text_bytes).ok_or(Error::Capacity)?,
+            |sum, v| sum.checked_add(*v).ok_or(Error::Capacity),
+        )?;
         if total > 512 * 1024 * 1024 {
             return Err(Error::Capacity);
         }
@@ -414,6 +466,7 @@ impl StaticDxfEngine {
                 wgpu::BufferUsages::STORAGE,
             )
         });
+        let text = text::upload(&self.device, source);
         if let Some(error) = scope.pop().await {
             return Err(error.into());
         }
@@ -424,6 +477,7 @@ impl StaticDxfEngine {
                 + hatch_segments.as_ref().map_or(0, |v| v.size()),
             static_resident_bytes: resident,
             coverage_texture_bytes: u64::from(source.atlas_size()).pow(2),
+            text_upload_bytes: text.as_ref().map_or(0, |v| v.bytes()),
             ..StaticDxfMetrics::source(source)
         };
         let resources = Arc::new(Uploaded {
@@ -437,6 +491,7 @@ impl StaticDxfEngine {
             hatch_segments,
             coverage,
             resident,
+            text,
         });
         self.uploads.insert(identity, Arc::downgrade(&resources));
         Ok(UploadedStaticDxf { resources, metrics })
@@ -618,12 +673,30 @@ impl StaticDxfEngine {
         } else {
             None
         };
+        let text = if let Some(text) = &resources.text {
+            Some(
+                self.text
+                    .prepare(
+                        &self.device,
+                        uploaded.source(),
+                        text,
+                        &target,
+                        &uniform,
+                        &self.white,
+                        &self.sampler,
+                    )
+                    .await?,
+            )
+        } else {
+            None
+        };
         if let Some(error) = scope.pop().await {
             return Err(error.into());
         }
         let metrics = StaticDxfMetrics {
             uniform_upload_bytes: uniform.size(),
-            mask_uniform_upload_bytes: mask_uniform.as_ref().map_or(0, |v| v.size()),
+            mask_uniform_upload_bytes: mask_uniform.as_ref().map_or(0, |v| v.size())
+                + text.as_ref().map_or(0, |v| v.mask_uniform_bytes()),
             static_resident_bytes: resources.resident,
             coverage_texture_bytes: u64::from(uploaded.source().atlas_size()).pow(2),
             ..StaticDxfMetrics::source(uploaded.source())
@@ -636,6 +709,7 @@ impl StaticDxfEngine {
             vector,
             hatch,
             metrics,
+            text,
         })))
     }
 }

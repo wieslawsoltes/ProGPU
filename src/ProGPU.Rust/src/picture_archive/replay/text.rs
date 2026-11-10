@@ -8,11 +8,25 @@ pub(super) fn draw(
     opacity: f32,
     options: &ArchiveReplayOptions,
 ) -> Result<()> {
+    let Some(draw) = prepare(c, options)? else {
+        return Ok(());
+    };
+    let mut context = options.text_context;
+    context.transform = transform;
+    context.semantic_opacity = opacity;
+    scene.draw_text(draw, context)?;
+    Ok(())
+}
+
+pub(in crate::picture_archive) fn prepare(
+    c: &ArchiveCommand,
+    options: &ArchiveReplayOptions,
+) -> Result<Option<TextDraw>> {
     let mut draw = if c.kind == K::DrawGlyphRun {
         let (Some(font), Some(indices), Some(positions)) =
             (&c.font, &c.glyph_indices, &c.glyph_positions)
         else {
-            return Ok(());
+            return Ok(None);
         };
         TextDraw::positioned(
             PositionedGlyphRun::new(font.clone(), indices.clone(), positions.clone()),
@@ -23,7 +37,7 @@ pub(super) fn draw(
             return Err(ArchiveError::Unsupported);
         }
         let (Some(font), Some(text)) = (&c.font, &c.text) else {
-            return Ok(());
+            return Ok(None);
         };
         let environment = options.text.as_ref().ok_or(ArchiveError::Unsupported)?;
         let mut units = Vec::new();
@@ -65,9 +79,5 @@ pub(super) fn draw(
     draw.prefer_atlas = c.prefer_glyph_atlas;
     draw.vector_rendering = c.use_vector_glyph_rendering;
     draw.logical_atlas_resolution = c.use_logical_glyph_atlas_resolution;
-    let mut context = options.text_context;
-    context.transform = transform;
-    context.semantic_opacity = opacity;
-    scene.draw_text(draw, context)?;
-    Ok(())
+    Ok(Some(draw))
 }

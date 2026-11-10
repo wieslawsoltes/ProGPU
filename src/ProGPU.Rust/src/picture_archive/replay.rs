@@ -21,7 +21,7 @@ mod geometry;
 mod late_camera;
 mod materials;
 mod scopes;
-mod text;
+pub(super) mod text;
 use scopes::CoverageScopes;
 
 /// Actual immutable Unicode preparation and fallback inputs. An absent host

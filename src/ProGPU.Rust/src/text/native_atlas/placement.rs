@@ -55,7 +55,7 @@ impl NativeAtlasFrame {
         frame.validate()?;
         Ok(frame)
     }
-    pub(super) fn scale(self) -> Result<f32, Error> {
+    pub(crate) fn scale(self) -> Result<f32, Error> {
         let [a, b, c, d, _, _] = self.transform;
         let xx = a * a + b * b;
         let xy = a * c + b * d;

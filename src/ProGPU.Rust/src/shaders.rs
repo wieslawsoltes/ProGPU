@@ -39,6 +39,12 @@ pub const TEXT: &str = concat!(
     "\n",
     shader!("Text")
 );
+/// Original static-DXF analytic retained glyph storage and curve coverage.
+pub const RETAINED_GLYPH: &str = concat!(
+    shader!("GlyphCoverageTransfer"),
+    "\n",
+    include_str!("../../ProGPU.Scene/Shaders/RetainedGlyph.wgsl")
+);
 /// Original direct per-occurrence physical glyph material and image paint.
 pub const HINTED_GLYPH_PAINT: &str = concat!(
     shader!("RegisteredMaterialCommon"),

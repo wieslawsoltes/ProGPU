@@ -55,12 +55,15 @@ static uploads, coverage textures, per-target uniform/mask work and cache hits;
 empty vertex/index bindings use explicit4-byte Rust placeholders rather than
 claiming identical managed allocation counts.
 
-Remaining boundaries are explicit: original text/retained glyph static sources,
-nested source pictures, external providers, unrelated static3D/extensions,
+Original static text, retained glyph records and actual frozen atlas generations
+now connect through the same engine; see `static-dxf-text-port.md` for source
+ordering, ownership, original rejection gates and explicit atlas compilation.
+Remaining boundaries are explicit: nested source pictures, external providers, unrelated static3D/extensions,
 non-axis inner geometry-clip producers, rare stroke-to-filled-outline fallbacks
 inside an active nonlate clip, and nonzero-origin outer mask records. This
-standalone production API does not yet claim the Scene extension0
-adapter or a complete original DxfStaticBuffer replacement. No builds, tests,
+production API now has the ordered Scene extension0 adapter described in
+`static-dxf-scene-port.md`; it does not claim a complete original DxfStaticBuffer
+replacement. No builds, tests,
 browser runs, benchmarks or pixel qualification were performed.
 
 Original source SHA-256 receipts:

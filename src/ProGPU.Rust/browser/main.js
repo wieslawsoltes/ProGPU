@@ -78,6 +78,10 @@ window.progpuReady = (async () => {
     renderer.select_series_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'static-dxf') {
+    renderer.select_static_dxf_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   if (new URLSearchParams(location.search).get('scene') === 'archives') {
     renderer.select_archive_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
@@ -122,6 +126,9 @@ window.progpuReady = (async () => {
     if (!file) return;
     exclusive(async () => {
       renderer.load_text_scene(new Uint8Array(await file.arrayBuffer()), 0);
+      const selectedScene = new URLSearchParams(location.search).get('scene');
+      if (selectedScene === 'static-dxf') renderer.select_static_dxf_scene(true);
+      if (selectedScene === 'archives') renderer.select_archive_scene(true);
       const next = dimensions();
       await renderer.resize(next.width, next.height, next.dpi);
       size = next;

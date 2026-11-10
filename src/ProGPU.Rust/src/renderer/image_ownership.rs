@@ -38,6 +38,9 @@ impl PreparedScene {
         if let Some(owners) = self.image_source_owners.clone() {
             queue.on_submitted_work_done(move || drop(owners));
         }
+        if let Some(static_dxf) = &self.static_dxf {
+            static_dxf.retain_submitted(queue);
+        }
         if let Some(backdrops) = &self.backdrops {
             backdrops.retain_submitted(queue);
         }

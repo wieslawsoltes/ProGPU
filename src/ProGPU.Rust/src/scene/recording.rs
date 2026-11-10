@@ -34,6 +34,7 @@ impl Scene {
                     };
                     std::mem::size_of_val(record.as_ref()).saturating_add(arrays)
                 }
+                Command::StaticDxf(draw) => std::mem::size_of_val(draw.as_ref()),
                 Command::Series(draw) => std::mem::size_of_val(draw.as_ref()).saturating_add(
                     draw.source
                         .as_data()

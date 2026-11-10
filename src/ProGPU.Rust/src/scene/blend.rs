@@ -147,6 +147,7 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
         | Command::LateCamera(..)
         | Command::ArchiveVector(_)
         | Command::CustomGrid(_)
+        | Command::StaticDxf(_)
         | Command::Series(_)
         | Command::ArchiveHatch(_)
         | Command::ArchiveThreeD(_)

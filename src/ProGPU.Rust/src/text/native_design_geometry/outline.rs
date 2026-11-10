@@ -23,7 +23,9 @@ pub struct NativeDesignOutline {
     owner: Owner,
 }
 impl NativeDesignOutline {
-    pub(super) fn new(font: SfntFace, glyph: u16, coordinates: &[i16]) -> Result<Self> {
+    /// Decode the original selected native outline without constructing shaping
+    /// metadata. COLR layers use this same font/instance-owned producer.
+    pub fn new(font: SfntFace, glyph: u16, coordinates: &[i16]) -> Result<Self> {
         let count = font.glyph_count().ok_or(FontError::InvalidFace)?;
         if glyph >= count {
             return Err(FontError::InvalidGlyph.into());

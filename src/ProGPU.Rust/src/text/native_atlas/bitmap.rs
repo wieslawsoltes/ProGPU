@@ -61,6 +61,7 @@ pub struct NativeColorGlyphBatch {
     records: Arc<[NativeColorGlyphBitmap]>,
     pixels: Arc<[u8]>,
     placements: Arc<[Option<NativeColorGlyphPlacement>]>,
+    resolve_source_positions: bool,
 }
 impl NativeColorGlyphBatch {
     /// Retain complete actual pixels and descriptors, admitting every later
@@ -90,7 +91,7 @@ impl NativeColorGlyphBatch {
                     || !p.atlas_to_logical_scale.is_finite()
                     || p.atlas_to_logical_scale <= 0.0
                     || source.slots()[i].style_index.is_none()
-                    || source.slots()[i].outline_index.is_none()
+                    || source.glyph_source(i as u32).is_none()
                 {
                     return Err(Error::InvalidInput);
                 }
@@ -102,7 +103,27 @@ impl NativeColorGlyphBatch {
             records,
             pixels,
             placements,
+            resolve_source_positions: false,
         }))
+    }
+    /// Color-first source adapter: positions are the actual unsnapped native
+    /// paragraph slots, and resolve once through NativeAtlasFrame at target DPI.
+    /// Existing `new` keeps already-positioned retained-record behavior.
+    pub fn from_source_positions(
+        source: Arc<NativeDesignGeometry>,
+        dpi_scale: f32,
+        records: Arc<[NativeColorGlyphBitmap]>,
+        pixels: Arc<[u8]>,
+        placements: Arc<[Option<NativeColorGlyphPlacement>]>,
+    ) -> Result<Arc<Self>, Error> {
+        let mut result = Self::new(source, dpi_scale, records, pixels, placements)?;
+        Arc::get_mut(&mut result)
+            .expect("new color batch has one owner")
+            .resolve_source_positions = true;
+        Ok(result)
+    }
+    pub fn resolves_source_positions(&self) -> bool {
+        self.resolve_source_positions
     }
     pub fn source(&self) -> &Arc<NativeDesignGeometry> {
         &self.source

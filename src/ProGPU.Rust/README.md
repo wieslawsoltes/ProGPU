@@ -41,7 +41,9 @@ Latest connected continuation (2026-11-10), implementation only:
 | Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
 | Hatch boundaries and execution | Exact retained segment/record inventories and canonical dedicated pipeline, preserving ordinary Vector versus explicit extension dispatch; immutable static-Hatch producer, buffers and per-target MSAA execution | Mixed static-DXF/source-provider integration and all source/runtime qualification |
 | Late-camera vectors/text | Original ordinary +100 route for fourteen vector/path/stroke kinds; text/glyph runs retain original shared-style/flag ordering, per-command coverage camera, final shared target camera and exact source placement | Remaining provider/extension families and all source/runtime/pixel/performance qualification; original hinted restrictions remain |
-| Mixed static DXF | Connected analytic/path/stroke/spline/mesh/Hatch compilation, original +200/clip/flag ordering, common immutable atlas/material uploads and ordered Vector/Hatch GPU draws | Scene extension0, text/providers/nested/3D and special mask/clip cases; all original qualification |
+| Mixed static DXF | Analytic/path/stroke/spline/mesh/Hatch/text compilation, original +200/clip/flag and flush ordering, immutable atlas/material uploads, final retained glyph pass and actual Scene extension0 execution | Remaining providers/nested/3D and special mask/clip/source cases; all original qualification |
+| Static retained text | Original 112-byte analytic glyph instances, actual font/outline owners, canonical RetainedGlyph shader, exclusive frozen glyph-atlas option and exact target masks/blends | Original integer/hinted static restrictions retained; full byte/float/runtime/pixel/lifetime/performance gates |
+| Native color-glyph replay | Original managed native-scene selection over native COLR/SVG/bitmap producers, palette/strike/bearing policy, color-only font owners and ordered retained drawing | External JPEG/TIFF providers, SVG numeric/history and codec equivalence; all original qualification |
 | GPU line/scatter series | Separate built-in/extension shaders, exact side-buffer selection, immutable CPU/GPU generations, same-device ownership, bounded reuse and actual upload metrics | Original cold/warm, byte/NaN/float/pixel/device/browser/performance controls |
 | Bounded opacity masks | Original declared bounds, active clip, 2-pixel padding/16-pixel storage and direct R8 Vector/Text/HintedGlyphPaint/Texture capture | Unsupported original mask source families stay explicit; all original source/pixel/lifetime/performance gates |
 | Retained interaction | Original command cache/quadtree, strict immutable source-Visual/command/glyph ownership, exact clip/template traversal and paragraph-backed hinted interaction | Actual platform producer adapters and all source/input/lifetime qualification |
@@ -101,6 +103,16 @@ host-f64 number policy remains an explicit source-arithmetic qualification gap.
 The independent [native scene stream envelope](notes/native-scene-transport-port.md)
 retains original raw command/resource bytes and generation identity. It does not
 grant semantic scene or renderer admission.
+The [static Scene adapter](notes/static-dxf-scene-port.md) now owns complete
+target/source generations and exact mask/blend/scissor policy. Its
+[static text producer](notes/static-dxf-text-port.md) includes unchanged analytic
+RetainedGlyph rendering and an exclusive actual-atlas compilation path.
+The shared `--static-dxf` / browser `?scene=static-dxf` gallery authors six panels
+sharing one source generation, with independent zoom/pan, clipping, legacy/extension
+routes and fixed blending. A supplied outline font adds positioned retained text
+(`--text FONT_PATH` or the browser font selector). It has not been compiled or run.
+The separate [native color replay adapter](notes/native-color-replay-port.md)
+retains the actual source font, palette, bitmap pixels and mixed draw order.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

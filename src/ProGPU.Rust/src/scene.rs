@@ -39,7 +39,9 @@ mod color_filter;
 mod image_filter;
 mod late_camera;
 mod static_dxf;
+mod static_dxf_draw;
 pub use clear::{ClearColor, TargetAlpha};
+pub use static_dxf_draw::{StaticDxfDraw, StaticDxfRoute};
 mod coverage_scope;
 mod layer;
 mod mask;
@@ -59,6 +61,7 @@ mod hatch;
 #[cfg(feature = "gpu")]
 mod mesh3d;
 mod native_atlas;
+mod native_color;
 mod native_design;
 mod recording;
 mod series;
@@ -80,6 +83,7 @@ pub(crate) use text::ResolvedSceneText;
 
 #[derive(Clone, Debug)]
 pub(crate) enum DrawRange {
+    StaticDxf(usize),
     Series(usize),
     CustomGrid(Range<u32>),
     Hatch(std::ops::Range<u32>),
@@ -221,6 +225,7 @@ pub(crate) enum Command {
     Mesh3D(Arc<Mesh3DViewportDraw>),
     #[cfg(feature = "gpu")]
     Mesh3DCamera(crate::vector::Matrix4),
+    StaticDxf(Arc<StaticDxfDraw>),
     Series(Arc<crate::series::SeriesDraw>),
     CustomGrid(Arc<crate::picture_archive::ArchiveCommand>),
     ArchiveHatch(Arc<crate::picture_archive::ArchiveHatchDraw>),
@@ -752,6 +757,7 @@ impl Scene {
                 | Command::TileImage(_)
                 | Command::PlacedTileImage(..)
                 | Command::CustomGrid(_)
+                | Command::StaticDxf(_)
                 | Command::Series(_)
                 | Command::ImageEffect(_)
                 | Command::ImageColor(_)
@@ -842,6 +848,7 @@ impl Scene {
         #[cfg(feature = "gpu")]
         let mut backdrop_materials = Vec::new();
         let mut image_effects = Vec::new();
+        let mut static_dxf = Vec::new();
         let mut series = Vec::new();
         let mut custom_grids = Vec::new();
         let mut image_colors = Vec::new();
@@ -952,6 +959,12 @@ impl Scene {
                     custom_grids.try_reserve(1).map_err(|_| Error::Capacity)?;
                     custom_grid::append(&mut mesh)?;
                     custom_grids.push(command.clone());
+                }
+                Command::StaticDxf(draw) => {
+                    draw.validate()?;
+                    static_dxf.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    draws.push(DrawRange::StaticDxf(static_dxf.len()));
+                    static_dxf.push(draw.clone());
                 }
                 Command::Series(draw) => {
                     draw.validate()?;
@@ -1319,6 +1332,7 @@ impl Scene {
             image_mesh,
             image_effects,
             series,
+            static_dxf,
             custom_grids,
             #[cfg(feature = "gpu")]
             backdrop_materials,
@@ -1362,6 +1376,7 @@ pub struct CompiledScene {
     pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,
     pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
+    pub(crate) static_dxf: Vec<Arc<StaticDxfDraw>>,
     pub(crate) series: Vec<crate::series::SeriesDraw>,
     pub(crate) custom_grids: Vec<Arc<crate::picture_archive::ArchiveCommand>>,
     #[cfg(feature = "gpu")]
@@ -1385,6 +1400,11 @@ pub(crate) struct ImageBinding {
 }
 
 impl CompiledScene {
+    /// Immutable original static extension sources in painter order.
+    pub fn static_dxf(&self) -> &[Arc<StaticDxfDraw>] {
+        &self.static_dxf
+    }
+
     /// Actual immutable series sources in original painter order.
     pub fn series(&self) -> &[crate::series::SeriesDraw] {
         &self.series

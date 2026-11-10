@@ -373,6 +373,7 @@ impl Renderer {
                     | DrawRange::Clear(_)
                     | DrawRange::Axis(_)
                     | DrawRange::CustomGrid(_)
+                    | DrawRange::StaticDxf(_)
                     | DrawRange::Series(_)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::BackdropMaterial(_)

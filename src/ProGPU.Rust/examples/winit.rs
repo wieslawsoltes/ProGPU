@@ -60,6 +60,8 @@ mod retained_aa_sample;
 mod series_sample;
 #[path = "support/shader_effect_scene.rs"]
 mod shader_effect_sample;
+#[path = "support/static_dxf_scene.rs"]
+mod static_dxf_sample;
 #[path = "support/text_scene.rs"]
 mod text_sample;
 
@@ -94,6 +96,7 @@ enum CompositeGallery {
     BackdropBlends,
     Archives,
     Series,
+    StaticDxf,
     Visuals,
 }
 
@@ -277,6 +280,8 @@ impl WindowRenderer {
             pollster::block_on(image_filter_sample::image_filter_scene())?
         } else if self.composite_gallery == CompositeGallery::Series {
             series_sample::series_scene(&mut self.renderer)?
+        } else if self.composite_gallery == CompositeGallery::StaticDxf {
+            static_dxf_sample::static_dxf_scene(dpi, self.text_font.clone())?
         } else if self.composite_gallery == CompositeGallery::Archives {
             archive_sample::archive_scene(self.text_font.clone(), dpi)?
         } else if self.composite_gallery == CompositeGallery::BackdropBlends {
@@ -527,6 +532,7 @@ fn main() -> Result<()> {
             "--meshes" => app.composite_gallery = CompositeGallery::Meshes,
             "--mesh3d" => app.composite_gallery = CompositeGallery::Mesh3D,
             "--series" => app.composite_gallery = CompositeGallery::Series,
+            "--static-dxf" => app.composite_gallery = CompositeGallery::StaticDxf,
             "--archives" => app.composite_gallery = CompositeGallery::Archives,
             "--backdrop-blends" => app.composite_gallery = CompositeGallery::BackdropBlends,
             "--path-effects" => app.composite_gallery = CompositeGallery::PathEffects,
@@ -550,7 +556,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --meshes, --mesh3d, --backdrop-blends, --archives, --series, --visuals, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --meshes, --mesh3d, --backdrop-blends, --archives, --series, --static-dxf, --visuals, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

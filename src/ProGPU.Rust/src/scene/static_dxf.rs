@@ -2,6 +2,16 @@
 use super::*;
 use crate::{picture_archive::ArchiveCommandKind, vector::Matrix4};
 impl Scene {
+    #[cfg(feature = "gpu")]
+    pub(crate) fn static_dxf_text_flags(flags: f32) -> f32 {
+        text::late_camera::force_use_mvp(flags)
+    }
+    #[cfg(feature = "gpu")]
+    pub(crate) fn append_static_dxf_glyph(&mut self, instance: GlyphInstance) -> Result<(), Error> {
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::Glyph(instance));
+        Ok(())
+    }
     pub(crate) fn resolve_static_dxf_chunk(
         &self,
         dpi: f32,
@@ -82,6 +92,10 @@ impl Scene {
         // static vertices still receive200, without an invented helper100 flag.
         let mark = gpu_active
             && resolved.commands.iter().all(|c| {
+                #[cfg(feature = "gpu")]
+                if matches!(c, Command::Glyph(_)) {
+                    return true;
+                }
                 matches!(
                     c,
                     Command::Empty

@@ -305,7 +305,7 @@ impl NativeDesignVectorPainter {
         }))
     }
 }
-fn mapped(
+pub(crate) fn mapped(
     outline: &NativeDesignOutline,
     em: f32,
     position: [f32; 2],

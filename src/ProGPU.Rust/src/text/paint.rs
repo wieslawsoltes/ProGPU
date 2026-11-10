@@ -10,6 +10,7 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 mod outlines;
 mod placement;
+pub(crate) mod retained;
 mod vector_policy;
 pub(crate) use vector_policy::{VectorGlyphRasterInputs, vector_glyph_raster_policy};
 #[cfg(feature = "gpu")]
@@ -494,6 +495,27 @@ impl TextPainter {
     /// Original ordinary layout/positioned command compilation, through atlas
     /// acquisition requests and complete color/vector fallback recipes.
     pub fn plan(&mut self, draw: &TextDraw, context: TextPaintContext) -> Result<TextPaintPlan> {
+        self.plan_inner(draw, context, &mut None)
+    }
+
+    pub(crate) fn plan_retained(
+        &mut self,
+        draw: &TextDraw,
+        context: TextPaintContext,
+        sink: &mut dyn retained::RetainedGlyphSink,
+    ) -> Result<TextPaintPlan> {
+        if draw.hinting_mode == TextHintingMode::IntegerPixel {
+            return Err(Error::UnsupportedExecution.into());
+        }
+        self.plan_inner(draw, context, &mut Some(sink))
+    }
+
+    fn plan_inner(
+        &mut self,
+        draw: &TextDraw,
+        context: TextPaintContext,
+        retained: &mut Option<&mut dyn retained::RetainedGlyphSink>,
+    ) -> Result<TextPaintPlan> {
         draw.validate(context.transform, context.dpi_scale * context.static_zoom)?;
         if draw.hinting_mode == TextHintingMode::IntegerPixel {
             let TextSource::Positioned(run) = &draw.source else {
@@ -546,6 +568,7 @@ impl TextPainter {
                         glyph.position,
                         style_index,
                         true,
+                        retained,
                     )?;
                 }
             }
@@ -559,6 +582,7 @@ impl TextPainter {
                         run.positions[index],
                         style_index,
                         false,
+                        retained,
                     )?;
                 }
             }
@@ -575,6 +599,7 @@ impl TextPainter {
         source_position: [f32; 2],
         style_index: f32,
         layout: bool,
+        retained: &mut Option<&mut dyn retained::RetainedGlyphSink>,
     ) -> Result<()> {
         let position = add(source_position, state.draw.position);
         if font.metadata().has_color_glyphs
@@ -613,6 +638,34 @@ impl TextPainter {
                     }),
                 )?;
             }
+            return Ok(());
+        }
+        // Original retained static producer runs after color layers but before
+        // bitmap selection, vector preferences, clipping and atlas placement.
+        if let Some(sink) = retained.as_mut()
+            && matches!(
+                state.draw.brush.as_ref().map(|b| &b.kind),
+                Some(BrushKind::Solid(_))
+            )
+            && sink.try_glyph(retained::RetainedGlyphPaint {
+                font,
+                glyph,
+                position,
+                font_size: state.draw.font_size,
+                italic_skew: state.italic,
+                scale_x: state.scale_x,
+                coverage_gamma: state.policy.coverage_gamma,
+                color: state.effective_color,
+                transform: state.transform,
+                pass_count: state.pass_count(),
+                bold_offset: state.bold_offset(),
+                sample_grid: if state.draw.rendering_mode == TextRenderingMode::Aliased {
+                    4
+                } else {
+                    8
+                },
+            })?
+        {
             return Ok(());
         }
         let bitmap = font.metadata().has_bitmap_glyphs

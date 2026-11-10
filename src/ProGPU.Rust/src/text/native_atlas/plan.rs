@@ -152,7 +152,12 @@ pub(super) fn prepare(
             .and_then(|c| c.bitmap_for_slot(slot_index));
         // Explicit retained color records already own positioned placement;
         // the backend consumes those source positions without a second snap.
-        let (phase, local) = if color_placement.is_some() {
+        let (phase, local) = if color_placement.is_some()
+            && !draw
+                .colors
+                .as_ref()
+                .is_some_and(|c| c.resolves_source_positions())
+        {
             (0, source_position)
         } else {
             draw.frame.placement(source_position, size, dpi)

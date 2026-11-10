@@ -8,6 +8,7 @@ description = "ProGPU's native Rust rendering engine using canonical WebGPU shad
 repository = "https://github.com/wieslawsoltes/ProGPU"
 readme = "src/ProGPU.Rust/README.md"
 include = [
+    "/src/ProGPU.Scene/Shaders/RetainedGlyph.wgsl",
     "/src/ProGPU.Scene/Shaders/Mesh3DSolid.wgsl",
     "/src/ProGPU.Scene/Shaders/Mesh3DWireframe.wgsl",
     "/src/ProGPU.Scene/Shaders/Mesh3DEdges.wgsl",

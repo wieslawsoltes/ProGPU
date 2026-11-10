@@ -10,6 +10,7 @@ use crate::{
 use std::{collections::HashMap, sync::Arc};
 mod outline;
 mod paint;
+pub(crate) use paint::mapped as map_native_design_outline;
 mod source;
 pub use outline::{NativeDesignOutline, NativeDesignOutlineKind};
 pub use paint::{
@@ -59,6 +60,40 @@ pub struct NativeDesignGeometry {
     styles: Vec<NativeDesignGeometryStyle>,
     outlines: Vec<Arc<NativeDesignOutline>>,
     slots: Vec<NativeDesignGeometrySlot>,
+    glyph_sources: Vec<Option<Arc<NativeDesignGlyphSource>>>,
+}
+/// Actual selected font, glyph and normalized instance coordinates, retained
+/// independently of whether that glyph has monochrome outline tables.
+#[derive(Clone, Debug)]
+pub struct NativeDesignGlyphSource {
+    font: SfntFace,
+    glyph: u16,
+    coordinates: Arc<[i16]>,
+}
+impl NativeDesignGlyphSource {
+    /// Retain an actual already-selected glyph/instance without inventing a
+    /// shaping occurrence or requiring monochrome outline tables.
+    pub fn new(font: SfntFace, glyph: u16, coordinates: &[i16]) -> Result<Arc<Self>> {
+        if glyph >= font.glyph_count().ok_or(FontError::InvalidFace)? {
+            return Err(FontError::InvalidGlyph.into());
+        }
+        let mut frozen = reserved(coordinates.len())?;
+        frozen.extend_from_slice(coordinates);
+        Ok(Arc::new(Self {
+            font,
+            glyph,
+            coordinates: frozen.into(),
+        }))
+    }
+    pub fn font(&self) -> &SfntFace {
+        &self.font
+    }
+    pub fn glyph(&self) -> u16 {
+        self.glyph
+    }
+    pub fn normalized_coordinates(&self) -> &[i16] {
+        &self.coordinates
+    }
 }
 #[derive(Debug, thiserror::Error)]
 pub enum NativeDesignGeometryError {
@@ -79,7 +114,17 @@ impl NativeDesignGeometry {
     /// Compile actual native monochrome vector outlines once. Original color
     /// bitmap/layer presentation and atlas placement are separate source routes.
     pub fn new(source: NativeDesignGeometrySource) -> Result<Arc<Self>> {
-        source::build(source)
+        source::build(source, false)
+    }
+    /// Capture actual source slots for color-first replay. Fonts without any
+    /// native outline table keep an explicit missing outline; they are never
+    /// represented by a fabricated empty TrueType glyph. The color resolver
+    /// must provide actual layers/pixels before such a slot can render.
+    pub fn new_for_color(source: NativeDesignGeometrySource) -> Result<Arc<Self>> {
+        source::build(source, true)
+    }
+    pub fn glyph_source(&self, slot: u32) -> Option<&Arc<NativeDesignGlyphSource>> {
+        self.glyph_sources.get(slot as usize)?.as_ref()
     }
     pub fn source(&self) -> &NativeDesignGeometrySource {
         &self.source

@@ -49,3 +49,5 @@ pub mod native_document;
 pub mod native_font_catalog;
 /// Original native host/browser provider selection and fallback preferences.
 pub mod native_font_provider;
+/// Original source color-glyph selection over native retained font producers.
+pub mod native_color;

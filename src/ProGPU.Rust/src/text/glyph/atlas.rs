@@ -158,6 +158,10 @@ pub struct GlyphAtlas {
     statistics: GlyphAtlasStatistics,
 }
 impl GlyphAtlas {
+    /// Exact device domain of this exclusively owned atlas generation.
+    pub fn device(&self) -> &wgpu::Device {
+        self.rasterizer.device()
+    }
     /// Create an atlas on the exact supplied device/queue. The queue must belong
     /// to that device. All dimensions are validated before resource creation.
     pub async fn new(
