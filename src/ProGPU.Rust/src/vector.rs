@@ -10,7 +10,9 @@ pub use path_effect::{
 };
 mod raw_path;
 pub use raw_path::{PathIterator, PathVerb, RawPathIterator};
+mod packed_path;
 mod region;
+pub use packed_path::{PackedPath, PackedPathBuilder, PackedPathCommand, PackedPathCommands};
 pub use region::{
     Region, RegionExecution, RegionOperation, RegionRect, RegionRectIterator, RegionScanMetrics,
     RegionSpanIterator,
