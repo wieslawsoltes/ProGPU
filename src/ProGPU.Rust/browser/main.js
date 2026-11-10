@@ -74,6 +74,9 @@ window.progpuReady = (async () => {
     renderer.select_image_filter_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'path-effects') {
+    renderer.select_path_effect_scene(true);
+  }
   if (new URLSearchParams(location.search).get('scene') === 'cached-pictures') {
     renderer.select_cached_picture_scene(true);
   }

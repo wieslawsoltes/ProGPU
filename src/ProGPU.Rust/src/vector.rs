@@ -3,6 +3,13 @@
 //! native GPU segment wire remains in `path`. Boolean reconstruction and final
 //! GPU material/stroke lowering are separate consumers, not implicit flattening.
 use crate::Error;
+mod path_effect;
+pub use path_effect::{
+    DashIntervals, EffectMatrix, EffectPaintStyle, PaintAdjustment, PathEffect, PathEffectKind,
+    PathEffectResult, PathEffectSource, PathStampStyle, TrimMode,
+};
+mod measure;
+pub use measure::{MeasureCommand, MeasuredPath, MeasuredPathBuilder, PathMeasure};
 mod arc;
 mod bezier;
 mod boolean;
