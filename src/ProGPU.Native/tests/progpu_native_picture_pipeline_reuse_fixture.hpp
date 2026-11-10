@@ -4,9 +4,14 @@
 namespace {
 WGPUProcDeviceCreateRenderPipeline picture_reuse_create_pipeline{};
 WGPUProcRenderPipelineRelease picture_reuse_release_pipeline{};
+using picture_reuse_add_ref_proc = void (*)(WGPURenderPipeline);
+picture_reuse_add_ref_proc picture_reuse_add_ref_pipeline{};
 WGPUProcDeviceCreateBuffer picture_reuse_create_buffer{};
 std::vector<WGPURenderPipeline> picture_reuse_pipelines;
 std::vector<std::uint32_t> picture_reuse_releases;
+// The references taken on a pipeline after it was created: a retained command
+// list of a clip span holds one for each pipeline it names.
+std::vector<std::uint32_t> picture_reuse_retains;
 bool picture_reuse_fail_uniform = false;
 std::uint32_t picture_reuse_injected_failures = 0U;
 
@@ -24,8 +29,19 @@ WGPURenderPipeline observe_picture_reuse_pipeline(
             "ProGPU native analytic primitive pipeline")) {
         picture_reuse_pipelines.push_back(pipeline);
         picture_reuse_releases.push_back(0U);
+        picture_reuse_retains.push_back(0U);
     }
     return pipeline;
+}
+
+void observe_picture_reuse_add_ref(WGPURenderPipeline pipeline) {
+    for (std::size_t index = 0U; index < picture_reuse_pipelines.size(); ++index) {
+        if (picture_reuse_pipelines[index] == pipeline) {
+            ++picture_reuse_retains[index];
+            break;
+        }
+    }
+    picture_reuse_add_ref_pipeline(pipeline);
 }
 
 void observe_picture_reuse_release(WGPURenderPipeline pipeline) {
@@ -58,6 +74,10 @@ void* resolve_for_picture_pipeline_reuse(void* context, const char* name) {
     } else if (std::strcmp(name, "wgpuRenderPipelineRelease") == 0) {
         std::memcpy(&picture_reuse_release_pipeline, &result, sizeof(result));
         const WGPUProcRenderPipelineRelease observer = observe_picture_reuse_release;
+        std::memcpy(&result, &observer, sizeof(result));
+    } else if (std::strcmp(name, "wgpuRenderPipelineAddRef") == 0 && result != nullptr) {
+        std::memcpy(&picture_reuse_add_ref_pipeline, &result, sizeof(result));
+        const picture_reuse_add_ref_proc observer = observe_picture_reuse_add_ref;
         std::memcpy(&result, &observer, sizeof(result));
     } else if (std::strcmp(name, "wgpuDeviceCreateBuffer") == 0) {
         std::memcpy(&picture_reuse_create_buffer, &result, sizeof(result));
@@ -104,6 +124,7 @@ int verify_picture_pipeline_reuse(const char* library, const char* output, bool 
     for (std::uint32_t owner = 0U; owner < orders.size(); ++owner) {
         picture_reuse_pipelines.clear();
         picture_reuse_releases.clear();
+        picture_reuse_retains.clear();
         picture_reuse_fail_uniform = false;
         picture_reuse_injected_failures = 0U;
         progpu_native_engine* engine{};
@@ -161,19 +182,23 @@ int verify_picture_pipeline_reuse(const char* library, const char* output, bool 
         }
         progpu_native_engine_destroy(engine);
         // A provider may intern identical pipelines and return another owned
-        // reference to the same handle. Match releases to successful creations
-        // per actual handle, rather than assuming distinct pointer identities.
+        // reference to the same handle. Match releases to the references that
+        // were acquired per actual handle, by a successful creation or by a
+        // retained command list, rather than assuming distinct pointer
+        // identities.
         for (std::size_t index = 0U; index < picture_reuse_pipelines.size(); ++index) {
             const auto first = std::find(picture_reuse_pipelines.begin(),
                 picture_reuse_pipelines.end(), picture_reuse_pipelines[index]);
             if (first != picture_reuse_pipelines.begin() + static_cast<std::ptrdiff_t>(index)) continue;
-            const auto references = static_cast<std::uint32_t>(std::count(
+            const auto created = static_cast<std::uint32_t>(std::count(
                 picture_reuse_pipelines.begin(), picture_reuse_pipelines.end(),
                 picture_reuse_pipelines[index]));
-            std::fprintf(stderr, "Picture owner=%u handle=%p created=%u released=%u\n",
-                owner, static_cast<void*>(picture_reuse_pipelines[index]), references,
-                picture_reuse_releases[index]);
-            require(picture_reuse_releases[index] == references,
+            const auto retained = picture_reuse_retains[index];
+            std::fprintf(stderr,
+                "Picture owner=%u handle=%p created=%u retained=%u released=%u\n",
+                owner, static_cast<void*>(picture_reuse_pipelines[index]), created,
+                retained, picture_reuse_releases[index]);
+            require(picture_reuse_releases[index] == created + retained,
                 "Parent/child pipeline ownership did not release each acquired reference exactly once");
         }
     }
