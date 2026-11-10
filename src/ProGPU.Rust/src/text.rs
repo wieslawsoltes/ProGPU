@@ -36,3 +36,8 @@ pub mod native_design_geometry;
 
 /// Ordinary native atlas placement and explicit original color-bitmap transport.
 pub mod native_atlas;
+
+/// Immutable original selected typeface and raw style factories.
+pub mod typeface;
+/// Explicit owned/native/browser font catalog and fallback matching.
+pub mod font_manager;

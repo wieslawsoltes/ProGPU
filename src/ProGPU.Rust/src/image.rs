@@ -23,6 +23,7 @@ pub use color_space::{
 };
 mod encoded;
 mod png;
+pub(crate) use png::inflate_native_zlib;
 pub mod raster;
 pub use encoded::{
     CodecAnimationBlend, CodecAnimationDisposal, CodecError, CodecFrameInfo, CodecOptions,

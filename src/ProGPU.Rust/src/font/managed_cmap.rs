@@ -120,7 +120,7 @@ fn legacy(data: &[u8], code: u32) -> Option<u32> {
 fn read(data: &[u8], at: i32, count: usize) -> Option<&[u8]> {
     bytes::bytes(data, usize::try_from(at).ok()?, count)
 }
-fn groups(data: &[u8], code: u32, constant: bool) -> Result<Option<u16>, FontError> {
+pub(super) fn groups(data: &[u8], code: u32, constant: bool) -> Result<Option<u16>, FontError> {
     if data.len() < 16 {
         return Ok(None);
     }

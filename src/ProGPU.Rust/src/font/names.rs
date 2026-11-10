@@ -66,7 +66,7 @@ fn whitespace(ch: char) -> bool {
         )
 }
 
-fn decode(input: &[u8], platform: u16, encoding: u16) -> String {
+pub(crate) fn decode(input: &[u8], platform: u16, encoding: u16) -> String {
     let mut value = if platform == 0 || platform == 3 {
         let mut pairs = input.chunks_exact(2);
         let mut value: String =
@@ -86,7 +86,7 @@ fn decode(input: &[u8], platform: u16, encoding: u16) -> String {
     value.trim_matches(whitespace).to_owned()
 }
 
-fn score(platform: u16, language: u16, value: &str) -> u8 {
+pub(crate) fn score(platform: u16, language: u16, value: &str) -> u8 {
     let base = match (platform, language) {
         (3, 0x0409) => 4,
         (3, _) => 3,

@@ -297,7 +297,7 @@ fn adler32(bytes: &[u8]) -> u32 {
     }
     (second << 16) | first
 }
-pub(super) fn inflate_zlib(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
+pub(crate) fn inflate_zlib(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
     if input.len() < 6 {
         return Err(INVALID);
     }

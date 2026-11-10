@@ -10,6 +10,11 @@
 mod bytes;
 pub mod cff;
 mod composite;
+mod container;
+pub use container::{
+    SfntContainerRequirements, normalize_managed_sfnt_container, normalize_sfnt_container,
+    normalize_sfnt_container_into, sfnt_container_requirements,
+};
 mod device_metrics;
 pub use device_metrics::{FontVerticalDeviceMetrics, read_vertical_device_metrics};
 pub mod gvar;
@@ -19,7 +24,9 @@ pub mod layout;
 mod managed_cmap;
 mod managed_font;
 mod managed_variations;
-mod names;
+mod metadata_cmap;
+pub(crate) mod names;
+pub use metadata_cmap::MetadataCharacterMap;
 mod outline;
 mod raster_recommendations;
 pub use raster_recommendations::{
@@ -107,6 +114,12 @@ pub enum FontError {
     /// Original native safe-boundary fragment replay differs from the full run.
     #[error("native shaping verification failed")]
     VerificationFailed = 10,
+    /// Malformed original WOFF1 header, directory or declared output extent.
+    #[error("invalid font container")]
+    InvalidContainer = 11,
+    /// Original compressed table stream or expanded-length mismatch.
+    #[error("invalid compressed font data")]
+    InvalidCompressedData = 12,
 }
 
 /// Original directory entry selected by ordinary native table lookup.

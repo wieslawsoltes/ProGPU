@@ -112,9 +112,10 @@ pub struct ManagedFont {
     state: Arc<State>,
 }
 impl ManagedFont {
-    /// Select an owned uncompressed SFNT/TTC font with original managed error and
-    /// whole-collection admission. WOFF normalization is a separate pending port.
+    /// Select an owned SFNT/TTC or original normalized WOFF1 font with managed
+    /// whole-collection admission. WOFF2 retains its original unsupported result.
     pub fn new(data: impl Into<Arc<[u8]>>, face_index: u32) -> Result<Self, FontError> {
+        let data = super::normalize_managed_sfnt_container(data.into())?;
         let face = SfntFace::new(data, face_index).map_err(|e| match e {
             FontError::InvalidArgument | FontError::UnsupportedContainer | FontError::Capacity => e,
             _ => FontError::InvalidFace,
