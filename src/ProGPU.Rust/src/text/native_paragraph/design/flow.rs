@@ -382,6 +382,17 @@ impl NativeFragmentParagraph {
     pub fn source(&self) -> &Arc<NativeDesignSource> {
         &self.source
     }
+    /// Retain this exact positioned generation with the original caller-owned
+    /// cluster ends, resolved bidi levels and optional advance-origin policy.
+    /// Reflow produces a distinct owner and needs its own occurrence metadata.
+    pub fn interaction(
+        self: &Arc<Self>,
+        cluster_ends: &[i32],
+        bidi_levels: &[i8],
+        coordinates: NativeFragmentCoordinates<'_>,
+    ) -> Result<Arc<NativeFragmentInteraction>, NativeParagraphError> {
+        NativeFragmentInteraction::new(self.clone(), cluster_ends, bidi_levels, coordinates)
+    }
     pub fn options(&self) -> NativeDesignOptions {
         self.options
     }

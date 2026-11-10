@@ -19,6 +19,8 @@ use std::{ops::Range, sync::Arc};
 mod design;
 pub use design::*;
 mod fallback;
+mod fragment_interaction;
+pub use fragment_interaction::*;
 mod geometry;
 mod source;
 pub use source::*;
