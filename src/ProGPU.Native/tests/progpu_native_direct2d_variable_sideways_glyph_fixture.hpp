@@ -120,7 +120,10 @@ void verify_variable_sideways_glyph_pixels(Render render, Require require)
         font_face5 face; face.files = {&file}; face.declared_count = 1U;
         face.type = options.kind == vertical_font_kind::cff2_variable ? 0U : 1U;
         face.index = 0U; face.simulations = 0U; face.glyph_count = 3U; face.variable = true;
-        face.axes = {{0x74686777U, vertical_font_weights.at(instance)}};
+        // A new list replaces the two default axis values. GCC 15 reports the
+        // assignment of the one element initializer list itself as out of
+        // bounds, on a branch the two default values rule out.
+        face.axes = decltype(face.axes){{0x74686777U, vertical_font_weights.at(instance)}};
         std::shared_ptr<const original_font_capture> source;
         std::shared_ptr<prepared_original_font> font;
         require(capture_original_font(&face, source) == com::ok && prepared_original_font::create(source, font) == com::ok,

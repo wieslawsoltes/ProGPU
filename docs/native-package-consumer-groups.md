@@ -109,6 +109,16 @@ selectors, renderer/adapter defaults, assertions, deadlines and exact successful
 Build staging gates remain unchanged; runtime and application qualification are
 still required.
 
+Ubuntu 26.04 no longer brings the unwinder with that request: its `libc++1`
+installs `libc++1` and `libc++abi1` only, and `libunwind.so.1` is the separate
+`llvm-libunwind1` package, which Ubuntu 24.04 does not have. On that image the
+provider failed to load with `libunwind.so.1: cannot open shared object file`.
+The install steps that request `libc++1` for the provider therefore also request
+`llvm-libunwind1|libunwind-18`. The installer reads `first|second` as
+alternatives: an installed alternative satisfies the request, otherwise the
+first one the package indexes know is installed, and the step fails when the
+distribution has none of them.
+
 ## Original-source EDIT export processes
 
 The `edit-word` group adds two independent device-free processes selecting the

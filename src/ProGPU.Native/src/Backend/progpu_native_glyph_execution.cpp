@@ -1039,8 +1039,13 @@ progpu_native_status render_glyphs(
                 shared_rasters.reserve(frame->outline_count);
                 engine->glyph_rasters.clear();
                 engine->glyph_rasters.reserve(frame->outline_count);
-                if (!persistent_atlas) {
-                    // The direct frame overwrites the tiles a scene kept.
+                if (!persistent_atlas ||
+                    engine->glyph_raster_dpi_scale != frame->dpi_scale) {
+                    // The direct frame overwrites the tiles a scene kept. A
+                    // scene at another DPI scale rasterizes its coverage
+                    // again: the tiles made for the scale of the last frame
+                    // are dropped here, and that scale is replaced when this
+                    // frame is encoded, so they are dropped once per change.
                     engine->glyph_atlas_cache.clear();
                 }
                 for (std::size_t index = 0U;

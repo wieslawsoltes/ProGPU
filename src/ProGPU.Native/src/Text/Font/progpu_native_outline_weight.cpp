@@ -177,6 +177,19 @@ void append_piece(
     pieces.push_back(value);
 }
 
+// Orders the first `count` turns. There are at most four, so they are sorted by
+// insertion: GCC 15 inlines the introsort of std::sort here at -O3 and then
+// reports subscripts past the array (-Warray-bounds) on its branches for long
+// ranges, which four values never reach.
+void sort_turns(std::array<double, 4>& turns, std::uint32_t count) noexcept {
+    for (std::uint32_t index = 1U; index < count && index < turns.size(); ++index) {
+        const double value = turns[index];
+        std::uint32_t slot = index;
+        for (; slot > 0U && turns[slot - 1U] > value; --slot) turns[slot] = turns[slot - 1U];
+        turns[slot] = value;
+    }
+}
+
 void append_pieces(std::vector<piece>& pieces, const progpu_native_path_segment& segment, double side) {
     const auto count = control_count(segment.kind);
     std::array<vec2, 4> controls{};
@@ -185,7 +198,7 @@ void append_pieces(std::vector<piece>& pieces, const progpu_native_path_segment&
     std::uint32_t turn_count = 0U;
     append_turns(controls[0].x, controls[1].x, controls[2].x, controls[3].x, count, turns, turn_count);
     append_turns(controls[0].y, controls[1].y, controls[2].y, controls[3].y, count, turns, turn_count);
-    std::sort(turns.begin(), turns.begin() + turn_count);
+    sort_turns(turns, turn_count);
     double done = 0.0;
     for (std::uint32_t index = 0U; index < turn_count; ++index) {
         const double t = turns[index];

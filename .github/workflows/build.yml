@@ -1390,7 +1390,7 @@ jobs:
         timeout-minutes: 10
         run: |
           # The pinned Dawn provider needs the distro C++/ABI/unwind runtimes.
-          ./eng/progpu-install-linux-packages.sh libc++1 libvulkan1 mesa-vulkan-drivers
+          ./eng/progpu-install-linux-packages.sh libc++1 'llvm-libunwind1|libunwind-18' libvulkan1 mesa-vulkan-drivers
 
       - name: Download native NuGet package
         uses: actions/download-artifact@v8
@@ -1614,6 +1614,7 @@ jobs:
         run: |
           ./eng/progpu-install-linux-packages.sh \
             libc++1 \
+            'llvm-libunwind1|libunwind-18' \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-6 \
@@ -1981,6 +1982,7 @@ jobs:
         run: |
           ./eng/progpu-install-linux-packages.sh \
             libc++1 \
+            'llvm-libunwind1|libunwind-18' \
             libvulkan1 \
             mesa-vulkan-drivers \
             libx11-xcb1 \
