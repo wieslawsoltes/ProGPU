@@ -27,6 +27,8 @@ Latest connected continuation (2026-11-10), implementation only:
 | --- | --- | --- |
 | Native document flow | Nested blocks, shared table tracks/cells, exact width/anchor/collision passes, page/column breaks, retained paragraph generations and atomic import/copy/reflow | Original source/error/lifetime/browser/performance controls |
 | Native hinted font producer | Optional original signed FreeType dependency, exclusive safe library/face ownership, interpreter/MM/nominal-size/phase control, checked owned slots and existing cache/shaper/replay integration | Six-RID ABI, native dependency provisioning, original source/pixel/lifetime/package/performance gates; portable/browser providers remain independent |
+| Native font providers and catalog | Exact host/browser callback selection/cache, raw fallback preferences and fixed style variations; separate native metadata discovery, nominal cmap matching, file ownership, names/style/embedding and resident SFNT/SBIX writers | Native mmap/path-encoding host adapters and all original byte/error/callback/lifetime/browser/performance qualification |
+| Native color/bitmap font queries | Original COLR/CPAL, SVG/raw-gzip, sbix and CBLC/CBDT views, capacity-first decode and source renderability ordering | Full SVG layer execution and actual bitmap/source/provider/pixel qualification |
 | Font storage and residency | Safe owned/static/shared leases, exact SFNT/SBIX glyph extraction, demand bitmap cache, instance-identity matching and actual execution metrics | Native mapped storage explicitly unavailable; original byte/error/lifetime/performance and host-provider controls |
 | ImageEffect reuse | Completion-owned parameter/blur pools, original module/pipeline/sampler caches, tracked source/mip/view generations, explicit host-frame aging and actual reuse metrics | Original runtime/pixel/lifetime/browser/performance controls |
 | Surface root flushing | Flush/snapshot of the actual root while save layers remain open, retaining child state and atomic prepared ownership | Existing Rust clip continuation remains distinct; original repeated-flush/clip/backdrop/source pixels |
@@ -77,6 +79,11 @@ The [late-camera vector route](notes/late-camera-vector-port.md) and separate
 [static Hatch producer](notes/static-hatch-port.md) now preserve their distinct
 original +100 and +200 shader markers. Both are implementation-only; no build,
 shader, browser, pixel or performance validation has run for these additions.
+The [native host/browser provider](notes/native-font-provider-port.md),
+[system catalog](notes/native-font-catalog-port.md) and
+[color/bitmap font queries](notes/native-font-glyph-query-port.md) preserve their
+separate original selection and ownership policies. Safe host mapping and original
+Windows non-ASCII path encoding remain explicit provider boundaries.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

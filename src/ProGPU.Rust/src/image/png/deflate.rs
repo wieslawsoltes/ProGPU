@@ -254,7 +254,7 @@ fn stored(reader: &mut Reader<'_>, output: &mut [u8], written: &mut usize) -> Re
     }
     Ok(())
 }
-fn inflate(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
+pub(crate) fn inflate(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
     let mut reader = Reader::new(input);
     let mut written = 0;
     loop {

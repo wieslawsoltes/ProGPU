@@ -5,6 +5,7 @@ use super::{Image, ImageAlpha};
 use crate::Error;
 
 mod deflate;
+pub(crate) use deflate::inflate as inflate_native_deflate;
 pub(crate) use deflate::inflate_zlib as inflate_native_zlib;
 mod filter;
 mod layout;
