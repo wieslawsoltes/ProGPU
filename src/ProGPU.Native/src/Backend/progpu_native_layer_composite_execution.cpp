@@ -169,62 +169,62 @@ WGPUBindGroup select_layer_mask_bind_group(
 std::uint64_t calculate_group_blend_source_signature(
     const resolved_draw_state& draw_state) noexcept {
     std::uint64_t hash = 14695981039346656037ULL;
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash,
         &draw_state.group_revision,
         sizeof(draw_state.group_revision));
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash,
         &draw_state.group_opacity,
         sizeof(draw_state.group_opacity));
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash,
         &draw_state.has_group_mask,
         sizeof(draw_state.has_group_mask));
     if (draw_state.has_group_mask) {
         const auto& mask = draw_state.group_mask;
-        hash = append_fnv1a64(
+        hash = append_content_hash64(
             hash,
             &mask.kind,
             sizeof(mask.kind));
-        hash = append_fnv1a64(
+        hash = append_content_hash64(
             hash,
             &mask.external_view,
             sizeof(mask.external_view));
-        hash = append_fnv1a64(hash, &mask.width, sizeof(mask.width));
-        hash = append_fnv1a64(hash, &mask.height, sizeof(mask.height));
-        hash = append_fnv1a64(hash, &mask.sampling, sizeof(mask.sampling));
-        hash = append_fnv1a64(
+        hash = append_content_hash64(hash, &mask.width, sizeof(mask.width));
+        hash = append_content_hash64(hash, &mask.height, sizeof(mask.height));
+        hash = append_content_hash64(hash, &mask.sampling, sizeof(mask.sampling));
+        hash = append_content_hash64(
             hash,
             &mask.texture_format,
             sizeof(mask.texture_format));
-        hash = append_fnv1a64(hash, &mask.revision, sizeof(mask.revision));
-        hash = append_fnv1a64(
+        hash = append_content_hash64(hash, &mask.revision, sizeof(mask.revision));
+        hash = append_content_hash64(
             hash,
             &mask.destination_rect,
             sizeof(mask.destination_rect));
-        hash = append_fnv1a64(hash, &mask.bounds, sizeof(mask.bounds));
-        hash = append_fnv1a64(hash, &mask.transform, sizeof(mask.transform));
-        hash = append_fnv1a64(
+        hash = append_content_hash64(hash, &mask.bounds, sizeof(mask.bounds));
+        hash = append_content_hash64(hash, &mask.transform, sizeof(mask.transform));
+        hash = append_content_hash64(
             hash,
             mask.corner_radii_x,
             sizeof(mask.corner_radii_x));
-        hash = append_fnv1a64(
+        hash = append_content_hash64(
             hash,
             mask.corner_radii_y,
             sizeof(mask.corner_radii_y));
-        hash = append_fnv1a64(hash, &mask.opacity, sizeof(mask.opacity));
+        hash = append_content_hash64(hash, &mask.opacity, sizeof(mask.opacity));
     }
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash,
         &draw_state.effect_count,
         sizeof(draw_state.effect_count));
-    hash = append_fnv1a64(
+    hash = append_content_hash64(
         hash,
         &draw_state.effect_chain_revision,
         sizeof(draw_state.effect_chain_revision));
     if (draw_state.effect_count != 0U) {
-        hash = append_fnv1a64(
+        hash = append_content_hash64(
             hash,
             draw_state.group_effects.data(),
             draw_state.effect_count * sizeof(progpu_native_group_effect));

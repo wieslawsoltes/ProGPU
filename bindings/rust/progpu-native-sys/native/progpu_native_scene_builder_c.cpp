@@ -105,6 +105,11 @@ int progpu_native_scene_builder_add_glyph_outlines(progpu_native_scene_builder* 
         span_of(outlines, outline_count), span_of(segments, segment_count), *resource_index));
 }
 
+int progpu_native_scene_builder_add_glyph_keys(progpu_native_scene_builder* builder,
+    const progpu_native_scene_glyph_key* keys, size_t key_count, uint32_t* resource_index) {
+    return result(builder->builder.add_glyph_keys(span_of(keys, key_count), *resource_index));
+}
+
 int progpu_native_scene_builder_add_axis_aligned_clip_mask(progpu_native_scene_builder* builder,
     progpu_native_image_rect bounds, uint32_t* resource_index) {
     return result(builder->builder.add_axis_aligned_clip_mask(bounds, *resource_index));

@@ -2,6 +2,7 @@
 #include "progpu_native_buffer_capacity.hpp"
 #include "progpu_native_compute_trace.hpp"
 #include "progpu_native_glyph_raster_identity.hpp"
+#include "progpu_native_glyph_outline_registry.hpp"
 #include "progpu_native_effect_plan.hpp"
 #include "progpu_native_geometry_analytic.hpp"
 #include "progpu_native_geometry_dash.hpp"
@@ -19,6 +20,7 @@
 #include "progpu_native_semantic_color_glyph.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "progpu_native_semantic_glyph_keys.hpp"
 #include "progpu_native_semantic_image_tests.hpp"
 #include "progpu_native_semantic_layer_mask_tests.hpp"
 #include "progpu_native_semantic_draw_merge.hpp"
@@ -325,6 +327,230 @@ void glyph_atlas_cache_keeps_tiles_across_rebuilds_and_restarts_when_full() {
     cursor = {};
     required = 32U;
     require(!place_glyph_atlas_tile(cursor, 20U, 61U, maximum, required, x, y));
+}
+
+void glyph_outline_registry_keeps_one_content_per_key() {
+    using namespace progpu::native;
+    const auto line = [](float x0, float y0, float x1, float y1) {
+        return progpu_native_path_segment{
+            {x0, y0}, {x1, y1}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U};
+    };
+    const std::array segments{
+        line(0.0F, 0.0F, 8.0F, 0.0F),
+        line(8.0F, 0.0F, 8.0F, 10.0F),
+        line(8.0F, 10.0F, 0.0F, 0.0F),
+        line(0.0F, 0.0F, 6.0F, 0.0F),
+        line(6.0F, 0.0F, 0.0F, 9.0F),
+        line(0.0F, 9.0F, 0.0F, 0.0F)};
+    const auto outline_of = [](std::uint64_t face, std::uint32_t glyph,
+            std::uint32_t variant, std::uint64_t offset, float width, float height) {
+        return progpu_native_registered_glyph_outline{
+            {face, glyph, variant}, offset, 3U, 0.0F, 0.0F, width, height};
+    };
+    using result = glyph_outline_registry::result;
+
+    glyph_outline_registry registry;
+    require(registry.size() == 0U);
+    require(registry.find({7U, 1U, 0U}) == 0U && registry.get(0U) == nullptr &&
+        registry.get(1U) == nullptr);
+    const std::array first{
+        outline_of(7U, 1U, 0U, 0U, 8.0F, 10.0F),
+        outline_of(7U, 2U, 0U, 3U, 6.0F, 9.0F)};
+    require(registry.add(first, segments) == result::registered);
+    require(registry.size() == 2U);
+    const auto one = registry.find({7U, 1U, 0U});
+    const auto two = registry.find({7U, 2U, 0U});
+    require(one == 1U && two == 2U);
+    const auto* entry = registry.get(two);
+    require(entry != nullptr && entry->max_x == 6.0F && entry->max_y == 9.0F &&
+        entry->segments.size() == 3U &&
+        std::memcmp(entry->segments.data(), segments.data() + 3U,
+            3U * sizeof(progpu_native_path_segment)) == 0);
+    // The variant and the face are part of the key.
+    require(registry.find({7U, 1U, 1U}) == 0U && registry.find({8U, 1U, 0U}) == 0U);
+
+    // The same content under the same key is not registered a second time,
+    // also when its segments sit at another place of another arena.
+    const std::array moved_segments{
+        segments[3], segments[4], segments[5], segments[0], segments[1], segments[2]};
+    const std::array again{
+        outline_of(7U, 2U, 0U, 0U, 6.0F, 9.0F),
+        outline_of(7U, 1U, 0U, 3U, 8.0F, 10.0F)};
+    require(registry.add(again, moved_segments) == result::registered);
+    require(registry.size() == 2U && registry.find({7U, 1U, 0U}) == one &&
+        registry.get(two) == entry);
+
+    // Other content under a held key is refused, and nothing of that call is
+    // registered: neither other segments, nor other bounds, nor a key that is
+    // twice in one call with two contents.
+    const std::array other_segments{
+        outline_of(9U, 5U, 0U, 0U, 8.0F, 10.0F),
+        outline_of(7U, 1U, 0U, 3U, 8.0F, 10.0F)};
+    require(registry.add(other_segments, segments) == result::other_content);
+    const std::array other_bounds{outline_of(7U, 1U, 0U, 0U, 8.0F, 11.0F)};
+    require(registry.add(other_bounds, segments) == result::other_content);
+    const std::array twice{
+        outline_of(9U, 5U, 0U, 0U, 8.0F, 10.0F),
+        outline_of(9U, 5U, 0U, 3U, 8.0F, 10.0F)};
+    require(registry.add(twice, segments) == result::other_content);
+    require(registry.size() == 2U && registry.find({9U, 5U, 0U}) == 0U);
+    // The same key twice in one call with one content is one outline.
+    const std::array twice_equal{
+        outline_of(9U, 5U, 0U, 0U, 8.0F, 10.0F),
+        outline_of(9U, 5U, 0U, 0U, 8.0F, 10.0F)};
+    require(registry.add(twice_equal, segments) == result::registered);
+    require(registry.size() == 3U && registry.find({9U, 5U, 0U}) == 3U);
+
+    // An invalid outline refuses the whole call.
+    for (unsigned variant = 0U; variant < 9U; ++variant) {
+        std::array candidates{
+            outline_of(11U, 1U, 0U, 0U, 8.0F, 10.0F),
+            outline_of(11U, 2U, 0U, 3U, 6.0F, 9.0F)};
+        auto candidate_segments = segments;
+        auto& bad = candidates[1];
+        switch (variant) {
+            case 0U: bad.segment_count = 0U; break;
+            case 1U: bad.segment_offset = 4U; break;
+            case 2U: bad.segment_offset = 7U; break;
+            case 3U: bad.max_x = bad.min_x; break;
+            case 4U: bad.max_y = std::numeric_limits<float>::infinity(); break;
+            case 5U: bad.min_x = std::numeric_limits<float>::quiet_NaN(); break;
+            case 6U: candidate_segments[4].pad0 = 1U; break;
+            case 7U: candidate_segments[4].kind = 77U; break;
+            case 8U:
+                candidate_segments[5].p1.x = std::numeric_limits<float>::quiet_NaN();
+                break;
+        }
+        require(registry.add(candidates, candidate_segments) == result::invalid_outline);
+        require(registry.size() == 3U && registry.find({11U, 1U, 0U}) == 0U);
+    }
+
+    // A released face is gone, its serials resolve to nothing and are not
+    // given again, and its number is refused afterwards.
+    registry.release_face(7U);
+    require(registry.size() == 1U);
+    require(registry.find({7U, 1U, 0U}) == 0U && registry.find({7U, 2U, 0U}) == 0U);
+    require(registry.get(one) == nullptr && registry.get(two) == nullptr);
+    require(registry.get(3U) != nullptr && registry.find({9U, 5U, 0U}) == 3U);
+    require(registry.add(first, segments) == result::released_face);
+    const std::array later{outline_of(12U, 1U, 0U, 0U, 8.0F, 10.0F)};
+    require(registry.add(later, segments) == result::registered);
+    require(registry.find({12U, 1U, 0U}) == 4U);
+    // Releasing an unknown face only retires its number.
+    registry.release_face(13U);
+    const std::array retired{outline_of(13U, 1U, 0U, 0U, 8.0F, 10.0F)};
+    require(registry.add(retired, segments) == result::released_face);
+    require(registry.size() == 2U);
+    // An empty call registers nothing and succeeds.
+    require(registry.add({}, {}) == result::registered && registry.size() == 2U);
+}
+
+void glyph_atlas_cache_finds_registered_outlines_by_key() {
+    using namespace progpu::native;
+    glyph_atlas_cache cache;
+    const glyph_atlas_key key{
+        5U, std::bit_cast<std::uint32_t>(1.5F), std::bit_cast<std::uint32_t>(0.25F)};
+    require(cache.find(key) == nullptr);
+    cache.insert(key, {2U, 2U, 20U, 24U, -3.0F, -17.0F});
+    require(!cache.empty() && cache.size() == 1U);
+    const auto* tile = cache.find(key);
+    require(tile != nullptr && tile->atlas_x == 2U && tile->height == 24U &&
+        tile->x_start == -3.0F && tile->y_start == -17.0F);
+    // The serial, the raster scale and the subpixel phase each select a tile.
+    auto other = key;
+    other.serial = 6U;
+    require(cache.find(other) == nullptr);
+    other = key;
+    other.raster_scale_bits = std::bit_cast<std::uint32_t>(1.25F);
+    require(cache.find(other) == nullptr);
+    other = key;
+    other.subpixel_bits = std::bit_cast<std::uint32_t>(0.5F);
+    require(cache.find(other) == nullptr);
+    cache.insert(other, {24U, 2U, 20U, 24U, -3.0F, -17.0F});
+    require(cache.size() == 2U && cache.find(other)->atlas_x == 24U &&
+        cache.find(key)->atlas_x == 2U);
+    // Keyed tiles and tiles found by their bytes live in one atlas: a restart
+    // forgets both.
+    std::array<progpu_native_path_segment, 1U> segments{};
+    const progpu_native_glyph_outline outline{0U, 1U, 0.0F, 0.0F, 10.0F, 12.0F, 1.0F, 0.0F};
+    const auto inline_identity = make_hashed_glyph_raster_identity(
+        make_glyph_raster_identity(outline, segments));
+    cache.insert(inline_identity.hash, inline_identity.identity,
+        {2U, 30U, 20U, 20U, -4.0F, -16.0F});
+    require(cache.size() == 3U);
+    cache.clear();
+    require(cache.empty() && cache.find(key) == nullptr && cache.find(other) == nullptr &&
+        cache.find(inline_identity.hash, inline_identity.identity) == nullptr);
+}
+
+void glyph_keys_are_validated_exactly() {
+    using namespace progpu::native;
+    const progpu_native_scene_glyph_key valid{{3U, 9U, 1U}, 1.25F, 0.5F};
+    require(semantic::is_valid_glyph_key(valid));
+    for (const float phase : {0.0F, 0.25F, 0.5F, 0.75F}) {
+        auto key = valid;
+        key.subpixel_x = phase;
+        require(semantic::is_valid_glyph_key(key));
+    }
+    for (const float phase : {-0.0F, -0.25F, 0.1F, 1.0F,
+            std::numeric_limits<float>::quiet_NaN()}) {
+        auto key = valid;
+        key.subpixel_x = phase;
+        require(!semantic::is_valid_glyph_key(key));
+    }
+    for (const float scale : {0.0F, -1.0F,
+            std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::quiet_NaN()}) {
+        auto key = valid;
+        key.raster_scale = scale;
+        require(!semantic::is_valid_glyph_key(key));
+    }
+}
+
+void content_hash_reads_words_and_keeps_ranges_apart() {
+    using namespace progpu::native;
+    constexpr std::uint64_t seed = 1469598103934665603ULL;
+    std::array<std::uint8_t, 45U> bytes{};
+    for (std::size_t index = 0U; index < bytes.size(); ++index) {
+        bytes[index] = static_cast<std::uint8_t>(index * 37U + 11U);
+    }
+    const auto whole = append_content_hash64(seed, bytes.data(), bytes.size());
+    require(whole == append_content_hash64(seed, bytes.data(), bytes.size()));
+    // An empty range leaves the value as it is.
+    require(append_content_hash64(seed, bytes.data(), 0U) == seed);
+    // A range split at a multiple of eight bytes gives the value of the range;
+    // the reads do not depend on the alignment of the bytes.
+    for (const std::size_t split : {8U, 16U, 40U}) {
+        const auto head = append_content_hash64(seed, bytes.data(), split);
+        require(append_content_hash64(
+            head, bytes.data() + split, bytes.size() - split) == whole);
+    }
+    std::array<std::uint8_t, 46U> shifted{};
+    std::memcpy(shifted.data() + 1U, bytes.data(), bytes.size());
+    require(append_content_hash64(seed, shifted.data() + 1U, bytes.size()) == whole);
+    // Every byte and the length take part, also in the tail.
+    for (std::size_t index = 0U; index < bytes.size(); ++index) {
+        auto changed = bytes;
+        changed[index] ^= 0x80U;
+        require(append_content_hash64(seed, changed.data(), changed.size()) != whole);
+    }
+    for (std::size_t size = 0U; size < bytes.size(); ++size) {
+        require(append_content_hash64(seed, bytes.data(), size) != whole);
+    }
+    // A short tail is not the same bytes followed by zeros.
+    std::array<std::uint8_t, 16U> zeros{};
+    zeros[0] = 1U;
+    std::uint64_t previous = append_content_hash64(seed, zeros.data(), 1U);
+    for (std::size_t size = 2U; size <= zeros.size(); ++size) {
+        const auto next = append_content_hash64(seed, zeros.data(), size);
+        require(next != previous);
+        previous = next;
+    }
+    require(append_content_hash64(seed, zeros.data(), 9U) !=
+        append_content_hash64(seed, zeros.data(), 8U));
+    // The seed takes part.
+    require(append_content_hash64(seed + 1U, bytes.data(), bytes.size()) != whole);
 }
 
 void native_texture_copy_staging_uses_portable_d3d12_alignment() {
@@ -2366,10 +2592,10 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 
     constexpr std::uint64_t seed = 1469598103934665603ULL;
     const std::array<std::uint32_t, 3U> words{1U, 2U, 3U};
-    const auto first = append_fnv1a64(seed, words.data(), sizeof(words));
-    const auto second = append_fnv1a64(seed, words.data(), sizeof(words));
+    const auto first = append_content_hash64(seed, words.data(), sizeof(words));
+    const auto second = append_content_hash64(seed, words.data(), sizeof(words));
     require(first == second);
-    require(first != append_fnv1a64(seed, words.data(), sizeof(words[0])));
+    require(first != append_content_hash64(seed, words.data(), sizeof(words[0])));
 }
 
 } // namespace
@@ -2487,6 +2713,8 @@ int main() {
     require(progpu::native::tests::
         semantic_scene_builder_shares_glyph_segments_across_raster_sizes());
     require(progpu::native::tests::
+        semantic_scene_builder_records_keyed_glyph_runs());
+    require(progpu::native::tests::
         semantic_scene_builder_records_native_shaped_runs());
     require(progpu::native::tests::
         semantic_scene_builder_records_color_bitmap_glyphs());
@@ -2508,6 +2736,10 @@ int main() {
     path_size_batches_keep_original_uniforms_and_bound_work();
     glyph_raster_identity_uses_exact_selected_bytes_not_arena_offsets();
     glyph_atlas_cache_keeps_tiles_across_rebuilds_and_restarts_when_full();
+    glyph_outline_registry_keeps_one_content_per_key();
+    glyph_atlas_cache_finds_registered_outlines_by_key();
+    glyph_keys_are_validated_exactly();
+    content_hash_reads_words_and_keeps_ranges_apart();
     semantic_color_glyph_resource_is_strictly_validated();
     semantic_effect_output_cache_requires_exact_retained_identity();
     gpu_records_preserve_alignment_phase_and_cache_identity();

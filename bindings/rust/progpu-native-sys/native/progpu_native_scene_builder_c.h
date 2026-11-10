@@ -50,6 +50,11 @@ int progpu_native_scene_builder_add_text_style(progpu_native_scene_builder* buil
 int progpu_native_scene_builder_add_glyph_outlines(progpu_native_scene_builder* builder,
     const progpu_native_scene_glyph_outline* outlines, size_t outline_count,
     const progpu_native_path_segment* segments, size_t segment_count, uint32_t* resource_index);
+/* A glyph resource that names outlines registered with the engine
+   (progpu_native_engine_register_glyph_outlines); a positioned glyph's outline_index is an index
+   into keys. Only for progpu_native_scene_builder_draw_glyph_run. */
+int progpu_native_scene_builder_add_glyph_keys(progpu_native_scene_builder* builder,
+    const progpu_native_scene_glyph_key* keys, size_t key_count, uint32_t* resource_index);
 int progpu_native_scene_builder_add_axis_aligned_clip_mask(progpu_native_scene_builder* builder,
     progpu_native_image_rect bounds, uint32_t* resource_index);
 int progpu_native_scene_builder_add_rounded_rectangle_mask(progpu_native_scene_builder* builder,

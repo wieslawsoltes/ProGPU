@@ -3083,6 +3083,118 @@ bool semantic_scene_builder_shares_glyph_segments_across_raster_sizes() {
         resource.auxiliary_size == sizeof(segments);
 }
 
+bool semantic_scene_builder_records_keyed_glyph_runs() {
+    semantic_scene_builder builder(713U, 3U);
+    std::vector<std::byte> empty;
+    if (!builder.build(empty)) return false;
+    const std::array keys{
+        progpu_native_scene_glyph_key{{41U, 7U, 0U}, 1.0F, 0.0F},
+        progpu_native_scene_glyph_key{{41U, 9U, 2U}, 1.5F, 0.75F}};
+    std::uint32_t resource = 77U;
+    // A key table is not empty and every key is valid; a refused table leaves
+    // the scene as it was.
+    if (builder.add_glyph_keys({}, resource) ||
+        builder.last_error() != scene_build_error::invalid_argument ||
+        resource != PROGPU_NATIVE_SCENE_NO_INDEX) return false;
+    for (unsigned variant = 0U; variant < 7U; ++variant) {
+        auto bad = keys;
+        switch (variant) {
+            case 0U: bad[1].raster_scale = 0.0F; break;
+            case 1U: bad[1].raster_scale = -1.0F; break;
+            case 2U: bad[1].raster_scale = std::numeric_limits<float>::infinity(); break;
+            case 3U: bad[1].raster_scale = std::numeric_limits<float>::quiet_NaN(); break;
+            case 4U: bad[1].subpixel_x = 0.1F; break;
+            case 5U: bad[1].subpixel_x = -0.0F; break;
+            case 6U: bad[1].subpixel_x = 1.0F; break;
+        }
+        if (builder.add_glyph_keys(bad, resource) ||
+            builder.last_error() != scene_build_error::invalid_argument) return false;
+        std::vector<std::byte> unchanged;
+        if (!builder.build(unchanged) || unchanged != empty) return false;
+    }
+    if (!builder.add_glyph_keys(keys, resource) || resource != 0U) return false;
+
+    const auto glyph_at = [](std::uint32_t outline, float x) {
+        return progpu_native_positioned_glyph{
+            outline, 0U, {x, 32.0F}, {1.0F, 0.0F}, {0.0F, 1.0F},
+            {1.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0.0F, 0.0F, 0.0F};
+    };
+    // A positioned glyph indexes the key table.
+    const std::array outside{glyph_at(0U, 24.0F), glyph_at(2U, 48.0F)};
+    if (builder.draw_glyph_run(resource, outside, {24.0F, 12.0F, 40.0F, 20.0F}) ||
+        builder.last_error() != scene_build_error::invalid_argument) return false;
+    // The RGB transport reads the outlines of its own resource.
+    const progpu_native_scene_rgb_glyph_draw rgb{sizeof(rgb), 1U,
+        PROGPU_NATIVE_RGB_GLYPH_FULL_PIXEL_BOX_8X8, 1U, 1, 0, 1, 1.0F, 0U, 0U};
+    const std::array rgb_tiles{
+        progpu_native_scene_rgb_glyph_tile{0U, 8U, 8U, 0U, -1, -5, 1, 0.0F, 3, 5, {1, 0, 0, 1}}};
+    if (builder.draw_rgb_glyph_run(resource, rgb, rgb_tiles, {0, 0, 32, 32}) ||
+        builder.last_error() != scene_build_error::invalid_argument) return false;
+    const std::array glyphs{glyph_at(0U, 24.0F), glyph_at(1U, 48.0F), glyph_at(0U, 60.0F)};
+    if (!builder.draw_glyph_run(resource, glyphs, {24.0F, 12.0F, 52.0F, 20.0F})) return false;
+
+    std::vector<std::byte> stream;
+    scene_build_metrics metrics{};
+    if (!builder.build(stream, &metrics) || metrics.command_count != 1U ||
+        metrics.resource_count != 1U) return false;
+    const auto valid = scene::validate(stream.data(), stream.size());
+    if (valid.status != PROGPU_NATIVE_STATUS_SUCCESS || valid.draw_count != 1U) return false;
+    const auto record_offset = valid.header.resource_offset;
+    const auto record = read<progpu_native_scene_resource>(stream, record_offset);
+    if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN ||
+        record.flags != (PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
+            PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS) ||
+        record.payload_size != sizeof(keys) || record.auxiliary_size != 0U ||
+        std::memcmp(stream.data() + record.payload_offset, keys.data(), sizeof(keys)) != 0) {
+        return false;
+    }
+    const auto command = read<progpu_native_scene_command>(stream, valid.header.command_offset);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GLYPH_RUN) return false;
+
+    // The stream rules hold without the builder: a key table is whole keys and
+    // nothing else, each key is valid, and it is not a color bitmap table.
+    for (unsigned variant = 0U; variant < 7U; ++variant) {
+        auto corrupt = stream;
+        auto bad_record = record;
+        auto bad_key = keys[1];
+        switch (variant) {
+            case 0U: bad_record.flags |= PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS; break;
+            case 1U: bad_record.payload_size -= 4U; break;
+            case 2U: bad_record.payload_size = 0U; break;
+            case 3U:
+                bad_record.auxiliary_offset = record.payload_offset;
+                bad_record.auxiliary_size = 8U;
+                break;
+            case 4U: bad_key.raster_scale = 0.0F; break;
+            case 5U: bad_key.subpixel_x = -0.0F; break;
+            case 6U: bad_key.subpixel_x = 0.3F; break;
+        }
+        std::memcpy(corrupt.data() + record_offset, &bad_record, sizeof(bad_record));
+        std::memcpy(corrupt.data() + record.payload_offset + sizeof(bad_key),
+            &bad_key, sizeof(bad_key));
+        if (scene::validate(corrupt.data(), corrupt.size()).status ==
+                PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    }
+    // The flag belongs to glyph resources.
+    {
+        semantic_scene_builder other(714U, 1U);
+        std::uint32_t mask = PROGPU_NATIVE_SCENE_NO_INDEX;
+        std::vector<std::byte> mask_stream;
+        if (!other.add_axis_aligned_clip_mask({0.0F, 0.0F, 8.0F, 8.0F}, mask) ||
+            !other.build(mask_stream)) return false;
+        const auto mask_valid = scene::validate(mask_stream.data(), mask_stream.size());
+        if (mask_valid.status != PROGPU_NATIVE_STATUS_SUCCESS) return false;
+        auto mask_record = read<progpu_native_scene_resource>(
+            mask_stream, mask_valid.header.resource_offset);
+        mask_record.flags |= PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS;
+        std::memcpy(mask_stream.data() + mask_valid.header.resource_offset,
+            &mask_record, sizeof(mask_record));
+        if (scene::validate(mask_stream.data(), mask_stream.size()).status ==
+                PROGPU_NATIVE_STATUS_SUCCESS) return false;
+    }
+    return true;
+}
+
 bool semantic_scene_builder_records_native_shaped_runs() {
     semantic_scene_builder builder(711U, 2U);
     const std::array segments{

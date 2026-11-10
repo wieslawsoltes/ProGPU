@@ -3,6 +3,7 @@
 #include "progpu_native_semantic_layer_mask_resources.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_glyph_identity.hpp"
+#include "progpu_native_semantic_glyph_keys.hpp"
 #include "../Text/Font/progpu_native_binary_glyph_contract.hpp"
 #include "progpu_native_semantic_rgb_glyph.hpp"
 #include "progpu_native_target_clear.hpp"
@@ -870,6 +871,7 @@ progpu_native_status render_scene(
         presentation);
     std::vector<std::uint8_t> semantic_generated_masks_budgeted;
     std::vector<std::uint8_t> semantic_glyph_resources_budgeted;
+    engine->semantic_glyph_keys.reset();
     try {
         semantic_generated_masks_budgeted.resize(header.resource_count, 0U);
         semantic_glyph_resources_budgeted.resize(header.resource_count, 0U);
@@ -1026,6 +1028,7 @@ progpu_native_status render_scene(
         std::uint64_t compiled_texture_bytes = 0U;
         std::uint64_t compiled_coverage_bytes = 0U;
         bool first_semantic_glyph_resource = true;
+        std::uint64_t keyed_new_outline_count = 0U;
         switch (command.kind) {
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC: {
                 valid = span_is_multiple(
@@ -1556,6 +1559,10 @@ progpu_native_status render_scene(
                 std::uint32_t glyph_payload_offset = 0U;
                 std::uint32_t glyph_count32 = 0U;
                 const bool color_glyphs = is_color_glyph_resource(resource);
+                // Outlines named by key: the resource is a key table and the
+                // segments are in the engine's registry, not in the frame.
+                const bool keyed_glyphs =
+                    semantic::is_keyed_glyph_resource(resource);
                 valid = try_get_glyph_payload(
                         bytes,
                         command,
@@ -1564,9 +1571,12 @@ progpu_native_status render_scene(
                 const std::uint64_t outline_count = color_glyphs
                     ? resource.payload_size /
                         sizeof(progpu_native_scene_color_glyph_bitmap)
+                    : keyed_glyphs
+                        ? resource.payload_size /
+                            sizeof(progpu_native_scene_glyph_key)
                     : resource.payload_size /
                         sizeof(progpu_native_scene_glyph_outline);
-                const std::uint64_t segment_count = color_glyphs
+                const std::uint64_t segment_count = color_glyphs || keyed_glyphs
                     ? 0U
                     : resource.auxiliary_size /
                         sizeof(progpu_native_path_segment);
@@ -1574,6 +1584,11 @@ progpu_native_status render_scene(
                     ? span_is_multiple(
                         resource.payload_size,
                         sizeof(progpu_native_scene_color_glyph_bitmap))
+                    : keyed_glyphs
+                        ? span_is_multiple(
+                                resource.payload_size,
+                                sizeof(progpu_native_scene_glyph_key)) &&
+                            resource.auxiliary_size == 0U
                     : span_is_multiple(
                             resource.payload_size,
                             sizeof(progpu_native_scene_glyph_outline)) &&
@@ -1594,8 +1609,9 @@ progpu_native_status render_scene(
                     std::memcpy(&draw, bytes + command.payload_offset, sizeof(draw));
                     std::memcpy(&paint, bytes + command.payload_offset + sizeof(draw), sizeof(paint));
                     std::uint32_t error_offset = 0U;
-                    valid = valid && !color_glyphs && semantic::validate_painted_glyph_draw(
-                        bytes, header, command, error_offset);
+                    valid = valid && !color_glyphs && !keyed_glyphs &&
+                        semantic::validate_painted_glyph_draw(
+                            bytes, header, command, error_offset);
                     if (paint.kind == PROGPU_NATIVE_SCENE_GLYPH_PAINT_TEXTURE) {
                         const auto image = read_resource(draw.paint_resource_index);
                         const auto* binding = engine->find_semantic_external_image_binding(
@@ -1638,11 +1654,81 @@ progpu_native_status render_scene(
                     semantic_has_binary_glyphs |= segment.pad0 != 0U;
                     semantic_has_vector_glyphs |= segment.pad0 == 0U;
                 }
+                if (valid && keyed_glyphs && first_semantic_glyph_resource) {
+                    // Resolve every key once per frame. An outline named by
+                    // several resources, or several times by one, is one
+                    // outline of the glyph page and one tile of the atlas, so
+                    // it is counted and budgeted once.
+                    auto& keys = engine->semantic_glyph_keys;
+                    const auto& registry = *engine->glyph_outlines;
+                    try {
+                        if (keys.resource_starts.size() != header.resource_count) {
+                            keys.resource_starts.resize(header.resource_count, 0U);
+                        }
+                        keys.resource_starts[command.resource_index] =
+                            keys.remap.size();
+                        for (std::uint64_t key_index = 0U;
+                             valid && budget_valid && key_index < outline_count;
+                             ++key_index) {
+                            progpu_native_scene_glyph_key key{};
+                            std::memcpy(
+                                &key,
+                                bytes + resource.payload_offset +
+                                    key_index * sizeof(key),
+                                sizeof(key));
+                            const auto serial = registry.find(key.outline);
+                            const auto* registered = registry.get(serial);
+                            if (registered == nullptr) {
+                                return engine->fail(
+                                    PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                    "A semantic glyph resource names a glyph outline that is not registered with the engine.");
+                            }
+                            const progpu::native::glyph_atlas_key atlas_key{
+                                serial,
+                                std::bit_cast<std::uint32_t>(key.raster_scale),
+                                std::bit_cast<std::uint32_t>(key.subpixel_x)};
+                            const auto [slot, inserted] = keys.indices.try_emplace(
+                                atlas_key,
+                                static_cast<std::uint32_t>(keys.outlines.size()));
+                            if (inserted) {
+                                const progpu_native_scene_glyph_outline outline{
+                                    0U,
+                                    0U,
+                                    registered->min_x,
+                                    registered->min_y,
+                                    registered->max_x,
+                                    registered->max_y,
+                                    key.raster_scale,
+                                    key.subpixel_x};
+                                keys.outlines.push_back(outline);
+                                keys.serials.push_back(serial);
+                                ++keyed_new_outline_count;
+                                std::uint64_t outline_coverage_bytes = 0U;
+                                valid = semantic::is_valid_semantic_glyph_raster(
+                                    outline, &outline_coverage_bytes);
+                                budget_valid = valid &&
+                                    outline_coverage_bytes <=
+                                        semantic_max_coverage_bytes -
+                                            compiled_coverage_bytes;
+                                if (budget_valid) {
+                                    compiled_coverage_bytes +=
+                                        outline_coverage_bytes;
+                                }
+                            }
+                            keys.remap.push_back(slot->second);
+                        }
+                    } catch (const std::bad_alloc&) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                            "The glyph outlines a frame names could not be resolved.");
+                    }
+                    semantic_has_vector_glyphs = true;
+                }
                 for (std::uint64_t outline_index = 0U;
                      valid && budget_valid && first_semantic_glyph_resource &&
                          outline_index < outline_count;
                      ++outline_index) {
-                    if (color_glyphs) {
+                    if (color_glyphs || keyed_glyphs) {
                         continue;
                     }
                     progpu_native_scene_glyph_outline outline{};
@@ -1907,6 +1993,10 @@ progpu_native_status render_scene(
                 semantic_color_glyph_bitmap_count += resource.payload_size /
                     sizeof(progpu_native_scene_color_glyph_bitmap);
                 semantic_color_glyph_pixel_bytes += resource.auxiliary_size;
+            } else if (first_semantic_glyph_resource &&
+                semantic::is_keyed_glyph_resource(resource)) {
+                // Only the outlines no earlier resource of the frame named.
+                semantic_glyph_outline_count += keyed_new_outline_count;
             } else if (first_semantic_glyph_resource) {
                 semantic_glyph_outline_count += resource.payload_size /
                     sizeof(progpu_native_scene_glyph_outline);
@@ -2192,7 +2282,7 @@ progpu_native_status render_scene(
     const auto glyph_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.glyph, *frame, presentation);
     const auto image_replay_hash = semantic::presentation_content_hash(engine->semantic_hashes.image, *frame, presentation);
     auto semantic_bundle_replay_hash = semantic::presentation_content_hash(engine->semantic_scene_hash, *frame, presentation);
-    semantic_bundle_replay_hash = append_fnv1a64(
+    semantic_bundle_replay_hash = append_content_hash64(
         semantic_bundle_replay_hash,
         &semantic_partial_damage_active,
         sizeof(semantic_partial_damage_active));
@@ -2202,7 +2292,7 @@ progpu_native_status render_scene(
             semantic_frame_damage.y,
             semantic_frame_damage.width,
             semantic_frame_damage.height};
-        semantic_bundle_replay_hash = append_fnv1a64(
+        semantic_bundle_replay_hash = append_content_hash64(
             semantic_bundle_replay_hash,
             damage_identity.data(),
             sizeof(damage_identity));
@@ -2914,6 +3004,7 @@ progpu_native_status render_scene(
         semantic_glyph_page.draws.size() == semantic_glyph_draw_count;
     if (semantic_glyph_draw_count != 0U && !semantic_glyph_page_hit) {
         std::vector<progpu_native_scene_glyph_outline> compiled_outlines;
+        std::vector<std::uint64_t> compiled_outline_entries;
         std::vector<progpu_native_path_segment> compiled_segments;
         std::vector<progpu_native_positioned_glyph> compiled_glyphs;
         std::vector<std::uint32_t> compiled_style_indices;
@@ -2942,6 +3033,18 @@ progpu_native_status render_scene(
         try {
             compiled_outlines.reserve(
                 static_cast<std::size_t>(semantic_glyph_outline_count));
+            // The registered outlines the frame names come first, each once;
+            // the outlines carried by resources follow them.
+            const auto& glyph_keys = engine->semantic_glyph_keys;
+            compiled_outlines.insert(
+                compiled_outlines.end(),
+                glyph_keys.outlines.begin(),
+                glyph_keys.outlines.end());
+            if (!glyph_keys.serials.empty()) {
+                compiled_outline_entries.reserve(
+                    static_cast<std::size_t>(semantic_glyph_outline_count));
+                compiled_outline_entries = glyph_keys.serials;
+            }
             compiled_segments.reserve(
                 static_cast<std::size_t>(semantic_glyph_segment_count));
             compiled_glyphs.reserve(
@@ -2987,9 +3090,11 @@ progpu_native_status render_scene(
                 }
                 const auto resource = read_resource(command.resource_index);
                 const bool color_glyphs = is_color_glyph_resource(resource);
+                const bool keyed_glyphs =
+                    semantic::is_keyed_glyph_resource(resource);
                 auto& resource_layout =
                     compiled_resources[command.resource_index];
-                if (!resource_layout.compiled && !color_glyphs) {
+                if (!resource_layout.compiled && !color_glyphs && !keyed_glyphs) {
                     const semantic::glyph_resource_identity identity{
                         resource.flags,
                         {bytes + resource.payload_offset, resource.payload_size},
@@ -3033,12 +3138,37 @@ progpu_native_status render_scene(
                 const std::size_t outline_count = color_glyphs
                     ? resource.payload_size /
                         sizeof(progpu_native_scene_color_glyph_bitmap)
+                    : keyed_glyphs
+                        ? resource.payload_size /
+                            sizeof(progpu_native_scene_glyph_key)
                     : resource.payload_size /
                         sizeof(progpu_native_scene_glyph_outline);
-                const std::size_t segment_count = color_glyphs
+                const std::size_t segment_count = color_glyphs || keyed_glyphs
                     ? 0U
                     : resource.auxiliary_size /
                         sizeof(progpu_native_path_segment);
+                // Where the keys of a keyed resource start in the frame's
+                // table of distinct registered outlines.
+                const std::uint32_t* keyed_outline_indices = nullptr;
+                if (keyed_glyphs) {
+                    // Only a resource the preflight resolved has a start.
+                    const bool resolved = command.resource_index <
+                            glyph_keys.resource_starts.size() &&
+                        command.resource_index <
+                            semantic_glyph_resources_budgeted.size() &&
+                        semantic_glyph_resources_budgeted[
+                            command.resource_index] != 0U;
+                    const auto key_start = resolved
+                        ? glyph_keys.resource_starts[command.resource_index]
+                        : glyph_keys.remap.size() + 1U;
+                    if (key_start > glyph_keys.remap.size() ||
+                        outline_count > glyph_keys.remap.size() - key_start) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                            "The registered glyph outlines of a frame changed after validation.");
+                    }
+                    keyed_outline_indices = glyph_keys.remap.data() + key_start;
+                }
                 std::uint32_t glyph_payload_offset = 0U;
                 std::uint32_t glyph_count32 = 0U;
                 if (!try_get_glyph_payload(
@@ -3123,7 +3253,7 @@ progpu_native_status render_scene(
                         bitmap.pixel_offset += color_pixel_start;
                         compiled_color_bitmaps.push_back(bitmap);
                     }
-                } else if (!resource_layout.compiled) {
+                } else if (!resource_layout.compiled && !keyed_glyphs) {
                     const auto* source_segments = reinterpret_cast<
                         const progpu_native_path_segment*>(
                             bytes + resource.auxiliary_offset);
@@ -3166,6 +3296,10 @@ progpu_native_status render_scene(
                             static_cast<std::uint32_t>(
                                 color_bitmap_start + source_index));
                         glyph.outline_index = 0U;
+                    } else if (keyed_outline_indices != nullptr) {
+                        compiled_color_bitmap_indices.push_back(
+                            PROGPU_NATIVE_SCENE_NO_INDEX);
+                        glyph.outline_index = keyed_outline_indices[source_index];
                     } else {
                         compiled_color_bitmap_indices.push_back(
                             PROGPU_NATIVE_SCENE_NO_INDEX);
@@ -3180,6 +3314,9 @@ progpu_native_status render_scene(
                 compiled_draws.push_back({
                     static_cast<std::uint32_t>(glyph_start),
                     static_cast<std::uint32_t>(glyph_count), paint_index});
+            }
+            if (!compiled_outline_entries.empty()) {
+                compiled_outline_entries.resize(compiled_outlines.size(), 0U);
             }
         } catch (const std::bad_alloc&) {
             return engine->fail(
@@ -3205,6 +3342,8 @@ progpu_native_status render_scene(
                 "The semantic glyph packed-page budget did not match compilation.");
         }
         semantic_glyph_page.outlines = std::move(compiled_outlines);
+        semantic_glyph_page.outline_entries =
+            std::move(compiled_outline_entries);
         semantic_glyph_page.segments = std::move(compiled_segments);
         semantic_glyph_page.glyphs = std::move(compiled_glyphs);
         semantic_glyph_page.style_indices =
@@ -5926,7 +6065,7 @@ progpu_native_status render_scene(
             const std::uint64_t layer_vertex_bytes =
                 semantic_layer_vertices.size() *
                 sizeof(progpu::native::vector_vertex);
-            const std::uint64_t layer_vertex_hash = append_fnv1a64(
+            const std::uint64_t layer_vertex_hash = append_content_hash64(
                 14695981039346656037ULL,
                 semantic_layer_vertices.data(),
                 static_cast<std::size_t>(layer_vertex_bytes));

@@ -75,6 +75,9 @@ progpu_native_status clone_retained_cpu_state(
             source->semantic_scene_metrics;
         replacement->device_loss_generation =
             source->device_loss_generation;
+        // Registered glyph outlines are device-independent: the replacement
+        // keeps naming them by the same keys.
+        replacement->glyph_outlines = source->glyph_outlines;
         replacement->last_error.clear();
         return PROGPU_NATIVE_STATUS_SUCCESS;
     } catch (const std::bad_alloc&) {

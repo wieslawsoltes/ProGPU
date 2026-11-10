@@ -43,6 +43,12 @@ bool is_valid_semantic_glyph_outline(
     std::uint64_t segment_count,
     std::uint64_t* coverage_bytes = nullptr) noexcept;
 
+// The raster part of the check above: bounds, scale, subpixel phase and the
+// tile the outline needs. The segment range is not looked at.
+bool is_valid_semantic_glyph_raster(
+    const progpu_native_scene_glyph_outline& outline,
+    std::uint64_t* coverage_bytes = nullptr) noexcept;
+
 bool is_valid_semantic_positioned_glyph(
     const progpu_native_positioned_glyph& glyph,
     std::uint64_t outline_count) noexcept;

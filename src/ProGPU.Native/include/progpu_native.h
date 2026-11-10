@@ -117,6 +117,9 @@ enum {
     PROGPU_NATIVE_SCENE_IMAGE_R8 = 1U << 5U,
     /* Image payload is a picture descriptor, auxiliary bytes a nested scene. */
     PROGPU_NATIVE_SCENE_IMAGE_PICTURE = 1U << 6U,
+    /* Glyph resource whose payload is a table of progpu_native_scene_glyph_key
+     * records naming outlines registered with the engine; no auxiliary bytes. */
+    PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS = 1U << 7U,
     /* Exact full-viewport per-axis presentation suffix on a picture payload. */
     PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION = 1U << 0U,
     /* Picture-mask stream renders at the source extent carried in reserved0/1. */
@@ -1891,6 +1894,46 @@ typedef struct progpu_native_scene_glyph_outline {
 } progpu_native_scene_glyph_outline;
 
 /*
+ * The name of one glyph outline registered with an engine. face is chosen by
+ * the caller and names one font face with its variation coordinates; a face
+ * number released with progpu_native_engine_release_glyph_face is not accepted
+ * again by that engine. variant separates outlines of one glyph that differ in
+ * content (a weight step, a shear).
+ */
+typedef struct progpu_native_glyph_outline_key {
+    uint64_t face;
+    uint32_t glyph;
+    uint32_t variant;
+} progpu_native_glyph_outline_key;
+
+/*
+ * One outline of a registration: its key, its segments in the segment array of
+ * the call and its bounds, in the units of progpu_native_scene_glyph_outline.
+ * Only vector outlines are registered (every segment has pad0 zero).
+ */
+typedef struct progpu_native_registered_glyph_outline {
+    progpu_native_glyph_outline_key key;
+    uint64_t segment_offset;
+    uint64_t segment_count;
+    float min_x;
+    float min_y;
+    float max_x;
+    float max_y;
+} progpu_native_registered_glyph_outline;
+
+/*
+ * One entry of a glyph resource with PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS:
+ * a registered outline at a raster scale and a horizontal subpixel phase
+ * (0, 0.25, 0.5 or 0.75). A positioned glyph's outline_index selects an entry
+ * of the table. The frame carries no outline bytes for it.
+ */
+typedef struct progpu_native_scene_glyph_key {
+    progpu_native_glyph_outline_key outline;
+    float raster_scale;
+    float subpixel_x;
+} progpu_native_scene_glyph_key;
+
+/*
  * One decoded straight-alpha RGBA8 color-glyph bitmap. pixel_offset is
  * relative to the owning glyph resource's auxiliary byte span. Font parsing,
  * shaping, and image decoding stay outside the native renderer; C++ only
@@ -3568,6 +3611,31 @@ PROGPU_NATIVE_API progpu_native_status progpu_native_engine_update_scene(
     const void* stream,
     size_t stream_size,
     progpu_native_scene_metrics* metrics);
+/*
+ * Registers glyph outlines by key, for glyph resources that name outlines
+ * instead of carrying them. The engine copies the segments. A key registered
+ * before with the same bounds and segments is left as it is; with other
+ * content the call fails with INVALID_ARGUMENT and registers nothing. The
+ * call needs no device and is valid after device loss; a replacement engine
+ * and the engine's nested picture renderers see the same outlines. A frame
+ * that names a key the engine does not hold fails with INVALID_ARGUMENT when
+ * it is rendered.
+ */
+PROGPU_NATIVE_API progpu_native_status
+progpu_native_engine_register_glyph_outlines(
+    progpu_native_engine* engine,
+    const progpu_native_registered_glyph_outline* outlines,
+    size_t outline_count,
+    const progpu_native_path_segment* segments,
+    size_t segment_count);
+/*
+ * Forgets every outline registered under one face number. The number is not
+ * accepted by a later registration on this engine. Coverage already in the
+ * glyph atlas is dropped with the atlas, not here.
+ */
+PROGPU_NATIVE_API progpu_native_status progpu_native_engine_release_glyph_face(
+    progpu_native_engine* engine,
+    uint64_t face);
 PROGPU_NATIVE_API progpu_native_status
 progpu_native_engine_bind_scene_external_images(
     progpu_native_engine* engine,

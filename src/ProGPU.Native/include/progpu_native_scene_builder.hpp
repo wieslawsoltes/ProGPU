@@ -267,6 +267,14 @@ public:
         std::span<const progpu_native_scene_glyph_outline> outlines,
         std::span<const progpu_native_path_segment> segments,
         std::uint32_t& resource_index) noexcept;
+    // A glyph resource that names outlines registered with the engine
+    // (progpu_native_engine_register_glyph_outlines) instead of carrying them.
+    // A positioned glyph's outline_index is an index into `keys`. Whether the
+    // engine holds an outline is checked when the scene is rendered. Such a
+    // resource serves draw_glyph_run and draw_shaped_text_run only.
+    bool add_glyph_keys(
+        std::span<const progpu_native_scene_glyph_key> keys,
+        std::uint32_t& resource_index) noexcept;
     bool add_color_glyph_bitmaps(
         std::span<const progpu_native_scene_color_glyph_bitmap> bitmaps,
         std::span<const std::byte> rgba_pixels,

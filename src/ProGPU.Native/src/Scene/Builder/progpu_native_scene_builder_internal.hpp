@@ -28,6 +28,7 @@ struct semantic_scene_builder::implementation final {
         std::uint32_t image_height = 0U;
         std::uint32_t image_row_bytes = 0U;
         std::uint32_t glyph_outline_count = 0U;
+        bool glyph_outline_keys = false;
     };
 
     struct command_entry final {

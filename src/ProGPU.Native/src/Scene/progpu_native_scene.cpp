@@ -2,6 +2,7 @@
 #include "progpu_native_hit_testing_validation.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_color_glyph.hpp"
+#include "progpu_native_semantic_glyph_keys.hpp"
 #include "progpu_native_semantic_layer_mask.hpp"
 #include "progpu_native_semantic_text_style.hpp"
 #include "progpu_native_semantic_validation.hpp"
@@ -28,7 +29,8 @@ constexpr std::uint32_t known_resource_flags =
     PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE |
     PROGPU_NATIVE_SCENE_IMAGE_BGRA8 |
     PROGPU_NATIVE_SCENE_IMAGE_R8 |
-    PROGPU_NATIVE_SCENE_IMAGE_PICTURE;
+    PROGPU_NATIVE_SCENE_IMAGE_PICTURE |
+    PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS;
 constexpr std::uint32_t known_command_flags =
     PROGPU_NATIVE_SCENE_RECORD_REQUIRED |
     PROGPU_NATIVE_SCENE_GLYPH_STYLED;
@@ -495,6 +497,11 @@ validation_result validate(
             resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN) {
             return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
         }
+        if ((resource.flags & PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS) != 0U &&
+            (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GLYPH_RUN ||
+                (resource.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U)) {
+            return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_RECORD, offset);
+        }
         const bool external_image =
             (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U;
         const bool bgra8_image =
@@ -704,6 +711,16 @@ validation_result validate(
                                         sizeof(double)));
                     }
                 }
+            }
+        }
+        if (semantic::is_keyed_glyph_resource(resource)) {
+            std::uint32_t key_error_offset = resource.payload_offset;
+            if (!semantic::validate_keyed_glyph_resource(
+                    bytes, resource, key_error_offset)) {
+                return fail(
+                    header,
+                    PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                    key_error_offset);
             }
         }
         if (semantic::is_color_glyph_resource(resource)) {
@@ -1448,7 +1465,10 @@ validation_result validate(
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_PAINTED_GLYPH_RUN) {
                 std::uint32_t paint_error_offset = command.payload_offset;
-                if ((resource.flags & PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS) != 0U ||
+                // Hinted paint reads the outlines of its own resource: one
+                // that only names registered outlines does not carry them.
+                if ((resource.flags & (PROGPU_NATIVE_SCENE_COLOR_GLYPH_BITMAPS |
+                        PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS)) != 0U ||
                     !semantic::validate_painted_glyph_draw(bytes, header, command, paint_error_offset))
                     return fail(header, PROGPU_NATIVE_SCENE_VALIDATION_VALUE, paint_error_offset);
             }

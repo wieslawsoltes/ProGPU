@@ -973,16 +973,16 @@ progpu_native_status render_geometry(
             engine->geometry_content_revision = frame->reserved;
             engine->geometry_opacity = draw_state.opacity;
             engine->geometry_payload_hash = 14695981039346656037ULL;
-            engine->geometry_payload_hash = append_fnv1a64(
+            engine->geometry_payload_hash = append_content_hash64(
                 engine->geometry_payload_hash,
                 engine->vertices.data(),
                 engine->vertices.size() *
                     sizeof(progpu::native::vector_vertex));
-            engine->geometry_payload_hash = append_fnv1a64(
+            engine->geometry_payload_hash = append_content_hash64(
                 engine->geometry_payload_hash,
                 engine->indices.data(),
                 engine->indices.size() * sizeof(std::uint32_t));
-            engine->geometry_payload_hash = append_fnv1a64(
+            engine->geometry_payload_hash = append_content_hash64(
                 engine->geometry_payload_hash,
                 engine->brush_bytes.data(),
                 engine->brush_bytes.size());
@@ -1001,16 +1001,16 @@ progpu_native_status render_geometry(
         set_brush_opacity(engine->brush_bytes, draw_state.opacity);
         engine->geometry_opacity = draw_state.opacity;
         engine->geometry_payload_hash = 14695981039346656037ULL;
-        engine->geometry_payload_hash = append_fnv1a64(
+        engine->geometry_payload_hash = append_content_hash64(
             engine->geometry_payload_hash,
             engine->vertices.data(),
             engine->vertices.size() *
                 sizeof(progpu::native::vector_vertex));
-        engine->geometry_payload_hash = append_fnv1a64(
+        engine->geometry_payload_hash = append_content_hash64(
             engine->geometry_payload_hash,
             engine->indices.data(),
             engine->indices.size() * sizeof(std::uint32_t));
-        engine->geometry_payload_hash = append_fnv1a64(
+        engine->geometry_payload_hash = append_content_hash64(
             engine->geometry_payload_hash,
             engine->brush_bytes.data(),
             engine->brush_bytes.size());
@@ -1035,15 +1035,15 @@ progpu_native_status render_geometry(
     } else if ((frame->flags &
             PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U) {
         payload_hash = 14695981039346656037ULL;
-        payload_hash = append_fnv1a64(
+        payload_hash = append_content_hash64(
             payload_hash,
             engine->vertices.data(),
             static_cast<std::size_t>(vertex_bytes));
-        payload_hash = append_fnv1a64(
+        payload_hash = append_content_hash64(
             payload_hash,
             engine->indices.data(),
             static_cast<std::size_t>(index_bytes));
-        payload_hash = append_fnv1a64(
+        payload_hash = append_content_hash64(
             payload_hash,
             engine->brush_bytes.data(),
             engine->brush_bytes.size());

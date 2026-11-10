@@ -184,7 +184,7 @@ progpu_native_status update_scene(
     try {
         std::vector<std::byte> next(stream_size);
         std::memcpy(next.data(), stream, stream_size);
-        const std::uint64_t next_hash = append_fnv1a64(
+        const std::uint64_t next_hash = append_content_hash64(
             14695981039346656037ULL,
             stream,
             stream_size);

@@ -40,6 +40,7 @@ pub const PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE: _bindgen_ty_2 = 8;
 pub const PROGPU_NATIVE_SCENE_IMAGE_BGRA8: _bindgen_ty_2 = 16;
 pub const PROGPU_NATIVE_SCENE_IMAGE_R8: _bindgen_ty_2 = 32;
 pub const PROGPU_NATIVE_SCENE_IMAGE_PICTURE: _bindgen_ty_2 = 64;
+pub const PROGPU_NATIVE_SCENE_GLYPH_OUTLINE_KEYS: _bindgen_ty_2 = 128;
 pub const PROGPU_NATIVE_SCENE_PICTURE_IMAGE_PRESENTATION: _bindgen_ty_2 = 1;
 pub const PROGPU_NATIVE_SCENE_PICTURE_MASK_SOURCE_EXTENT: _bindgen_ty_2 = 1;
 pub const PROGPU_NATIVE_SCENE_METRICS_SNAPSHOT_REUSED: _bindgen_ty_2 = 1;
@@ -2997,6 +2998,78 @@ const _: () = {
         [::core::mem::offset_of!(progpu_native_scene_glyph_outline, raster_scale) - 32usize];
     ["Offset of field: progpu_native_scene_glyph_outline::subpixel_x"]
         [::core::mem::offset_of!(progpu_native_scene_glyph_outline, subpixel_x) - 36usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct progpu_native_glyph_outline_key {
+    pub face: u64,
+    pub glyph: u32,
+    pub variant: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of progpu_native_glyph_outline_key"]
+        [::core::mem::size_of::<progpu_native_glyph_outline_key>() - 16usize];
+    ["Alignment of progpu_native_glyph_outline_key"]
+        [::core::mem::align_of::<progpu_native_glyph_outline_key>() - 8usize];
+    ["Offset of field: progpu_native_glyph_outline_key::face"]
+        [::core::mem::offset_of!(progpu_native_glyph_outline_key, face) - 0usize];
+    ["Offset of field: progpu_native_glyph_outline_key::glyph"]
+        [::core::mem::offset_of!(progpu_native_glyph_outline_key, glyph) - 8usize];
+    ["Offset of field: progpu_native_glyph_outline_key::variant"]
+        [::core::mem::offset_of!(progpu_native_glyph_outline_key, variant) - 12usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct progpu_native_registered_glyph_outline {
+    pub key: progpu_native_glyph_outline_key,
+    pub segment_offset: u64,
+    pub segment_count: u64,
+    pub min_x: f32,
+    pub min_y: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of progpu_native_registered_glyph_outline"]
+        [::core::mem::size_of::<progpu_native_registered_glyph_outline>() - 48usize];
+    ["Alignment of progpu_native_registered_glyph_outline"]
+        [::core::mem::align_of::<progpu_native_registered_glyph_outline>() - 8usize];
+    ["Offset of field: progpu_native_registered_glyph_outline::key"]
+        [::core::mem::offset_of!(progpu_native_registered_glyph_outline, key) - 0usize];
+    ["Offset of field: progpu_native_registered_glyph_outline::segment_offset"]
+        [::core::mem::offset_of!(progpu_native_registered_glyph_outline, segment_offset) - 16usize];
+    ["Offset of field: progpu_native_registered_glyph_outline::segment_count"]
+        [::core::mem::offset_of!(progpu_native_registered_glyph_outline, segment_count) - 24usize];
+    ["Offset of field: progpu_native_registered_glyph_outline::min_x"]
+        [::core::mem::offset_of!(progpu_native_registered_glyph_outline, min_x) - 32usize];
+    ["Offset of field: progpu_native_registered_glyph_outline::min_y"]
+        [::core::mem::offset_of!(progpu_native_registered_glyph_outline, min_y) - 36usize];
+    ["Offset of field: progpu_native_registered_glyph_outline::max_x"]
+        [::core::mem::offset_of!(progpu_native_registered_glyph_outline, max_x) - 40usize];
+    ["Offset of field: progpu_native_registered_glyph_outline::max_y"]
+        [::core::mem::offset_of!(progpu_native_registered_glyph_outline, max_y) - 44usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct progpu_native_scene_glyph_key {
+    pub outline: progpu_native_glyph_outline_key,
+    pub raster_scale: f32,
+    pub subpixel_x: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of progpu_native_scene_glyph_key"]
+        [::core::mem::size_of::<progpu_native_scene_glyph_key>() - 24usize];
+    ["Alignment of progpu_native_scene_glyph_key"]
+        [::core::mem::align_of::<progpu_native_scene_glyph_key>() - 8usize];
+    ["Offset of field: progpu_native_scene_glyph_key::outline"]
+        [::core::mem::offset_of!(progpu_native_scene_glyph_key, outline) - 0usize];
+    ["Offset of field: progpu_native_scene_glyph_key::raster_scale"]
+        [::core::mem::offset_of!(progpu_native_scene_glyph_key, raster_scale) - 16usize];
+    ["Offset of field: progpu_native_scene_glyph_key::subpixel_x"]
+        [::core::mem::offset_of!(progpu_native_scene_glyph_key, subpixel_x) - 20usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -6491,6 +6564,17 @@ unsafe extern "C" {
         stream: *const ::core::ffi::c_void,
         stream_size: usize,
         metrics: *mut progpu_native_scene_metrics,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_register_glyph_outlines(
+        engine: *mut progpu_native_engine,
+        outlines: *const progpu_native_registered_glyph_outline,
+        outline_count: usize,
+        segments: *const progpu_native_path_segment,
+        segment_count: usize,
+    ) -> progpu_native_status;
+    pub fn progpu_native_engine_release_glyph_face(
+        engine: *mut progpu_native_engine,
+        face: u64,
     ) -> progpu_native_status;
     pub fn progpu_native_engine_bind_scene_external_images(
         engine: *mut progpu_native_engine,

@@ -7,6 +7,7 @@
 #include "progpu_native_compute_trace.hpp"
 #include "progpu_native_geometry_base.hpp"
 #include "progpu_native_geometry_spline.hpp"
+#include "progpu_native_glyph_outline_registry.hpp"
 #include "progpu_native_glyph_raster_identity.hpp"
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_semantic_effect_cache.hpp"
@@ -209,6 +210,12 @@ struct progpu_native_engine {
     // Own the validated bytes: callers may replace or mutate their next batch.
     std::vector<progpu_native_glyph_outline> glyph_raster_outlines;
     std::vector<progpu_native_path_segment> glyph_raster_segments;
+    // The registry serials of the retained outlines (zero: segments above).
+    std::vector<std::uint64_t> glyph_raster_entries;
+    // The outlines registered by key. Never null. The picture child engine and
+    // a replacement engine after device loss hold the same registry.
+    std::shared_ptr<progpu::native::glyph_outline_registry> glyph_outlines =
+        std::make_shared<progpu::native::glyph_outline_registry>();
     std::uint32_t glyph_raster_generation = 0U;
     float glyph_raster_dpi_scale = 0.0F;
     bool glyph_raster_cache_valid = false;
@@ -468,6 +475,7 @@ struct progpu_native_engine {
     semantic_analytic_page semantic_analytic_cache;
     semantic_path_page semantic_path_cache;
     semantic_glyph_page semantic_glyph_cache;
+    semantic_glyph_key_frame semantic_glyph_keys;
     semantic_image_page semantic_image_cache;
     // Small FIFO bounded independently of page-owned picture snapshots.
     std::vector<std::shared_ptr<semantic_picture_backing>> semantic_picture_cache;

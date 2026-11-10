@@ -631,7 +631,7 @@ covered_sample_pair glyph_covered_samples_pair_scalar(
 #endif
 
 bool rasterize_glyph_coverage_cpu(
-    const progpu_native_glyph_frame& frame,
+    std::span<const progpu_native_path_segment> segments,
     const std::vector<gpu_glyph_record>& records,
     const std::vector<gpu_glyph_uniforms>& uniforms,
     const std::vector<native_glyph_raster>& rasters,
@@ -653,11 +653,11 @@ bool rasterize_glyph_coverage_cpu(
             }
             crossings.reserve(
                 static_cast<std::size_t>(maximum_segment_count) * 24U);
-            curve_metadata.resize(frame.segment_count);
-            for (std::uint32_t index = 0U;
-                 index < frame.segment_count;
+            curve_metadata.resize(segments.size());
+            for (std::size_t index = 0U;
+                 index < segments.size();
                  ++index) {
-                const auto& segment = frame.segments[index];
+                const auto& segment = segments[index];
                 auto& metadata = curve_metadata[index];
                 const auto& a = segment.p0;
                 const auto& b = segment.p1;
@@ -709,7 +709,7 @@ bool rasterize_glyph_coverage_cpu(
                     visit_glyph_crossings_cpu<true>(
                         glyph_y,
                         record,
-                        frame.segments,
+                        segments.data(),
                         curve_metadata.data(),
                         [&crossings](
                             float crossing_x,
@@ -840,7 +840,7 @@ bool rasterize_glyph_coverage_cpu(
                             glyph_x,
                             glyph_y,
                             record,
-                            frame.segments) != 0
+                            segments.data()) != 0
                             ? 1U
                             : 0U;
                     }
@@ -952,6 +952,22 @@ progpu_native_status render_glyphs(
         engine->glyph_raster_generation == engine->glyph_atlas_generation &&
         engine->glyph_content_revision == frame->content_revision &&
         engine->glyph_dpi_scale == frame->dpi_scale;
+    // A scene names the outlines registered with the engine by serial, one per
+    // outline of its glyph page (zero: the page carries the outline). Such an
+    // outline has no segments in the frame; the registry holds them.
+    const std::uint64_t* outline_entries = nullptr;
+    if (engine->semantic_glyph_draw_active &&
+        !engine->semantic_glyph_cache.outline_entries.empty()) {
+        if (engine->semantic_glyph_cache.outline_entries.size() !=
+                frame->outline_count) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The registered outlines of a glyph page do not match its outlines.");
+        }
+        outline_entries = engine->semantic_glyph_cache.outline_entries.data();
+    }
+    const std::size_t outline_entry_count =
+        outline_entries != nullptr ? frame->outline_count : 0U;
     // Exact, bounded native byte comparisons avoid hash-collision admission.
     // Scale, phase, bounds and segment offsets are part of the owned payload;
     // glyph positions, colors and brushes only change the instance upload.
@@ -961,6 +977,7 @@ progpu_native_status render_glyphs(
         engine->glyph_raster_dpi_scale == frame->dpi_scale &&
         engine->glyph_raster_outlines.size() == frame->outline_count &&
         engine->glyph_raster_segments.size() == frame->segment_count &&
+        engine->glyph_raster_entries.size() == outline_entry_count &&
         engine->glyph_rasters.size() == frame->outline_count &&
         (compiled_payload_hit ||
             (semantic::scene_bytes_equal(
@@ -968,7 +985,10 @@ progpu_native_status render_glyphs(
                 std::as_bytes(std::span(frame->outlines, frame->outline_count))) &&
              semantic::scene_bytes_equal(
                 std::as_bytes(std::span(engine->glyph_raster_segments)),
-                std::as_bytes(std::span(frame->segments, frame->segment_count)))));
+                std::as_bytes(std::span(frame->segments, frame->segment_count))) &&
+             semantic::scene_bytes_equal(
+                std::as_bytes(std::span(engine->glyph_raster_entries)),
+                std::as_bytes(std::span(outline_entries, outline_entry_count)))));
     const bool rebuild_rasters = !compiled_payload_hit && !raster_payload_hit;
     std::vector<gpu_glyph_record> records;
     std::vector<gpu_glyph_uniforms> uniforms;
@@ -984,11 +1004,20 @@ progpu_native_status render_glyphs(
     // keeps its tile. A direct glyph frame owns the atlas for its payload and
     // packs it from the origin, as before.
     const bool persistent_atlas = engine->semantic_glyph_draw_active;
+    // `hash` is the content hash of an outline the frame carries; an outline
+    // registered with the engine is kept by `serial` instead.
     struct pending_atlas_tile {
         std::uint32_t outline_index;
         std::uint64_t hash;
+        std::uint64_t serial;
     };
     std::vector<pending_atlas_tile> pending_atlas_tiles;
+    // The segments the raster work of this call reads. A frame without
+    // registered outlines reads its own array; otherwise the segments of the
+    // outlines that need coverage are gathered here, registered or carried.
+    std::vector<progpu_native_path_segment> work_segments;
+    std::span<const progpu_native_path_segment> raster_segments(
+        frame->segments, frame->segment_count);
     glyph_atlas_cursor atlas_cursor{};
 
     if (!compiled_payload_hit) {
@@ -1051,10 +1080,28 @@ progpu_native_status render_glyphs(
                      index < frame->outline_count;
                      ++index) {
                     const auto& outline = frame->outlines[index];
-                    if (outline.segment_count == 0U ||
-                        outline.segment_offset > frame->segment_count ||
-                        outline.segment_count >
-                            frame->segment_count - outline.segment_offset ||
+                    const std::uint64_t serial = outline_entries != nullptr
+                        ? outline_entries[index]
+                        : 0U;
+                    const progpu::native::glyph_outline_registry::entry*
+                        registered = nullptr;
+                    if (serial != 0U) {
+                        registered = engine->glyph_outlines->get(serial);
+                        if (registered == nullptr) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
+                                "A glyph page names a glyph outline that is no longer registered with the engine.");
+                        }
+                    }
+                    if ((registered == nullptr &&
+                            (outline.segment_count == 0U ||
+                                outline.segment_offset > frame->segment_count ||
+                                outline.segment_count >
+                                    frame->segment_count -
+                                        outline.segment_offset)) ||
+                        (registered != nullptr &&
+                            (outline.segment_count != 0U ||
+                                outline.segment_offset != 0U)) ||
                         !std::isfinite(outline.min_x) ||
                         !std::isfinite(outline.min_y) ||
                         !std::isfinite(outline.max_x) ||
@@ -1075,12 +1122,20 @@ progpu_native_status render_glyphs(
                     }
                     const float scaled_min_x =
                         outline.min_x * outline.raster_scale;
-                    const auto original_segments = std::span(frame->segments, frame->segment_count).subspan(
-                        outline.segment_offset, outline.segment_count);
-                    if (!progpu::native::text::valid_glyph_scan_outline(outline, original_segments))
+                    // A registered outline was validated when it was
+                    // registered and is vector coverage; its bytes are not
+                    // read here.
+                    const auto original_segments = registered != nullptr
+                        ? std::span<const progpu_native_path_segment>(
+                            registered->segments)
+                        : std::span(frame->segments, frame->segment_count).subspan(
+                            outline.segment_offset, outline.segment_count);
+                    if (registered == nullptr &&
+                        !progpu::native::text::valid_glyph_scan_outline(outline, original_segments))
                         return engine->fail(PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                             "A glyph scan descriptor, contour partition, or physical raster frame is invalid.");
-                    const bool binary = original_segments.front().pad0 != 0U;
+                    const bool binary = registered == nullptr &&
+                        original_segments.front().pad0 != 0U;
                     if (binary && (engine->engine_flags & (PROGPU_NATIVE_ENGINE_GLYPH_RASTER_SHADER_FALLBACK |
                             PROGPU_NATIVE_ENGINE_GLYPH_INTRINSIC_SIMD_CPU_FALLBACK |
                             PROGPU_NATIVE_ENGINE_GLYPH_SCALAR_CPU_FALLBACK)) != 0U)
@@ -1113,29 +1168,46 @@ progpu_native_status render_glyphs(
                     const auto height = static_cast<std::uint32_t>(height_value);
                     records.push_back({
                         static_cast<std::uint32_t>(outline.segment_offset),
-                        static_cast<std::uint32_t>(outline.segment_count),
+                        static_cast<std::uint32_t>(original_segments.size()),
                         outline.min_x, outline.min_y, outline.max_x, outline.max_y,
                         binary ? 1U : 0U, 0U});
-                    const auto identity = make_hashed_glyph_raster_identity(
-                        make_glyph_raster_identity(outline,
-                            std::span(frame->segments, frame->segment_count).subspan(
-                                outline.segment_offset, outline.segment_count)));
-                    const auto [entry, inserted] = shared_rasters.try_emplace(
-                        identity, static_cast<std::uint32_t>(index));
-                    if (!inserted) {
-                        // Keep one source-indexed raster descriptor and uniform
-                        // slot per outline. Only exact coverage work is shared;
-                        // original positioned glyphs, style and draw order remain.
-                        engine->glyph_rasters.push_back(engine->glyph_rasters[entry->second]);
-                        uniforms.push_back(uniforms[entry->second]);
-                        continue;
+                    // The raster identity of a registered outline is its
+                    // serial, scale and phase: the page names each of them
+                    // once, and no segment byte is hashed or compared.
+                    std::uint64_t identity_hash = 0U;
+                    const glyph_atlas_tile* kept_tile = nullptr;
+                    if (registered != nullptr) {
+                        kept_tile = engine->glyph_atlas_cache.find(
+                            glyph_atlas_key{
+                                serial,
+                                std::bit_cast<std::uint32_t>(
+                                    outline.raster_scale),
+                                std::bit_cast<std::uint32_t>(
+                                    outline.subpixel_x)});
+                    } else {
+                        const auto identity = make_hashed_glyph_raster_identity(
+                            make_glyph_raster_identity(outline, original_segments));
+                        const auto [entry, inserted] = shared_rasters.try_emplace(
+                            identity, static_cast<std::uint32_t>(index));
+                        if (!inserted) {
+                            // Keep one source-indexed raster descriptor and uniform
+                            // slot per outline. Only exact coverage work is shared;
+                            // original positioned glyphs, style and draw order remain.
+                            engine->glyph_rasters.push_back(engine->glyph_rasters[entry->second]);
+                            uniforms.push_back(uniforms[entry->second]);
+                            continue;
+                        }
+                        identity_hash = identity.hash;
+                        if (persistent_atlas) {
+                            kept_tile = engine->glyph_atlas_cache.find(
+                                identity.hash, identity.identity);
+                        }
                     }
                     const std::uint32_t output_bytes_per_row = align_up(
                         width,
                         webgpu_copy_row_alignment);
                     if (persistent_atlas) {
-                        if (const auto* tile = engine->glyph_atlas_cache.find(
-                                identity.hash, identity.identity)) {
+                        if (const auto* tile = kept_tile) {
                             // The coverage is in the atlas: no raster work.
                             engine->glyph_rasters.push_back({
                                 tile->atlas_x,
@@ -1185,7 +1257,9 @@ progpu_native_status render_glyphs(
                     raster_work_indices.push_back(static_cast<std::uint32_t>(index));
                     if (persistent_atlas) {
                         pending_atlas_tiles.push_back({
-                            static_cast<std::uint32_t>(index), identity.hash});
+                            static_cast<std::uint32_t>(index),
+                            identity_hash,
+                            serial});
                     }
                     output_offset = align_up(
                         output_offset,
@@ -1236,9 +1310,44 @@ progpu_native_status render_glyphs(
                 coverage_staging_bytes = output_offset;
                 rasterized_glyph_count = static_cast<std::uint32_t>(
                     raster_work_indices.size());
+                if (outline_entries != nullptr) {
+                    // Gather the segments of the outlines that need coverage,
+                    // in work order, and point their records at the copy. The
+                    // other records are not read by the raster work.
+                    std::uint64_t work_segment_count = 0U;
+                    for (const auto index : raster_work_indices) {
+                        work_segment_count += records[index].segment_count;
+                    }
+                    if (work_segment_count >
+                            std::numeric_limits<std::uint32_t>::max()) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                            "The glyph raster work exceeds the segment index range.");
+                    }
+                    work_segments.reserve(
+                        static_cast<std::size_t>(work_segment_count));
+                    for (const auto index : raster_work_indices) {
+                        auto& record = records[index];
+                        const auto* registered =
+                            engine->glyph_outlines->get(outline_entries[index]);
+                        const auto* source = registered != nullptr
+                            ? registered->segments.data()
+                            : frame->segments + record.start_segment;
+                        record.start_segment =
+                            static_cast<std::uint32_t>(work_segments.size());
+                        work_segments.insert(
+                            work_segments.end(),
+                            source,
+                            source + record.segment_count);
+                    }
+                    raster_segments = work_segments;
+                }
                 if (retain_compiled_payload) {
                     engine->glyph_raster_outlines.resize(frame->outline_count);
                     engine->glyph_raster_segments.resize(frame->segment_count);
+                    engine->glyph_raster_entries.assign(
+                        outline_entries,
+                        outline_entries + outline_entry_count);
                     if (frame->outline_count != 0U) {
                         std::memcpy(engine->glyph_raster_outlines.data(), frame->outlines,
                             frame->outline_count * sizeof(progpu_native_glyph_outline));
@@ -1388,21 +1497,25 @@ progpu_native_status render_glyphs(
                 engine->glyph_content_revision = frame->content_revision;
                 engine->glyph_dpi_scale = frame->dpi_scale;
                 engine->glyph_opacity = draw_state.opacity;
-                engine->glyph_payload_hash = append_fnv1a64(
+                engine->glyph_payload_hash = append_content_hash64(
                     14695981039346656037ULL,
                     engine->glyph_instances.data(),
                     engine->glyph_instances.size() *
                         sizeof(gpu_glyph_instance));
-                engine->glyph_payload_hash = append_fnv1a64(
+                engine->glyph_payload_hash = append_content_hash64(
                     engine->glyph_payload_hash,
                     frame->outlines,
                     frame->outline_count *
                         sizeof(progpu_native_glyph_outline));
-                engine->glyph_payload_hash = append_fnv1a64(
+                engine->glyph_payload_hash = append_content_hash64(
                     engine->glyph_payload_hash,
                     frame->segments,
                     frame->segment_count *
                         sizeof(progpu_native_path_segment));
+                engine->glyph_payload_hash = append_content_hash64(
+                    engine->glyph_payload_hash,
+                    outline_entries,
+                    outline_entry_count * sizeof(std::uint64_t));
                 engine->glyph_cache_valid = true;
             }
         } catch (const std::bad_alloc&) {
@@ -1428,18 +1541,22 @@ progpu_native_status render_glyphs(
                 engine->glyph_source_alphas[index] * draw_state.opacity;
         }
         engine->glyph_opacity = draw_state.opacity;
-        engine->glyph_payload_hash = append_fnv1a64(
+        engine->glyph_payload_hash = append_content_hash64(
             14695981039346656037ULL,
             engine->glyph_instances.data(),
             engine->glyph_instances.size() * sizeof(gpu_glyph_instance));
-        engine->glyph_payload_hash = append_fnv1a64(
+        engine->glyph_payload_hash = append_content_hash64(
             engine->glyph_payload_hash,
             frame->outlines,
             frame->outline_count * sizeof(progpu_native_glyph_outline));
-        engine->glyph_payload_hash = append_fnv1a64(
+        engine->glyph_payload_hash = append_content_hash64(
             engine->glyph_payload_hash,
             frame->segments,
             frame->segment_count * sizeof(progpu_native_path_segment));
+        engine->glyph_payload_hash = append_content_hash64(
+            engine->glyph_payload_hash,
+            outline_entries,
+            outline_entry_count * sizeof(std::uint64_t));
     }
 
     const std::uint32_t atlas_generation_before =
@@ -1526,7 +1643,7 @@ progpu_native_status render_glyphs(
     if (raster_work) {
         if (glyph_cpu_fallback) {
             if (!rasterize_glyph_coverage_cpu(
-                    *frame,
+                    raster_segments,
                     records,
                     uniforms,
                     engine->glyph_rasters,
@@ -1600,7 +1717,7 @@ progpu_native_status render_glyphs(
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
         temporary.segments = create_buffer(
             "ProGPU native glyph segments",
-            frame->segment_count * sizeof(progpu_native_path_segment),
+            raster_segments.size() * sizeof(progpu_native_path_segment),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
         if (!glyph_raster_shader_fallback) {
             temporary.coverage = create_buffer(
@@ -1621,7 +1738,7 @@ progpu_native_status render_glyphs(
         }
         const std::uint64_t record_bytes = records.size() *
             sizeof(gpu_glyph_record);
-        const std::uint64_t segment_bytes = frame->segment_count *
+        const std::uint64_t segment_bytes = raster_segments.size() *
             sizeof(progpu_native_path_segment);
         wgpuQueueWriteBuffer(
             engine->queue,
@@ -1639,7 +1756,7 @@ progpu_native_status render_glyphs(
             engine->queue,
             temporary.segments,
             0U,
-            frame->segments,
+            raster_segments.data(),
             segment_bytes);
         outline_upload_bytes = uniform_bytes.size() +
             record_bytes + segment_bytes;
@@ -1960,6 +2077,16 @@ progpu_native_status render_glyphs(
             for (const auto& pending : pending_atlas_tiles) {
                 const auto& outline = frame->outlines[pending.outline_index];
                 const auto& raster = engine->glyph_rasters[pending.outline_index];
+                if (pending.serial != 0U) {
+                    engine->glyph_atlas_cache.insert(
+                        glyph_atlas_key{
+                            pending.serial,
+                            std::bit_cast<std::uint32_t>(outline.raster_scale),
+                            std::bit_cast<std::uint32_t>(outline.subpixel_x)},
+                        {raster.atlas_x, raster.atlas_y, raster.width,
+                            raster.height, raster.x_start, raster.y_start});
+                    continue;
+                }
                 engine->glyph_atlas_cache.insert(
                     pending.hash,
                     make_glyph_raster_identity(outline,
@@ -1982,7 +2109,7 @@ progpu_native_status render_glyphs(
             PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH) != 0U) {
         payload_hash = retain_compiled_payload
             ? engine->glyph_payload_hash
-            : append_fnv1a64(
+            : append_content_hash64(
                 14695981039346656037ULL,
                 engine->glyph_instances.data(),
                 instance_bytes);

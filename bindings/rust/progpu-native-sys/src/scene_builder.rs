@@ -122,6 +122,14 @@ unsafe extern "C" {
     ) -> ::core::ffi::c_int;
 }
 unsafe extern "C" {
+    pub fn progpu_native_scene_builder_add_glyph_keys(
+        builder: *mut progpu_native_scene_builder,
+        keys: *const progpu_native_scene_glyph_key,
+        key_count: usize,
+        resource_index: *mut u32,
+    ) -> ::core::ffi::c_int;
+}
+unsafe extern "C" {
     pub fn progpu_native_scene_builder_add_axis_aligned_clip_mask(
         builder: *mut progpu_native_scene_builder,
         bounds: progpu_native_image_rect,
