@@ -183,3 +183,11 @@ fn create(device: &wgpu::Device, source: &'static str) -> Pipeline {
     });
     Pipeline { pipeline, layout }
 }
+
+impl GaussianPass {
+    pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
+        self.input.retain_submitted(queue);
+        self.temporary.retain_submitted(queue);
+        self.output.retain_submitted(queue);
+    }
+}

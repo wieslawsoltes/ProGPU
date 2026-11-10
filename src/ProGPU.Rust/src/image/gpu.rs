@@ -8,7 +8,16 @@ pub struct GpuImage {
     device: wgpu::Device,
     texture: wgpu::Texture,
     alpha: ImageAlpha,
+    producer: Option<Arc<dyn GpuImageOwner>>,
 }
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) trait GpuImageOwner: std::fmt::Debug + Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: std::fmt::Debug + Send + Sync> GpuImageOwner for T {}
+#[cfg(target_arch = "wasm32")]
+pub(crate) trait GpuImageOwner: std::fmt::Debug {}
+#[cfg(target_arch = "wasm32")]
+impl<T: std::fmt::Debug> GpuImageOwner for T {}
 impl From<GpuImage> for ImageSource {
     fn from(value: GpuImage) -> Self {
         Self::Gpu(value)
@@ -46,6 +55,7 @@ impl GpuImage {
             device: device.clone(),
             texture: texture.clone(),
             alpha,
+            producer: None,
         })
     }
     /// Actual physical texture extent.
@@ -69,5 +79,17 @@ impl GpuImage {
     }
     pub(crate) fn identity(&self) -> usize {
         Arc::as_ptr(&self.owner) as usize
+    }
+    pub(crate) fn with_producer(mut self, owner: Arc<dyn GpuImageOwner>) -> Self {
+        self.producer = Some(owner);
+        self
+    }
+    /// Retain the actual external producer through all previously submitted work.
+    /// Call immediately after submitting commands that use this image. Prepared
+    /// drawing automatically performs this step at its submission boundary.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        if let Some(owner) = self.producer.clone() {
+            queue.on_submitted_work_done(move || drop(owner));
+        }
     }
 }

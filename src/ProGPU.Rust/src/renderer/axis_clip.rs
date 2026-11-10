@@ -591,3 +591,13 @@ impl Renderer {
         })
     }
 }
+
+impl PreparedAxisClip {
+    /// Retain actual source and parent producers after external queue submission.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        if let Some(r) = &self.resources {
+            r.parent.retain_submitted(queue);
+            r.source.retain_submitted(queue);
+        }
+    }
+}

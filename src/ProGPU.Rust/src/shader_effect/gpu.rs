@@ -701,6 +701,7 @@ impl ShaderEffectEngine {
             });
         composer.encode(&mut encoder, &prepared)?;
         self.queue.submit([encoder.finish()]);
+        prepared.retain_submitted(&self.queue);
         self.clips = Some(composer);
         Ok(ShaderVectorMask {
             owner: self.owner.clone(),
@@ -764,5 +765,16 @@ impl ShaderEffectEngine {
             return Err(Error::ResourceDomain);
         }
         prepared.draw_owned(pass, None)
+    }
+}
+
+impl PreparedShaderEffect {
+    /// Retain exact source/sampler/vector-mask owners after external submission.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        self.input.retain_submitted(queue);
+        self.sampler.retain_submitted(queue);
+        if let Some(mask) = &self.vector_mask {
+            mask.retain_submitted(queue);
+        }
     }
 }

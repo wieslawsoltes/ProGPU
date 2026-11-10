@@ -750,3 +750,23 @@ async fn normalize(
     metrics.capture(m)?;
     Ok(p)
 }
+
+impl PreparedImageFilteredImages {
+    pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for draw in &self.draws {
+            draw._input.retain_submitted(queue);
+            for result in &draw.results {
+                result.retain_submitted(queue);
+            }
+            for pass in &draw.passes {
+                match pass {
+                    Pass::Scene(p) => p.retain_submitted(queue),
+                    Pass::Color(p) => p.retain_submitted(queue),
+                    Pass::Image(p) => p.retain_submitted(queue),
+                    Pass::Gaussian(p) => p.retain_submitted(queue),
+                    Pass::Capture(p) => p.output.retain_submitted(queue),
+                }
+            }
+        }
+    }
+}

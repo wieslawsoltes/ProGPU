@@ -685,3 +685,13 @@ impl ImageEffectMetrics {
         Ok(())
     }
 }
+
+impl PreparedImageEffects {
+    pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for draw in self.draws.iter().flatten() {
+            if let Some(blur) = &draw.blur {
+                blur.retain_submitted(queue);
+            }
+        }
+    }
+}

@@ -45,6 +45,19 @@ pub use vertices::{ImageBrush, TileImageDraw, TileImageSampling};
 mod gpu;
 #[cfg(feature = "gpu")]
 pub use gpu::GpuImage;
+#[cfg(feature = "gpu")]
+mod texture;
+#[cfg(feature = "gpu")]
+pub use texture::{
+    ImageCachingHint, ImageContext, ImageResourceError, TextureImage, TextureOwnership,
+    TextureRasterView, TextureReadback, TextureReadbackWork, TextureRelease,
+};
+#[cfg(feature = "gpu")]
+mod surface;
+#[cfg(feature = "gpu")]
+pub use surface::{
+    RenderSurface, SurfaceFlush, SurfaceOrigin, SurfacePixelGeometry, SurfaceProperties,
+};
 
 /// Original source alpha representation, independent of draw opacity.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

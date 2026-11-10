@@ -50,8 +50,8 @@ template order at the actual target; pages must not be scaled after rasterizatio
 
 Remaining original slices after the renderer increment below: source
 hit-geometry/provider/layout callbacks;
-mutable composition clip/shadow objects and disposal notifications; full visual
-shadow-mask/owned-shader effect adapters; surface/mask/backdrop/effect brush scopes;
+mutable composition clip/shadow objects and disposal notifications; visual
+shadow-mask source adapters; surface/mask/backdrop/effect brush scopes;
 external host/platform wrappers and `TransformToVisual` target inversion. Exact
 immutable `VisualCompositeClip` descriptors and independently owned Scene commands
 are retained, but do not claim those missing provider contracts. Runtime trig,
@@ -109,7 +109,7 @@ Source recordings, mask captures, preparation metrics and replay scenes are expo
 through `PreparedVisual` without executing UI callbacks during encode.
 
 Explicit remaining admission gaps: perspective/late-camera visual traversal;
-typed visual WpfShaderEffect and DropShadow opacity-mask-visual adapters; deferred
+DropShadow opacity-mask-visual adapters; deferred
 Boolean clip programs beyond existing `compile_raster_path` admission; source
 hit/input/provider contracts. Frozen final-device shaders/glyphs cannot be retargeted
 as source pages. Hinted outlines require their exact prepared DPI and identity basis
@@ -128,4 +128,54 @@ fc700b1b057b369588960ce485d8bf07a0cb9a6f06e8611f794c1d990f32080c  src/ProGPU.Com
 475756cd86b206afa45725603817aed8f01a1dd09e52d3e621a3759d878b6e80  src/ProGPU.Compute/Shaders/DropShadow.wgsl
 759a107e0428fc95f3241c219ca52d12d82c7630a85909f1bbb133d9f8e9f6c2  src/ProGPU.Compute/Shaders/ShadowBlurHorizontal.wgsl
 0bfb3975168f9a98c4e6cd3edd0b518dc9ca30664ce947b2e5d45eb1ce205b4c  src/ProGPU.Compute/Shaders/ShadowBlurVertical.wgsl
+```
+
+
+Typed Wpf visual adapter: `CompositionEffectValue::WpfShader(WpfVisualEffect)`
+now participates in actual rendering. `WpfVisualEffect::new` preserves generic
+borrowed parameter/sampler semantics and default output alpha ordering;
+`from_owned_source` retains an independent immutable preparation source and its
+four-edge descriptor. `with_source_visual_opacity` is explicit and immutable.
+Original independent double padding/endpoints, signed zero, source host rebase,
+physical source projection and legacy scalar/explicit-raster-override routes stay
+separate. An owned source's rebase cannot be rebound independently of its owner.
+Generic raster overrides use original finite max(0,value), without ceiling.
+
+Opted-in root opacity and opacity masks paint into the implicit source; root
+geometry/outer clips remain on final output. Root zero alpha can therefore still
+execute a constant-output shader, while ordinary zero ancestor alpha excludes
+the subtree. Cached source roots keep independent raw-cache sizing, source DPI,
+text policy and original input-space placement. The historical generic cached-root
+route remains distinct. Final shaders consume the complete original source texture
+with independent output edges/UVs at the actual parent; evaluated effects are not
+resampled to implement source alpha ordering.
+
+Owned recipes run before implicit capture with exact projection/viewport/lattice,
+semantic DPI and capture metadata. Their move-only parameter generation retains
+actual completed sampler producers. Shared detached source guards cover mixed
+picture/visual preparation cycles and retain the exact source identity through
+cancellation. Device/renderer/target are checked after preparation and capture.
+Visual and ordered-source frame transactions restore prior visual-cache generations
+on outer failure/cancellation. Each successful target privately owns input pixels,
+parameter owners, original snapshot/pages and final parameters. Earlier frames
+retain those generations through cache replacement. Generic borrowed parameters
+are not relabeled as owned producer proof.
+
+`PreparedVisual` exposes actual shader command/cache/capture/recipe counters and
+shader source captures/recordings. Provider/UI hit geometry, original platform
+qualification, camera/perspective traversal, shadow-mask visuals and unsupported
+deferred clip programs remain independent gaps. Existing source glyph DPI/basis,
+full sampler/device admission, mask ownership and no-UI-during-encode gates remain.
+Only touched-file formatting was run; no tests, compiler, fixtures, GPU/browser
+validation or performance work was added or executed in this implementation batch.
+
+Additional source provenance:
+
+```
+5ee016cdd04720947b76e5d11eea354978d4653c36bdf4d0fc0f54a63df1918b  src/ProGPU.Scene/OwnedShaderEffectSource.cs
+da0c767b6ed25be653888435acb0751499da6282153b25bf9fded30cba77cc71  src/ProGPU.Scene/Compositor.OwnedShaderEffects.cs
+cd1aea0b7ace472a46f68dee9126f3280ddade8a1eb88871412f3468167bd7dd  src/ProGPU.Scene/ShaderEffectSourceCapture.cs
+e633f404baae8fd6e274029c795c01e05378708dbf8f093530fa57472c66f431  src/ProGPU.Scene/WpfShaderEffectParams.cs
+64dd29ca99d205a3fe39e829373075ee22f9f2f18c9de6c7d7b446c21759ac02  docs/source-shader-opacity-order.md
+9c74e66e75c5a576489574a5e8f9c3ad31398e570599cd0e9457d822123aa73b  docs/managed-source-effect-capture.md
 ```

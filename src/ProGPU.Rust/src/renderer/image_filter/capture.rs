@@ -14,6 +14,9 @@ pub(super) struct SceneCapture {
     source_capture: bool,
 }
 impl SceneCapture {
+    pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
+        self.scene.retain_submitted_images(queue);
+    }
     pub(super) fn output(&self) -> &GpuImage {
         &self.output
     }

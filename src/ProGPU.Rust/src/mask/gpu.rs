@@ -64,6 +64,7 @@ enum Program {
 /// Frozen executable mask program. The actual output belongs to this generation;
 /// another preparation never overwrites it. Encoding is explicit and GPU-only.
 pub struct PreparedMask {
+    sources: Vec<GpuImage>,
     owner: Arc<()>,
     output: GpuImage,
     targets: [wgpu::TextureView; 2],
@@ -397,6 +398,7 @@ impl MaskComposer {
             return Err(error.into());
         }
         Ok(PreparedMask {
+            sources: Vec::new(),
             owner: self.owner.clone(),
             output,
             targets: views,
@@ -516,6 +518,7 @@ impl MaskComposer {
             return Err(error.into());
         }
         Ok(PreparedMask {
+            sources: inputs.iter().map(|i| i.image.clone()).collect(),
             owner: self.owner.clone(),
             output,
             targets: views,
@@ -660,5 +663,14 @@ impl MaskCompositionMetrics {
         add!(uniform_bytes);
         add!(geometry_bytes);
         Ok(())
+    }
+}
+
+impl PreparedMask {
+    /// Retain actual source producers through already submitted mask execution.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for source in &self.sources {
+            source.retain_submitted(queue);
+        }
     }
 }

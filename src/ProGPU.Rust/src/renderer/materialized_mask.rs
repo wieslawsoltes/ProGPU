@@ -224,6 +224,7 @@ impl Renderer {
             return Err(error.into());
         }
         self.queue.submit([command]);
+        prepared.retain_submitted_images(&self.queue);
         self.materialized_masks = Some(state);
         Ok(CapturedMask {
             image: GpuImage::from_texture(&self.device, &output, ImageAlpha::Straight)?,
@@ -541,6 +542,7 @@ impl Renderer {
             return Err(error.into());
         }
         self.queue.submit([command]);
+        prepared.retain_submitted(&self.queue);
         let mut metrics = prepared.metrics();
         uploads.uniform_bytes += metrics.uniform_bytes;
         for path in path_programs.iter().flatten() {

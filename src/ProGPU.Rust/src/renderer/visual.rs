@@ -19,6 +19,7 @@ use crate::{
 use std::{future::Future, pin::Pin};
 mod compute;
 mod geometry;
+mod shader;
 
 /// Original compositor switches, independent of source cache requirements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +60,14 @@ pub struct VisualMetrics {
     pub texture_bytes: u64,
     /// Original managed effect compute passes.
     pub effect_passes: u32,
+    /// Actual Wpf visual output commands, including constant-output zero-alpha roots.
+    pub shader_commands: u32,
+    /// Exact actual-target Wpf source/parameter generations reused.
+    pub shader_cache_hits: u32,
+    /// Newly completed implicit inputs for visual shaders.
+    pub shader_captures: u32,
+    /// Actual owned recipe calls producing new immutable parameter generations.
+    pub shader_parameter_generations: u32,
 }
 /// A prepared visual retains the exact snapshot, lowered scene, source captures
 /// and effect resources. Later cache replacement cannot mutate this generation.
@@ -68,6 +77,7 @@ pub struct PreparedVisual {
     recording: Arc<Scene>,
     captures: Vec<Arc<VisualCapture>>,
     masks: Vec<CapturedScene>,
+    shaders: Vec<Arc<shader::VisualShaderTarget>>,
     metrics: VisualMetrics,
 }
 impl PreparedVisual {
@@ -95,6 +105,14 @@ impl PreparedVisual {
     pub fn source_recordings(&self) -> impl Iterator<Item = &Arc<Scene>> {
         self.captures.iter().map(|v| &v.recording)
     }
+    /// Original Wpf source command generations, before final shader evaluation.
+    pub fn shader_source_recordings(&self) -> impl Iterator<Item = &Arc<Scene>> {
+        self.shaders.iter().map(|v| v.recording())
+    }
+    /// Original Wpf implicit-input captures, retained independently of final output.
+    pub fn shader_source_captures(&self) -> impl Iterator<Item = &CapturedScene> {
+        self.shaders.iter().map(|v| v.capture())
+    }
     /// Actual independently owned picture/brush opacity masks.
     pub fn mask_captures(&self) -> &[CapturedScene] {
         &self.masks
@@ -104,6 +122,7 @@ impl PreparedVisual {
 pub(super) struct VisualState {
     targets: Vec<Arc<VisualCapture>>,
     compute: compute::ComputeState,
+    shader_targets: Vec<Arc<shader::VisualShaderTarget>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct VisualPolicy {
@@ -132,6 +151,22 @@ impl VisualPolicy {
             image_preference: renderer.image_preference,
             winding: renderer.signed_winding_policy,
         }
+    }
+}
+pub(super) struct VisualCacheCheckpoint {
+    targets: Vec<Arc<VisualCapture>>,
+    shader_targets: Vec<Arc<shader::VisualShaderTarget>>,
+}
+impl VisualState {
+    pub(super) fn checkpoint(&self) -> VisualCacheCheckpoint {
+        VisualCacheCheckpoint {
+            targets: self.targets.clone(),
+            shader_targets: self.shader_targets.clone(),
+        }
+    }
+    pub(super) fn restore(&mut self, checkpoint: VisualCacheCheckpoint) {
+        self.targets = checkpoint.targets;
+        self.shader_targets = checkpoint.shader_targets;
     }
 }
 struct VisualCapture {
@@ -212,6 +247,7 @@ impl Renderer {
             options,
             captures: Vec::new(),
             masks: Vec::new(),
+            shaders: Vec::new(),
             metrics: VisualMetrics {
                 nodes,
                 ..Default::default()
@@ -229,6 +265,8 @@ impl Renderer {
                     Vec::new(),
                     options.suppress_cached_cleartype,
                     false,
+                    false,
+                    false,
                     0,
                 )
                 .await?,
@@ -240,12 +278,14 @@ impl Renderer {
         // Complete candidates replace the mutable cache only after every source,
         // final consumer and ownership check has succeeded.
         builder.renderer.visuals.targets = builder.captures.clone();
+        builder.renderer.visuals.shader_targets = builder.shaders.clone();
         let result = PreparedVisual {
             prepared,
             snapshot,
             recording,
             captures: builder.captures,
             masks: builder.masks,
+            shaders: builder.shaders,
             metrics: builder.metrics,
         };
         transaction.commit()?;
@@ -264,13 +304,21 @@ impl Renderer {
     /// Drop only renderer cache references; prepared generations remain alive.
     pub fn clear_visual_cache(&mut self) {
         self.visuals.targets.clear();
+        self.visuals.shader_targets.clear();
     }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum VisualScope {
+    Full,
+    GeometryOnly,
+    OpacityOnly,
 }
 struct Builder<'a> {
     renderer: &'a mut Renderer,
     options: VisualRenderOptions,
     captures: Vec<Arc<VisualCapture>>,
     masks: Vec<CapturedScene>,
+    shaders: Vec<Arc<shader::VisualShaderTarget>>,
     metrics: VisualMetrics,
     depth: u8,
 }
@@ -285,6 +333,8 @@ impl Builder<'_> {
         masks: Vec<Mask>,
         suppress: bool,
         source_root: bool,
+        capture_opacity: bool,
+        skip_root_cache: bool,
         depth: u16,
     ) -> Pin<Box<dyn Future<Output = Result<Scene, Error>> + 'a>> {
         Box::pin(async move {
@@ -293,8 +343,13 @@ impl Builder<'_> {
             }
             let properties = node.properties();
             let mut scene = Scene::default();
-            if !source_root
-                && (!properties.visible || properties.opacity <= 0.0001 || opacity <= 0.0001)
+            let source_shader_output = !source_root
+                && matches!(node.effect(),Some((_,CompositionEffectValue::WpfShader(effect))) if effect.captures_source_visual_opacity());
+            if !properties.visible
+                || opacity <= 0.0001
+                || ((!source_root || capture_opacity)
+                    && properties.opacity <= 0.0001
+                    && !source_shader_output)
             {
                 return Ok(scene);
             }
@@ -305,6 +360,44 @@ impl Builder<'_> {
             };
             affine(global)?;
             if !source_root
+                && let Some((_, CompositionEffectValue::WpfShader(effect))) = node.effect()
+            {
+                return self
+                    .shader(
+                        node, effect, parent, global, opacity, target, clip, masks, suppress, depth,
+                    )
+                    .await;
+            }
+            if source_root
+                && !skip_root_cache
+                && properties.composite.cache_as_layer
+                && (self.options.enable_layer_cache || properties.composite.requires_layer_cache)
+            {
+                // Original generic cached-root route keeps its historical local
+                // transform. Explicit source-opacity input overrides that final
+                // cache placement with this capture's translation only.
+                let cache_global = if capture_opacity {
+                    global
+                } else {
+                    node.local_transform()
+                };
+                return self
+                    .isolated(
+                        node,
+                        Matrix4::IDENTITY,
+                        cache_global,
+                        opacity,
+                        target,
+                        clip,
+                        masks,
+                        suppress,
+                        depth,
+                        true,
+                        capture_opacity,
+                    )
+                    .await;
+            }
+            if !source_root
                 && (node.effect().is_some()
                     || (properties.composite.cache_as_layer
                         && (self.options.enable_layer_cache
@@ -312,19 +405,32 @@ impl Builder<'_> {
             {
                 return self
                     .isolated(
-                        node, parent, global, opacity, target, clip, masks, suppress, depth,
+                        node, parent, global, opacity, target, clip, masks, suppress, depth, false,
+                        false,
                     )
                     .await;
             }
-            let (scope_count, next_clip, next_masks) = if source_root {
+            let (scope_count, next_clip, next_masks) = if source_root && !capture_opacity {
                 (0, clip, masks)
             } else {
                 self.scopes(
-                    &mut scene, node, parent, global, target, clip, masks, suppress,
+                    &mut scene,
+                    node,
+                    parent,
+                    global,
+                    target,
+                    clip,
+                    masks,
+                    suppress,
+                    if source_root {
+                        VisualScope::OpacityOnly
+                    } else {
+                        VisualScope::Full
+                    },
                 )
                 .await?
             };
-            let opacity = if source_root || properties.opacity >= 1.0 {
+            let opacity = if (source_root && !capture_opacity) || properties.opacity >= 1.0 {
                 opacity
             } else {
                 opacity * properties.opacity
@@ -340,6 +446,8 @@ impl Builder<'_> {
                             next_clip,
                             next_masks.clone(),
                             suppress,
+                            false,
+                            false,
                             false,
                             depth + 1,
                         )
@@ -378,6 +486,8 @@ impl Builder<'_> {
                             next_masks.clone(),
                             suppress,
                             false,
+                            false,
+                            false,
                             depth + 1,
                         )
                         .await?;
@@ -401,13 +511,15 @@ impl Builder<'_> {
         masks: Vec<Mask>,
         suppress: bool,
         depth: u16,
+        ignore_effect: bool,
+        opacity_only: bool,
     ) -> Result<Scene, Error> {
         if self.depth >= 16 {
             return Err(Error::Capacity);
         }
         let p = node.properties();
         let cold = &p.composite;
-        let effect = node.effect();
+        let effect = if ignore_effect { None } else { node.effect() };
         let mut bounds = [0.0, 0.0, p.size[0], p.size[1]];
         let frame = if let Some((_, effect)) = effect {
             bounds = cold.effect_content_bounds.unwrap_or(bounds);
@@ -428,7 +540,7 @@ impl Builder<'_> {
             };
             let padding = cold.effect_raster_padding.map_or(padding, |value| {
                 [if value.is_finite() {
-                    value.max(0.0).ceil()
+                    value.max(0.0)
                 } else {
                     0.0
                 }; 2]
@@ -477,6 +589,8 @@ impl Builder<'_> {
                     Vec::new(),
                     frame.suppress_cached_cleartype(),
                     true,
+                    false,
+                    effect.is_none(),
                     depth + 1,
                 )
                 .await;
@@ -541,7 +655,19 @@ impl Builder<'_> {
         let mut scene = Scene::default();
         let (scopes, _, _) = self
             .scopes(
-                &mut scene, node, parent, global, target, clip, masks, suppress,
+                &mut scene,
+                node,
+                parent,
+                global,
+                target,
+                clip,
+                masks,
+                suppress,
+                if opacity_only {
+                    VisualScope::OpacityOnly
+                } else {
+                    VisualScope::Full
+                },
             )
             .await?;
         let final_opacity = if p.opacity < 1.0 {
@@ -620,33 +746,39 @@ impl Builder<'_> {
         mut clip: Option<[f32; 4]>,
         mut masks: Vec<Mask>,
         suppress: bool,
+        mode: VisualScope,
     ) -> Result<(usize, Option<[f32; 4]>, Vec<Mask>), Error> {
         let cold = &node.properties().composite;
         let mut count = 0;
-        if let Some(bounds) = cold.clip_bounds {
-            self.rectangle_scope(scene, bounds, global, target, &mut clip, &mut masks)
-                .await?;
-            count += 1;
+        if mode != VisualScope::OpacityOnly {
+            if let Some(bounds) = cold.clip_bounds {
+                self.rectangle_scope(scene, bounds, global, target, &mut clip, &mut masks)
+                    .await?;
+                count += 1;
+            }
+            if let Some(bounds) = cold.outer_clip_bounds {
+                self.rectangle_scope(scene, bounds, parent, target, &mut clip, &mut masks)
+                    .await?;
+                count += 1;
+            }
+            if let Some(value) = &cold.local_composite_clip {
+                self.composite_scope(scene, value, global, target, &mut clip, &mut masks)
+                    .await?;
+                count += 1;
+            }
+            for value in cold.outer_composite_clips.iter() {
+                self.composite_scope(scene, value, parent, target, &mut clip, &mut masks)
+                    .await?;
+                count += 1;
+            }
+            if let Some(path) = &cold.geometry_clip {
+                self.geometry_scope(scene, path, global, target, &mut clip, &mut masks)
+                    .await?;
+                count += 1;
+            }
         }
-        if let Some(bounds) = cold.outer_clip_bounds {
-            self.rectangle_scope(scene, bounds, parent, target, &mut clip, &mut masks)
-                .await?;
-            count += 1;
-        }
-        if let Some(value) = &cold.local_composite_clip {
-            self.composite_scope(scene, value, global, target, &mut clip, &mut masks)
-                .await?;
-            count += 1;
-        }
-        for value in cold.outer_composite_clips.iter() {
-            self.composite_scope(scene, value, parent, target, &mut clip, &mut masks)
-                .await?;
-            count += 1;
-        }
-        if let Some(path) = &cold.geometry_clip {
-            self.geometry_scope(scene, path, global, target, &mut clip, &mut masks)
-                .await?;
-            count += 1;
+        if mode == VisualScope::GeometryOnly {
+            return Ok((count, clip, masks));
         }
         // Original opacity remains in the caller's active per-draw scalar. The
         // opacity mask is pushed last and is independent of that scalar.
@@ -818,6 +950,7 @@ fn preflight(node: &VisualSnapshot, device: &wgpu::Device, depth: u16) -> Result
     }
     if let Some((_, effect)) = node.effect() {
         match effect {
+            CompositionEffectValue::WpfShader(effect) => effect.preflight_device(device)?,
             CompositionEffectValue::ColorMatrix(matrix) => {
                 if matrix.managed_values().iter().any(|v| !v.is_finite()) {
                     return Err(Error::InvalidInput);

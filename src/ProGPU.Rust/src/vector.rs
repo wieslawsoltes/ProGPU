@@ -10,6 +10,11 @@ pub use path_effect::{
 };
 mod raw_path;
 pub use raw_path::{PathIterator, PathVerb, RawPathIterator};
+mod region;
+pub use region::{
+    Region, RegionExecution, RegionOperation, RegionRect, RegionRectIterator, RegionScanMetrics,
+    RegionSpanIterator,
+};
 mod measure;
 pub use measure::{MeasureCommand, MeasuredPath, MeasuredPathBuilder, PathMeasure};
 mod arc;

@@ -8,7 +8,7 @@ use crate::{
         OwnedShaderEffectRecording, OwnedShaderEffectSource, SampleLattice, source_pixels_per_unit,
     },
 };
-use std::collections::HashSet;
+use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 /// Exact actual parent and independently derived implicit-input capture frame.
 /// Output transform and source semantic DPI never replace the projection scale.
@@ -60,7 +60,7 @@ impl ShaderEffectPreparationContext<'_> {
 #[derive(Default)]
 pub(super) struct OwnedShaderState {
     targets: Vec<TargetEntry>,
-    preparing: HashSet<usize>,
+    preparing: Rc<RefCell<HashSet<usize>>>,
     frame: u64,
     depth: u16,
 }
@@ -159,6 +159,7 @@ pub(super) struct OwnedShaderFrame<'a> {
     pub renderer: &'a mut Renderer,
     checkpoint: usize,
     cached_checkpoint: usize,
+    visual_checkpoint: Option<visual::VisualCacheCheckpoint>,
     owner: Arc<()>,
     complete: bool,
 }
@@ -183,6 +184,7 @@ impl<'a> OwnedShaderFrame<'a> {
         Ok(Self {
             checkpoint: state.targets.len(),
             cached_checkpoint: renderer.cached_pictures.targets.len(),
+            visual_checkpoint: Some(renderer.visuals.checkpoint()),
             owner: renderer.owner.clone(),
             renderer,
             complete: false,
@@ -204,6 +206,9 @@ impl Drop for OwnedShaderFrame<'_> {
         let state = &mut self.renderer.owned_shaders;
         if !self.complete {
             state.targets.truncate(self.checkpoint);
+            if let Some(checkpoint) = self.visual_checkpoint.take() {
+                self.renderer.visuals.restore(checkpoint);
+            }
             self.renderer
                 .cached_pictures
                 .targets
@@ -212,10 +217,44 @@ impl Drop for OwnedShaderFrame<'_> {
         state.depth = state.depth.saturating_sub(1);
     }
 }
+/// Detached source-cycle lease shared by ordered picture and visual recipes.
+/// It owns the exact registry generation; cancellation removes only its entry.
+pub(super) struct OwnedShaderSourceGuard {
+    registry: Rc<RefCell<HashSet<usize>>>,
+    source: usize,
+    _owner: OwnedShaderEffectSource,
+}
+impl Drop for OwnedShaderSourceGuard {
+    fn drop(&mut self) {
+        self.registry.borrow_mut().remove(&self.source);
+    }
+}
+impl Renderer {
+    pub(super) fn begin_owned_shader_source(
+        &self,
+        source: &OwnedShaderEffectSource,
+    ) -> Result<OwnedShaderSourceGuard, Error> {
+        let registry = self.owned_shaders.preparing.clone();
+        let mut entries = registry.borrow_mut();
+        if entries.len() >= 256
+            || self.owned_shaders.targets.len() >= 16384
+            || !entries.insert(source.identity())
+        {
+            return Err(Error::Capacity);
+        }
+        drop(entries);
+        Ok(OwnedShaderSourceGuard {
+            registry,
+            source: source.identity(),
+            _owner: source.clone(),
+        })
+    }
+}
 struct SourcePreparation<'a> {
     renderer: &'a mut Renderer,
-    source: usize,
+    _source: OwnedShaderSourceGuard,
     checkpoint: usize,
+    visual_checkpoint: Option<visual::VisualCacheCheckpoint>,
     owner: Arc<()>,
     complete: bool,
 }
@@ -225,9 +264,11 @@ impl Drop for SourcePreparation<'_> {
             return;
         }
         let state = &mut self.renderer.owned_shaders;
-        state.preparing.remove(&self.source);
         if !self.complete {
             state.targets.truncate(self.checkpoint);
+            if let Some(checkpoint) = self.visual_checkpoint.take() {
+                self.renderer.visuals.restore(checkpoint);
+            }
         }
     }
 }
@@ -245,6 +286,7 @@ impl Renderer {
             return Err(Error::ResourceDomain);
         }
         let submission = self.queue.submit([encoder.finish()]);
+        scene.retain_submitted_images(&self.queue);
         self.submitted_owned_shader_frame(scene);
         Ok(submission)
     }
@@ -338,18 +380,13 @@ impl Renderer {
                 return Ok((entry.target.clone(), true));
             }
         }
-        let source_id = recording.source().identity();
-        if self.owned_shaders.preparing.len() >= 256
-            || self.owned_shaders.targets.len() >= 16384
-            || !self.owned_shaders.preparing.insert(source_id)
-        {
-            return Err(Error::Capacity);
-        }
+        let source_guard = self.begin_owned_shader_source(recording.source())?;
         let actual_device = self.device.clone();
         let actual_owner = self.owner.clone();
         let mut guard = SourcePreparation {
-            source: source_id,
+            _source: source_guard,
             checkpoint: self.owned_shaders.targets.len(),
+            visual_checkpoint: Some(self.visuals.checkpoint()),
             owner: actual_owner.clone(),
             renderer: self,
             complete: false,

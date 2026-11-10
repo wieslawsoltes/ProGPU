@@ -1217,3 +1217,16 @@ pub(super) fn prepare_mips_format(
         passes,
     })
 }
+
+impl PreparedColorFilteredImages {
+    pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for draw in &self.draws {
+            draw._input.retain_submitted(queue);
+            for pass in &draw.passes {
+                if let FilterPass::Compute(p) = pass {
+                    p.retain_submitted(queue);
+                }
+            }
+        }
+    }
+}

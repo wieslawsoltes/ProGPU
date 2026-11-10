@@ -12,6 +12,7 @@ use wgpu::util::DeviceExt;
 /// preparation freezes handles/metadata, and every encode evaluates current pixels.
 #[derive(Clone, Debug)]
 pub struct BlurInput {
+    producer: Option<GpuImage>,
     device: wgpu::Device,
     luma: wgpu::Texture,
     chroma: wgpu::Texture,
@@ -31,6 +32,7 @@ impl BlurInput {
     /// Retain an existing original RGB image without copying its pixels.
     pub fn image(image: &GpuImage) -> Self {
         Self {
+            producer: Some(image.clone()),
             device: image.device().clone(),
             luma: image.texture().clone(),
             chroma: image.texture().clone(),
@@ -61,6 +63,7 @@ impl BlurInput {
         }
         Ok(Self {
             device: device.clone(),
+            producer: None,
             luma: texture.clone(),
             chroma: texture.clone(),
             alpha,
@@ -87,6 +90,7 @@ impl BlurInput {
         }
         Ok(Self {
             device: device.clone(),
+            producer: None,
             luma: luma.clone(),
             chroma: chroma.clone(),
             alpha: ImageAlpha::Straight,
@@ -165,6 +169,7 @@ struct Pass {
 /// Owned live program. Encoding rewrites its output from the current source;
 /// no stale external content generation is cached or inferred.
 pub struct PreparedImageBlur {
+    source: BlurInput,
     owner: Arc<()>,
     device: wgpu::Device,
     passes: [Pass; 2],
@@ -463,6 +468,7 @@ impl ImageBlurEngine {
             return Err(error.into());
         }
         Ok(PreparedImageBlur {
+            source: source.clone(),
             owner: self.owner.clone(),
             device: device.clone(),
             output,
@@ -524,6 +530,15 @@ impl PreparedImageBlur {
             pass.set_pipeline(&p.pipeline);
             pass.set_bind_group(0, &p.binding, &[]);
             pass.draw(0..3, 0..1);
+        }
+    }
+}
+
+impl PreparedImageBlur {
+    /// Retain the actual source producer after submitting this prepared program.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        if let Some(source) = &self.source.producer {
+            source.retain_submitted(queue);
         }
     }
 }

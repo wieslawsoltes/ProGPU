@@ -465,6 +465,9 @@ pub enum VisualBlurKernel {
 /// to a renderer consuming the visual snapshot's exact target/frame.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompositionEffectValue {
+    /// Original typed WpfShaderEffect parameters or actual-target owned recipe.
+    #[cfg(feature = "gpu")]
+    WpfShader(super::WpfVisualEffect),
     /// Independent raw scalar radius and original kernel selection.
     Blur {
         radius: f32,

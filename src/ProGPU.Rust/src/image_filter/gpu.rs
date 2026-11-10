@@ -629,9 +629,7 @@ fn plan<'a>(
             .checked_mul(u64::from((size[1] >> mip).max(1)))
             .and_then(|value| value.checked_mul(4))
             .ok_or(Error::Capacity)?;
-        bytes = bytes
-            .checked_add(level_bytes)
-            .ok_or(Error::Capacity)?;
+        bytes = bytes.checked_add(level_bytes).ok_or(Error::Capacity)?;
     }
     let workgroups = size.map(|v| v.div_ceil(16));
     let parameter_bytes = parameters.iter().map(|p| p.len() as u64).sum();
@@ -866,4 +864,14 @@ fn create_pipeline(device: &wgpu::Device, kernel: Kernel) -> Pipeline {
         cache: None,
     });
     Pipeline { pipeline, layout }
+}
+
+impl PreparedImageFilterCompute {
+    /// Keep original image producers alive through all previously submitted work.
+    /// Call immediately after an external queue submission of this program.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for input in &self.inputs {
+            input.retain_submitted(queue);
+        }
+    }
 }

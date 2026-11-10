@@ -508,3 +508,13 @@ fn create_pipeline(device: &wgpu::Device, kernel: Kernel) -> Pipeline {
     });
     Pipeline { pipeline, layout }
 }
+
+impl PreparedColorFilterCompute {
+    /// Keep original image producers alive through all previously submitted work.
+    /// Call immediately after an external queue submission of this program.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for input in &self.inputs {
+            input.retain_submitted(queue);
+        }
+    }
+}

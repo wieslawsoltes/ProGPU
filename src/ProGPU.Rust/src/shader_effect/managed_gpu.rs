@@ -1020,3 +1020,15 @@ fn blend_state(mode: LayerBlend, alpha: ImageAlpha) -> Result<wgpu::BlendState, 
         },
     })
 }
+
+impl PreparedManagedShader {
+    /// Retain exact sampler/input/mask producer owners through queue completion.
+    pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for source in self.parameters.sources() {
+            source.retain_submitted(queue);
+        }
+        if let Some(image) = self.mask.as_ref().and_then(|m| m.image()) {
+            image.retain_submitted(queue);
+        }
+    }
+}

@@ -45,6 +45,7 @@ use groups::{GroupTarget, PreparedGroup, PreparedGroups};
 mod image;
 mod image_effect;
 mod image_filter;
+mod image_ownership;
 pub use image_effect::ImageEffectMetrics;
 pub use image_filter::ImageFilterMetrics;
 mod layer;
@@ -176,6 +177,7 @@ pub struct PreparedScene {
     draws: Vec<DrawRange>,
     text: Option<text::PreparedText>,
     images: Option<image::PreparedImages>,
+    image_source_owners: Option<Arc<image_ownership::ImageSourceOwners>>,
     masks: Option<mask::PreparedMasks>,
     frame: Frame,
     origin: [u32; 2],
@@ -626,6 +628,7 @@ impl Renderer {
                 Some(compiled.materials()),
             )?
         };
+        prepared.image_source_owners = Some(image_ownership::ImageSourceOwners::capture(compiled));
         prepared.groups = groups;
         self.prepare_images(compiled, frame, &mut prepared).await?;
         self.prepare_masks(compiled, frame, &mut prepared).await?;
@@ -823,6 +826,7 @@ impl Renderer {
             },
             text: None,
             images: None,
+            image_source_owners: None,
             masks: None,
             frame: frame.frame,
             origin: frame.origin,
@@ -887,6 +891,7 @@ impl Renderer {
             });
         let metrics = self.encode_with_metrics(&mut encoder, scene, target, clear)?;
         let submission_index = self.queue.submit([encoder.finish()]);
+        scene.retain_submitted_images(&self.queue);
         self.submitted_owned_shader_frame(scene);
         Ok(RenderSubmission {
             submission_index,
@@ -973,7 +978,6 @@ impl Renderer {
         if target.dimension() != wgpu::TextureDimension::D2
             || target.depth_or_array_layers() != 1
             || target.sample_count() != 1
-            || target.mip_level_count() != 1
             || target.format() != self.format
             || [target.width(), target.height()] != [scene.frame.width, scene.frame.height]
             || !target
@@ -992,7 +996,12 @@ impl Renderer {
         // Deferred AA children already own this exact attachment view. Keep
         // replay free of per-child view creation; public loaded targets retain
         // their separate caller-owned texture boundary.
-        let caller_view = (!scene.fixed_target()).then(|| target.create_view(&Default::default()));
+        let caller_view = (!scene.fixed_target()).then(|| {
+            target.create_view(&wgpu::TextureViewDescriptor {
+                mip_level_count: Some(1),
+                ..Default::default()
+            })
+        });
         let view = caller_view
             .as_ref()
             .or_else(|| scene.groups.root.as_ref().map(|r| &r.view))

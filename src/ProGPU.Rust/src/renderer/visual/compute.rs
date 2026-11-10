@@ -258,6 +258,7 @@ impl ComputeState {
             return Err(error.into());
         }
         queue.submit([commands]);
+        source.retain_submitted(queue);
         Ok(Some(ComputedVisual {
             image: output,
             _source: source.clone(),

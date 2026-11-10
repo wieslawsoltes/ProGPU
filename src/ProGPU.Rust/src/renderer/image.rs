@@ -37,6 +37,7 @@ pub(super) struct PreparedImages {
     pub uniforms: wgpu::BindGroup,
     pub bindings: Vec<wgpu::BindGroup>,
     pub views: Vec<wgpu::TextureView>,
+    sources: Vec<GpuImage>,
     color_pipelines: [Option<wgpu::RenderPipeline>; 2],
     color_bindings: HashMap<(usize, usize), wgpu::BindGroup>,
 }
@@ -450,6 +451,7 @@ impl Renderer {
             .clone();
         let mut bindings = Vec::new();
         let mut views = Vec::new();
+        let mut sources = Vec::new();
         bindings
             .try_reserve_exact(compiled.images.len())
             .map_err(|_| Error::Capacity)?;
@@ -484,6 +486,7 @@ impl Renderer {
                     size = size.map(|v| (v / 2).max(1));
                 }
             }
+            sources.push(image.clone());
             let view = image.texture().create_view(&Default::default());
             let layout = pipeline.get_bind_group_layout(1);
             let sampler = state.sampler(
@@ -599,6 +602,7 @@ impl Renderer {
             uniforms,
             bindings,
             views,
+            sources,
             color_pipelines: state.color_pipelines.clone(),
             color_bindings,
         });
@@ -634,5 +638,13 @@ impl PreparedImages {
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(range, 0, 0..1);
         Ok(())
+    }
+}
+
+impl PreparedImages {
+    pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for source in &self.sources {
+            source.retain_submitted(queue);
+        }
     }
 }

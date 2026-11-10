@@ -14,12 +14,16 @@ mod animation;
 mod properties;
 mod property_set;
 mod resources;
+#[cfg(feature = "gpu")]
+mod shader_effect;
 mod shapes;
 mod snapshot;
 pub use animation::{AnimationProperty, VisualAnimation};
 pub use properties::*;
 pub use property_set::*;
 pub use resources::*;
+#[cfg(feature = "gpu")]
+pub use shader_effect::WpfVisualEffect;
 pub use shapes::*;
 pub use snapshot::*;
 

@@ -171,3 +171,11 @@ impl Renderer {
         Ok(())
     }
 }
+
+impl PreparedShaders {
+    pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
+        for draw in &self.draws {
+            draw.retain_submitted(queue);
+        }
+    }
+}
