@@ -1,0 +1,315 @@
+{
+  "utc": "2026-11-09T11:52:41.659083+00:00",
+  "instrument": "Xcode Instruments Time Profiler",
+  "command": "xcrun xctrace record --template Time Profiler --time-limit 6s --launch -- BINARY --profile hieroglyph-profile.bin 170",
+  "workload": "One owned 4096-record hieroglyph case, 100000 complete prepare/reorder repetitions; same Release options, harness, font/request bytes, source creation and raw restoration. Six-second windows terminate both processes.",
+  "input_sha256": "0e29cfe5bf60064c644d79a94cd7f21def917de623e5d60627668132425b2940",
+  "exports": {
+    "managed-use-before-time-profile.xml.gz": {
+      "original_bytes": 1407493,
+      "original_sha256": "ecc68ad29884a8d21f7e9e9313d2a24a97ad3ab024d82029427b12d179fd7144",
+      "compressed_bytes": 103614
+    },
+    "managed-use-after-time-profile.xml.gz": {
+      "original_bytes": 1138910,
+      "original_sha256": "124519ea4cf4025fc72e9acab8b13dbe3100913d752f7532c94ec28e633cd927",
+      "compressed_bytes": 83582
+    },
+    "managed-use-before-syllables.rs.gz": {
+      "original_bytes": 6016,
+      "original_sha256": "8780cd0921efedf004c61e03df45930dd9bac2466bbf1806eff11ce293e2e6ec",
+      "compressed_bytes": 1536
+    },
+    "managed-use-profile-input.bin.gz": {
+      "original_bytes": 524716,
+      "original_sha256": "0e29cfe5bf60064c644d79a94cd7f21def917de623e5d60627668132425b2940",
+      "compressed_bytes": 40810
+    }
+  },
+  "limits": "CPU samples include source creation, raw restoration, startup and E/P core migration; distribution differs between runs. No timing claim comes from sample counts. Separate three-trial uninstrumented before/after/C# measurements compare all outputs. No allocator, process-memory, GPU, frame or complete shaping qualification.",
+  "startup_note": "Initial copied binary lacked executable mode; that attempt produced no qualifying samples. Mode was corrected, then both complete six-second traces and full time-profile tables were captured. Early export while finalizing failed and was repeated only after recording completed.",
+  "runs": [
+    {
+      "sample_count": 5640,
+      "missing_backtrace_samples": 0,
+      "core_samples": {
+        "CPU 8 (P Core)": 397,
+        "CPU 1 (E Core)": 551,
+        "CPU 9 (P Core)": 445,
+        "CPU 3 (E Core)": 550,
+        "CPU 2 (E Core)": 607,
+        "CPU 6 (P Core)": 401,
+        "CPU 5 (E Core)": 721,
+        "CPU 7 (P Core)": 417,
+        "CPU 4 (E Core)": 621,
+        "CPU 0 (E Core)": 550,
+        "CPU 10 (P Core)": 380
+      },
+      "top_leaf_functions": [
+        {
+          "name": "progpu::text::script_actions::use_shaping::prepare::h954f32f70d19fc38",
+          "leaf_samples": 1771,
+          "inclusive_samples": 4436
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Cursor$LT$F$GT$::tail::he7c968db8b1caecb",
+          "leaf_samples": 1651,
+          "inclusive_samples": 1651
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Scanner::next::hab55f9932accbf69",
+          "leaf_samples": 579,
+          "inclusive_samples": 2585
+        },
+        {
+          "name": "progpu::text::preparation::append_mapped::h84368cbb0f724507",
+          "leaf_samples": 556,
+          "inclusive_samples": 556
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::reorder::h7a89b4790cb59bcb",
+          "leaf_samples": 233,
+          "inclusive_samples": 233
+        },
+        {
+          "name": "_platform_memmove",
+          "leaf_samples": 212,
+          "inclusive_samples": 212
+        },
+        {
+          "name": "progpu::text::preparation::_$LT$impl$u20$progpu..font..layout..managed_gsub..buffer..ManagedGlyphBuffer$GT$::from_text::h73ad76e68039c2a3",
+          "leaf_samples": 170,
+          "inclusive_samples": 623
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Cursor$LT$F$GT$::segment_begin::h8e1fcd2bdf2dff9a",
+          "leaf_samples": 160,
+          "inclusive_samples": 160
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Cursor$LT$F$GT$::hieroglyph_modifiers::h810dbd7cc328e056",
+          "leaf_samples": 142,
+          "inclusive_samples": 142
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::topographical::hcd8aca30b0bcec8e",
+          "leaf_samples": 88,
+          "inclusive_samples": 88
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Cursor$LT$F$GT$::number::h53becd718563144b",
+          "leaf_samples": 53,
+          "inclusive_samples": 53
+        },
+        {
+          "name": "mach_absolute_time",
+          "leaf_samples": 4,
+          "inclusive_samples": 4
+        },
+        {
+          "name": "_xzm_free",
+          "leaf_samples": 4,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "clock_gettime",
+          "leaf_samples": 2,
+          "inclusive_samples": 7
+        },
+        {
+          "name": "_xzm_xzone_malloc_tiny",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "progpu::text::script_actions::_$LT$impl$u20$progpu..font..layout..managed_gsub..buffer..ManagedGlyphBuffer$GT$::apply_script_action::h11914a10386d7055",
+          "leaf_samples": 2,
+          "inclusive_samples": 4679
+        },
+        {
+          "name": "__chkstk_darwin_probe",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "objc::Scanner::scanAddedClassImpl(objc_class*, objc::Scanner::metaclass_t)",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "managed_script_actions_benchmark::main::hb8a51e78d53b6609",
+          "leaf_samples": 1,
+          "inclusive_samples": 5586
+        },
+        {
+          "name": "malloc",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_free",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "xzm_malloc_zone_malloc_type_malloc",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "progpu::text::preparation::pool::rent::h07397c40173289a4",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_timebase_info",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "DYLD-STUB$$clock_gettime",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        }
+      ],
+      "version": "before",
+      "binary_sha256": "f5902dc82a5e7f99e5b7e490e8cb50b59d4bf7f820d9cda1a1522da99bb61bc6"
+    },
+    {
+      "sample_count": 5074,
+      "missing_backtrace_samples": 0,
+      "core_samples": {
+        "CPU 0 (E Core)": 24,
+        "CPU 9 (P Core)": 1079,
+        "CPU 10 (P Core)": 985,
+        "CPU 7 (P Core)": 1096,
+        "CPU 6 (P Core)": 1025,
+        "CPU 8 (P Core)": 841,
+        "CPU 4 (E Core)": 3,
+        "CPU 1 (E Core)": 12,
+        "CPU 3 (E Core)": 4,
+        "CPU 2 (E Core)": 4,
+        "CPU 5 (E Core)": 1
+      },
+      "top_leaf_functions": [
+        {
+          "name": "progpu::text::script_actions::use_shaping::prepare::h954f32f70d19fc38",
+          "leaf_samples": 2448,
+          "inclusive_samples": 3440
+        },
+        {
+          "name": "progpu::text::preparation::append_mapped::h84368cbb0f724507",
+          "leaf_samples": 780,
+          "inclusive_samples": 780
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Cursor$LT$F$GT$::hieroglyph_modifiers::h810dbd7cc328e056",
+          "leaf_samples": 393,
+          "inclusive_samples": 393
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::reorder::h7a89b4790cb59bcb",
+          "leaf_samples": 304,
+          "inclusive_samples": 305
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Scanner::next::hab55f9932accbf69",
+          "leaf_samples": 289,
+          "inclusive_samples": 913
+        },
+        {
+          "name": "_platform_memmove",
+          "leaf_samples": 283,
+          "inclusive_samples": 283
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::syllables::Cursor$LT$F$GT$::segment_begin::h8e1fcd2bdf2dff9a",
+          "leaf_samples": 232,
+          "inclusive_samples": 232
+        },
+        {
+          "name": "progpu::text::preparation::_$LT$impl$u20$progpu..font..layout..managed_gsub..buffer..ManagedGlyphBuffer$GT$::from_text::h73ad76e68039c2a3",
+          "leaf_samples": 196,
+          "inclusive_samples": 709
+        },
+        {
+          "name": "progpu::text::script_actions::use_shaping::topographical::hcd8aca30b0bcec8e",
+          "leaf_samples": 120,
+          "inclusive_samples": 120
+        },
+        {
+          "name": "mach_absolute_time",
+          "leaf_samples": 13,
+          "inclusive_samples": 13
+        },
+        {
+          "name": "__open",
+          "leaf_samples": 3,
+          "inclusive_samples": 3
+        },
+        {
+          "name": "_xzm_xzone_malloc_tiny",
+          "leaf_samples": 2,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "0x10473a319",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::PrebuiltLoader::dependent(dyld4::RuntimeState const&, unsigned int, mach_o::LinkedDylibAttributes*) const",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::hasExportedSymbol(Diagnostics&, dyld4::RuntimeState&, char const*, dyld4::Loader::ExportedSymbolMode, dyld4::Loader::ResolverMode, dyld4::Loader::ResolvedSymbol*, dyld3::Array<dyld4::Loader const*>*) const",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "progpu::text::unicode::normalization::Layout::parse::hd6b479ae52dbaa0f",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::try_fold::he423d2f214b6a557",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "DYLD-STUB$$clock_gettime",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "managed_script_actions_benchmark::main::hb8a51e78d53b6609",
+          "leaf_samples": 1,
+          "inclusive_samples": 5048
+        },
+        {
+          "name": "_xzm_free",
+          "leaf_samples": 1,
+          "inclusive_samples": 6
+        },
+        {
+          "name": "progpu::font::managed_cmap::ManagedCharacterMap::selected::h7fff7ea6d8b9c832",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "std::sys::pal::unix::time::Timespec::now::he65ceb2d6e902d9e",
+          "leaf_samples": 1,
+          "inclusive_samples": 10
+        },
+        {
+          "name": "progpu::font::layout::gdef::is_gdef_blocklisted::hb139fdf5532c87a3",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        }
+      ],
+      "version": "after",
+      "binary_sha256": "f7dbf4de2fdf9032c447f3feaa0d68e27016a6c24e312c6636dda86ae49e2592"
+    }
+  ]
+}

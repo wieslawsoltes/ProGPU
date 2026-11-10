@@ -1,0 +1,197 @@
+{
+  "captured_utc": "2026-11-09T00:25:30.235248+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    36.80322265625,
+    38.69580078125,
+    25.28125
+  ],
+  "method": "5 warmups + 40 rounds. Rust/C++ native selection, reused output, no timed allocation; C# full original enabled-lookup method including value/ownership metadata, optional accelerator attempts and allocation. Matching indices/hashes qualify shared outputs, not equivalent work or steady-state JIT. Source/header/feature settings construction and output hashing outside timing. Diagnostic baseline only.",
+  "background_compilers": [
+    "32153  16.6 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32154  16.9 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32185   7.2 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32186  30.0 /private/tmp/progpu-rust-dotnet/dotnet",
+    "32193 266.6 /private/tmp/progpu-rust-dotnet/sdk/10.0.403/Roslyn/bincore/VBCSCompiler"
+  ],
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "cpp": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "dotnet": "10.0.403",
+  "source_sha256": {
+    "src/ProGPU.Rust/tests/native_selection_benchmark.cpp": "bb3474b05135af17a7f068dcb0e14e93b7afac70fa6ec5b02097eaa33cee5933",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp": "d78cd9aeb83731524fa4d52c765dc0b3ae22796f2765b72175ce6abb98259550",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_features.cpp": "85d9429bebc17b79448919092ca13ba48a4f3c5e2ad400cbd05a52fd38b77a24",
+    "src/ProGPU.Rust/examples/selection_benchmark.rs": "1f220c3b53c1d4a5dd0307b8a8dd94801a7dfc47d7fbabce0a5451bdf297133f",
+    "src/ProGPU.Rust/tests/managed_selection_benchmark.cs": "0d1899a100955c7d652ac7ac36d4d1f609e9dc93ae6dde4d65266f4ace682780",
+    "src/ProGPU.Rust/src/font/layout/selection.rs": "ac1c3c6890e9c09a5fd08861de68b90c528f340a98dce7ac6d9fbfc615e3c24c",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1"
+  },
+  "binary_sha256": {
+    "rust": "96297f32b26fac766f88fd6e4a18cdd3d5b6f245a19c434e078e5c9529528b45",
+    "cpp": "3c0eb39081512516aff0c50e76a4d5749745a4f53a29c1b34aa759457b29dc71",
+    "managed": "9b4efc030f6106480878be6d783f817a1751d8ba80220785a3dfb7fbee210888"
+  },
+  "inputs": [
+    {
+      "features": 4,
+      "feature_variation": false,
+      "input_sha256": "9814ac14595cb4e8035e92c40f59200778a6d1e12935584f4081306c18702cee",
+      "font_sha256": "0bd37ff04c54ed07318a68070026ba7290d6b94f8792777c05d8ed6c3d9771aa",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=12 checksum=1246796121 p50_us=0.125 p95_us=0.125 p99_us=0.250"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=12 checksum=1246796121 p50_us=0.250 p95_us=0.333 p99_us=0.500"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=12 checksum=1246796121 p50_us=4.700 p95_us=6.200 p99_us=7.300 allocated_bytes_per_call=3696"
+        }
+      ]
+    },
+    {
+      "features": 4,
+      "feature_variation": true,
+      "input_sha256": "d6b5636aa8f8595536e2ab9db96b13561e74279f4438bc684f5e2ac502d6ebc2",
+      "font_sha256": "15735055a4ab3d8fd0bab31244dbe30d99f1fd095a79b11cb45ea7732fb06a84",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=11 checksum=1098014445 p50_us=0.125 p95_us=0.167 p99_us=0.167"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=11 checksum=1098014445 p50_us=0.125 p95_us=0.125 p99_us=0.125"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=11 checksum=1098014445 p50_us=4.200 p95_us=5.700 p99_us=10.000 allocated_bytes_per_call=3888"
+        }
+      ]
+    },
+    {
+      "features": 32,
+      "feature_variation": false,
+      "input_sha256": "64c00a3438bcfaaa7d28152653fbc68558a0fd16572f5780d1cc92820caae279",
+      "font_sha256": "b5ae6b6dbc36cbfba6303d22ee0751abce84255956976e56b908a3360cf66bf7",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=96 checksum=3952732837 p50_us=1.584 p95_us=1.667 p99_us=1.709"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=96 checksum=3952732837 p50_us=1.041 p95_us=1.042 p99_us=1.084"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=96 checksum=3952732837 p50_us=86.700 p95_us=100.500 p99_us=8858.800 allocated_bytes_per_call=56880"
+        }
+      ]
+    },
+    {
+      "features": 32,
+      "feature_variation": true,
+      "input_sha256": "45e341e6e195cc42ce258aa31d42fc5945fa5a70abf54454abd1b7418846c81b",
+      "font_sha256": "a05ade349d77af9b7b99809dbc5ae7b2f5c330c4f91c8fd21ca2ba21a2046eaa",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=95 checksum=3554735877 p50_us=1.709 p95_us=1.875 p99_us=1.875"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=95 checksum=3554735877 p50_us=2.167 p95_us=2.209 p99_us=2.209"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=95 checksum=3554735877 p50_us=94.400 p95_us=108.900 p99_us=8970.800 allocated_bytes_per_call=57072"
+        }
+      ]
+    },
+    {
+      "features": 128,
+      "feature_variation": false,
+      "input_sha256": "b771ec80f4d9bb464906ad3a593ccd019204350005e6e5b6c00258fa65ce8ee5",
+      "font_sha256": "3128e8a8a63e36bd1862902a5c2b1c7b727e6183573a7fb095202ad4663542c0",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=384 checksum=1663914309 p50_us=12.709 p95_us=13.084 p99_us=13.750"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=384 checksum=1663914309 p50_us=7.458 p95_us=7.708 p99_us=7.959"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=384 checksum=1663914309 p50_us=280.900 p95_us=387.800 p99_us=542.900 allocated_bytes_per_call=609856"
+        }
+      ]
+    },
+    {
+      "features": 128,
+      "feature_variation": true,
+      "input_sha256": "573ae9c76c3d9ebefa9c500ae8d62da5501789c189d17ddc2148838cc37baf63",
+      "font_sha256": "4a1192f29c1687a26545505218884c3aa9e191078ee12819c1c7abd8ff5bace8",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=383 checksum=2430976581 p50_us=13.083 p95_us=13.209 p99_us=13.292"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=383 checksum=2430976581 p50_us=10.459 p95_us=11.000 p99_us=13.916"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=383 checksum=2430976581 p50_us=303.400 p95_us=390.500 p99_us=677.100 allocated_bytes_per_call=610048"
+        }
+      ]
+    },
+    {
+      "features": 512,
+      "feature_variation": false,
+      "input_sha256": "b1a8607d0b2f40bfab58bf364f262ed32ca4804cb0825c9faedf9e9aeaa32d23",
+      "font_sha256": "14665fa394715b2af690adc76af73b19b67ffb669819ecf903893cea412a2c3f",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=1536 checksum=3955113925 p50_us=144.458 p95_us=145.000 p99_us=145.708"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=1536 checksum=3955113925 p50_us=83.750 p95_us=85.292 p99_us=91.417"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=1536 checksum=3955113925 p50_us=2649.800 p95_us=3205.200 p99_us=3814.900 allocated_bytes_per_call=8750688"
+        }
+      ]
+    },
+    {
+      "features": 512,
+      "feature_variation": true,
+      "input_sha256": "4b6028c3f62585481ec8eb52d3275b2bc7bf113e8c49d4f61a819796eb798947",
+      "font_sha256": "053aab42e00bfaad1250a2797fb579076511f293478e52e218ef7d5529d3953e",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "lookups=1535 checksum=2353769029 p50_us=145.333 p95_us=148.583 p99_us=150.750"
+        },
+        {
+          "implementation": "cpp",
+          "output": "lookups=1535 checksum=2353769029 p50_us=96.334 p95_us=99.458 p99_us=100.209"
+        },
+        {
+          "implementation": "managed",
+          "output": "lookups=1535 checksum=2353769029 p50_us=2795.100 p95_us=3108.000 p99_us=3954.600 allocated_bytes_per_call=8750880"
+        }
+      ]
+    }
+  ],
+  "temporary_bytes_removed": 74181713
+}

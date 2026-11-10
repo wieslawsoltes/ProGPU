@@ -1,0 +1,26 @@
+{
+  "observed_utc": "2026-11-09T16:03:11.727268+00:00",
+  "previous_head": "20afd5b3ade4d6012495ebf8ad5e4638aac48076",
+  "scope": "Owned inactive external incremental directories older than one hour and the completed exact offline shader-validation product; no live cargo/rustc observed",
+  "removed_incremental_directories": 81,
+  "removed_incremental_logical_bytes": 300668285,
+  "areas": {
+    "debug/incremental": 79,
+    "wasm32-unknown-unknown/debug/incremental": 2
+  },
+  "completed_validation_product_files": 14,
+  "completed_validation_product_logical_bytes": 8620184,
+  "removed_logical_bytes": 309288469,
+  "retained": [
+    "Current incremental state",
+    "Reusable Cargo dependencies",
+    "Original source and compact validation evidence"
+  ],
+  "offline_shader_validation": {
+    "modules": 8,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "runtime_gpu": false
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false
+}

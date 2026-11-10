@@ -1,0 +1,22 @@
+{
+  "protocol": "all-u16-extractions-then-HBHB-properties-v1",
+  "raw_domain_end_inclusive": 1114112,
+  "high_alias_or": 2147483648,
+  "high_alias_end_exclusive": 1114112,
+  "extra_points": [
+    1114113,
+    2147483647,
+    4294967295
+  ],
+  "raw_queries": 2228228,
+  "extraction_queries": 65536,
+  "response_bytes": 13500440,
+  "fixture_cases": 5672,
+  "input_sha256": "950df701bb3a2539799d87c24e180158c7ac5fd635c278f6f7e889536ac368ba",
+  "output_sha256": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+  "fixture_sha256": "b276febcc8ee6826800ba361126946df2a8010654d7444de7c5788810121eae5",
+  "ranges": {
+    "INDIC": 340,
+    "USE": 1057
+  }
+}

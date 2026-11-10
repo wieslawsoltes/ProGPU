@@ -1,0 +1,10 @@
+{
+  "captured_utc": "2026-11-09T00:28:14.063938+00:00",
+  "package_work_directory_removed": "/private/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-selection-package-1etr6mi0",
+  "package_logical_bytes_removed": 521204594,
+  "benchmark_temporary_bytes_removed": 74181713,
+  "unused_benchmark_bytes_removed": 936099,
+  "total_measured_logical_bytes": 596322406,
+  "additional_cleanup": "Source oracle directories and the failed incomplete-font benchmark fixture directory were removed automatically; excluded from this measured total.",
+  "retained": "Active root dependency/build caches, current browser and package evidence, compact receipts."
+}

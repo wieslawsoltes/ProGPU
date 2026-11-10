@@ -1,0 +1,184 @@
+{
+  "utc": "2026-11-09T05:47:11.943689+00:00",
+  "scope": "Only test diagnostics and documentation changed; production Rust, shaders, original ten-draw burst and all deadlines unchanged. Linux attachment remains awaiting actual hosted observation.",
+  "process_controls": "Synthetic /proc: nested descendant, unrelated browser, exact GPU argument, ancestry cycle, retired process, reparented PID, parenthesized comm and CPU/start-time counter parsing passed.",
+  "javascript": "node --check test.mjs and diagnostics.mjs passed",
+  "browser": {
+    "original": {
+      "receipt_sha256": "3ea30687afdf74745a6fe44ba0f931e566c60a3a373836d6888edab33a88b431",
+      "status": "passed",
+      "browser": "151.0.7922.34",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "headless": true,
+      "flags": [
+        "--enable-unsafe-webgpu",
+        "--use-angle=swiftshader",
+        "--disable-webgpu-shader-disk-cache"
+      ],
+      "reports": [
+        {
+          "dpr": 1,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "shaders": 6,
+          "managedMappingChecks": 88,
+          "managedFontChecks": 104,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        },
+        {
+          "dpr": 2,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "shaders": 6,
+          "managedMappingChecks": 88,
+          "managedFontChecks": 104,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        }
+      ]
+    },
+    "diagnostic": {
+      "receipt_sha256": "93e5da1793262a0f7d830abae613fd8d2af474ea711328335db47f278f4a21ce",
+      "status": "passed",
+      "browser": "151.0.7922.34",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "headless": true,
+      "flags": [
+        "--enable-unsafe-webgpu",
+        "--use-angle=swiftshader",
+        "--disable-webgpu-shader-disk-cache"
+      ],
+      "reports": [
+        {
+          "dpr": 1,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "shaders": 6,
+          "managedMappingChecks": 88,
+          "managedFontChecks": 104,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        },
+        {
+          "dpr": 2,
+          "stage": "passed",
+          "checkedPixels": 102400,
+          "shaders": 6,
+          "managedMappingChecks": 88,
+          "managedFontChecks": 104,
+          "captureCompleted": true,
+          "presentationPixels": {
+            "background": [
+              6,
+              9,
+              15,
+              255
+            ],
+            "rectangle": [
+              33,
+              77,
+              197,
+              255
+            ],
+            "ellipse": [
+              45,
+              77,
+              197,
+              255
+            ],
+            "curve": [
+              219,
+              81,
+              59,
+              255
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "package": {
+    "archive_sha256": "d3b679b74448fbcd7f8917c297be4f14ce06e6cb3c70e9d3b878971ea904d237",
+    "files": 378,
+    "diagnostic_files": "4 exact archive/source comparisons",
+    "scope": "Packaging check only; production Rust unchanged from 490835d4b fresh native/WASM package builds. Receipt appended after archive creation."
+  }
+}

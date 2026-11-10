@@ -1,0 +1,123 @@
+{
+  "captured_utc": "2026-11-09T05:31:24.963827+00:00",
+  "rust": "1.90.0",
+  "original_managed_mapping": {
+    "cases": 8436,
+    "queries": 5143568,
+    "exact_bytes": 61756560,
+    "scope": "Original managed format 12/13/4 selection, checked/wrapping behavior, exact legacy symbol pages, whole-cmap ordered UVS queries and per-instance ASCII cache. Nominal mapping is not full shaping, font fallback or original application qualification.",
+    "large_directory_records": [
+      1024,
+      4096
+    ],
+    "whole_cmap_capture": "retained once; hot queries do not rescan directory"
+  },
+  "legacy_capture": {
+    "check": "pass",
+    "queries_per_page": 66304,
+    "pua_holes_per_page": 768,
+    "mapping_counts": [
+      240,
+      285
+    ],
+    "method": "Actual API observations over authored fonts; no source mapping-array transcription."
+  },
+  "regressions": {
+    "font_cases": 10369,
+    "font_exact_bytes": 81025616,
+    "positioning_cases": 32008,
+    "positioning_exact_bytes": 44353296,
+    "positioning_delta_queries": 760086,
+    "source_tests_passed": 9
+  },
+  "tests": {
+    "tests": {
+      "passed": 93,
+      "failed": 0,
+      "ignored": 48
+    },
+    "cpu": {
+      "passed": 91,
+      "failed": 0,
+      "ignored": 41
+    }
+  },
+  "clippy": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "final_mapping_fixture_and_test": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "version": "151.0.7922.34",
+    "dprs": [
+      1,
+      2
+    ],
+    "mapping_controls_per_dpr": 88,
+    "font_controls_per_dpr": 104,
+    "name_controls_per_dpr": 93,
+    "variation_controls_per_dpr": 96,
+    "positioning_controls_per_dpr": 151,
+    "offscreen_pixels": 204800,
+    "canonical_shaders": 6,
+    "actual_resize_presentation": "pass",
+    "original_flags_and_deadlines": "unchanged",
+    "fixture_bytes": 455992,
+    "fixture_sha256": "1b6a1b48752dc12bfac3c3532246cab76de0016a3a6b9f5650882e0064473791"
+  },
+  "benchmark": {
+    "workloads": 42,
+    "complete_outputs_match": true,
+    "rust_slower_median_workloads": 0,
+    "load_average": [
+      88.6484375,
+      34.27001953125,
+      21.31982421875
+    ],
+    "other_task_checks": "terminal before capture",
+    "scope": "Initial diagnostic query baseline under high machine contention. All other task checks were terminal before capture. Original JIT/runtime behavior retained; Rust allocation counts, stable timing and full shaping/frame performance unqualified. No optimization or stable speedup claim.",
+    "lazy_ascii_payload_bytes": 512,
+    "original_separate_ascii_arrays_payload_bytes": 384,
+    "check_log_completion_before_capture_seconds": {
+      "integrated": 151.476,
+      "wasm": 133.913,
+      "browser": 185.702,
+      "package": 33.779
+    }
+  },
+  "package": {
+    "captured_utc": "2026-11-09T05:28:34.316075+00:00",
+    "fresh_independent_empty_target": true,
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "exact_source_resource_document_files": 372,
+    "original_manifest": "exact",
+    "temporary_bytes_removed": 597977790,
+    "final_archive_files": 374,
+    "final_exact_source_resource_document_files": 372,
+    "fresh_build_unchanged_source_resource_document_files": 284,
+    "final_bytes_match_worktree": true,
+    "post_build_changes": "Compact baseline, validation, package and cleanup receipts only; code, resources and documentation unchanged."
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font.rs": "9de4aed0bda2b90eab6c6a3f0b0b42ff19e6c27e536f899f3d0a76937c3d7554",
+    "src/ProGPU.Rust/src/font/managed_cmap.rs": "9bbb3c6ba2084aac44427ef31ca5c49e997462b040e941b4a9cac55c372ee1b3",
+    "src/ProGPU.Rust/src/font/managed_font.rs": "ff5a1e5da293a7c6c60c97f1aa29e3a92b91db9d62759d84cd3fb7054918f099",
+    "src/ProGPU.Rust/src/font/data/managed-symbol-simplified.bin": "23a8e3139f151316965f08df1a5de6f4979fe12d13acfc7aef41414d8b8c6338",
+    "src/ProGPU.Rust/src/font/data/managed-symbol-traditional.bin": "40cc719de6e22388c04f55d99d2f564d2f8c41d5a59ce13ce9b5253ec45023f9",
+    "src/ProGPU.Rust/tests/managed_mapping.cs": "b2a7ff65d4b1dc34aa91fdc03c2878250f717c2cdb2913c373feabe4e29628b0",
+    "src/ProGPU.Rust/tests/support/managed_mapping_fixture.rs": "a02095525e02bbad8e1520cfdcd44a9fb36536aa5f0835689e21639c2d7e9707",
+    "src/ProGPU.Rust/tests/support/managed_mapping_replay.rs": "d25efca9250456cdca90254b2cb1fabf98774e6dfe38639c17635c33a2503336",
+    "src/ProGPU.Rust/examples/managed_mapping_benchmark.rs": "dcbcd7c30111d4c50661cf7c9d21f6720b45b2144f4ff58d06f4d4ff275233fe",
+    "src/ProGPU.Text/TtfFont.cs": "7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b",
+    "src/ProGPU.Text/SfntFontFace.cs": "4639127d2390813ae578d93a5a18cd5d4cd613235ac704b8d5d61a1123393e0a",
+    "src/ProGPU.Text/ArabicFallbackData.Generated.cs": "3e4585ff2d8e1fda7af4362c9a3f91862a5a630a1052e47d54c34ae74eacd4f9",
+    "eng/progpu-benchmark-rust-managed-mapping.py": "1ea884eb006d9dec6aa8939cb351cbbf36ff6cd59b216956f616def4093bd47b",
+    "src/ProGPU.Rust/tests/managed_mapping.rs": "63d56588683d560ac6575861b3c9f5ab7876583ff633d1d147fc2649b8e45894",
+    "src/ProGPU.Rust/browser/managed-mapping.bin": "1b6a1b48752dc12bfac3c3532246cab76de0016a3a6b9f5650882e0064473791",
+    "src/ProGPU.Rust/browser/test.mjs": "4979222c208e0f7060379b56ddc569bbeca986fba9e4b7215a6d315f25f6bb6e",
+    "src/ProGPU.Rust/examples/browser.rs": "df76c66fccbadbafa1acce348293a24b7ac6f25444c1a523d6a5cb42ade4efe2",
+    "eng/progpu-generate-rust-symbol-maps.py": "c227a45411606a2f693224d31e1db1ff1f5ea5657d5393e01d0bc8ea6ee46a67"
+  }
+}

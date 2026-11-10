@@ -1,0 +1,63 @@
+{
+  "captured_utc": "2026-11-09T01:12:36.257392+00:00",
+  "managed_context": {
+    "records": 56996,
+    "coverage_queries": 22558608,
+    "ordered_matches": 1191586,
+    "exact_bytes": 95829796,
+    "mutations": 25000,
+    "ordered_code_point_inventory": "0..=0x110010, including invalid values",
+    "actual_original_context_and_GlyphSubstitutionBuffer": true,
+    "all_raw_visibility_and_syllable_bytes": true
+  },
+  "managed_feature_regression": {
+    "records": 327015,
+    "exact_bytes": 27595740
+  },
+  "all_features": {
+    "passed": 69,
+    "ignored": 38
+  },
+  "cpu_only": {
+    "passed": 67,
+    "ignored": 31
+  },
+  "strict_clippy": {
+    "native_all_features_all_targets": true,
+    "wasm_browser": true
+  },
+  "browser": {
+    "context_checks_per_dpr": 70,
+    "dprs": [
+      1,
+      2
+    ],
+    "offscreen_pixels": 204800,
+    "shaders": 6,
+    "actual_presentation_and_resize": true
+  },
+  "fresh_package": {
+    "captured_utc": "2026-11-09T01:10:13.638696+00:00",
+    "empty_target": true,
+    "native_all_features_all_targets": true,
+    "wasm_browser": true,
+    "exact_production_resource_license_files": 87
+  },
+  "source_sha256": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/font/layout/managed_context.rs": "99f197e03ab81f379c9ba98e91e61aa3a9a230f10a44d800bd0fd2a13884e64a",
+    "src/ProGPU.Rust/src/font/layout/managed_selection.rs": "df7d077b987d421fce17682326ecb1ecc64c977ffc428699f36c0e77029bcf32",
+    "src/ProGPU.Rust/tests/managed_context.rs": "1da5e70b9e8062eeb50c5c7d0d293e0721118b3efa2422de70dafcd031f8ed60",
+    "src/ProGPU.Rust/tests/managed_context.cs": "4ec756bf9e30133db7577633774f565492b149b1a86f68fdbf423948538c1099",
+    "src/ProGPU.Rust/examples/browser.rs": "92414c5e61a7bd1895384c578f19fa57f32d5adb235185c155adc3c464e4e14a",
+    "src/ProGPU.Rust/browser/test.mjs": "7406f1e7d84e56f634538792496ca9924aaa4525879e90507b432ca903547c21"
+  },
+  "qualification": [
+    "Original managed optional preparation and ordered negative-only filter, not full lookup execution",
+    "GDEF-filtered contexts preserve original conservative path after digest intersection",
+    "Source first-position indexer retains original 0xffff sentinel outside active syllable",
+    "No complete shaping record, paragraph generation, staged shaping or GPU text claim",
+    "18 exact-output construction/query baselines; Rust large ordered-search median remains slower; original JIT/compiler defaults and background compiler activity recorded",
+    "Original browser intermittency and complete provider/source/package/pixel gates remain open"
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "captured_utc": "2026-11-09T04:29:47.452319+00:00",
+  "rust": "1.90.0",
+  "original_managed_names": {
+    "cases": 236128,
+    "exact_bytes": 12151088,
+    "complete_bmp_code_unit_domain": 65536,
+    "complete_two_byte_inputs_each_utf8_and_latin1": 65536,
+    "random_byte_inputs": 30000,
+    "mutated_table_inputs": 8000,
+    "actual_TtfFont_axis_name_cases": 24,
+    "scope": "Original selected-face GetNames/TryGetName, original Unicode 16 Char classification, and actual TtfFont.VariationAxes name integration. Full root/FIFO/identity/style/metric wrapper and font discovery remain pending."
+  },
+  "variation_regression": {
+    "cases": 8772,
+    "exact_bytes": 8192752
+  },
+  "tests": {
+    "tests": {
+      "passed": 90,
+      "failed": 0,
+      "ignored": 46
+    },
+    "cpu": {
+      "passed": 88,
+      "failed": 0,
+      "ignored": 39
+    },
+    "integrated": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "clippy": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "version": "151.0.7922.34",
+    "dprs": [
+      1,
+      2
+    ],
+    "name_controls_per_dpr": 93,
+    "variation_controls_per_dpr": 96,
+    "positioning_controls_per_dpr": 151,
+    "offscreen_pixels": 204800,
+    "canonical_shaders": 6,
+    "actual_resize_presentation": "pass",
+    "original_flags_and_deadlines": "unchanged",
+    "fixture_bytes": 61979,
+    "fixture_sha256": "93121a2c4b049f8154dd9e24282759931aacb2def0ceacf885bb6e361d52a613"
+  },
+  "benchmark": {
+    "workloads": 24,
+    "complete_outputs_match": true,
+    "rust_slower_median_workloads": 7,
+    "load_average": [
+      25.65673828125,
+      17.22900390625,
+      17.83349609375
+    ],
+    "other_task_checks": "terminal before capture",
+    "scope": "Initial diagnostic GetNames/TryGetName baseline. Production allocations and runtime behavior retained; Rust allocation counts and complete font/shaping/frame performance unqualified. No optimization claim."
+  },
+  "package": {
+    "captured_utc": "2026-11-09T04:28:05.707177+00:00",
+    "fresh_independent_empty_target": true,
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "exact_source_resource_document_files": 335,
+    "original_manifest": "exact",
+    "temporary_bytes_removed": 583055885,
+    "final_archive_files": 343,
+    "final_exact_source_resource_document_files": 339,
+    "fresh_build_unchanged_source_resource_document_files": 263,
+    "final_bytes_match_worktree": true,
+    "post_build_changes": "Compact baseline, validation and cleanup receipts only; code, resources and documentation unchanged."
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/names.rs": "1ad6ebd26a5479f6bbf878c11d12e4b43acf8785e38d652e8044302886bbf5a5",
+    "src/ProGPU.Rust/src/font/managed_variations.rs": "20ae0f5d0c79c5fa6937535ec306c020982b936a1e006a5ae3e9dfc3218175f2",
+    "src/ProGPU.Rust/tests/managed_names.cs": "45632f4e44e2391d7561ec877fcc90c9aaac07544ca509109790261175e1a24d",
+    "src/ProGPU.Rust/tests/support/names_fixture.rs": "c5d736a0c5bdc44c235e254c053ac7437667eedadac7a67eac3da4d7b6a2f921",
+    "src/ProGPU.Rust/tests/support/name_replay.rs": "9de3379df17a54e576aa3a26894c6ee885813e373907d60b3590e9c287e58d9c",
+    "src/ProGPU.Rust/examples/managed_names_benchmark.rs": "6be6c1c7d924e46777448d29068e283d3bee88d46633c9648e81e87bc6e52b0d",
+    "src/ProGPU.Text/SfntFontFace.cs": "4639127d2390813ae578d93a5a18cd5d4cd613235ac704b8d5d61a1123393e0a",
+    "src/ProGPU.Text/TtfFont.Variations.cs": "318cae60429ea6f74da43bc1338b81b8c8dec2c94dde3da4ce750e705aec5035",
+    "eng/progpu-benchmark-rust-managed-names.py": "8d9a33b64b112b144a525404795aac17def2efdf002a759c35a3a6db8c86958b",
+    "src/ProGPU.Rust/tests/managed_names.rs": "0a23f81fc6af688b9386e32fd70b5711f3de1e4b6f4d17765afbcded4168d757",
+    "src/ProGPU.Rust/browser/managed-names.bin": "93121a2c4b049f8154dd9e24282759931aacb2def0ceacf885bb6e361d52a613",
+    "src/ProGPU.Rust/browser/test.mjs": "f08d1fbe0c18bd8bb390713c05047a35499b30a85f03be5d40009aa5dff6ebcc",
+    "src/ProGPU.Rust/examples/browser.rs": "408a2f14d0dc8f8068babe90281b24e430e22d9594f4c2d11003d6c2319cb155"
+  }
+}

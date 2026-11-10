@@ -1,0 +1,49 @@
+{
+  "utc": "2026-11-09T06:30:33.874772+00:00",
+  "preserved": "Complete matched final Instruments exports, compact receipts, exact workload/source exports, dependency build/tool caches.",
+  "removals": [
+    {
+      "path": "/tmp/progpu-rust-grapheme-profile/before.trace",
+      "logical_bytes": 6489980,
+      "reason": "Superseded preliminary profile; final matched-window exports retained."
+    },
+    {
+      "path": "/tmp/progpu-rust-grapheme-profile/after.trace",
+      "logical_bytes": 6434185,
+      "reason": "Superseded preliminary profile; final matched-window exports retained."
+    },
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-managed-grapheme-package-dh96ilgi",
+      "logical_bytes": 601834174,
+      "reason": "Completed validation/profiling outputs; source, exact compressed profiling exports and compact receipts retained."
+    },
+    {
+      "path": "/tmp/progpu-rust-grapheme-profile",
+      "logical_bytes": 24527313,
+      "reason": "Completed validation/profiling outputs; source, exact compressed profiling exports and compact receipts retained."
+    },
+    {
+      "path": "artifacts/progpu-rust/browser",
+      "logical_bytes": 2572517,
+      "reason": "Completed validation/profiling outputs; source, exact compressed profiling exports and compact receipts retained."
+    },
+    {
+      "path": "artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148214,
+      "reason": "Completed validation/profiling outputs; source, exact compressed profiling exports and compact receipts retained."
+    },
+    {
+      "path": "target/package/progpu-0.1.0.crate",
+      "logical_bytes": 1288049,
+      "reason": "Final distributable source bytes verified; archive/build checks recorded."
+    }
+  ],
+  "total_logical_bytes_removed": 643294432,
+  "crate_only_cargo_clean": [
+    "     Removed 33982 files, 1.9GiB total",
+    "     Removed 39 files, 13.6MiB total",
+    "     Removed 21 files, 41.8MiB total",
+    "     Removed 15 files, 15.8MiB total"
+  ],
+  "dependency_build_cache": "Preserved; no full cargo clean."
+}

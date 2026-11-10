@@ -1,0 +1,42 @@
+{
+  "utc": "2026-11-09T08:38:04.983244+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-actions-package-78q9ykf6",
+      "logical_bytes": 265847191
+    },
+    {
+      "path": "/tmp/progpu-rust-actions-profile.bin",
+      "logical_bytes": 10487324
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2624835
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148372
+    },
+    {
+      "path": "/tmp/progpu-rust-early-observer-browser.zip",
+      "logical_bytes": 88027
+    },
+    {
+      "path": "/tmp/progpu-rust-early-observer-results.json",
+      "logical_bytes": 5089
+    },
+    {
+      "path": "/tmp/progpu-rust-early-observer-diagnostic-rerun-results.json",
+      "logical_bytes": 67639
+    },
+    {
+      "path": "/tmp/progpu-rust-early-observer-diagnostic-rerun-gpu-process.json",
+      "logical_bytes": 306
+    }
+  ],
+  "additional_logical_bytes": 279268783,
+  "preserved": "Dependency build cache, browser tool/download cache, .NET and wasm-bindgen tools; compact source/browser/benchmark/package receipts retained.",
+  "crate_only_cargo_clean": "Removed 24952 files, 1.8GiB total",
+  "final_archive_removed_bytes": 1556174,
+  "transient_logs_removed_bytes": 120246
+}

@@ -1,0 +1,3034 @@
+{
+  "utc": "2026-11-09T11:51:53.637963+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    6.1435546875,
+    20.72802734375,
+    19.95751953125
+  ],
+  "normalization_profile": 170,
+  "source_runtime": ".NET 10.0.14 macOS 26.6.0",
+  "scope": "Three rotating-order process trials; first action, five warmups, 40 samples. Actual owned buffer preparation, typed raw-record restoration, witnesses and serialization excluded. Selected production actions timed; complete 31-field records, state and source context matched. Source GC allocation counters observed; Rust allocator events and full shaping/layout/frame qualification remain open.",
+  "input_sha256": "2521a11408d3e7bd649bd685a7dcf662fad51e87ce8dbc9436797486a40124a4",
+  "output_sha256": "c450c8cfaa27cbf64c6473c64681a70cb2d6e0d4f0204a2207de3c40a414d78a",
+  "rust_binary_sha256": "f7dbf4de2fdf9032c447f3feaa0d68e27016a6c24e312c6636dda86ae49e2592",
+  "csharp_assembly_sha256": "c1db79a049466ad7706223d1cf19fdaaa8b5f11d5efc051a259b9482769768e8",
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "e8a0705484a69497dae96ec2737bf4bf383d86d2b8adf8108e5401d1a60d5d92",
+    "src/ProGPU.Rust/src/text/script_actions/joining.rs": "089c9ea67c2344f8e2fb18b29f434043c5c69d88049e1a7a8c019f8fbcec48cc",
+    "src/ProGPU.Rust/src/text/script_actions/joining_data.rs": "20ea6d3401e5c297a84cc1ca3ebe933a6291e1f4aa43bd535ba7a5e0251f35a8",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback.rs": "6acb3a16698e5de781623e37c7b392927d396e3b4ca22f7b4149042701b5ef14",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs": "7a7114d94d4a16f50cd49515112bc0fb6d27cfbe57e3f7166ec55b49fe29438f",
+    "src/ProGPU.Rust/src/text/script_actions/vowel.rs": "87706a6b7936f94eb52d824dec3823a3df3a46272872fd89f5997d7d1d841b76",
+    "src/ProGPU.Rust/src/text/script_actions/vowel_data.rs": "5f3df8634c7fb473ef34001f07c780219453c7f980d121c15c7bc9e2252a1ce7",
+    "src/ProGPU.Rust/src/text/script_actions/khmer.rs": "4ac87b5793ef3357a0f20cfd1eb23efe904397aa8e3294120877a7bc2d334bb1",
+    "src/ProGPU.Rust/src/text/script_actions/khmer_syllables.rs": "722675bcac639b4f4949da59c2ceaf179b8dd18d63f2520aff000234ccdf5f44",
+    "src/ProGPU.Rust/src/text/script_actions/myanmar.rs": "2dcc42aa1364c3f6fa20cce076d0c3c1f058a8f56e334540d0053b12f436bb70",
+    "src/ProGPU.Rust/src/text/script_actions/myanmar_syllables.rs": "a878ae69d1e5ca104bf403364cf389128136aa04548972c5e8c8f837fd4d7c65",
+    "src/ProGPU.Rust/src/text/script_actions/myanmar_sort_storage.rs": "cd845241d596232873957c534e36fb2aba4f59ec4218b853cc375eff275587b0",
+    "src/ProGPU.Rust/src/text/script_actions/use_shaping.rs": "b81dd5b1965bd5f915adac28618960146d56cc9fad5916f195a3afd8c1d3379a",
+    "src/ProGPU.Rust/src/text/script_actions/use_syllables.rs": "02a4aad0d41fed11a7f96af2a1940f26eea7a2291bfab988fd964f5646c9beca",
+    "src/ProGPU.Rust/src/text/script_actions/use_indices.rs": "2b83977eddd7a6c3b3eac5615d1dfd55f3ed7b73ff7782feea37ff92b90105f8",
+    "src/ProGPU.Rust/src/text/preparation.rs": "c6263f53b7ca626bb49c9b79ad3a60a6fea608371f6c815b8a8aa504b139ef10",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "ecc9f39b003896bc515d84e473b698ee40aeab3cda7a2b68ea21bd79b4b20546",
+    "src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs": "44144ffd64468b3f6235496829550ef3bf1cbd9056ddd6739693994544fc8ebb",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "db551ad4648cc11edbdc51043ca399878bf3fff705c2ef817af619d7957aff6a"
+  },
+  "workloads": [
+    {
+      "font": "full",
+      "pattern": "use-prepare",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 7.667,
+            "p50_us": 2.375,
+            "p95_us": 3.042,
+            "p99_us": 3.125
+          },
+          "csharp": {
+            "first_us": 2112.292,
+            "p50_us": 13.083,
+            "p95_us": 14.25,
+            "p99_us": 14.417,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 28.541,
+            "p50_us": 2.208,
+            "p95_us": 2.25,
+            "p99_us": 2.334
+          }
+        },
+        {
+          "rust": {
+            "first_us": 6.083,
+            "p50_us": 2.25,
+            "p95_us": 2.792,
+            "p99_us": 3.0
+          },
+          "csharp": {
+            "first_us": 1649.292,
+            "p50_us": 12.833,
+            "p95_us": 15.333,
+            "p99_us": 17.75,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 7.709,
+            "p50_us": 2.25,
+            "p95_us": 2.917,
+            "p99_us": 3.042
+          }
+        },
+        {
+          "rust": {
+            "first_us": 6.667,
+            "p50_us": 2.417,
+            "p95_us": 2.875,
+            "p99_us": 2.875
+          },
+          "csharp": {
+            "first_us": 1847.791,
+            "p50_us": 12.375,
+            "p95_us": 13.708,
+            "p99_us": 22.834,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 13.625,
+            "p50_us": 2.458,
+            "p95_us": 6.5,
+            "p99_us": 24.875
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-prepare",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 83.292,
+            "p50_us": 86.916,
+            "p95_us": 95.625,
+            "p99_us": 96.667
+          },
+          "csharp": {
+            "first_us": 604.625,
+            "p50_us": 207.417,
+            "p95_us": 240.833,
+            "p99_us": 654.458,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 71.041,
+            "p50_us": 73.791,
+            "p95_us": 75.708,
+            "p99_us": 75.791
+          }
+        },
+        {
+          "rust": {
+            "first_us": 77.708,
+            "p50_us": 77.333,
+            "p95_us": 78.916,
+            "p99_us": 79.25
+          },
+          "csharp": {
+            "first_us": 584.5,
+            "p50_us": 203.667,
+            "p95_us": 269.25,
+            "p99_us": 547.125,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 73.958,
+            "p50_us": 73.375,
+            "p95_us": 80.041,
+            "p99_us": 96.25
+          }
+        },
+        {
+          "rust": {
+            "first_us": 79.042,
+            "p50_us": 86.625,
+            "p95_us": 91.25,
+            "p99_us": 128.875
+          },
+          "csharp": {
+            "first_us": 556.292,
+            "p50_us": 210.292,
+            "p95_us": 481.083,
+            "p99_us": 1248.458,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 78.292,
+            "p50_us": 74.5,
+            "p95_us": 82.25,
+            "p99_us": 84.417
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-base",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 8.084,
+            "p50_us": 3.917,
+            "p95_us": 5.042,
+            "p99_us": 5.166
+          },
+          "csharp": {
+            "first_us": 1024.625,
+            "p50_us": 26.333,
+            "p95_us": 28.334,
+            "p99_us": 53.375,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 6.208,
+            "p50_us": 3.833,
+            "p95_us": 3.875,
+            "p99_us": 3.875
+          }
+        },
+        {
+          "rust": {
+            "first_us": 16.375,
+            "p50_us": 4.084,
+            "p95_us": 5.083,
+            "p99_us": 5.375
+          },
+          "csharp": {
+            "first_us": 670.542,
+            "p50_us": 25.25,
+            "p95_us": 30.333,
+            "p99_us": 48.958,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.959,
+            "p50_us": 3.958,
+            "p95_us": 5.041,
+            "p99_us": 5.125
+          }
+        },
+        {
+          "rust": {
+            "first_us": 6.708,
+            "p50_us": 4.292,
+            "p95_us": 4.417,
+            "p99_us": 4.459
+          },
+          "csharp": {
+            "first_us": 918.875,
+            "p50_us": 27.125,
+            "p95_us": 76.833,
+            "p99_us": 85.5,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 7.209,
+            "p50_us": 3.917,
+            "p95_us": 4.083,
+            "p99_us": 4.084
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-base",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 128.458,
+            "p50_us": 126.333,
+            "p95_us": 134.5,
+            "p99_us": 148.75
+          },
+          "csharp": {
+            "first_us": 2987.875,
+            "p50_us": 2887.125,
+            "p95_us": 2971.459,
+            "p99_us": 3196.875,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 145.208,
+            "p50_us": 120.917,
+            "p95_us": 131.084,
+            "p99_us": 142.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 128.041,
+            "p50_us": 130.083,
+            "p95_us": 144.875,
+            "p99_us": 146.625
+          },
+          "csharp": {
+            "first_us": 2909.0,
+            "p50_us": 2883.708,
+            "p95_us": 3165.666,
+            "p99_us": 3281.541,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 125.75,
+            "p50_us": 123.208,
+            "p95_us": 128.959,
+            "p99_us": 141.167
+          }
+        },
+        {
+          "rust": {
+            "first_us": 135.959,
+            "p50_us": 129.625,
+            "p95_us": 140.542,
+            "p99_us": 147.458
+          },
+          "csharp": {
+            "first_us": 3458.875,
+            "p50_us": 3200.583,
+            "p95_us": 6169.417,
+            "p99_us": 6918.583,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 128.292,
+            "p50_us": 130.875,
+            "p95_us": 198.834,
+            "p99_us": 255.25
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-repha",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 8.792,
+            "p50_us": 3.916,
+            "p95_us": 5.125,
+            "p99_us": 5.292
+          },
+          "csharp": {
+            "first_us": 78.167,
+            "p50_us": 17.833,
+            "p95_us": 20.0,
+            "p99_us": 22.208,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.959,
+            "p50_us": 3.833,
+            "p95_us": 3.875,
+            "p99_us": 3.917
+          }
+        },
+        {
+          "rust": {
+            "first_us": 5.292,
+            "p50_us": 3.959,
+            "p95_us": 5.125,
+            "p99_us": 5.292
+          },
+          "csharp": {
+            "first_us": 105.792,
+            "p50_us": 17.458,
+            "p95_us": 21.209,
+            "p99_us": 22.125,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.625,
+            "p50_us": 4.041,
+            "p95_us": 4.167,
+            "p99_us": 4.167
+          }
+        },
+        {
+          "rust": {
+            "first_us": 7.0,
+            "p50_us": 4.125,
+            "p95_us": 4.208,
+            "p99_us": 7.083
+          },
+          "csharp": {
+            "first_us": 123.292,
+            "p50_us": 18.167,
+            "p95_us": 19.125,
+            "p99_us": 23.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 6.709,
+            "p50_us": 3.917,
+            "p95_us": 3.959,
+            "p99_us": 4.125
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-repha",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 126.792,
+            "p50_us": 128.875,
+            "p95_us": 133.292,
+            "p99_us": 138.25
+          },
+          "csharp": {
+            "first_us": 6728.125,
+            "p50_us": 6440.584,
+            "p95_us": 6774.791,
+            "p99_us": 14960.667,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 120.375,
+            "p50_us": 122.917,
+            "p95_us": 131.083,
+            "p99_us": 134.792
+          }
+        },
+        {
+          "rust": {
+            "first_us": 125.666,
+            "p50_us": 123.625,
+            "p95_us": 127.125,
+            "p99_us": 128.0
+          },
+          "csharp": {
+            "first_us": 6647.333,
+            "p50_us": 6319.292,
+            "p95_us": 6703.75,
+            "p99_us": 14239.916,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 118.5,
+            "p50_us": 127.625,
+            "p95_us": 138.958,
+            "p99_us": 145.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 131.583,
+            "p50_us": 128.667,
+            "p95_us": 148.459,
+            "p99_us": 182.583
+          },
+          "csharp": {
+            "first_us": 6946.583,
+            "p50_us": 6593.292,
+            "p95_us": 8444.708,
+            "p99_us": 14627.666,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 125.875,
+            "p50_us": 128.083,
+            "p95_us": 147.041,
+            "p99_us": 219.417
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-broken",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 8.833,
+            "p50_us": 6.334,
+            "p95_us": 6.542,
+            "p99_us": 6.666
+          },
+          "csharp": {
+            "first_us": 33.125,
+            "p50_us": 26.666,
+            "p95_us": 27.375,
+            "p99_us": 30.542,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 8.292,
+            "p50_us": 6.542,
+            "p95_us": 6.625,
+            "p99_us": 6.625
+          }
+        },
+        {
+          "rust": {
+            "first_us": 9.334,
+            "p50_us": 7.0,
+            "p95_us": 7.541,
+            "p99_us": 8.875
+          },
+          "csharp": {
+            "first_us": 34.541,
+            "p50_us": 25.5,
+            "p95_us": 27.583,
+            "p99_us": 30.625,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 8.459,
+            "p50_us": 6.5,
+            "p95_us": 6.625,
+            "p99_us": 6.667
+          }
+        },
+        {
+          "rust": {
+            "first_us": 8.791,
+            "p50_us": 6.75,
+            "p95_us": 7.5,
+            "p99_us": 8.333
+          },
+          "csharp": {
+            "first_us": 32.292,
+            "p50_us": 26.709,
+            "p95_us": 33.916,
+            "p99_us": 47.917,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 11.958,
+            "p50_us": 6.666,
+            "p95_us": 6.792,
+            "p99_us": 6.834
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-broken",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2566.25,
+            "p50_us": 2560.417,
+            "p95_us": 2652.709,
+            "p99_us": 2668.583
+          },
+          "csharp": {
+            "first_us": 14889.834,
+            "p50_us": 14089.666,
+            "p95_us": 14522.75,
+            "p99_us": 14662.208,
+            "allocated_p50_bytes": 458776.0
+          },
+          "rust_before": {
+            "first_us": 2576.75,
+            "p50_us": 2641.75,
+            "p95_us": 3020.125,
+            "p99_us": 3434.125
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2672.209,
+            "p50_us": 2513.084,
+            "p95_us": 2575.75,
+            "p99_us": 2593.833
+          },
+          "csharp": {
+            "first_us": 14289.75,
+            "p50_us": 15028.125,
+            "p95_us": 18556.208,
+            "p99_us": 22121.041,
+            "allocated_p50_bytes": 458776.0
+          },
+          "rust_before": {
+            "first_us": 2529.666,
+            "p50_us": 2524.292,
+            "p95_us": 2585.417,
+            "p99_us": 2607.833
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2692.375,
+            "p50_us": 2667.458,
+            "p95_us": 2842.458,
+            "p99_us": 3080.291
+          },
+          "csharp": {
+            "first_us": 14819.75,
+            "p50_us": 14273.25,
+            "p95_us": 14857.333,
+            "p99_us": 15530.959,
+            "allocated_p50_bytes": 458776.0
+          },
+          "rust_before": {
+            "first_us": 2843.542,
+            "p50_us": 2657.375,
+            "p95_us": 2834.583,
+            "p99_us": 2884.083
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-filtered",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 28.833,
+            "p50_us": 3.666,
+            "p95_us": 4.709,
+            "p99_us": 4.875
+          },
+          "csharp": {
+            "first_us": 11.209,
+            "p50_us": 5.583,
+            "p95_us": 5.75,
+            "p99_us": 5.834,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 45.583,
+            "p50_us": 3.708,
+            "p95_us": 3.875,
+            "p99_us": 3.959
+          }
+        },
+        {
+          "rust": {
+            "first_us": 15.666,
+            "p50_us": 3.791,
+            "p95_us": 3.917,
+            "p99_us": 4.0
+          },
+          "csharp": {
+            "first_us": 12.708,
+            "p50_us": 6.0,
+            "p95_us": 6.542,
+            "p99_us": 7.583,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 13.5,
+            "p50_us": 3.584,
+            "p95_us": 3.667,
+            "p99_us": 3.667
+          }
+        },
+        {
+          "rust": {
+            "first_us": 11.875,
+            "p50_us": 3.792,
+            "p95_us": 3.917,
+            "p99_us": 4.0
+          },
+          "csharp": {
+            "first_us": 13.375,
+            "p50_us": 5.625,
+            "p95_us": 5.75,
+            "p99_us": 5.791,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 12.417,
+            "p50_us": 3.75,
+            "p95_us": 3.875,
+            "p99_us": 13.25
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-filtered",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 128.208,
+            "p50_us": 124.042,
+            "p95_us": 130.25,
+            "p99_us": 158.875
+          },
+          "csharp": {
+            "first_us": 3203.417,
+            "p50_us": 2574.208,
+            "p95_us": 2721.417,
+            "p99_us": 2897.584,
+            "allocated_p50_bytes": 458776.0
+          },
+          "rust_before": {
+            "first_us": 121.875,
+            "p50_us": 124.875,
+            "p95_us": 151.25,
+            "p99_us": 165.083
+          }
+        },
+        {
+          "rust": {
+            "first_us": 124.916,
+            "p50_us": 122.708,
+            "p95_us": 124.917,
+            "p99_us": 134.083
+          },
+          "csharp": {
+            "first_us": 2643.834,
+            "p50_us": 2663.417,
+            "p95_us": 2822.5,
+            "p99_us": 2904.791,
+            "allocated_p50_bytes": 458776.0
+          },
+          "rust_before": {
+            "first_us": 116.042,
+            "p50_us": 118.083,
+            "p95_us": 125.417,
+            "p99_us": 136.208
+          }
+        },
+        {
+          "rust": {
+            "first_us": 124.459,
+            "p50_us": 128.667,
+            "p95_us": 138.417,
+            "p99_us": 272.833
+          },
+          "csharp": {
+            "first_us": 2641.833,
+            "p50_us": 2562.916,
+            "p95_us": 2739.167,
+            "p99_us": 2818.708,
+            "allocated_p50_bytes": 458776.0
+          },
+          "rust_before": {
+            "first_us": 125.0,
+            "p50_us": 126.333,
+            "p95_us": 132.584,
+            "p99_us": 142.333
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-hieroglyphs",
+      "records": 128,
+      "script": "egyp",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.709,
+            "p50_us": 1.833,
+            "p95_us": 1.875,
+            "p99_us": 1.917
+          },
+          "csharp": {
+            "first_us": 4.459,
+            "p50_us": 2.292,
+            "p95_us": 3.0,
+            "p99_us": 3.583,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.5,
+            "p50_us": 3.208,
+            "p95_us": 3.292,
+            "p99_us": 3.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.291,
+            "p50_us": 1.833,
+            "p95_us": 1.875,
+            "p99_us": 1.875
+          },
+          "csharp": {
+            "first_us": 7.333,
+            "p50_us": 2.333,
+            "p95_us": 3.0,
+            "p99_us": 4.833,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 4.834,
+            "p50_us": 3.208,
+            "p95_us": 4.166,
+            "p99_us": 4.209
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.0,
+            "p50_us": 1.792,
+            "p95_us": 1.834,
+            "p99_us": 1.834
+          },
+          "csharp": {
+            "first_us": 5.708,
+            "p50_us": 2.667,
+            "p95_us": 3.292,
+            "p99_us": 16.125,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.166,
+            "p50_us": 3.209,
+            "p95_us": 3.292,
+            "p99_us": 3.333
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-hieroglyphs",
+      "records": 4096,
+      "script": "egyp",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 57.709,
+            "p50_us": 57.5,
+            "p95_us": 60.75,
+            "p99_us": 62.5
+          },
+          "csharp": {
+            "first_us": 94.333,
+            "p50_us": 74.458,
+            "p95_us": 81.083,
+            "p99_us": 88.333,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 98.125,
+            "p50_us": 99.459,
+            "p95_us": 151.792,
+            "p99_us": 169.834
+          }
+        },
+        {
+          "rust": {
+            "first_us": 56.875,
+            "p50_us": 55.125,
+            "p95_us": 59.208,
+            "p99_us": 65.041
+          },
+          "csharp": {
+            "first_us": 77.542,
+            "p50_us": 75.75,
+            "p95_us": 80.708,
+            "p99_us": 91.125,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 98.083,
+            "p50_us": 95.875,
+            "p95_us": 109.5,
+            "p99_us": 111.583
+          }
+        },
+        {
+          "rust": {
+            "first_us": 57.5,
+            "p50_us": 56.667,
+            "p95_us": 65.375,
+            "p99_us": 70.584
+          },
+          "csharp": {
+            "first_us": 81.625,
+            "p50_us": 77.333,
+            "p95_us": 83.417,
+            "p99_us": 98.333,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 99.959,
+            "p50_us": 101.958,
+            "p95_us": 208.084,
+            "p99_us": 9566.417
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-long-prefix",
+      "records": 128,
+      "script": "egyp",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 9.709,
+            "p50_us": 6.542,
+            "p95_us": 6.75,
+            "p99_us": 6.75
+          },
+          "csharp": {
+            "first_us": 41.167,
+            "p50_us": 39.916,
+            "p95_us": 43.709,
+            "p99_us": 45.209,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 8.667,
+            "p50_us": 7.166,
+            "p95_us": 7.291,
+            "p99_us": 7.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 8.917,
+            "p50_us": 6.5,
+            "p95_us": 6.667,
+            "p99_us": 6.792
+          },
+          "csharp": {
+            "first_us": 43.375,
+            "p50_us": 40.292,
+            "p95_us": 41.125,
+            "p99_us": 44.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 8.958,
+            "p50_us": 7.083,
+            "p95_us": 7.167,
+            "p99_us": 7.291
+          }
+        },
+        {
+          "rust": {
+            "first_us": 10.5,
+            "p50_us": 6.541,
+            "p95_us": 7.625,
+            "p99_us": 8.125
+          },
+          "csharp": {
+            "first_us": 42.166,
+            "p50_us": 39.917,
+            "p95_us": 41.208,
+            "p99_us": 50.291,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 9.833,
+            "p50_us": 7.166,
+            "p95_us": 7.292,
+            "p99_us": 7.375
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-long-prefix",
+      "records": 4096,
+      "script": "egyp",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 213.542,
+            "p50_us": 210.834,
+            "p95_us": 218.25,
+            "p99_us": 229.208
+          },
+          "csharp": {
+            "first_us": 19701.708,
+            "p50_us": 20032.792,
+            "p95_us": 20334.792,
+            "p99_us": 20573.208,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 226.167,
+            "p50_us": 226.709,
+            "p95_us": 319.917,
+            "p99_us": 351.75
+          }
+        },
+        {
+          "rust": {
+            "first_us": 204.625,
+            "p50_us": 204.583,
+            "p95_us": 220.584,
+            "p99_us": 237.833
+          },
+          "csharp": {
+            "first_us": 20445.625,
+            "p50_us": 20634.875,
+            "p95_us": 26445.042,
+            "p99_us": 30641.208,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 219.042,
+            "p50_us": 222.292,
+            "p95_us": 237.333,
+            "p99_us": 248.709
+          }
+        },
+        {
+          "rust": {
+            "first_us": 220.25,
+            "p50_us": 212.334,
+            "p95_us": 226.125,
+            "p99_us": 275.583
+          },
+          "csharp": {
+            "first_us": 19912.041,
+            "p50_us": 20879.417,
+            "p95_us": 21184.083,
+            "p99_us": 30135.5,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 234.791,
+            "p50_us": 225.875,
+            "p95_us": 258.041,
+            "p99_us": 301.0
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-record-forms",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        75,
+        76,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.959,
+            "p50_us": 1.667,
+            "p95_us": 1.834,
+            "p99_us": 1.875
+          },
+          "csharp": {
+            "first_us": 222.167,
+            "p50_us": 5.791,
+            "p95_us": 5.833,
+            "p99_us": 5.834,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.416,
+            "p50_us": 1.25,
+            "p95_us": 1.292,
+            "p99_us": 1.292
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.791,
+            "p50_us": 1.291,
+            "p95_us": 1.333,
+            "p99_us": 1.333
+          },
+          "csharp": {
+            "first_us": 260.959,
+            "p50_us": 5.875,
+            "p95_us": 5.958,
+            "p99_us": 6.0,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.375,
+            "p50_us": 1.334,
+            "p95_us": 1.375,
+            "p99_us": 1.542
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.375,
+            "p50_us": 1.25,
+            "p95_us": 1.541,
+            "p99_us": 1.542
+          },
+          "csharp": {
+            "first_us": 483.0,
+            "p50_us": 6.125,
+            "p95_us": 24.958,
+            "p99_us": 25.583,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 3.125,
+            "p50_us": 1.417,
+            "p95_us": 1.958,
+            "p99_us": 8.25
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-record-forms",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        75,
+        76,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 43.084,
+            "p50_us": 41.875,
+            "p95_us": 45.416,
+            "p99_us": 50.0
+          },
+          "csharp": {
+            "first_us": 4097.333,
+            "p50_us": 4106.959,
+            "p95_us": 4227.375,
+            "p99_us": 4278.75,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 38.667,
+            "p50_us": 43.584,
+            "p95_us": 59.542,
+            "p99_us": 101.917
+          }
+        },
+        {
+          "rust": {
+            "first_us": 39.792,
+            "p50_us": 41.167,
+            "p95_us": 42.292,
+            "p99_us": 52.417
+          },
+          "csharp": {
+            "first_us": 4284.416,
+            "p50_us": 4186.375,
+            "p95_us": 4434.625,
+            "p99_us": 5309.334,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 46.583,
+            "p50_us": 41.875,
+            "p95_us": 45.167,
+            "p99_us": 48.875
+          }
+        },
+        {
+          "rust": {
+            "first_us": 45.417,
+            "p50_us": 40.708,
+            "p95_us": 45.458,
+            "p99_us": 47.875
+          },
+          "csharp": {
+            "first_us": 4413.25,
+            "p50_us": 4244.75,
+            "p95_us": 4773.458,
+            "p99_us": 5486.833,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 42.5,
+            "p50_us": 43.75,
+            "p95_us": 46.709,
+            "p99_us": 50.083
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-reorder",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.5,
+            "p50_us": 1.708,
+            "p95_us": 1.75,
+            "p99_us": 1.75
+          },
+          "csharp": {
+            "first_us": 8.875,
+            "p50_us": 7.0,
+            "p95_us": 7.042,
+            "p99_us": 7.083,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.292,
+            "p50_us": 1.708,
+            "p95_us": 2.167,
+            "p99_us": 2.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.708,
+            "p50_us": 1.708,
+            "p95_us": 1.75,
+            "p99_us": 1.75
+          },
+          "csharp": {
+            "first_us": 8.5,
+            "p50_us": 6.833,
+            "p95_us": 6.917,
+            "p99_us": 8.75,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.084,
+            "p50_us": 1.792,
+            "p95_us": 1.875,
+            "p99_us": 1.875
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.167,
+            "p50_us": 1.667,
+            "p95_us": 2.167,
+            "p99_us": 2.208
+          },
+          "csharp": {
+            "first_us": 10.333,
+            "p50_us": 6.833,
+            "p95_us": 7.5,
+            "p99_us": 8.916,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.375,
+            "p50_us": 1.833,
+            "p95_us": 1.917,
+            "p99_us": 1.958
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-reorder",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 57.833,
+            "p50_us": 51.333,
+            "p95_us": 58.417,
+            "p99_us": 60.5
+          },
+          "csharp": {
+            "first_us": 6344.292,
+            "p50_us": 6127.708,
+            "p95_us": 6238.208,
+            "p99_us": 6249.375,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 53.542,
+            "p50_us": 51.75,
+            "p95_us": 62.042,
+            "p99_us": 70.041
+          }
+        },
+        {
+          "rust": {
+            "first_us": 51.916,
+            "p50_us": 50.291,
+            "p95_us": 53.583,
+            "p99_us": 57.0
+          },
+          "csharp": {
+            "first_us": 6430.0,
+            "p50_us": 6207.875,
+            "p95_us": 6355.667,
+            "p99_us": 6376.833,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 61.167,
+            "p50_us": 54.625,
+            "p95_us": 61.333,
+            "p99_us": 61.875
+          }
+        },
+        {
+          "rust": {
+            "first_us": 71.459,
+            "p50_us": 50.5,
+            "p95_us": 54.583,
+            "p99_us": 55.0
+          },
+          "csharp": {
+            "first_us": 6563.375,
+            "p50_us": 6422.291,
+            "p95_us": 6570.5,
+            "p99_us": 6756.083,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 58.375,
+            "p50_us": 57.708,
+            "p95_us": 61.958,
+            "p99_us": 62.958
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-disabled",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        73,
+        77
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.416,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.25,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.208,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.125,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.875,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.125,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.208,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.791,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.291,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        }
+      ]
+    },
+    {
+      "font": "full",
+      "pattern": "use-disabled",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        73,
+        77
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.084
+          },
+          "csharp": {
+            "first_us": 0.167,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.083,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.166
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.041,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.875,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.417,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.042,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.625,
+            "p50_us": 0.041,
+            "p95_us": 0.167,
+            "p99_us": 1.041,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.042,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-prepare",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 6.042,
+            "p50_us": 2.375,
+            "p95_us": 2.417,
+            "p99_us": 2.458
+          },
+          "csharp": {
+            "first_us": 5.25,
+            "p50_us": 2.542,
+            "p95_us": 2.667,
+            "p99_us": 2.833,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.25,
+            "p50_us": 2.334,
+            "p95_us": 2.375,
+            "p99_us": 2.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 5.042,
+            "p50_us": 2.25,
+            "p95_us": 2.292,
+            "p99_us": 2.375
+          },
+          "csharp": {
+            "first_us": 6.833,
+            "p50_us": 2.583,
+            "p95_us": 2.625,
+            "p99_us": 2.625,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 4.875,
+            "p50_us": 2.208,
+            "p95_us": 2.209,
+            "p99_us": 2.25
+          }
+        },
+        {
+          "rust": {
+            "first_us": 5.375,
+            "p50_us": 2.292,
+            "p95_us": 2.375,
+            "p99_us": 2.542
+          },
+          "csharp": {
+            "first_us": 5.125,
+            "p50_us": 2.625,
+            "p95_us": 2.708,
+            "p99_us": 2.958,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 4.875,
+            "p50_us": 2.375,
+            "p95_us": 2.459,
+            "p99_us": 2.459
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-prepare",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 75.458,
+            "p50_us": 78.959,
+            "p95_us": 82.417,
+            "p99_us": 85.584
+          },
+          "csharp": {
+            "first_us": 85.25,
+            "p50_us": 82.834,
+            "p95_us": 92.917,
+            "p99_us": 107.041,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 75.542,
+            "p50_us": 75.375,
+            "p95_us": 78.834,
+            "p99_us": 100.291
+          }
+        },
+        {
+          "rust": {
+            "first_us": 71.417,
+            "p50_us": 75.208,
+            "p95_us": 79.791,
+            "p99_us": 100.458
+          },
+          "csharp": {
+            "first_us": 89.542,
+            "p50_us": 85.959,
+            "p95_us": 153.834,
+            "p99_us": 188.625,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 71.708,
+            "p50_us": 72.292,
+            "p95_us": 77.75,
+            "p99_us": 81.666
+          }
+        },
+        {
+          "rust": {
+            "first_us": 73.75,
+            "p50_us": 76.167,
+            "p95_us": 88.375,
+            "p99_us": 108.541
+          },
+          "csharp": {
+            "first_us": 89.125,
+            "p50_us": 86.375,
+            "p95_us": 90.625,
+            "p99_us": 131.458,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 74.834,
+            "p50_us": 73.542,
+            "p95_us": 78.25,
+            "p99_us": 89.459
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-base",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 6.167,
+            "p50_us": 3.833,
+            "p95_us": 3.917,
+            "p99_us": 4.0
+          },
+          "csharp": {
+            "first_us": 8.833,
+            "p50_us": 5.375,
+            "p95_us": 5.5,
+            "p99_us": 5.541,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 6.792,
+            "p50_us": 3.958,
+            "p95_us": 4.042,
+            "p99_us": 4.125
+          }
+        },
+        {
+          "rust": {
+            "first_us": 5.125,
+            "p50_us": 3.75,
+            "p95_us": 4.792,
+            "p99_us": 4.958
+          },
+          "csharp": {
+            "first_us": 8.167,
+            "p50_us": 5.333,
+            "p95_us": 5.375,
+            "p99_us": 5.416,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.292,
+            "p50_us": 3.875,
+            "p95_us": 4.5,
+            "p99_us": 5.083
+          }
+        },
+        {
+          "rust": {
+            "first_us": 5.875,
+            "p50_us": 3.833,
+            "p95_us": 3.917,
+            "p99_us": 12.875
+          },
+          "csharp": {
+            "first_us": 8.791,
+            "p50_us": 5.666,
+            "p95_us": 5.708,
+            "p99_us": 5.917,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 6.75,
+            "p50_us": 3.958,
+            "p95_us": 4.0,
+            "p99_us": 4.042
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-base",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 121.625,
+            "p50_us": 124.0,
+            "p95_us": 140.709,
+            "p99_us": 325.458
+          },
+          "csharp": {
+            "first_us": 2511.875,
+            "p50_us": 2513.083,
+            "p95_us": 2584.083,
+            "p99_us": 2634.75,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 122.166,
+            "p50_us": 127.5,
+            "p95_us": 183.375,
+            "p99_us": 262.917
+          }
+        },
+        {
+          "rust": {
+            "first_us": 114.75,
+            "p50_us": 117.833,
+            "p95_us": 127.167,
+            "p99_us": 137.084
+          },
+          "csharp": {
+            "first_us": 2677.042,
+            "p50_us": 2578.708,
+            "p95_us": 2695.5,
+            "p99_us": 2800.958,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 130.125,
+            "p50_us": 119.417,
+            "p95_us": 121.209,
+            "p99_us": 121.875
+          }
+        },
+        {
+          "rust": {
+            "first_us": 124.0,
+            "p50_us": 118.042,
+            "p95_us": 125.125,
+            "p99_us": 144.167
+          },
+          "csharp": {
+            "first_us": 2656.917,
+            "p50_us": 2650.5,
+            "p95_us": 2783.041,
+            "p99_us": 2798.708,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 134.208,
+            "p50_us": 124.625,
+            "p95_us": 129.875,
+            "p99_us": 186.917
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-repha",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 7.375,
+            "p50_us": 3.917,
+            "p95_us": 4.834,
+            "p99_us": 5.125
+          },
+          "csharp": {
+            "first_us": 11.708,
+            "p50_us": 9.166,
+            "p95_us": 9.209,
+            "p99_us": 9.292,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 7.833,
+            "p50_us": 4.167,
+            "p95_us": 4.292,
+            "p99_us": 4.541
+          }
+        },
+        {
+          "rust": {
+            "first_us": 5.708,
+            "p50_us": 3.833,
+            "p95_us": 3.958,
+            "p99_us": 5.084
+          },
+          "csharp": {
+            "first_us": 12.25,
+            "p50_us": 9.416,
+            "p95_us": 11.917,
+            "p99_us": 12.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.25,
+            "p50_us": 3.791,
+            "p95_us": 3.917,
+            "p99_us": 4.083
+          }
+        },
+        {
+          "rust": {
+            "first_us": 12.958,
+            "p50_us": 3.792,
+            "p95_us": 3.917,
+            "p99_us": 7.5
+          },
+          "csharp": {
+            "first_us": 12.583,
+            "p50_us": 9.541,
+            "p95_us": 9.625,
+            "p99_us": 14.75,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.458,
+            "p50_us": 4.0,
+            "p95_us": 4.209,
+            "p99_us": 4.292
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-repha",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 132.709,
+            "p50_us": 128.625,
+            "p95_us": 132.125,
+            "p99_us": 133.583
+          },
+          "csharp": {
+            "first_us": 6140.958,
+            "p50_us": 6203.583,
+            "p95_us": 6391.834,
+            "p99_us": 6423.875,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 127.0,
+            "p50_us": 136.042,
+            "p95_us": 184.209,
+            "p99_us": 289.625
+          }
+        },
+        {
+          "rust": {
+            "first_us": 116.542,
+            "p50_us": 124.959,
+            "p95_us": 134.0,
+            "p99_us": 144.583
+          },
+          "csharp": {
+            "first_us": 6505.125,
+            "p50_us": 6220.0,
+            "p95_us": 6318.208,
+            "p99_us": 6347.458,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 118.5,
+            "p50_us": 123.375,
+            "p95_us": 128.084,
+            "p99_us": 132.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 118.416,
+            "p50_us": 120.958,
+            "p95_us": 126.0,
+            "p99_us": 131.834
+          },
+          "csharp": {
+            "first_us": 6426.541,
+            "p50_us": 6536.834,
+            "p95_us": 6855.084,
+            "p99_us": 7896.625,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 122.333,
+            "p50_us": 129.083,
+            "p95_us": 136.25,
+            "p99_us": 194.917
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-broken",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 6.417,
+            "p50_us": 3.792,
+            "p95_us": 4.041,
+            "p99_us": 4.084
+          },
+          "csharp": {
+            "first_us": 10.875,
+            "p50_us": 7.291,
+            "p95_us": 7.292,
+            "p99_us": 7.333,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 6.375,
+            "p50_us": 4.083,
+            "p95_us": 4.125,
+            "p99_us": 9.833
+          }
+        },
+        {
+          "rust": {
+            "first_us": 5.042,
+            "p50_us": 3.5,
+            "p95_us": 3.791,
+            "p99_us": 3.834
+          },
+          "csharp": {
+            "first_us": 9.708,
+            "p50_us": 7.125,
+            "p95_us": 7.167,
+            "p99_us": 7.208,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 4.75,
+            "p50_us": 3.792,
+            "p95_us": 3.875,
+            "p99_us": 4.083
+          }
+        },
+        {
+          "rust": {
+            "first_us": 6.042,
+            "p50_us": 3.625,
+            "p95_us": 3.75,
+            "p99_us": 4.834
+          },
+          "csharp": {
+            "first_us": 11.459,
+            "p50_us": 7.458,
+            "p95_us": 7.5,
+            "p99_us": 7.667,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.708,
+            "p50_us": 3.833,
+            "p95_us": 3.875,
+            "p99_us": 3.916
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-broken",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 117.084,
+            "p50_us": 121.833,
+            "p95_us": 124.875,
+            "p99_us": 128.375
+          },
+          "csharp": {
+            "first_us": 4299.083,
+            "p50_us": 4191.791,
+            "p95_us": 4313.875,
+            "p99_us": 4361.083,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 119.334,
+            "p50_us": 122.959,
+            "p95_us": 223.083,
+            "p99_us": 262.791
+          }
+        },
+        {
+          "rust": {
+            "first_us": 117.125,
+            "p50_us": 109.667,
+            "p95_us": 112.583,
+            "p99_us": 121.333
+          },
+          "csharp": {
+            "first_us": 4303.166,
+            "p50_us": 4181.375,
+            "p95_us": 4298.041,
+            "p99_us": 4315.875,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 115.375,
+            "p50_us": 119.875,
+            "p95_us": 124.5,
+            "p99_us": 126.125
+          }
+        },
+        {
+          "rust": {
+            "first_us": 130.75,
+            "p50_us": 111.5,
+            "p95_us": 115.958,
+            "p99_us": 117.583
+          },
+          "csharp": {
+            "first_us": 4320.166,
+            "p50_us": 4396.25,
+            "p95_us": 4584.417,
+            "p99_us": 4853.125,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 122.125,
+            "p50_us": 123.209,
+            "p95_us": 128.084,
+            "p99_us": 145.792
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-filtered",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 7.458,
+            "p50_us": 3.5,
+            "p95_us": 3.625,
+            "p99_us": 3.75
+          },
+          "csharp": {
+            "first_us": 10.667,
+            "p50_us": 5.333,
+            "p95_us": 5.75,
+            "p99_us": 6.708,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 7.708,
+            "p50_us": 3.667,
+            "p95_us": 3.833,
+            "p99_us": 3.834
+          }
+        },
+        {
+          "rust": {
+            "first_us": 6.959,
+            "p50_us": 3.792,
+            "p95_us": 4.042,
+            "p99_us": 16.917
+          },
+          "csharp": {
+            "first_us": 10.5,
+            "p50_us": 5.25,
+            "p95_us": 5.292,
+            "p99_us": 5.375,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.291,
+            "p50_us": 3.875,
+            "p95_us": 4.167,
+            "p99_us": 4.292
+          }
+        },
+        {
+          "rust": {
+            "first_us": 7.334,
+            "p50_us": 3.458,
+            "p95_us": 3.708,
+            "p99_us": 12.542
+          },
+          "csharp": {
+            "first_us": 11.208,
+            "p50_us": 5.417,
+            "p95_us": 5.5,
+            "p99_us": 5.542,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 6.583,
+            "p50_us": 3.666,
+            "p95_us": 3.75,
+            "p99_us": 3.917
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-filtered",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 114.041,
+            "p50_us": 114.875,
+            "p95_us": 129.167,
+            "p99_us": 143.75
+          },
+          "csharp": {
+            "first_us": 2500.083,
+            "p50_us": 2521.75,
+            "p95_us": 2611.458,
+            "p99_us": 2619.625,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 116.209,
+            "p50_us": 114.292,
+            "p95_us": 142.667,
+            "p99_us": 162.5
+          }
+        },
+        {
+          "rust": {
+            "first_us": 108.0,
+            "p50_us": 112.542,
+            "p95_us": 115.792,
+            "p99_us": 120.792
+          },
+          "csharp": {
+            "first_us": 2570.584,
+            "p50_us": 2538.292,
+            "p95_us": 2636.792,
+            "p99_us": 2643.917,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 109.917,
+            "p50_us": 111.667,
+            "p95_us": 116.0,
+            "p99_us": 121.167
+          }
+        },
+        {
+          "rust": {
+            "first_us": 114.75,
+            "p50_us": 113.958,
+            "p95_us": 123.375,
+            "p99_us": 125.334
+          },
+          "csharp": {
+            "first_us": 2629.042,
+            "p50_us": 2645.125,
+            "p95_us": 2780.292,
+            "p99_us": 2834.333,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 109.958,
+            "p50_us": 113.333,
+            "p95_us": 158.625,
+            "p99_us": 183.542
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-hieroglyphs",
+      "records": 128,
+      "script": "egyp",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 3.667,
+            "p50_us": 2.0,
+            "p95_us": 4.792,
+            "p99_us": 24.834
+          },
+          "csharp": {
+            "first_us": 4.458,
+            "p50_us": 2.166,
+            "p95_us": 2.208,
+            "p99_us": 2.209,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 5.25,
+            "p50_us": 3.083,
+            "p95_us": 3.25,
+            "p99_us": 3.334
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.75,
+            "p50_us": 1.667,
+            "p95_us": 1.792,
+            "p99_us": 1.834
+          },
+          "csharp": {
+            "first_us": 4.916,
+            "p50_us": 2.125,
+            "p95_us": 2.167,
+            "p99_us": 2.167,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 3.958,
+            "p50_us": 3.25,
+            "p95_us": 3.291,
+            "p99_us": 3.292
+          }
+        },
+        {
+          "rust": {
+            "first_us": 3.042,
+            "p50_us": 1.708,
+            "p95_us": 1.75,
+            "p99_us": 1.792
+          },
+          "csharp": {
+            "first_us": 5.584,
+            "p50_us": 2.291,
+            "p95_us": 2.333,
+            "p99_us": 2.334,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 4.792,
+            "p50_us": 3.292,
+            "p95_us": 3.459,
+            "p99_us": 3.542
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-hieroglyphs",
+      "records": 4096,
+      "script": "egyp",
+      "actions": [
+        74,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 124.5,
+            "p50_us": 59.125,
+            "p95_us": 65.709,
+            "p99_us": 80.958
+          },
+          "csharp": {
+            "first_us": 72.792,
+            "p50_us": 72.667,
+            "p95_us": 81.375,
+            "p99_us": 84.167,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 98.375,
+            "p50_us": 103.458,
+            "p95_us": 160.5,
+            "p99_us": 207.958
+          }
+        },
+        {
+          "rust": {
+            "first_us": 55.5,
+            "p50_us": 52.458,
+            "p95_us": 60.458,
+            "p99_us": 63.167
+          },
+          "csharp": {
+            "first_us": 71.75,
+            "p50_us": 71.208,
+            "p95_us": 79.583,
+            "p99_us": 95.708,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 95.875,
+            "p50_us": 95.625,
+            "p95_us": 103.25,
+            "p99_us": 105.458
+          }
+        },
+        {
+          "rust": {
+            "first_us": 54.875,
+            "p50_us": 53.5,
+            "p95_us": 68.291,
+            "p99_us": 72.416
+          },
+          "csharp": {
+            "first_us": 78.125,
+            "p50_us": 73.875,
+            "p95_us": 85.834,
+            "p99_us": 182.792,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 103.25,
+            "p50_us": 102.292,
+            "p95_us": 105.958,
+            "p99_us": 117.333
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-long-prefix",
+      "records": 128,
+      "script": "egyp",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 9.833,
+            "p50_us": 6.75,
+            "p95_us": 8.416,
+            "p99_us": 8.666
+          },
+          "csharp": {
+            "first_us": 42.084,
+            "p50_us": 40.125,
+            "p95_us": 44.708,
+            "p99_us": 46.667,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 9.291,
+            "p50_us": 7.208,
+            "p95_us": 7.5,
+            "p99_us": 50.833
+          }
+        },
+        {
+          "rust": {
+            "first_us": 10.041,
+            "p50_us": 6.417,
+            "p95_us": 7.833,
+            "p99_us": 8.167
+          },
+          "csharp": {
+            "first_us": 40.666,
+            "p50_us": 38.958,
+            "p95_us": 49.625,
+            "p99_us": 57.792,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 8.417,
+            "p50_us": 7.042,
+            "p95_us": 7.166,
+            "p99_us": 7.209
+          }
+        },
+        {
+          "rust": {
+            "first_us": 8.5,
+            "p50_us": 6.417,
+            "p95_us": 6.542,
+            "p99_us": 6.584
+          },
+          "csharp": {
+            "first_us": 42.834,
+            "p50_us": 42.208,
+            "p95_us": 46.0,
+            "p99_us": 92.25,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 9.5,
+            "p50_us": 7.25,
+            "p95_us": 7.416,
+            "p99_us": 7.708
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-long-prefix",
+      "records": 4096,
+      "script": "egyp",
+      "actions": [
+        74
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 252.042,
+            "p50_us": 222.916,
+            "p95_us": 296.125,
+            "p99_us": 360.792
+          },
+          "csharp": {
+            "first_us": 20431.5,
+            "p50_us": 20193.583,
+            "p95_us": 20524.25,
+            "p99_us": 20604.917,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 230.542,
+            "p50_us": 236.958,
+            "p95_us": 319.959,
+            "p99_us": 459.459
+          }
+        },
+        {
+          "rust": {
+            "first_us": 204.333,
+            "p50_us": 210.0,
+            "p95_us": 227.459,
+            "p99_us": 244.834
+          },
+          "csharp": {
+            "first_us": 19980.917,
+            "p50_us": 20001.666,
+            "p95_us": 20560.042,
+            "p99_us": 20636.459,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 225.125,
+            "p50_us": 222.833,
+            "p95_us": 230.708,
+            "p99_us": 234.334
+          }
+        },
+        {
+          "rust": {
+            "first_us": 215.542,
+            "p50_us": 206.708,
+            "p95_us": 228.834,
+            "p99_us": 237.333
+          },
+          "csharp": {
+            "first_us": 21450.333,
+            "p50_us": 21343.709,
+            "p95_us": 21765.166,
+            "p99_us": 22137.041,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 229.583,
+            "p50_us": 231.875,
+            "p95_us": 263.666,
+            "p99_us": 274.875
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-record-forms",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        75,
+        76,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.5,
+            "p50_us": 1.208,
+            "p95_us": 1.25,
+            "p99_us": 1.25
+          },
+          "csharp": {
+            "first_us": 11.083,
+            "p50_us": 6.625,
+            "p95_us": 8.5,
+            "p99_us": 18.375,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 6.541,
+            "p50_us": 1.25,
+            "p95_us": 1.292,
+            "p99_us": 1.375
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.792,
+            "p50_us": 1.333,
+            "p95_us": 1.417,
+            "p99_us": 1.5
+          },
+          "csharp": {
+            "first_us": 10.583,
+            "p50_us": 6.458,
+            "p95_us": 6.708,
+            "p99_us": 7.75,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 1.458,
+            "p50_us": 1.208,
+            "p95_us": 1.25,
+            "p99_us": 1.292
+          }
+        },
+        {
+          "rust": {
+            "first_us": 2.209,
+            "p50_us": 1.208,
+            "p95_us": 1.25,
+            "p99_us": 1.25
+          },
+          "csharp": {
+            "first_us": 11.166,
+            "p50_us": 6.792,
+            "p95_us": 7.084,
+            "p99_us": 7.417,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.334,
+            "p50_us": 1.167,
+            "p95_us": 1.209,
+            "p99_us": 1.209
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-record-forms",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        75,
+        76,
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 39.625,
+            "p50_us": 38.75,
+            "p95_us": 56.666,
+            "p99_us": 75.875
+          },
+          "csharp": {
+            "first_us": 4102.083,
+            "p50_us": 4086.792,
+            "p95_us": 4218.708,
+            "p99_us": 4827.875,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 37.708,
+            "p50_us": 40.75,
+            "p95_us": 52.167,
+            "p99_us": 117.833
+          }
+        },
+        {
+          "rust": {
+            "first_us": 41.917,
+            "p50_us": 41.791,
+            "p95_us": 46.458,
+            "p99_us": 55.042
+          },
+          "csharp": {
+            "first_us": 4088.292,
+            "p50_us": 4154.583,
+            "p95_us": 4335.791,
+            "p99_us": 4869.416,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 40.75,
+            "p50_us": 41.0,
+            "p95_us": 42.583,
+            "p99_us": 46.666
+          }
+        },
+        {
+          "rust": {
+            "first_us": 38.125,
+            "p50_us": 38.042,
+            "p95_us": 41.75,
+            "p99_us": 46.667
+          },
+          "csharp": {
+            "first_us": 4399.459,
+            "p50_us": 4373.416,
+            "p95_us": 5246.834,
+            "p99_us": 5690.791,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 41.0,
+            "p50_us": 41.166,
+            "p95_us": 63.459,
+            "p99_us": 74.417
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-reorder",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 2.042,
+            "p50_us": 1.625,
+            "p95_us": 1.709,
+            "p99_us": 1.75
+          },
+          "csharp": {
+            "first_us": 9.125,
+            "p50_us": 6.75,
+            "p95_us": 6.959,
+            "p99_us": 8.5,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.292,
+            "p50_us": 1.708,
+            "p95_us": 2.166,
+            "p99_us": 2.167
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.834,
+            "p50_us": 1.542,
+            "p95_us": 1.584,
+            "p99_us": 1.584
+          },
+          "csharp": {
+            "first_us": 10.167,
+            "p50_us": 6.792,
+            "p95_us": 8.5,
+            "p99_us": 8.625,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.125,
+            "p50_us": 1.583,
+            "p95_us": 1.75,
+            "p99_us": 1.75
+          }
+        },
+        {
+          "rust": {
+            "first_us": 1.625,
+            "p50_us": 1.583,
+            "p95_us": 1.917,
+            "p99_us": 2.0
+          },
+          "csharp": {
+            "first_us": 9.917,
+            "p50_us": 6.958,
+            "p95_us": 7.0,
+            "p99_us": 7.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 2.042,
+            "p50_us": 1.542,
+            "p95_us": 1.584,
+            "p99_us": 2.084
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-reorder",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        78
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 56.0,
+            "p50_us": 50.75,
+            "p95_us": 53.875,
+            "p99_us": 99.292
+          },
+          "csharp": {
+            "first_us": 6277.834,
+            "p50_us": 6120.375,
+            "p95_us": 6313.208,
+            "p99_us": 7189.333,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 54.167,
+            "p50_us": 53.75,
+            "p95_us": 56.833,
+            "p99_us": 61.041
+          }
+        },
+        {
+          "rust": {
+            "first_us": 48.875,
+            "p50_us": 48.209,
+            "p95_us": 51.209,
+            "p99_us": 52.375
+          },
+          "csharp": {
+            "first_us": 6168.875,
+            "p50_us": 6158.208,
+            "p95_us": 6394.667,
+            "p99_us": 6632.5,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 52.917,
+            "p50_us": 48.875,
+            "p95_us": 52.333,
+            "p99_us": 59.917
+          }
+        },
+        {
+          "rust": {
+            "first_us": 54.0,
+            "p50_us": 43.667,
+            "p95_us": 50.541,
+            "p99_us": 52.709
+          },
+          "csharp": {
+            "first_us": 6668.75,
+            "p50_us": 6835.083,
+            "p95_us": 7709.417,
+            "p99_us": 19669.5,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 52.625,
+            "p50_us": 48.167,
+            "p95_us": 52.167,
+            "p99_us": 52.5
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-disabled",
+      "records": 128,
+      "script": "tibt",
+      "actions": [
+        73,
+        77
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.25,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.084
+          },
+          "csharp": {
+            "first_us": 0.666,
+            "p50_us": 0.0,
+            "p95_us": 0.041,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.292,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.667,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.042,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.083,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 1.084,
+            "p50_us": 0.0,
+            "p95_us": 0.041,
+            "p99_us": 0.041,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.25,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        }
+      ]
+    },
+    {
+      "font": "space-only",
+      "pattern": "use-disabled",
+      "records": 4096,
+      "script": "tibt",
+      "actions": [
+        73,
+        77
+      ],
+      "trials": [
+        {
+          "rust": {
+            "first_us": 0.083,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.875
+          },
+          "csharp": {
+            "first_us": 0.083,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.0,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.125
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.084,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          },
+          "csharp": {
+            "first_us": 0.167,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.041,
+            "p50_us": 0.041,
+            "p95_us": 0.042,
+            "p99_us": 0.042
+          }
+        },
+        {
+          "rust": {
+            "first_us": 0.042,
+            "p50_us": 0.042,
+            "p95_us": 0.042,
+            "p99_us": 0.083
+          },
+          "csharp": {
+            "first_us": 1.375,
+            "p50_us": 0.0,
+            "p95_us": 0.042,
+            "p99_us": 0.042,
+            "allocated_p50_bytes": 0.0
+          },
+          "rust_before": {
+            "first_us": 0.041,
+            "p50_us": 0.042,
+            "p95_us": 0.083,
+            "p99_us": 0.083
+          }
+        }
+      ]
+    }
+  ],
+  "rust_before_binary_sha256": "f5902dc82a5e7f99e5b7e490e8cb50b59d4bf7f820d9cda1a1522da99bb61bc6",
+  "measurement_limits": "Paired Release Rust before/after and original C#; matched CPU-stage outputs and three rotating trials. Instruments CPU tables retained separately. Disabled stages are clock-limited; no allocator, process-memory, GPU or end-to-end shaping qualification."
+}

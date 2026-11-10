@@ -1,0 +1,107 @@
+{
+  "captured_utc": "2026-11-09T05:02:31.816027+00:00",
+  "rust": "1.90.0",
+  "original_managed_font": {
+    "cases": 10369,
+    "exact_bytes": 81025616,
+    "scope": "Owned SFNT/TTC constructor metadata, root/selected identity, original 32-entry FIFO, style/MVAR metadata, palette clones, horizontal/vertical advances and layout/simple/component variation callbacks. Complete outlines, vertical origins, hinting, color rendering, compressed/mapped/resident factories and full text remain pending."
+  },
+  "positioning_integration": {
+    "cases": 32008,
+    "delta_queries": 760086,
+    "exact_bytes": 44353296,
+    "actual_font_wrapper": "pass"
+  },
+  "variation_regression": {
+    "cases": 8796,
+    "exact_bytes": 8221712,
+    "all_original_host_generated_cases_retained": true,
+    "explicit_frozen_browser_NaN_inputs": 24,
+    "published_fixture_unchanged": true,
+    "hosted_x64_revalidation": "pending"
+  },
+  "tests": {
+    "tests": {
+      "passed": 92,
+      "failed": 0,
+      "ignored": 47
+    },
+    "cpu": {
+      "passed": 90,
+      "failed": 0,
+      "ignored": 40
+    }
+  },
+  "clippy": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "final_variation_fixture_test": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "version": "151.0.7922.34",
+    "dprs": [
+      1,
+      2
+    ],
+    "font_controls_per_dpr": 104,
+    "name_controls_per_dpr": 93,
+    "variation_controls_per_dpr": 96,
+    "positioning_controls_per_dpr": 151,
+    "offscreen_pixels": 204800,
+    "canonical_shaders": 6,
+    "actual_resize_presentation": "pass",
+    "original_flags_and_deadlines": "unchanged",
+    "fixture_bytes": 1805194,
+    "fixture_sha256": "5fb7e2045b349a6101e69f22373a589a5967cdd86805bc669df981a5ec9a4d8e"
+  },
+  "benchmark": {
+    "workloads": 32,
+    "complete_outputs_match": true,
+    "rust_slower_median_workloads": 4,
+    "load_average": [
+      8.6025390625,
+      22.919921875,
+      25.85302734375
+    ],
+    "other_task_checks": "terminal before capture",
+    "scope": "Initial diagnostic construction/cache/palette baseline; short no-op timings reach clock resolution. Production allocation and runtime behavior retained. Rust allocation counts and full shaping/frame performance unqualified; no optimization claim."
+  },
+  "package": {
+    "captured_utc": "2026-11-09T05:01:12.358960+00:00",
+    "fresh_independent_empty_target": true,
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "exact_source_resource_document_files": 352,
+    "original_manifest": "exact",
+    "temporary_bytes_removed": 592916727,
+    "final_archive_files": 358,
+    "final_exact_source_resource_document_files": 356,
+    "fresh_build_unchanged_source_resource_document_files": 274,
+    "final_bytes_match_worktree": true,
+    "post_build_changes": "Compact baseline, validation, package and cleanup receipts only; code, resources and documentation unchanged."
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/managed_font.rs": "14f2b0087203aba7fbaf73f2900ce6b9aff896cc1e345f5512f507c5f518eae3",
+    "src/ProGPU.Rust/src/font/managed_font/metadata.rs": "ca2b9303267020972d10358e59fbcbd125b3f8f3cdfb52a3ba8f9a88ae1557c6",
+    "src/ProGPU.Rust/src/font/managed_font/metrics.rs": "d75e042f9439bf7c4f64b9e08a94c30ba6e43e79f78988d4b60e9d0cd9ce5845",
+    "src/ProGPU.Rust/src/font/managed_variations.rs": "20ae0f5d0c79c5fa6937535ec306c020982b936a1e006a5ae3e9dfc3218175f2",
+    "src/ProGPU.Rust/tests/managed_font.cs": "f220c026f17c222fca19091fbae6294a024f020292c084cb6cb94a6b13905788",
+    "src/ProGPU.Rust/tests/support/managed_font_fixture.rs": "7548966d78a8fae85dc05708a4f4f428e8000e29335fc59613772be4f9c9bb0c",
+    "src/ProGPU.Rust/tests/support/managed_font_replay.rs": "b6d0944ee7328d26f14c75d2e1d55ec8dd5e0724aeae5032d298072cd755b4f8",
+    "src/ProGPU.Rust/examples/managed_font_benchmark.rs": "fbcfdb929fea7e61acb4ebe86445fdf11188f613828bee07e61750b8d4058f62",
+    "src/ProGPU.Text/TtfFont.cs": "7db1a7d8a0d4cf40e4beb182fc5ef03d0cdf5953b547191c4aa5a34b9c48f85b",
+    "src/ProGPU.Text/TtfFont.Variations.cs": "318cae60429ea6f74da43bc1338b81b8c8dec2c94dde3da4ce750e705aec5035",
+    "src/ProGPU.Text/OpenTypeVariationData.cs": "c2a70bb774b663db4d396f5edf14d04a278f2d16d238cb455791e95a3f3b71b1",
+    "eng/progpu-benchmark-rust-managed-font.py": "5bf3d9eac5b304e5a2e319339a9768ede73a66e0a2a6a9aaa6f768d612e410e1",
+    "src/ProGPU.Rust/tests/managed_font.rs": "6f61de4920045c607029f24d920b949f8d91f6ad2d7a277e395c5ff5eca235e4",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/dispatch.rs": "df589de48837d4aaf7eb87bacc2617aa5674319a80b12e0148ca843daf829cf0",
+    "src/ProGPU.Rust/tests/managed_positioning.rs": "33e2a45f04587ad7206feeddee654de01e56a662e6b1baec10fd14f34389aae3",
+    "src/ProGPU.Rust/tests/managed_variations.rs": "37ead3065f6c10b04ef1513586cd246ee3ba77a1f7daf4e9edd22468013938e6",
+    "src/ProGPU.Rust/browser/managed-font.bin": "5fb7e2045b349a6101e69f22373a589a5967cdd86805bc669df981a5ec9a4d8e",
+    "src/ProGPU.Rust/browser/managed-variations.bin": "60f2b507f14e3b6b5d9fd82f2892df5d0a5c9de30300a8f24fbd11719103c17b",
+    "src/ProGPU.Rust/browser/test.mjs": "228368f688d0e748b1544e80151d0bf7932ba0682335fd970556246e431fc7dd",
+    "src/ProGPU.Rust/examples/browser.rs": "ef9c1cec461ac4d267a90e8ae8e131f4cd902c201b0f80e3607ee6a300546706",
+    "src/ProGPU.Text/SfntFontFace.cs": "4639127d2390813ae578d93a5a18cd5d4cd613235ac704b8d5d61a1123393e0a"
+  }
+}

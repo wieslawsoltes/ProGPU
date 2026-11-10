@@ -1,0 +1,62 @@
+//! Native Rust port of ProGPU's owned geometry and WebGPU rendering contracts.
+//!
+//! See the crate README for the parity ledger. Unported families are not silently
+//! approximated. GPU programs are embedded from the canonical production WGSL.
+
+#[cfg(all(feature = "native-freetype", target_arch = "wasm32"))]
+compile_error!(
+    "native-freetype requires an original verified native dependency; browser outline providers remain independent"
+);
+
+pub mod canvas;
+pub mod composition;
+pub mod effects;
+pub mod font;
+pub mod geometry;
+pub mod hit_query;
+pub mod image;
+pub mod image_effect;
+pub mod image_filter;
+pub mod mask;
+pub mod mesh3d;
+pub mod native_scene;
+pub mod paint;
+pub mod path;
+pub mod picture_archive;
+#[cfg(feature = "gpu")]
+pub mod renderer;
+pub mod runtime_effect;
+pub mod scene;
+pub mod series;
+pub mod shader;
+pub mod shader_effect;
+pub mod shaders;
+pub mod text;
+pub mod vector;
+
+/// Errors detected before publishing geometry or GPU state.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// A coordinate, extent, transform, or style is outside the supported domain.
+    #[error("invalid geometry or render frame")]
+    InvalidInput,
+    /// The request exceeds a buffer, index, or device capacity.
+    #[error("capacity exceeded")]
+    Capacity,
+    /// A retained resource belongs to a different renderer generation.
+    #[error("resource belongs to another renderer")]
+    ResourceDomain,
+    /// The explicitly selected execution route is unavailable.
+    #[error("requested execution path is not supported")]
+    UnsupportedExecution,
+    /// Original font planning or glyph realization failed before publication.
+    #[error("text preparation failed: {0}")]
+    Text(Box<text::paint::TextPaintError>),
+    /// wgpu rejected a shader or pipeline.
+    #[cfg(feature = "gpu")]
+    #[error("WebGPU validation failed: {0}")]
+    Gpu(#[from] wgpu::Error),
+}
+
+/// Original managed backdrop-material extension and retained source descriptors.
+pub mod backdrop;

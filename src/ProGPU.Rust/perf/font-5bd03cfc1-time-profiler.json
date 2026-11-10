@@ -1,0 +1,645 @@
+{
+  "instrument": "Xcode Instruments Time Profiler",
+  "workload": "Helvetica TTC face 0; 66560 queries; one checksum round, five warmup rounds, forty measured rounds",
+  "font_sha256": "25eceb458d4baf628ee0b6a135a9f8ac5ec7b2826646720834bd2bf00dfc825a",
+  "font_bytes": 2369592,
+  "samples": {
+    "rust": {
+      "binary_sha256": "1c47c616f9072ab3e53775334adde263d4bd4f1e83fed8e876db27ca46e13bf2",
+      "sample_count": 262,
+      "frames": [
+        {
+          "name": "start",
+          "leaf_samples": 0,
+          "inclusive_samples": 262
+        },
+        {
+          "name": "font_benchmark::main::heaf91c554855b19b",
+          "leaf_samples": 3,
+          "inclusive_samples": 260
+        },
+        {
+          "name": "main",
+          "leaf_samples": 0,
+          "inclusive_samples": 260
+        },
+        {
+          "name": "std::sys::backtrace::__rust_begin_short_backtrace::h7aa6d77acd9f1e89",
+          "leaf_samples": 0,
+          "inclusive_samples": 260
+        },
+        {
+          "name": "std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h556a23c478ba22fe",
+          "leaf_samples": 0,
+          "inclusive_samples": 260
+        },
+        {
+          "name": "std::rt::lang_start_internal::hdb28e94b6865fa11",
+          "leaf_samples": 0,
+          "inclusive_samples": 260
+        },
+        {
+          "name": "progpu::font::SfntFace::glyph_index::ha6734fbcb0ee2198",
+          "leaf_samples": 3,
+          "inclusive_samples": 248
+        },
+        {
+          "name": "progpu::font::SfntFace::lookup_cmap::hfbbe61982ff4f288",
+          "leaf_samples": 245,
+          "inclusive_samples": 245
+        },
+        {
+          "name": "progpu::font::SfntFace::horizontal_glyph_metrics::h67e9a5da7030b870",
+          "leaf_samples": 9,
+          "inclusive_samples": 9
+        },
+        {
+          "name": "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::forEachBindTarget(Diagnostics&, dyld4::RuntimeState&, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::resolveSymbol(Diagnostics&, dyld4::RuntimeState&, int, char const*, bool, bool, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::Fixups::forEachBindTarget_Opcodes(Diagnostics&, bool, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::forEachBindTarget(Diagnostics&, dyld4::RuntimeState&, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in mach_o::Fixups::forEachBindTarget_Opcodes(Diagnostics&, bool, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::JustInTimeLoader::applyFixups(Diagnostics&, dyld4::RuntimeState&, dyld4::DyldCacheDataConstLazyScopedWriter&, bool, lsl::Vector<std::__1::pair<dyld4::Loader const*, char const*>>*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::hasExportedSymbol(Diagnostics&, dyld4::RuntimeState&, char const*, dyld4::Loader::ExportedSymbolMode, dyld4::Loader::ResolverMode, dyld4::Loader::ResolvedSymbol*, dyld3::Array<dyld4::Loader const*>*) const",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::Fixups::forEachBind_OpcodesLazy(Diagnostics&, void (char const*, bool, bool, unsigned int, int, unsigned int, unsigned int, unsigned long long, unsigned char, char const*, bool, bool, unsigned long long, bool, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::Fixups::forEachBindUnified_Opcodes(Diagnostics&, bool, void (unsigned long long, unsigned int, mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer, void (unsigned long long, unsigned int, mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOAnalyzer::withVMLayout(Diagnostics&, void (mach_o::Layout const&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachLoadCommand(void (load_command const*, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_xzm_initialize_xzone_data",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "libSystem_initializer",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::PrebuiltLoader::runInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::APIs::runAllInitializersForMain()",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const::$_0::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "__malloc_init",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "xzm_main_malloc_zone_create",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        }
+      ]
+    },
+    "native": {
+      "binary_sha256": "b5130734f4f9a2602630a7d7040c4aa710ddfc5fca3529ad66274b82bf3dfa13",
+      "sample_count": 239,
+      "frames": [
+        {
+          "name": "start",
+          "leaf_samples": 0,
+          "inclusive_samples": 239
+        },
+        {
+          "name": "main",
+          "leaf_samples": 2,
+          "inclusive_samples": 236
+        },
+        {
+          "name": "progpu::native::text::sfnt_font_view::try_get_glyph_index(unsigned int, unsigned short&) const",
+          "leaf_samples": 9,
+          "inclusive_samples": 223
+        },
+        {
+          "name": "progpu::native::text::(anonymous namespace)::lookup_selected_cmap(std::__1::span<std::byte const, 18446744073709551615ul>, std::__1::span<std::byte const, 18446744073709551615ul>, std::__1::span<std::byte const, 18446744073709551615ul>, unsigned int, unsigned short&)",
+          "leaf_samples": 215,
+          "inclusive_samples": 215
+        },
+        {
+          "name": "std::__1::basic_streambuf<char, std::__1::char_traits<char>>::uflow()",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "__srefill1",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "std::__1::basic_istream<char, std::__1::char_traits<char>>::read(char*, long)",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "std::__1::basic_filebuf<char, std::__1::char_traits<char>>::underflow()",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "__read_nocancel",
+          "leaf_samples": 5,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "std::__1::basic_streambuf<char, std::__1::char_traits<char>>::xsgetn(char*, long)",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "fread",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "_sread",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "__fread",
+          "leaf_samples": 0,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "progpu::native::text::sfnt_font_view::try_get_horizontal_glyph_metrics(unsigned short, progpu::native::text::sfnt_horizontal_glyph_metrics&) const",
+          "leaf_samples": 5,
+          "inclusive_samples": 5
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 1,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachLoadCommand(void (load_command const*, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "libSystem_initializer",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::PrebuiltLoader::runInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mvm_guarded_range_init",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const::$_0::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::APIs::runAllInitializersForMain()",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "__malloc_init",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_xzm_xzone_malloc",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        }
+      ]
+    },
+    "discarded_slice_candidate": {
+      "binary_sha256": "a563884d05414c2706a1027cc7fef452fc28c1f822ec60c1dabab838fb536a08",
+      "sample_count": 308,
+      "frames": [
+        {
+          "name": "start",
+          "leaf_samples": 0,
+          "inclusive_samples": 308
+        },
+        {
+          "name": "main",
+          "leaf_samples": 0,
+          "inclusive_samples": 306
+        },
+        {
+          "name": "std::rt::lang_start_internal::hdb28e94b6865fa11",
+          "leaf_samples": 0,
+          "inclusive_samples": 306
+        },
+        {
+          "name": "std::sys::backtrace::__rust_begin_short_backtrace::h7aa6d77acd9f1e89",
+          "leaf_samples": 0,
+          "inclusive_samples": 305
+        },
+        {
+          "name": "std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h556a23c478ba22fe",
+          "leaf_samples": 0,
+          "inclusive_samples": 305
+        },
+        {
+          "name": "font_benchmark::main::heaf91c554855b19b",
+          "leaf_samples": 6,
+          "inclusive_samples": 304
+        },
+        {
+          "name": "progpu::font::SfntFace::glyph_index::ha6734fbcb0ee2198",
+          "leaf_samples": 3,
+          "inclusive_samples": 279
+        },
+        {
+          "name": "progpu::font::SfntFace::lookup_cmap::hfbbe61982ff4f288",
+          "leaf_samples": 276,
+          "inclusive_samples": 276
+        },
+        {
+          "name": "progpu::font::SfntFace::horizontal_glyph_metrics::h67e9a5da7030b870",
+          "leaf_samples": 19,
+          "inclusive_samples": 19
+        },
+        {
+          "name": "0x181557483",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "0x181557813",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "0x1814d95b9",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOAnalyzer::forEachInitializer(Diagnostics&, dyld3::MachOAnalyzer::VMAddrConverter const&, void (unsigned int) block_pointer, void const*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::APIs::runAllInitializersForMain()",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::PrebuiltLoader::runInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "libSystem_initializer",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const::$_0::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::APIs::_libdyld_initialize()",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in mach_o::UnsafeHeader::forEachSection(void (mach_o::UnsafeHeader::SectionInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::UnsafeHeader::forEachLoadCommand(void (load_command const*, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::findAndRunAllInitializers(dyld4::RuntimeState&) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "pthread_setname_np",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "_platform_memmove",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        }
+      ]
+    },
+    "guarded_search": {
+      "binary_sha256": "9c46db7fb154e4d2b37986d1ba9656874ebdbe3494561847ae486c611bb9be35",
+      "font_source_sha256": "2245ad174540aa182c185cdbbd94d766512909c8b7f06a02c3b27ac05d0c9fea",
+      "sample_count": 60,
+      "frames": [
+        {
+          "name": "start",
+          "leaf_samples": 0,
+          "inclusive_samples": 57
+        },
+        {
+          "name": "std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h556a23c478ba22fe",
+          "leaf_samples": 0,
+          "inclusive_samples": 55
+        },
+        {
+          "name": "std::sys::backtrace::__rust_begin_short_backtrace::h7aa6d77acd9f1e89",
+          "leaf_samples": 0,
+          "inclusive_samples": 55
+        },
+        {
+          "name": "main",
+          "leaf_samples": 0,
+          "inclusive_samples": 55
+        },
+        {
+          "name": "font_benchmark::main::heaf91c554855b19b",
+          "leaf_samples": 2,
+          "inclusive_samples": 55
+        },
+        {
+          "name": "std::rt::lang_start_internal::hdb28e94b6865fa11",
+          "leaf_samples": 0,
+          "inclusive_samples": 55
+        },
+        {
+          "name": "progpu::font::SfntFace::glyph_index::hbce56e973b075fc0",
+          "leaf_samples": 5,
+          "inclusive_samples": 44
+        },
+        {
+          "name": "progpu::font::SfntFace::lookup_cmap::hd11fd14f3df05bdd",
+          "leaf_samples": 39,
+          "inclusive_samples": 39
+        },
+        {
+          "name": "progpu::font::SfntFace::horizontal_glyph_metrics::h1fbe76176ef236c3",
+          "leaf_samples": 8,
+          "inclusive_samples": 8
+        },
+        {
+          "name": "dyld4::prepare(dyld4::APIs&, mach_o::UnsafeHeader const*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "dyld4::start(dyld4::KernelArgs*, void*, void*, unsigned long long)::$_1::operator()() const",
+          "leaf_samples": 0,
+          "inclusive_samples": 2
+        },
+        {
+          "name": "mach_o::Fixups::forEachBind_OpcodesLazy(Diagnostics&, void (char const*, bool, bool, unsigned int, int, unsigned int, unsigned int, unsigned long long, unsigned char, char const*, bool, bool, unsigned long long, bool, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in mach_o::Fixups::forEachBindTarget_Opcodes(Diagnostics&, bool, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOFile::trieWalk(Diagnostics&, unsigned char const*, unsigned char const*, char const*)",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::Fixups::forEachBindUnified_Opcodes(Diagnostics&, bool, void (unsigned long long, unsigned int, mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer, void (unsigned long long, unsigned int, mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::resolveSymbol(Diagnostics&, dyld4::RuntimeState&, int, char const*, bool, bool, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::forEachBindTarget(Diagnostics&, dyld4::RuntimeState&, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld3::MachOAnalyzer::withVMLayout(Diagnostics&, void (mach_o::Layout const&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "mach_o::Fixups::forEachBindTarget_Opcodes(Diagnostics&, bool, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer, void (mach_o::Fixups::BindTargetInfo const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::JustInTimeLoader::applyFixups(Diagnostics&, dyld4::RuntimeState&, dyld4::DyldCacheDataConstLazyScopedWriter&, bool, lsl::Vector<std::__1::pair<dyld4::Loader const*, char const*>>*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Loader::hasExportedSymbol(Diagnostics&, dyld4::RuntimeState&, char const*, dyld4::Loader::ExportedSymbolMode, dyld4::Loader::ResolverMode, dyld4::Loader::ResolvedSymbol*, dyld3::Array<dyld4::Loader const*>*) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "invocation function for block in dyld4::Loader::forEachBindTarget(Diagnostics&, dyld4::RuntimeState&, void (unsigned int, unsigned int, dyld4::Loader::ResolvedSymbol const&) block_pointer, bool, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer, void (dyld4::Loader::ResolvedSymbol const&, bool&) block_pointer) const",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::ExternallyViewableState::generateAtlas(lsl::Allocator&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "lsl::SharedPtr<dyld4::Atlas::Mapper>::SharedPtr(dyld4::Atlas::Mapper*)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::ExternallyViewableState::setDyldState(unsigned char)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::ExternallyViewableState::generateCompactInfo(lsl::Allocator&, AAREncoder&)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "lsl::MemoryManager::vm_allocate_bytes(unsigned long long, bool)",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "lsl::Allocator::Pool::Pool(lsl::Allocator*, lsl::Allocator::Pool*, unsigned long long, bool)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "lsl::Allocator::aligned_alloc(unsigned long long, unsigned long long)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "dyld4::Atlas::ProcessSnapshot::ProcessSnapshot(lsl::Allocator&, dyld4::FileManager&, bool)",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "read",
+          "leaf_samples": 1,
+          "inclusive_samples": 1
+        },
+        {
+          "name": "std::fs::read::inner::h7e421cb7cdc70ef5",
+          "leaf_samples": 0,
+          "inclusive_samples": 1
+        }
+      ]
+    }
+  },
+  "limitations": "Short statistical CPU traces; source-selection benchmark only, not shaping/frame/GPU or allocation qualification. Exported summaries retained; raw disposable traces cleaned after export.",
+  "baseline_commit": "5bd03cfc1bdc0a11531b242f16e29fa670ae1ab3"
+}

@@ -1,0 +1,30 @@
+{
+  "utc": "2026-11-09T10:12:46.777940+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-vowel-package-7uot1peh",
+      "logical_bytes": 621605168,
+      "reason": "Retired completed fresh package build after normalizing newly added license line endings; rebuilding final package contents."
+    },
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-vowel-package-1r8mhvtx",
+      "logical_bytes": 621608471
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2641954
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148377
+    },
+    {
+      "path": "/tmp/progpu-rust-vowels",
+      "logical_bytes": 432806
+    }
+  ],
+  "preserved": "Reusable dependency build cache, .NET/wasm-bindgen tools and browser tool/download caches; compact source/browser/benchmark/package receipts retained.",
+  "crate_only_cargo_clean": "Removed 25045 files, 1.8GiB total",
+  "final_archive_removed_bytes": 1639973,
+  "additional_logical_bytes": 1246436776
+}

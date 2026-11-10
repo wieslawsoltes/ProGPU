@@ -1,0 +1,361 @@
+{
+  "captured_utc": "2026-11-08T23:39:38.841892+00:00",
+  "host": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+  "dotnet_info": ".NET SDK:\n Version:           10.0.403\n Commit:            5a2162bea6\n Workload version:  10.0.400-manifests.a00bebb6\n MSBuild version:   18.9.15+5a2162bea\n\nRuntime Environment:\n OS Name:     ubuntu\n OS Version:  24.04\n OS Platform: Linux\n RID:         linux-x64\n Base Path:   /usr/share/dotnet/sdk/10.0.403/\n\n.NET workloads installed:\nThere are no installed workloads to display.\nConfigured to use workload sets when installing new manifests.\nNo workload sets are installed. Run \"dotnet workload restore\" to install a workload set.\n\nHost:\n  Version:      10.0.14\n  Architecture: x64\n  Commit:       0427b9abbe\n\n.NET SDKs installed:\n  8.0.133 [/usr/share/dotnet/sdk]\n  8.0.206 [/usr/share/dotnet/sdk]\n  8.0.319 [/usr/share/dotnet/sdk]\n  8.0.427 [/usr/share/dotnet/sdk]\n  9.0.123 [/usr/share/dotnet/sdk]\n  9.0.205 [/usr/share/dotnet/sdk]\n  9.0.320 [/usr/share/dotnet/sdk]\n  10.0.114 [/usr/share/dotnet/sdk]\n  10.0.204 [/usr/share/dotnet/sdk]\n  10.0.303 [/usr/share/dotnet/sdk]\n  10.0.403 [/usr/share/dotnet/sdk]\n\n.NET runtimes installed:\n  Microsoft.AspNetCore.App 8.0.6 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.AspNetCore.App 8.0.22 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.AspNetCore.App 8.0.33 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.AspNetCore.App 9.0.6 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.AspNetCore.App 9.0.22 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.AspNetCore.App 10.0.8 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.AspNetCore.App 10.0.11 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.AspNetCore.App 10.0.14 [/usr/share/dotnet/shared/Microsoft.AspNetCore.App]\n  Microsoft.NETCore.App 8.0.6 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n  Microsoft.NETCore.App 8.0.22 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n  Microsoft.NETCore.App 8.0.33 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n  Microsoft.NETCore.App 9.0.6 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n  Microsoft.NETCore.App 9.0.22 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n  Microsoft.NETCore.App 10.0.8 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n  Microsoft.NETCore.App 10.0.11 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n  Microsoft.NETCore.App 10.0.14 [/usr/share/dotnet/shared/Microsoft.NETCore.App]\n\nOther architectures found:\n  None\n\nEnvironment variables:\n  DOTNET_MULTILEVEL_LOOKUP                 [0]\n  DOTNET_NOLOGO                            [1]\n  DOTNET_ROOT                              [/usr/share/dotnet]\n  DOTNET_SKIP_FIRST_TIME_EXPERIENCE        [1]\n\nglobal.json file:\n  Not found\n\nLearn more:\n  https://aka.ms/dotnet/info\n\nDownload .NET:\n  https://aka.ms/dotnet/download",
+  "method": "Unchanged original managed generator, current runtime defaults, isolated temporary build; complete decomposition and composition inventory comparison.",
+  "qualification": "Diagnostic data provenance only; no gate replacement or runtime/compiler changes; not a complete canonical ordering or shaping comparison.",
+  "generator_sha256": "1f096497f9be825403094f119961242c1e7530f0d72b2d326047446c66f8adc1",
+  "resource_sha256": "da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff",
+  "runtime_plan_sha256": "3657473d5565b37d68549b431f2acc50c5d0080147403356c3eff8c9428e40d5",
+  "resource_bytes": 450920,
+  "runtime_plan_bytes": 450264,
+  "resource_counts": [
+    13253,
+    36567,
+    12133
+  ],
+  "runtime_counts": [
+    13233,
+    36523,
+    12113
+  ],
+  "decomposition_differences": [
+    {
+      "code_point": 67017,
+      "resource": [
+        67026,
+        775
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 67044,
+      "resource": [
+        67034,
+        775
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 70531,
+      "resource": [
+        70530,
+        70601
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 70533,
+      "resource": [
+        70532,
+        70587
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 70542,
+      "resource": [
+        70539,
+        70594
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 70545,
+      "resource": [
+        70544,
+        70601
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 70597,
+      "resource": [
+        70594,
+        70594
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 70599,
+      "resource": [
+        70594,
+        70584
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 70600,
+      "resource": [
+        70594,
+        70601
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90401,
+      "resource": [
+        90398,
+        90398
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90402,
+      "resource": [
+        90398,
+        90409
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90403,
+      "resource": [
+        90398,
+        90399
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90404,
+      "resource": [
+        90409,
+        90399
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90405,
+      "resource": [
+        90398,
+        90400
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90406,
+      "resource": [
+        90398,
+        90398,
+        90399
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90407,
+      "resource": [
+        90398,
+        90409,
+        90399
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 90408,
+      "resource": [
+        90398,
+        90398,
+        90400
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 93544,
+      "resource": [
+        93543,
+        93543
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 93545,
+      "resource": [
+        93539,
+        93543
+      ],
+      "runtime": null
+    },
+    {
+      "code_point": 93546,
+      "resource": [
+        93539,
+        93543,
+        93543
+      ],
+      "runtime": null
+    }
+  ],
+  "composition_differences": [
+    {
+      "pair": [
+        67026,
+        775
+      ],
+      "resource": 67017,
+      "runtime": null
+    },
+    {
+      "pair": [
+        67034,
+        775
+      ],
+      "resource": 67044,
+      "runtime": null
+    },
+    {
+      "pair": [
+        70530,
+        70601
+      ],
+      "resource": 70531,
+      "runtime": null
+    },
+    {
+      "pair": [
+        70532,
+        70587
+      ],
+      "resource": 70533,
+      "runtime": null
+    },
+    {
+      "pair": [
+        70539,
+        70594
+      ],
+      "resource": 70542,
+      "runtime": null
+    },
+    {
+      "pair": [
+        70544,
+        70601
+      ],
+      "resource": 70545,
+      "runtime": null
+    },
+    {
+      "pair": [
+        70594,
+        70584
+      ],
+      "resource": 70599,
+      "runtime": null
+    },
+    {
+      "pair": [
+        70594,
+        70594
+      ],
+      "resource": 70597,
+      "runtime": null
+    },
+    {
+      "pair": [
+        70594,
+        70601
+      ],
+      "resource": 70600,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90398,
+        90398
+      ],
+      "resource": 90401,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90398,
+        90399
+      ],
+      "resource": 90403,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90398,
+        90400
+      ],
+      "resource": 90405,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90398,
+        90409
+      ],
+      "resource": 90402,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90401,
+        90399
+      ],
+      "resource": 90406,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90401,
+        90400
+      ],
+      "resource": 90408,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90402,
+        90399
+      ],
+      "resource": 90407,
+      "runtime": null
+    },
+    {
+      "pair": [
+        90409,
+        90399
+      ],
+      "resource": 90404,
+      "runtime": null
+    },
+    {
+      "pair": [
+        93539,
+        93543
+      ],
+      "resource": 93545,
+      "runtime": null
+    },
+    {
+      "pair": [
+        93543,
+        93543
+      ],
+      "resource": 93544,
+      "runtime": null
+    },
+    {
+      "pair": [
+        93545,
+        93543
+      ],
+      "resource": 93546,
+      "runtime": null
+    }
+  ],
+  "temporary_logical_bytes_removed": 703208,
+  "installed_icu_packages": "libicu-dev:amd64\t74.2-1ubuntu3.1\nlibicu100\t\nlibicu101\t\nlibicu102\t\nlibicu103\t\nlibicu104\t\nlibicu105\t\nlibicu106\t\nlibicu60\t\nlibicu61\t\nlibicu62\t\nlibicu63\t\nlibicu64\t\nlibicu65\t\nlibicu66\t\nlibicu67\t\nlibicu68\t\nlibicu69\t\nlibicu70:amd64\t70.1-2\nlibicu71\t\nlibicu72\t\nlibicu73\t\nlibicu74:amd64\t74.2-1ubuntu3.1\nlibicu75\t\nlibicu76\t\nlibicu77\t\nlibicu78\t\nlibicu79\t\nlibicu80\t\nlibicu81\t\nlibicu82\t\nlibicu83\t\nlibicu84\t\nlibicu85\t\nlibicu86\t\nlibicu87\t\nlibicu88\t\nlibicu89\t\nlibicu90\t\nlibicu91\t\nlibicu92\t\nlibicu93\t\nlibicu94\t\nlibicu95\t\nlibicu96\t\nlibicu97\t\nlibicu98\t\nlibicu99\t\nlibiculx63",
+  "workflow_run": 42535353417,
+  "job_id": 128898412323,
+  "commit": "3119468aeedc49bad66fd3517f18973458aabc90",
+  "original_oracle_outcome": "failed and retained",
+  "original_oracle_first_difference": {
+    "case": 129941,
+    "byte": 1283146,
+    "input_code_point": 67017
+  }
+}

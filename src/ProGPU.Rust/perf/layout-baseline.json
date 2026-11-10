@@ -1,0 +1,196 @@
+{
+  "method": "5 warmups + 40 serial rounds, 65536 permuted glyph queries; validate/allocate outside timer, checksum outside timer; original defaults, managed span delegate call per query. Not shaping or steady-state JIT qualification.",
+  "captured_utc": "2026-11-08T23:20:56.674873+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "load_average": [
+    89.3779296875,
+    35.9423828125,
+    22.4638671875
+  ],
+  "background_compilers": [
+    "21166  41.0 /private/tmp/progpu-rust-dotnet/dotnet",
+    "21167   1.4 /private/tmp/progpu-rust-dotnet/dotnet",
+    "21171   4.1 /private/tmp/progpu-rust-dotnet/dotnet",
+    "21172  23.2 /private/tmp/progpu-rust-dotnet/dotnet",
+    "21173 107.0 /private/tmp/progpu-rust-dotnet/sdk/10.0.403/Roslyn/bincore/VBCSCompiler"
+  ],
+  "rust": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "cpp": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+  "dotnet": "10.0.403",
+  "source_sha256": {
+    "src/ProGPU.Rust/tests/native_layout_benchmark.cpp": "72b65d51c731b3954d26966ae9f334d5a49e3bc289ee1f770545f4b1e7c4d9ce",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp": "d78cd9aeb83731524fa4d52c765dc0b3ae22796f2765b72175ce6abb98259550",
+    "src/ProGPU.Rust/examples/layout_benchmark.rs": "f1bbce3e937be5319107649c3f8536d8bc949afe2e27966fd3a6f6463360eb41",
+    "src/ProGPU.Rust/tests/managed_layout_benchmark.cs": "77545461f11196201d1d916a4c4876905388102bba13a1cfe91dd21b66207b91",
+    "src/ProGPU.Rust/src/font/layout/coverage.rs": "24e5012549548260fc4b4a856eb7ffc4e72c078b813c4e3b63f9d1ee837757f0",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1"
+  },
+  "binary_sha256": {
+    "rust": "6e22e76d159c95c53d070d6e7eeacc28b62d72b362f5b05b24a3a8750f2fa668",
+    "cpp": "27186c3461733699ea4c21a0c2cca89686a26691eabc44a7732537ff082e1bc4",
+    "managed": "e6d2625ae4013bcc8b3f4cd894d4434392ef1c1b76d938700294a896ac3a770a"
+  },
+  "inputs": [
+    {
+      "kind": 0,
+      "format": 1,
+      "count": 256,
+      "input_sha256": "c221cf2bc62a035e9723984ca87ca29c356157de8b5eb4b23b0b6fe4f1139bef",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=10431113355667248771 min_us=676.208 p50_us=692.458 p95_us=795.916 max_us=1038.208"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=10431113355667248771 min_us=425.041 p50_us=427.708 p95_us=479.292 max_us=529.625"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=10431113355667248771 min_us=3028.800 p50_us=3118.700 p95_us=3303.200 max_us=3449.900 allocated_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": 0,
+      "format": 2,
+      "count": 256,
+      "input_sha256": "51aa5c7b938405a494a3d86019f11f9a9e266d9c90bb7e4f1bd60aa29dbbb676",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=189672547206690787 min_us=746.458 p50_us=773.334 p95_us=915.333 max_us=1015.667"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=189672547206690787 min_us=533.167 p50_us=536.250 p95_us=585.125 max_us=589.083"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=189672547206690787 min_us=974.500 p50_us=4359.000 p95_us=4501.900 max_us=4599.300 allocated_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": 1,
+      "format": 1,
+      "count": 256,
+      "input_sha256": "77185c3c85fdbfefdb6d513a04074832447987cd0d7e365fb57766f9a3197af3",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=11645484200677437083 min_us=74.000 p50_us=75.083 p95_us=84.333 max_us=91.250"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=11645484200677437083 min_us=73.625 p50_us=74.709 p95_us=89.834 max_us=113.125"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=11645484200677437083 min_us=703.700 p50_us=729.800 p95_us=796.200 max_us=1087.700 allocated_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": 1,
+      "format": 2,
+      "count": 256,
+      "input_sha256": "c14e1da5fbb1d6d1639197f6971835a33a4de3ed12f9ed77d2938da8ea3bf5b2",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=16604411108972247463 min_us=732.292 p50_us=747.791 p95_us=837.625 max_us=893.000"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=16604411108972247463 min_us=661.375 p50_us=670.542 p95_us=700.375 max_us=743.834"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=16604411108972247463 min_us=1609.400 p50_us=4410.700 p95_us=5070.100 max_us=5659.400 allocated_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": 0,
+      "format": 1,
+      "count": 4096,
+      "input_sha256": "0a95e978776ca39752d4966e988e53ade09928448210de03a2dc1052b69bc264",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=764867803002471299 min_us=3127.542 p50_us=3534.584 p95_us=4056.375 max_us=4429.583"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=764867803002471299 min_us=2588.333 p50_us=2716.958 p95_us=3057.208 max_us=3093.375"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=764867803002471299 min_us=3479.200 p50_us=4099.400 p95_us=9401.900 max_us=9574.300 allocated_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": 0,
+      "format": 2,
+      "count": 4096,
+      "input_sha256": "e781f35a8b66a4cc0ce469402e983843b04eafb8c1856b2b6773e28beb0a7eca",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=605855072835208067 min_us=3188.250 p50_us=3645.084 p95_us=4064.042 max_us=4172.959"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=605855072835208067 min_us=3229.708 p50_us=3595.583 p95_us=3861.542 max_us=4134.541"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=605855072835208067 min_us=3542.400 p50_us=4222.200 p95_us=11470.400 max_us=11592.900 allocated_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": 1,
+      "format": 1,
+      "count": 4096,
+      "input_sha256": "2352ab7e87e41ce567b9e15fc036235b938098ed95c615ce30216ff4fb30a7fd",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=17625759194408878128 min_us=81.875 p50_us=83.083 p95_us=86.292 max_us=89.959"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=17625759194408878128 min_us=90.042 p50_us=90.292 p95_us=98.708 max_us=105.500"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=17625759194408878128 min_us=755.300 p50_us=780.500 p95_us=849.500 max_us=955.700 allocated_p50=0"
+        }
+      ]
+    },
+    {
+      "kind": 1,
+      "format": 2,
+      "count": 4096,
+      "input_sha256": "e10d6fc4a7ff2d9aef34ff6546f2de6e6aaa030906bfee37b13ed21f8a14057d",
+      "runs": [
+        {
+          "implementation": "rust",
+          "output": "queries=65536 checksum=4568207846517964615 min_us=3286.917 p50_us=3660.375 p95_us=4040.125 max_us=4148.375"
+        },
+        {
+          "implementation": "cpp",
+          "output": "queries=65536 checksum=4568207846517964615 min_us=3465.916 p50_us=4270.083 p95_us=5718.792 max_us=6096.792"
+        },
+        {
+          "implementation": "managed",
+          "output": "queries=65536 checksum=4568207846517964615 min_us=3383.700 p50_us=4143.200 p95_us=10928.000 max_us=11183.200 allocated_p50=0"
+        }
+      ]
+    }
+  ],
+  "temporary_bytes_removed": 74170999
+}

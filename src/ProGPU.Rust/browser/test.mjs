@@ -1,0 +1,914 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { installWebGpuDiagnostics } from './diagnostics.mjs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const tools = path.resolve(process.env.PROGPU_RUST_BROWSER_TOOLS ?? 'artifacts/progpu-rust/browser-tools');
+const { chromium } = createRequire(path.join(tools, 'package.json'))('playwright');
+const { PNG } = createRequire(path.join(tools, 'package.json'))('pngjs');
+const output = path.resolve(process.env.PROGPU_RUST_BROWSER_RESULTS ?? 'artifacts/progpu-rust/browser-results');
+await mkdir(output, { recursive: true });
+// A failed rerun must not leave a previous successful receipt or screenshot.
+await Promise.all(['results.json', 'canvas-dpr1.png', 'canvas-dpr2.png'].map(
+  name => rm(path.join(output, name), { force: true })));
+const flags = ['--enable-unsafe-webgpu', '--use-angle=swiftshader', '--disable-webgpu-shader-disk-cache'];
+if (process.platform === 'linux') {
+  // WebGPU and the Linux canvas compositor must share the Vulkan software host.
+  // Adapter creation alone succeeds without this, but canvas presentation loses
+  // the device because Chromium cannot allocate its shared image backing.
+  flags.push('--enable-features=Vulkan', '--use-vulkan=swiftshader', '--disable-vulkan-surface');
+}
+const headless = process.env.PROGPU_RUST_BROWSER_HEADED !== '1';
+const browser = await chromium.launch({ headless, channel: 'chromium', args: flags });
+// Compact original C# output fixture, revalidated by the mandatory source oracle.
+const gposBinary=await readFile(new URL('./managed-gpos.bin',import.meta.url));
+assert.equal(gposBinary.subarray(0,4).toString(),'PGP1');let gposCursor=4;
+const gposU32=()=>{const n=gposBinary.readUInt32LE(gposCursor);gposCursor+=4;return n;};
+const gposBytes=()=>{const n=gposU32(),b=[...gposBinary.subarray(gposCursor,gposCursor+n)];gposCursor+=n;return b;};
+const gposFonts=Array.from({length:gposU32()},gposBytes),gposCases=[];
+for(let n=gposU32();n>0;n--){const raw=Buffer.from(gposBytes());let p=0;const u=()=>{const v=raw.readUInt32LE(p);p+=4;return v;};const length=u(),font=u(),lookup=u(),position=u(),direction=u(),mode=u(),count=u();const bytes=[...raw.subarray(p,p+length)];p+=length;const records=Array.from({length:count*31},u);assert.equal(p,raw.length);const expected=Buffer.from(gposBytes());gposCases.push({font:gposFonts[font],bytes,records,options:[lookup,position,direction,mode,65536],expected:Array.from({length:expected.length/4},(_,i)=>expected.readUInt32LE(i*4))});}
+assert.equal(gposCursor,gposBinary.length);
+const positioningBinary=await readFile(new URL('./managed-positioning.bin',import.meta.url));
+assert.equal(positioningBinary.subarray(0,4).toString(),'PMP1');let positioningCursor=4;
+const positioningU32=()=>{const n=positioningBinary.readUInt32LE(positioningCursor);positioningCursor+=4;return n;};
+const positioningBytes=()=>{const n=positioningU32(),b=[...positioningBinary.subarray(positioningCursor,positioningCursor+n)];positioningCursor+=n;return b;};
+const positioningWords=n=>Array.from({length:n},positioningU32),positioningCases=[];
+for(let n=positioningU32();n>0;n--){const font=positioningBytes(),coordinates=positioningWords(positioningU32()),policy=positioningWords(positioningU32()),options=[positioningU32(),positioningU32(),65536],queries=positioningWords(positioningU32()*2),records=positioningWords(positioningU32()*31),raw=Buffer.from(positioningBytes());positioningCases.push({font,coordinates,policy,options,queries,records,expected:Array.from({length:raw.length/4},(_,i)=>raw.readUInt32LE(i*4))});}
+assert.equal(positioningCursor,positioningBinary.length);
+const variationBinary=await readFile(new URL('./managed-variations.bin',import.meta.url));
+assert.equal(variationBinary.subarray(0,4).toString(),'PVI1');let variationCursor=4;
+const variationU32=()=>{const n=variationBinary.readUInt32LE(variationCursor);variationCursor+=4;return n;};
+const variationBytes=()=>{const n=variationU32(),b=variationBinary.subarray(variationCursor,variationCursor+n);variationCursor+=n;return b;};
+const variationWords=()=>{const b=variationBytes();return Array.from({length:b.length/4},(_,i)=>b.readUInt32LE(i*4));},variationCases=[];
+for(let n=variationU32();n>0;n--)variationCases.push({font:[...variationBytes()],request:variationWords(),expected:variationWords()});
+assert.equal(variationCursor,variationBinary.length);
+const nameBinary=await readFile(new URL('./managed-names.bin',import.meta.url));
+assert.equal(nameBinary.subarray(0,4).toString(),'PNM1');let nameCursor=4;
+const nameU32=()=>{const n=nameBinary.readUInt32LE(nameCursor);nameCursor+=4;return n;};
+const nameBytes=()=>{const n=nameU32(),b=nameBinary.subarray(nameCursor,nameCursor+n);nameCursor+=n;return b;};
+const nameCases=[];
+for(let n=nameU32();n>0;n--){const font=[...nameBytes()],axes=nameU32()!==0,ids=Array.from({length:nameU32()},nameU32),raw=nameBytes();nameCases.push({font,axes,ids,expected:Array.from({length:raw.length/4},(_,i)=>raw.readUInt32LE(i*4))});}
+assert.equal(nameCursor,nameBinary.length);
+const fontBinary=await readFile(new URL('./managed-font.bin',import.meta.url));
+assert.equal(fontBinary.subarray(0,4).toString(),'PMF1');let fontCursor=4;
+const fontU32=()=>{const n=fontBinary.readUInt32LE(fontCursor);fontCursor+=4;return n;};
+const fontBytes=()=>{const n=fontU32(),b=fontBinary.subarray(fontCursor,fontCursor+n);fontCursor+=n;return b;};
+const fontCases=[];
+for(let n=fontU32();n>0;n--){const input=[...fontBytes()],raw=fontBytes();fontCases.push({input,expected:Array.from({length:raw.length/4},(_,i)=>raw.readUInt32LE(i*4))});}
+assert.equal(fontCursor,fontBinary.length);
+const mappingBinary=await readFile(new URL('./managed-mapping.bin',import.meta.url));
+assert.equal(mappingBinary.subarray(0,4).toString(),'PMG1');let mappingCursor=4;
+const mappingU32=()=>{const n=mappingBinary.readUInt32LE(mappingCursor);mappingCursor+=4;return n;};
+const mappingBytes=()=>{const n=mappingU32(),b=mappingBinary.subarray(mappingCursor,mappingCursor+n);mappingCursor+=n;return b;};
+const mappingCases=[];
+for(let n=mappingU32();n>0;n--){const font=[...mappingBytes()],request=Array.from({length:mappingU32()*3},mappingU32),raw=mappingBytes();mappingCases.push({font,request,expected:Array.from({length:raw.length/4},(_,i)=>raw.readUInt32LE(i*4))});}
+assert.equal(mappingCursor,mappingBinary.length);
+const graphemeBinary=await readFile(new URL('./managed-grapheme.bin',import.meta.url));
+assert.equal(graphemeBinary.subarray(0,4).toString(),'PMG2');let graphemeCursor=4;
+const graphemeU32=()=>{const n=graphemeBinary.readUInt32LE(graphemeCursor);graphemeCursor+=4;return n;};
+const managedGraphemeCases=[];
+for(let n=graphemeU32();n>0;n--){const source=Array.from({length:graphemeU32()},()=>{const unit=graphemeBinary.readUInt16LE(graphemeCursor);graphemeCursor+=2;return unit;});const expected=Array.from({length:graphemeU32()/4},graphemeU32);managedGraphemeCases.push({source,expected});}
+assert.equal(graphemeCursor,graphemeBinary.length);
+const preparationBinary=await readFile(new URL('./managed-preparation.bin',import.meta.url));
+assert.equal(preparationBinary.subarray(0,4).toString(),'PTP1');let preparationCursor=4;
+const preparationU32=()=>{const n=preparationBinary.readUInt32LE(preparationCursor);preparationCursor+=4;return n;};
+const preparationFonts=[];
+for(let n=preparationU32();n>0;n--){const size=preparationU32();preparationFonts.push([...preparationBinary.subarray(preparationCursor,preparationCursor+size)]);preparationCursor+=size;}
+const preparationCases=[];
+for(let n=preparationU32();n>0;n--){const font=preparationU32(),request=Array.from({length:preparationU32()},preparationU32),expected=Array.from({length:preparationU32()/4},preparationU32);preparationCases.push({font,request,expected});}
+assert.equal(preparationCursor,preparationBinary.length);
+const actionBinary=await readFile(new URL('./managed-script-actions.bin',import.meta.url));
+assert.equal(actionBinary.subarray(0,4).toString(),'PSA1');let actionCursor=4;
+const actionU32=()=>{const n=actionBinary.readUInt32LE(actionCursor);actionCursor+=4;return n;};
+const actionFonts=[];
+for(let n=actionU32();n>0;n--){const size=actionU32();actionFonts.push([...actionBinary.subarray(actionCursor,actionCursor+size)]);actionCursor+=size;}
+const actionCases=[];
+for(let n=actionU32();n>0;n--){const font=actionU32(),request=Array.from({length:actionU32()},actionU32),expected=Array.from({length:actionU32()/4},actionU32);actionCases.push({font,request,expected});}
+assert.equal(actionCursor,actionBinary.length);
+const scriptPropertyFacts=JSON.parse(await readFile(new URL('./script-properties.json',import.meta.url),'utf8'));
+const reports = [];
+const diagnosticsEnabled=process.env.PROGPU_RUST_BROWSER_DIAGNOSTICS==='1';
+let activePage;
+let activeEntry;
+let gpuProcessCapture;
+function observeGpuProcess(dpr,stage) {
+  if(gpuProcessCapture||dpr!==2||!diagnosticsEnabled||process.platform!=='linux'||
+     process.env.PROGPU_RUST_BROWSER_GPU_STACKS!=='1')return;
+  console.log(`[DPR ${dpr}] arming failure-only GPU process observation: ${stage}`);
+  const capture=spawn('python3',[fileURLToPath(new URL('./capture-gpu.py',import.meta.url)),
+    '--parent',String(process.pid),'--executable',chromium.executablePath(),
+    '--output',path.join(output,'gpu-process.json')],
+    {stdio:['ignore','inherit','inherit']});
+  gpuProcessCapture=new Promise(resolve=>{
+    capture.on('error',e=>{console.error(`GPU process observation unavailable: ${e}`);resolve();});
+    capture.on('exit',()=>resolve());
+  });
+}
+// Playwright's waitForFunction treats a returned Promise as truthy. Await each
+// serialized WASM query explicitly so a false result cannot pass the gate.
+async function waitFor(check) {
+  const deadline=Date.now()+30000;
+  while(Date.now()<deadline) {
+    const result=await check();
+    if(result) return result;
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  throw new Error('Timed out waiting for retained browser frame');
+}
+try {
+  for (const dpr of [1, 2]) {
+    const context = await browser.newContext({ viewport: { width: 960, height: 680 }, deviceScaleFactor: dpr });
+    const page = await context.newPage();
+    activePage=page;
+    const entry={dpr,stage:'initialization',consoleErrors:[]};
+    activeEntry=entry;
+    reports.push(entry);
+    if(diagnosticsEnabled)await page.addInitScript(installWebGpuDiagnostics);
+    const errors = [];
+    page.on('pageerror', e => { errors.push(String(e));entry.consoleErrors.push(String(e)); });
+    page.on('console', m => {
+      if(m.type()==='info'&&m.text()==='ProGPU diagnostic: warm canvas burst')
+        observeGpuProcess(dpr,'warm canvas burst');
+      if (m.type() === 'error') {errors.push(m.text());entry.consoleErrors.push(m.text());}
+      if(m.type()==='info'&&m.text().startsWith('validating '))entry.stage=m.text();
+      if (m.type() === 'info' || m.type() === 'error') console.log(`[DPR ${dpr}] ${m.text()}`);
+    });
+    await page.goto(process.env.PROGPU_RUST_BROWSER_URL ?? 'http://127.0.0.1:4174', { waitUntil: 'networkidle' });
+    await page.evaluate(() => window.progpuReady);
+    console.log(`[DPR ${dpr}] browser renderer initialized`);
+    await waitFor(() => page.evaluate(async () => {
+      const app = await window.progpuReady;
+      return app.exclusive(() => app.renderer.metrics().frames >= 4);
+    }));
+    entry.stage='source and offscreen controls';
+    const report = await page.evaluate(async ({gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases,scriptPropertyFacts}) => {
+      const app = await window.progpuReady;
+      return app.exclusive(async () => {
+        const r = app.renderer;
+        const check = (condition, message) => { if (!condition) throw new Error(message); };
+        // Authored three-point contour: off/on/off, original signed deltas and
+        // instructions. Expected records are independent explicit native controls.
+        const head=new Uint8Array(54); new DataView(head.buffer).setInt16(50,1);
+        const maxp=new Uint8Array(6); new DataView(maxp.buffer).setUint16(4,1);
+        const glyf=new Uint8Array(31), gv=new DataView(glyf.buffer);
+        gv.setInt16(0,1); gv.setUint16(10,2); gv.setUint16(12,2);
+        glyf.set([0xb0,1,0,1,0],14);
+        for(let i=19;i<31;i+=2) gv.setInt16(i,-513);
+        const loca=new Uint8Array(8); new DataView(loca.buffer).setUint32(4,glyf.length);
+        const tables=[['head',head],['maxp',maxp],['loca',loca],['glyf',glyf]];
+        const font=new Uint8Array(200), fv=new DataView(font.buffer);
+        fv.setUint32(0,0x10000); fv.setUint16(4,tables.length);
+        let offset=12+tables.length*16;
+        for(let i=0;i<tables.length;++i) {
+          const [tag,bytes]=tables[i], record=12+i*16;
+          font.set(new TextEncoder().encode(tag),record);
+          fv.setUint32(record+8,offset); fv.setUint32(record+12,bytes.length);
+          font.set(bytes,offset); offset=(offset+bytes.length+3)&~3;
+        }
+        const decoded=app.decode_simple_glyph(font,0);
+        check(JSON.stringify([...decoded.points])===JSON.stringify([-513,-513,0,-1026,-1026,1,-1539,-1539,0]),'WASM original outline points');
+        check(JSON.stringify([...decoded.ends])==='[2]','WASM contour endpoints');
+        check(JSON.stringify([...decoded.instructions])==='[176,1]','WASM retained instructions');
+        const expectedSegments=new ArrayBuffer(96), sv=new DataView(expectedSegments);
+        for(let i=0;i<2;++i) {
+          const values=[-1026,-1026,i===0?-513:-1539,i===0?-513:-1539,-1026,-1026,0,0];
+          values.forEach((value,j)=>sv.setFloat32(i*48+j*4,value,true));
+          sv.setUint32(i*48+32,1,true);
+        }
+        check(decoded.segments.length===96 && decoded.segments.every((b,i)=>b===new Uint8Array(expectedSegments)[i]),'WASM exact quadratic path bytes');
+        let rejected=false;
+        try { app.decode_simple_glyph(font.slice(0,offset-4),0); } catch { rejected=true; }
+        check(rejected,'WASM truncated glyph rejection');
+        // Half-scale component with scaled offsets (3,5), rounded ties-to-even.
+        // This executes production recursive expansion, not a JS geometry path.
+        new DataView(maxp.buffer).setUint16(4,2);
+        const compound=new Uint8Array(20), cv=new DataView(compound.buffer);
+        cv.setInt16(0,-1); cv.setUint16(10,0x80f);
+        cv.setInt16(14,3); cv.setInt16(16,5); cv.setInt16(18,8192);
+        const allGlyphs=new Uint8Array(glyf.length+compound.length);
+        allGlyphs.set(glyf); allGlyphs.set(compound,glyf.length);
+        const locations=new Uint8Array(12), lv=new DataView(locations.buffer);
+        lv.setUint32(4,glyf.length); lv.setUint32(8,allGlyphs.length);
+        const compoundFont=new Uint8Array(256), cfv=new DataView(compoundFont.buffer);
+        cfv.setUint32(0,0x10000); cfv.setUint16(4,4);
+        let compoundOffset=76;
+        for(const [i,[tag,data]] of [['head',head],['maxp',maxp],['loca',locations],['glyf',allGlyphs]].entries()) {
+          const record=12+i*16;
+          compoundFont.set(new TextEncoder().encode(tag),record);
+          cfv.setUint32(record+8,compoundOffset); cfv.setUint32(record+12,data.length);
+          compoundFont.set(data,compoundOffset); compoundOffset=(compoundOffset+data.length+3)&~3;
+        }
+        const expanded=app.decode_glyph_outline(compoundFont,1);
+        check(JSON.stringify([...expanded.points])==='[-254.5,-254.5,-511,-511,-767.5,-767.5]','WASM composite original points');
+        const expectedExpanded=expectedSegments.slice(0), ev=new DataView(expectedExpanded);
+        for(let i=0;i<2;++i) for(let j=0;j<6;++j) ev.setFloat32(i*48+j*4,sv.getFloat32(i*48+j*4,true)*.5+2,true);
+        check(expanded.segments.length===96 && expanded.segments.every((b,i)=>b===new Uint8Array(expectedExpanded)[i]),'WASM composite exact path bytes');
+        rejected=false;
+        try { app.decode_glyph_outline(compoundFont.slice(0,compoundOffset-4),1); } catch { rejected=true; }
+        check(rejected,'WASM truncated composite rejection');
+        const cff=new Uint8Array([1,0,4,4,0,0,0,1,1,1,3,156,17,0,0,0,0,
+          0,1,1,1,12,139,139,21,239,139,139,239,39,139,5,14]);
+        const cffFont=new Uint8Array(28+cff.length), cffv=new DataView(cffFont.buffer);
+        cffv.setUint32(0,0x4f54544f); cffv.setUint16(4,1);
+        cffv.setUint32(12,0x43464620); cffv.setUint32(20,28); cffv.setUint32(24,cff.length);
+        cffFont.set(cff,28);
+        const cffSegments=app.decode_cff_outline(cffFont,0);
+        const expectedCff=new Uint8Array(192), cfsv=new DataView(expectedCff.buffer);
+        [[0,0,100,0],[100,0,100,100],[100,100,0,100],[0,100,0,0]].forEach((line,i)=>
+          line.forEach((value,j)=>cfsv.setFloat32(i*48+j*4,value,true)));
+        check(cffSegments.length===192 && cffSegments.every((b,i)=>b===expectedCff[i]),'WASM CFF original closed path bytes');
+        rejected=false;
+        try { app.decode_cff_outline(cffFont.slice(0,-1),0); } catch { rejected=true; }
+        check(rejected,'WASM truncated CFF rejection');
+        const variableFont=new Uint8Array(110), vv=new DataView(variableFont.buffer);
+        vv.setUint32(0,0x10000); vv.setUint16(4,2);
+        vv.setUint32(12,0x66766172); vv.setUint32(20,44); vv.setUint32(24,36);
+        vv.setUint32(28,0x61766172); vv.setUint32(36,80); vv.setUint32(40,30);
+        vv.setUint32(44,0x10000); vv.setUint16(48,16); vv.setUint16(52,1); vv.setUint16(54,20);
+        vv.setUint32(60,0x77676874); vv.setInt32(64,-65536); vv.setInt32(72,65536);
+        vv.setUint32(80,0x10000); vv.setUint16(86,1); vv.setUint16(88,5);
+        [[-16384,-16384],[-4,-2],[0,0],[4,2],[16384,16384]].forEach((pair,i)=>
+          pair.forEach((value,j)=>vv.setInt16(90+i*4+j*2,value)));
+        let variationChecks=0;
+        for (const [fixed,expected] of [[-12,-2],[-4,0],[4,0],[12,2]]) {
+          for (const strict of [false,true]) {
+            check(app.normalize_font_variation(variableFont,0,fixed,fixed/65536,strict)===expected,'WASM variation mapped ties');
+            variationChecks++;
+          }
+        }
+        vv.setInt16(100,1);
+        check(app.normalize_font_variation(variableFont,0,0,0,false)===1,'WASM legacy avar admission');
+        rejected=false;
+        try { app.normalize_font_variation(variableFont,0,0,0,true); } catch { rejected=true; }
+        check(rejected,'WASM strict avar rejection');
+        variationChecks+=2;
+        const itemStore=new Uint8Array(44), iv=new DataView(itemStore.buffer);
+        iv.setUint16(0,1); iv.setUint32(2,16); iv.setUint16(6,2);
+        iv.setUint32(8,26); iv.setUint32(12,36);
+        iv.setUint16(16,1); iv.setUint16(18,1); iv.setInt16(22,8192); iv.setInt16(24,16384);
+        iv.setUint16(26,1); iv.setUint16(28,1); iv.setUint16(30,1); iv.setInt16(34,100);
+        iv.setUint16(40,1);
+        const itemValues=app.item_variation_values(itemStore,new Int16Array([4096]));
+        check(itemValues.length===3 && itemValues[0]===0.5 && itemValues[1]===50 && itemValues[2]===0.5,'WASM item variation scalars/deltas');
+        rejected=false;
+        try { app.item_variation_values(itemStore.slice(0,-1),new Int16Array([4096])); } catch { rejected=true; }
+        check(rejected,'WASM unselected item subtable truncation rejection');
+        variationChecks+=2;
+        const metricsFont=new Uint8Array(219), mv=new DataView(metricsFont.buffer);
+        mv.setUint32(0,0x10000);mv.setUint16(4,3);
+        [[0x66766172,60,36],[0x68656164,96,54],[0x48564152,150,69]].forEach(([tag,off,len],i)=>{
+          mv.setUint32(12+i*16,tag);mv.setUint32(20+i*16,off);mv.setUint32(24+i*16,len);
+        });
+        metricsFont.set(variableFont.subarray(44,80),60);metricsFont.set(head,96);mv.setUint16(114,1000);
+        mv.setUint32(150,0x10000);mv.setUint32(154,20);mv.setUint32(158,64);mv.setUint32(162,64);mv.setUint32(166,0xffffffff);
+        metricsFont.set(itemStore,170);metricsFont.set([0,0,0,1,0],214);
+        const metricsCoordinates=new Int16Array([4096]);
+        const metricValues=app.horizontal_font_metrics(metricsFont,65535,metricsCoordinates,true);
+        check(JSON.stringify([...metricValues])==='[1,1,550,550,50,1,50,1]','WASM owned HVAR mapping and base fallback');
+        check(app.design_font_advance(metricsFont,0,metricsCoordinates)===550,'WASM direct HVAR advance');
+        const noBearing=metricsFont.slice();new DataView(noBearing.buffer).setUint32(162,0);
+        const noBearingValues=app.horizontal_font_metrics(noBearing,0,metricsCoordinates,true);
+        check(noBearingValues[6]===0 && noBearingValues[7]===0,'WASM absent bearing mapping');
+        const disabledHvar=metricsFont.slice();new DataView(disabledHvar.buffer).setUint32(154,0);
+        check(JSON.stringify([...app.horizontal_font_metrics(disabledHvar,0,metricsCoordinates,false)])==='[0,0,500,500,0,0,0,0]','WASM legacy zero-store HVAR');
+        rejected=false;try {app.horizontal_font_metrics(disabledHvar,0,metricsCoordinates,true);}catch{rejected=true;}
+        check(rejected,'WASM strict HVAR rejects zero store');
+        const badHvar=metricsFont.slice();new DataView(badHvar.buffer).setUint32(154,0xffffffff);
+        check(app.design_font_advance(badHvar,0,new Int16Array())===500,'WASM empty request precedes variation validation');
+        rejected=false;try {app.design_font_advance(badHvar,0,metricsCoordinates);}catch{rejected=true;}
+        check(rejected,'WASM active malformed HVAR rejection');
+        rejected=false;try {app.horizontal_font_metrics(metricsFont,0,new Int16Array(),true);}catch{rejected=true;}
+        check(rejected,'WASM prepared HVAR coordinate capacity');
+        const horizontalChecks=8;
+        // Neutral VVAR is strict and separate from static VORG origin policy.
+        const verticalHeader=new Uint8Array(36), vh=new DataView(verticalHeader.buffer);
+        vh.setUint16(34,1);
+        const verticalMetric=new Uint8Array([4,176,0,0]);
+        const verticalOrigin=new Uint8Array([0,1,0,0,3,132,0,0]); // 900, no records
+        const verticalMaxp=new Uint8Array([0,0,0,0,0,8]);
+        const vvar=new Uint8Array(73), vr=new DataView(vvar.buffer);
+        vr.setUint32(0,0x10000);vr.setUint32(4,24);vr.setUint32(8,68);vr.setUint32(12,68);vr.setUint32(20,68);
+        vvar.set(itemStore,24);vvar.set([0,0,0,1,0],68);
+        const verticalTables=[['maxp',verticalMaxp],['fvar',variableFont.slice(44,80)],['vhea',verticalHeader],['vmtx',verticalMetric],['VORG',verticalOrigin],['VVAR',vvar]];
+        const makeVertical=(tables)=>{
+          const bytes=new Uint8Array(12+tables.length*16+tables.reduce((n,[,v])=>n+v.length,0)),view=new DataView(bytes.buffer);
+          view.setUint32(0,0x10000);view.setUint16(4,tables.length);let at=12+tables.length*16;
+          tables.forEach(([tag,data],i)=>{bytes.set(new TextEncoder().encode(tag),12+i*16);view.setUint32(20+i*16,at);view.setUint32(24+i*16,data.length);bytes.set(data,at);at+=data.length;});
+          return bytes;
+        };
+        const verticalFont=makeVertical(verticalTables);
+        check(JSON.stringify([...app.vertical_font_metrics(verticalFont,7,metricsCoordinates)])==='[1200,1,900,1,1,1,50,50,0,50,1,0,1]','WASM owned VVAR deltas and independent static VORG');
+        check(JSON.stringify([...app.vertical_font_metrics(makeVertical(verticalTables.slice(0,-1)),7,metricsCoordinates)])==='[1200,1,900,1,0,0,0,0,0,0,0,0,0]','WASM absent VVAR remains distinct');
+        let verticalChecks=2;
+        for (const [bytes,glyph,coords] of [
+          [verticalFont,8,metricsCoordinates],
+          [verticalFont,0,new Int16Array()],
+          [verticalFont,0,new Int16Array([16385])],
+          [makeVertical([...verticalTables,['VVAR',vvar]]),0,metricsCoordinates],
+        ]) {rejected=false;try{app.vertical_font_metrics(bytes,glyph,coords);}catch{rejected=true;}check(rejected,'WASM strict VVAR request/directory rejection');verticalChecks++;}
+        for (const mutate of [
+          v=>v.setUint32(8,0), // implicit advance map lacks all eight rows
+          v=>v.setUint8(69,0x40), // reserved map format bits
+          v=>v.setUint8(68,1), // generic format one is not VVAR admission
+          v=>v.setInt16(48,16385), // region endpoint outside normalized range
+        ]) {const changed=vvar.slice();mutate(new DataView(changed.buffer));const tables=verticalTables.slice();tables[5]=['VVAR',changed];rejected=false;try{app.vertical_font_metrics(makeVertical(tables),0,metricsCoordinates);}catch{rejected=true;}check(rejected,'WASM whole VVAR validation');verticalChecks++;}
+        const simpleFont=new Uint8Array(80), simpleView=new DataView(simpleFont.buffer);
+        simpleView.setUint32(0,0x10000);simpleView.setUint16(4,1);simpleView.setUint32(12,0x636d6170);simpleView.setUint32(20,28);simpleView.setUint32(24,52);
+        simpleView.setUint16(30,1);simpleView.setUint16(32,3);simpleView.setUint16(34,10);simpleView.setUint32(36,12);simpleView.setUint16(40,12);simpleView.setUint32(44,40);simpleView.setUint32(52,2);
+        [[56,0x41,3],[68,0x1f600,7]].forEach(([at,code,glyph])=>{simpleView.setUint32(at,code);simpleView.setUint32(at+4,code);simpleView.setUint32(at+8,glyph);});
+        const simpleText=new Uint16Array([0x41,0xd83d,0xde00,0xad,10,0x85,0xd800]);
+        const simpleRun=app.simple_font_run(simpleFont,simpleText,2,6);
+        check(JSON.stringify([...simpleRun.text])===JSON.stringify([...simpleText]) && JSON.stringify([...simpleRun.clusters])==='[0,1,1,2,3,4,5]' && JSON.stringify([...simpleRun.glyphs])==='[3,7,6,2,2,0]','WASM owned UTF-16 run and source retention');
+        const metricPairs=new Uint32Array([250,300,350,400,450,500,999,999,999,999,550,600]);
+        const simpleScale=new Float64Array([10,1]);
+        const horizontal=app.simple_font_advances(simpleText,simpleRun.clusters,simpleRun.glyphs,metricPairs,1000,simpleScale,false);
+        check(JSON.stringify([...horizontal.advances])==='[2,4,4,0,0,6,-1234567,-1234567]' && JSON.stringify([...horizontal.state])==='[2,2,2,1,1,2,165,165]','WASM exact simple advance rounding, scratch and tails');
+        const sideways=app.simple_font_advances(simpleText,simpleRun.clusters,simpleRun.glyphs,metricPairs,1000,simpleScale,true);
+        check(JSON.stringify([...sideways.advances])==='[3,4,5,0,0,6,-1234567,-1234567]','WASM simple height selection');
+        const noCmap=new Uint8Array(12);new DataView(noCmap.buffer).setUint32(0,0x10000);
+        check(JSON.stringify([...app.simple_font_run(noCmap,new Uint16Array([0,0xad,0x85]),9,0).glyphs])==='[9,9,9]','WASM missing cmap control mapping and soft-hyphen fallback');
+        rejected=false;try{app.simple_font_run(noCmap,new Uint16Array([0,0x41]),9,0);}catch{rejected=true;}check(rejected,'WASM late missing cmap rejection');
+        let simpleTextChecks=5;
+        for (const [text,expected] of [[[0x41,10],2],[[10,0x41],0]]) {
+          const result=app.simple_font_advances(new Uint16Array(text),new Uint16Array([0,0]),new Uint16Array([3]),new Uint32Array([250,300]),1000,simpleScale,false);
+          check(result.advances[0]===expected,'WASM original first cluster control ownership');simpleTextChecks++;
+        }
+        for (const [metrics,units,scales] of [[metricPairs,1000,new Float64Array([NaN,1])],[new Uint32Array([0xffffffff,300,350,400,450,500,999,999,999,999,550,600]),1,simpleScale]]) {
+          rejected=false;try{app.simple_font_advances(simpleText,simpleRun.clusters,simpleRun.glyphs,metrics,units,scales,false);}catch{rejected=true;}check(rejected,'WASM finite and overflow preflight');simpleTextChecks++;
+        }
+        rejected=false;try{app.simple_font_run(simpleFont,new Uint16Array(65537).fill(0x41),0,0);}catch{rejected=true;}check(rejected,'WASM complete simple run capacity boundary');simpleTextChecks++;
+        const unicode8=app.decode_unicode_utf8(new TextEncoder().encode('  A\u0301 ا😀'));
+        const unicode16=app.decode_unicode_utf16(new Uint16Array([0x20,0x20,0x41,0x301,0x20,0x627,0xd83d,0xde00]));
+        const records8=new Uint32Array(unicode8.scalars.buffer,unicode8.scalars.byteOffset,unicode8.scalars.byteLength/4);
+        const records16=new Uint32Array(unicode16.scalars.buffer,unicode16.scalars.byteOffset,unicode16.scalars.byteLength/4);
+        const latinTag=0x6c61746e,arabicTag=0x61726162,defaultTag=0x44464c54;
+        check(JSON.stringify([...records8])===JSON.stringify([0x20,0,1,defaultTag,0x20,1,1,defaultTag,0x41,2,1,latinTag,0x301,3,0x00e60002,defaultTag,0x20,5,1,defaultTag,0x627,6,2,arabicTag,0x1f600,8,4,defaultTag]),'WASM strict UTF-8 original scalar records');
+        check(JSON.stringify([...records16])===JSON.stringify([0x20,0,1,defaultTag,0x20,1,1,defaultTag,0x41,2,1,latinTag,0x301,3,0x00e60001,defaultTag,0x20,4,1,defaultTag,0x627,5,1,arabicTag,0x1f600,6,2,defaultTag]),'WASM strict UTF-16 source offsets');
+        check(JSON.stringify([...new Uint32Array(unicode8.runs.buffer,unicode8.runs.byteOffset,unicode8.runs.byteLength/4)])===JSON.stringify([0,5,0,6,latinTag,5,2,6,6,arabicTag]),'WASM original leading/trailing Common script attachment');
+        check(JSON.stringify([...new Uint32Array(unicode16.runs.buffer,unicode16.runs.byteOffset,unicode16.runs.byteLength/4)])===JSON.stringify([0,5,0,5,latinTag,5,2,5,3,arabicTag]),'WASM script run UTF-16 ranges');
+        let unicodeChecks=4;
+        for(const bytes of [[0x41,0xc0,0x80],[0x41,0xed,0xa0,0x80],[0xf4,0x90,0x80,0x80],[0xe2,0x82]]){rejected=false;try{app.decode_unicode_utf8(new Uint8Array(bytes));}catch{rejected=true;}check(rejected,'WASM invalid UTF-8 atomic rejection');unicodeChecks++;}
+        for(const words of [[0x41,0xd800],[0xdc00],[0xdbff,0x41]]){rejected=false;try{app.decode_unicode_utf16(new Uint16Array(words));}catch{rejected=true;}check(rejected,'WASM strict unpaired-surrogate rejection');unicodeChecks++;}
+        const properties=app.unicode_properties(new Uint32Array([0x3042,0xe81,0x301,0x28,0xd800,0x1d7d0,0xff08]));
+        check(properties[0]===0x6b616e61 && properties[10]===0x6c616f20 && properties[21]===230,'WASM script aliases and combining class');unicodeChecks++;
+        check(properties[35]===0x29 && properties[36]===0x28 && properties[37]===1 && properties[38]===0x29 && properties[39]===1 && properties[66]===0xfe35,'WASM original directional/bracket mappings');unicodeChecks++;
+        check(properties[40]===defaultTag && properties[43]===29 && properties[44]===0xffffffff && properties[54]===2,'WASM invalid scalar category and mathematical decimal digit');unicodeChecks++;
+        // Compare every output byte with the original managed capture digest,
+        // including all raw words, surrogates and every high-bit scalar alias.
+        const propertyPoints=new Uint32Array(scriptPropertyFacts.raw_queries);
+        let propertyIndex=0;
+        for(let cp=0;cp<=scriptPropertyFacts.raw_domain_end_inclusive;cp++)propertyPoints[propertyIndex++]=cp;
+        for(let cp=0;cp<scriptPropertyFacts.high_alias_end_exclusive;cp++)propertyPoints[propertyIndex++]=cp|scriptPropertyFacts.high_alias_or;
+        for(const cp of scriptPropertyFacts.extra_points)propertyPoints[propertyIndex++]=cp;
+        check(propertyIndex===propertyPoints.length,'WASM full property request inventory');
+        const propertyBytes=new Uint8Array(scriptPropertyFacts.response_bytes);
+        const rawWords=Uint16Array.from({length:65536},(_,i)=>i);
+        const wordBytes=app.script_properties(new Uint32Array(),rawWords);
+        check(wordBytes.length===131072,'WASM property extraction inventory');
+        propertyBytes.set(wordBytes);let propertyOffset=wordBytes.length;
+        for(let start=0;start<propertyPoints.length;start+=16384){
+          const result=app.script_properties(propertyPoints.subarray(start,start+16384),new Uint16Array());
+          check(result.length===Math.min(16384,propertyPoints.length-start)*6,'WASM property response width');
+          propertyBytes.set(result,propertyOffset);propertyOffset+=result.length;
+        }
+        check(propertyOffset===propertyBytes.length,'WASM complete property response');
+        const propertyDigest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',propertyBytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
+        check(propertyDigest===scriptPropertyFacts.output_sha256,'WASM full original script property digest');
+        const scriptPropertyQueries=propertyPoints.length,scriptPropertyExtractions=rawWords.length;
+        let bidiChecks=0;
+        const bidiCase=(source,requested,paragraph,levels,indices=source.map((_,i)=>i),lengths=levels.map(()=>1))=>{
+          const result=app.resolve_bidi_utf16(new Uint16Array(source),requested);
+          const data=new DataView(result.levels.buffer,result.levels.byteOffset,result.levels.byteLength);
+          check(result.paragraph===paragraph && result.levels.length===levels.length*8 && JSON.stringify([...result.source])===JSON.stringify(source),'WASM owned bidi source/paragraph');
+          levels.forEach((level,i)=>check(data.getUint32(i*8,true)===indices[i] && data.getUint16(i*8+4,true)===lengths[i] && data.getInt8(i*8+6)===level && data.getUint8(i*8+7)===0,'WASM original bidi record'));
+          bidiChecks++;
+        };
+        const bidiMixed=[0x61,0x62,0x63,0x20,0x5d0,0x5d1,0x5d2];
+        bidiCase(bidiMixed,0,0,[0,0,0,0,1,1,1]);bidiCase(bidiMixed,1,1,[2,2,2,1,1,1,1]);bidiCase(bidiMixed,-128,0,[0,0,0,0,1,1,1]);
+        bidiCase([0x5d0,0x20,0xd83d,0xde00,0x20,0x61],2,1,[1,1,1,1,2],[0,1,2,4,5],[1,1,2,1,1]);
+        bidiCase([0x61,0x2067,0x5d0,0x31,0x2069,0x62],0,0,[0,0,1,2,0,0]);
+        bidiCase([0x28,0x5d0,0x5d1,0x29],0,0,[0,1,1,0]);
+        bidiCase([0x5d0,0x28,0x41,0x29,0x301],1,1,[1,1,2,1,1]);
+        bidiCase([0x202b,0x41,0x202c,0x20],0,0,[0,2,2,0]);
+        for(const requested of [0,1,2])bidiCase([],requested,requested===1?1:0,[]);
+        bidiCase([...Array(200).fill(0x202a),0x5d0,...Array(200).fill(0x202c)],0,0,[...Array(200).fill(0),125,...Array(200).fill(125)]);
+        for(const source of [[0xd800],[0xdc00],[0x41,0xdbff,0x41]]){rejected=false;try{app.resolve_bidi_utf16(new Uint16Array(source),2);}catch{rejected=true;}check(rejected,'WASM owned bidi strict source rejection');bidiChecks++;}
+        let layoutChecks=0;
+        const otWords=(values)=>{const b=new Uint8Array(values.length*2),d=new DataView(b.buffer);values.forEach((v,i)=>d.setUint16(i*2,v));return b;};
+        const otCheck=(bytes,kind,offset,glyph,set,expected)=>{check(JSON.stringify([...app.layout_table_query(bytes,kind,offset,glyph,set)])===JSON.stringify(expected),'WASM original layout query');layoutChecks++;};
+        const otReject=(bytes,kind,offset=0,glyph=0)=>{let caught=false;try{app.layout_table_query(bytes,kind,offset,glyph,0);}catch{caught=true;}check(caught,'WASM original layout rejection');layoutChecks++;};
+        otCheck(otWords([1,4,10,10,10,10]),0,0,10,0,[1]);
+        otCheck(otWords([1,4,10,10,10,10]),0,0,9,0,[0xffffffff]);
+        otCheck(otWords([2,1,0,65535,0]),0,0,65535,0,[65535]);
+        otCheck(otWords([1,65534,2,4,65535]),1,0,65535,0,[65535]);
+        otCheck(otWords([2,2,10,14,65535,65535,65535,7]),1,0,65535,0,[7]);
+        for(const b of [otWords([1,2,10,9]),otWords([2,2,0,1,0,1,2,2]),otWords([2,2,0,1,0,2,3,1]),new Uint8Array()])otReject(b,0);
+        otReject(otWords([1,65535,2,1,2]),1);
+        otReject(otWords([1,1,0]),0,0xffffffff);
+        otReject(otWords([1,1,0]),1,0xfffffffe);
+        const otLayout=otWords([1,1,14,16,18,0,0,0,0,2,6,18,1,65535,2,12,14,42,65535,65535,2,12,14,42,0xbeef,0x1234]);
+        otCheck(otLayout,2,0,0,0,[2,24,1,65535,42,36,38]);
+        otCheck(otLayout,2,0,1,0,[2,36,65535,65535,42,48,50]);
+        otReject(otLayout,2,0,2);
+        const otBadLookup=otLayout.slice();new DataView(otBadLookup.buffer).setUint16(32,0);
+        otReject(otBadLookup,2,0,0);otCheck(otBadLookup,2,0,1,0,[2,36,65535,65535,42,48,50]);
+        const otGdef=otWords([1,3,18,65535,65535,36,52,0,0,1,10,6,0,1,2,3,4,5,2,2,10,14,65535,65535,65535,7,1,2,0,12,0,24,1,4,10,10,10,65535,2,1,0,65535,0]);
+        otCheck(otGdef,3,0,14,1,[4,65535,2,1]);otCheck(otGdef,3,0,15,0,[0,0,2,0]);
+        otCheck(otGdef,3,0,65535,0,[0,7,2,1]);otCheck(otGdef,3,0,10,65535,[0,65535,2,0]);
+        const otBadGdef=otGdef.slice();new DataView(otBadGdef.buffer).setUint32(60,0xffffffff);otReject(otBadGdef,3);
+        for(const minor of [1,4]){const b=otGdef.slice();new DataView(b.buffer).setUint16(2,minor);otReject(b,3);}
+        otReject(otGdef.subarray(0,otGdef.length-1),3);
+        check(app.gdef_blocklisted(442,2874,42038)&&!app.gdef_blocklisted(442,2874,42039),'WASM exact GDEF blocklist tuple');layoutChecks++;
+        let digestChecks=0;
+        const digestTable=(kind,sub)=>otWords([1,0,10,12,14,0,0,1,4,kind,0,1,8,...sub]);
+        const digestCheck=(bytes,extension,glyph,expected)=>{const actual=[...app.layout_digest_query(bytes,0,extension,glyph)];check(JSON.stringify(actual)===JSON.stringify(expected),`WASM original digest ${JSON.stringify(actual)}`);digestChecks++;};
+        const digestSimple=digestTable(1,[1,6,0,1,1,0]);
+        digestCheck(digestSimple,7,0,[1,1,1,1,0,0]);
+        digestCheck(digestSimple,7,4096,[1,0,1,1,0xffffffff,0]);
+        digestCheck(digestSimple,7,1,[1,0,0,1,0xffffffff,0]);
+        digestCheck(digestTable(7,[1,1,0,8,1,6,0,1,1,0]),7,0,[1,1,1,1,0,0]);
+        digestCheck(digestTable(9,[1,1,0,8,1,6,0,1,1,0]),9,0,[1,1,1,1,0,0]);
+        digestCheck(digestTable(1,[1,6,0,1,2,11,10]),7,10,[1,1,1,0,0xffffffff,0]);
+        for(const [extension,kind] of [[7,5],[9,7]]){
+          const context=digestTable(kind,[3,2,0,10,16,1,1,10,1,1,64]);
+          digestCheck(context,extension,10,[1,0,0,0,0xffffffff,1,0,1,2,0,2,0,2,1,0]);
+          digestCheck(context,extension,64,[1,0,0,0,0xffffffff,1,0,1,2,0,2,0,2,0,1]);
+          digestCheck(context.subarray(0,context.length-1),extension,10,[1,0,0,0,0xffffffff,0]);
+        }
+        for(const bad of [new Uint8Array(),digestTable(1,[]),digestSimple.subarray(0,25)]){let caught=false;try{app.layout_digest_query(bad,0,7,0);}catch{caught=true;}check(caught,'WASM invalid digest header');digestChecks++;}
+        let gsubChecks=0;
+        const sg=(id,cluster=0,flags=0,cp=65)=>[id,cp,cluster>>>0,flags>>>0,101,(-202)>>>0,(-303)>>>0,404];
+        const gsubTable=lookups=>{const w=[1,0,10,12,14,0,0,lookups.length,...lookups.map(()=>0)];
+          for(let i=0;i<lookups.length;i++){const [kind,flags,subs]=lookups[i],start=w.length;w[8+i]=start*2-14;w.push(kind,flags,subs.length,...subs.map(()=>0));if(flags&16)w.push(0);for(let j=0;j<subs.length;j++){w[start+3+j]=(w.length-start)*2;w.push(...subs[j]);}}return otWords(w);};
+        const singleSub=[1,6,100,1,3,10,20,30],multiSub=[1,16,1,8,3,100,101,102,1,1,10],ligSub=[1,18,1,8,1,4,88,2,20,1,1,10];
+        const gsub=(table,records,options=[records.length,0xffffffff,0,1,0,0,0,0],gdef=new Uint8Array())=>{gsubChecks++;return [...app.apply_gsub(table,gdef,0,new Uint32Array(records.flat()),new Uint32Array(options))];};
+        const glyphResult=(result,index)=>result.slice(5+index*8,13+index*8);
+        for(const wrapped of [false,true]){const tab=(kind,sub,flags=0)=>gsubTable([[wrapped?7:kind,flags,[wrapped?[1,kind,0,8,...sub]:sub]]]);
+          let r=gsub(tab(1,singleSub),[sg(10,-8),sg(20,9)]);check(r[0]===0&&r[1]===2&&r[2]===1&&glyphResult(r,0)[0]===110&&glyphResult(r,1)[0]===120,'WASM GSUB single bulk');
+          r=gsub(tab(2,multiSub),[sg(10,-8),sg(20,9),sg(900),sg(901)],[2,0,37,1,0,0,0,0]);check(r[0]===0&&r[1]===4&&glyphResult(r,2)[0]===102&&glyphResult(r,2)[3]===0xa0280000&&glyphResult(r,0)[4]===0x80000000&&glyphResult(r,3)[0]===20,'WASM GSUB multiple exact flags/provenance');
+          r=gsub(tab(2,multiSub),[sg(10),sg(20)],[2,0,37,1,0,0,0,0]);check(r[0]===7&&r[1]===2&&r[2]===0&&glyphResult(r,0)[0]===10,'WASM GSUB capacity rollback');
+          const deletion=[1,10,1,8,0,1,1,10];r=gsub(tab(2,deletion),[sg(10),sg(20),sg(999)],[2,0,0,1,0,0,0,0]);check(r[1]===1&&glyphResult(r,0)[0]===20&&glyphResult(r,1)[0]===20&&glyphResult(r,2)[0]===999,'WASM GSUB deletion tail');
+          r=gsub(tab(3,multiSub),[sg(10,0),sg(10,1)],[2,0,136,1,0,0,0,0xdeadbeef]);const random=(Math.imul(0xdeadbeef,48271)>>>0)%2147483647;check(r[4]===random&&glyphResult(r,0)[0]===100+random%3&&glyphResult(r,1)[3]===3,'WASM GSUB random wrapping/dependency');
+          r=gsub(tab(4,ligSub,8),[sg(10,8),sg(12,-3,0,0x301),sg(20,7),sg(30,7)],[4,0,3,1,0,0,0,0]);check(r[1]===3&&glyphResult(r,0)[0]===88&&glyphResult(r,0)[2]===0xfffffffd&&glyphResult(r,0)[3]===0xc0000010&&glyphResult(r,1)[3]===0x800&&glyphResult(r,2)[2]===0xfffffffd,'WASM GSUB ligature cluster/mark');
+          const rev=[1,18,2,24,30,1,36,1,77,1,1,10,1,1,9,1,1,8,1,1,20];r=gsub(tab(8,rev),[sg(8,0),sg(9,1),sg(10,2),sg(20,3)]);check(r[0]===0&&glyphResult(r,2)[0]===77&&glyphResult(r,3)[3]===3,'WASM reverse GSUB');
+          r=gsub(tab(1,singleSub),[sg(10)],[1,0,0,1,1,0,0,0]);check(r[2]===0&&glyphResult(r,0)[0]===10,'WASM required glyph flags');
+          r=gsub(tab(4,ligSub),[sg(10,0,0x2000),sg(20,1,0x4000)],[2,0,16,1,0,0,0,0]);check(r[2]===0&&r[1]===2,'WASM GSUB syllable boundary');
+        }
+        const contextSub=records=>{const w=[3,2,records.length,0,0,...records.flat()];w[3]=w.length*2;w.push(1,1,10);w[4]=w.length*2;w.push(1,1,20);return w;};
+        for(const records of [[[0,1]],[[0,1],[2,1]],[[0,0]]]){const b=gsubTable([[5,0,[contextSub(records)]],[1,0,[singleSub]]]);const r=gsub(b,[sg(10,0),sg(20,9)],[2,0,64,1,0,0,0,0]);check(r[0]===(records.length===2?4:0)&&glyphResult(r,1)[3]===3,'WASM contextual dependency/error');check(r[2]===(records.length===1&&records[0][1]===1?1:0),'WASM nested applied state');if(records.length===2)check(glyphResult(r,0)[0]===110&&r[3]===0,'WASM retained nested write/unpublished boundary');}
+        for(const offset of [0x7fffffff,0x80000000,0xffffffff]){const b=gsubTable([[7,0,[[1,1,0,8,...singleSub]]]]);new DataView(b.buffer).setUint32(30,offset);const r=gsub(b,[sg(10)]);check(r[0]===4&&r[2]===0,'WASM GSUB extreme extension offset');}
+        const contextRules=[
+          [5,[1,22,1,8,1,4,2,1,20,0,1,1,1,10],0,[sg(10,0),sg(20,1)]],
+          [5,[2,26,32,2,0,12,1,4,2,1,2,0,1,1,1,10,1,10,11,1,0,0,0,0,0,0,0,0,0,2],0,[sg(10,0),sg(20,1)]],
+          [6,[1,32,1,8,1,4,2,9,8,2,20,1,30,1,0,1,1,1,10],2,[sg(8,0),sg(9,1),sg(10,2),sg(20,3),sg(30,4)]],
+          [6,[2,40,46,46,46,2,0,16,1,4,2,0,0,2,2,1,3,1,0,1,1,1,10,1,0,31,...Array.from({length:31},(_,i)=>Math.floor(i/10))],2,[sg(8,0),sg(9,1),sg(10,2),sg(20,3),sg(30,4)]],
+          [6,[3,2,24,30,2,36,42,1,48,1,0,1,1,1,9,1,1,8,1,1,10,1,1,20,1,1,30],2,[sg(8,0),sg(9,1),sg(10,2),sg(20,3),sg(30,4)]]];
+        for(const [kind,sub,pos,records] of contextRules){for(const wrapped of [false,true]){const b=gsubTable([[wrapped?7:kind,0,[wrapped?[1,kind,0,8,...sub]:sub]],[1,0,[singleSub]]]);const r=gsub(b,records,[records.length,pos,64,1,0,0,0,0]);check(r[0]===0&&r[2]===1&&r[3]===pos+2&&glyphResult(r,pos)[0]===110,'WASM GSUB all contextual formats');}}
+        const oneContext=[3,1,2,16,0,1,0,1,1,1,10],deleteSub=[1,10,1,8,0,1,1,10];
+        const stale=gsub(gsubTable([[7,0,[[1,5,0,8,...oneContext],[1,2,0,8,...multiSub]]],[2,0,[deleteSub]]]),[sg(10),sg(900),sg(901)],[1,0xffffffff,0,1,0,0,0,0]);check(stale[0]===0&&stale[1]===2&&stale[2]===1&&glyphResult(stale,2)[0]===102,'WASM original-slot continuation after nested deletion');
+        const gd=otWords([1,2,14,0,0,32,46,1,10,6,1,2,3,4,5,0,1,10,4,0,0,2,7,1,1,0,8,1,1,12]);
+        for(const flags of [0x700,0x710]){const r=gsub(gsubTable([[1,flags,[[1,6,100,1,1,12]]]]),[sg(12,0,0,0x301)],[1,0,0,1,0,0,0,0],gd);check(r[0]===0&&r[2]===+(flags===0x710)&&glyphResult(r,0)[0]===(flags===0x710?112:12),'WASM original mark-set versus attachment admission');}
+        let managedGsubChecks=0;
+        const mg=(id,cluster=0,cp=65)=>[id,cluster>>>0,(-700)>>>0,900,cp,0,101,(-202)>>>0,(-303)>>>0,404,7,0,0,0,0,0,0,0,0,0,0,0,0,37,9,42,255,0,1,5,10123];
+        const mopts=(patch={})=>Object.assign([0,0xffffffff,0,0,0,0,0,0xdeadbeef,160,65536],patch);
+        const managedGsub=(table,records,options=mopts(),source=font,index=0)=>{managedGsubChecks++;return [...app.apply_managed_gsub(source,table,index,new Uint32Array(records.flat()),new Uint32Array(options))];};
+        const mrecord=(r,i)=>r.slice(7+r[2]+i*31,7+r[2]+(i+1)*31);
+        const equalRecord=(r,i,expected,label)=>check(JSON.stringify(mrecord(r,i))===JSON.stringify(expected),label);
+        for(const wrapped of [false,true]){
+          const tab=(kind,sub,flags=0)=>gsubTable([[wrapped?7:kind,flags,[wrapped?[1,kind,0,8,...sub]:sub]]]);
+          const base=mg(10,-8),expected=base.slice();expected[0]=110;expected[21]=1;
+          let r=managedGsub(tab(1,singleSub),[base]);check(r[0]===0&&r[1]===1&&r[4]===0xdeadbeef&&r[5]===0xffffffff&&r[6]===0,'WASM managed original state restoration');equalRecord(r,0,expected,'WASM all 31 managed fields');
+          r=managedGsub(tab(3,multiSub),[base]);expected[0]=100;equalRecord(r,0,expected,'WASM nested first alternate leaves random state');check(r[4]===0xdeadbeef,'WASM nested alternate random independence');
+          base[22]=7;const mark=mg(12,-8,0x301);mark[26]=0;const tail=mg(20,9);
+          r=managedGsub(tab(2,multiSub),[base,mark,tail]);check(r[0]===0&&r[2]===5&&r[3]===4,'WASM managed ligated expansion boundary');equalRecord(r,1,mark,'WASM expansion retains skipped mark');equalRecord(r,4,tail,'WASM expansion retains trailing record');
+          for(const [slot,component] of [[0,0],[2,1],[3,2]]){const e=base.slice();e[0]=100+component;e[21]=1;e[23]=component;e[24]=1;equalRecord(r,slot,e,'WASM original ligated expansion metadata');}
+          r=managedGsub(tab(2,deleteSub),[mg(10),mg(20)]);check(r[2]===1&&r[1]===1,'WASM managed zero replacement');equalRecord(r,0,mg(20),'WASM managed deletion keeps record');
+          r=managedGsub(tab(4,ligSub,8),[mg(10,8),mg(12,-3,0x301),mg(20,7),mg(30,7)]);check(r[2]===3&&mrecord(r,0)[1]===0xfffffffd&&mrecord(r,0)[22]===1&&mrecord(r,0)[24]===0&&mrecord(r,1)[26]===0&&mrecord(r,2)[1]===0xfffffffd,'WASM managed full ligature metadata');
+        }
+        for(const [kind,sub,pos,records] of [...contextRules,[5,contextSub([[0,1]]),0,[sg(10,0),sg(20,1)]]]){
+          for(const wrapped of [false,true]){const b=gsubTable([[wrapped?7:kind,0,[wrapped?[1,kind,0,8,...sub]:sub]],[1,0,[singleSub]]]);const r=managedGsub(b,records.map(g=>mg(g[0],g[2],g[1])),mopts({0:pos}));check(r[0]===0&&r[1]===1&&r[3]===pos+2&&mrecord(r,pos)[0]===110,'WASM managed all context formats');}
+        }
+        for(const [cp,manual,changed] of [[0x34f,0,false],[0x200c,0,false],[0x200d,0,true],[0x200d,1,false],[0xad,0,true],[0x301,0,true]]){const r=managedGsub(gsubTable([[4,8,[ligSub]]]),[mg(10),mg(99,1,cp),mg(20,2)],mopts({3:manual}));check(r[0]===0&&r[1]===+changed,'WASM managed explicit ligature joiner boundary');}
+        const beyond=managedGsub(gsubTable([[5,0,[contextSub([[0,1],[2,1]])]],[1,0,[singleSub]]]),[mg(10),mg(20,1)]);check(beyond[0]===0&&beyond[1]===1&&beyond[3]===2&&mrecord(beyond,0)[0]===110,'WASM managed missing later target preserves success');
+        const recursive=managedGsub(gsubTable([[5,16,[contextSub([[0,0],[0,0]])]]]),[mg(10),mg(20,1)],mopts({9:128}));check(recursive[0]===7&&recursive[1]===0&&recursive[5]===0xffffffff&&recursive[6]===0&&mrecord(recursive,1)[5]===3,'WASM managed explicit work budget and retained dependency');
+        const revTable=gsubTable([[8,0,[[1,18,2,24,30,1,36,1,77,1,1,10,1,1,9,1,1,8,1,1,20]]]]);
+        const reversed=managedGsub(revTable,[mg(8,0),mg(9,1),mg(10,2),mg(20,3)],mopts({0:2,1:26}));check(reversed[0]===0&&reversed[1]===1&&mrecord(reversed,2)[0]===77&&mrecord(reversed,3)[5]===3,'WASM managed independent reverse subtable');
+        for(const [profile,classes] of [[151,[1,1]],[160,[3,1]],[170,[3,3]]]){const r=managedGsub(new Uint8Array(),[mg(10,0,0x897),mg(20,1,0x1acf)],mopts({8:profile}));check(r[7]===classes[0]&&r[8]===classes[1],'WASM explicit Rune category profiles');}
+        for(const rawClass of [0,3,256,257,259,65535]){const data=gd.slice();new DataView(data.buffer).setUint16(24,rawClass);const source=makeVertical([['GDEF',data]]);const r=managedGsub(new Uint8Array(),[mg(12,0,0x110000)],mopts(),source);check(r[7]===((rawClass&255)||0x80000006),'WASM managed byte GDEF cast before invalid Rune fallback');}
+        for(const flags of [0x200,0x210,0x710]){const r=managedGsub(gsubTable([[4,flags,[[1,18,1,8,1,4,88,2,12,1,1,10]]]]),[mg(10),mg(12,1,0x301)],mopts(),makeVertical([['GDEF',gd]]));check(r[1]===+(flags!==0x710),'WASM managed mark set and attachment both apply');}
+        let malformed=false;try{app.apply_managed_gsub(font,new Uint8Array(),0,new Uint32Array(1),new Uint32Array(mopts()));}catch{malformed=true;}check(malformed,'WASM incomplete managed record rejection');managedGsubChecks++;
+        let managedDispatchChecks=0;
+        const stageUnits=s=>[0,1,2,3].map(i=>s.charCodeAt(i));
+        const stageTag=s=>stageUnits(s).reduce((a,c)=>(a*256+c)>>>0,0);
+        const featurePolicy=(features=[],base=null,explicit=null,ranges=[],mode=0)=>new Uint32Array([mode,features.length,base===null?0xffffffff:base.length,explicit===null?0xffffffff:explicit.length,ranges.length,...features.flatMap(([t,v])=>[...stageUnits(t),v>>>0]),...(base??[]).flatMap(([t,v])=>[...stageUnits(t),v>>>0]),...(explicit??[]).flatMap(stageUnits),...ranges.flatMap(([t,v,start,end])=>[stageTag(t),v>>>0,start>>>0,end>>>0])]);
+        const defaultPolicy=featurePolicy([],null,null,[],1),overridePolicy=features=>featurePolicy(features,null,null,[],2);
+        const stageTable=(raw,features=[['liga',[0]]],required=65535)=>{const b=[...raw],put=(p,v)=>{b[p]=v>>>8;b[p+1]=v&255;},words=w=>b.push(...otWords(w));put(4,b.length);words([1,0x4446,0x4c54,8,4,0,0,required,features.length,...features.map((_,i)=>i)]);const list=b.length;put(6,list);words([features.length]);for(const [t] of features)words([stageTag(t)>>>16,stageTag(t)&65535,0]);for(let i=0;i<features.length;i++){const ids=features[i][1];put(list+6+i*6,b.length-list);words([0,ids.length,...ids]);}return new Uint8Array(b);};
+        const stageRecord=(r,i)=>r.slice(10+i*31,10+(i+1)*31);
+        const dispatch=(table,records,stage=0,policy=defaultPolicy,extra=[],patch={})=>{managedDispatchChecks++;return [...app.apply_managed_stage(makeVertical([['GSUB',table],...extra]),new Uint32Array(records.flat()),policy,new Uint32Array(Object.assign([stage,1,1,77,99,0xdeadbeef,0,65536],patch)))];};
+        const featureQuery=(policy,t,record,stage=0)=>{managedDispatchChecks++;return [...app.managed_feature_query(policy,new Uint16Array(stageUnits(t)),new Uint32Array(record),stage)];};
+        const ligaStages=new Set([0,7,18,20,26,38,39,40]),manualStages=new Set([3,4,9,10,11,12,13,14,15,16,17,18,19,20,22,23,24,25,26]);
+        for(let stage=0;stage<42;stage++){
+          const q=featureQuery(defaultPolicy,'liga',mg(10),stage);check(q[4]===+ligaStages.has(stage)&&q[5]===+manualStages.has(stage)&&q[6]===0,'WASM all original stage policies');
+          const pref=featureQuery(overridePolicy([['pref',1]]),'pref',mg(10),stage);check(pref[6]===+![0,20,26].includes(stage),'WASM independent stage syllable admission');
+          const r=dispatch(stageTable(gsubTable([[1,0,[singleSub]]])),[mg(10)],stage);check(r[0]===0&&stageRecord(r,0)[0]===(ligaStages.has(stage)?110:10)&&r[6]===0,'WASM all full raw stage filters');
+        }
+        const ranged=featurePolicy([['liga',9],['rand',65535]],[],['liga'],[['liga',1,3,8],['liga',0xffffffff,5,7]]);
+        for(const [cluster,value,explicit] of [[-7,0,0],[3,1,1],[5,0x7fffffff,1],[7,1,1],[8,0,0]]){const q=featureQuery(ranged,'liga',mg(10,cluster));check(q[0]===value&&q[1]===explicit,'WASM exact baseline/ranged/explicit precedence');}
+        const wide=String.fromCharCode(0xd800,0xdfff,0x212a,0x100);const widePolicy=featurePolicy([[wide,-9]],null,[wide]);const wideQuery=featureQuery(widePolicy,wide,mg(10));check(wideQuery[0]===0xfffffff7&&wideQuery[1]===1&&wideQuery[3]===1,'WASM ordinal UTF-16 feature identity');
+        const fullSingle=stageTable(gsubTable([[1,0,[singleSub]]]));
+        let d=dispatch(fullSingle,[mg(10)],0,overridePolicy([['liga',-9]]));check(stageRecord(d,0)[0]===110,'WASM negative ordinary feature value remains enabled');
+        d=dispatch(stageTable(gsubTable([[3,0,[multiSub]]])),[mg(10)],0,overridePolicy([['liga',-9]]));check(stageRecord(d,0)[0]===10,'WASM negative alternate remains disabled');
+        const sameMulti=[1,16,1,8,3,10,10,10,1,1,10];d=dispatch(stageTable(gsubTable([[2,0,[sameMulti]]])),[mg(10),mg(20)]);check(d[1]===4&&stageRecord(d,2)[0]===10&&stageRecord(d,3)[0]===20,'WASM stage skips newly inserted output');
+        d=dispatch(stageTable(gsubTable([[2,0,[deleteSub]]])),[mg(10),mg(10),mg(20)]);check(d[1]===2&&stageRecord(d,0)[0]===10,'WASM original forward deletion index progression');
+        const rangedAlt=featurePolicy([['liga',9]],null,['liga'],[['liga',2,0,1]]);d=dispatch(stageTable(gsubTable([[3,0,[multiSub]]])),[mg(10,-5),mg(10,5)],0,rangedAlt);check(stageRecord(d,0)[0]===101&&stageRecord(d,1)[0]===102,'WASM cluster-based alternate values and clamping');
+        d=dispatch(stageTable(gsubTable([[3,0,[multiSub]]]),[['rand',[0]]]),[mg(10),mg(20,1)]);const rng=(Math.imul(0xdeadbeef,48271)>>>0)%2147483647;check(d[3]===rng&&stageRecord(d,0)[0]===100+rng%3&&stageRecord(d,1)[5]===3,'WASM full random alternate state/dependency');
+        const nextSingle=[1,6,100,1,1,110];d=dispatch(stageTable(gsubTable([[1,0,[singleSub]],[1,0,[nextSingle]]]),[['liga',[1,0,1]]]),[mg(10)]);check(stageRecord(d,0)[0]===210,'WASM accumulated buffer digest and sorted unique lookup order');
+        const hangul=mg(10);hangul[14]=4;const calt=stageTable(gsubTable([[1,0,[singleSub]]]),[['calt',[0]]]);d=dispatch(calt,[hangul]);check(stageRecord(d,0)[0]===10,'WASM default Hangul calt admission');d=dispatch(calt,[hangul],0,overridePolicy([['calt',1]]));check(stageRecord(d,0)[0]===110,'WASM explicit Hangul calt admission');
+        const fraction=mg(10);fraction[12]=1;const frac=stageTable(gsubTable([[1,0,[singleSub]]]),[['frac',[0]]]);d=dispatch(frac,[fraction]);check(stageRecord(d,0)[0]===10,'WASM independent fraction preparation marker');d=dispatch(frac,[fraction],0,defaultPolicy,[],{6:1});check(stageRecord(d,0)[0]===110&&d[9]===1,'WASM retained fraction stage marker');
+        const indic=mg(10);indic[14]=3;d=dispatch(stageTable(gsubTable([[1,0,[singleSub]]]),[['pref',[0]]],0),[indic],4,overridePolicy([['pref',0]]));check(stageRecord(d,0)[0]===110,'WASM required feature bypasses per-glyph value and mask');
+        const malformedReverse=[1,18,2,24,30,1,36,1,77,1,65535,10,1,1,9,1,1,8,1,1,20];const marked=mg(10);marked[16]=42;
+        d=dispatch(stageTable(gsubTable([[8,16,[malformedReverse]]]),[['pref',[0]]]),[marked],4,overridePolicy([['pref',1]]),[['GDEF',gd]]);check(d[0]===4&&d[4]===54&&d[5]===0&&d[6]===1&&d[7]===1&&d[8]===42,'WASM original reverse failure retains mark/syllable/manual state');
+        let managedMappingChecks=0;
+        for(const c of mappingCases){const actual=[...app.managed_font_mapping(new Uint8Array(c.font),new Uint32Array(c.request))];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# character map ${managedMappingChecks}`);managedMappingChecks++;}
+        let managedFontChecks=0;
+        for(const c of fontCases){const actual=[...app.managed_font_state(new Uint8Array(c.input))];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# font state ${managedFontChecks}`);managedFontChecks++;}
+        let managedNameChecks=0;
+        for(const c of nameCases){const actual=[...app.managed_font_names(new Uint8Array(c.font),new Uint16Array(c.ids),c.axes)];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# names ${managedNameChecks}`);managedNameChecks++;}
+        let managedVariationChecks=0;
+        for(const c of variationCases){const actual=[...app.managed_variation_instance(new Uint8Array(c.font),new Uint32Array(c.request))];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# variation instance ${managedVariationChecks}`);managedVariationChecks++;}
+        let managedPositioningChecks=0;
+        for(const c of positioningCases){const actual=[...app.apply_managed_positioning(new Uint8Array(c.font),new Int16Array(c.coordinates),new Uint32Array(c.records),new Uint32Array(c.policy),new Uint32Array(c.options),new Uint16Array(c.queries))];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# full positioning case ${managedPositioningChecks}`);managedPositioningChecks++;}
+        let managedGposChecks=0;
+        for(const c of gposCases){const actual=[...app.apply_managed_gpos(new Uint8Array(c.font),new Uint8Array(c.bytes),new Uint32Array(c.records),new Uint32Array(c.options))];check(JSON.stringify(actual)===JSON.stringify(c.expected),`WASM original C# full GPOS case ${managedGposChecks}`);managedGposChecks++;}
+        const cyc=app.apply_managed_gpos(font,gsubTable([[7,0,[contextSub([[0,0]])]]]),new Uint32Array([mg(10),mg(20,1)].flat()),new Uint32Array([0,0,1,0,128]));check(cyc[0]===7&&cyc[2]===0xffffffff,'WASM bounded GPOS restores private state');managedGposChecks++;
+        let managedContextChecks=0;
+        const contextGlyph=(id,cp=65,sub=0,shaper=0,mask=0,syllable=0)=>[id,cp,sub,shaper,mask,syllable];
+        const contextCheck=(bytes,extension,glyphs,expected,options=[0,0,0])=>{const actual=[...app.managed_context_query(bytes,0,extension,new Uint16Array(),new Uint32Array(glyphs.flat()),new Uint32Array(options))];check(actual[0]===1&&actual.at(-1)===+expected,`WASM managed ordered context ${JSON.stringify(actual)}`);managedContextChecks++;return actual;};
+        for(const [ext,kind] of [[7,5],[9,7]]){for(const wrapped of [false,true]){
+          const sub=[3,2,0,10,16,1,1,10,1,1,20];const b=digestTable(wrapped?ext:kind,wrapped?[1,kind,0,8,...sub]:sub);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(20),contextGlyph(10)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x34f),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x34f,1),contextGlyph(20)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x34f,0,4,1),contextGlyph(20)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x200c),contextGlyph(20)],false);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x200d),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(10),contextGlyph(99,0x200d),contextGlyph(20)],false,[1,0,0]);
+          contextCheck(b,ext,[contextGlyph(10,0xad),contextGlyph(20)],true);
+          contextCheck(b,ext,[contextGlyph(10,65,0,0,0,1),contextGlyph(20)],false,[2,0,0]);
+          for(const flag of [1,16,0x20,0xe1,0x100]){const f=b.slice();new DataView(f.buffer).setUint16(20,flag);contextCheck(f,ext,[contextGlyph(20),contextGlyph(10)],(flag&0xff1e)!==0);}
+        }}
+        const contextSentinel=digestTable(5,[3,1,0,8,1,1,65535]);
+        contextCheck(contextSentinel,7,[contextGlyph(10,65,0,0,0,1)],true,[2,0,1]);
+        for(const [values,expected] of [[[10,3,8,1],[1,1]],[[10,3,8,1,4],[0,1]]]){const b=digestTable(5,[3,1,0,8,1,values.length,...values]);const actual=[...app.managed_context_query(b,0,7,new Uint16Array([10,8]),new Uint32Array(contextGlyph(8)),new Uint32Array([0,0,0]))];check(JSON.stringify(actual.slice(14,16))===JSON.stringify(expected),'WASM original managed linear/binary membership');managedContextChecks++;}
+        const noRecords=digestTable(5,[3,1,65535,8,1,1,10]);contextCheck(noRecords,7,[contextGlyph(10)],true);
+        const chain=digestTable(6,[3,1,14,1,20,1,26,1,1,10,1,1,20,1,1,30]);
+        contextCheck(chain,7,[contextGlyph(10),contextGlyph(99,0x200c),contextGlyph(20),contextGlyph(99,0x200d),contextGlyph(30)],true);
+        contextCheck(chain,7,[contextGlyph(10),contextGlyph(99,0x200c),contextGlyph(20),contextGlyph(99,0x200d),contextGlyph(30)],false,[1,0,0]);
+        for(const offset of [0x7fffffff,0x80000000,0xffffffff]){const b=digestTable(7,[1,5,0,8,3,1,0,8,1,1,10]);new DataView(b.buffer).setUint32(30,offset);check(JSON.stringify([...app.managed_context_query(b,0,7,new Uint16Array(),new Uint32Array(),new Uint32Array([0,0,0]))])==='[0]','WASM managed context extreme extension offset');managedContextChecks++;}
+        check(JSON.stringify([...app.managed_context_query(new Uint8Array(),0,7,new Uint16Array(),new Uint32Array(),new Uint32Array([0,0,0]))])==='[0]','WASM managed optional malformed context');managedContextChecks++;
+        let selectionChecks=0;
+        const otTag=s=>[...s].reduce((v,c)=>(v*256+c.charCodeAt(0))>>>0,0);
+        const selectionFixture=(varied=false)=>{
+          // One DFLT LangSys, required rlig [3,1], liga [2,0,2], four empty lookups.
+          const b=otWords([1,varied?1:0,14,36,68,0,varied?84:0,1,0x4446,0x4c54,8,4,0,0,0,2,0,1,2,0x726c,0x6967,14,0x6c69,0x6761,22,0,2,3,1,0,3,2,0,2,4,10,10,10,10,1,0,0]);
+          if(!varied)return b;
+          // Unconditional first record replaces liga with [3,2].
+          return new Uint8Array([...b,...otWords([1,0,0,1,0,0,0,16,1,0,1,1,0,12,0,2,3,2])]);
+        };
+        const selectionCheck=(bytes,script,features,excluded,expected)=>{const actual=[...app.select_layout(bytes,otTag(script),0,new Uint32Array(features.map(otTag)),new Uint32Array(excluded.map(otTag)),new Int16Array())];check(JSON.stringify(actual)===JSON.stringify(expected),`WASM original selection ${JSON.stringify(actual)}`);selectionChecks++;};
+        const selectionBytes=selectionFixture();
+        selectionCheck(selectionBytes,'DFLT',[],[],[1,3]);selectionCheck(selectionBytes,'arab',['liga'],[],[0,1,2,3]);selectionCheck(selectionBytes,'DFLT',['liga'],['rlig','liga'],[1,3]);
+        selectionCheck(selectionFixture(true),'DFLT',['liga'],[],[1,2,3]);
+        for(const [offset,value,expected] of [[88,0xffffffff,[0,1,2,3]],[92,0xffffffff,[0,1,2,3]],[96,0xffffffff,[0,1,2,3]],[108,0xffffffff,[1,3]]]){
+          const malformed=selectionFixture(true);new DataView(malformed.buffer).setUint32(offset,value);selectionCheck(malformed,'DFLT',['liga'],[],expected);
+        }
+        const selectionVersion=selectionFixture(true);new DataView(selectionVersion.buffer).setUint16(100,2);selectionCheck(selectionVersion,'DFLT',['liga'],[],[0,1,2,3]);
+        check(JSON.stringify([...app.select_layout_feature(selectionBytes,otTag('DFLT'),0,otTag('liga'),new Int16Array(),5)])===JSON.stringify([0,2,2,0,0xbeef,0xbeef,0xbeef]),'WASM original unsorted feature selection');selectionChecks++;
+        check(JSON.stringify([...app.select_layout_feature(selectionBytes,otTag('DFLT'),0,otTag('rlig'),new Int16Array(),4)])===JSON.stringify([0,0,0xbeef,0xbeef,0xbeef,0xbeef]),'WASM required feature exclusion');selectionChecks++;
+        check(JSON.stringify([...app.select_layout_feature(selectionBytes,otTag('DFLT'),0,otTag('liga'),new Int16Array(),2)])===JSON.stringify([7,0,0xbeef,0xbeef]),'WASM original whole-count capacity');selectionChecks++;
+        const selectionBad=selectionBytes.slice();new DataView(selectionBad.buffer).setUint16(64,65535);
+        check(JSON.stringify([...app.select_layout_feature(selectionBad,otTag('DFLT'),0,otTag('liga'),new Int16Array(),4)])===JSON.stringify([4,0,2,0xbeef,0xbeef,0xbeef]),'WASM original selection failure prefix');selectionChecks++;
+        for(const b of [new Uint8Array(),selectionBytes.subarray(0,20),selectionBad]){let caught=false;try{app.select_layout(b,otTag('DFLT'),0,new Uint32Array([otTag('liga')]),new Uint32Array(),new Int16Array());}catch{caught=true;}check(caught,'WASM failed owned selection never publishes');selectionChecks++;}
+        let managedSelectionChecks=0;
+        const utf16=s=>new Uint16Array(Array.from({length:s.length},(_,i)=>s.charCodeAt(i)));
+        const managedEntry=(index,value,tag,required=false,digest=[])=>[index,value>>>0,otTag(tag),+required,+(digest.length>0),...digest];
+        const managedCheck=(bytes,script,language,settings,uses,expected)=>{const actual=[...app.select_managed_layout(bytes,utf16(script),utf16(language),utf16(settings.map(s=>s[0]).join('')),new Int32Array(settings.map(s=>s[1])),new Int16Array(),7)];check(JSON.stringify(actual)===JSON.stringify([+uses,expected.length,...expected.flat()]),`WASM managed selection ${JSON.stringify(actual)}`);managedSelectionChecks++;};
+        const requiredEntries=[managedEntry(1,1,'rlig',true),managedEntry(3,1,'rlig',true)];
+        managedCheck(selectionBytes,'DFLT','',[],false,requiredEntries);
+        managedCheck(selectionBytes,'DFLT','',[['liga',-7]],false,[managedEntry(0,-7,'liga'),requiredEntries[0],managedEntry(2,-7,'liga'),requiredEntries[1]]);
+        managedCheck(selectionBytes,'DFLT','',[['liga',2],['liga',0]],false,requiredEntries);
+        managedCheck(selectionBytes,'DFLT','',[['liga',0],['liga',-2147483648]],false,[managedEntry(0,-2147483648,'liga'),requiredEntries[0],managedEntry(2,-2147483648,'liga'),requiredEntries[1]]);
+        managedCheck(selectionFixture(true),'DFLT','',[['liga',9]],true,[requiredEntries[0],managedEntry(2,9,'liga'),requiredEntries[1]]);
+        for(const fallback of ['latn','dflt']){const b=selectionBytes.slice();new DataView(b.buffer).setUint32(16,otTag(fallback));managedCheck(b,'arab','TR',[['liga',1]],false,[managedEntry(0,1,'liga'),requiredEntries[0],managedEntry(2,1,'liga'),requiredEntries[1]]);}
+        const nullSubstitution=selectionFixture(true);new DataView(nullSubstitution.buffer).setUint32(96,0);managedCheck(nullSubstitution,'DFLT','',[['liga',2]],true,[managedEntry(0,2,'liga'),requiredEntries[0],managedEntry(2,2,'liga'),requiredEntries[1]]);
+        for(const [offset,uses] of [[88,false],[92,false],[96,false],[108,true]]){const b=selectionFixture(true);new DataView(b.buffer).setUint32(offset,0xffffffff);managedCheck(b,'DFLT','',[['liga',2]],uses,[managedEntry(0,2,'liga'),requiredEntries[0],managedEntry(2,2,'liga'),requiredEntries[1]]);}
+        managedCheck(selectionBad,'DFLT','',[['liga',2]],false,[requiredEntries[0],managedEntry(2,2,'liga'),requiredEntries[1],managedEntry(65535,2,'liga')]);
+        managedCheck(new Uint8Array(),'','',[],false,[]);
+        // A missing LangSys still admits directional/global features. Jamo is
+        // admitted only for the exact original script string, not its four-unit tag.
+        for(const [tag,script,enabled] of [['rand','arab',true],['rtlm','arab',true],['ljmo','hang',true],['ljmo','hang-more',false],['liga','hang',false]]){const b=selectionBytes.slice(),v=new DataView(b.buffer);v.setUint16(22,0);v.setUint32(44,otTag(tag));managedCheck(b,script,'',[[tag,3]],false,enabled?[managedEntry(0,3,tag),managedEntry(2,3,tag)]:[]);}
+        // Retain exact managed digest admission of a reversed range (empty mask).
+        const digestSelection=new Uint8Array([...selectionBytes,...otWords([1,0,1,8,1,4,2,1,100,99,0])]);
+        for(let i=0;i<4;i++)new DataView(digestSelection.buffer).setUint16(70+i*2,16);
+        managedCheck(digestSelection,'DFLT','',[],false,[managedEntry(1,1,'rlig',true,[0,0,0,0,0,0]),managedEntry(3,1,'rlig',true,[0,0,0,0,0,0])]);
+        let normalizationChecks=0;
+        const normalizationCase=(source,form,managed,records,profile=null)=>{
+          const result=profile===null?app.normalize_utf16(new Uint16Array(source),form,managed):app.normalize_utf16_profile(new Uint16Array(source),form,profile);
+          check(JSON.stringify([...result.source])===JSON.stringify(source) && result.scalars.length===records.length*16,'WASM normalized source ownership');
+          const data=new DataView(result.scalars.buffer,result.scalars.byteOffset,result.scalars.byteLength);
+          records.forEach(([cp,index,length],i)=>check(data.getUint32(i*16,true)===cp && data.getUint32(i*16+4,true)===index && data.getUint16(i*16+8,true)===length && data.getUint8(i*16+11)===0,'WASM normalized original scalar/range record'));
+          normalizationChecks++;
+        };
+        normalizationCase([],0,false,[]);
+        normalizationCase([0xc5],0,false,[[0x41,0,1],[0x30a,0,1]]);
+        normalizationCase([0x41,0x301],1,false,[[0xc1,0,2]]);
+        normalizationCase([0x41,0x301],1,true,[[0xc1,0,2]]);
+        normalizationCase([0x41,0x315,0x300,0x301],0,false,[[0x41,0,1],[0x300,2,1],[0x301,3,1],[0x315,1,1]]);
+        normalizationCase([0xac01],0,false,[[0x1100,0,1],[0x1161,0,1],[0x11a8,0,1]]);
+        normalizationCase([0x1100,0x1161,0x11a8],1,false,[[0xac01,0,3]]);
+        normalizationCase([0xd834,0xdd5e],0,false,[[0x1d157,0,2],[0x1d165,0,2]]);
+        normalizationCase([0xfffe],1,false,[[0xfffe,0,1]]);
+        normalizationCase([0xffff],1,true,[[0xffff,0,1]]);
+        for(const [source,form,managed] of [[[0xd800],0,false],[[0x41,0xdc00],1,false],[[0xfffe],1,true],[[0x41],2,false]]){rejected=false;try{app.normalize_utf16(new Uint16Array(source),form,managed);}catch{rejected=true;}check(rejected,'WASM original normalization rejection');normalizationChecks++;}
+        const planBytes=values=>{const b=new Uint8Array(values.length*4);const v=new DataView(b.buffer);values.forEach((n,i)=>v.setUint32(i*4,n,true));return b;};
+        const normalizationPlan=planBytes([0x4e554750,1,2,3,1,0x41,0,0,0xc1,0,2,0x41,0x301,0xd800,0x41,0x301,0xc1]);
+        check(JSON.stringify([...app.normalization_plan_lookup(normalizationPlan,0xc1,0x41,0x301)])==='[1,2,65,769,1,193]','WASM original custom decomposition/composition');normalizationChecks++;
+        check(JSON.stringify([...app.normalization_plan_lookup(normalizationPlan,0x41,0,0)])==='[1,0,0,0]','WASM present empty decomposition and unused scalar admission');normalizationChecks++;
+        for(const bytes of [new Uint8Array(),normalizationPlan.subarray(0,normalizationPlan.length-1),planBytes([0x4e554750,1,0xffffffff,0,0]),planBytes([0x4e554750,1,1,1,0,0x41,0,1,0xd800])]){rejected=false;try{app.normalization_plan_lookup(bytes,0,0,0);}catch{rejected=true;}check(rejected,'WASM full normalization plan validation');normalizationChecks++;}
+        for(const profile of [151,160,170]){
+          normalizationCase([0xd801,0xddc9],0,true,profile===151?[[0x105c9,0,2]]:[[0x105d2,0,2],[0x307,0,2]],profile);
+          normalizationCase([0xd801,0xddd2,0x307],1,true,profile===151?[[0x105d2,0,2],[0x307,2,1]]:[[0x105c9,0,3]],profile);
+          normalizationCase([0x61,0x1acf,0x334],0,true,profile===170?[[0x61,0,1],[0x334,2,1],[0x1acf,1,1]]:[[0x61,0,1],[0x1acf,1,1],[0x334,2,1]],profile);
+          normalizationCase([0x61,0x897,0x334],0,true,profile===151?[[0x61,0,1],[0x897,1,1],[0x334,2,1]]:[[0x61,0,1],[0x334,2,1],[0x897,1,1]],profile);
+        }
+        for(const [source,profile] of [[[0xfffe],151],[[0xd800],160],[[0x61],999]]){rejected=false;try{app.normalize_utf16_profile(new Uint16Array(source),0,profile);}catch{rejected=true;}check(rejected,'WASM explicit normalization profile rejection');normalizationChecks++;}
+        const sourceMetadata=app.normalize_utf16_profile(new Uint16Array([0x61,0x1acf,0x334]),0,160).scalars;
+        check(new DataView(sourceMetadata.buffer,sourceMetadata.byteOffset,sourceMetadata.byteLength).getUint8(26)===230,'WASM original metadata after source-profile ordering');normalizationChecks++;
+        let lineBreakChecks=0;
+        const lineCase=(source,edit,classes,breaks,indices=source.map((_,i)=>i),lengths=classes.map(()=>1))=>{
+          const result=app.resolve_line_breaks_utf16(new Uint16Array(source),edit);
+          check(JSON.stringify([...result.source])===JSON.stringify(source),'WASM line-break retained source');
+          check(JSON.stringify([...result.classes])===JSON.stringify(classes) && JSON.stringify([...result.breaks])===JSON.stringify(breaks),'WASM original line classes/boundaries');
+          check(result.scalars.length===classes.length*16,'WASM line scalar slots');
+          const records=new DataView(result.scalars.buffer,result.scalars.byteOffset,result.scalars.byteLength);
+          classes.forEach((_,i)=>check(records.getUint32(i*16+4,true)===indices[i] && records.getUint16(i*16+8,true)===lengths[i],'WASM line scalar source ranges'));
+          lineBreakChecks++;
+        };
+        lineCase([],false,[],[]);
+        lineCase([0x41,0x20,0x42],false,[3,42,3],[0,1,2]);
+        lineCase([13,10,0x301],false,[15,31,3],[0,2,2]);
+        lineCase([0x41,0x301,0x42],false,[3,3,3],[0,0,2]);
+        lineCase([0x4e00,0x200d,0x4e01],false,[25,25,25],[0,0,2]);
+        lineCase([0x4e00,0x200d,0x4e01],true,[25,25,25],[0,1,2]);
+        lineCase([0x41,0x200b,0x20,0x42],false,[3,47,42,3],[0,0,1,2]);
+        lineCase([0x24,0x28,0x2e,0x31,0x29,0x25],false,[37,35,27,34,14,36],[0,0,0,0,0,2]);
+        lineCase([0xd83c,0xdde6,0xd83c,0xdde7,0xd83c,0xdde8],false,[39,39,39],[0,1,2],[0,2,4],[2,2,2]);
+        lineCase([0xd83d,0xdc4d,0xd83c,0xdffd],false,[16,17],[0,2],[0,2],[2,2]);
+        lineCase([0x1100,0x1161,0x11a8],false,[28,30,29],[0,0,2]);
+        for(const source of [[0xd800],[0xdc00],[0x41,0xd800,0x41]]){rejected=false;try{app.resolve_line_breaks_utf16(new Uint16Array(source),false);}catch{rejected=true;}check(rejected,'WASM line-break strict invalid source');lineBreakChecks++;}
+        let managedScriptActionChecks=0;
+        for(const {font,request,expected} of actionCases){for(const profile of [151,160,170]){
+          const actual=app.managed_script_actions(new Uint8Array(actionFonts[font]),new Uint32Array(request),profile);
+          check(actual.length===expected.length&&actual.every((value,i)=>value===expected[i]),'WASM original complete script action records/state and error continuation');
+          managedScriptActionChecks++;
+        }}
+        rejected=false;try{app.managed_script_actions(new Uint8Array([]),new Uint32Array([]),999);}catch{rejected=true;}
+        check(rejected,'WASM unsupported script action profile');managedScriptActionChecks++;
+        rejected=false;try{app.managed_script_actions(new Uint8Array([]),new Uint32Array([1]),170);}catch{rejected=true;}
+        check(rejected,'WASM truncated script action request');managedScriptActionChecks++;
+        let overflowError;try{app.managed_script_actions(new Uint8Array([]),new Uint32Array([0xffffffff]),170);}catch(error){overflowError=error;}
+        check(typeof overflowError==='string'&&overflowError.includes('invalid script action request'),'WASM oversized request rejects without trapping');managedScriptActionChecks++;
+        let managedPreparationChecks=0;
+        for(const {font,request,expected} of preparationCases){for(const profile of [151,160,170]){
+          const actual=app.managed_prepare_text(new Uint8Array(preparationFonts[font]),new Uint32Array(request),profile);
+          check(actual.length===expected.length&&actual.every((value,i)=>value===expected[i]),'WASM original complete preparation records and context');
+          managedPreparationChecks++;
+        }}
+        rejected=false;try{app.managed_prepare_text(new Uint8Array([]),new Uint32Array([]),999);}catch{rejected=true;}
+        check(rejected,'WASM unsupported preparation profile');managedPreparationChecks++;
+        rejected=false;try{app.managed_prepare_text(new Uint8Array([]),new Uint32Array([1]),170);}catch{rejected=true;}
+        check(rejected,'WASM truncated preparation request');managedPreparationChecks++;
+        let managedGraphemeChecks=0;
+        for(const {source,expected} of managedGraphemeCases){
+          const actual=app.managed_grapheme_utf16(new Uint16Array(source),160);
+          check(actual.length===expected.length&&actual.every((value,i)=>value===expected[i]),'WASM actual managed grapheme first length/capture/suffix output');
+          managedGraphemeChecks++;
+        }
+        rejected=false;try{app.managed_grapheme_utf16(new Uint16Array([]),170);}catch{rejected=true;}
+        check(rejected,'WASM unsupported managed grapheme profile');managedGraphemeChecks++;
+        let graphemeChecks=0;
+        const graphemeCase=(source,managed,records,starts)=>{
+          const result=app.segment_graphemes_utf16(new Uint16Array(source),managed);
+          const data=new DataView(result.clusters.buffer,result.clusters.byteOffset,result.clusters.byteLength);
+          check(JSON.stringify([...result.source])===JSON.stringify(source) && result.clusters.length===records.length*16,'WASM grapheme source/count');
+          records.forEach((record,i)=>record.forEach((value,j)=>check(data.getUint32(i*16+j*4,true)===value,'WASM exact grapheme source/scalar record')));
+          if(starts)check(JSON.stringify([...app.grapheme_starts_utf16(new Uint16Array(source))])===JSON.stringify(starts),'WASM Unicode 17 code-unit starts');
+          graphemeChecks++;
+        };
+        graphemeCase([],false,[],[]);
+        graphemeCase([0x41,0x301,0x42],false,[[0,2,0,2],[2,1,2,1]],[1,0,1]);
+        graphemeCase([13,10,0x301],false,[[0,2,0,2],[2,1,2,1]],[1,0,1]);
+        graphemeCase([0x1100,0x1161,0x11a8],false,[[0,3,0,3]],[1,0,0]);
+        graphemeCase([0x600,0x41,0x903],false,[[0,3,0,3]],[1,0,0]);
+        graphemeCase([0xd83c,0xdde6,0xd83c,0xdde7,0xd83c,0xdde8],false,[[0,4,0,2],[4,2,2,1]],[1,0,0,0,1,0]);
+        graphemeCase([0xd83d,0xdc69,0x301,0x200d,0xd83d,0xdc67],false,[[0,6,0,4]],[1,0,0,0,0,0]);
+        graphemeCase([0x915,0x94d,0x915],false,[[0,3,0,3]],[1,0,0]);
+        graphemeCase([0x915,0x94d,0x915],true,[[0,2,0,2],[2,1,2,1]]);
+        graphemeCase([0x1,0x301,0x2],false,[[0,1,0,1],[1,1,1,1],[2,1,2,1]],[1,1,1]);
+        for(const source of [[0xd800],[0xdc00],[0x41,0xd800,0x41]]){for(const call of [()=>app.segment_graphemes_utf16(new Uint16Array(source),false),()=>app.grapheme_starts_utf16(new Uint16Array(source))]){rejected=false;try{call();}catch{rejected=true;}check(rejected,'WASM grapheme invalid source rejection');graphemeChecks++;}}
+        const cff2Table=new Uint8Array(86), c2=new DataView(cff2Table.buffer);
+        cff2Table.set([2,0,5,0,19]);
+        [[5,28,17],[11,44,12],[18,54,24]].forEach(([at,value,op])=>{c2.setUint8(at,29);c2.setUint32(at+1,value);c2.setUint8(at+5,op);});
+        c2.setUint8(17,36);
+        cff2Table.set([0,0,0,1,1,1,10,139,139,21,239,159,140,16,139,5],28);
+        cff2Table.set([0,0,0,1,1,1,4,139,139,18],44);
+        cff2Table.set([0,30,0,1,0,0,0,12,0,1,0,0,0,22,0,1,0,1,0,0,32,0,64,0,0,0,0,0,0,1,0,0],54);
+        const cff2Font=new Uint8Array(60+86+54+36), c2f=new DataView(cff2Font.buffer);
+        c2f.setUint32(0,0x4f54544f);c2f.setUint16(4,3);
+        [[0x43464632,60,86],[0x68656164,146,54],[0x66766172,200,36]].forEach(([tag,off,len],i)=>{
+          c2f.setUint32(12+i*16,tag);c2f.setUint32(20+i*16,off);c2f.setUint32(24+i*16,len);
+        });
+        cff2Font.set(cff2Table,60);c2f.setUint16(164,1000);
+        c2f.setUint16(204,16);c2f.setUint16(208,1);c2f.setUint16(210,20);
+        const cff2Segments=app.decode_cff2_outline(cff2Font,0,new Int16Array([8192]));
+        const cff2Expected=new Uint8Array(96), c2e=new DataView(cff2Expected.buffer);
+        c2e.setFloat32(8,120,true);c2e.setFloat32(48,120,true);
+        check(cff2Segments.length===96 && cff2Segments.every((b,i)=>b===cff2Expected[i]),'WASM CFF2 original blended bytes');
+        rejected=false;
+        try { app.decode_cff2_outline(cff2Font,0,new Int16Array()); } catch { rejected=true; }
+        check(rejected,'WASM CFF2 missing coordinates rejection');
+        const sameValues=(actual,expected)=>actual.length===expected.length && actual.every((v,i)=>v===expected[i]);
+        check(sameValues(app.decode_variation_runs(new Uint8Array([3,2,1,0,7]),0,true),[5,0,1,1,8]),'WASM packed point duplicates');
+        check(sameValues(app.decode_variation_runs(new Uint8Array([0xc2]),3,false),[1,0,0,0,0]),'WASM packed zero-run precedence');
+        check(sameValues(app.decode_variation_runs(new Uint8Array([0]),0,true),[1,1]),'WASM all-point marker');
+        check(sameValues(app.decode_variation_runs(new Uint8Array([128,0]),0,true),[2,0]),'WASM explicit empty point set');
+        const ip=new Float32Array([0,0,10,5,20,10]),ix=new Float32Array([2,99,6]),iy=new Float32Array([4,98,8]),it=new Uint8Array([1,0,255]);
+        check(sameValues(app.interpolate_gvar_deltas(ip,new Uint16Array([2]),ix,iy,it),[2,4,6,4,6,8]),'WASM contour interpolation');
+        rejected=false;
+        try { app.interpolate_gvar_deltas(ip,new Uint16Array([1,0]),ix,iy,it); } catch { rejected=true; }
+        check(rejected,'WASM complete contour rejection');
+        const gf=new Uint8Array(176),gvarView=new DataView(gf.buffer);
+        gvarView.setUint32(0,0x10000);gvarView.setUint16(4,3);
+        [[0x67766172,60,54],[0x6d617870,114,6],[0x66766172,120,56]].forEach(([tag,off,len],i)=>{
+          gvarView.setUint32(12+i*16,tag);gvarView.setUint32(20+i*16,off);gvarView.setUint32(24+i*16,len);
+        });
+        gvarView.setUint32(60,0x10000);gvarView.setUint16(64,2);gvarView.setUint16(66,1);gvarView.setUint32(68,28);
+        gvarView.setUint16(72,1);gvarView.setUint16(74,1);gvarView.setUint32(76,32);gvarView.setUint32(84,22);
+        gvarView.setInt16(88,7153);gvarView.setInt16(90,-9973);gvarView.setUint16(92,1);gvarView.setUint16(94,20);
+        gvarView.setUint16(96,2);gvarView.setUint16(98,0xe000);
+        [7153,-9973,0,-16384,16384,0].forEach((v,i)=>gvarView.setInt16(100+i*2,v));gf.set([128,128],112);
+        gvarView.setUint16(118,1);gvarView.setUint16(124,16);gvarView.setUint16(128,2);gvarView.setUint16(130,20);
+        check(sameValues(app.decode_gvar_metadata(gf,0),[2,1,0,2,0xe000,0,-16384,7153,-9973,16384,0]),'WASM original gvar tuple metadata');
+        rejected=false;
+        try { app.decode_gvar_metadata(gf.slice(0,113),0); } catch { rejected=true; }
+        check(rejected,'WASM truncated gvar rejection');
+        const payloadFont = new Uint8Array(190), pv = new DataView(payloadFont.buffer);
+        payloadFont.set(gf.subarray(0,112));
+        payloadFont.set([4,3,0,0,2,1,3,1,1,6,10,3,2,2,8,12],112);
+        payloadFont.set(gf.subarray(114),128);
+        pv.setUint32(24,68); pv.setUint32(36,128); pv.setUint32(52,134);
+        pv.setUint32(84,36); pv.setUint16(96,16);
+        const coordinates = new Int16Array([7153,-9973]);
+        const originalPoints = new Int32Array([0,0,5,5,10,10]);
+        check(sameValues(app.apply_gvar_simple(payloadFont,0,coordinates,new Uint16Array([2]),originalPoints),[2,4,9,11,16,18]),'WASM sparse gvar duplicates and IUP');
+        check(sameValues(app.gvar_component_metrics(payloadFont,0,coordinates,3),[2,4,0,0,6,8,10,0]),'WASM component offsets and phantom deltas');
+        check(sameValues(app.apply_gvar_simple(payloadFont,0,new Int16Array([0,0]),new Uint16Array([2]),originalPoints),originalPoints),'WASM inactive tuple');
+        const badPayload=payloadFont.slice();badPayload[112]=7;
+        rejected=false;
+        try { app.apply_gvar_simple(badPayload,0,new Int16Array([0,0]),new Uint16Array([2]),originalPoints); } catch { rejected=true; }
+        check(rejected,'WASM inactive malformed payload rejection');
+        const gvarChecks=12;
+        const shaders = await r.validate_shaders();
+        check(shaders === 6, 'canonical shader inventory');
+        let checkedPixels = 0;
+        for (const [dpi, contrast] of [[1,-1],[1.25,-1],[2,-1],[1,-2],[1.25,-2],[2,-2],[1,-3],[1.25,-3],[2,-3],[1,-4],[1.25,-4],[2,-4], ...Array.from({length:13},(_,i)=>[1,i])]) {
+          console.info(`validating GPU pixels: dpi=${dpi} contrast=${contrast}`);
+          const [cold, warm] = await r.validation_pixels(dpi, contrast);
+          check(cold.length === 64*64*4 && warm.length === cold.length, 'readback extent');
+          for (let i=0; i<cold.length; ++i) check(cold[i]===warm[i], `warm generation mismatch ${dpi}/${contrast}/${i}`);
+          for (let y=0; y<64; ++y) for (let x=0; x<64; ++x) {
+            let expected = [0,0,0,0];
+            if (contrast >= 0) {
+              const overlap = (v,lo,hi) => Math.max(0,Math.min(v+1,hi)-Math.max(v,lo));
+              const coverage = Math.round(overlap(x,4.25,20.75)*overlap(y,4.5,20.5)*255)/255;
+              expected.fill(255-Math.round(Math.pow(1-coverage,1/(1+contrast/10))*255));
+            } else {
+              const coverage = (tx,ty) => {
+                let count=0;
+                for(let sy=0;sy<8;++sy) for(let sx=0;sx<8;++sx) {
+                  const px=(x+(sx+.5)/8)/dpi-tx, py=(y+(sy+.5)/8)/dpi-ty;
+                  count += px>=4.25 && px<20.75 && py>=4.5 && py<20.5;
+                }
+                return Math.round(count*255/64)/255;
+              };
+              const blend=(color,coverage)=> {
+                const a=color[3]*coverage;
+                for(let c=0;c<3;++c) expected[c]=Math.round(color[c]*a*255+expected[c]*(1-a));
+                expected[3]=Math.round(a*255+expected[3]*(1-a));
+              };
+              blend([1,0,0,.6],coverage(0,0));
+              const px=(x+.5)/dpi,py=(y+.5)/dpi;
+              blend([0,0,1,.4],Number(px>=12&&px<32&&py>=8&&py<28));
+              blend([0,1,0,.7],coverage(12,-2));
+            }
+            for(let c=0;c<4;++c) check(Math.abs(cold[(y*64+x)*4+c]-expected[c]) <= (contrast>=0?1:2),
+              `pixel dpi=${dpi} contrast=${contrast} (${x},${y})/${c}: ${cold[(y*64+x)*4+c]} != ${expected[c]}`);
+            ++checkedPixels;
+          }
+        }
+        const before = r.metrics();
+        window.progpuGpuDiagnosticsMark?.('warm canvas burst: ten original draws');
+        for(let i=0;i<10;++i) check(r.draw(), 'warm canvas presentation');
+        const after = r.metrics();
+        check(after.frames===before.frames+10, 'presentation count');
+        for(const key of ['geometryBytes','uniformBytes','draws','pathRasters','atlasBytes']) check(after[key]===before[key],`warm ${key}`);
+        window.progpuGpuDiagnosticsMark?.('zero extent and original resume');
+        await r.resize(0,0,1);
+        check(r.draw()===false,'zero extent suspension');
+        const size=app.dimensions();
+        await r.resize(size.width,size.height,size.dpi);
+        check(r.draw(),'resume presentation');
+        return { adapter: r.adapter_info(), outlineBytes: decoded.segments.length, compositeBytes: expanded.segments.length, cffBytes: cffSegments.length, cff2Bytes: cff2Segments.length, gvarChecks, horizontalChecks, verticalChecks, simpleTextChecks, unicodeChecks, scriptPropertyQueries, scriptPropertyExtractions, propertyDigest, bidiChecks, graphemeChecks, managedGraphemeChecks, managedPreparationChecks, managedScriptActionChecks, lineBreakChecks, normalizationChecks, layoutChecks, digestChecks, gsubChecks, managedGsubChecks, managedDispatchChecks, managedGposChecks, managedPositioningChecks, managedVariationChecks, managedNameChecks, managedFontChecks, managedMappingChecks, managedContextChecks, selectionChecks, managedSelectionChecks, variationChecks, shaders, checkedPixels, before, after, errors: [...app.errors] };
+      });
+    },{gposCases,positioningCases,variationCases,nameCases,fontCases,mappingCases,managedGraphemeCases,preparationFonts,preparationCases,actionFonts,actionCases,scriptPropertyFacts});
+    Object.assign(entry,report);
+    entry.stage='resize';
+    assert.equal(report.before.draws, 1);
+    assert.equal(report.before.pathRasters, 3);
+    assert.equal(report.before.geometryBytes, 29760);
+    assert.equal(report.checkedPixels, 102400);
+    assert.deepEqual(report.errors, []);
+    await page.setViewportSize({ width: 800, height: 600 });
+    await waitFor(() => page.evaluate(async () => {
+      const app = await window.progpuReady;
+      return app.exclusive(() => {
+        const m=app.renderer.metrics(), size=app.dimensions();
+        return innerWidth===800 && innerHeight===600 && m.width===800*devicePixelRatio
+          && m.height===size.height && m.dpi===size.dpi;
+      });
+    }));
+    const resized = await page.evaluate(async () => {
+      const app=await window.progpuReady;
+      return app.exclusive(()=>({metrics:app.renderer.metrics(),size:app.dimensions(),errors:[...app.errors]}));
+    });
+    assert.equal(resized.metrics.height,resized.size.height);
+    assert.equal(resized.metrics.dpi,dpr);
+    assert.deepEqual(resized.errors,[]);
+    assert.deepEqual(errors,[]);
+    entry.resized=resized.metrics;
+    entry.stage='final capture completion';
+    console.log(`[DPR ${dpr}] resize verified; capturing final presented frame`);
+    // Optional failure-only observation. The original gate never starts a
+    // debugger. This child samples only our live descendant GPU process and
+    // records that debugger attachment itself can perturb timing.
+    observeGpuProcess(dpr,'final capture fallback');
+    await page.evaluate(async () => {
+      const app=await window.progpuReady;
+      window.progpuGpuDiagnosticsMark?.('final capture submission');
+      await app.pause();
+    });
+    await waitFor(() => page.evaluate(async () => {
+      const app=await window.progpuReady;
+      return app.exclusive(() => app.renderer.capture_ready());
+    }));
+    entry.captureCompleted=true;
+    entry.stage='compositor screenshot';
+    await page.evaluate(async () => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    const bounds = await page.locator('canvas').boundingBox();
+    assert.ok(bounds);
+    const screenshot = PNG.sync.read(await page.screenshot({ path: path.join(output, `canvas-dpr${dpr}.png`) }));
+    // The compositor screenshot is a separate required gate. Offscreen readback
+    // can pass while a browser compositor presents an entirely black canvas.
+    const pixel = (x,y) => {
+      const offset=(Math.floor((bounds.y+y)*dpr)*screenshot.width+Math.floor((bounds.x+x)*dpr))*4;
+      return [...screenshot.data.subarray(offset,offset+4)];
+    };
+    const background=pixel(8,8), rectangle=pixel(40,40), ellipse=pixel(128,49), curve=pixel(52,503);
+    entry.presentationPixels={background,rectangle,ellipse,curve};
+    assert.ok(background[2]>background[0] && background[2]>5,`canvas clear: ${background}`);
+    for(const color of [rectangle,ellipse]) assert.ok(color[2]>color[0]+60 && color[2]>color[1]+60,`canvas analytic shape: ${color}`);
+    assert.ok(curve[0]>curve[2]+60 && curve[0]>curve[1]+60,`canvas computed path: ${curve}`);
+    assert.deepEqual(errors,[]);
+    if(diagnosticsEnabled)entry.gpuDiagnostics=await page.evaluate(()=>window.progpuGpuDiagnostics?.());
+    entry.stage='passed';
+    await context.close();
+    activePage=undefined;activeEntry=undefined;
+  }
+  const receipt = { status: 'passed', browser: browser.version(), platform: process.platform, architecture: process.arch, headless, flags, reports };
+  await writeFile(path.join(output,'results.json'),JSON.stringify(receipt,null,2)+'\n');
+  console.log(JSON.stringify(receipt,null,2));
+} catch (error) {
+  if(diagnosticsEnabled&&activePage&&activeEntry){
+    try{activeEntry.gpuDiagnostics=await activePage.evaluate(()=>window.progpuGpuDiagnostics?.());}
+    catch(problem){activeEntry.diagnosticError=String(problem);}
+  }
+  await writeFile(path.join(output,'results.json'),JSON.stringify({ status: 'failed',
+    browser: browser.version(), platform: process.platform, architecture: process.arch,
+    headless, flags, reports, error: String(error) },null,2)+'\n');
+  throw error;
+} finally { await browser.close(); if(gpuProcessCapture)await gpuProcessCapture; }

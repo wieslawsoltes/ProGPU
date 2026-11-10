@@ -1,0 +1,37 @@
+{
+  "observed_utc": "2026-11-09T17:46:34.980794+00:00",
+  "previous_head": "02d0b90fcce18873b3138209eb1d69602115f77a",
+  "scope": "Owned obsolete duplicate external incremental directories; retain newest per crate and every inventory modified within one hour; skip deletion while compilers are active",
+  "removed_incremental_directories": 76,
+  "removed_logical_bytes": 130733545,
+  "areas": {
+    "debug/incremental": {
+      "removed_directories": 76,
+      "removed_logical_bytes": 130733545
+    },
+    "wasm32-unknown-unknown/debug/incremental": {
+      "removed_directories": 0,
+      "removed_logical_bytes": 0
+    }
+  },
+  "cleanup_status": "completed",
+  "retained": [
+    "Newest incremental inventory per crate and all recently modified state",
+    "Reusable Cargo dependencies",
+    "Original source and compact validation evidence"
+  ],
+  "static_checks": {
+    "native_all_targets_all_features_clippy": "passed",
+    "wasm_browser_clippy": "passed",
+    "cpu_only_strict_clippy": "passed",
+    "format": "passed",
+    "diff_whitespace": "passed"
+  },
+  "new_runtime_benchmark_trace_package_artifacts": false,
+  "runtime_differential_browser_performance_qualification": "deferred until connected stack assembly",
+  "free_gib": {
+    "internal": 36.7,
+    "external": 220.13
+  },
+  "shared_renderer_text_path_atlas_integration": "pending"
+}

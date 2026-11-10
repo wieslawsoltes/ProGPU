@@ -1,0 +1,55 @@
+{
+  "commit": "3224d543ee77e0a1bc9e523e4b80b22d96d4bd42",
+  "run_id": 42549809545,
+  "jobs": [
+    {
+      "id": 128942620700,
+      "name": "portable (macos-14)",
+      "status": "completed",
+      "conclusion": "cancelled"
+    },
+    {
+      "id": 128942620967,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128942621046,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128942621139,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128942621183,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "linux_source": {
+    "managed_executor_cases": 74981,
+    "exact_record_class_state_bytes": 80999436,
+    "rune_classifications": 1114129,
+    "rune_mark_profile": "Unicode16_0",
+    "gdef_enum_storage": "Byte",
+    "branching_witnesses": "Both original controls still executing after three seconds; separately terminated/reaped; not parity cases."
+  },
+  "browser": {
+    "original": "pass",
+    "diagnostic": "skipped",
+    "managed_gsub_checks_per_dpr": 44,
+    "presented_dprs": [
+      1,
+      2
+    ],
+    "offscreen_pixels": 204800
+  },
+  "qualification": "This checkpoint passes original hosted Linux source/package, Windows portable, Vulkan/winit and browser. macOS cancelled. Earlier intermittent browser failures remain open; new stage dispatch requires separate hosted qualification."
+}

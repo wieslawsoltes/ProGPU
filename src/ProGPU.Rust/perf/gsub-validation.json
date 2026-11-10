@@ -1,0 +1,72 @@
+{
+  "captured_utc": "2026-11-09T01:38:36.367765+00:00",
+  "rust": "1.90.0",
+  "native_oracle": {
+    "records": 117973,
+    "exact_state_and_full_storage_bytes": 60322260,
+    "source": "unchanged original C++, default compiler flags"
+  },
+  "managed_oracle": {
+    "records": 3968,
+    "exact_active_record_and_metadata_bytes": 975232,
+    "source": "actual original C# via typed test delegates",
+    "scope": "Shared valid mutation policy; additional current managed semantics remain unported"
+  },
+  "tests": {
+    "all_features": {
+      "passed": 74,
+      "ignored": 40
+    },
+    "cpu_only": {
+      "passed": 72,
+      "ignored": 33
+    },
+    "focused_and_source": {
+      "passed": 7,
+      "ignored": 0
+    }
+  },
+  "clippy": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass"
+  },
+  "browser": {
+    "dprs": [
+      1,
+      2
+    ],
+    "gsub_checks_per_dpr": 37,
+    "offscreen_pixels": 204800,
+    "canonical_shaders": 6,
+    "resize_and_actual_presented_pixels": "pass",
+    "original_flags_and_deadlines": "unchanged"
+  },
+  "package": {
+    "captured_utc": "2026-11-09T01:36:58.421107+00:00",
+    "fresh_independent_empty_target": true,
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "exact_source_resource_license_files": 90,
+    "original_manifest": "exact",
+    "temporary_bytes_removed": 538108070
+  },
+  "benchmark": {
+    "workloads": 24,
+    "full_output_bytes_match": true,
+    "qualification": "Diagnostic original native execution baseline. Mixed Rust regressions remain. No optimization or full managed/frame qualification."
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/layout/gsub.rs": "bf61d03297597f535d03c8c8a562aa3f1714b4c357a8041d5a6cfdc3c65029ac",
+    "src/ProGPU.Rust/src/font/layout/gsub/context.rs": "adfd5d1f1e1e57d7e7dd4b26270717c79a040c9ba20b77bdaec28315db47e8ee",
+    "src/ProGPU.Rust/src/text/shaping.rs": "7904de7628e8ed4a4718b589dbd0925a4d77d2c2e1292691766e118ef4044d87",
+    "src/ProGPU.Rust/tests/gsub.rs": "70903b86cb0c35859b22b61c7fc5405a883fa65ab3d19fce5a4bdaafd62b6af0",
+    "src/ProGPU.Rust/tests/native_gsub.cpp": "ac85cab746ddc647ca6ff9262a2652c94ca5489ee8e21bd23cd9feddc7243887",
+    "src/ProGPU.Rust/tests/managed_gsub.cs": "099ad4f47700267b6ba77d081dacf844835f02423088e316e1bbb2ffbbdf8ecf",
+    "src/ProGPU.Rust/tests/support/gsub_fixture.rs": "a8301c8ec51a89e3eb70d1e2341e7c8be772047e712bd70d185cc820d6bc0dcb",
+    "src/ProGPU.Rust/examples/browser.rs": "541be62b4d844f37eb3e11569c5b4b7292ee923dae739bcd6425337f22599fea",
+    "src/ProGPU.Rust/browser/test.mjs": "8683e966954c337f257bb2779643bfa9e5f0ba2ffd1cfc88460b25f3f440d4d7",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gsub.cpp": "dbb094f40329659ad1f9e8fbfb23455f0526fded8f3678643a0d4c43259fef69",
+    "src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gsub_internal.hpp": "1059b5285502dc4fb90ad7fce5c0c259b7c695e52cdb08a5d73bd993eece6f0c",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1"
+  }
+}

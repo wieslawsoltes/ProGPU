@@ -1,0 +1,100 @@
+{
+  "captured_utc": "2026-11-09T03:05:07.990185+00:00",
+  "rust": "1.90.0",
+  "original_managed_gpos": {
+    "cases": 63557,
+    "full_record_and_state_bytes": 72241212,
+    "lookup_types": 9,
+    "source_nested_depth": 257,
+    "leaf_mutations": 30000,
+    "cursive_topologies": 5000,
+    "attachment_and_late_zero_cases": 10000,
+    "work_bound_cases_excluded": 0,
+    "scope": "Actual original raw lookup, resolve/late-zero and classification methods; already-prepared metrics. Full feature/variation dispatch, metric preparation, native/device GPOS and full shaping are separate."
+  },
+  "rust_long_attachment_chain": 100000,
+  "tests": {
+    "all_features": {
+      "passed": 85,
+      "ignored": 43
+    },
+    "cpu_only": {
+      "passed": 83,
+      "ignored": 36
+    },
+    "original_gpos_and_gsub": {
+      "passed": 14,
+      "ignored": 0
+    }
+  },
+  "regressions": {
+    "full_gsub_stages": 26753,
+    "full_stage_bytes": 46818828,
+    "feature_queries": 262144,
+    "stage_filters": 1974,
+    "nested_gsub_cases": 74981,
+    "nested_bytes": 80999436,
+    "rune_classifications": 1114129,
+    "prior_branching_bound_witnesses": 2
+  },
+  "clippy": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "version": "151.0.7922.34",
+    "dprs": [
+      1,
+      2
+    ],
+    "original_csharp_fixtures": 80,
+    "gpos_checks_per_dpr": 81,
+    "stage_checks_per_dpr": 145,
+    "managed_gsub_checks_per_dpr": 44,
+    "native_gsub_checks_per_dpr": 37,
+    "offscreen_pixels": 204800,
+    "canonical_shaders": 6,
+    "resize_actual_presentation": "pass",
+    "original_flags_and_deadlines": "unchanged",
+    "fixture_sha256": "25ad2608961f8dff18ac0040e86600c4edcd96c838ee7c1a1a78ac79b5fd9174"
+  },
+  "benchmark": {
+    "workloads": 30,
+    "complete_outputs_match": true,
+    "load_average": [
+      4.09765625,
+      5.24658203125,
+      11.84716796875
+    ],
+    "scope": "Diagnostic initial CPU baseline, not an optimization or complete shaping/frame qualification. Rust allocation counts not instrumented."
+  },
+  "package": {
+    "captured_utc": "2026-11-09T03:02:53.289969+00:00",
+    "fresh_independent_empty_target": true,
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "exact_source_resource_document_files": 295,
+    "original_manifest": "exact",
+    "temporary_bytes_removed": 560506021,
+    "final_archive_files": 304,
+    "final_exact_source_resource_document_files": 299,
+    "verified_compiled_code_resource_hashes": 231,
+    "final_code_resources_match_fresh_build": true
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/layout/managed_gpos.rs": "69bb59f6f19a02a22905f45da1af6bb7424d948a7eac28e0e5c7a76c22c7cf6e",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/buffer.rs": "c5ee9b28f4023d34b5c9928070ba2c6bc1ae708c55b27d789855853f27630558",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/context.rs": "99abcf53afb9436f41db6a64a27114be55d6521da913943916044e80c937c68a",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/primitive.rs": "1c5eef6d2f76c6e95e312641127bb02a47b84cad1813de8eaf4d841ac5f6a7fb",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub.rs": "58d3814d786844e56865bee55dff88f2376a8be40d169c369b9cd3a599b5609e",
+    "src/ProGPU.Rust/tests/managed_gpos.rs": "8cdddf88fbeef7513e365c716df9f2db1631d2a4b19fa0d7f08bd623537fd32b",
+    "src/ProGPU.Rust/tests/managed_gpos.cs": "95777a80073ae4087c34922f5eb59d37ea0d13bbd76730f86082d47205351990",
+    "src/ProGPU.Rust/tests/support/gpos_fixture.rs": "30fddb1d166bb882eb4bb5e5c34363ff1a3d6a0de0c5a3d1b605dd2ed47f3475",
+    "src/ProGPU.Rust/browser/managed-gpos.bin": "25ad2608961f8dff18ac0040e86600c4edcd96c838ee7c1a1a78ac79b5fd9174",
+    "src/ProGPU.Rust/examples/browser.rs": "7729cf0e1502af70f9409df662c23d7b5ddee5d42d7e468c51be2e78ea62698d",
+    "src/ProGPU.Rust/browser/test.mjs": "8eed7afcfe39688cba5f3f8ec3fe2bc4b09c1da689642e34018d5fed229b8d43",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Text.Shaping/ShapingContracts.cs": "8bd4b48f1871847167732490bfe450b82cd30ad4567325ebf9283cc6751a5f4d"
+  }
+}

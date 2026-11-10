@@ -1,0 +1,297 @@
+name: Rust
+
+on:
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - src/ProGPU.Rust/**
+      - src/ProGPU.Backend/Shaders/**
+      - src/ProGPU.Native/src/Backend/progpu_native_geometry*.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_gpu_records.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_path_dispatch.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_path_pixel_mapping.hpp
+      - src/ProGPU.Native/src/Backend/progpu_native_path_execution.cpp
+      - src/ProGPU.Native/src/Backend/progpu_native_vector_execution.cpp
+      - src/ProGPU.Native/src/Scene/progpu_native_semantic_validation.cpp
+      - src/ProGPU.Native/src/Scene/progpu_native_glyph_coverage_transfer.hpp
+      - src/ProGPU.Native/include/progpu_native.h
+      - src/ProGPU.Native/include/progpu_native_text.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_sfnt.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_font_bytes.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_glyph.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_path.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_composite.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_composite_internal.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_outline.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_true_type_varied*.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_cff*.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_cff_type2_internal.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_item_variation_store.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_font_variations.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_gvar*.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_gvar_payload_internal.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_hvar.cpp
+      - src/ProGPU.Native/src/Text/Font/progpu_native_font_horizontal_metrics.cpp
+      - src/ProGPU.Native/src/Text/Font/progpu_native_font_vertical_metrics.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_vvar.cpp
+      - src/ProGPU.Native/src/Text/progpu_native_sfnt_simple_glyph_shaper.cpp
+      - src/ProGPU.Text/SfntSimpleGlyphShaper.cs
+      - src/ProGPU.Text/*Data.Generated.cs
+      - src/ProGPU.Text/UnicodeShapingProperties.cs
+      - src/ProGPU.Text/OpenTypeScriptResolver.cs
+      - src/ProGPU.Text/Bidi/BidiTypes.cs
+      - src/ProGPU.Text/Bidi/UnicodeBidiData.Generated.cs
+      - src/ProGPU.Text.Shaping/ShapingContracts.cs
+      - src/ProGPU.Text.Shaping/ShapingBuffer.cs
+      - src/ProGPU.Native/src/Text/progpu_native_unicode.cpp
+      - src/ProGPU.Native/src/Text/Bidi/progpu_native_unicode_bidi.cpp
+      - src/ProGPU.Text/Bidi/Uax9Resolver.cs
+      - src/ProGPU.Text/OriginalGraphemePolicy.cs
+      - src/ProGPU.Native/src/Text/progpu_native_unicode_grapheme.cpp
+      - src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_grapheme_internal.hpp
+      - src/ProGPU.Native/src/Text/progpu_native_unicode_data.generated.hpp
+      - src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_category.cpp
+      - src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_categories.generated.hpp
+      - src/ProGPU.Native/src/Text/Unicode/progpu_native_unicode_directional.cpp
+      - eng/progpu-generate-rust-unicode.py
+      - eng/progpu-test-rust-bidi-conformance.py
+      - eng/progpu-test-rust-grapheme-conformance.py
+      - eng/progpu-test-rust-line-break-conformance.py
+      - eng/progpu-test-rust-normalization-conformance.py
+      - eng/progpu-test-rust-normalization-profiles.py
+      - eng/progpu-generate-rust-normalization-profiles.py
+      - eng/progpu-generate-rust-mark-profiles.py
+      - eng/progpu-generate-rust-grapheme-profile.py
+      - eng/progpu-capture-rust-preparation.py
+      - eng/progpu-generate-rust-joining.py
+      - eng/progpu-generate-rust-vowels.py
+      - eng/progpu-capture-rust-script-properties.py
+      - eng/progpu-test-rust-khmer-syllables.py
+      - eng/progpu-test-rust-myanmar-syllables.py
+      - eng/progpu-test-rust-use-syllables.py
+      - eng/progpu-test-rust-indic-syllables.py
+      - eng/progpu-capture-rust-arabic-fallback.py
+      - src/ProGPU.Text/ArabicJoiningData.Generated.cs
+      - src/ProGPU.Text/UnicodeJoiningFallbackData.Generated.cs
+      - eng/progpu-audit-rust-normalization-runtime.py
+      - eng/ProGPU.UnicodeNormalizationGenerator/Program.cs
+      - src/ProGPU.Native/src/Text/progpu_native_unicode_normalization.cpp
+      - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_layout.cpp
+      - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gdef.cpp
+      - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_digest.cpp
+      - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_features.cpp
+      - src/ProGPU.Native/src/Text/Shaping/progpu_native_open_type_gsub*
+      - src/ProGPU.Native/src/Text/Shaping/progpu_native_unicode_shaping.cpp
+      - src/ProGPU.Text/OpenTypeTextShaper.cs
+      - src/ProGPU.Text/SfntFontFace.cs
+      - eng/progpu-generate-rust-symbol-maps.py
+      - src/ProGPU.Text/OpenTypeVariationData.cs
+      - src/ProGPU.Text/TtfFont.Variations.cs
+      - src/ProGPU.Text/TtfFont.cs
+      - src/ProGPU.Text.Shaping/OpenTypeGdefPolicy.cs
+      - src/ProGPU.Text/UnicodeNormalizationPlan.cs
+      - src/ProGPU.Text/UnicodeNormalizationData.bin
+      - src/ProGPU.Native/src/Text/progpu_native_unicode_line_break*
+      - src/ProGPU.Native/src/Text/progpu_native_edit_symbol_data.generated.hpp
+      - src/ProGPU.Text/UnicodeLineBreak*
+      - src/ProGPU.Text/UnicodeGraphemeData.Generated.cs
+      - src/ProGPU.Native/src/Text/Metadata/progpu_native_sfnt_standalone.cpp
+      - tests/Shared/ProGPU-Authored-*.ttf
+      - .github/workflows/rust.yml
+      - eng/progpu-test-rust-browser.sh
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - src/ProGPU.Rust/**
+      - src/ProGPU.Backend/Shaders/**
+      - .github/workflows/rust.yml
+      - eng/progpu-test-rust-browser.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  managed-text-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.403'
+      - name: Install the minimum supported Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal && rustup override set 1.90.0
+      - name: Verify original managed grapheme repertoire and frozen browser captures
+        run: |
+          python3 eng/progpu-generate-rust-grapheme-profile.py --check
+          cargo test --locked --release --no-default-features --test managed_grapheme -- --include-ignored --nocapture
+      - name: Verify original text preparation, script actions and captured Khmer/Myanmar/USE/Indic decisions
+        run: |
+          python3 eng/progpu-capture-rust-preparation.py --check
+          python3 eng/progpu-generate-rust-joining.py --check
+          python3 eng/progpu-generate-rust-vowels.py --check
+          python3 eng/progpu-capture-rust-script-properties.py --check --rust
+          python3 eng/progpu-test-rust-khmer-syllables.py
+          python3 eng/progpu-test-rust-myanmar-syllables.py
+          python3 eng/progpu-test-rust-use-syllables.py
+          python3 eng/progpu-test-rust-indic-syllables.py
+          python3 eng/progpu-capture-rust-arabic-fallback.py --check
+          cargo test --locked --release --no-default-features --test managed_preparation -- --include-ignored --nocapture
+          cargo test --locked --release --no-default-features --test managed_script_actions -- --include-ignored --nocapture
+
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install Rust and matching WebAssembly bindings
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component clippy --target wasm32-unknown-unknown
+          rustup override set 1.90.0
+          cargo install wasm-bindgen-cli --version 0.2.130 --locked
+      - name: Install Chromium system libraries
+        run: npx --yes playwright@1.62.1 install-deps chromium
+      - name: Strict WebAssembly lints
+        run: |
+          cargo clippy --locked --target wasm32-unknown-unknown --features browser --example browser -- -D warnings
+          python3 src/ProGPU.Rust/browser/capture-gpu-test.py
+          node --check src/ProGPU.Rust/browser/diagnostics.mjs
+          node --check src/ProGPU.Rust/browser/test.mjs
+      - name: Real browser WebGPU pixels and presentation
+        id: browser-gate
+        env:
+          PROGPU_RUST_BROWSER_HEADED: '1'
+          DEBUG: pw:browser
+        run: xvfb-run -a eng/progpu-test-rust-browser.sh
+      - name: Install tools for failure-only GPU backtraces
+        if: failure() && steps.browser-gate.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y gdb coreutils
+          gdb --version
+          timeout --version
+      - name: Observe failed browser workload without replacing its result
+        if: failure() && steps.browser-gate.outcome == 'failure'
+        env:
+          PROGPU_RUST_BROWSER_HEADED: '1'
+          PROGPU_RUST_BROWSER_DIAGNOSTICS: '1'
+          PROGPU_RUST_BROWSER_GPU_STACKS: '1'
+          PROGPU_RUST_BROWSER_RESULTS: artifacts/progpu-rust/browser-results/diagnostic-rerun
+          DEBUG: pw:browser
+        run: xvfb-run -a node src/ProGPU.Rust/browser/serve-test.mjs artifacts/progpu-rust/browser
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: rust-browser-results
+          path: artifacts/progpu-rust/browser-results
+          retention-days: 7
+
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the minimum supported Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.90.0
+      - name: Formatting and strict lints
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --all-features --all-targets -- -D warnings
+      - name: CPU and canonical shader validation
+        run: |
+          cargo test --locked --all-features
+          cargo test --locked --no-default-features
+      - uses: actions/setup-dotnet@v5
+        if: runner.os != 'Windows'
+        with:
+          dotnet-version: '10.0.403'
+      - name: Original C++ and managed differential oracles
+        id: original-oracles
+        if: runner.os != 'Windows'
+        run: |
+          python3 eng/progpu-generate-rust-unicode.py --check
+          python3 eng/progpu-generate-rust-normalization-profiles.py --check
+          python3 eng/progpu-generate-rust-mark-profiles.py --check
+          cargo test --locked --test native_geometry -- --ignored --nocapture
+          cargo test --locked --test font -- --ignored --nocapture
+          cargo test --locked --test outline -- --ignored --nocapture
+          cargo test --locked --test composite -- --ignored --nocapture
+          cargo test --locked --test cff -- --ignored --nocapture
+          cargo test --locked --test variations -- --ignored --nocapture
+          cargo test --locked --test item_variation -- --ignored --nocapture
+          cargo test --locked --test gvar -- --ignored --nocapture
+          cargo test --locked --test horizontal -- --ignored --nocapture
+          cargo test --locked --test vertical -- --ignored --nocapture
+          cargo test --locked --test simple_text -- --ignored --nocapture
+          cargo test --locked --test unicode -- --ignored --nocapture
+          cargo test --locked --test bidi -- --ignored --nocapture
+          python3 eng/progpu-test-rust-bidi-conformance.py
+          cargo test --locked --test grapheme -- --ignored --nocapture
+          python3 eng/progpu-test-rust-grapheme-conformance.py
+          cargo test --locked --test line_break -- --ignored --nocapture
+          python3 eng/progpu-test-rust-line-break-conformance.py
+          cargo test --locked --test layout -- --ignored --nocapture
+          cargo test --locked --test digest -- --ignored --nocapture
+          cargo test --locked --test selection -- --ignored --nocapture
+          cargo test --locked --test managed_feature_selection -- --ignored --nocapture
+          cargo test --locked --test managed_context -- --ignored --nocapture
+          cargo test --locked --test gsub -- --ignored --nocapture
+          cargo test --locked --test managed_gsub_execution -- --ignored --nocapture
+          cargo test --locked --test managed_dispatch -- --ignored --nocapture
+          cargo test --locked --test managed_gpos -- --ignored --nocapture
+          cargo test --locked --test managed_positioning -- --ignored --nocapture
+          cargo test --locked --test managed_variations -- --ignored --nocapture
+          cargo test --locked --test managed_names -- --ignored --nocapture
+          cargo test --locked --test managed_font -- --ignored --nocapture
+          cargo test --locked --test managed_mapping -- --ignored --nocapture
+          python3 eng/progpu-generate-rust-symbol-maps.py --check
+          cargo test --locked --test normalization -- --ignored --nocapture
+          python3 eng/progpu-test-rust-normalization-conformance.py
+          python3 eng/progpu-test-rust-normalization-profiles.py
+          cargo test --locked --lib -- --ignored --nocapture
+      - name: Observe runtime normalization data after an oracle failure
+        if: failure() && steps.original-oracles.outcome == 'failure'
+        run: |
+          python3 eng/progpu-audit-rust-normalization-runtime.py --output artifacts/progpu-rust/normalization-runtime.json
+          cat artifacts/progpu-rust/normalization-runtime.json
+      - name: Verify distributable crate
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: cargo package --locked
+
+  gpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Vulkan software adapter and X11 smoke host
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 xvfb
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup override set 1.90.0
+      - name: GPU pixels and resource ownership (missing adapter fails)
+        run: cargo test --locked --test gpu_rendering -- --ignored --nocapture
+      - name: winit presentation smoke
+        run: |
+          cargo build --locked --features window --example winit
+          timeout 60s xvfb-run -a target/debug/examples/winit --frames 4

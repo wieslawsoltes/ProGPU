@@ -1,0 +1,46 @@
+{
+  "commit": "7d381b2f1c1b814abf67685fceae30b937ceb48a",
+  "run": 42573902289,
+  "jobs": [
+    {
+      "id": 129017215619,
+      "name": "managed-graphemes",
+      "conclusion": "success"
+    },
+    {
+      "id": 129017215876,
+      "name": "browser",
+      "conclusion": "success"
+    },
+    {
+      "id": 129017215897,
+      "name": "portable (windows-latest)",
+      "conclusion": "success"
+    },
+    {
+      "id": 129017215937,
+      "name": "portable (ubuntu-24.04)",
+      "conclusion": "success"
+    },
+    {
+      "id": 129017215999,
+      "name": "gpu",
+      "conclusion": "success"
+    },
+    {
+      "id": 129017216029,
+      "name": "portable (macos-14)",
+      "conclusion": "cancelled"
+    }
+  ],
+  "source": [
+    "2026-11-09T06:35:38.8586647Z .NET 10.0.14 Ubuntu 24.04.5 LTS",
+    "2026-11-09T06:35:50.4693544Z Original managed graphemes: 22256392 cases / 899691464 exact bytes; 49 browser cases / 2664 bytes"
+  ],
+  "linux": [
+    "2026-11-09T06:48:32.2952800Z Original managed positioning: 32008 cases, 760086 delta queries, 32008 actual normalized captures, 44353296 exact output bytes",
+    "2026-11-09T06:50:03.0846497Z Original managed mapping: 8436 cases / 5143568 queries / 61756560 exact bytes; 88 browser cases / 455992 bytes",
+    "2026-11-09T06:51:39.7098878Z     Packaged 399 files, 7.5MiB (1.2MiB compressed)"
+  ],
+  "limits": "This qualifies the preceding managed grapheme checkpoint's selected hosted gates, not later preparation work or full-stack/source/application/provider/package pixel parity. macOS cancelled; intermittent earlier browser failures remain unresolved."
+}

@@ -1,0 +1,48 @@
+{
+  "utc": "2026-11-09T11:27:43.193896+00:00",
+  "removed": [
+    {
+      "path": "/var/folders/6f/snf59k7x0ns_dv9l8f0_qgz00000gn/T/progpu-rust-myanmar-package-v44ak_p6",
+      "logical_bytes": 404389303
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser",
+      "logical_bytes": 2676643
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/artifacts/progpu-rust/browser-results",
+      "logical_bytes": 148725
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/target/package/progpu-0.1.0.crate",
+      "logical_bytes": 1786353
+    },
+    {
+      "path": "/Users/wieslawsoltes/GitHub/ProGPU/eng/__pycache__/progpu-capture-rust-script-properties.cpython-314.pyc",
+      "logical_bytes": 11332
+    },
+    {
+      "path": "/tmp/progpu-rust-myanmar",
+      "logical_bytes": 74183003
+    },
+    {
+      "path": "/tmp/progpu-rust-myanmar-package-source.json",
+      "logical_bytes": 59008
+    },
+    {
+      "path": "/tmp/progpu-rust-myanmar-package-dir",
+      "logical_bytes": 85
+    },
+    {
+      "path": "/tmp/progpu-rust-myanmar-package-native.log",
+      "logical_bytes": 2806
+    },
+    {
+      "path": "/tmp/progpu-rust-myanmar-package-wasm.log",
+      "logical_bytes": 2099
+    }
+  ],
+  "crate_only_cargo_clean": "Removed 25825 files, 1.9GiB total",
+  "additional_logical_bytes": 483259357,
+  "preserved": "Reusable dependency build cache, .NET/wasm-bindgen tools and browser tools/downloads. Compact source/browser/benchmark/package/hosted receipts retained. Source oracle and benchmark temporary directories also retire automatically."
+}

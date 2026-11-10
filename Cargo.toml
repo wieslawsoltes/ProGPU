@@ -1,0 +1,408 @@
+[package]
+name = "progpu"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT AND Unicode-3.0"
+description = "ProGPU's native Rust rendering engine using canonical WebGPU shaders"
+repository = "https://github.com/wieslawsoltes/ProGPU"
+readme = "src/ProGPU.Rust/README.md"
+include = [
+    "/src/ProGPU.Scene/Shaders/RetainedGlyph.wgsl",
+    "/src/ProGPU.Scene/Shaders/Mesh3DSolid.wgsl",
+    "/src/ProGPU.Scene/Shaders/Mesh3DWireframe.wgsl",
+    "/src/ProGPU.Scene/Shaders/Mesh3DEdges.wgsl",
+    "/src/ProGPU.Scene/Shaders/CustomGrid.wgsl",
+    "/src/ProGPU.Vector/Shaders/GpuHitTesting.wgsl",
+    "/src/ProGPU.Scene/Shaders/Hatch.wgsl",
+    "/src/ProGPU.Scene/Shaders/Line3D.wgsl",
+    "/src/ProGPU.Scene/Shaders/Native3D.wgsl",
+    "/src/ProGPU.Scene/Shaders/AcisSolid.wgsl",
+    "/src/ProGPU.Scene/Shaders/BackdropMaterial.wgsl",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/src/ProGPU.Rust/**",
+    "/src/ProGPU.Backend/Shaders/*.wgsl",
+    "/src/ProGPU.Scene/Shaders/ImageEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/GpuLineSeries.wgsl",
+    "/src/ProGPU.Scene/Shaders/GpuScatterSeries.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectHeader.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectMaskDeclarations.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectMaskHelper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectNoMaskHelper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectPassThrough.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectStraightWrapper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectPremultipliedWrapper.wgsl",
+    "/src/ProGPU.Scene/Shaders/WpfEffectStraightToPremultipliedWrapper.wgsl",
+    "/src/ProGPU.Compute/Shaders/ColorTable.wgsl",
+    "/src/ProGPU.Compute/Shaders/NonlinearColorFilter.wgsl",
+    "/src/ProGPU.Compute/Shaders/OverdrawColorFilter.wgsl",
+    "/src/ProGPU.Compute/Shaders/ImageBlend.wgsl",
+    "/src/ProGPU.Compute/Shaders/ArithmeticComposite.wgsl",
+    "/src/ProGPU.Compute/Shaders/Morphology.wgsl",
+    "/src/ProGPU.Compute/Shaders/MatrixConvolution.wgsl",
+    "/src/ProGPU.Compute/Shaders/DisplacementMap.wgsl",
+    "/src/ProGPU.Compute/Shaders/Magnifier.wgsl",
+    "/src/ProGPU.Compute/Shaders/ImageLighting.wgsl",
+    "/src/ProGPU.Compute/Shaders/GaussianBlurHorizontal.wgsl",
+    "/src/ProGPU.Compute/Shaders/GaussianBlurVertical.wgsl",
+    "/src/ProGPU.Compute/Shaders/GroupDropShadowCompose.wgsl",
+    "/src/ProGPU.Compute/Shaders/DropShadow.wgsl",
+    "/src/ProGPU.Compute/Shaders/ShadowBlurHorizontal.wgsl",
+    "/src/ProGPU.Compute/Shaders/ShadowBlurVertical.wgsl",
+    "/src/ProGPU.Text/UnicodeNormalizationData.bin",
+]
+
+[lib]
+path = "src/ProGPU.Rust/src/lib.rs"
+
+[features]
+default = ["gpu"]
+gpu = ["dep:wgpu"]
+native-freetype = ["dep:progpu-freetype"]
+window = ["gpu", "dep:winit", "dep:pollster"]
+browser = ["gpu", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:web-sys"]
+
+[dependencies]
+bytemuck = { version = "1.24", features = ["derive"] }
+thiserror = "2"
+wgpu = { version = "30.0.1", optional = true }
+winit = { version = "0.30.13", optional = true }
+pollster = { version = "0.4", optional = true }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "bmp", "gif", "hdr", "pnm", "tga"] }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+roxmltree = { version = "0.21.2", default-features = false, features = ["std"] }
+wide = "=0.7.33"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+progpu-freetype = { version = "0.1.0", path = "src/ProGPU.Rust/freetype", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "=0.2.130", optional = true }
+wasm-bindgen-futures = { version = "0.4.80", optional = true }
+js-sys = { version = "0.3.107", optional = true }
+web-sys = { version = "0.3.107", features = ["HtmlCanvasElement", "console"], optional = true }
+
+[dev-dependencies]
+naga = { version = "30.0.0", features = ["wgsl-in"] }
+pollster = "0.4"
+
+[[test]]
+name = "script_properties"
+path = "src/ProGPU.Rust/tests/script_properties.rs"
+
+[[example]]
+name = "script_property_control"
+path = "src/ProGPU.Rust/examples/script_property_control.rs"
+
+[[example]]
+name = "indic_syllable_control"
+path = "src/ProGPU.Rust/examples/indic_syllable_control.rs"
+
+[[example]]
+name = "use_syllable_control"
+path = "src/ProGPU.Rust/examples/use_syllable_control.rs"
+
+[[example]]
+name = "myanmar_syllable_control"
+path = "src/ProGPU.Rust/examples/myanmar_syllable_control.rs"
+
+[[example]]
+name = "khmer_syllable_control"
+path = "src/ProGPU.Rust/examples/khmer_syllable_control.rs"
+
+[[example]]
+name = "script_property_benchmark"
+path = "src/ProGPU.Rust/examples/script_property_benchmark.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[[test]]
+name = "managed_feature_selection"
+path = "src/ProGPU.Rust/tests/managed_feature_selection.rs"
+
+[[test]]
+name = "managed_context"
+path = "src/ProGPU.Rust/tests/managed_context.rs"
+
+[[test]]
+name = "shader_validation"
+path = "src/ProGPU.Rust/tests/shader_validation.rs"
+
+[[test]]
+name = "font"
+path = "src/ProGPU.Rust/tests/font.rs"
+
+[[test]]
+name = "outline"
+path = "src/ProGPU.Rust/tests/outline.rs"
+
+[[test]]
+name = "composite"
+path = "src/ProGPU.Rust/tests/composite.rs"
+
+[[test]]
+name = "cff"
+path = "src/ProGPU.Rust/tests/cff.rs"
+
+[[test]]
+name = "variations"
+path = "src/ProGPU.Rust/tests/variations.rs"
+
+[[test]]
+name = "item_variation"
+path = "src/ProGPU.Rust/tests/item_variation.rs"
+
+[[test]]
+name = "gvar"
+path = "src/ProGPU.Rust/tests/gvar.rs"
+
+[[test]]
+name = "horizontal"
+path = "src/ProGPU.Rust/tests/horizontal.rs"
+
+[[test]]
+name = "vertical"
+path = "src/ProGPU.Rust/tests/vertical.rs"
+
+[[test]]
+name = "simple_text"
+path = "src/ProGPU.Rust/tests/simple_text.rs"
+
+[[test]]
+name = "unicode"
+path = "src/ProGPU.Rust/tests/unicode.rs"
+
+[[test]]
+name = "native_geometry"
+path = "src/ProGPU.Rust/tests/native_geometry.rs"
+
+[[test]]
+name = "gpu_rendering"
+path = "src/ProGPU.Rust/tests/gpu_rendering.rs"
+required-features = ["gpu"]
+
+[[example]]
+name = "winit"
+path = "src/ProGPU.Rust/examples/winit.rs"
+required-features = ["window"]
+
+[[example]]
+name = "browser"
+path = "src/ProGPU.Rust/examples/browser.rs"
+crate-type = ["cdylib"]
+required-features = ["browser"]
+
+[[example]]
+name = "font_benchmark"
+path = "src/ProGPU.Rust/examples/font_benchmark.rs"
+
+[[example]]
+name = "outline_benchmark"
+path = "src/ProGPU.Rust/examples/outline_benchmark.rs"
+
+[[example]]
+name = "metrics_benchmark"
+path = "src/ProGPU.Rust/examples/metrics_benchmark.rs"
+
+[[example]]
+name = "vertical_metrics_benchmark"
+path = "src/ProGPU.Rust/examples/vertical_metrics_benchmark.rs"
+
+[[example]]
+name = "simple_text_benchmark"
+path = "src/ProGPU.Rust/examples/simple_text_benchmark.rs"
+
+[[example]]
+name = "retained_benchmark"
+path = "src/ProGPU.Rust/examples/retained_benchmark.rs"
+required-features = ["gpu"]
+
+[[example]]
+name = "unicode_benchmark"
+path = "src/ProGPU.Rust/examples/unicode_benchmark.rs"
+
+[[test]]
+name = "bidi"
+path = "src/ProGPU.Rust/tests/bidi.rs"
+
+[[example]]
+name = "bidi_levels_conformance"
+path = "src/ProGPU.Rust/examples/bidi_levels_conformance.rs"
+
+[[example]]
+name = "bidi_benchmark"
+path = "src/ProGPU.Rust/examples/bidi_benchmark.rs"
+
+[[test]]
+name = "grapheme"
+path = "src/ProGPU.Rust/tests/grapheme.rs"
+
+[[test]]
+name = "managed_grapheme"
+path = "src/ProGPU.Rust/tests/managed_grapheme.rs"
+
+[[test]]
+name = "managed_preparation"
+path = "src/ProGPU.Rust/tests/managed_preparation.rs"
+
+[[test]]
+name = "managed_script_actions"
+path = "src/ProGPU.Rust/tests/managed_script_actions.rs"
+
+[[example]]
+name = "managed_script_actions_benchmark"
+path = "src/ProGPU.Rust/examples/managed_script_actions_benchmark.rs"
+
+[[example]]
+name = "managed_preparation_benchmark"
+path = "src/ProGPU.Rust/examples/managed_preparation_benchmark.rs"
+
+[[example]]
+name = "grapheme_conformance"
+path = "src/ProGPU.Rust/examples/grapheme_conformance.rs"
+
+[[example]]
+name = "grapheme_benchmark"
+path = "src/ProGPU.Rust/examples/grapheme_benchmark.rs"
+
+[[example]]
+name = "managed_grapheme_benchmark"
+path = "src/ProGPU.Rust/examples/managed_grapheme_benchmark.rs"
+
+[[test]]
+name = "line_break"
+path = "src/ProGPU.Rust/tests/line_break.rs"
+
+[[example]]
+name = "line_break_conformance"
+path = "src/ProGPU.Rust/examples/line_break_conformance.rs"
+
+[[example]]
+name = "line_break_benchmark"
+path = "src/ProGPU.Rust/examples/line_break_benchmark.rs"
+
+[[test]]
+name = "normalization"
+path = "src/ProGPU.Rust/tests/normalization.rs"
+
+[[test]]
+name = "layout"
+path = "src/ProGPU.Rust/tests/layout.rs"
+
+[[test]]
+name = "digest"
+path = "src/ProGPU.Rust/tests/digest.rs"
+
+[[test]]
+name = "selection"
+path = "src/ProGPU.Rust/tests/selection.rs"
+
+[[example]]
+name = "normalization_conformance"
+path = "src/ProGPU.Rust/examples/normalization_conformance.rs"
+
+[[example]]
+name = "normalization_benchmark"
+path = "src/ProGPU.Rust/examples/normalization_benchmark.rs"
+
+[[example]]
+name = "layout_benchmark"
+path = "src/ProGPU.Rust/examples/layout_benchmark.rs"
+
+[[example]]
+name = "digest_benchmark"
+path = "src/ProGPU.Rust/examples/digest_benchmark.rs"
+
+[[example]]
+name = "selection_benchmark"
+path = "src/ProGPU.Rust/examples/selection_benchmark.rs"
+
+[[example]]
+name = "managed_feature_benchmark"
+path = "src/ProGPU.Rust/examples/managed_feature_benchmark.rs"
+
+[[example]]
+name = "managed_context_benchmark"
+path = "src/ProGPU.Rust/examples/managed_context_benchmark.rs"
+
+[[test]]
+name = "gsub"
+path = "src/ProGPU.Rust/tests/gsub.rs"
+
+[[example]]
+name = "gsub_benchmark"
+path = "src/ProGPU.Rust/examples/gsub_benchmark.rs"
+
+[[test]]
+name = "managed_gsub_execution"
+path = "src/ProGPU.Rust/tests/managed_gsub_execution.rs"
+
+[[example]]
+name = "managed_gsub_benchmark"
+path = "src/ProGPU.Rust/examples/managed_gsub_benchmark.rs"
+
+[[test]]
+name = "managed_dispatch"
+path = "src/ProGPU.Rust/tests/managed_dispatch.rs"
+
+[[example]]
+name = "managed_dispatch_benchmark"
+path = "src/ProGPU.Rust/examples/managed_dispatch_benchmark.rs"
+
+[[test]]
+name = "managed_gpos"
+path = "src/ProGPU.Rust/tests/managed_gpos.rs"
+
+[[example]]
+name = "managed_gpos_benchmark"
+path = "src/ProGPU.Rust/examples/managed_gpos_benchmark.rs"
+
+[[test]]
+name = "managed_positioning"
+path = "src/ProGPU.Rust/tests/managed_positioning.rs"
+
+[[example]]
+name = "managed_positioning_benchmark"
+path = "src/ProGPU.Rust/examples/managed_positioning_benchmark.rs"
+
+[[test]]
+name = "managed_variations"
+path = "src/ProGPU.Rust/tests/managed_variations.rs"
+
+[[example]]
+name = "managed_variations_benchmark"
+path = "src/ProGPU.Rust/examples/managed_variations_benchmark.rs"
+
+[[test]]
+name = "managed_names"
+path = "src/ProGPU.Rust/tests/managed_names.rs"
+
+[[example]]
+name = "managed_names_benchmark"
+path = "src/ProGPU.Rust/examples/managed_names_benchmark.rs"
+
+[[test]]
+name = "managed_font"
+path = "src/ProGPU.Rust/tests/managed_font.rs"
+
+[[example]]
+name = "managed_font_benchmark"
+path = "src/ProGPU.Rust/examples/managed_font_benchmark.rs"
+
+[[test]]
+name = "managed_mapping"
+path = "src/ProGPU.Rust/tests/managed_mapping.rs"
+
+[[example]]
+name = "managed_mapping_benchmark"
+path = "src/ProGPU.Rust/examples/managed_mapping_benchmark.rs"

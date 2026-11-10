@@ -1,0 +1,53 @@
+{
+  "commit": "20aac151c5ba1126a9e93104e4b840470c688468",
+  "run_id": 42546692435,
+  "jobs": [
+    {
+      "id": 128933116734,
+      "name": "portable (windows-latest)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128933116993,
+      "name": "portable (ubuntu-24.04)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128933117067,
+      "name": "browser",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 128933117302,
+      "name": "portable (macos-14)",
+      "status": "queued",
+      "conclusion": null
+    },
+    {
+      "id": 128933117911,
+      "name": "gpu",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "source_controls": {
+    "native_records": 117973,
+    "native_bytes": 60322260,
+    "managed_shared_records": 3968,
+    "managed_shared_bytes": 975232
+  },
+  "browser": {
+    "original": "pass",
+    "diagnostic": "skipped",
+    "gsub_checks_per_dpr": 37,
+    "presented_dprs": [
+      1,
+      2
+    ],
+    "offscreen_pixels": 204800
+  },
+  "qualification": "Original hosted Linux source/package, Windows portable, Vulkan/winit and browser pass for this commit. macOS queued. Preceding intermittent browser device loss and all other source/provider/pixel gaps remain unresolved."
+}

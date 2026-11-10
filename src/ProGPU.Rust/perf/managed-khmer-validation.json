@@ -1,0 +1,262 @@
+{
+  "utc": "2026-11-09T10:57:17.896832+00:00",
+  "scope": "Complete original Khmer preparation plus independent parser. Full source stage planning, Indic/Myanmar/USE and GPU text remain pending.",
+  "source_revision": "83304e602bd7d2d6df2e025d63dad09ed69ae969; original source unchanged",
+  "source_runtime": ".NET 10.0.14 macOS 26.6.0",
+  "syllables": {
+    "cases": 1398562,
+    "exact_bytes": 9586614,
+    "font_sha256": "60d952f14b770aec08221b8adee1a1b7d82a8abdc259fb2484de9666a2f45832",
+    "request_sha256": "7f53d8d87ff75ce5e3406a89d382d1f8c31877298ed9e05c378ddf084826c23f",
+    "response_sha256": "cc11056bca44b56b81fa16199e164522f1a5e73f876bb2733488b3f8e9aa0628"
+  },
+  "actions": {
+    "cases": 1163438,
+    "exact_bytes": 1280069720,
+    "prior_cases_retained": 1064105,
+    "browser_cases": 1041,
+    "browser_fixture_bytes": 1341556,
+    "final_source_without_fixture_update": "pass"
+  },
+  "native": {
+    "passed": 100,
+    "failed": 0,
+    "ignored": 51
+  },
+  "cpu": {
+    "passed": 98,
+    "failed": 0,
+    "ignored": 44
+  },
+  "strict_native_and_wasm_clippy": "pass",
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "headless": true,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache"
+    ],
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 3126,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 178,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 188,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "errors": [],
+        "resized": {
+          "frames": 198,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 559,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "scriptPropertyQueries": 2228228,
+        "scriptPropertyExtractions": 65536,
+        "propertyDigest": "44b423f788869550a4a4f197d8822d2c08750db330431b05bdcdb84c8b7dac31",
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 3126,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 57,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 67,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "errors": [],
+        "resized": {
+          "frames": 72,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1118,
+          "dpi": 2
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ]
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/script_actions/khmer.rs": "4ac87b5793ef3357a0f20cfd1eb23efe904397aa8e3294120877a7bc2d334bb1",
+    "src/ProGPU.Rust/src/text/script_actions/khmer_syllables.rs": "722675bcac639b4f4949da59c2ceaf179b8dd18d63f2520aff000234ccdf5f44",
+    "src/ProGPU.Rust/tests/managed_khmer_syllables.cs": "ba355688d28db2b93693daf7c0c903f17b92a5227811472aae6a7f76b7e596a9",
+    "eng/progpu-test-rust-khmer-syllables.py": "04c550f63e68cae2efd3d360c7684e655c209a37971bfb9356e250a3f88ca004",
+    "src/ProGPU.Text/KhmerSyllableMachineData.Generated.cs": "8786e729ca52f2a908f6232ae4a45c44db7f8e58f8943c3657ecc685b9242063"
+  },
+  "provenance_audit": "Original ProGPU-owned preparation port; independent public-grammar/API-observation parser. Foreign generated provider bytes hashed only for identity, not read for implementation. Prior audited history through 83304e602 unchanged; no original source/shader/provider edits.",
+  "toolchain": "cargo/rustc 1.90.0"
+}

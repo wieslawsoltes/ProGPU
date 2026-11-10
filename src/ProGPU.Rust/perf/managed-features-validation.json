@@ -1,0 +1,55 @@
+{
+  "captured_utc": "2026-11-09T00:49:08.975027+00:00",
+  "managed": {
+    "records": 327015,
+    "exact_bytes": 27595740,
+    "mutations": 25000,
+    "exhaustive_utf16_language_witnesses": 65536,
+    "actual_original_method_and_font_instances": true,
+    "typed_original_exception_control": true
+  },
+  "all_features": {
+    "passed": 67,
+    "ignored": 37
+  },
+  "cpu_only": {
+    "passed": 65,
+    "ignored": 30
+  },
+  "strict_clippy": {
+    "native_all_features_all_targets": true,
+    "wasm_browser": true
+  },
+  "browser": {
+    "managed_selection_checks_per_dpr": 20,
+    "dprs": [
+      1,
+      2
+    ],
+    "shaders": 6,
+    "offscreen_pixels": 204800,
+    "actual_presentation_and_resize": true
+  },
+  "fresh_package": {
+    "captured_utc": "2026-11-09T00:47:48.468582+00:00",
+    "empty_target": true,
+    "native_all_features_all_targets": true,
+    "wasm_browser": true,
+    "exact_production_resource_license_files": 86
+  },
+  "source_sha256": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/font/layout/managed_selection.rs": "04eff30d9dc34d611072b82cb54252ffd3cff5284eb896e6441566bfc2cb2c79",
+    "src/ProGPU.Rust/tests/managed_feature_selection.rs": "1d231f26ed100c1bc7aaa45d9417c21b5ef020009c1351e49d634483cbd6a55f",
+    "src/ProGPU.Rust/tests/managed_feature_selection.cs": "ebd58d23fcef45c95da7a6f89ef70fd6e19918a7cbcc57228a474714af7337dc",
+    "src/ProGPU.Rust/examples/browser.rs": "d13a4eb7d2af7425bc379f3cdfab381e1edaeea07e8d5a6445ceda0ba4d276ed",
+    "src/ProGPU.Rust/browser/test.mjs": "4f55c00f8c04ac73fcb304e640e7d8134ca86c449914112ad19d6e1d83f5cd76"
+  },
+  "qualification": [
+    "Current managed selection and digest metadata only; independent native policy unchanged",
+    "Managed context preparation and ordered glyph eligibility remain separate pending work",
+    "No staged shaping defaults, GSUB/GPOS execution, fallback/layout or GPU text claim",
+    "Eight construction baselines match all metadata hashes; differing ownership/context work, compiler activity and JIT transitions prevent full performance qualification",
+    "Hosted browser intermittency and all original source/provider/package/pixel gates remain open"
+  ]
+}

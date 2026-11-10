@@ -1,0 +1,37 @@
+{
+  "utc": "2026-11-09T13:15:01.239316+00:00",
+  "source_runtime": ".NET 10.0.14 / macOS 26.6 / Unicode17_0",
+  "complete_source_cases": 1882608,
+  "complete_source_bytes": 2194696960,
+  "previous_cases_retained": 1657647,
+  "added_cases": 224961,
+  "raw_property_points": 1114113,
+  "raw_property_bytes": 17825808,
+  "frozen_browser_cases": 4022,
+  "frozen_browser_bytes": 5933196,
+  "native_tests": {
+    "native": {
+      "passed": 103,
+      "failed": 0,
+      "ignored": 51
+    },
+    "cpu": {
+      "passed": 101,
+      "failed": 0,
+      "ignored": 44
+    }
+  },
+  "quick_all_target_all_feature_compile": "pass",
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/script_actions/indic.rs": "b3c5670d667b0a884ab05781ef152bca0ff11af504ecfde96cdca29fa7473936",
+    "src/ProGPU.Rust/src/text/script_actions/indic_final.rs": "84e008b5c659654883e09427859e1c18cad081c33fb1ecac829a24109a41e936",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/dispatch.rs": "3c1126acf2cda24bb046cb6007eee07ec9f50fec540e8d7b7c3faef35fac56aa",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "cc2760d5928dc64469f1288034bf399fc0a2c2c116fbce315ab5b1bdebeb0f97",
+    "src/ProGPU.Rust/tests/support/managed_indic_reorder_cases.rs": "01dbbc8f620947b099bdfed3021a755cf36cdcb4ffc928069c133603078451bb",
+    "src/ProGPU.Rust/tests/support/managed_indic_reorder_fixture.rs": "7bb6d8fa2467e07520036c7f753833d518f7c649442ef39db97fd1d5652bd1d4"
+  },
+  "remaining_validation": "User requested implementation-first batches. Expanded browser, fresh-package, Instruments and broader platform validation deferred until whole-stack integration. No full shaping/rendering or performance parity claim.",
+  "benchmark": "66 complete-output matched workloads, three trials completed before workflow change; raw measurements retained in managed-indic-reorder-baseline.json. No optimization or Instruments qualification claimed.",
+  "provenance": "Direct port of approved original ProGPU methods; independent existing syllable recognizer unchanged. Actual selected font/GSUB plan and original Rune-category observations. No generated foreign table/topology or external implementation transcribed."
+}

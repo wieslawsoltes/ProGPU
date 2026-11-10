@@ -1,0 +1,40 @@
+{
+  "commit": "99b2f9093fb537d976629266b88611843255090c",
+  "run_id": 42544464172,
+  "jobs": {
+    "linux": {
+      "id": 128926343300,
+      "conclusion": "success",
+      "full_source_oracles_and_package": true,
+      "managed_context_records": 56996,
+      "managed_context_coverage_queries": 22558608,
+      "managed_context_ordered_matches": 1191586,
+      "managed_context_bytes": 95829796
+    },
+    "browser": {
+      "id": 128926343176,
+      "conclusion": "success",
+      "original": true,
+      "diagnostic": "skipped",
+      "managed_context_checks_per_dpr": 70,
+      "offscreen_pixels": 204800,
+      "presented_dprs": [
+        1,
+        2
+      ]
+    },
+    "windows": {
+      "id": 128926343339,
+      "conclusion": "success"
+    },
+    "gpu": {
+      "id": 128926343525,
+      "conclusion": "success"
+    },
+    "macos": {
+      "id": 128926343562,
+      "status": "queued"
+    }
+  },
+  "qualification": "This checkpoint passes the original hosted browser gate. Preceding device-loss failures remain; intermittent reliability is unresolved. New GSUB changes need separate hosted qualification."
+}

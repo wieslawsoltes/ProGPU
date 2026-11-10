@@ -1,0 +1,55 @@
+{
+  "commit": "ddccf56140bef3bafec58f7c046caa3b8eff7bfe",
+  "run_id": 42557267689,
+  "url": "https://github.com/wieslawsoltes/ProGPU/actions/runs/42557267689",
+  "jobs": [
+    {
+      "id": 128965686370,
+      "name": "portable (windows-latest)",
+      "conclusion": "success",
+      "status": "completed"
+    },
+    {
+      "id": 128965686489,
+      "name": "browser",
+      "conclusion": "success",
+      "status": "completed"
+    },
+    {
+      "id": 128965686605,
+      "name": "gpu",
+      "conclusion": "success",
+      "status": "completed"
+    },
+    {
+      "id": 128965686677,
+      "name": "portable (macos-14)",
+      "conclusion": "cancelled",
+      "status": "completed"
+    },
+    {
+      "id": 128965686784,
+      "name": "portable (ubuntu-24.04)",
+      "conclusion": "success",
+      "status": "completed"
+    }
+  ],
+  "original_managed_positioning": {
+    "cases": 32008,
+    "delta_queries": 760086,
+    "exact_bytes": 44353296
+  },
+  "browser": {
+    "original_gate": "pass",
+    "diagnostic": "skipped",
+    "positioning_checks_per_dpr": 151,
+    "raw_gpos_checks_per_dpr": 81,
+    "offscreen_pixels": 204800,
+    "actual_presentation_dprs": [
+      1,
+      2
+    ]
+  },
+  "package_files": 318,
+  "scope": "Prior complete positioning checkpoint. Does not qualify the new variation-data implementation. Cancelled macOS and intermittent browser failures at prior commits remain open, alongside full source/application/provider/package/pixel gates."
+}

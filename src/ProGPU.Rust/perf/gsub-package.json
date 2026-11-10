@@ -1,0 +1,9 @@
+{
+  "captured_utc": "2026-11-09T01:36:58.421107+00:00",
+  "fresh_independent_empty_target": true,
+  "native_all_targets_all_features": "pass",
+  "wasm_browser": "pass",
+  "exact_source_resource_license_files": 90,
+  "original_manifest": "exact",
+  "temporary_bytes_removed": 538108070
+}

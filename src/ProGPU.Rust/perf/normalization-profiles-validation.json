@@ -1,0 +1,79 @@
+{
+  "captured_utc": "2026-11-08T23:51:55.640412+00:00",
+  "profiles": [
+    151,
+    160,
+    170
+  ],
+  "native": {
+    "controls": 3668863,
+    "bytes": 248877000,
+    "macos": true,
+    "linux_arm64": true
+  },
+  "managed": {
+    "controls_per_host": 4476001,
+    "macos": {
+      "profile": 170,
+      "bytes": 51423694,
+      "dotnet_sdk": "10.0.403",
+      "rust": "1.90.0"
+    },
+    "linux_arm64": {
+      "profile": 151,
+      "bytes": 51423570,
+      "dotnet_sdk": "10.0.400",
+      "dotnet_runtime": "10.0.11",
+      "icu": "74.2-1ubuntu3.1",
+      "rust": "1.97.1"
+    }
+  },
+  "official_profile_conformance": {
+    "cases": [
+      19074,
+      19965,
+      20034
+    ],
+    "total_checks": 1181460
+  },
+  "original_default_conformance_checks": 400680,
+  "all_feature_tests": {
+    "passed": 61,
+    "ignored": 32
+  },
+  "browser": {
+    "normalization_checks_per_dpr": 36,
+    "dprs": [
+      1,
+      2
+    ],
+    "offscreen_pixels": 204800,
+    "shaders": 6,
+    "resize_and_presented_canvases": true
+  },
+  "strict_clippy": {
+    "native_all_targets": true,
+    "wasm_browser": true
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/text/unicode/normalization.rs": "c7d63564f9d223e6422d96ae8fd8c6da41e2baaa23bc936a5921b6fb787ec19e",
+    "src/ProGPU.Rust/src/text/unicode/normalization/profile.rs": "4ba44a3cc8c97772e407f1773613d2862cb63ba9f5ffefc53685baf823db9707",
+    "src/ProGPU.Rust/src/text/unicode/normalization/profile_data.rs": "665fea10f6658a998d4514524fd7c18bb6b927d59248ffdc2497ff8eefa39c0e",
+    "src/ProGPU.Text/UnicodeNormalizationData.bin": "da3f8b751ac289987e400e4ea7daacd66ab912dbf868569fb50ce0fd8d9d7dff",
+    "src/ProGPU.Rust/UNICODE-LICENSE.txt": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96",
+    "eng/progpu-generate-rust-normalization-profiles.py": "33c1856cb618981c058f7013deb46978a1a3bf2f7aefd9616979879220bb9116"
+  },
+  "qualification": [
+    "Explicit source profile required; existing frozen APIs unchanged",
+    "No complete shaping, script exceptions, fallback or source-application qualification",
+    "Default Windows managed runtime and current hosted profile gates still separate",
+    "Prior hosted browser device loss remains open",
+    "Diagnostic baseline only; no optimization/steady-state JIT claim"
+  ],
+  "fresh_extracted_package": {
+    "native_all_features_all_targets": true,
+    "wasm_browser": true,
+    "exact_runtime_profile_resource_license_bytes": true,
+    "target_was_empty": true
+  }
+}

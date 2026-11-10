@@ -1,0 +1,117 @@
+{
+  "captured_utc": "2026-11-09T03:34:06.053254+00:00",
+  "rust": "1.90.0",
+  "original_managed_positioning": {
+    "cases": 32008,
+    "exact_delta_queries": 760086,
+    "actual_source_normalized_captures": 32008,
+    "complete_output_bytes": 44353296,
+    "multi_axis_cases": 2000,
+    "mutated_leaf_cases": 12000,
+    "mutated_store_cases": 4000,
+    "random_coordinate_cases": 10000,
+    "long_run_glyphs": 131073,
+    "bounded_work_exclusions": 0,
+    "scope": "Actual source WithVariations supplies frozen normalized coordinates; Rust executes complete raw positioning plan and lazy layout store. Current managed instance creation, source fallback, metrics preparation, full shaping/native GPOS/GPU text are not qualified."
+  },
+  "tests": {
+    "all_features": {
+      "passed": 88,
+      "failed": 0,
+      "ignored": 44
+    },
+    "cpu_only": {
+      "passed": 86,
+      "failed": 0,
+      "ignored": 37
+    },
+    "new_source": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    "raw_gpos_and_stage_regressions": {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "clippy": {
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "version": "151.0.7922.34",
+    "dprs": [
+      1,
+      2
+    ],
+    "positioning_controls_per_dpr": 151,
+    "raw_gpos_controls_per_dpr": 81,
+    "stage_controls_per_dpr": 145,
+    "offscreen_pixels": 204800,
+    "canonical_shaders": 6,
+    "actual_resize_presentation": "pass",
+    "original_flags_and_deadlines": "unchanged",
+    "fixture_bytes": 507176,
+    "fixture_sha256": "4f68e9d28cd8a4e419a75d2dd4f5b060d0255e99b85166ac995cdb9bfc593216"
+  },
+  "benchmark": {
+    "workloads": 30,
+    "complete_outputs_match": true,
+    "load_average": [
+      9.3564453125,
+      20.89892578125,
+      20.083984375
+    ],
+    "scope": "Diagnostic initial CPU baseline only; Rust allocations not instrumented, original compiler/JIT defaults unchanged."
+  },
+  "package": {
+    "captured_utc": "2026-11-09T03:32:55.503776+00:00",
+    "fresh_independent_empty_target": true,
+    "native_all_targets_all_features": "pass",
+    "wasm_browser": "pass",
+    "exact_source_resource_document_files": 311,
+    "original_manifest": "exact",
+    "temporary_bytes_removed": 567503240,
+    "final_archive_files": 318,
+    "final_exact_source_resource_document_files": 314,
+    "verified_compiled_code_resource_hashes": 208,
+    "final_code_resources_match_fresh_build": true
+  },
+  "source_sha256": {
+    "src/ProGPU.Rust/src/font/layout/coverage.rs": "24e5012549548260fc4b4a856eb7ffc4e72c078b813c4e3b63f9d1ee837757f0",
+    "src/ProGPU.Rust/src/font/layout/managed_stage.rs": "158191f018947b5f21589ec40de866855afa19d2c3c7ae5f8f3a6cab6bb0fdef",
+    "src/ProGPU.Rust/src/font/layout/managed_features.rs": "2d36a815652088dfad65479dc76fc8e3d44040c83b3fadc2d241e9bb2d49c5fe",
+    "src/ProGPU.Rust/src/font/layout/managed_selection.rs": "fe2dd6d15d2593885623288a7cbf61dabd9f308ee1544584d51d081fadc76e63",
+    "src/ProGPU.Rust/src/font/layout/managed_variations.rs": "6332daa14471482133baa1fb96a51f40af2640d533d36516688af6646718999e",
+    "src/ProGPU.Rust/src/font/layout/gsub.rs": "bf61d03297597f535d03c8c8a562aa3f1714b4c357a8041d5a6cfdc3c65029ac",
+    "src/ProGPU.Rust/src/font/layout/digest.rs": "acc11795fd1d1c491307cf85e28bc354ad7c33b58dbda1ddd25614418486e922",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub.rs": "58d3814d786844e56865bee55dff88f2376a8be40d169c369b9cd3a599b5609e",
+    "src/ProGPU.Rust/src/font/layout/gdef.rs": "39b3c40ecbdfe297dbc5e8cfca6a245a5c35f65c41268897516fa53801a646bc",
+    "src/ProGPU.Rust/src/font/layout/selection.rs": "ac1c3c6890e9c09a5fd08861de68b90c528f340a98dce7ac6d9fbfc615e3c24c",
+    "src/ProGPU.Rust/src/font/layout/table.rs": "0cc9714d11dcacbfd5d12da402f017b10a5e96a4b3869c4b3fd2518bf45b7b36",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos.rs": "b384adac74b5fc0f48456de5a0cf2e0b5336942b532c88e90e41d70a488905db",
+    "src/ProGPU.Rust/src/font/layout/managed_context.rs": "7a51bc64270aa59fa675d2abaf84a1b86fb17c6e15409a3bfd739a3f725cc8e4",
+    "src/ProGPU.Rust/src/font/layout/gsub/context.rs": "adfd5d1f1e1e57d7e7dd4b26270717c79a040c9ba20b77bdaec28315db47e8ee",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/dispatch.rs": "fb0005ca787ad99ad745ca4bf9f1ab592825e988f630012dd68f1154f0268e1e",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/variations.rs": "bb6df6ff2a65160158e11d6bda701d60d4ef0c8c104602d20e4659616fb5afc5",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/buffer.rs": "ca926bdf0f5abfcc73b7bdcc8637a0e231c50790f106ceeb463d3fe154b93570",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/primitive.rs": "1c5eef6d2f76c6e95e312641127bb02a47b84cad1813de8eaf4d841ac5f6a7fb",
+    "src/ProGPU.Rust/src/font/layout/managed_gpos/context.rs": "99abcf53afb9436f41db6a64a27114be55d6521da913943916044e80c937c68a",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/dispatch.rs": "378cc801439098d0ced2b49a3fad226d102025436a29cc560afe1ce780429e0d",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "4d2591d634f87ecfd5bbd2074cd1046b91e2bed721bf4a1b866ac09df5c083f1",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/context.rs": "5626db6d1d386af5a76b1b67431e59e18102b07c0cd0cc1f83cc4789f9c63454",
+    "src/ProGPU.Rust/src/font/item_variation.rs": "e395648fa4c5d2526b5205a153337fd1d26d2c6134e18e216cb0b5334ae06c5a",
+    "src/ProGPU.Rust/tests/managed_positioning.rs": "c2cefd4755920b1446c105b0c928cfb192700e178342d6cd064c354da0b3489f",
+    "src/ProGPU.Rust/tests/managed_positioning.cs": "c15ea202e6afcb2eda16b8409364c3adce01955b735cc4dad05546ec5fb5199f",
+    "src/ProGPU.Rust/tests/support/gpos_dispatch_fixture.rs": "b6159bf424166e6c45bf7853ae3ba03ce2da0b1030af4abe4469670c83d0678f",
+    "src/ProGPU.Rust/tests/support/layout_selection_fixture.rs": "e3abc4d5ec6247439e65821cc4331b01c6e8081cb055a5466b08749e866609a6",
+    "src/ProGPU.Rust/examples/browser.rs": "c729a8adecd6b4ea282ab668edf062d7cf66de7c39d7f93db4e03a0956b7b582",
+    "src/ProGPU.Rust/browser/test.mjs": "2a7f67b713bdddaf856fe7abeab9bafa86120343fa0dfaa01002d4aca34f778b",
+    "src/ProGPU.Rust/browser/managed-positioning.bin": "4f68e9d28cd8a4e419a75d2dd4f5b060d0255e99b85166ac995cdb9bfc593216",
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Text/OpenTypeVariationData.cs": "c2a70bb774b663db4d396f5edf14d04a278f2d16d238cb455791e95a3f3b71b1"
+  }
+}

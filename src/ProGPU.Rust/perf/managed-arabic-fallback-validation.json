@@ -1,0 +1,359 @@
+{
+  "utc": "2026-11-09T09:42:36.599033+00:00",
+  "host": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "toolchain": "Rust/Cargo 1.90.0",
+  "scope": "Original presentation fallback, feature capture and ordered ligature passes. Full shaping orchestration, complex script stages, positioning preparation, paragraphs and GPU text remain incomplete.",
+  "tests": {
+    "native": {
+      "passed": 98,
+      "failed": 0,
+      "ignored": 51
+    },
+    "cpu": {
+      "passed": 96,
+      "failed": 0,
+      "ignored": 44
+    }
+  },
+  "original_managed": {
+    "runtime": ".NET 10.0.14 macOS 26.6.0",
+    "normalization_profile": 170,
+    "cases": 914017,
+    "exact_bytes": 1018793660,
+    "prior_cases_retained": 736501,
+    "raw_property_queries": 1114113,
+    "raw_property_bytes": 13369356,
+    "browser_cases": 546,
+    "browser_bytes": 835056,
+    "fixture_updated_in_final_run": false,
+    "fields": 31,
+    "native_frozen_profile_replays": 1638
+  },
+  "independent_data_capture": {
+    "form_bases": 76,
+    "form_raw_queries": 4456456,
+    "public_candidate_sequences": 108697,
+    "triple_rules": 3,
+    "pair_rules": 58,
+    "mark_rules": 5,
+    "requests": 109380,
+    "records": 4740293,
+    "request_sha256": "01552f17eb628dc329263d9b042d0c8691820c72bf9feb3f69d57d7e4a8b8c88",
+    "response_sha256": "e967c8b82929b22835c0185d3047fb899cf791c13ca0faa6690f4b06f698bc4d"
+  },
+  "lints": {
+    "native": "pass",
+    "wasm": "pass",
+    "format": "pass",
+    "diff_whitespace": "pass"
+  },
+  "browser": {
+    "status": "passed",
+    "browser": "151.0.7922.34",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "headless": true,
+    "flags": [
+      "--enable-unsafe-webgpu",
+      "--use-angle=swiftshader",
+      "--disable-webgpu-shader-disk-cache"
+    ],
+    "reports": [
+      {
+        "dpr": 1,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 1641,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 76,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "after": {
+          "frames": 86,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 960,
+          "height": 639,
+          "dpi": 1
+        },
+        "errors": [],
+        "resized": {
+          "frames": 92,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 800,
+          "height": 559,
+          "dpi": 1
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      },
+      {
+        "dpr": 2,
+        "stage": "passed",
+        "consoleErrors": [],
+        "adapter": "AdapterInfo { name: \"\", vendor: 0, device: 0, device_type: Cpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: BrowserWebGpu, subgroup_min_size: 4, subgroup_max_size: 4, transient_saves_memory: None, limit_bucket: None }",
+        "outlineBytes": 96,
+        "compositeBytes": 96,
+        "cffBytes": 192,
+        "cff2Bytes": 96,
+        "gvarChecks": 12,
+        "horizontalChecks": 8,
+        "verticalChecks": 10,
+        "simpleTextChecks": 10,
+        "unicodeChecks": 14,
+        "bidiChecks": 15,
+        "graphemeChecks": 16,
+        "managedGraphemeChecks": 50,
+        "managedPreparationChecks": 332,
+        "managedScriptActionChecks": 1641,
+        "lineBreakChecks": 14,
+        "normalizationChecks": 36,
+        "layoutChecks": 26,
+        "digestChecks": 15,
+        "gsubChecks": 37,
+        "managedGsubChecks": 44,
+        "managedDispatchChecks": 145,
+        "managedGposChecks": 81,
+        "managedPositioningChecks": 151,
+        "managedVariationChecks": 96,
+        "managedNameChecks": 93,
+        "managedFontChecks": 104,
+        "managedMappingChecks": 88,
+        "managedContextChecks": 70,
+        "selectionChecks": 16,
+        "managedSelectionChecks": 20,
+        "variationChecks": 12,
+        "shaders": 6,
+        "checkedPixels": 102400,
+        "before": {
+          "frames": 55,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "after": {
+          "frames": 65,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1920,
+          "height": 1278,
+          "dpi": 2
+        },
+        "errors": [],
+        "resized": {
+          "frames": 75,
+          "geometryBytes": 29760,
+          "uniformBytes": 224,
+          "draws": 1,
+          "pathRasters": 3,
+          "atlasBytes": 1048576,
+          "width": 1600,
+          "height": 1118,
+          "dpi": 2
+        },
+        "captureCompleted": true,
+        "presentationPixels": {
+          "background": [
+            6,
+            9,
+            15,
+            255
+          ],
+          "rectangle": [
+            33,
+            77,
+            197,
+            255
+          ],
+          "ellipse": [
+            45,
+            77,
+            197,
+            255
+          ],
+          "curve": [
+            219,
+            81,
+            59,
+            255
+          ]
+        }
+      }
+    ]
+  },
+  "benchmark": {
+    "workloads": 24,
+    "trials": 3,
+    "complete_output": "matched",
+    "rust_lower_medians": 18,
+    "rust_higher_medians": 6,
+    "equal_at_reported_precision": 0,
+    "load_average": [
+      20.36572265625,
+      13.15625,
+      14.6064453125
+    ],
+    "higher_workloads": [
+      {
+        "font": "identity-bmp",
+        "pattern": "fallback-pairs",
+        "records": 128,
+        "rust_p50_us": 92.625,
+        "csharp_p50_us": 32.208,
+        "ratio": 2.875838301043219
+      },
+      {
+        "font": "identity-bmp",
+        "pattern": "fallback-skipped-marks",
+        "records": 128,
+        "rust_p50_us": 86.458,
+        "csharp_p50_us": 72.375,
+        "ratio": 1.1945837651122626
+      },
+      {
+        "font": "identity-bmp",
+        "pattern": "fallback-skipped-marks",
+        "records": 4096,
+        "rust_p50_us": 4753.291,
+        "csharp_p50_us": 4252.166,
+        "ratio": 1.117851701932615
+      },
+      {
+        "font": "space-only",
+        "pattern": "fallback-forms",
+        "records": 128,
+        "rust_p50_us": 2.75,
+        "csharp_p50_us": 2.125,
+        "ratio": 1.2941176470588236
+      },
+      {
+        "font": "space-only",
+        "pattern": "fallback-forms",
+        "records": 4096,
+        "rust_p50_us": 87.25,
+        "csharp_p50_us": 78.125,
+        "ratio": 1.1168
+      },
+      {
+        "font": "space-only",
+        "pattern": "fallback-skipped-marks",
+        "records": 128,
+        "rust_p50_us": 91.792,
+        "csharp_p50_us": 57.583,
+        "ratio": 1.5940815865793725
+      }
+    ],
+    "limits": "New-feature baseline. Slower workloads remain open; no optimization, allocation-event or end-to-end performance qualification. Subsequent production change only adds a complexity documentation line."
+  },
+  "regression_fixed": "Malformed Rune-category failures during bounded ligature traversal preserve source argument error and preceding mutations; original wire error 2 versus initial Rust 4.",
+  "provenance": {
+    "source_methods": [
+      "ApplyArabicFallback",
+      "ApplyArabicFallbackLigatures",
+      "IsFeatureEnabled",
+      "NextLigatureComponentIndex",
+      "Replace",
+      "ReplaceLigature"
+    ],
+    "data": "Pinned public Unicode facts and independently observed original API results; no HB-derived source arrays transcribed.",
+    "audit": "Reviewed new production/capture code and branch-reachable implementation provenance markers from origin/main; markers refer only to approved original ProGPU ports."
+  },
+  "source_hashes": {
+    "src/ProGPU.Text/OpenTypeTextShaper.cs": "ab2058b7328fb172796fe146f4da5ab5258fd303bfbc47d028c476da357955b1",
+    "src/ProGPU.Rust/src/text/script_actions.rs": "039613f6f647c50fa2edb018678627d7a1a68f5551da3607f3e72137840d95ed",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback.rs": "6acb3a16698e5de781623e37c7b392927d396e3b4ca22f7b4149042701b5ef14",
+    "src/ProGPU.Rust/src/text/script_actions/arabic_fallback_data.rs": "7a7114d94d4a16f50cd49515112bc0fb6d27cfbe57e3f7166ec55b49fe29438f",
+    "src/ProGPU.Rust/src/font/layout/managed_gsub/buffer.rs": "ecc9f39b003896bc515d84e473b698ee40aeab3cda7a2b68ea21bd79b4b20546",
+    "src/ProGPU.Rust/tests/managed_script_actions.cs": "22a020492ab64f41fb3c44501385c8d12e6a6aeb42746af0bea3b31530ea182e",
+    "src/ProGPU.Rust/tests/managed_script_actions.rs": "ebe51628d9248091fa7e39563067f4954cd4069cae9495ce3f410b69fe4bf173",
+    "src/ProGPU.Rust/tests/support/managed_script_actions_replay.rs": "acb017db4e2e37c1638a2afc8080990f161b62fb8b8cd3d64388f0d3041506cb",
+    "src/ProGPU.Rust/tests/support/managed_script_actions_fixture.rs": "0e535885ecbd6ef8a012dcb49d73980e4e054dd77bd4d91bb733560f8edadb2c",
+    "src/ProGPU.Rust/tests/support/managed_arabic_fallback_cases.rs": "927aeb0a279099c7d1c811c2388bb56f99174d00210c734c27ccae0765e4afbc",
+    "src/ProGPU.Rust/tests/support/arabic_fallback_inventory.txt": "733f6c114da869f43b6ad7e01cb2b22369f835728182e77ee56a26effe1fa6f1",
+    "src/ProGPU.Rust/tests/managed_arabic_fallback_capture.cs": "f758144b682a53567b97d8aefc33b8fc8bbfe0b2e8cd67ccbc4ec40a68e5ed75",
+    "src/ProGPU.Rust/browser/managed-script-actions.bin": "362f6de3cc93b8f5f932e37d8e8102f31969d5be5357df5b6946aa22c7ebc150",
+    "eng/progpu-capture-rust-arabic-fallback.py": "35b6e37e96eef5c57b7e0fed508dd71cb14e56e2f2617927092b7c27666a0495",
+    "eng/progpu-benchmark-rust-script-actions.py": "9b1496b9291faf5845e83199b4ff4ba6dfa42e85ee1994e05f24c0922301646e",
+    ".github/workflows/rust.yml": "c10b3fc84ec8e01e43dc2221d3615bc0882480796befb6a5e2dd964b60abaa70"
+  }
+}
