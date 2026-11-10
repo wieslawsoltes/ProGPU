@@ -152,6 +152,7 @@ impl Canvas {
             geometry: Arc::new(PathGeometry::rectangle(b[0], b[1], b[2], b[3])),
             shape: crate::geometry::Shape::Rectangle,
             bounds: b,
+            center: [b[0] + b[2] * 0.5, b[1] + b[3] * 0.5],
             radius: 0.0,
             matrix: self.matrix,
             paint: paint.snapshot(),
@@ -168,6 +169,7 @@ impl Canvas {
             )),
             shape: crate::geometry::Shape::Ellipse,
             bounds: b,
+            center: [(bounds[0] + bounds[2]) * 0.5, (bounds[1] + bounds[3]) * 0.5],
             radius: 0.0,
             matrix: self.matrix,
             paint: paint.snapshot(),
@@ -180,15 +182,20 @@ impl Canvas {
         radius: f32,
         paint: &Paint,
     ) -> Result<(), Error> {
-        self.draw_oval(
-            [
+        self.push(Command::Analytic {
+            geometry: Arc::new(PathGeometry::ellipse(center, radius, radius)),
+            shape: crate::geometry::Shape::Ellipse,
+            bounds: [
                 center[0] - radius,
                 center[1] - radius,
-                center[0] + radius,
-                center[1] + radius,
+                radius * 2.0,
+                radius * 2.0,
             ],
-            paint,
-        )
+            center,
+            radius: 0.0,
+            matrix: self.matrix,
+            paint: paint.snapshot(),
+        })
     }
     /// Preserve all four corner pairs; only a circular uniform rectangle selects
     /// the canonical single-radius analytic shader, other shapes retain paths.
@@ -200,6 +207,10 @@ impl Canvas {
                 geometry,
                 shape: crate::geometry::Shape::RoundedRectangle,
                 bounds: xywh(rect.bounds()),
+                center: [
+                    rect.bounds()[0] + rect.width() * 0.5,
+                    rect.bounds()[1] + rect.height() * 0.5,
+                ],
                 radius: r[0][0],
                 matrix: self.matrix,
                 paint: paint.snapshot(),

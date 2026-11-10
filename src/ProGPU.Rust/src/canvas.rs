@@ -85,6 +85,7 @@ enum Command {
         geometry: Arc<PathGeometry>,
         shape: crate::geometry::Shape,
         bounds: [f32; 4],
+        center: [f32; 2],
         radius: f32,
         matrix: CanvasMatrix,
         paint: PaintSnapshot,

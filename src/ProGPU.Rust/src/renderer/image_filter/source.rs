@@ -374,6 +374,7 @@ fn prepare_inner<'a>(
                     state,
                     images,
                     &source.image,
+                    source_sampling.mode.uses_mipmaps() || source_sampling.anisotropy > 1,
                     sampling,
                     metrics,
                     passes,
@@ -462,6 +463,7 @@ async fn source_image(
     state: &mut ImageFilterState,
     images: &mut image::ImageState,
     source: &ImageSource,
+    mipmaps: bool,
     sampling: ImageSamplingPath,
     metrics: &mut ImageFilterMetrics,
     passes: &mut Vec<Pass>,
@@ -470,7 +472,7 @@ async fn source_image(
         ImageSource::Gpu(i) => i.clone(),
         ImageSource::Pixels(i) => {
             let (image, bytes, mips) = images
-                .upload(&renderer.device, &renderer.queue, i, false)
+                .upload(&renderer.device, &renderer.queue, i, mipmaps)
                 .await?;
             metrics.source_upload_bytes = metrics
                 .source_upload_bytes

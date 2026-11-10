@@ -16,6 +16,8 @@ use super::{
 };
 use crate::font::{FontError, SfntFace, Tag, layout::GposDirection};
 use std::{ops::Range, sync::Arc};
+mod design;
+pub use design::*;
 mod fallback;
 mod geometry;
 mod source;

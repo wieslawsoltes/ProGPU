@@ -88,6 +88,10 @@ impl Deref for PaintSnapshot {
     }
 }
 impl Paint {
+    /// Retain the complete immutable original shader owner without eager capture.
+    pub fn set_shader(&mut self, shader: Option<&crate::shader::Shader>) {
+        self.shader = shader.map(crate::shader::Shader::source);
+    }
     /// Freeze all original scalar state and independently shared source owners.
     pub fn snapshot(&self) -> PaintSnapshot {
         PaintSnapshot(Arc::new(self.clone()))
@@ -238,12 +242,19 @@ impl Paint {
             None => Brush::new(BrushKind::Solid(
                 self.filtered_color().map(|v| f32::from(v) / 255.0),
             )),
-            Some(FilterShaderSource::Brush(brush)) if self.color_filter.is_none() => {
-                let mut brush = (**brush).clone();
+            Some(source) => {
+                if let FilterShaderSource::Brush(brush) = source {
+                    if self.color_filter.is_none() && self.color[3] == 255 {
+                        return Ok(brush.clone());
+                    }
+                }
+                let mut brush = crate::shader::canvas_brush(source)?;
+                if let Some(filter) = &self.color_filter {
+                    crate::shader::filter_brush(&mut brush, filter);
+                }
                 brush.opacity *= f32::from(self.color[3]) / 255.0;
                 brush
             }
-            _ => return Err(Error::UnsupportedExecution),
         };
         // Immutable returned owner cannot be changed through a retained snapshot.
         Ok(Arc::new(brush))

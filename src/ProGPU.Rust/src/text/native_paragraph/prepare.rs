@@ -3,7 +3,7 @@ use super::*;
 const SCALAR_MASK: u32 = 0x001f_ffff;
 const CONTEXTUAL: u32 = 0x8000_0000;
 const SOURCE_BIDI: u32 = 0x4000_0000;
-fn valid_tag(tag: Tag) -> bool {
+pub(super) fn valid_tag(tag: Tag) -> bool {
     tag.0 == 0
         || tag
             .0
@@ -11,19 +11,19 @@ fn valid_tag(tag: Tag) -> bool {
             .into_iter()
             .all(|c| (0x20..=0x7e).contains(&c))
 }
-fn valid_features(features: &[NativeFeature]) -> bool {
+pub(super) fn valid_features(features: &[NativeFeature]) -> bool {
     features.len() <= u32::MAX as usize
         && features
             .iter()
             .all(|f| f.tag.0 != 0 && valid_tag(f.tag) && f.start <= f.end)
 }
-fn valid_context(input: &[UnicodeScalar]) -> bool {
+pub(super) fn valid_context(input: &[UnicodeScalar]) -> bool {
     input.len() <= u32::MAX as usize
         && input.iter().all(|s| {
             char::from_u32(s.code_point).is_some() && s.input_length != 0 && s.reserved == 0
         })
 }
-fn valid_number(n: NativeNumberSubstitution) -> bool {
+pub(super) fn valid_number(n: NativeNumberSubstitution) -> bool {
     let p = n.digits;
     let zero = p & SCALAR_MASK;
     (p == 0
@@ -142,18 +142,26 @@ fn substitute(
     styles: &[NativeParagraphStyle],
     direction: GposDirection,
 ) {
-    let initial = direction == GposDirection::RightToLeft;
-    let mut arabic = initial;
     let mut style = 0;
-    for (i, s) in input.iter_mut().enumerate() {
+    substitute_by(input, direction, |i| {
         while style + 1 < styles.len()
             && i >= styles[style].scalar_start as usize + styles[style].scalar_count as usize
         {
             style += 1;
         }
+        styles.get(style).map(|s| s.number_substitution)
+    });
+}
+pub(super) fn substitute_by(
+    input: &mut [UnicodeScalar],
+    direction: GposDirection,
+    mut at: impl FnMut(usize) -> Option<NativeNumberSubstitution>,
+) {
+    let initial = direction == GposDirection::RightToLeft;
+    let mut arabic = initial;
+    for (i, s) in input.iter_mut().enumerate() {
         let original = s.code_point;
-        if let Some(style) = styles.get(style) {
-            let n = style.number_substitution;
+        if let Some(n) = at(i) {
             let zero = n.digits & SCALAR_MASK;
             let active = n.digits & CONTEXTUAL == 0 || arabic;
             let replacement = if !active {
@@ -422,7 +430,7 @@ pub(super) fn build(
     }
     Ok(v)
 }
-fn map_breaks(
+pub(super) fn map_breaks(
     input: &[UnicodeScalar],
     breaks: &[LineBreakKind],
     glyphs: &[ShapingGlyph],

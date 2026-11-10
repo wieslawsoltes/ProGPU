@@ -515,13 +515,14 @@ async fn prepare_painted(
             matrix,
             shape,
             bounds,
+            center,
             radius,
         } => (
             geometry.clone(),
             (**paint).clone(),
             *matrix,
             false,
-            Some((*shape, *bounds, *radius)),
+            Some((*shape, *bounds, *radius, *center)),
         ),
         _ => return Err(Error::InvalidInput.into()),
     };
@@ -537,13 +538,14 @@ async fn prepare_painted(
         }
     }
     if plain.fill_brush().is_ok() {
-        if let Some((shape, bounds, radius)) = analytic {
+        if let Some((shape, bounds, radius, center)) = analytic {
             ordinary(
                 &mut source,
                 &Command::Analytic {
                     geometry: geometry.clone(),
                     shape,
                     bounds,
+                    center,
                     radius,
                     matrix,
                     paint: plain.snapshot(),

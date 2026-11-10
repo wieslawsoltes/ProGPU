@@ -18,6 +18,7 @@ pub mod path;
 pub mod renderer;
 pub mod runtime_effect;
 pub mod scene;
+pub mod shader;
 pub mod shader_effect;
 pub mod shaders;
 pub mod text;

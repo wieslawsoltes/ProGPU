@@ -84,6 +84,7 @@ fn ordinary(scene: &mut Scene, command: &Command, size: [f32; 2]) -> Result<(), 
             geometry,
             shape,
             bounds,
+            center,
             radius,
             matrix,
             paint,
@@ -103,7 +104,11 @@ fn ordinary(scene: &mut Scene, command: &Command, size: [f32; 2]) -> Result<(), 
                         stroke_thickness: 0.0,
                         aliased: !paint.antialias,
                     };
-                    scene.draw_material_analytic(primitive, MaterialPaint::new(brush.clone()))?;
+                    scene.draw_material_analytic(
+                        primitive,
+                        MaterialPaint::new(brush.clone()),
+                        *center,
+                    )?;
                 }
                 stroke(scene, geometry.clone(), paint, *matrix, brush)
             })
