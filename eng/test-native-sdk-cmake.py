@@ -29,7 +29,7 @@ class NativeSdkCMakeTests(unittest.TestCase):
         for rid in ["osx-arm64", "osx-x64", "linux-x64", "linux-arm64", "win-x64", "win-arm64"]:
             library = self.sdk / "runtimes" / rid / "native/sdk"
             library.mkdir(parents=True)
-            for component in ["compression", "hit_testing", "image", "mil", "direct2d_core", "text", "scene_builder"]:
+            for component in ["compression", "hit_testing", "image", "mil", "geometry", "direct2d_core", "text", "scene_builder"]:
                 name = f"progpu_native_{component}.lib" if rid.startswith("win-") else f"libprogpu_native_{component}.a"
                 (library / name).write_bytes(b"Packaging-only control; not a native library")
         self.source = self.root / "source"
