@@ -10,6 +10,7 @@ mod sbix;
 #[derive(Clone, Debug)]
 pub struct ManagedBitmapGlyph {
     source: SfntFace,
+    storage: crate::font::FontData,
     range: Range<usize>,
     record: BitmapRecord,
 }
@@ -22,9 +23,13 @@ impl ManagedBitmapGlyph {
     pub const TIFF: u32 = 0x74696666;
     /// Actual encoded image bytes, without a copied font table or payload.
     pub fn data(&self) -> &[u8] {
-        &self.source.data()[self.range.clone()]
+        &self.storage[self.range.clone()]
     }
-    /// Original selected immutable face.
+    /// Actual immutable bitmap payload owner, including demand-loaded sbix bytes.
+    pub fn storage(&self) -> &crate::font::FontData {
+        &self.storage
+    }
+    /// Original selected immutable font face, independent from external sbix bytes.
     pub fn source(&self) -> &SfntFace {
         &self.source
     }
@@ -88,37 +93,77 @@ struct BitmapRecord {
     bearing: [i16; 2],
 }
 impl ManagedFont {
-    /// Original sbix-first, then CBLC/CBDT selection. Each table selects the
-    /// closest valid strike; equal distance favors larger ppem. Raw target sizes
-    /// retain original float comparison behavior, including NaN/infinity.
-    /// Mapped/resident fallback file loading is a separate pending factory port.
+    /// Convenience nominal bitmap query. Use `try_bitmap_glyph` when resident
+    /// demand-loading capacity errors must remain distinct from a missing image.
     pub fn bitmap_glyph(&self, glyph: u16, target_ppem: f32) -> Option<ManagedBitmapGlyph> {
+        self.try_bitmap_glyph(glyph, target_ppem).ok().flatten()
+    }
+    /// Original sbix-first, external resident-source, then CBLC/CBDT selection.
+    /// Each source selects its nearest valid strike, favoring larger ppem on ties.
+    /// Returned bytes retain their actual owner after source/cache retirement.
+    pub fn try_bitmap_glyph(
+        &self,
+        glyph: u16,
+        target_ppem: f32,
+    ) -> Result<Option<ManagedBitmapGlyph>, FontError> {
         if glyph >= self.metadata().glyph_count {
-            return None;
+            return Ok(None);
         }
-        for tag in [*b"sbix", *b"CBDT"] {
-            let Some((_, span)) = self.source().table_span(Tag::new(tag)) else {
-                continue;
-            };
-            let data = &self.source().data()[span.offset..span.offset + span.length];
-            let record = if tag == *b"sbix" {
-                sbix::select(data, self.metadata().glyph_count, glyph, target_ppem)
-            } else {
-                let Some(cblc) = self.source().table(Tag::new(*b"CBLC")) else {
-                    continue;
-                };
-                cbdt::select(cblc.bytes, data, glyph, target_ppem)
-            };
-            if let Some(record) = record {
-                let range = span.offset + record.range.start..span.offset + record.range.end;
-                return Some(ManagedBitmapGlyph {
-                    source: self.source().clone(),
-                    range,
-                    record,
-                });
+        if self
+            .root
+            .resident
+            .as_ref()
+            .is_none_or(|source| source.glyph == glyph)
+        {
+            if let Some((_, span)) = self.source().table_span(Tag::new(*b"sbix")) {
+                let data = &self.source().data()[span.offset..span.offset + span.length];
+                if let Some(record) =
+                    sbix::select(data, self.metadata().glyph_count, glyph, target_ppem)
+                {
+                    return Ok(Some(self.bitmap_record(
+                        self.source().storage().clone(),
+                        span.offset,
+                        record,
+                    )));
+                }
             }
         }
-        None
+        if let Some(source) = &self.root.resident {
+            if let Some(storage) = source.source.glyph_data(glyph)? {
+                if let Some(record) =
+                    sbix::select(&storage, self.metadata().glyph_count, glyph, target_ppem)
+                {
+                    return Ok(Some(self.bitmap_record(storage, 0, record)));
+                }
+            }
+        }
+        if let Some((_, span)) = self.source().table_span(Tag::new(*b"CBDT")) {
+            if let Some(cblc) = self.source().table(Tag::new(*b"CBLC")) {
+                let data = &self.source().data()[span.offset..span.offset + span.length];
+                if let Some(record) = cbdt::select(cblc.bytes, data, glyph, target_ppem) {
+                    return Ok(Some(self.bitmap_record(
+                        self.source().storage().clone(),
+                        span.offset,
+                        record,
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
+    fn bitmap_record(
+        &self,
+        storage: crate::font::FontData,
+        offset: usize,
+        record: BitmapRecord,
+    ) -> ManagedBitmapGlyph {
+        let range = offset + record.range.start..offset + record.range.end;
+        ManagedBitmapGlyph {
+            source: self.source().clone(),
+            storage,
+            range,
+            record,
+        }
     }
     /// Decode the original selected image and resolve original sbix/CBDT metrics.
     /// Failed decoding returns None rather than trying another strike/table.
@@ -132,7 +177,7 @@ impl ManagedFont {
         if !target_ppem.is_finite() || target_ppem <= 0.0 {
             return Ok(None);
         }
-        let Some(bitmap) = self.bitmap_glyph(glyph, target_ppem) else {
+        let Some(bitmap) = self.try_bitmap_glyph(glyph, target_ppem)? else {
             return Ok(None);
         };
         let mut reader =

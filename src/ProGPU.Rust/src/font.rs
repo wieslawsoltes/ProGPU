@@ -8,9 +8,15 @@
 //! specialized metadata APIs must independently apply their stricter contracts.
 
 mod bytes;
+mod storage;
+pub use storage::{
+    FontData, FontDataLease, FontFileStorage, FontResourceProvider, FontStorageError,
+    FontStorageKind, StaticFontResource, StaticFontResources,
+};
 pub mod cff;
 mod composite;
 mod container;
+pub mod resident;
 pub use container::{
     SfntContainerRequirements, normalize_managed_sfnt_container, normalize_sfnt_container,
     normalize_sfnt_container_into, sfnt_container_requirements,
@@ -197,7 +203,7 @@ impl Span {
 /// cmap lookups allocate nothing. This is font data access, not text shaping.
 #[derive(Clone, Debug)]
 pub struct SfntFace {
-    data: Arc<[u8]>,
+    data: FontData,
     face_index: u32,
     face_offset: u32,
     directory: usize,
@@ -233,7 +239,10 @@ impl SfntFace {
     /// publication, then selects original available tables and cmap subtables.
     /// Table payload validity remains specific to each query, as in native.
     pub fn new(data: impl Into<Arc<[u8]>>, face_index: u32) -> Result<Self, FontError> {
-        let data = data.into();
+        Self::from_storage(FontData::owned(data), face_index)
+    }
+    /// Select an immutable embedded/shared storage lease without copying bytes.
+    pub fn from_storage(data: FontData, face_index: u32) -> Result<Self, FontError> {
         if face_index >= Self::face_count(&data)? {
             return Err(FontError::InvalidArgument);
         }
@@ -276,10 +285,14 @@ impl SfntFace {
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+    /// Actual immutable storage lease, including its original bounded source range.
+    pub fn storage(&self) -> &FontData {
+        &self.data
+    }
     /// Select another face while sharing this exact immutable container owner.
     /// Invalid selection leaves the current face and all borrowed views intact.
     pub fn select_face(&self, face_index: u32) -> Result<Self, FontError> {
-        Self::new(self.data.clone(), face_index)
+        Self::from_storage(self.data.clone(), face_index)
     }
     /// Selected original collection index.
     pub fn face_index(&self) -> u32 {

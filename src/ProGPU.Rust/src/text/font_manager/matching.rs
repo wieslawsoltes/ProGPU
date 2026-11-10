@@ -17,7 +17,7 @@ impl FontManager {
             family: family.map(name_key),
             style,
             codepoint,
-            excluded: excluded.cloned(),
+            excluded: excluded.cloned().map(InstanceFont),
             version: self.catalog_version(),
         });
         if let Some(key) = &key {
@@ -161,7 +161,7 @@ impl FontManager {
         let Some(font) = self.apply_optional(font, style)? else {
             return Ok(None);
         };
-        if excluded == Some(&font) {
+        if excluded.is_some_and(|excluded| excluded.same_instance(&font)) {
             return Ok(None);
         }
         let glyph = font.glyph_index(codepoint as u32)?;
@@ -170,7 +170,7 @@ impl FontManager {
         }
         if font.glyph_outline(glyph)?.is_none()
             && !font.has_color_layers(glyph)?
-            && font.bitmap_glyph(glyph, 64.0).is_none()
+            && font.try_bitmap_glyph(glyph, 64.0)?.is_none()
         {
             // Original ConvertFromUtf32 rejects surrogate values only after
             // the real outline/color/bitmap probes have all reported no ink.

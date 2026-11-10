@@ -12,7 +12,15 @@ pub use managed::{
 #[cfg(feature = "gpu")]
 mod gpu;
 #[cfg(feature = "gpu")]
+mod retained;
+#[cfg(feature = "gpu")]
+pub(crate) use gpu::ImageBlurStorage;
+#[cfg(feature = "gpu")]
 pub use gpu::{BlurInput, BlurMetrics, BlurStorage, ImageBlurEngine, PreparedImageBlur};
+#[cfg(feature = "gpu")]
+pub use retained::ImageEffectTextureGeneration;
+#[cfg(feature = "gpu")]
+pub(crate) use retained::ResourceUse;
 
 /// Original normalized YUV range and straight-RGB conversion rows.
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]

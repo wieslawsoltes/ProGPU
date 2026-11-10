@@ -8,7 +8,11 @@ use crate::{
     },
     mask::MaskUniforms,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+mod cache;
 
 /// Actual original image-effect resources and per-replay work.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -28,6 +32,18 @@ pub struct ImageEffectMetrics {
     pub inline_blur_draws: u32,
     /// Managed commands selecting the original default SrcOver factor fallback.
     pub blend_fallback_draws: u32,
+    /// Actual same-preparation generation-key live-blur reuse hits.
+    pub blur_deduplicated_draws: u32,
+    /// Actual recycled two-target storage sets; retained scenes prevent mutation.
+    pub blur_storage_reuses: u32,
+    /// Actual newly allocated live-blur textures, excluding reused storage.
+    pub blur_texture_allocations: u32,
+    /// Actual completed private parameter-slot reuse and view-binding cache hits.
+    pub parameter_reuses: u32,
+    pub texture_binding_hits: u32,
+    /// Pool parameter, texture-binding and two-target storage counts at publication.
+    /// Merged captures report each observed maximum, not a sum of shared caches.
+    pub pool_entries: [u32; 3],
 }
 #[derive(Clone)]
 struct Pipeline {
@@ -37,13 +53,15 @@ pub(super) struct ImageEffectState {
     pipelines: HashMap<(wgpu::TextureFormat, bool, bool, crate::scene::LayerBlend), Pipeline>,
     samplers: HashMap<crate::image::ImageSampling, wgpu::Sampler>,
     blur: ImageBlurEngine,
+    layout: Option<wgpu::PipelineLayout>,
+    shader: Option<wgpu::ShaderModule>,
+    resources: cache::Resources,
 }
 pub(super) struct EffectDraw {
     pipeline: wgpu::RenderPipeline,
-    params: wgpu::BindGroup,
-    textures: wgpu::BindGroup,
+    params: Arc<cache::Parameters>,
+    textures: Arc<cache::TextureBinding>,
     mask: wgpu::BindGroup,
-    blur: Option<PreparedImageBlur>,
     first_vertex: i32,
 }
 pub(super) struct PreparedImageEffects {
@@ -52,23 +70,28 @@ pub(super) struct PreparedImageEffects {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     metrics: ImageEffectMetrics,
+    sources: Vec<Arc<PreparedImageBlur>>,
+    clock: Arc<std::sync::atomic::AtomicU64>,
 }
 impl PreparedImageEffects {
     pub fn encode_sources(&self, encoder: &mut wgpu::CommandEncoder) {
-        for draw in self.draws.iter().flatten() {
-            if let Some(blur) = &draw.blur {
-                blur.encode_owned(encoder);
-            }
+        let frame = self.clock.load(std::sync::atomic::Ordering::Acquire);
+        for source in &self.sources {
+            source.storage().touch(frame);
+            source.encode_owned(encoder);
         }
     }
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, index: usize) -> Result<(), Error> {
         let Some(draw) = self.draws.get(index).ok_or(Error::ResourceDomain)? else {
             return Ok(());
         };
+        draw.params.usage.encode();
+        draw.textures
+            .touch(self.clock.load(std::sync::atomic::Ordering::Acquire));
         pass.set_pipeline(&draw.pipeline);
         pass.set_bind_group(0, &self.frame, &[]);
-        pass.set_bind_group(1, &draw.params, &[]);
-        pass.set_bind_group(2, &draw.textures, &[]);
+        pass.set_bind_group(1, &draw.params.binding, &[]);
+        pass.set_bind_group(2, &draw.textures.binding, &[]);
         pass.set_bind_group(3, &draw.mask, &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
@@ -89,6 +112,9 @@ impl ImageEffectState {
         Ok(Self {
             pipelines: HashMap::new(),
             samplers: HashMap::new(),
+            layout: None,
+            shader: None,
+            resources: Default::default(),
             blur: ImageBlurEngine::new(device, crate::path::ExecutionPreference::Automatic)?,
         })
     }
@@ -137,56 +163,68 @@ impl ImageEffectState {
         }
         let blend_state = blend.managed_draw_state(premultiplied)?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("ProGPU original fused ImageEffect"),
-            source: wgpu::ShaderSource::Wgsl(shaders::IMAGE_EFFECT.into()),
-        });
-        let uniform = |size, visibility| {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("ProGPU original image-effect uniform layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: std::num::NonZeroU64::new(size),
-                    },
-                    count: None,
-                }],
-            })
+        let module = if let Some(module) = &self.shader {
+            module.clone()
+        } else {
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("ProGPU original fused ImageEffect"),
+                source: wgpu::ShaderSource::Wgsl(shaders::IMAGE_EFFECT.into()),
+            });
+            self.shader = Some(module.clone());
+            module
         };
-        let frame = uniform(224, wgpu::ShaderStages::VERTEX_FRAGMENT);
-        let params = uniform(288, wgpu::ShaderStages::FRAGMENT);
-        let texture = |binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let textures = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ProGPU actual image/chroma layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
+        let layout = if let Some(layout) = &self.layout {
+            layout.clone()
+        } else {
+            let uniform = |size, visibility| {
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("ProGPU original image-effect uniform layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: std::num::NonZeroU64::new(size),
+                        },
+                        count: None,
+                    }],
+                })
+            };
+            let frame = uniform(224, wgpu::ShaderStages::VERTEX_FRAGMENT);
+            let params = uniform(288, wgpu::ShaderStages::FRAGMENT);
+            let texture = |binding| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
                 },
-                texture(1),
-                texture(2),
-            ],
-        });
-        let mask = layout::mask(device);
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("ProGPU fused image-effect layout"),
-            bind_group_layouts: &[Some(&frame), Some(&params), Some(&textures), Some(&mask)],
-            immediate_size: 0,
-        });
+                count: None,
+            };
+            let textures = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("ProGPU actual image/chroma layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    texture(1),
+                    texture(2),
+                ],
+            });
+            let mask = layout::mask(device);
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("ProGPU fused image-effect layout"),
+                bind_group_layouts: &[Some(&frame), Some(&params), Some(&textures), Some(&mask)],
+                immediate_size: 0,
+            });
+            self.layout = Some(layout.clone());
+            layout
+        };
         let attributes = wgpu::vertex_attr_array![0=>Float32x2,1=>Float32x4,2=>Float32x2];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ProGPU fused image-effect pipeline"),
@@ -226,6 +264,28 @@ impl ImageEffectState {
     }
 }
 impl Renderer {
+    /// Actual retained cache entry counts on this renderer: effect parameter
+    /// slots, source view bindings and two-target live-blur storage sets.
+    pub fn image_effect_pool_entries(&self) -> [u32; 3] {
+        self.image_effects
+            .as_ref()
+            .map_or([0; 3], |state| state.resources.counts())
+    }
+    /// Supply the source host's actual monotonically increasing frame number for
+    /// original 120/240-frame cache aging. Call once before preparing that frame;
+    /// nested captures must share the value, not increment it independently.
+    /// Without this opt-in, aging counts preparation epochs rather than display
+    /// frames. Existing prepared scenes retain their resources through eviction.
+    pub fn begin_image_effect_frame(&mut self, frame: u64) -> Result<(), Error> {
+        if self.image_effects.is_none() {
+            self.image_effects = Some(ImageEffectState::new(&self.device)?);
+        }
+        self.image_effects
+            .as_mut()
+            .ok_or(Error::ResourceDomain)?
+            .resources
+            .host_frame(frame)
+    }
     fn image_effect_uses_live_blur(
         draw: &crate::image_effect::ImageEffectDraw,
     ) -> Result<bool, Error> {
@@ -322,8 +382,10 @@ impl Renderer {
     pub(super) fn preflight_image_effects(&self, scene: &Scene) -> Result<(u64, u32), Error> {
         let mut bytes = 0u64;
         let mut passes = 0u32;
+        let mut keys = HashSet::new();
         for draw in scene.image_effects() {
-            let (storage, work) = self.image_effect_cost(draw)?;
+            let (storage, work) =
+                cache::distinct_cost(draw, self.image_effect_cost(draw)?, &mut keys)?;
             bytes = bytes.checked_add(storage).ok_or(Error::Capacity)?;
             passes = passes.checked_add(work).ok_or(Error::Capacity)?;
             if bytes > 512 * 1024 * 1024 || passes > 16 * 1024 {
@@ -352,13 +414,15 @@ impl Renderer {
         }
         let mut texture_bytes = 0u64;
         let mut passes = 0u32;
+        let mut keys = HashSet::new();
         let mut state = 0;
         for draw in &compiled.draws {
             match draw {
                 DrawRange::State(i) => state = *i,
                 DrawRange::ImageEffect(i) => {
                     let draw = &compiled.image_effects[*i];
-                    let (bytes, work) = self.image_effect_cost(draw)?;
+                    let (bytes, work) =
+                        cache::distinct_cost(draw, self.image_effect_cost(draw)?, &mut keys)?;
                     texture_bytes = texture_bytes.checked_add(bytes).ok_or(Error::Capacity)?;
                     passes = passes.checked_add(work).ok_or(Error::Capacity)?;
                     if texture_bytes > 512 * 1024 * 1024 || passes > 16 * 1024 {
@@ -404,6 +468,7 @@ impl Renderer {
             Some(s) => s,
             None => ImageEffectState::new(&self.device)?,
         };
+        state.resources.begin()?;
         let mut images = self.images.take().unwrap_or_default();
         let mut masks = self
             .masks
@@ -418,6 +483,8 @@ impl Renderer {
                 _ => (),
             }
         }
+        let mut sources = Vec::new();
+        let mut deduplicated = HashMap::<cache::BlurKey, Arc<PreparedImageBlur>>::new();
         let mut vertices = Vec::new();
         let mut draws = Vec::new();
         let mut metrics = ImageEffectMetrics::default();
@@ -444,8 +511,8 @@ impl Renderer {
             };
             let sampling = draw.effective_sampling();
             let source = match &draw.source {
-                ImageEffectSource::Rgb(source) => BlurInput::image(
-                    &realize(
+                ImageEffectSource::Rgb(source) => {
+                    let image = realize(
                         &self.device,
                         &self.queue,
                         &mut images,
@@ -453,8 +520,14 @@ impl Renderer {
                         sampling.uses_mipmaps(),
                         &mut prepared.metrics,
                     )
-                    .await?,
-                ),
+                    .await?;
+                    let input = BlurInput::image(&image);
+                    if matches!(source, ImageSource::Pixels(_)) {
+                        input.immutable_upload()
+                    } else {
+                        input
+                    }
+                }
                 ImageEffectSource::Gpu(source) => source.clone(),
             };
             if source.device() != &self.device {
@@ -475,20 +548,54 @@ impl Renderer {
                 0.0
             };
             let blur = if Self::image_effect_uses_live_blur(draw)? {
-                Some(
-                    state
-                        .blur
-                        .prepare(
-                            &source,
-                            params.effects1[2],
-                            match draw.blur_storage {
-                                ImageBlurPolicy::Native => BlurStorage::NativeRgba8,
-                                ImageBlurPolicy::Managed => BlurStorage::ManagedSource,
-                            },
-                            None,
-                        )
-                        .await?,
-                )
+                let policy = match draw.blur_storage {
+                    ImageBlurPolicy::Native => BlurStorage::NativeRgba8,
+                    ImageBlurPolicy::Managed => BlurStorage::ManagedSource,
+                };
+                let managed = draw.policy == ImageEffectDrawPolicy::ManagedExtension;
+                let key = managed
+                    .then(|| cache::BlurKey::new(&source, params.effects1[2], policy))
+                    .flatten();
+                if let Some(cached) = key.as_ref().and_then(|key| deduplicated.get(key)) {
+                    metrics.blur_deduplicated_draws += 1;
+                    Some(cached.clone())
+                } else {
+                    let storage = if managed {
+                        state.resources.acquire_storage(&source, policy)
+                    } else {
+                        None
+                    };
+                    let reused = storage.is_some();
+                    let value = Arc::new(
+                        state
+                            .blur
+                            .prepare_reusing(
+                                &source,
+                                params.effects1[2],
+                                policy,
+                                None,
+                                storage,
+                                Some(&self.queue),
+                            )
+                            .await?,
+                    );
+                    if managed {
+                        state.resources.publish_storage(value.storage())?;
+                    }
+                    let work = value.metrics();
+                    metrics.blur_passes += work.render_passes;
+                    metrics.parameter_bytes += work.uniform_bytes;
+                    metrics.blur_texture_bytes += work.texture_bytes;
+                    metrics.blur_texture_allocations += work.texture_allocations;
+                    metrics.blur_storage_reuses += u32::from(reused);
+                    sources.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    sources.push(value.clone());
+                    if let Some(key) = key {
+                        deduplicated.try_reserve(1).map_err(|_| Error::Capacity)?;
+                        deduplicated.insert(key, value.clone());
+                    }
+                    Some(value)
+                }
             } else {
                 None
             };
@@ -582,7 +689,6 @@ impl Renderer {
                     return Err(error);
                 }
             };
-            let views = actual.views();
             let sampler = if draw.policy == ImageEffectDrawPolicy::ManagedExtension {
                 state.managed_sampler(&self.device, sampling)
             } else {
@@ -597,39 +703,34 @@ impl Renderer {
                     )
                     .clone()
             };
-            let textures = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ProGPU frozen image-effect source pair"),
-                layout: &pipeline.pipeline.get_bind_group_layout(2),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&views[0]),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&views[1]),
-                    },
-                ],
-            });
-            let buffer = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("ProGPU original 288-byte image effect"),
-                    contents: bytemuck::bytes_of(&params),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
-            let binding = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ProGPU immutable fused-effect parameters"),
-                layout: &pipeline.pipeline.get_bind_group_layout(1),
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                }],
-            });
+            let resources = (|| -> Result<_, Error> {
+                let (textures, texture_hit) = state.resources.textures(
+                    &self.device,
+                    &pipeline.pipeline.get_bind_group_layout(2),
+                    &actual,
+                    &sampler,
+                    draw.sampling,
+                    draw.address,
+                    draw.policy == ImageEffectDrawPolicy::ManagedExtension,
+                    self.format,
+                )?;
+                let (binding, parameter_reused) = state.resources.parameters(
+                    &self.device,
+                    &self.queue,
+                    &pipeline.pipeline.get_bind_group_layout(1),
+                    &params,
+                )?;
+                Ok((textures, binding, texture_hit, parameter_reused))
+            })();
+            let (textures, binding, texture_hit, parameter_reused) = match resources {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = scope.pop().await;
+                    return Err(error);
+                }
+            };
+            metrics.texture_binding_hits += u32::from(texture_hit);
+            metrics.parameter_reuses += u32::from(parameter_reused);
             if let Some(error) = scope.pop().await {
                 return Err(error.into());
             }
@@ -640,12 +741,6 @@ impl Renderer {
                     && blend.managed_vector_effective_mode() != blend,
             );
             metrics.parameter_bytes += 288;
-            if let Some(blur) = &blur {
-                let m = blur.metrics();
-                metrics.blur_passes += m.render_passes;
-                metrics.parameter_bytes += m.uniform_bytes;
-                metrics.blur_texture_bytes += m.texture_bytes;
-            }
             let first_vertex = i32::try_from(vertices.len()).map_err(|_| Error::Capacity)?;
             vertices.extend_from_slice(&quad);
             frame_pipeline = Some(pipeline.pipeline.clone());
@@ -654,7 +749,6 @@ impl Renderer {
                 params: binding,
                 textures,
                 mask,
-                blur,
                 first_vertex,
             }));
         }
@@ -679,12 +773,15 @@ impl Renderer {
             metrics.geometry_bytes = vertices.size() + indices.size();
             prepared.metrics.geometry_bytes += metrics.geometry_bytes;
             prepared.metrics.uniform_bytes += 224 + metrics.parameter_bytes;
+            metrics.pool_entries = state.resources.counts();
             prepared.image_effects = Some(PreparedImageEffects {
                 draws,
                 frame: frame_uniform,
                 vertices,
                 indices,
                 metrics,
+                sources,
+                clock: state.resources.clock(),
             });
         }
         self.image_effects = Some(state);
@@ -791,6 +888,14 @@ impl ImageEffectMetrics {
         add!(draws);
         add!(inline_blur_draws);
         add!(blend_fallback_draws);
+        add!(blur_deduplicated_draws);
+        add!(blur_storage_reuses);
+        add!(blur_texture_allocations);
+        add!(parameter_reuses);
+        add!(texture_binding_hits);
+        for index in 0..3 {
+            self.pool_entries[index] = self.pool_entries[index].max(other.pool_entries[index]);
+        }
         add!(blur_passes);
         add!(blur_texture_bytes);
         add!(parameter_bytes);
@@ -802,9 +907,10 @@ impl ImageEffectMetrics {
 impl PreparedImageEffects {
     pub(super) fn retain_submitted(&self, queue: &wgpu::Queue) {
         for draw in self.draws.iter().flatten() {
-            if let Some(blur) = &draw.blur {
-                blur.retain_submitted(queue);
-            }
+            crate::image_effect::ResourceUse::submitted(draw.params.usage.clone(), queue);
+        }
+        for source in &self.sources {
+            source.retain_submitted(queue);
         }
     }
 }

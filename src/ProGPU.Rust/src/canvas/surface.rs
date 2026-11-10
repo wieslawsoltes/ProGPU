@@ -19,18 +19,16 @@ impl<'surface, 'pixels> SurfaceCanvas<'surface, 'pixels> {
     pub fn surface(&self) -> &RenderSurface<'pixels> {
         self.surface
     }
-    /// Prepare and append completed drawing, retaining matrix/save/clip state.
-    /// An open isolated layer must be restored before submission; partial-layer
-    /// flushing never silently flattens or discards its independent destination.
+    /// Prepare and append the actual surface's completed root drawing, retaining
+    /// matrix/save/clip state. Open layers keep their independent recording owners
+    /// and are not painted into the surface until their original Restore boundary.
     pub async fn flush(&mut self) -> Result<SurfaceFlush, ImageResourceError> {
-        if self.canvas.saved.iter().any(|s| s.layer.is_some()) {
-            return Err(Error::UnsupportedExecution.into());
-        }
-        let picture = self.canvas.snapshot_current();
+        let pending = RootFlush::new(&self.canvas)?;
+        let picture = &pending.picture;
         let scene = if let Some(context) = self.surface.context().cloned() {
             let mut count = 0;
             picture.preflight(&context, 0, &mut count)?;
-            let backdrop = if needs_backdrop(&picture, 0)? {
+            let backdrop = if needs_backdrop(picture, 0)? {
                 Some(self.surface.snapshot().await?)
             } else {
                 None
@@ -46,12 +44,7 @@ impl<'surface, 'pixels> SurfaceCanvas<'surface, 'pixels> {
         self.surface.record(&scene)?;
         // Commands now belong to the surface even if the subsequent submission
         // fails; retrying flush must not append the same painter operations twice.
-        self.canvas.commands.clear();
-        for (index, clip) in self.canvas.clips.iter_mut().enumerate() {
-            clip.index = index;
-            self.canvas.commands.push(Command::Clip(clip.clip.clone()));
-        }
-        self.canvas.context_clip_base = 0;
+        pending.accept(&mut self.canvas)?;
         self.surface.flush().await
     }
     /// Restore outstanding layers and submit this lease's complete recording.
@@ -63,6 +56,78 @@ impl<'surface, 'pixels> SurfaceCanvas<'surface, 'pixels> {
     pub async fn snapshot(&mut self) -> Result<TextureImage, ImageResourceError> {
         self.flush().await?;
         self.surface.snapshot().await
+    }
+}
+
+/// One immutable view of the actual surface/root context. The outermost layer
+/// owns that context while any child recording is active. Its frozen prior-image
+/// recipe and every child context retain their own original commands.
+struct RootFlush {
+    picture: CanvasPicture,
+    layer: Option<usize>,
+    prefix: Vec<Command>,
+    clip_count: usize,
+}
+impl RootFlush {
+    fn new(canvas: &Canvas) -> Result<Self, Error> {
+        let layer = canvas.saved.iter().position(|saved| saved.layer.is_some());
+        let (source, clip_count) = if let Some(index) = layer {
+            let saved = &canvas.saved[index];
+            let frame = saved.layer.as_ref().ok_or(Error::ResourceDomain)?;
+            (&frame.parent, saved.clips)
+        } else {
+            (&canvas.commands, canvas.clips.len())
+        };
+        let mut commands = Vec::new();
+        let count = source
+            .len()
+            .checked_add(clip_count)
+            .ok_or(Error::Capacity)?;
+        commands
+            .try_reserve_exact(count)
+            .map_err(|_| Error::Capacity)?;
+        commands.extend(source.iter().cloned());
+        commands.extend((0..clip_count).map(|_| Command::Pop));
+        // Prepare the existing Rust surface's live-clip continuation before
+        // publishing commands to RenderSurface, so retirement cannot allocate.
+        let mut prefix = Vec::new();
+        prefix
+            .try_reserve_exact(clip_count)
+            .map_err(|_| Error::Capacity)?;
+        prefix.extend(
+            canvas.clips[..clip_count]
+                .iter()
+                .map(|clip| Command::Clip(clip.clip.clone())),
+        );
+        Ok(Self {
+            picture: CanvasPicture {
+                size: canvas.size,
+                commands: commands.into(),
+            },
+            layer,
+            prefix,
+            clip_count,
+        })
+    }
+    fn accept(self, canvas: &mut Canvas) -> Result<(), Error> {
+        if let Some(index) = self.layer {
+            // The exclusive SurfaceCanvas borrow prevents a restore/save while
+            // preparation awaits. This exact captured owner is still present.
+            let frame = canvas
+                .saved
+                .get_mut(index)
+                .and_then(|saved| saved.layer.as_mut())
+                .ok_or(Error::ResourceDomain)?;
+            frame.parent = self.prefix;
+            frame.parent_clip_base = 0;
+        } else {
+            canvas.commands = self.prefix;
+            canvas.context_clip_base = 0;
+        }
+        for (index, clip) in canvas.clips[..self.clip_count].iter_mut().enumerate() {
+            clip.index = index;
+        }
+        Ok(())
     }
 }
 impl Deref for SurfaceCanvas<'_, '_> {

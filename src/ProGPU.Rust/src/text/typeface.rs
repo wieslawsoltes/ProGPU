@@ -25,6 +25,8 @@ pub enum TypefaceError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Text(#[from] CanvasFontError),
+    #[error(transparent)]
+    Storage(#[from] crate::font::FontStorageError),
     #[error("no default font is available from the selected catalog")]
     NoDefaultFont,
     #[error("invalid font facade argument")]
@@ -294,6 +296,32 @@ impl Typeface {
             Err(error @ FontError::Capacity) => Err(error.into()),
             Err(_) => Ok(None),
         }
+    }
+    /// Safe immutable embedded/shared lease factory with the same nullable
+    /// malformed-font policy as the owned byte factory.
+    pub fn from_storage(
+        data: crate::font::FontData,
+        face_index: i32,
+    ) -> TypefaceResult<Option<Self>> {
+        let Ok(index) = u32::try_from(face_index) else {
+            return Ok(None);
+        };
+        match ManagedFont::from_storage(data, index) {
+            Ok(font) => Ok(Some(Self::from_managed(font))),
+            Err(error @ FontError::Capacity) => Err(error.into()),
+            Err(_) => Ok(None),
+        }
+    }
+    pub fn from_embedded(data: &'static [u8], face_index: i32) -> TypefaceResult<Option<Self>> {
+        Self::from_storage(crate::font::FontData::embedded(data), face_index)
+    }
+    pub fn from_embedded_slice(
+        data: crate::font::FontData,
+        offset: i32,
+        length: i32,
+        face_index: i32,
+    ) -> TypefaceResult<Option<Self>> {
+        Self::from_storage(data.embedded_slice(offset, length)?, face_index)
     }
     /// Read the remaining stream into owned bytes without taking ownership of
     /// the caller's reader. IO errors remain distinct from invalid font data.

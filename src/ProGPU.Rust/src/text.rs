@@ -41,3 +41,6 @@ pub mod native_atlas;
 pub mod typeface;
 /// Explicit owned/native/browser font catalog and fallback matching.
 pub mod font_manager;
+
+/// Original native nested block/table, anchor and pagination flow.
+pub mod native_document;

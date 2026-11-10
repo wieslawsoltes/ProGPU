@@ -19,6 +19,9 @@ pub struct BlurInput {
     alpha: ImageAlpha,
     conversion: Option<YuvConversion>,
     unfilterable: bool,
+    // Namespace 1: exact original provider generations; 2: private immutable
+    // CPU upload. Untracked borrowed resources never invent a source revision.
+    generations: Option<[u32; 5]>,
 }
 fn sampled(texture: &wgpu::Texture) -> bool {
     texture.dimension() == wgpu::TextureDimension::D2
@@ -39,6 +42,7 @@ impl BlurInput {
             alpha: image.alpha(),
             conversion: None,
             unfilterable: false,
+            generations: None,
         }
     }
     /// Retain actual filterable RGB storage, including the managed RGBA16F path.
@@ -69,6 +73,7 @@ impl BlurInput {
             alpha,
             conversion: None,
             unfilterable: false,
+            generations: None,
         })
     }
     /// Retain an actual NV12 or normalized MSB-aligned P010 plane pair and its
@@ -96,7 +101,40 @@ impl BlurInput {
             alpha: ImageAlpha::Straight,
             conversion: Some(conversion),
             unfilterable,
+            generations: None,
         })
+    }
+    /// Freeze actual original producer generations for the retained plane pair.
+    /// RGB uses `luma` for both bindings; planar input retains both independently.
+    /// This enables same-frame reuse, never a cached pixel result across frames.
+    pub fn with_generations(
+        mut self,
+        luma: ImageEffectTextureGeneration,
+        chroma: Option<ImageEffectTextureGeneration>,
+    ) -> Result<Self, Error> {
+        let chroma = match (self.conversion.is_some(), chroma) {
+            (true, Some(value)) => value,
+            (false, None) => luma,
+            _ => return Err(Error::InvalidInput),
+        };
+        self.generations = Some([1, luma.content, luma.view, chroma.content, chroma.view]);
+        Ok(self)
+    }
+    pub(crate) fn immutable_upload(mut self) -> Self {
+        self.generations = Some([2, 0, 0, 0, 0]);
+        self
+    }
+    pub(crate) fn identities(&self) -> ([wgpu::Texture; 2], Option<[u32; 5]>) {
+        ([self.luma.clone(), self.chroma.clone()], self.generations)
+    }
+    pub(crate) fn storage_format(&self, storage: BlurStorage) -> wgpu::TextureFormat {
+        match storage {
+            BlurStorage::NativeRgba8 => wgpu::TextureFormat::Rgba8Unorm,
+            BlurStorage::ManagedSource if self.conversion.is_some() => {
+                wgpu::TextureFormat::Rgba16Float
+            }
+            BlurStorage::ManagedSource => self.luma.format(),
+        }
     }
     pub(crate) fn managed_bytes_per_pixel(&self) -> u64 {
         if self.conversion.is_some() || self.luma.format() == wgpu::TextureFormat::Rgba16Float {
@@ -181,6 +219,45 @@ struct Pass {
     binding: wgpu::BindGroup,
     target: wgpu::TextureView,
 }
+/// Two original same-device targets. Pool ownership is separate from each
+/// immutable prepared program and from actual in-flight command ownership.
+pub(crate) struct ImageBlurStorage {
+    intermediate: wgpu::Texture,
+    output: wgpu::Texture,
+    device: wgpu::Device,
+    alpha: ImageAlpha,
+    planar: bool,
+    uniforms: [wgpu::Buffer; 2],
+    last_used: std::sync::atomic::AtomicU64,
+    pub(crate) usage: Arc<ResourceUse>,
+}
+impl ImageBlurStorage {
+    pub(crate) fn touch(&self, frame: u64) {
+        self.last_used
+            .fetch_max(frame, std::sync::atomic::Ordering::AcqRel);
+    }
+    pub(crate) fn last_used(&self) -> u64 {
+        self.last_used.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub(crate) fn matches(&self, source: &BlurInput, policy: BlurStorage) -> bool {
+        self.device == source.device
+            && self.alpha == source.alpha
+            && self.planar == source.conversion.is_some()
+            && [self.output.width(), self.output.height()] == source.size()
+            && self.output.format() == source.storage_format(policy)
+    }
+    pub(crate) fn bytes(&self) -> u64 {
+        let bpp = match self.output.format() {
+            wgpu::TextureFormat::R8Unorm => 1,
+            wgpu::TextureFormat::Rgba16Float => 8,
+            _ => 4,
+        };
+        u64::from(self.output.width()) * u64::from(self.output.height()) * bpp * 2
+    }
+    pub(crate) fn reset(&mut self) {
+        self.usage = Arc::default();
+    }
+}
 /// Owned live program. Encoding rewrites its output from the current source;
 /// no stale external content generation is cached or inferred.
 pub struct PreparedImageBlur {
@@ -188,7 +265,7 @@ pub struct PreparedImageBlur {
     owner: Arc<()>,
     device: wgpu::Device,
     passes: [Pass; 2],
-    output: wgpu::Texture,
+    storage: Arc<ImageBlurStorage>,
     alpha: ImageAlpha,
     uniforms: [ImageBlurUniforms; 2],
     metrics: BlurMetrics,
@@ -196,7 +273,7 @@ pub struct PreparedImageBlur {
 impl PreparedImageBlur {
     /// Actual final texture. It becomes usable only after these encoded passes.
     pub fn output(&self) -> &wgpu::Texture {
-        &self.output
+        &self.storage.output
     }
     /// Output alpha interpretation retained from the actual source policy.
     pub fn alpha(&self) -> ImageAlpha {
@@ -211,7 +288,10 @@ impl PreparedImageBlur {
         self.metrics
     }
     pub(crate) fn as_input(&self) -> Result<BlurInput, Error> {
-        BlurInput::rgb(&self.device, &self.output, self.alpha)
+        BlurInput::rgb(&self.device, &self.storage.output, self.alpha)
+    }
+    pub(crate) fn storage(&self) -> Arc<ImageBlurStorage> {
+        self.storage.clone()
     }
 }
 /// Device-owned lazy render pipelines, keyed by actual output format and route.
@@ -220,6 +300,8 @@ pub struct ImageBlurEngine {
     owner: Arc<()>,
     device: wgpu::Device,
     pipelines: HashMap<(wgpu::TextureFormat, bool), Pipeline>,
+    shaders: HashMap<bool, wgpu::ShaderModule>,
+    samplers: HashMap<bool, wgpu::Sampler>,
 }
 impl ImageBlurEngine {
     /// Retain the device without compiling shaders. Only Automatic/GpuShader
@@ -237,6 +319,8 @@ impl ImageBlurEngine {
             owner: Arc::new(()),
             device: device.clone(),
             pipelines: HashMap::new(),
+            shaders: HashMap::new(),
+            samplers: HashMap::new(),
         })
     }
     /// Original fragment execution route.
@@ -257,17 +341,23 @@ impl ImageBlurEngine {
         }
         let device = &self.device;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("ProGPU original live image Gaussian shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                if unfilterable {
-                    shaders::IMAGE_BLUR_UNFILTERABLE
-                } else {
-                    shaders::IMAGE_BLUR
-                }
-                .into(),
-            ),
-        });
+        let module = if let Some(module) = self.shaders.get(&unfilterable) {
+            module.clone()
+        } else {
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("ProGPU original live image Gaussian shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    if unfilterable {
+                        shaders::IMAGE_BLUR_UNFILTERABLE
+                    } else {
+                        shaders::IMAGE_BLUR
+                    }
+                    .into(),
+                ),
+            });
+            self.shaders.insert(unfilterable, module.clone());
+            module
+        };
         let sampler = wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -352,6 +442,18 @@ impl ImageBlurEngine {
         storage: BlurStorage,
         color_transform: Option<[[f32; 4]; 3]>,
     ) -> Result<PreparedImageBlur, Error> {
+        self.prepare_reusing(source, sigma, storage, color_transform, None, None)
+            .await
+    }
+    pub(crate) async fn prepare_reusing(
+        &mut self,
+        source: &BlurInput,
+        sigma: f32,
+        storage: BlurStorage,
+        color_transform: Option<[[f32; 4]; 3]>,
+        reused: Option<Arc<ImageBlurStorage>>,
+        queue: Option<&wgpu::Queue>,
+    ) -> Result<PreparedImageBlur, Error> {
         if source.device != self.device {
             return Err(Error::ResourceDomain);
         }
@@ -381,13 +483,16 @@ impl ImageBlurEngine {
             uniforms[1].green = green;
             uniforms[1].blue = blue;
         }
-        let format = match storage {
-            BlurStorage::NativeRgba8 => wgpu::TextureFormat::Rgba8Unorm,
-            BlurStorage::ManagedSource if source.conversion.is_some() => {
-                wgpu::TextureFormat::Rgba16Float
-            }
-            BlurStorage::ManagedSource => source.luma.format(),
-        };
+        let format = source.storage_format(storage);
+        if reused
+            .as_ref()
+            .is_some_and(|value| !value.matches(source, storage))
+        {
+            return Err(Error::ResourceDomain);
+        }
+        if reused.is_some() && queue.is_none() {
+            return Err(Error::ResourceDomain);
+        }
         let bpp = match format {
             wgpu::TextureFormat::R8Unorm => 1,
             wgpu::TextureFormat::Rgba16Float => 8,
@@ -399,6 +504,22 @@ impl ImageBlurEngine {
         }
         let horizontal = self.pipeline(format, source.unfilterable).await?;
         let vertical = self.pipeline(format, false).await?;
+        for unfilterable in [source.unfilterable, false] {
+            self.samplers.entry(unfilterable).or_insert_with(|| {
+                let filter = if unfilterable {
+                    wgpu::FilterMode::Nearest
+                } else {
+                    wgpu::FilterMode::Linear
+                };
+                self.device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("ProGPU Gaussian retained clamp sampler"),
+                    min_filter: filter,
+                    mag_filter: filter,
+                    lod_max_clamp: 0.0,
+                    ..Default::default()
+                })
+            });
+        }
         let device = &self.device;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let create = |label| {
@@ -418,39 +539,45 @@ impl ImageBlurEngine {
                 view_formats: &[],
             })
         };
-        let intermediate = create("ProGPU live image Gaussian intermediate");
-        let output = create("ProGPU live image Gaussian output");
-        let intermediate = intermediate.create_view(&Default::default());
-        let output_view = output.create_view(&Default::default());
+        let allocations = if reused.is_some() { 0 } else { 2 };
+        if let (Some(reused), Some(queue)) = (&reused, queue) {
+            for (buffer, value) in reused.uniforms.iter().zip(&uniforms) {
+                queue.write_buffer(buffer, 0, bytemuck::bytes_of(value));
+            }
+        }
+        let storage = reused.unwrap_or_else(|| {
+            Arc::new(ImageBlurStorage {
+                intermediate: create("ProGPU live image Gaussian intermediate"),
+                output: create("ProGPU live image Gaussian output"),
+                device: device.clone(),
+                alpha: source.alpha,
+                planar: source.conversion.is_some(),
+                last_used: Default::default(),
+                uniforms: uniforms.map(|value| {
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("ProGPU retained Gaussian axis uniform"),
+                        contents: bytemuck::bytes_of(&value),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    })
+                }),
+                usage: Arc::default(),
+            })
+        });
+        let intermediate = storage.intermediate.create_view(&Default::default());
+        let output_view = storage.output.create_view(&Default::default());
         let views = source.views();
         let bind = |p: &Pipeline,
                     views: [&wgpu::TextureView; 2],
-                    params: &ImageBlurUniforms,
+                    buffer: &wgpu::Buffer,
                     unfilterable: bool| {
-            let filter = if unfilterable {
-                wgpu::FilterMode::Nearest
-            } else {
-                wgpu::FilterMode::Linear
-            };
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("ProGPU Gaussian clamp sampler"),
-                min_filter: filter,
-                mag_filter: filter,
-                lod_max_clamp: 0.0,
-                ..Default::default()
-            });
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("ProGPU original Gaussian 912-byte record"),
-                contents: bytemuck::bytes_of(params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+            let sampler = &self.samplers[&unfilterable];
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ProGPU immutable image Gaussian binding"),
                 layout: &p.layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
+                        resource: wgpu::BindingResource::Sampler(sampler),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -470,13 +597,13 @@ impl ImageBlurEngine {
         let horizontal_binding = bind(
             &horizontal,
             [&views[0], &views[1]],
-            &uniforms[0],
+            &storage.uniforms[0],
             source.unfilterable,
         );
         let vertical_binding = bind(
             &vertical,
             [&intermediate, &intermediate],
-            &uniforms[1],
+            &storage.uniforms[1],
             false,
         );
         if let Some(error) = scope.pop().await {
@@ -486,14 +613,14 @@ impl ImageBlurEngine {
             source: source.clone(),
             owner: self.owner.clone(),
             device: device.clone(),
-            output,
+            storage,
             alpha: source.alpha,
             uniforms,
             metrics: BlurMetrics {
                 render_passes: 2,
                 uniform_bytes: 1824,
                 texture_bytes: bytes * 2,
-                texture_allocations: 2,
+                texture_allocations: allocations,
                 size,
                 unfilterable_source: source.unfilterable,
             },
@@ -528,6 +655,7 @@ impl ImageBlurEngine {
 
 impl PreparedImageBlur {
     pub(crate) fn encode_owned(&self, encoder: &mut wgpu::CommandEncoder) {
+        self.storage.usage.encode();
         for p in &self.passes {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ProGPU original image Gaussian axis"),
@@ -552,6 +680,7 @@ impl PreparedImageBlur {
 impl PreparedImageBlur {
     /// Retain the actual source producer after submitting this prepared program.
     pub fn retain_submitted(&self, queue: &wgpu::Queue) {
+        ResourceUse::submitted(self.storage.usage.clone(), queue);
         if let Some(source) = &self.source.producer {
             source.retain_submitted(queue);
         }

@@ -2211,6 +2211,9 @@ mod web {
         /// Prepare a new physical frame; zero extents suspend presentation.
         pub async fn resize(&mut self, width: u32, height: u32, dpi: f32) -> Result<(), JsValue> {
             self.ensure_live()?;
+            self.renderer
+                .begin_image_effect_frame(u64::from(self.frames))
+                .map_err(error)?;
             if width == 0 || height == 0 {
                 self.scene = None;
                 return Ok(());
@@ -2428,6 +2431,13 @@ mod web {
         /// per-occurrence 16-byte upload. No rasterization or readback is added.
         pub fn draw(&mut self) -> Result<bool, JsValue> {
             self.ensure_live()?;
+            self.renderer
+                .begin_image_effect_frame(u64::from(self.frames))
+                .map_err(error)?;
+            let next_frame = self
+                .frames
+                .checked_add(1)
+                .ok_or_else(|| error("frame counter exhausted"))?;
             let Some(scene) = self.scene.as_ref() else {
                 return Ok(false);
             };
@@ -2460,7 +2470,7 @@ mod web {
                 .map_err(error)?;
             self.last_replay = submission.metrics;
             self.queue.present(texture);
-            self.frames += 1;
+            self.frames = next_frame;
             Ok(true)
         }
         /// Submit one final retained frame and track this exact queue completion.

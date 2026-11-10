@@ -9,7 +9,7 @@ use crate::font::{
 };
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    hash::Hash,
+    hash::{Hash, Hasher},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -134,12 +134,25 @@ pub struct CharacterMatch {
     pub font: ManagedFont,
     pub glyph_index: u16,
 }
+#[derive(Clone, Debug)]
+struct InstanceFont(ManagedFont);
+impl PartialEq for InstanceFont {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.same_instance(&other.0)
+    }
+}
+impl Eq for InstanceFont {}
+impl Hash for InstanceFont {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.instance_identity().hash(state);
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct CharacterKey {
     family: Option<String>,
     style: FontStyleRequest,
     codepoint: i32,
-    excluded: Option<ManagedFont>,
+    excluded: Option<InstanceFont>,
     version: u64,
 }
 struct Fifo<K, V> {
@@ -183,8 +196,8 @@ struct CatalogState {
     platform_fallback: Option<ManagedFont>,
     default_typeface: Option<Typeface>,
     empty_typeface: Option<Typeface>,
-    styles: Fifo<(ManagedFont, FontStyleRequest), ManagedFont>,
-    variations: Fifo<(ManagedFont, FontStyleRequest), ManagedFont>,
+    styles: Fifo<(InstanceFont, FontStyleRequest), ManagedFont>,
+    variations: Fifo<(InstanceFont, FontStyleRequest), ManagedFont>,
     characters: Fifo<CharacterKey, Option<CharacterMatch>>,
 }
 /// Caller-owned catalog. Shared clones preserve registrations and all cache
@@ -261,6 +274,16 @@ impl FontManager {
         self.register_font(font.clone(), fallback)?;
         Ok(font)
     }
+    pub fn register_storage(
+        &self,
+        data: crate::font::FontData,
+        face_index: u32,
+        fallback: bool,
+    ) -> FontManagerResult<ManagedFont> {
+        let font = ManagedFont::from_storage(data, face_index)?;
+        self.register_font(font.clone(), fallback)?;
+        Ok(font)
+    }
     /// Anonymous lazy sources participate in fallback, but no family is invented
     /// before their real font is loaded. Loader identity prevents duplicates.
     pub fn register_source(&self, source: Arc<dyn FontSource>, fallback: bool) {
@@ -294,9 +317,13 @@ impl FontManager {
         let loaded = face.owner.loaded();
         if state.registered.iter().any(|current| {
             Arc::ptr_eq(&current.owner.source, &face.owner.source)
-                || loaded
-                    .as_ref()
-                    .is_some_and(|value| current.owner.loaded().as_ref() == Some(value))
+                || loaded.as_ref().is_some_and(|value| {
+                    current
+                        .owner
+                        .loaded()
+                        .as_ref()
+                        .is_some_and(|current| current.same_instance(value))
+                })
         }) {
             return;
         }
@@ -411,7 +438,7 @@ impl FontManager {
         if font.variation_axes()?.is_empty() {
             return Ok(font.clone());
         }
-        let key = (font.clone(), style);
+        let key = (InstanceFont(font.clone()), style);
         if let Some(value) = self
             .state
             .lock()
@@ -447,7 +474,7 @@ impl FontManager {
         } else if FontStyleRequest::from_font(font).distance(style) == 0 {
             return Ok(font.clone());
         }
-        let key = (font.clone(), style);
+        let key = (InstanceFont(font.clone()), style);
         if let Some(value) = self
             .state
             .lock()

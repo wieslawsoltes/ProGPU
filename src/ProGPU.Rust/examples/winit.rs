@@ -104,6 +104,7 @@ struct WindowRenderer {
     mask_scene: bool,
     effect_scene: bool,
     composite_gallery: CompositeGallery,
+    image_effect_frame: u64,
 }
 
 impl WindowRenderer {
@@ -176,6 +177,7 @@ impl WindowRenderer {
             mask_scene,
             effect_scene,
             composite_gallery,
+            image_effect_frame: 0,
         };
         state.resize()?;
         state.window.set_visible(true);
@@ -184,6 +186,8 @@ impl WindowRenderer {
     }
 
     fn resize(&mut self) -> Result<()> {
+        self.renderer
+            .begin_image_effect_frame(self.image_effect_frame)?;
         let size = self.window.inner_size();
         if size.width == 0 || size.height == 0 {
             self.scene = None;
@@ -357,6 +361,12 @@ impl WindowRenderer {
     }
 
     fn draw(&mut self) -> Result<bool> {
+        self.renderer
+            .begin_image_effect_frame(self.image_effect_frame)?;
+        let next_frame = self
+            .image_effect_frame
+            .checked_add(1)
+            .ok_or("frame counter exhausted")?;
         let Some(scene) = self.scene.as_ref() else {
             return Ok(false);
         };
@@ -392,6 +402,7 @@ impl WindowRenderer {
         )?;
         self.window.pre_present_notify();
         self.queue.present(texture);
+        self.image_effect_frame = next_frame;
         if suboptimal {
             self.resize()?;
         }

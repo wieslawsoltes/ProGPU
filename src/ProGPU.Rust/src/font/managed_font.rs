@@ -14,6 +14,7 @@ mod color;
 mod metadata;
 mod metrics;
 mod outline;
+mod storage;
 mod svg;
 mod svg_parser;
 pub use bitmap::{DecodedBitmapGlyph, ManagedBitmapGlyph};
@@ -99,6 +100,7 @@ struct Root {
     data: OnceLock<Option<ManagedVariationData>>,
     cff: OnceLock<Result<Option<crate::font::cff::ManagedCff>, FontError>>,
     cache: Mutex<Cache>,
+    resident: Option<Arc<super::resident::ResidentFontState>>,
 }
 /// Owned current managed font data and immutable selected instance. Original
 /// construction, variation caching, identity and metadata are included; complete
@@ -123,7 +125,7 @@ impl ManagedFont {
         Self::from_face(face)
     }
     /// Execute original owned uncompressed SFNT/TTC constructor admission and
-    /// metadata reads. Compressed/mapped/resident-font factories remain separate.
+    /// metadata reads. Explicit storage/resident factories retain their own owners.
     pub fn from_face(source: SfntFace) -> Result<Self, FontError> {
         if source.data().len() > i32::MAX as usize {
             return Err(FontError::Capacity);
@@ -132,7 +134,8 @@ impl ManagedFont {
         // one. An invalid unselected directory therefore rejects the font too.
         for index in 0..SfntFace::face_count(source.data())? {
             if index != source.face_index() {
-                SfntFace::new(source.data.clone(), index).map_err(|_| FontError::InvalidFace)?;
+                SfntFace::from_storage(source.data.clone(), index)
+                    .map_err(|_| FontError::InvalidFace)?;
             }
         }
         let (metadata, raw) = metadata::parse(&source)?;
@@ -152,6 +155,7 @@ impl ManagedFont {
                 data: OnceLock::new(),
                 cff: OnceLock::new(),
                 cache: Mutex::new(Cache::default()),
+                resident: None,
             }),
             state,
         })
@@ -214,7 +218,6 @@ impl ManagedFont {
     pub fn same_instance(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.root, &other.root) && Arc::ptr_eq(&self.state, &other.state)
     }
-    #[cfg(feature = "gpu")]
     pub(crate) fn instance_identity(&self) -> (usize, usize) {
         (
             Arc::as_ptr(&self.root) as usize,

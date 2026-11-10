@@ -616,7 +616,7 @@ impl TextPainter {
             return Ok(());
         }
         let bitmap = font.metadata().has_bitmap_glyphs
-            && font.bitmap_glyph(glyph, state.raster_size).is_some();
+            && font.try_bitmap_glyph(glyph, state.raster_size)?.is_some();
         if !bitmap
             && (state.draw.vector_rendering
                 || ((layout || !state.draw.prefer_atlas)

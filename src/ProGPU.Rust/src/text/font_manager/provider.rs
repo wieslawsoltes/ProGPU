@@ -91,10 +91,16 @@ impl FileFontSource {
 }
 impl FontSource for FileFontSource {
     fn load(&self) -> Result<ManagedFont, FontSourceError> {
-        Ok(ManagedFont::new(
-            normalize_managed_sfnt_container(std::fs::read(self.path.as_ref())?.into())?,
+        ManagedFont::from_file(
+            self.path.as_ref(),
             self.face_index,
-        )?)
+            crate::font::FontFileStorage::Automatic,
+        )
+        .map_err(|error| match error {
+            crate::font::FontStorageError::Font(error) => FontSourceError::Font(error),
+            crate::font::FontStorageError::Io(error) => error.into(),
+            error => FontSourceError::Provider(error.to_string().into()),
+        })
     }
     fn metadata_glyph(&self, codepoint: u32) -> Result<u16, FontSourceError> {
         if codepoint > 0x10ffff {
