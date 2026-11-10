@@ -367,8 +367,10 @@ impl Renderer {
             if matches!(
                 draw,
                 DrawRange::Advanced(_)
+                    | DrawRange::Hatch(_)
                     | DrawRange::Clear(_)
                     | DrawRange::Axis(_)
+                    | DrawRange::Series(_)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::BackdropMaterial(_)
                     | DrawRange::ShaderEffect(_)

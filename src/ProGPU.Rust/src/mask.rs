@@ -128,6 +128,7 @@ impl From<CoverageMask> for TextureMask {
 #[derive(Clone, Debug)]
 pub struct RenderedTextureMask {
     pub(crate) texture: TextureMask,
+    pub(crate) storage_origin: [u32; 2],
     pub(crate) size: [u32; 2],
     pub(crate) dpi: f32,
     pub(crate) projection: [f32; 16],
@@ -137,10 +138,15 @@ pub struct RenderedTextureMask {
 impl RenderedTextureMask {
     pub(crate) fn uniforms(&self, origin: [u32; 2]) -> MaskUniforms {
         MaskUniforms {
-            coordinate0: [-(origin[0] as f32), -(origin[1] as f32), 0.0, 0.0],
+            coordinate0: [
+                self.storage_origin[0] as f32 - origin[0] as f32,
+                self.storage_origin[1] as f32 - origin[1] as f32,
+                0.0,
+                0.0,
+            ],
             coordinate1: [
-                1.0 / self.size[0] as f32,
-                1.0 / self.size[1] as f32,
+                1.0 / self.texture.source.size()[0] as f32,
+                1.0 / self.texture.source.size()[1] as f32,
                 0.0,
                 0.0,
             ],
@@ -178,6 +184,7 @@ impl RenderedTextureMask {
 #[derive(Clone, Debug)]
 pub struct FrameAnalyticMask {
     pub(crate) uniforms: MaskUniforms,
+    pub(crate) storage_bounds: Option<[u32; 4]>,
     pub(crate) size: [u32; 2],
     pub(crate) dpi: f32,
     pub(crate) projection: [f32; 16],
@@ -404,6 +411,12 @@ impl Mask {
             #[cfg(feature = "gpu")]
             Self::FrameAnalytic(mask) => {
                 if mask.size.contains(&0)
+                    || mask.storage_bounds.is_some_and(|[x, y, w, h]| {
+                        w == 0
+                            || h == 0
+                            || x.checked_add(w).is_none_or(|v| v > mask.size[0])
+                            || y.checked_add(h).is_none_or(|v| v > mask.size[1])
+                    })
                     || !mask.dpi.is_finite()
                     || mask.dpi <= 0.0
                     || bytemuck::cast_slice::<_, f32>(std::slice::from_ref(&mask.uniforms))
@@ -418,7 +431,12 @@ impl Mask {
             #[cfg(feature = "gpu")]
             Self::RenderedTexture(mask) => {
                 if mask.size.contains(&0)
-                    || mask.texture.source.size() != mask.size
+                    || mask.texture.source.size().contains(&0)
+                    || (0..2).any(|i| {
+                        mask.storage_origin[i]
+                            .checked_add(mask.texture.source.size()[i])
+                            .is_none_or(|v| v > mask.size[i])
+                    })
                     || !mask.dpi.is_finite()
                     || mask.dpi <= 0.0
                     || mask.projection.iter().any(|v| !v.is_finite())

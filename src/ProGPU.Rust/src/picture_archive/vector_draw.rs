@@ -20,6 +20,7 @@ pub struct ArchiveVectorDraw {
     opacity: f32,
     brush: Option<Arc<Brush>>,
     stroke: bool,
+    direct: Option<Arc<super::geometry_draw::DirectRoundedPath>>,
 }
 impl ArchiveVectorDraw {
     pub fn new(
@@ -78,9 +79,46 @@ impl ArchiveVectorDraw {
             opacity,
             brush,
             stroke: false,
+            direct: None,
         };
         draw.validate()?;
         Ok(draw)
+    }
+    pub(crate) fn direct_path(
+        command: Arc<ArchiveCommand>,
+        direct: Arc<super::geometry_draw::DirectRoundedPath>,
+        transform: Matrix4,
+        opacity: f32,
+    ) -> Result<Self, Error> {
+        let brush = command
+            .brush
+            .as_ref()
+            .map(|b| b.to_vector().map(Arc::new))
+            .transpose()
+            .map_err(super::drawing_error)?;
+        let result = Self {
+            command,
+            points: Arc::from([]),
+            selected: 0..0,
+            inline: false,
+            transform,
+            opacity,
+            brush,
+            stroke: false,
+            direct: Some(direct),
+        };
+        result.validate()?;
+        Ok(result)
+    }
+    pub(crate) fn direct_has_vertices(&self) -> Result<bool, Error> {
+        let mut mesh = Mesh::default();
+        self.direct.as_ref().ok_or(Error::InvalidInput)?.append(
+            &mut mesh,
+            0.0,
+            self.transform,
+            self.command.is_edge_aliased,
+        )?;
+        Ok(!mesh.vertices().is_empty())
     }
     /// Select the original independent analytic pen quad, retaining the same
     /// source command and its legacy local/device-width recovery metadata.
@@ -240,6 +278,14 @@ impl ArchiveVectorDraw {
         self.validate()?;
         if !self.is_renderable() {
             return Ok(());
+        }
+        if let Some(direct) = &self.direct {
+            return direct.append(
+                target,
+                brush_index,
+                self.transform,
+                self.command.is_edge_aliased,
+            );
         }
         let brush = self.brush()?;
         let solid = match &brush.kind {

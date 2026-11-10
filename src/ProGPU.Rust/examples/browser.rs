@@ -60,6 +60,9 @@ mod retained_aa_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/sample_scene.rs"]
 mod sample;
+#[cfg(target_arch = "wasm32")]
+#[path = "support/series_scene.rs"]
+mod series_sample;
 #[path = "support/shader_effect_scene.rs"]
 mod shader_effect_sample;
 #[cfg(target_arch = "wasm32")]
@@ -1731,6 +1734,7 @@ mod web {
         mesh_scene: bool,
         backdrop_blend_scene: bool,
         archive_scene: bool,
+        series_scene: bool,
         visual_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
@@ -1829,6 +1833,7 @@ mod web {
             mesh_scene: false,
             backdrop_blend_scene: false,
             archive_scene: false,
+            series_scene: false,
             visual_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
@@ -1882,6 +1887,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.text_font = None;
             self.image_scene = false;
@@ -1921,6 +1927,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.material_scene = false;
             self.text_font = None;
@@ -1949,6 +1956,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1976,6 +1984,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -2003,6 +2012,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -2030,6 +2040,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -2057,6 +2068,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -2084,6 +2096,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -2111,6 +2124,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -2138,6 +2152,7 @@ mod web {
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
+            self.series_scene = false;
             self.visual_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
@@ -2190,6 +2205,12 @@ mod web {
         pub fn select_visual_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.visual_scene = enabled;
+            Ok(())
+        }
+        /// Select original built-in/extension line and scatter shader families.
+        pub fn select_series_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.series_scene = enabled;
             Ok(())
         }
         /// Select complete owned picture archive transport and retained replay.
@@ -2327,6 +2348,11 @@ mod web {
                     super::image_filter_sample::image_filter_scene()
                         .await
                         .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.series_scene {
+                (
+                    super::series_sample::series_scene(&mut self.renderer).map_err(error)?,
                     Default::default(),
                 )
             } else if self.archive_scene {

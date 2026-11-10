@@ -83,6 +83,11 @@ impl Renderer {
         scene: &PreparedScene,
         effects: Option<&EffectChain>,
     ) -> Result<CapturedScene, Error> {
+        if scene.final_target_paths {
+            // This original final-device coverage cannot be reinterpreted as
+            // an intermediate later filtered image. Prepare the source target.
+            return Err(Error::ResourceDomain);
+        }
         if !self.is_scene_current(scene) {
             return Err(Error::ResourceDomain);
         }

@@ -273,11 +273,12 @@ impl Renderer {
         let resolved = scene
             .resolve_text(&mut state.painter, &mut state.atlas, frame.dpi_scale)
             .await?;
-        let compiled = resolved.scene.compile_with_sampling(
+        let compiled = resolved.scene.compile_for_target(
             frame.dpi_scale,
             &mut self.materials,
             self.image_sampling
                 .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
+            frame.mask_depth != 0,
         )?;
         if !compiled.hinted_paints.is_empty() && state.hinted.is_none() {
             state.hinted = Some(HintedPaintState::new(self).await?);

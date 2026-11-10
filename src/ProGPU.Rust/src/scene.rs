@@ -31,8 +31,9 @@ mod axis_clip;
 pub use axis_clip::AxisClipDraw;
 #[cfg(feature = "gpu")]
 pub(crate) use axis_clip::{GroupOutput, GroupRef};
-mod blend;
+mod archive_geometry;
 mod archive_vector;
+mod blend;
 mod clear;
 mod color_filter;
 mod image_filter;
@@ -49,12 +50,14 @@ pub use owned_shader::OwnedShaderEffectDraw;
 #[cfg(feature = "gpu")]
 mod backdrop;
 mod canvas_text;
-mod native_design;
+mod hatch;
 mod native_atlas;
+mod native_design;
+mod recording;
+mod series;
 #[cfg(feature = "gpu")]
 mod shader_effect;
 mod source_capture;
-mod recording;
 mod text;
 #[cfg(feature = "gpu")]
 pub use managed_shader::ManagedShaderEffectDraw;
@@ -67,6 +70,8 @@ pub(crate) use text::ResolvedSceneText;
 
 #[derive(Clone, Debug)]
 pub(crate) enum DrawRange {
+    Series(usize),
+    Hatch(std::ops::Range<u32>),
     State(usize),
     #[cfg(feature = "gpu")]
     BackdropMaterial(usize),
@@ -199,7 +204,10 @@ impl MaterialPaint {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Command {
+    Series(Arc<crate::series::SeriesDraw>),
+    ArchiveHatch(Arc<crate::picture_archive::ArchiveHatchDraw>),
     ArchiveVector(Arc<crate::picture_archive::ArchiveVectorDraw>),
+    ArchiveGeometry(Arc<crate::picture_archive::ArchiveGeometryDraw>),
     CanvasTextPath(Arc<canvas_text::CanvasTextPath>),
     NativeDesignAtlas(Arc<crate::text::native_atlas::NativeDesignAtlasDraw>),
     NativeAtlasLease(Arc<crate::text::native_atlas::NativeAtlasPlan>),
@@ -276,6 +284,7 @@ pub struct Scene {
     storage_clear: bool,
     tree_text: bool,
     inherited_clip: Option<[u32; 4]>,
+    final_target_paths: bool,
 }
 
 impl Scene {
@@ -424,9 +433,12 @@ impl Scene {
     }
 
     pub(crate) fn has_text(&self) -> bool {
-        self.commands
-            .iter()
-            .any(|command| matches!(command, Command::Text(_) | Command::HintedText(_) | Command::NativeDesignAtlas(_)))
+        self.commands.iter().any(|command| {
+            matches!(
+                command,
+                Command::Text(_) | Command::HintedText(_) | Command::NativeDesignAtlas(_)
+            )
+        })
     }
     /// Recorded text and its source context, in original scene order. CPU-only
     /// consumers can inspect/plan these records without any GPU dependency.
@@ -551,14 +563,26 @@ impl Scene {
         materials: &mut MaterialTable,
         image_sampling: ImageSamplingPath,
     ) -> Result<CompiledScene, Error> {
+        self.compile_for_target(dpi_scale, materials, image_sampling, false)
+    }
+    pub(crate) fn compile_for_target(
+        &self,
+        dpi_scale: f32,
+        materials: &mut MaterialTable,
+        image_sampling: ImageSamplingPath,
+        offscreen: bool,
+    ) -> Result<CompiledScene, Error> {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
         }
+        if let Some(expanded) = self.expand_archive_geometry(dpi_scale, offscreen)? {
+            return expanded.compile_for_target(dpi_scale, materials, image_sampling, offscreen);
+        }
         if let Some(expanded) = self.expand_canvas_text(dpi_scale)? {
-            return expanded.compile_with_sampling(dpi_scale, materials, image_sampling);
+            return expanded.compile_for_target(dpi_scale, materials, image_sampling, offscreen);
         }
         if let Some(expanded) = self.expand_native_design(dpi_scale)? {
-            return expanded.compile_with_sampling(dpi_scale, materials, image_sampling);
+            return expanded.compile_for_target(dpi_scale, materials, image_sampling, offscreen);
         }
         if self.has_text() || self.layer_depth != 0 {
             return Err(Error::UnsupportedExecution);
@@ -626,7 +650,8 @@ impl Scene {
                     | Command::Stroke(_)
                     | Command::PlacedStroke(..)
                     | Command::VertexMesh(_)
-                | Command::ArchiveVector(_)
+                    | Command::ArchiveVector(_)
+                    | Command::ArchiveHatch(_)
             )
         });
         let mut rasters = Vec::new();
@@ -638,6 +663,7 @@ impl Scene {
                 | Command::NativeDesignLease(_)
                 | Command::NativeAtlasLease(_)
                 | Command::NativeDesignVector(_)
+                | Command::ArchiveGeometry(_)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
@@ -650,12 +676,14 @@ impl Scene {
                 | Command::Analytic(_)
                 | Command::VertexMesh(_)
                 | Command::ArchiveVector(_)
+                | Command::ArchiveHatch(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
                 | Command::PlacedStroke(..)
                 | Command::Image(..)
                 | Command::TileImage(_)
                 | Command::PlacedTileImage(..)
+                | Command::Series(_)
                 | Command::ImageEffect(_)
                 | Command::ImageColor(_)
                 | Command::ColorFilteredImage(_)
@@ -704,6 +732,7 @@ impl Scene {
         }
         let layout = AtlasLayout::new(rasters.iter().map(|(_, request)| request.size))?;
         let mut mesh = Mesh::default();
+        let mut hatches = crate::picture_archive::HatchBatch::default();
         let mut image_mesh = Mesh::default();
         let mut images = Vec::new();
         let mut image_bindings = HashMap::new();
@@ -720,6 +749,7 @@ impl Scene {
         #[cfg(feature = "gpu")]
         let mut backdrop_materials = Vec::new();
         let mut image_effects = Vec::new();
+        let mut series = Vec::new();
         let mut image_colors = Vec::new();
         let mut color_filtered_images = Vec::new();
         let mut image_filtered_images = Vec::new();
@@ -763,6 +793,9 @@ impl Scene {
             blend::admit_command(command, active_blend)?;
             let brush_index = match command {
                 Command::VertexMesh(draw) => materials.register(Some(&draw.brush), 1.0)?,
+                Command::ArchiveHatch(draw) if draw.is_active() => {
+                    materials.register(Some(&draw.brush()?), draw.opacity())?
+                }
                 Command::ArchiveVector(draw) if draw.is_renderable() => {
                     materials.register(Some(&draw.brush()?), draw.opacity())?
                 }
@@ -789,6 +822,7 @@ impl Scene {
                 | Command::NativeDesignLease(_)
                 | Command::NativeAtlasLease(_)
                 | Command::NativeDesignVector(_)
+                | Command::ArchiveGeometry(_)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
@@ -806,6 +840,12 @@ impl Scene {
                     }
                     draws.push(DrawRange::BackdropMaterial(backdrop_materials.len()));
                     backdrop_materials.push(draw);
+                }
+                Command::Series(draw) => {
+                    draw.validate()?;
+                    series.try_reserve(1).map_err(|_| Error::Capacity)?;
+                    draws.push(DrawRange::Series(series.len()));
+                    series.push(draw.as_ref().clone());
                 }
                 Command::ImageEffect(draw) => {
                     draw.validate()?;
@@ -1053,6 +1093,7 @@ impl Scene {
                 }
                 Command::VertexMesh(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::ArchiveVector(draw) => draw.append(&mut mesh, brush_index)?,
+                Command::ArchiveHatch(draw) => hatches.append(draw, &mut mesh, brush_index)?,
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
                     // Original native analytic execution expands in the local
@@ -1082,7 +1123,12 @@ impl Scene {
             }
             let end = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             if end != first_index {
-                append_draw(&mut draws, DrawRange::Vector(first_index..end));
+                if matches!(command, Command::ArchiveHatch(draw) if draw.uses_extension_pipeline())
+                {
+                    draws.push(DrawRange::Hatch(first_index..end));
+                } else {
+                    append_draw(&mut draws, DrawRange::Vector(first_index..end));
+                }
             }
         }
         // Reject finite-input overflow before publishing the CPU generation.
@@ -1094,6 +1140,8 @@ impl Scene {
             return Err(Error::InvalidInput);
         }
         Ok(CompiledScene {
+            final_target_paths: self.final_target_paths,
+            hatches,
             native_design_leases: self.native_design_leases()?,
             native_atlas_leases: self.native_atlas_leases()?,
             mesh,
@@ -1108,6 +1156,7 @@ impl Scene {
             states,
             image_mesh,
             image_effects,
+            series,
             #[cfg(feature = "gpu")]
             backdrop_materials,
             image_colors,
@@ -1130,6 +1179,8 @@ impl Scene {
 /// Frozen CPU compilation that can be prepared on a worker without a GPU.
 #[derive(Debug)]
 pub struct CompiledScene {
+    pub(crate) final_target_paths: bool,
+    pub(crate) hatches: crate::picture_archive::HatchBatch,
     pub(crate) native_atlas_leases: Vec<Arc<crate::text::native_atlas::NativeAtlasPlan>>,
     pub(crate) native_design_leases:
         Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
@@ -1145,6 +1196,7 @@ pub struct CompiledScene {
     pub(crate) states: Vec<mask::CompiledDrawState>,
     pub(crate) image_mesh: Mesh,
     pub(crate) image_effects: Vec<crate::image_effect::ImageEffectDraw>,
+    pub(crate) series: Vec<crate::series::SeriesDraw>,
     #[cfg(feature = "gpu")]
     pub(crate) backdrop_materials: Vec<crate::backdrop::BackdropMaterialDraw>,
     pub(crate) image_colors: Vec<crate::image::ImageColorMatrix>,
@@ -1166,6 +1218,11 @@ pub(crate) struct ImageBinding {
 }
 
 impl CompiledScene {
+    /// Actual immutable series sources in original painter order.
+    pub fn series(&self) -> &[crate::series::SeriesDraw] {
+        &self.series
+    }
+
     /// Retained fused-effect inputs in painter order, inspectable without a GPU.
     pub fn image_effects(&self) -> impl Iterator<Item = &crate::image_effect::ImageEffectDraw> {
         self.draws.iter().filter_map(|draw| match draw {

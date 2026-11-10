@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    text::paint::{TextPathPolicy, VectorGlyphPaint},
-    vector::{PathFigure, PathSegment, PathSegmentKind, StrokeDraw, StrokeFrame},
-};
+use crate::vector::{PathFigure, PathSegment, PathSegmentKind, StrokeDraw, StrokeFrame};
 
 pub(super) fn primitive(
     scene: &mut Scene,
@@ -75,34 +72,22 @@ pub(super) fn path(
     opacity: f32,
     options: &ArchiveReplayOptions,
 ) -> Result<()> {
-    if let Some(brush) = &c.brush {
-        // This is the original general PathAtlas route, including its independent
-        // 64-phase cache domain. Text-derived paths require the actual text-size
-        // gamma resolver; they are not silently treated as ordinary geometry.
-        if c.use_vector_glyph_rendering && c.font_size > 0.0 {
-            return Err(ArchiveError::Unsupported);
-        }
-        scene.draw_text_path(VectorGlyphPaint {
-            path: path.clone(),
-            transform,
-            brush: Some(Arc::new(brush.to_vector()?)),
-            semantic_opacity: opacity,
-            policy: TextPathPolicy {
-                aliased: c.is_edge_aliased,
-                sample_grid: c.path_sample_grid,
-                coverage_gamma: if c.path_coverage_gamma < 0.0 {
-                    0.0
-                } else {
-                    c.path_coverage_gamma
-                },
-                device_phase_grid: 64,
-                quantize_scale: false,
-                raster_scale: options.text_context.dpi_scale,
-                coverage_transfer: Default::default(),
-            },
-        })?;
-    }
-    stroke(scene, path, c, transform, opacity)
+    scene.draw_archive_geometry(super::super::ArchiveGeometryDraw::path(
+        path, c, transform, opacity, options,
+    )?)?;
+    Ok(())
+}
+pub(super) fn spline(
+    scene: &mut Scene,
+    picture: &ArchivePicture,
+    c: &ArchiveCommand,
+    transform: Matrix4,
+    opacity: f32,
+) -> Result<()> {
+    scene.draw_archive_geometry(super::super::ArchiveGeometryDraw::spline(
+        picture, c, transform, opacity,
+    )?)?;
+    Ok(())
 }
 pub(super) fn stroke(
     scene: &mut Scene,

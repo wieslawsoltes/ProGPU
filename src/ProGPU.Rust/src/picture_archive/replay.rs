@@ -254,19 +254,40 @@ impl Replay {
                         self.scene.draw_vertex_mesh(draw)?;
                     }
                 }
+                K::DrawSpline => {
+                    geometry::spline(&mut self.scene, picture, command, transform, self.opacity)?
+                }
+                K::DrawHatch => self.scene.draw_archive_hatch(super::ArchiveHatchDraw::new(
+                    Arc::new(command.clone()),
+                    transform,
+                    self.opacity,
+                )?)?,
+                K::DrawExtension if command.extension_id == 3 => {
+                    self.scene.draw_archive_hatch(super::ArchiveHatchDraw::new(
+                        Arc::new(command.clone()),
+                        transform,
+                        self.opacity,
+                    )?)?
+                }
+                K::DrawGpuLineSeries | K::DrawGpuScatterSeries => self.scene.draw_series(
+                    super::series::series_draw(picture, command, transform, self.opacity)?,
+                )?,
+                K::DrawExtension if matches!(command.extension_id, 5 | 6) => {
+                    self.scene.draw_series(super::series::series_draw(
+                        picture,
+                        command,
+                        transform,
+                        self.opacity,
+                    )?)?
+                }
                 // Original serialization rejects actual Texture/Visual/static
                 // resource owners. Their decoded null command is a source no-op.
                 K::DrawTexture | K::DrawVisual | K::DrawStaticDxf => {}
                 // These source families select distinct extension/native producer
                 // contracts. A transport record is not an executable provider.
-                K::DrawLine3D
-                | K::DrawHatch
-                | K::DrawAcisSolid
-                | K::DrawGpuLineSeries
-                | K::DrawGpuScatterSeries
-                | K::DrawExtension
-                | K::DrawSpline
-                | K::DrawHintedGlyphs => return Err(ArchiveError::Unsupported),
+                K::DrawLine3D | K::DrawAcisSolid | K::DrawExtension | K::DrawHintedGlyphs => {
+                    return Err(ArchiveError::Unsupported);
+                }
             }
         }
         Ok(())
@@ -313,16 +334,29 @@ impl Replay {
             clip(&mut source, command.rect, Matrix4::IDENTITY)?;
             source.append(&nested.scene)?;
             source.pop_scope()?;
-        } else if command.path.is_some() && command.pen.is_some() || command.brush.is_some() {
-            // Original brush/stroke masks crop their private storage to outward
-            // rounded declared bounds. Full-root source captures do not prove
-            // that allocation; keep this route explicit until that adapter exists.
-            return Err(ArchiveError::Unsupported);
+        } else if let (Some(path), Some(_)) = (&command.path, &command.pen) {
+            // Keep the recorded pen frame and actual path. Source placement is
+            // composed before retained stroke lowering at the receiving target.
+            geometry::stroke(
+                &mut source,
+                Arc::new(path.to_geometry()?),
+                command,
+                Matrix4::IDENTITY,
+                1.0,
+            )?;
+        } else if let Some(brush) = &command.brush {
+            let mask =
+                SourceMask::bounded_brush(Arc::new(brush.to_vector()?), command.rect, transform)?;
+            self.scene.push_mask(Mask::Source(mask))?;
+            return self.scope(Scope::Mask);
         } else {
             return Ok(());
         }
-        self.scene
-            .push_mask(Mask::Source(SourceMask::new(Arc::new(source), transform)?))?;
+        self.scene.push_mask(Mask::Source(SourceMask::bounded(
+            Arc::new(source),
+            command.rect,
+            transform,
+        )?))?;
         self.scope(Scope::Mask)
     }
 }

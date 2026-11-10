@@ -19,6 +19,7 @@ pub mod picture_archive;
 pub mod renderer;
 pub mod runtime_effect;
 pub mod scene;
+pub mod series;
 pub mod shader;
 pub mod shader_effect;
 pub mod shaders;

@@ -8,6 +8,7 @@ description = "ProGPU's native Rust rendering engine using canonical WebGPU shad
 repository = "https://github.com/wieslawsoltes/ProGPU"
 readme = "src/ProGPU.Rust/README.md"
 include = [
+    "/src/ProGPU.Scene/Shaders/Hatch.wgsl",
     "/src/ProGPU.Scene/Shaders/BackdropMaterial.wgsl",
     "/Cargo.toml",
     "/Cargo.lock",
@@ -15,6 +16,8 @@ include = [
     "/src/ProGPU.Rust/**",
     "/src/ProGPU.Backend/Shaders/*.wgsl",
     "/src/ProGPU.Scene/Shaders/ImageEffect.wgsl",
+    "/src/ProGPU.Scene/Shaders/GpuLineSeries.wgsl",
+    "/src/ProGPU.Scene/Shaders/GpuScatterSeries.wgsl",
     "/src/ProGPU.Scene/Shaders/WpfBytecodeEffect.wgsl",
     "/src/ProGPU.Scene/Shaders/WpfBytecodeSampleEffect.wgsl",
     "/src/ProGPU.Scene/Shaders/WpfBytecodeAffineEffect.wgsl",

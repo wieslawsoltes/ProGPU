@@ -74,6 +74,10 @@ window.progpuReady = (async () => {
     renderer.select_image_filter_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'series') {
+    renderer.select_series_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   if (new URLSearchParams(location.search).get('scene') === 'archives') {
     renderer.select_archive_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);

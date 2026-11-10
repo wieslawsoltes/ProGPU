@@ -31,7 +31,21 @@ Latest connected continuation (2026-11-10), implementation only:
 | Picture archive transport | Versions 1–10, all 39 command tags and fields, complete brush/pen/path/mesh/patch transport, typed recording and safe bounded scalar/vector IO | Exact bytes/version/error/stream/ownership controls |
 | Archive rendering and capture | Ordered retained Canvas/Scene replay, original analytic triangle/quad/point/grid routes and explicit source-preserving capture; recorded-picture serialization | Unsupported GPU/provider/source-history records stay explicit; complete native/browser/pixel/performance qualification |
 | Image filter and picture factories | Exact subset/clip/offset filter application, optional context transfer, painted picture captures and full-sampling image/bitmap/surface Canvas producers | Original source/UV/lifetime/format/filter/browser/pixel/performance controls |
+| Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
+| Hatch boundaries and execution | Exact retained segment/record inventories and canonical dedicated pipeline, preserving ordinary Vector versus explicit extension dispatch | Static-DXF/late-camera/MSAA integration and all source/runtime qualification |
+| GPU line/scatter series | Separate built-in/extension shaders, exact side-buffer selection, immutable CPU/GPU generations, same-device ownership, bounded reuse and actual upload metrics | Original cold/warm, byte/NaN/float/pixel/device/browser/performance controls |
+| Bounded opacity masks | Original declared bounds, active clip, 2-pixel padding/16-pixel storage and direct R8 Vector/Text/HintedGlyphPaint/Texture capture | Unsupported original mask source families stay explicit; all original source/pixel/lifetime/performance gates |
 
+
+Estimated scope completion: **overall 60–65%, implementation about 80%, validation
+and qualification about 20%**. These are judgment estimates, not measured coverage.
+
+The shared `--series` / browser `?scene=series` gallery authors twelve panels for
+both original line/scatter shader families, explicit and packed scatter radii,
+NaN line breaks, mirrored data and immutable CPU/static GPU generations. It has
+not been compiled or run. See [series provenance](notes/gpu-series-port.md),
+[bounded masks](notes/bounded-opacity-mask-port.md),
+[geometry](notes/archive-geometry-port.md) and [Hatch](notes/picture-archive-hatch-port.md).
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

@@ -17,7 +17,9 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod backdrop;
+mod hatch;
 pub use backdrop::BackdropMetrics;
+pub use hatch::HatchMetrics;
 mod advanced;
 mod blend;
 mod uniform_backdrop;
@@ -47,6 +49,8 @@ pub use groups::RetainedAaMetrics;
 use groups::{GroupTarget, PreparedGroup, PreparedGroups};
 mod image;
 mod image_effect;
+mod series;
+pub use series::{GpuSeriesBuffer, SeriesMetrics};
 mod image_filter;
 mod image_ownership;
 pub use image_effect::ImageEffectMetrics;
@@ -54,6 +58,7 @@ pub use image_filter::ImageFilterMetrics;
 mod layer;
 pub use layer::LayerMetrics;
 use layer::RenderFrame;
+mod bounded_mask;
 mod layout;
 mod mask;
 mod materialized_mask;
@@ -129,7 +134,7 @@ impl Frame {
 /// Upload counters for one immutable scene generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UploadMetrics {
-    /// Original vertex and index payload bytes uploaded once at preparation.
+    /// Original vertex, index and extension boundary payload bytes uploaded once at preparation.
     pub geometry_bytes: u64,
     /// Frame uniform bytes uploaded once at preparation (excludes path compute).
     pub uniform_bytes: u64,
@@ -172,6 +177,10 @@ pub struct UploadMetrics {
 
 /// GPU resources for a frozen scene and physical frame.
 pub struct PreparedScene {
+    final_target_paths: bool,
+    hatches: Option<hatch::PreparedHatches>,
+    frame_buffer: wgpu::Buffer,
+    material_buffers: (wgpu::Buffer, wgpu::Buffer),
     _native_atlas_leases: Vec<Arc<crate::text::native_atlas::NativeAtlasPlan>>,
     _native_design_leases: Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
     owner: Arc<()>,
@@ -190,6 +199,7 @@ pub struct PreparedScene {
     layers: LayerMetrics,
     groups: PreparedGroups,
     image_effects: Option<image_effect::PreparedImageEffects>,
+    series: Option<series::PreparedSeries>,
     color_filters: Option<color_filter::PreparedColorFilteredImages>,
     image_filters: Option<image_filter::PreparedImageFilteredImages>,
     shaders: Option<shader_effect::PreparedShaders>,
@@ -229,6 +239,11 @@ impl PreparedScene {
                         .draws
                         .checked_add(child.clip.metrics().resolve_draws)
                         .ok_or(Error::Capacity)?
+                } else if let DrawRange::Series(index) = draw {
+                    self.series
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw_count(*index)?
                 } else if let DrawRange::BackdropMaterial(index) = draw {
                     let backdrops = self.backdrops.as_ref().ok_or(Error::ResourceDomain)?;
                     if backdrops.is_host(*index) {
@@ -286,6 +301,7 @@ impl PreparedScene {
 
 /// A single-device vector/text/image renderer with immutable prepared generations.
 pub struct Renderer {
+    hatch: Option<hatch::HatchPipeline>,
     owner: Arc<()>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -303,6 +319,7 @@ pub struct Renderer {
     text_options: crate::text::glyph::GlyphAtlasOptions,
     images: Option<image::ImageState>,
     image_effects: Option<image_effect::ImageEffectState>,
+    series: Option<series::SeriesState>,
     color_filters: Option<color_filter::ColorFilterState>,
     image_filters: Option<image_filter::ImageFilterState>,
     shader_engine: Option<crate::shader_effect::ShaderEffectEngine>,
@@ -434,6 +451,7 @@ impl Renderer {
             return Err(error.into());
         }
         Ok(Self {
+            hatch: None,
             owner: Arc::new(()),
             device: device.clone(),
             queue: queue.clone(),
@@ -451,6 +469,7 @@ impl Renderer {
             text_options: Default::default(),
             images: None,
             image_effects: None,
+            series: None,
             color_filters: None,
             image_filters: None,
             shader_engine: None,
@@ -508,6 +527,22 @@ impl Renderer {
     ) -> Result<PreparedScene, Error> {
         self.prepare_target_scene(scene, RenderFrame::from(frame))
             .await
+    }
+
+    /// Prepare an explicit offscreen target before any source path raster
+    /// decision. Original sharp path specialization remains atlas-based here.
+    pub async fn prepare_capture_scene(
+        &mut self,
+        scene: &Scene,
+        frame: Frame,
+    ) -> Result<PreparedScene, Error> {
+        let mut target = RenderFrame::from(frame);
+        target.mask_depth = self
+            .preparation_mask_depth
+            .get()
+            .checked_add(1)
+            .ok_or(Error::Capacity)?;
+        self.prepare_target_scene(scene, target).await
     }
 
     async fn prepare_target_scene(
@@ -575,11 +610,12 @@ impl Renderer {
             self.validate_mask_states(&states)?;
             return self.prepare_text_scene(scene, frame, groups).await;
         }
-        let compiled = scene.compile_with_sampling(
+        let compiled = scene.compile_for_target(
             frame.dpi_scale,
             &mut self.materials,
             self.image_sampling
                 .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
+            frame.mask_depth != 0,
         )?;
         self.prepare_compiled_geometry(&compiled, frame, groups)
             .await
@@ -607,11 +643,15 @@ impl Renderer {
         frame: RenderFrame,
         groups: PreparedGroups,
     ) -> Result<PreparedScene, Error> {
+        if compiled.final_target_paths && frame.mask_depth != 0 {
+            return Err(Error::ResourceDomain);
+        }
         if compiled.dpi_scale().to_bits() != frame.dpi_scale.to_bits() {
             return Err(Error::InvalidInput);
         }
         self.validate_geometry(&compiled.mesh, frame)?;
         self.validate_masks(compiled)?;
+        self.validate_hatches(compiled)?;
         self.validate_shaders(compiled, frame)?;
         self.validate_managed_shaders(compiled, frame)?;
         self.validate_backdrops(compiled, frame)?;
@@ -656,8 +696,13 @@ impl Renderer {
                 Some(compiled.materials()),
             )?
         };
-        prepared._native_atlas_leases.try_reserve_exact(compiled.native_atlas_leases.len()).map_err(|_| Error::Capacity)?;
-        prepared._native_atlas_leases.extend(compiled.native_atlas_leases.iter().cloned());
+        prepared
+            ._native_atlas_leases
+            .try_reserve_exact(compiled.native_atlas_leases.len())
+            .map_err(|_| Error::Capacity)?;
+        prepared
+            ._native_atlas_leases
+            .extend(compiled.native_atlas_leases.iter().cloned());
         prepared
             ._native_design_leases
             .try_reserve_exact(compiled.native_design_leases.len())
@@ -668,9 +713,11 @@ impl Renderer {
         prepared.image_source_owners = Some(image_ownership::ImageSourceOwners::capture(compiled));
         prepared.groups = groups;
         self.prepare_images(compiled, frame, &mut prepared).await?;
+        self.prepare_hatches(compiled, &mut prepared).await?;
         self.prepare_masks(compiled, frame, &mut prepared).await?;
         self.prepare_draw_blends(compiled, &prepared).await?;
         self.prepare_clears(compiled, &mut prepared).await?;
+        self.prepare_series(compiled, frame, &mut prepared).await?;
         self.prepare_image_effects(compiled, frame, &mut prepared)
             .await?;
         self.prepare_shaders(compiled, frame, &mut prepared).await?;
@@ -686,6 +733,7 @@ impl Renderer {
             .await?;
         self.finish_groups(&mut prepared).await?;
         prepared.draws = compiled.draws.clone();
+        prepared.final_target_paths = compiled.final_target_paths;
         prepared.metrics.draws = prepared.draw_count()?;
         Ok(prepared)
     }
@@ -854,6 +902,10 @@ impl Renderer {
             ],
         });
         Ok(PreparedScene {
+            final_target_paths: false,
+            hatches: None,
+            frame_buffer: uniform_buffer,
+            material_buffers: (brushes.clone(), records.clone()),
             _native_design_leases: Vec::new(),
             _native_atlas_leases: Vec::new(),
             owner: self.owner.clone(),
@@ -876,6 +928,7 @@ impl Renderer {
             layers: LayerMetrics::default(),
             groups: PreparedGroups::default(),
             image_effects: None,
+            series: None,
             color_filters: None,
             image_filters: None,
             shaders: None,
@@ -1169,6 +1222,14 @@ impl Renderer {
                     // the parent rectangle before the next unscoped command.
                     pass.set_scissor_rect(0, 0, scene.frame.width, scene.frame.height);
                 }
+                if let DrawRange::Hatch(range) = draw {
+                    scene.hatches.as_ref().ok_or(Error::ResourceDomain)?.draw(
+                        &mut pass,
+                        scene,
+                        range.clone(),
+                    );
+                    continue;
+                }
                 if let DrawRange::BackdropMaterial(index) = draw {
                     scene
                         .backdrops
@@ -1191,6 +1252,14 @@ impl Renderer {
                         .as_ref()
                         .ok_or(Error::ResourceDomain)?
                         .draw(&mut pass, *index, draw_state.map(|s| s.scissor))?;
+                    continue;
+                }
+                if let DrawRange::Series(index) = draw {
+                    scene
+                        .series
+                        .as_ref()
+                        .ok_or(Error::ResourceDomain)?
+                        .draw(&mut pass, *index)?;
                     continue;
                 }
                 if let DrawRange::ImageEffect(index) = draw {
@@ -1292,7 +1361,9 @@ impl Renderer {
                 };
                 match draw {
                     DrawRange::State(_)
+                    | DrawRange::Hatch(_)
                     | DrawRange::HintedText(..)
+                    | DrawRange::Series(_)
                     | DrawRange::ImageEffect(_)
                     | DrawRange::ShaderEffect(_)
                     | DrawRange::ManagedShaderEffect(_)

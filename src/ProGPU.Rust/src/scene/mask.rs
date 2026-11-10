@@ -14,7 +14,7 @@ pub(crate) struct CompiledDrawState {
     pub coverage: Option<TextureMask>,
     pub components: Arc<[MaskComponent]>,
     pub materialized: bool,
-    /// Proven one-to-one actual-target R8 output, never an unrelated sampled mask.
+    /// Proven one-to-one physical R8 output, including independent bounded storage.
     pub local_coverage: bool,
     /// Physical left/top/right/bottom integer half-open boundaries.
     pub clip: Option<[u32; 4]>,
@@ -135,6 +135,7 @@ impl Scene {
                     | Command::PopScope
                     | Command::PushBlend(_)
                     | Command::PopBlend => None,
+                    Command::Series(_) | Command::ArchiveHatch(_) => None,
                     Command::ImageEffect(draw) if draw.mask.is_some() => None,
                     _ => Some(current),
                 }
@@ -227,6 +228,7 @@ impl Scene {
                     || matches!(
                         command,
                         Command::VertexMesh(_)
+                            | Command::ArchiveGeometry(_)
                             | Command::ArchiveVector(_)
                             | Command::Analytic(_)
                             | Command::Path(_)

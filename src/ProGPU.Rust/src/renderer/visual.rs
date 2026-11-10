@@ -958,6 +958,7 @@ impl Builder<'_> {
         );
         let mask = Mask::RenderedTexture(RenderedTextureMask {
             texture,
+            storage_origin: [0; 2],
             size,
             dpi: target.dpi_scale,
             projection: target
@@ -1121,6 +1122,15 @@ fn solid_mask(
     };
     Ok(Some(Mask::FrameAnalytic(FrameAnalyticMask {
         uniforms,
+        storage_bounds: Some({
+            let bounds = super::bounded_mask::source_bounds(bounds, transform, root);
+            [
+                bounds.origin[0],
+                bounds.origin[1],
+                bounds.size[0],
+                bounds.size[1],
+            ]
+        }),
         size: [target.root.width, target.root.height],
         dpi: target.dpi_scale,
         projection: root.uniforms(maximum)?.projection,
@@ -1170,7 +1180,10 @@ fn same_pages(
     same && index == pages.len()
 }
 
-fn physical_rows(transform: Matrix4, dpi: f32) -> Result<Option<[[f32; 4]; 2]>, Error> {
+pub(in crate::renderer) fn physical_rows(
+    transform: Matrix4,
+    dpi: f32,
+) -> Result<Option<[[f32; 4]; 2]>, Error> {
     let [a, b, c, d, x, y] = affine(transform)?.0;
     // Original float Matrix3x2 multiplication then inversion. The translation
     // includes the actual full-root viewport origin (zero for these owned targets).

@@ -1,17 +1,23 @@
 //! Original versioned owned picture archive, independent of GPU/device handles.
 use std::sync::Arc;
 mod capture;
+mod hatch;
+pub(crate) use hatch::HatchBatch;
+pub use hatch::{ArchiveHatchDraw, GpuHatchRecord, GpuHatchSegment};
 mod command;
 mod geometry;
+mod geometry_draw;
 mod io;
 mod material;
 mod replay;
 mod vector_draw;
+pub use geometry_draw::{ArchiveGeometryDraw, SplineGeometry};
 pub(crate) use replay::drawing_error;
 pub use replay::{ArchiveReplayOptions, ArchiveTextEnvironment};
 pub use vector_draw::ArchiveVectorDraw;
 mod picture;
 mod recorder;
+mod series;
 pub use command::{ArchiveCommand, ArchiveCommandKind, ArchiveTextureSampling};
 pub use geometry::{ArchivePath, ArchiveTexturePatch, ArchiveTexturePatchKind, ArchiveVertexMesh};
 pub use material::{ArchiveBrush, ArchivePen};

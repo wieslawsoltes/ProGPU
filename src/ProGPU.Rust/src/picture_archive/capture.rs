@@ -388,6 +388,12 @@ fn capture_scene(source: &Scene, level: u32) -> Result<Arc<ArchivePicture>> {
     let mut out = Builder::new();
     for command in source.archive_commands()? {
         match command {
+            C::Series(draw) => out.picture(
+                super::series::capture_series(draw)?,
+                Matrix4::IDENTITY,
+                1.0,
+                LayerBlend::SrcOver,
+            )?,
             C::Empty => {}
             C::PushBlend(blend) => {
                 out.push(blend_push(*blend))?;
@@ -493,6 +499,19 @@ fn capture_scene(source: &Scene, level: u32) -> Result<Arc<ArchivePicture>> {
                     context.semantic_opacity,
                     LayerBlend::SrcOver,
                 )?;
+            }
+            C::ArchiveHatch(draw) => {
+                let mut command = (**draw.command()).clone();
+                if command.point_buffer_count != 0
+                    || command.double_buffer_count != 0
+                    || command.line3d_buffer_count != 0
+                    || command.weight_buffer_count != 0
+                    || command.float_buffer_count != 0
+                {
+                    return Err(ArchiveError::Unsupported);
+                }
+                command.transform = draw.transform();
+                out.scoped(command, draw.opacity(), LayerBlend::SrcOver)?;
             }
             C::ArchiveVector(draw) => {
                 if draw.uses_pen() || draw.command().pen.is_some() {

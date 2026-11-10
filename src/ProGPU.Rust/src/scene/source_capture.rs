@@ -93,12 +93,24 @@ fn place_scene(
             Command::NativeDesignAtlas(draw) => {
                 let m = transform.0;
                 if m.iter().flatten().any(|v| !v.is_finite())
-                    || m[0][2] != 0.0 || m[0][3] != 0.0 || m[1][2] != 0.0 || m[1][3] != 0.0
-                    || m[2] != [0.0, 0.0, 1.0, 0.0] || m[3][2] != 0.0 || m[3][3] != 1.0 {
+                    || m[0][2] != 0.0
+                    || m[0][3] != 0.0
+                    || m[1][2] != 0.0
+                    || m[1][3] != 0.0
+                    || m[2] != [0.0, 0.0, 1.0, 0.0]
+                    || m[3][2] != 0.0
+                    || m[3][3] != 1.0
+                {
                     return Err(Error::UnsupportedExecution);
                 }
-                let mut context = draw.frame().then([f64::from(m[0][0]), f64::from(m[0][1]),
-                    f64::from(m[1][0]), f64::from(m[1][1]), f64::from(m[3][0]), f64::from(m[3][1])])?;
+                let mut context = draw.frame().then([
+                    f64::from(m[0][0]),
+                    f64::from(m[0][1]),
+                    f64::from(m[1][0]),
+                    f64::from(m[1][1]),
+                    f64::from(m[3][0]),
+                    f64::from(m[3][1]),
+                ])?;
                 context.suppress_cleartype |= frame.suppress_cached_cleartype();
                 let placed = draw.with_frame(context)?;
                 // Full actual-DPI admission, including explicit color generations,
@@ -165,7 +177,13 @@ fn place_scene(
                 placed.validate()?;
                 Command::BackdropMaterial(Box::new(placed))
             }
-            Command::ArchiveVector(draw) => Command::ArchiveVector(Arc::new(draw.placed(transform)?)),
+            Command::ArchiveGeometry(draw) => {
+                Command::ArchiveGeometry(Arc::new(draw.placed(transform)?))
+            }
+            Command::ArchiveVector(draw) => {
+                Command::ArchiveVector(Arc::new(draw.placed(transform)?))
+            }
+            Command::ArchiveHatch(draw) => Command::ArchiveHatch(Arc::new(draw.placed(transform)?)),
             Command::VertexMesh(draw) => {
                 let mut placed = draw.as_ref().clone();
                 placed.transform = draw.transform * transform;
@@ -262,6 +280,7 @@ fn place_scene(
                 placed.draw = place_image(&draw.draw, transform)?;
                 Command::ImageFilteredImage(Box::new(placed))
             }
+            Command::Series(draw) => Command::Series(Arc::new(draw.placed(transform))),
             Command::ImageEffect(draw) => {
                 let mut placed = draw.as_ref().clone();
                 placed.place_source(transform)?;
@@ -618,7 +637,9 @@ fn preflight_devices(
                     image(pattern)?;
                 }
             }
+            Command::ArchiveGeometry(draw) => draw.validate()?,
             Command::ArchiveVector(draw) => draw.validate()?,
+            Command::ArchiveHatch(draw) => draw.validate()?,
             Command::NativeDesignVector(draw) => {
                 draw.validate()
                     .map_err(native_design::native_design_error)?;
@@ -640,6 +661,13 @@ fn preflight_devices(
             Command::ImageFilteredImage(draw) => draw.preflight_source_devices(device)?,
             Command::TileImage(draw) | Command::PlacedTileImage(draw, _) => image(&draw.image)?,
             Command::BackdropMaterial(draw) => draw.preflight_device(device)?,
+            Command::Series(draw) => {
+                if let crate::series::SeriesSource::Gpu(buffer) = &draw.source {
+                    if !buffer.is_owned_by(device) {
+                        return Err(Error::ResourceDomain);
+                    }
+                }
+            }
             Command::ImageEffect(draw) => {
                 match &draw.source {
                     ImageEffectSource::Rgb(source) => image(source)?,
@@ -755,7 +783,9 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
         match command {
             #[cfg(feature = "gpu")]
             Command::BackdropMaterial(v) => v.opacity *= opacity,
+            Command::ArchiveGeometry(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::ArchiveVector(v) => *v = Arc::new(v.with_opacity(opacity)?),
+            Command::ArchiveHatch(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::VertexMesh(v) => v.semantic_opacity *= opacity,
             Command::Analytic(v) => v.color[3] *= opacity,
             Command::Path(v) => v.color[3] *= opacity,
@@ -770,7 +800,8 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
                 *v = Arc::new(draw);
             }
             Command::NativeDesignAtlas(v) => {
-                let mut frame = v.frame(); frame.opacity *= opacity;
+                let mut frame = v.frame();
+                frame.opacity *= opacity;
                 *v = Arc::new(v.with_frame(frame)?);
             }
             Command::NativeDesignVector(v) => {
@@ -789,6 +820,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             Command::ImageColor(v) => v.draw.opacity *= opacity,
             Command::ColorFilteredImage(v) => v.draw.opacity *= opacity,
             Command::ImageFilteredImage(v) => v.draw.opacity *= opacity,
+            Command::Series(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::ImageEffect(v) => {
                 v.apply_source_opacity(opacity)?;
             }

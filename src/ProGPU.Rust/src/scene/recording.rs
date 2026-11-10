@@ -4,7 +4,12 @@ impl Scene {
     pub(crate) fn recorded_operation_count(&self) -> usize {
         self.commands
             .iter()
-            .filter(|command| !matches!(command, Command::Empty | Command::NativeDesignLease(_) | Command::NativeAtlasLease(_)))
+            .filter(|command| {
+                !matches!(
+                    command,
+                    Command::Empty | Command::NativeDesignLease(_) | Command::NativeAtlasLease(_)
+                )
+            })
             .count()
     }
     pub(crate) fn recorded_storage_bytes(&self) -> usize {
@@ -24,6 +29,11 @@ impl Scene {
                     };
                     std::mem::size_of_val(record.as_ref()).saturating_add(arrays)
                 }
+                Command::Series(draw) => std::mem::size_of_val(draw.as_ref()).saturating_add(
+                    draw.source
+                        .as_data()
+                        .map_or(0, |data| std::mem::size_of_val(data.owner().as_ref())),
+                ),
                 Command::ImageEffect(draw) => std::mem::size_of_val(draw.as_ref()),
                 _ => 0,
             };

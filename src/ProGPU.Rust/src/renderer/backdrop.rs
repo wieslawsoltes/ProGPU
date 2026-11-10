@@ -516,8 +516,8 @@ impl Renderer {
                 }
                 mask_uniform = resolved.masks[0];
                 if resolved.local_coverage {
-                    mask_uniform.coordinate0[0] = 0.0;
-                    mask_uniform.coordinate0[1] = 0.0;
+                    mask_uniform.coordinate0[0] -= frame.origin[0] as f32;
+                    mask_uniform.coordinate0[1] -= frame.origin[1] as f32;
                 } else if frame.origin != [0; 2] {
                     return Err(Error::UnsupportedExecution);
                 }

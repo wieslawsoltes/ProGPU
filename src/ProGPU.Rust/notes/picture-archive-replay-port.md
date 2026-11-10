@@ -37,14 +37,19 @@ resolved text, opaque source/filter owners and lossy source-history cases reject
 Decoded empty cull bounds remain distinct from the recorder's canonical empty.
 
 Remaining execution boundaries (transport still retains all 39 kinds): late GPU
-camera transforms; source 3D/ACIS/hatch/spline/chart/extension/native hinted
-producers; unresolved theme/backdrop materials; text-derived path gamma adaptation;
-original final-target direct rounded-path triangulation/specialization; crossed
-clip/mask stack pops that cannot be expressed by the current Scene LIFO scopes.
-Brush/stroke opacity-mask sources remain rejected until their declared outward
-storage bounds are retained at actual target preparation; full-root capture is
-not equivalent. Null decoded texture/visual/static records keep source no-op
-behavior. No GPU resources are invented for absent serialized producers.
+camera transforms; source 3D/ACIS/static-DXF/native hinted and remaining extension
+producers; unresolved theme/backdrop materials; crossed clip/mask stack pops that
+cannot be expressed by current Scene LIFO scopes. Picture/brush/stroke opacity
+masks now retain original bounded R8 storage; see `bounded-opacity-mask-port.md`.
+Built-in and explicit extension line/scatter producers are connected separately;
+see `gpu-series-port.md`. Ordinary DrawHatch and explicit extension3 preserve
+their distinct original execution routes. Null decoded texture/visual/static
+records keep source no-op behavior. No GPU resources are invented for absent
+serialized producers.
 
 No compiler, tests, browser, benchmarks or execution qualification were run.
 Only touched source formatting was performed; original qualification gates stay.
+
+Target-dependent rounded-path specialization, text-derived path gamma and original
+NURBS spline replay are now implemented; see `archive-geometry-port.md`. Qualification
+remains deferred. Original Hatch rendering is tracked in its separate port note.

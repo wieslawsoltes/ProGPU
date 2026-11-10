@@ -32,6 +32,27 @@ impl Drop for SourceTextCapture<'_> {
     }
 }
 impl Renderer {
+    pub(in crate::renderer) async fn capture_bounded_mask_source(
+        &mut self,
+        source: &Scene,
+        frame: RenderFrame,
+        pipelines: &mut crate::renderer::bounded_mask::BoundedMaskPipelines,
+    ) -> Result<(crate::image::GpuImage, crate::mask::MaskCompositionMetrics), Error> {
+        let transaction = SourceTextCapture::new(self);
+        let prepared = Box::pin(
+            transaction
+                .renderer
+                .prepare_target_scene_inner(source, frame),
+        )
+        .await?;
+        let mut metrics = prepared.mask_composition_metrics();
+        let (image, source_metrics) = transaction
+            .renderer
+            .capture_prepared_bounded_mask(&prepared, pipelines)
+            .await?;
+        metrics.merge(source_metrics)?;
+        Ok((image, metrics))
+    }
     pub(super) async fn capture_mask_source(
         &mut self,
         source: &Scene,

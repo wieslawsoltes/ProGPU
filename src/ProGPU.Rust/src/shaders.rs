@@ -144,8 +144,12 @@ pub const WPF_EFFECT_STRAIGHT_TO_PREMULTIPLIED_WRAPPER: &str =
 pub const BACKDROP_MATERIAL: &str =
     include_str!("../../ProGPU.Scene/Shaders/BackdropMaterial.wgsl");
 
+/// Original analytic retained hatch winding and registered-material shader.
+pub const HATCH: &str = include_str!("../../ProGPU.Scene/Shaders/Hatch.wgsl");
+
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("hatch", HATCH),
     ("backdrop_material", BACKDROP_MATERIAL),
     ("group_blend", GROUP_BLEND),
     ("path_signed_leaf", PATH_SIGNED_LEAF),
@@ -170,3 +174,13 @@ pub const MODULES: &[(&str, &str)] = &[
     ("path_operation", PATH_OPERATION),
     ("path_operation_finalizer", PATH_OPERATION_FINALIZER),
 ];
+
+/// Original built-in chart-line coverage, independent of the extension variant.
+pub const CHART_LINE: &str = shader!("ChartLine");
+/// Original built-in chart-point coverage.
+pub const CHART_SCATTER: &str = shader!("ChartScatter");
+/// Original extension line coverage; no shader arithmetic is shared by rewriting.
+pub const GPU_LINE_SERIES: &str = include_str!("../../ProGPU.Scene/Shaders/GpuLineSeries.wgsl");
+/// Original extension scatter shader identity.
+pub const GPU_SCATTER_SERIES: &str =
+    include_str!("../../ProGPU.Scene/Shaders/GpuScatterSeries.wgsl");

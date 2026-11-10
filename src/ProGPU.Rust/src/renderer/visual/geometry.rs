@@ -209,6 +209,16 @@ pub(in crate::renderer) fn canonical(
     };
     Ok(Some(Mask::FrameAnalytic(FrameAnalyticMask {
         uniforms,
+        storage_bounds: geometry.bounds().map(|[l, t, r, b]| {
+            let bounds =
+                super::super::bounded_mask::source_bounds([l, t, r - l, b - t], transform, root);
+            [
+                bounds.origin[0],
+                bounds.origin[1],
+                bounds.size[0],
+                bounds.size[1],
+            ]
+        }),
         size: [target.root.width, target.root.height],
         dpi: target.dpi_scale,
         projection: root.uniforms(maximum)?.projection,

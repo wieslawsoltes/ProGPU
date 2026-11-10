@@ -47,6 +47,7 @@ pub(super) struct MaterialMaskState {
     composer: MaskComposer,
     coverage: Option<wgpu::RenderPipeline>,
     geometry: [Option<wgpu::RenderPipeline>; 2],
+    bounded: super::bounded_mask::BoundedMaskPipelines,
 }
 impl MaterialMaskState {
     fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
@@ -54,6 +55,7 @@ impl MaterialMaskState {
             composer: MaskComposer::new(device, queue, ExecutionPreference::Automatic)?,
             coverage: None,
             geometry: [None, None],
+            bounded: Default::default(),
         })
     }
     async fn coverage(&mut self, device: &wgpu::Device) -> Result<wgpu::RenderPipeline, Error> {
@@ -158,7 +160,10 @@ impl Renderer {
                 current = *index;
                 None
             }
-            DrawRange::Clear(_) | DrawRange::Axis(_) => None,
+            DrawRange::Clear(_)
+            | DrawRange::Axis(_)
+            | DrawRange::Series(_)
+            | DrawRange::Hatch(_) => None,
             DrawRange::ImageEffect(index) if compiled.image_effects[*index].mask.is_some() => None,
             _ => Some(current),
         });
@@ -274,6 +279,12 @@ impl Renderer {
                 input.logical_clip = None;
                 let base =
                     resolve_geometry(&input, frame, self.device.limits().max_texture_dimension_2d)?;
+                let base = super::bounded_mask::resolve_solid(
+                    &base,
+                    frame,
+                    self.device.limits().max_texture_dimension_2d,
+                )?
+                .unwrap_or(base);
                 normalized.insert(identity, base.clone());
                 base
             };
@@ -326,27 +337,48 @@ impl Renderer {
                         None => MaterialMaskState::new(&self.device, &self.queue)?,
                     });
                 }
-                let (image, m) = self
+                let output_frame = super::bounded_mask::storage_bounds(source, frame).frame(frame);
+                let output = self
                     .materialize_mask(
                         source,
-                        frame,
+                        output_frame,
                         cache,
                         state.as_mut().ok_or(Error::ResourceDomain)?,
                         uploads,
                         &mut textures,
                     )
-                    .await?;
-                metrics.merge(m)?;
+                    .await;
+                let (image, m) = match output {
+                    Ok(output) => output,
+                    Err(error) => {
+                        self.materialized_masks = state.take();
+                        return Err(error);
+                    }
+                };
+                if let Err(error) = metrics.merge(m) {
+                    self.materialized_masks = state.take();
+                    return Err(error);
+                }
                 let coverage = TextureMask::new(
                     image,
-                    [0.0, 0.0, frame.width as f32, frame.height as f32],
+                    [
+                        0.0,
+                        0.0,
+                        output_frame.width as f32,
+                        output_frame.height as f32,
+                    ],
                     MaskChannel::Red,
                 );
                 let uniform = MaskUniforms {
-                    coordinate0: [frame.origin[0] as f32, frame.origin[1] as f32, 0.0, 0.0],
+                    coordinate0: [
+                        output_frame.origin[0] as f32,
+                        output_frame.origin[1] as f32,
+                        0.0,
+                        0.0,
+                    ],
                     coordinate1: [
-                        1.0 / frame.width as f32,
-                        1.0 / frame.height as f32,
+                        1.0 / output_frame.width as f32,
+                        1.0 / output_frame.height as f32,
                         0.0,
                         0.0,
                     ],
@@ -427,25 +459,50 @@ impl Renderer {
             for _ in 0..index {
                 recording.pop_scope()?;
             }
-            let (capture, source_masks) =
-                Box::pin(self.capture_mask_source(&recording, root)).await?;
-            metrics.merge(source_masks)?;
-            let source_metrics = capture.source_preparation_metrics();
-            metrics.merge(MaskCompositionMetrics {
-                source_captures: 1,
-                source_draws: capture.source_replay_metrics().draws,
-                texture_bytes: capture.capture_bytes(),
-                geometry_bytes: source_metrics.geometry_bytes,
-                uniform_bytes: source_metrics.uniform_bytes,
-                atlas_bytes: source_metrics.atlas_bytes,
-                ..Default::default()
-            })?;
+            let (image, channel, capture_frame) = if mask.is_bounded_source() {
+                let prefix = CompiledDrawState {
+                    components: source.components[..=index].into(),
+                    ..Default::default()
+                };
+                // Original ResetStateForMaskCompilation resets opacity/blend,
+                // retaining the source compiler's current offscreen depth.
+                let capture_frame = super::bounded_mask::storage_bounds(&prefix, root).frame(root);
+                let (image, source_masks) = Box::pin(self.capture_bounded_mask_source(
+                    &recording,
+                    capture_frame,
+                    &mut state.bounded,
+                ))
+                .await?;
+                metrics.merge(source_masks)?;
+                if index + 1 == source.components.len()
+                    && capture_frame.origin == frame.origin
+                    && [capture_frame.width, capture_frame.height] == [frame.width, frame.height]
+                {
+                    return Ok((image, metrics));
+                }
+                (image, MaskChannel::Red, capture_frame)
+            } else {
+                let (capture, source_masks) =
+                    Box::pin(self.capture_mask_source(&recording, root)).await?;
+                metrics.merge(source_masks)?;
+                let source_metrics = capture.source_preparation_metrics();
+                metrics.merge(MaskCompositionMetrics {
+                    source_captures: 1,
+                    source_draws: capture.source_replay_metrics().draws,
+                    texture_bytes: capture.capture_bytes(),
+                    geometry_bytes: source_metrics.geometry_bytes,
+                    uniform_bytes: source_metrics.uniform_bytes,
+                    atlas_bytes: source_metrics.atlas_bytes,
+                    ..Default::default()
+                })?;
+                (capture.into_image(), MaskChannel::Alpha, root)
+            };
             let mut components = Vec::with_capacity(source.components.len() - index);
             components.push(crate::mask::MaskComponent {
                 mask: completed_source_mask(
-                    capture.into_image(),
-                    MaskChannel::Alpha,
-                    root,
+                    image,
+                    channel,
+                    capture_frame,
                     self.device.limits().max_texture_dimension_2d,
                 )?,
                 operation: crate::mask::MaskOperation::Intersect,
@@ -739,6 +796,16 @@ fn mask_cost(
         if !identities.insert(Arc::as_ptr(&source.components) as *const () as usize) {
             continue;
         }
+        // Resolve the same original geometry and solid-source contracts during
+        // admission; bounded sources must not inherit a full-root RGBA budget.
+        let maximum = frame.root.width.max(frame.root.height);
+        let normalized = resolve_geometry(source, frame, maximum)?;
+        let normalized =
+            super::bounded_mask::resolve_solid(&normalized, frame, maximum)?.unwrap_or(normalized);
+        let source = &normalized;
+        if !source.materialized {
+            continue;
+        }
         let analytic = source
             .components
             .iter()
@@ -749,21 +816,48 @@ fn mask_cost(
                 )
             })
             .count();
+        let allocation = super::bounded_mask::storage_bounds(source, frame);
         bytes = bytes
             .checked_add(
-                u64::from(frame.width) * u64::from(frame.height) * (2 + u64::from(analytic != 0)),
+                u64::from(allocation.size[0])
+                    * u64::from(allocation.size[1])
+                    * (2 + u64::from(analytic != 0)),
             )
             .ok_or(Error::Capacity)?;
         passes = passes
             .checked_add((source.components.len() + analytic) as u32)
             .ok_or(Error::Capacity)?;
-        for component in source.components.iter() {
+        for (component_index, component) in source.components.iter().enumerate() {
             if matches!(&component.mask, Mask::Source(_) | Mask::Geometry(_)) {
-                // Actual whole-root RGBA source plus prefix R8 accumulations.
+                let root = RenderFrame {
+                    frame: frame.root,
+                    origin: [0; 2],
+                    ..frame
+                };
+                let bounded =
+                    matches!(&component.mask, Mask::Source(mask) if mask.is_bounded_source());
+                let prefix = CompiledDrawState {
+                    components: source.components[..=component_index].into(),
+                    ..Default::default()
+                };
+                let allocation = if bounded {
+                    super::bounded_mask::storage_bounds(&prefix, root)
+                } else {
+                    super::bounded_mask::Bounds {
+                        origin: [0; 2],
+                        size: [frame.root.width, frame.root.height],
+                    }
+                };
+                let pixels = u64::from(allocation.size[0]) * u64::from(allocation.size[1]);
+                // Actual bounded R8 source or original full-root RGBA source,
+                // plus independently admitted prefix coverage accumulations.
                 bytes = bytes
                     .checked_add(
-                        target_texture_bytes(format, [frame.root.width, frame.root.height])?
-                            + u64::from(frame.root.width) * u64::from(frame.root.height) * 2,
+                        (if bounded {
+                            pixels
+                        } else {
+                            target_texture_bytes(format, allocation.size)?
+                        }) + pixels * 2,
                     )
                     .ok_or(Error::Capacity)?;
                 passes = passes
@@ -804,9 +898,16 @@ fn completed_source_mask(
     texture.sampling = MaskSampling::Nearest;
     Ok(Mask::RenderedTexture(crate::mask::RenderedTextureMask {
         texture,
-        size,
+        storage_origin: frame.origin,
+        size: [frame.root.width, frame.root.height],
         dpi: frame.dpi_scale,
-        projection: frame.uniforms(limit)?.projection,
+        projection: RenderFrame {
+            frame: frame.root,
+            origin: [0; 2],
+            ..frame
+        }
+        .uniforms(limit)?
+        .projection,
         replaces_chain: true,
     }))
 }
@@ -889,15 +990,17 @@ fn resolve_geometry(
             if let Some(path) = geometry.geometry.compile_raster_path()? {
                 scene.draw_path(crate::scene::PathDraw {
                     path,
-                    transform: geometry.transform,
+                    transform: crate::geometry::Affine::IDENTITY,
                     color: [1.0; 4],
                     sampling: Default::default(),
                 })?;
             }
-            Mask::Source(crate::mask::SourceMask::new(
-                Arc::new(scene),
-                crate::vector::Matrix4::IDENTITY,
-            )?)
+            let scene = Arc::new(scene);
+            Mask::Source(if let Some([l, t, r, b]) = geometry.geometry.bounds() {
+                crate::mask::SourceMask::bounded(scene, [l, t, r - l, b - t], matrix)?
+            } else {
+                crate::mask::SourceMask::bounded_full(scene, matrix)?
+            })
         };
         result.append_mask(mask, component.operation, frame.dpi_scale)?;
     }

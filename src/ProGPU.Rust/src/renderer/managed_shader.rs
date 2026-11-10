@@ -181,10 +181,10 @@ impl Renderer {
             }
             let mut uniforms = state.masks[0];
             if state.local_coverage {
-                // This actual full-target R8 producer has a proven one-to-one
-                // local texture lattice. Preserve reciprocals and all other words.
-                uniforms.coordinate0[0] = 0.0;
-                uniforms.coordinate0[1] = 0.0;
+                // This actual R8 producer has a proven one-to-one physical
+                // lattice. Localize its independent bounded storage origin.
+                uniforms.coordinate0[0] -= frame.origin[0] as f32;
+                uniforms.coordinate0[1] -= frame.origin[1] as f32;
             } else if frame.origin != [0; 2] {
                 return Err(Error::UnsupportedExecution);
             }
