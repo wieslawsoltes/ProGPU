@@ -353,6 +353,20 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Direct2D",
             "progpu_native_direct2d_path.cpp");
+        // The path and Boolean core of the portable geometries is in the
+        // Geometry module; the Direct2D file keeps the COM surface over it.
+        string pathCore = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Geometry",
+            "progpu_native_path_core.cpp");
+        string pathCoreHeader = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Geometry",
+            "progpu_native_path_core.hpp");
         string ellipseSource = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -549,40 +563,43 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("progpu_native_engine_render_scene", submissionHeader, StringComparison.Ordinal);
         Assert.Contains("verify_direct2d_scene", webSceneTest, StringComparison.Ordinal);
         Assert.Contains("path_state::fresh", pathSource, StringComparison.Ordinal);
-        Assert.Contains("path_state::closed", pathSource, StringComparison.Ordinal);
-        Assert.Contains("core::arc_to_cubics", pathSource, StringComparison.Ordinal);
-        Assert.Contains("std::vector<std::vector<point_2f>> contours", pathSource, StringComparison.Ordinal);
-        Assert.Contains("winding_contributions", pathSource, StringComparison.Ordinal);
-        Assert.Contains("classify_polygon_point(", pathSource, StringComparison.Ordinal);
-        Assert.Contains("class polygon_contours_sink final", pathSource, StringComparison.Ordinal);
-        Assert.Contains("requires_boolean_normalization", pathSource, StringComparison.Ordinal);
-        Assert.Contains("crossing_count", pathSource, StringComparison.Ordinal);
-        Assert.Contains("normalize_self_intersecting_contour", pathSource, StringComparison.Ordinal);
-        Assert.Contains("crossing_points", pathSource, StringComparison.Ordinal);
-        Assert.Contains("maximum_positive_winding", pathSource, StringComparison.Ordinal);
-        Assert.Contains("maximum_negative_winding", pathSource, StringComparison.Ordinal);
-        Assert.Contains("layer_contribution * orientation", pathSource, StringComparison.Ordinal);
-        Assert.Contains("has_layered_self_intersection", pathSource, StringComparison.Ordinal);
+        Assert.Contains("path_state::closed", pathCore, StringComparison.Ordinal);
+        Assert.Contains("arc_to_cubics(", pathCore, StringComparison.Ordinal);
+        Assert.Contains("std::vector<std::vector<point_2f>> contours", pathCore, StringComparison.Ordinal);
+        Assert.Contains("winding_contributions", pathCore, StringComparison.Ordinal);
+        Assert.Contains("classify_polygon_point(", pathCore, StringComparison.Ordinal);
+        Assert.Contains("class polygon_contours_collector final", pathCoreHeader, StringComparison.Ordinal);
+        Assert.Contains("class collector_sink final : public simplified_geometry_sink", pathSource, StringComparison.Ordinal);
+        Assert.Contains("requires_boolean_normalization", pathCore, StringComparison.Ordinal);
+        Assert.Contains("crossing_count", pathCore, StringComparison.Ordinal);
+        Assert.Contains("normalize_self_intersecting_contour", pathCore, StringComparison.Ordinal);
+        Assert.Contains("crossing_points", pathCore, StringComparison.Ordinal);
+        Assert.Contains("maximum_positive_winding", pathCore, StringComparison.Ordinal);
+        Assert.Contains("maximum_negative_winding", pathCore, StringComparison.Ordinal);
+        Assert.Contains("layer_contribution * orientation", pathCore, StringComparison.Ordinal);
+        Assert.Contains("has_layered_self_intersection", pathCore, StringComparison.Ordinal);
         Assert.DoesNotContain("source_filled_contour_count", pathSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("source_filled_contour_count", pathCore, StringComparison.Ordinal);
         Assert.Contains("winding_star_subtraction_points", nativeTest, StringComparison.Ordinal);
-        Assert.Contains("bridge_polygon_hole", pathSource, StringComparison.Ordinal);
-        Assert.Contains("raw_outline_sink->take_contours()", pathSource, StringComparison.Ordinal);
-        Assert.Contains("holes[owner].push_back(hole)", pathSource, StringComparison.Ordinal);
+        Assert.Contains("bridge_polygon_hole", pathCore, StringComparison.Ordinal);
+        Assert.Contains("contours = collector.take_contours()", pathCore, StringComparison.Ordinal);
+        Assert.Contains("raw_sink->collector().take_contours()", pathSource, StringComparison.Ordinal);
+        Assert.Contains("holes[owner].push_back(hole)", pathCore, StringComparison.Ordinal);
         Assert.Contains("scenario == 15U", nativeTest, StringComparison.Ordinal);
         Assert.Contains("star_boolean_paths", nativeTest, StringComparison.Ordinal);
         Assert.Contains("portable_star_consumer_path", nativeTest, StringComparison.Ordinal);
-        Assert.Contains("normalize_interacting_contours", pathSource, StringComparison.Ordinal);
-        Assert.Contains("std::vector<std::uint8_t> operands", pathSource, StringComparison.Ordinal);
-        Assert.Contains("std::vector<std::uint8_t> interior_left", pathSource, StringComparison.Ordinal);
-        Assert.Contains("operand_left[operands[candidate]]", pathSource, StringComparison.Ordinal);
-        Assert.Contains("normalized_contour_boundaries_contact", pathSource, StringComparison.Ordinal);
-        Assert.Contains("combination_is_empty", pathSource, StringComparison.Ordinal);
+        Assert.Contains("normalize_interacting_contours", pathCore, StringComparison.Ordinal);
+        Assert.Contains("std::vector<std::uint8_t> operands", pathCore, StringComparison.Ordinal);
+        Assert.Contains("std::vector<std::uint8_t> interior_left", pathCore, StringComparison.Ordinal);
+        Assert.Contains("operand_left[operands[candidate]]", pathCore, StringComparison.Ordinal);
+        Assert.Contains("normalized_contour_boundaries_contact", pathCore, StringComparison.Ordinal);
+        Assert.Contains("combination_is_empty", pathCore, StringComparison.Ordinal);
         Assert.Contains("portable_multi_boolean_path->CombineWithGeometry", nativeTest, StringComparison.Ordinal);
         Assert.Contains("system_multi_boolean_path->CombineWithGeometry", nativeTest, StringComparison.Ordinal);
         Assert.Contains("portable_multi_boolean_path->CompareWithGeometry", nativeTest, StringComparison.Ordinal);
         Assert.Contains("system_multi_boolean_path->CompareWithGeometry", nativeTest, StringComparison.Ordinal);
-        Assert.Contains("const double result = std::abs(twice_area) * 0.5", pathSource, StringComparison.Ordinal);
-        Assert.Contains("sink->SetFillMode(fill_mode::alternate)", pathSource, StringComparison.Ordinal);
+        Assert.Contains("const double result = std::abs(twice_area) * 0.5", pathCore, StringComparison.Ordinal);
+        Assert.Contains("sink->set_fill_mode(fill_mode::alternate)", pathCore, StringComparison.Ordinal);
         Assert.Contains("system_outline_rectangle->Outline(", nativeTest, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::arc_to_cubics", provider, StringComparison.Ordinal);
         Assert.Contains("direct2d_core::ellipse_to_cubics", provider, StringComparison.Ordinal);
@@ -1126,12 +1143,18 @@ public sealed class Direct2DInteropContractTests
             "src",
             "Scene",
             "progpu_native_semantic_path_stroke.hpp");
-        string curveDash = ReadRepoFile(
+        string milCurveDash = ReadRepoFile(
             "src",
             "ProGPU.Native",
             "src",
             "Mil",
             "progpu_native_mil_curve_dash.hpp");
+        string curveDash = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Geometry",
+            "progpu_native_curve_dash.hpp");
         string test = ReadRepoFile(
             "src",
             "ProGPU.Native",
@@ -1189,6 +1212,10 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "hairline || fixed_device ? &stroke.transform : nullptr",
             semanticStroke,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "namespace curve_dash = ::progpu::native::geometry::curve_dash;",
+            milCurveDash,
             StringComparison.Ordinal);
         Assert.Contains(
             "metric_point(",
