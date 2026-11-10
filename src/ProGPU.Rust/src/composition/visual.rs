@@ -11,12 +11,16 @@ use std::{
 };
 
 mod animation;
+mod brushes;
 mod properties;
 mod property_set;
 mod resources;
+pub use brushes::*;
 #[cfg(feature = "gpu")]
 mod shader_effect;
+mod shadow;
 mod shapes;
+pub use shadow::*;
 mod snapshot;
 pub use animation::{AnimationProperty, VisualAnimation};
 pub use properties::*;

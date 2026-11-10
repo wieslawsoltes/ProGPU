@@ -8,6 +8,8 @@ use crate::{
 use bytemuck::{Pod, Zeroable};
 use wide::f32x4;
 
+mod source;
+pub use source::{GeometryMask, SourceMask};
 mod clip;
 pub use clip::{ClipPath, ClipPlan, ClipVertex, ComposeUniforms};
 #[cfg(feature = "gpu")]
@@ -142,7 +144,16 @@ impl RenderedTextureMask {
                 0.0,
                 0.0,
             ],
-            options: [1.0, 1.0, 0.0, 2.0],
+            options: [
+                1.0,
+                1.0,
+                0.0,
+                if self.texture.channel == MaskChannel::Alpha {
+                    2.0
+                } else {
+                    1.0
+                },
+            ],
             ..Zeroable::zeroed()
         }
     }
@@ -296,6 +307,10 @@ pub enum Mask {
     /// Original path raster coverage. The path record must use Intersect;
     /// ordered intersection/difference belongs to the containing mask scope.
     Path(ClipPath),
+    /// Immutable source paint evaluated at the actual target before alpha quantization.
+    Source(SourceMask),
+    /// Original target-resolved geometry scope with canonical clip selection.
+    Geometry(GeometryMask),
     /// Original immutable coverage bitmap.
     Coverage(CoverageMask),
     /// Original red/alpha sampled source, including an owned GPU generation.
@@ -412,6 +427,11 @@ impl Mask {
                 }
                 return Self::Texture(mask.texture.clone()).validate();
             }
+            Self::Source(source) => return source.validate(),
+            Self::Geometry(source) => {
+                source.transform.scales()?;
+                return Ok(());
+            }
             Self::Path(path) => {
                 if !matches!(path.sample_grid, 1 | 4 | 8)
                     || path.operation != MaskOperation::Intersect
@@ -488,7 +508,9 @@ impl Mask {
                 }
                 return Ok(mask.uniforms([0; 2]));
             }
-            Self::Path(_) => return Err(Error::UnsupportedExecution),
+            Self::Path(_) | Self::Source(_) | Self::Geometry(_) => {
+                return Err(Error::UnsupportedExecution);
+            }
             Self::AxisClipEdges(mask) => {
                 out.bounds = (f32x4::from(mask.edges) * f32x4::splat(dpi) + f32x4::ZERO).to_array();
                 out.coordinate0[0] = 1.0;

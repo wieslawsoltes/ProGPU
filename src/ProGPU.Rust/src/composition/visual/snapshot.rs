@@ -1,9 +1,7 @@
 use super::*;
 use crate::{
-    geometry::AnalyticPrimitive,
     image::ImageSampling,
     text::paint::{TextHintingMode, TextRenderingMode},
-    vector::Brush,
 };
 
 /// Actual presentation-only command dependencies. Unused inherited fields are
@@ -132,7 +130,7 @@ pub struct VisualSnapshot {
     /// Frozen effect value and resource revision; no live mutable parameter read.
     effect: Option<(i64, CompositionEffectValue)>,
     /// Real resolved opacity material in the original mask bounds.
-    opacity_mask: Option<Arc<Brush>>,
+    opacity_mask: Option<CompositionBrushSnapshot>,
     /// Original ordered child snapshots, including their independent frames.
     children: Vec<VisualSnapshot>,
     /// Explicit overlay partition in the retained child list.
@@ -168,7 +166,7 @@ impl VisualSnapshot {
         self.effect.as_ref()
     }
     /// Frozen material generation in the original opacity-mask bounds.
-    pub fn opacity_mask(&self) -> Option<&Arc<Brush>> {
+    pub fn opacity_mask(&self) -> Option<&CompositionBrushSnapshot> {
         self.opacity_mask.as_ref()
     }
     /// Original ordered children, with their complete independently frozen state.
@@ -287,7 +285,7 @@ impl Visual {
             properties.size[1],
         ]);
         let effect = effect.map(|v| (v.revision(), v.value()));
-        let opacity_mask = opacity_mask.map(|v| v.resolve(bounds));
+        let opacity_mask = opacity_mask.map(|v| v.resolve(bounds)).transpose()?;
         let presentation = match &content {
             Content::Source(source) => source.presentation_state().normalized(),
             _ => Default::default(),
@@ -315,10 +313,7 @@ impl Visual {
                         && size[1] > 0.0
                     {
                         let bounds = [0.0, 0.0, size[0], size[1]];
-                        scene.draw_material_analytic(
-                            AnalyticPrimitive::rectangle(bounds, [1.0; 4]),
-                            crate::scene::MaterialPaint::new(brush.resolve(bounds)),
-                        )?;
+                        brush.resolve(bounds)?.record(&mut scene, bounds)?;
                     }
                     let local_bounds = (!scene.is_empty()).then_some([0.0, 0.0, size[0], size[1]]);
                     OwnedRenderCommands {

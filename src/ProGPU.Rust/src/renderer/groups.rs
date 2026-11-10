@@ -297,6 +297,7 @@ impl RenderFrame {
                 dpi_scale: self.dpi_scale,
             },
             origin: [x, y],
+            mask_depth: self.mask_depth.saturating_add(1),
             ..self
         }
     }

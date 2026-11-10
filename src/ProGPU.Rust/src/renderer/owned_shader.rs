@@ -26,6 +26,8 @@ pub struct OwnedShaderTargetFrame {
     pub capture_frame: ManagedCaptureFrame,
     /// Original source-cache text suppression inherited from this target.
     pub suppress_cached_cleartype: bool,
+    /// Actual nested RenderOffscreen depth, preserving canonical mask admission.
+    pub offscreen_depth: u16,
 }
 impl OwnedShaderTargetFrame {
     /// Exact immutable target identity, including float bits and original frames.
@@ -36,6 +38,7 @@ impl OwnedShaderTargetFrame {
             && self.dpi_scale.to_bits() == other.dpi_scale.to_bits()
             && self.capture_frame.same_capture(&other.capture_frame)
             && self.suppress_cached_cleartype == other.suppress_cached_cleartype
+            && self.offscreen_depth == other.offscreen_depth
     }
 }
 
@@ -327,6 +330,7 @@ impl Renderer {
             size: [frame.width, frame.height],
         };
         Ok(OwnedShaderTargetFrame {
+            offscreen_depth: frame.mask_depth,
             projection,
             viewport,
             target,

@@ -77,6 +77,9 @@ window.progpuReady = (async () => {
   if (new URLSearchParams(location.search).get('scene') === 'visuals') {
     renderer.select_visual_scene(true);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'meshes') {
+    renderer.select_mesh_scene(true);
+  }
   if (new URLSearchParams(location.search).get('scene') === 'path-effects') {
     renderer.select_path_effect_scene(true);
   }

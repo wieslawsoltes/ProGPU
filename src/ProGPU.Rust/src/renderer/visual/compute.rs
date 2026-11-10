@@ -153,7 +153,8 @@ impl ComputeState {
                 params.extend_from_slice(bytemuck::bytes_of(&p));
                 (vec![0, 1], Some(size))
             }
-            CompositionEffectValue::DropShadow { radii, color, .. } => {
+            CompositionEffectValue::DropShadow { radii, color, .. }
+            | CompositionEffectValue::DropShadowSource { radii, color, .. } => {
                 let blurred = radii[0] > 0.01 || radii[1] > 0.01;
                 let radius = if blurred {
                     radii.map(|v| ((v * dpi) * 2.0).round_ties_even() / 2.0)

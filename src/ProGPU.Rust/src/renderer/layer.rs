@@ -74,6 +74,7 @@ pub(super) struct RenderFrame {
     pub(super) root: Frame,
     pub origin: [u32; 2],
     pub source: Option<crate::composition::SourceRenderFrame>,
+    pub mask_depth: u16,
 }
 impl std::ops::Deref for RenderFrame {
     type Target = Frame;
@@ -88,6 +89,7 @@ impl From<Frame> for RenderFrame {
             root: frame,
             origin: [0; 2],
             source: None,
+            mask_depth: 0,
         }
     }
 }
@@ -131,8 +133,9 @@ impl RenderFrame {
     }
     pub(super) fn child(self, layer: &LayerDraw) -> Result<Self, Error> {
         layer.validate()?;
+        let mask_depth = self.mask_depth.checked_add(1).ok_or(Error::Capacity)?;
         let Some(logical_edges) = layer.bounds_edges() else {
-            return Ok(self);
+            return Ok(Self { mask_depth, ..self });
         };
         // Original native four independent presentation lanes, including +0.
         let edges: [f32; 4] = (wide::f32x4::from(logical_edges)
@@ -167,6 +170,7 @@ impl RenderFrame {
         Ok(Self {
             root: self.root,
             source: self.source,
+            mask_depth,
             origin: [left, top],
             frame: Frame {
                 width: if empty { 0 } else { right.saturating_sub(left) },
@@ -331,6 +335,7 @@ impl Renderer {
         fixed_root: Option<crate::image::GpuImage>,
     ) -> Result<PreparedScene, Error> {
         use crate::scene::{GroupOutput, GroupRef};
+        let _target_depth = self.enter_target_depth(frame);
         self.preflight_owned_shaders(scene, frame)?;
         let (resolved_cached, cached) = self.prepare_cached_picture_scene(scene, frame).await?;
         let (resolved_owned, owned) = self

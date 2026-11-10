@@ -190,12 +190,13 @@ impl HintedPaintState {
         vertex_count: u32,
         mask: Option<&wgpu::BindGroup>,
         texture: Option<&wgpu::BindGroup>,
+        pipeline: Option<&wgpu::RenderPipeline>,
     ) -> Result<(), Error> {
         let paint = text.hinted.as_ref().ok_or(Error::ResourceDomain)?;
         if !matches!(vertex_count, 6 | 12) {
             return Err(Error::InvalidInput);
         }
-        pass.set_pipeline(&self.pipelines[usize::from(mask.is_some())]);
+        pass.set_pipeline(pipeline.unwrap_or(&self.pipelines[usize::from(mask.is_some())]));
         pass.set_bind_group(0, &paint.bindings, &[]);
         pass.set_bind_group(1, &text.atlas, &[]);
         if let Some(mask) = mask {

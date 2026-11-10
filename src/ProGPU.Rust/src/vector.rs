@@ -3,6 +3,8 @@
 //! native GPU segment wire remains in `path`. Boolean reconstruction and final
 //! GPU material/stroke lowering are separate consumers, not implicit flattening.
 use crate::Error;
+mod vertex_mesh;
+pub use vertex_mesh::{CoonsPatch, VertexColorBlend, VertexMesh, VertexMeshDraw, VertexMode};
 mod path_effect;
 pub use path_effect::{
     DashIntervals, EffectMatrix, EffectPaintStyle, PaintAdjustment, PathEffect, PathEffectKind,

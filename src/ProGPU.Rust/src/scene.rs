@@ -31,6 +31,7 @@ mod axis_clip;
 pub use axis_clip::AxisClipDraw;
 #[cfg(feature = "gpu")]
 pub(crate) use axis_clip::{GroupOutput, GroupRef};
+mod blend;
 mod clear;
 mod color_filter;
 mod image_filter;
@@ -190,6 +191,8 @@ impl MaterialPaint {
 #[derive(Clone, Debug)]
 enum Command {
     Empty,
+    PushBlend(LayerBlend),
+    PopBlend,
     CachedPicture(Box<CachedPictureDraw>),
     Clear(ClearColor),
     Layer(Box<LayerDraw>),
@@ -213,6 +216,7 @@ enum Command {
     PushClipEdges([f32; 4]),
     PopScope,
     Analytic(AnalyticPrimitive),
+    VertexMesh(Box<crate::vector::VertexMeshDraw>),
     Path(PathDraw),
     MaterialAnalytic(AnalyticPrimitive, MaterialPaint),
     MaterialPath(PathDraw, MaterialPaint),
@@ -248,6 +252,7 @@ enum Command {
 pub struct Scene {
     commands: Vec<Command>,
     scope_depth: usize,
+    blend_depth: usize,
     has_scopes: bool,
     layer_depth: u8,
     has_axis: bool,
@@ -257,6 +262,14 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// Record one immutable triangle/strip/fan mesh as one indexed vector batch.
+    /// Shader-space coordinates and all 29 vertex-color blends remain retained.
+    pub fn draw_vertex_mesh(&mut self, draw: crate::vector::VertexMeshDraw) -> Result<(), Error> {
+        draw.validate()?;
+        self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
+        self.commands.push(Command::VertexMesh(Box::new(draw)));
+        Ok(())
+    }
     /// Append a balanced retained recording in source order. Source owners stay
     /// shared; O(C) command copies perform no geometry, font or GPU work. Nested
     /// coverage capacity is checked during whole-scene compilation.
@@ -588,6 +601,7 @@ impl Scene {
                     | Command::TextPath(..)
                     | Command::Stroke(_)
                     | Command::PlacedStroke(..)
+                    | Command::VertexMesh(_)
             )
         });
         let mut rasters = Vec::new();
@@ -596,6 +610,8 @@ impl Scene {
         for command in &commands {
             match command.as_ref() {
                 Command::Empty
+                | Command::PushBlend(_)
+                | Command::PopBlend
                 | Command::Clear(_)
                 | Command::PushMask(_)
                 | Command::PushMaskDifference(_)
@@ -603,6 +619,7 @@ impl Scene {
                 | Command::PushClipEdges(_)
                 | Command::PopScope
                 | Command::Analytic(_)
+                | Command::VertexMesh(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
                 | Command::PlacedStroke(..)
@@ -677,6 +694,7 @@ impl Scene {
         #[cfg(feature = "gpu")]
         let mut managed_shader_effects = Vec::new();
         let mut exact_loads = 0;
+        let mut active_blend = LayerBlend::SrcOver;
         let legacy_solid = Brush::default();
         // A mixed native scene reserves its existing unit-opacity vertex-color
         // binding first. Original capacity fallback then cannot turn a legacy
@@ -694,9 +712,23 @@ impl Scene {
             let command = command.as_ref();
             if let Some(index) = state_changes.get(command_index).copied().flatten() {
                 draws.push(DrawRange::State(index));
-                continue;
+                active_blend = states[index].blend;
+                if matches!(
+                    command,
+                    Command::PushBlend(_)
+                        | Command::PopBlend
+                        | Command::PushMask(_)
+                        | Command::PushMaskDifference(_)
+                        | Command::PushClip(_)
+                        | Command::PushClipEdges(_)
+                        | Command::PopScope
+                ) {
+                    continue;
+                }
             }
+            blend::admit_command(command, active_blend)?;
             let brush_index = match command {
+                Command::VertexMesh(draw) => materials.register(Some(&draw.brush), 1.0)?,
                 Command::MaterialAnalytic(_, paint)
                 | Command::MaterialPath(_, paint)
                 | Command::TextPath(_, paint, _) => {
@@ -717,6 +749,8 @@ impl Scene {
             let first_index = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             match command {
                 Command::Empty
+                | Command::PushBlend(_)
+                | Command::PopBlend
                 | Command::PushMask(_)
                 | Command::PushMaskDifference(_)
                 | Command::PushClip(_)
@@ -791,6 +825,12 @@ impl Scene {
                     image_filtered_images.push(draw.as_ref().clone());
                 }
                 Command::Image(draw, blend, bounds, raster_operation) => {
+                    let selected_blend = if active_blend == LayerBlend::SrcOver {
+                        *blend
+                    } else {
+                        active_blend
+                    };
+                    let blend = &selected_blend;
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
                     if blend.is_fixed() || raster_operation.is_some() {
@@ -881,7 +921,7 @@ impl Scene {
                         DrawRange::Image(
                             start..start.checked_add(6).ok_or(Error::Capacity)?,
                             binding,
-                            LayerBlend::SrcOver,
+                            active_blend,
                         ),
                     );
                 }
@@ -952,6 +992,7 @@ impl Scene {
                 Command::Stroke(draw) | Command::PlacedStroke(draw, _) => {
                     draw.append(&mut mesh, brush_index)?
                 }
+                Command::VertexMesh(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
                     // Original native analytic execution expands in the local

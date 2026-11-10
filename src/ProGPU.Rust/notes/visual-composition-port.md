@@ -179,3 +179,54 @@ e633f404baae8fd6e274029c795c01e05378708dbf8f093530fa57472c66f431  src/ProGPU.Sce
 64dd29ca99d205a3fe39e829373075ee22f9f2f18c9de6c7d7b446c21759ac02  docs/source-shader-opacity-order.md
 9c74e66e75c5a576489574a5e8f9c3ad31398e570599cd0e9457d822123aa73b  docs/managed-source-effect-capture.md
 ```
+
+### Surface, mask and independent shadow sources
+
+Ported `CompositionSurfaceBrush` full texture leases, null sources, ten original
+interpolation labels, stretch/alignment, finite ratio clamping, snapping and the
+original ordered anchor/center/scale/rotation/matrix/offset products. Shared
+surface generations invalidate counted weak brush bindings. Mask brushes retain
+independent source/mask bindings, reject original unsupported nested input kinds,
+and freeze their original Begin/End scopes. Sprite, fill, stroke and visual
+opacity scopes consume the actual frozen sources. Full-texture producer ownership
+is required; an unrelated/subset texture is not an ICompositionSurface proof.
+
+`Mask::Source` records original paint and placement. GPU capture binds preceding
+analytic/sample coverage before quantization, then retains each completed source
+texture. `Mask::Geometry` resolves original binary rectangle/canonical analytic/
+painted path selection at the actual target. Semantic DPI, source material frames,
+non-scaling stroke geometry and source device preflight stay independent. Source
+captures use whole-root RGBA storage, charged explicitly, rather than claiming the
+original bounded R8 allocation/performance. Metrics report source captures/draws
+separately from mask composition passes.
+
+`DropShadowSource` retains an independent `ShadowOpacitySource` visual, picture or
+frozen composition brush. Its alpha capture uses the owner's exact effect frame;
+root transform/state are excluded for visual sources, while the owner's original
+color capture remains DrawSource's input. WinUI Default/Inherit source policy and
+null white rectangle are explicit; CompositionMaskBrush has no PrepareSceneBrush
+result on this path and retains an empty paint result plus its original owners.
+Actual offscreen depth is scoped with a detached RAII guard, carried through
+layers/AA/source targets, and included in visual/cached-picture/owned-shader cache
+identity. Canonical masks retain the original depth <= 1 gate. This increment
+also connects the root agent's independent blend stacks and VertexMesh source
+placement/semantic opacity; no mesh coordinate clamp is introduced.
+
+Remaining: the original managed BackdropMaterial extension/host-backdrop provider
+pipeline; a mutable standalone WinUI CompositionShadow class/property binding
+adapter (the owned explicit effect/source route is implemented); external UI
+surface invalidation dispatch/provider qualification; full original pixels and
+performance. The repository has no original CompositionBackdropBrush or
+CompositionEffectBrush class to relabel as implemented. Implementation only:
+formatting was run, with no compiler/test/browser/benchmark validation or fixtures.
+
+Original SHA-256 sources:
+
+| Original path | SHA-256 |
+|---|---|
+| `ProGPU.WinUI/Composition/CompositionSurfaces.cs` | `6d9a91a1f7f99052db71d016acfc09db48c530a2617344bb20867ef13aca5744` |
+| `ProGPU.WinUI/Composition/CompositionMasks.cs` | `81499b18948c58f7b4801a00fbd1a191c5a10d7c8f9049f7d4cbfd2a1f8702c0` |
+| `ProGPU.WinUI/Composition/CompositionShapes.cs` | `a27704d1f649d530dce1cf3a5ff5e987908c38064ebf66e90df9739ffec9131b` |
+| `ProGPU.WinUI/Composition/CompositionShadows.cs` | `703127198465f9418651321f09691246fab15586db57319698ff0b8481efc87e` |
+| `ProGPU.Scene/Visual.cs` | `546cd62ba3f2c0d4a85f1479d8c4122c0032b46b090341d088a2749fa1c264fe` |
+| `ProGPU.Scene/Compositor.cs` | `a45a99f135806d248fc3792dcbdb5ebe17c094821c6aed080dcdedf4025237cd` |

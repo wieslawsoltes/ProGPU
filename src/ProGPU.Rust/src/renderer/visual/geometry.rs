@@ -72,7 +72,7 @@ impl Builder<'_> {
         target: RenderFrame,
         masks: &mut Vec<Mask>,
     ) -> Result<(), Error> {
-        let canonical = if self.depth <= 1 {
+        let canonical = if target.mask_depth <= 1 {
             canonical(
                 geometry,
                 transform,
@@ -119,7 +119,7 @@ impl Builder<'_> {
         Ok(())
     }
 }
-fn canonical(
+pub(in crate::renderer) fn canonical(
     geometry: &PathGeometry,
     transform: Matrix4,
     target: RenderFrame,

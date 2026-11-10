@@ -41,6 +41,8 @@ mod material_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/materialized_mask_scene.rs"]
 mod materialized_mask_sample;
+#[path = "support/mesh_scene.rs"]
+mod mesh_sample;
 #[path = "support/owned_shader_scene.rs"]
 mod owned_shader_sample;
 #[path = "support/path_effect_scene.rs"]
@@ -1721,6 +1723,7 @@ mod web {
         owned_shader_scene: bool,
         cached_picture_scene: bool,
         path_effect_scene: bool,
+        mesh_scene: bool,
         visual_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
@@ -1816,6 +1819,7 @@ mod web {
             owned_shader_scene: false,
             cached_picture_scene: false,
             path_effect_scene: false,
+            mesh_scene: false,
             visual_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
@@ -1866,6 +1870,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.text_font = None;
             self.image_scene = false;
@@ -1902,6 +1907,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.material_scene = false;
             self.text_font = None;
@@ -1927,6 +1933,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1951,6 +1958,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1975,6 +1983,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -1999,6 +2008,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -2023,6 +2033,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -2047,6 +2058,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -2071,6 +2083,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -2095,6 +2108,7 @@ mod web {
             self.owned_shader_scene = false;
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
+            self.mesh_scene = false;
             self.visual_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
@@ -2147,6 +2161,12 @@ mod web {
         pub fn select_visual_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.visual_scene = enabled;
+            Ok(())
+        }
+        /// Select original meshes, adaptive Coons patches and fixed draw blends.
+        pub fn select_mesh_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.mesh_scene = enabled;
             Ok(())
         }
         /// Select all nine original measured/analytic path-effect families.
@@ -2263,6 +2283,11 @@ mod web {
                     super::image_filter_sample::image_filter_scene()
                         .await
                         .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.mesh_scene {
+                (
+                    super::mesh_sample::mesh_scene().map_err(error)?,
                     Default::default(),
                 )
             } else if self.path_effect_scene {

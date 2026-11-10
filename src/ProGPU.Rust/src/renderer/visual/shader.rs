@@ -14,6 +14,7 @@ pub(super) struct VisualShaderTarget {
     effect: WpfVisualEffect,
     policy: VisualPolicy,
     context: OwnedShaderTargetFrame,
+    mask_depth: u16,
     parameters: ManagedShaderParameters,
     // Only an actual transferred result can supply completed producer ownership.
     // Borrowed generic parameters deliberately leave this owner absent.
@@ -42,8 +43,10 @@ impl VisualShaderTarget {
         policy: VisualPolicy,
         context: OwnedShaderTargetFrame,
         renderer: &Renderer,
+        mask_depth: u16,
     ) -> bool {
-        self.source.identity() == node.identity()
+        self.mask_depth == mask_depth
+            && self.source.identity() == node.identity()
             && self.source.versions() == node.versions()
             && self.effect == *effect
             && self.policy == policy
@@ -102,7 +105,16 @@ impl Builder<'_> {
             .shaders
             .iter()
             .chain(self.renderer.visuals.shader_targets.iter())
-            .find(|value| value.matches(node, effect, policy, context, self.renderer))
+            .find(|value| {
+                value.matches(
+                    node,
+                    effect,
+                    policy,
+                    context,
+                    self.renderer,
+                    target.mask_depth.saturating_add(1),
+                )
+            })
             .cloned();
         let generation = if let Some(generation) = cached {
             self.metrics.shader_cache_hits = self
@@ -154,7 +166,8 @@ impl Builder<'_> {
                 None => effect.parameters().ok_or(Error::ResourceDomain)?.clone(),
             };
             let frame = SourceRenderFrame::effect(context.capture_frame, suppress)?;
-            let input_target = self.renderer.source_target(frame)?;
+            let mut input_target = self.renderer.source_target(frame)?;
+            input_target.mask_depth = target.mask_depth.checked_add(1).ok_or(Error::Capacity)?;
             self.depth += 1;
             let recording = self
                 .node(
@@ -200,6 +213,7 @@ impl Builder<'_> {
                 effect: effect.clone(),
                 policy,
                 context,
+                mask_depth: input_target.mask_depth,
                 parameters,
                 _owned_parameters: owned,
                 recording,
@@ -312,6 +326,7 @@ fn target_context(
         return Err(Error::Capacity);
     }
     Ok(Some(OwnedShaderTargetFrame {
+        offscreen_depth: target.mask_depth,
         projection,
         viewport,
         target: SampleLattice {

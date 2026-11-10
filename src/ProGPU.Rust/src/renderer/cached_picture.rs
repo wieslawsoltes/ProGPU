@@ -28,6 +28,7 @@ struct Raster {
     capture: CapturedSourceScene,
     owner: Arc<()>,
     device: wgpu::Device,
+    mask_depth: u16,
 }
 /// Independently owned ordinary cached-picture result. Source callbacks and live
 /// mutable lookup entries are never consulted while replaying this capture.
@@ -188,6 +189,7 @@ impl Renderer {
                 && entry.raster.capture().frame().same_frame(frame)
                 && Arc::ptr_eq(&entry.raster.0.owner, &self.owner)
                 && entry.raster.0.device == self.device
+                && entry.raster.0.mask_depth == target.mask_depth
             {
                 entry.last_used = epoch;
                 return Ok((Some(entry.raster.clone()), true));
@@ -231,6 +233,7 @@ impl Renderer {
             capture,
             owner: guard.owner.clone(),
             device,
+            mask_depth: target.mask_depth,
         }));
         guard
             .renderer

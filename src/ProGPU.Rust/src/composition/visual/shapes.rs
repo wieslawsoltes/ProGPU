@@ -539,40 +539,90 @@ impl CompositionSpriteShape {
         if let Some(fill) = &self.fill
             && !matches!(geometry.kind, CompositionGeometryKind::Line { .. })
         {
-            let paint = MaterialPaint::new(fill.resolve(bounds));
-            if let Some(mut primitive) = geometry.analytic() {
-                primitive.transform = transform;
-                scene.draw_material_analytic(primitive, paint)?;
-            } else if let Some(path) = &path
-                && let Some(path) = path.compile_raster_path()?
-            {
-                scene.draw_material_path(
-                    PathDraw {
-                        path,
-                        transform,
-                        color: [1.0; 4],
-                        sampling: PathSampling::default(),
-                    },
-                    paint,
-                )?;
-            }
+            fill.resolve(bounds)?
+                .with_source(scene, bounds, |scene, source| {
+                    match source {
+                        CompositionBrushSnapshot::Material(brush) => {
+                            let paint = MaterialPaint::new(brush.clone());
+                            if let Some(mut primitive) = geometry.analytic() {
+                                primitive.transform = transform;
+                                let b = primitive.bounds;
+                                scene.draw_material_analytic(
+                                    primitive,
+                                    paint,
+                                    [b[0] + b[2] * 0.5, b[1] + b[3] * 0.5],
+                                )?;
+                            } else if let Some(path) = &path
+                                && let Some(path) = path.compile_raster_path()?
+                            {
+                                scene.draw_material_path(
+                                    PathDraw {
+                                        path,
+                                        transform,
+                                        color: [1.0; 4],
+                                        sampling: PathSampling::default(),
+                                    },
+                                    paint,
+                                )?;
+                            }
+                        }
+                        CompositionBrushSnapshot::Surface(brush) => {
+                            if let Some(path) = &path {
+                                scene.push_mask(crate::mask::Mask::Geometry(
+                                    crate::mask::GeometryMask {
+                                        geometry: path.clone(),
+                                        transform,
+                                    },
+                                ))?;
+                                scene.draw_image(brush.for_fill(bounds)?)?;
+                                scene.pop_scope()?;
+                            }
+                        }
+                        CompositionBrushSnapshot::Empty => {}
+                        CompositionBrushSnapshot::Mask { .. } => unreachable!(),
+                    }
+                    Ok(())
+                })?;
         }
         if let Some(brush) = &self.stroke_brush
             && self.stroke.thickness > 0.0
             && let Some(path) = path
         {
-            let pen = self.stroke.pen(brush.resolve(bounds))?;
-            let (path, transform) = if self.stroke.non_scaling {
-                (
-                    Arc::new(path.transformed(Matrix4::from_affine(transform))?),
-                    Matrix4::IDENTITY,
-                )
-            } else {
-                (path, Matrix4::from_affine(transform))
-            };
-            let mut draw = StrokeDraw::new(path, pen);
-            draw.frame.transform = transform;
-            scene.draw_stroke(draw)?;
+            brush
+                .resolve(bounds)?
+                .with_source(scene, bounds, |scene, source| {
+                    let material = match source {
+                        CompositionBrushSnapshot::Material(brush) => brush.clone(),
+                        CompositionBrushSnapshot::Surface(_) => {
+                            Arc::new(Brush::new(crate::vector::BrushKind::Solid([1.0; 4])))
+                        }
+                        CompositionBrushSnapshot::Empty => return Ok(()),
+                        CompositionBrushSnapshot::Mask { .. } => unreachable!(),
+                    };
+                    let pen = self.stroke.pen(material)?;
+                    let (path, frame) = if self.stroke.non_scaling {
+                        (
+                            Arc::new(path.transformed(Matrix4::from_affine(transform))?),
+                            Matrix4::IDENTITY,
+                        )
+                    } else {
+                        (path, Matrix4::from_affine(transform))
+                    };
+                    let mut draw = StrokeDraw::new(path, pen);
+                    draw.frame.transform = frame;
+                    if let CompositionBrushSnapshot::Surface(brush) = source {
+                        let mut mask = Scene::default();
+                        mask.draw_stroke(draw)?;
+                        scene.push_mask(crate::mask::Mask::Source(
+                            crate::mask::SourceMask::new(Arc::new(mask), Matrix4::IDENTITY)?,
+                        ))?;
+                        scene.draw_image(brush.for_fill(bounds)?)?;
+                        scene.pop_scope()?;
+                    } else {
+                        scene.draw_stroke(draw)?;
+                    }
+                    Ok(())
+                })?;
         }
         Ok(())
     }

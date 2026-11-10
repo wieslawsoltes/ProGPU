@@ -22,7 +22,7 @@ pub fn path_effect_scene() -> Result<Scene, Error> {
             C::Line([10.0, 92.0]),
             C::Close,
         ]),
-        FillRule::NonZero,
+        FillRule::Nonzero,
         false,
     );
     let stamp = PathEffectSource::new(
@@ -32,7 +32,7 @@ pub fn path_effect_scene() -> Result<Scene, Error> {
             C::Line([-3.0, 3.0]),
             C::Close,
         ]),
-        FillRule::NonZero,
+        FillRule::Nonzero,
         false,
     );
     let dash = PathEffect::dash(&[14.0, 7.0], 3.0)?;

@@ -59,6 +59,11 @@ impl Renderer {
             root: frame,
             origin: [0; 2],
             source: Some(source),
+            mask_depth: self
+                .preparation_mask_depth
+                .get()
+                .checked_add(1)
+                .ok_or(Error::Capacity)?,
         };
         target.uniforms(maximum)?;
         Ok(target)
@@ -204,5 +209,26 @@ impl Renderer {
             enable_cleartype,
             frame,
         })))
+    }
+}
+
+/// Detached exact target-depth scope survives recursive exclusive renderer work
+/// and restores its predecessor on failure, cancellation and ordinary return.
+pub(super) struct TargetDepthGuard {
+    state: std::rc::Rc<std::cell::Cell<u16>>,
+    previous: u16,
+}
+impl Drop for TargetDepthGuard {
+    fn drop(&mut self) {
+        self.state.set(self.previous);
+    }
+}
+impl Renderer {
+    pub(super) fn enter_target_depth(&self, target: RenderFrame) -> TargetDepthGuard {
+        let previous = self.preparation_mask_depth.replace(target.mask_depth);
+        TargetDepthGuard {
+            state: self.preparation_mask_depth.clone(),
+            previous,
+        }
     }
 }

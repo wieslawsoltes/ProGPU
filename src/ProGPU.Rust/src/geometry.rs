@@ -57,7 +57,8 @@ impl Default for Affine {
 pub struct VectorVertex {
     /// Target logical coordinates.
     pub position: [f32; 2],
-    /// Straight RGBA color.
+    /// Straight RGBA color; original mesh kind 18 transports premultiplied
+    /// vertex colors for interpolation before its selected brush/color blend.
     pub color: [f32; 4],
     /// Primitive-local coordinates.
     pub texture_coordinate: [f32; 2],
@@ -65,9 +66,9 @@ pub struct VectorVertex {
     pub brush_index: f32,
     /// Original unpadded width and height.
     pub shape_size: [f32; 2],
-    /// Clamped round-rectangle radius.
+    /// Clamped round-rectangle radius, or original vertex-color blend for meshes.
     pub corner_radius: f32,
-    /// Local stroke thickness (zero means fill).
+    /// Local stroke thickness (zero means fill), or post-blend mesh opacity.
     pub stroke_thickness: f32,
     /// Native primitive kind, with the original aliased-edge encoding.
     pub shape_type: f32,
@@ -240,6 +241,28 @@ impl Mesh {
             .map_err(|_| Error::Capacity)?;
         self.vertices.extend_from_slice(vertices);
         self.indices.extend(indices.iter().map(|i| base + i));
+        Ok(())
+    }
+    pub(crate) fn extend_generated(
+        &mut self,
+        vertices: impl ExactSizeIterator<Item = VectorVertex>,
+        indices: impl Iterator<Item = u32> + Clone,
+        index_capacity: usize,
+    ) -> Result<(), Error> {
+        let base = u32::try_from(self.vertices.len()).map_err(|_| Error::Capacity)?;
+        let count = u32::try_from(vertices.len()).map_err(|_| Error::Capacity)?;
+        base.checked_add(count).ok_or(Error::Capacity)?;
+        if indices.clone().any(|i| i >= count) {
+            return Err(Error::InvalidInput);
+        }
+        self.vertices
+            .try_reserve(vertices.len())
+            .map_err(|_| Error::Capacity)?;
+        self.indices
+            .try_reserve(index_capacity)
+            .map_err(|_| Error::Capacity)?;
+        self.vertices.extend(vertices);
+        self.indices.extend(indices.map(|i| base + i));
         Ok(())
     }
     /// Read the original vertex records.

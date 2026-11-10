@@ -22,6 +22,7 @@ pub(super) struct MaskState {
     samplers: [wgpu::Sampler; 2],
 }
 pub(super) struct PreparedState {
+    pub blend: crate::scene::LayerBlend,
     pub binding: Option<wgpu::BindGroup>,
     pub scissor: [u32; 4],
 }
@@ -296,6 +297,10 @@ impl Renderer {
         for state in states {
             for component in state.components.iter() {
                 let source = match &component.mask {
+                    crate::mask::Mask::Source(c) => {
+                        c.scene().preflight_source_capture_devices(&self.device)?;
+                        continue;
+                    }
                     crate::mask::Mask::Coverage(c) => ImageSource::Pixels(c.image.clone()),
                     crate::mask::Mask::Texture(c) => c.source.clone(),
                     crate::mask::Mask::RenderedTexture(c) => c.texture.source.clone(),
@@ -463,7 +468,11 @@ impl Renderer {
                 } else {
                     None
                 };
-                states.push(PreparedState { binding, scissor });
+                states.push(PreparedState {
+                    binding,
+                    scissor,
+                    blend: source.blend,
+                });
             }
             Ok::<_, Error>(PreparedMasks {
                 resolved,

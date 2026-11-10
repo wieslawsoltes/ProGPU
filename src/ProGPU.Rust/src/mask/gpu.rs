@@ -25,6 +25,10 @@ pub struct SampledMaskInput {
 pub struct MaskCompositionMetrics {
     /// Number of original ordered components.
     pub nodes: u32,
+    /// Actual completed source-paint captures performed during preparation.
+    pub source_captures: u32,
+    /// Actual source replay draw commands, reported separately from mask passes.
+    pub source_draws: u32,
     /// Actual render passes per program execution.
     pub render_passes: u32,
     /// Actual node/accumulation storage, including the final output.
@@ -409,6 +413,7 @@ impl MaskComposer {
                 atlas_bytes: u64::from(plan.atlas_size()).pow(2),
                 uniform_bytes: u64::from(count) * 256,
                 geometry_bytes: vertices.size() + indices.size(),
+                ..Default::default()
             },
             program: Program::Paths(Box::new(PathProgram {
                 pipeline: p.path,
@@ -657,6 +662,8 @@ impl MaskCompositionMetrics {
             };
         }
         add!(nodes);
+        add!(source_captures);
+        add!(source_draws);
         add!(render_passes);
         add!(texture_bytes);
         add!(atlas_bytes);

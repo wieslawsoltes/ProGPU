@@ -332,6 +332,14 @@ impl CompositionGradient {
 /// backdrop and effect brushes require their separate source/render contracts.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompositionBrushValue {
+    /// Actual original surface owner, mapping and sampling.
+    #[cfg(feature = "gpu")]
+    Surface(CompositionSurfaceBrush),
+    /// Original source and opacity-mask brush bindings. Nested mask inputs reject.
+    Mask {
+        source: Option<CompositionBrush>,
+        mask: Option<CompositionBrush>,
+    },
     /// Byte RGBA color, matching the original per-channel conversion.
     Color([u8; 4]),
     /// Immutable already-owned original scene material.
@@ -359,6 +367,24 @@ impl CompositionBrushValue {
     }
     fn validate(&self, domain: &Rc<Domain>) -> Result<(), Error> {
         match self {
+            #[cfg(feature = "gpu")]
+            Self::Surface(value) => {
+                let mut candidate = value.clone();
+                candidate.normalize()?;
+                if let Some(surface) = &value.surface {
+                    surface.ensure_domain(domain)?;
+                }
+                Ok(())
+            }
+            Self::Mask { source, mask } => {
+                for input in source.iter().chain(mask.iter()) {
+                    input.ensure_domain(domain)?;
+                    if matches!(input.value(), Self::Mask { .. }) {
+                        return Err(Error::UnsupportedExecution);
+                    }
+                }
+                Ok(())
+            }
             Self::Linear {
                 start,
                 end,
@@ -391,10 +417,10 @@ impl CompositionBrushValue {
         }
     }
     /// Produce the real scene brush in its original receiving bounds.
-    pub fn resolve(&self, bounds: [f32; 4]) -> Arc<Brush> {
-        Arc::new(match self {
+    fn resolve_material(&self, bounds: [f32; 4]) -> Result<Arc<Brush>, Error> {
+        Ok(Arc::new(match self {
             Self::Color(color) => Brush::new(BrushKind::Solid(color.map(|v| f32::from(v) / 255.0))),
-            Self::Material(brush) => return brush.clone(),
+            Self::Material(brush) => return Ok(brush.clone()),
             Self::Linear {
                 start,
                 end,
@@ -421,35 +447,109 @@ impl CompositionBrushValue {
                     options: gradient.options(bounds),
                 }))
             }
-        })
+            _ => return Err(Error::UnsupportedExecution),
+        }))
+    }
+    /// Freeze original material/surface/mask scope semantics at receiving bounds.
+    pub fn resolve(&self, bounds: [f32; 4]) -> Result<CompositionBrushSnapshot, Error> {
+        if bounds.iter().any(|v| !v.is_finite()) || bounds[2] < 0.0 || bounds[3] < 0.0 {
+            return Err(Error::InvalidInput);
+        }
+        match self {
+            #[cfg(feature = "gpu")]
+            Self::Surface(value) => {
+                let mut value = value.clone();
+                value.normalize()?;
+                value.snapshot(bounds)
+            }
+            Self::Mask { source, mask } => {
+                let source = source
+                    .as_ref()
+                    .map(|v| v.resolve(bounds))
+                    .transpose()?
+                    .unwrap_or(CompositionBrushSnapshot::Empty);
+                let mask = mask
+                    .as_ref()
+                    .map(|v| v.resolve(bounds))
+                    .transpose()?
+                    .unwrap_or(CompositionBrushSnapshot::Empty);
+                Ok(CompositionBrushSnapshot::Mask {
+                    source: Box::new(source),
+                    mask: Box::new(mask),
+                })
+            }
+            _ => Ok(CompositionBrushSnapshot::Material(
+                self.resolve_material(bounds)?,
+            )),
+        }
+    }
+    fn bindings(&self, owner: &Subscriber, add: bool) {
+        if let Some(gradient) = self.gradient() {
+            for stop in &gradient.stops {
+                if add {
+                    stop.add_owner(owner.clone())
+                } else {
+                    stop.remove_owner(owner)
+                }
+            }
+        }
+        if let Self::Mask { source, mask } = self {
+            for input in source.iter().chain(mask.iter()) {
+                if add {
+                    input.add_owner(owner.clone())
+                } else {
+                    input.remove_owner(owner)
+                }
+            }
+        }
+        #[cfg(feature = "gpu")]
+        if let Self::Surface(value) = self
+            && let Some(surface) = &value.surface
+        {
+            if add {
+                surface.add_owner(owner.clone())
+            } else {
+                surface.remove_owner(owner)
+            }
+        }
+    }
+    fn normalize(&mut self) -> Result<(), Error> {
+        #[cfg(feature = "gpu")]
+        if let Self::Surface(value) = self {
+            value.normalize()?;
+        }
+        Ok(())
     }
 }
 /// Shared color/gradient/material owner with original weak brush subscribers.
 pub type CompositionBrush = CompositionResource<CompositionBrushValue>;
 impl CompositionBrush {
     /// Publish a complete candidate only after checking all gradient-stop owners.
-    pub fn set(&self, value: CompositionBrushValue) -> Result<(), Error> {
+    pub fn set(&self, mut value: CompositionBrushValue) -> Result<(), Error> {
+        value.normalize()?;
         value.validate(&self.0.borrow().domain)?;
+        if let CompositionBrushValue::Mask { source, mask } = &value {
+            if source.iter().chain(mask.iter()).any(|v| v.same_owner(self)) {
+                return Err(Error::InvalidInput);
+            }
+            // C# runtime brush classes cannot change. This enum must also keep
+            // existing mask input bindings from changing into an inadmissible class.
+            if self.0.borrow().owners.iter().any(|s| matches!(&s.owner, Subscriber::Brush(owner) if owner.upgrade().is_some_and(|v| matches!(v.borrow().value, CompositionBrushValue::Mask { .. })))) {
+                return Err(Error::UnsupportedExecution);
+            }
+        }
         let old = self.value();
         if old == value {
             return Ok(());
         }
         let subscriber = Subscriber::Brush(Rc::downgrade(&self.0));
-        if let Some(gradient) = old.gradient() {
-            for stop in &gradient.stops {
-                stop.remove_owner(&subscriber);
-            }
-        }
-        if let Some(gradient) = value.gradient() {
-            for stop in &gradient.stops {
-                stop.add_owner(subscriber.clone());
-            }
-        }
+        old.bindings(&subscriber, false);
+        value.bindings(&subscriber, true);
         self.replace(value);
         Ok(())
     }
-    /// Immutable real material generation for the current resource and bounds.
-    pub fn resolve(&self, bounds: [f32; 4]) -> Arc<Brush> {
+    /// Freeze actual source generations and ordered brush scopes for these bounds.
+    pub fn resolve(&self, bounds: [f32; 4]) -> Result<CompositionBrushSnapshot, Error> {
         self.value().resolve(bounds)
     }
 }
@@ -480,6 +580,14 @@ pub enum CompositionEffectValue {
         color: [f32; 4],
         draw_source: bool,
     },
+    /// Original shadow with an independently owned opacity-mask producer.
+    DropShadowSource {
+        radii: [f32; 2],
+        offset: [f32; 2],
+        color: [f32; 4],
+        draw_source: bool,
+        source: Arc<ShadowOpacitySource>,
+    },
     /// Original isolated affine color transform.
     ColorMatrix(ImageColorMatrix),
     /// Original destination blend applied once to the completed subtree.
@@ -489,7 +597,10 @@ impl CompositionEffectValue {
     /// Original explicit input-neutral effect declaration; this never makes an
     /// expanded raster extent into hit geometry or bypasses actual source clips.
     pub fn preserves_source_hit_geometry(&self) -> bool {
-        matches!(self, Self::Blur { .. } | Self::DropShadow { .. })
+        matches!(
+            self,
+            Self::Blur { .. } | Self::DropShadow { .. } | Self::DropShadowSource { .. }
+        )
     }
 }
 /// Weak-owner effect resource. Mutations invalidate local render content exactly
@@ -504,15 +615,26 @@ impl CompositionEffect {
 
 impl VisualCompositor {
     /// Create an owned original byte-color/gradient material.
-    pub fn create_brush(&self, value: CompositionBrushValue) -> Result<CompositionBrush, Error> {
+    pub fn create_brush(
+        &self,
+        mut value: CompositionBrushValue,
+    ) -> Result<CompositionBrush, Error> {
+        value.normalize()?;
         value.validate(&self.0)?;
         let brush = CompositionResource::new(self.0.clone(), value);
-        if let Some(gradient) = brush.value().gradient() {
-            for stop in &gradient.stops {
-                stop.add_owner(Subscriber::Brush(Rc::downgrade(&brush.0)));
-            }
-        }
+        brush
+            .value()
+            .bindings(&Subscriber::Brush(Rc::downgrade(&brush.0)), true);
         Ok(brush)
+    }
+    /// Create a mutable surface identity retaining only completed texture owners.
+    #[cfg(feature = "gpu")]
+    pub fn create_surface(
+        &self,
+        value: CompositionSurfaceValue,
+    ) -> Result<CompositionSurface, Error> {
+        brushes::validate_surface(&value)?;
+        Ok(CompositionResource::new(self.0.clone(), value))
     }
     /// Create a separately mutable, shareable color-stop identity.
     pub fn create_gradient_stop(

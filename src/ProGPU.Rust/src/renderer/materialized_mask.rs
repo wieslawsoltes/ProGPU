@@ -262,7 +262,39 @@ impl Renderer {
                 used.insert(current);
             }
         }
-        let mut resolved = compiled.states.clone();
+        let mut normalized = HashMap::<usize, CompiledDrawState>::new();
+        let mut resolved = Vec::with_capacity(compiled.states.len());
+        for source in &compiled.states {
+            let identity = Arc::as_ptr(&source.components) as *const () as usize;
+            let base = if let Some(base) = normalized.get(&identity) {
+                base.clone()
+            } else {
+                let mut input = source.clone();
+                input.clip = None;
+                let base =
+                    resolve_geometry(&input, frame, self.device.limits().max_texture_dimension_2d)?;
+                normalized.insert(identity, base.clone());
+                base
+            };
+            let mut result = base;
+            result.blend = source.blend;
+            result.clip = match (result.clip, source.clip) {
+                (Some(a), Some(b)) => Some([
+                    a[0].max(b[0]),
+                    a[1].max(b[1]),
+                    a[2].min(b[2]),
+                    a[3].min(b[3]),
+                ]),
+                (a, b) => a.or(b),
+            };
+            if source.materialized && result.count > 1 {
+                result.materialized = true;
+                result.count = 1;
+                result.masks = [MaskUniforms::zeroed(); 4];
+                result.coverage = None;
+            }
+            resolved.push(result);
+        }
         let mut metrics = MaskCompositionMetrics::default();
         let mut outputs = HashMap::<usize, (TextureMask, MaskUniforms)>::new();
         let mut state = None;
@@ -330,7 +362,7 @@ impl Renderer {
         Ok((resolved, metrics))
     }
     async fn materialize_mask(
-        &self,
+        &mut self,
         source: &CompiledDrawState,
         frame: RenderFrame,
         cache: &mut mask::MaskState,
@@ -338,6 +370,87 @@ impl Renderer {
         uploads: &mut UploadMetrics,
         textures: &mut HashSet<(u8, usize)>,
     ) -> Result<(GpuImage, MaskCompositionMetrics), Error> {
+        // A source opacity mask is painted through the complete preceding
+        // coverage before its alpha is quantized. Keeping this ordered boundary
+        // avoids replacing original brush-mask drawing with two quantized masks.
+        if let Some(index) = source
+            .components
+            .iter()
+            .rposition(|c| matches!(c.mask, Mask::Source(_)))
+        {
+            let Mask::Source(mask) = &source.components[index].mask else {
+                unreachable!()
+            };
+            if source.components[index].operation != crate::mask::MaskOperation::Intersect {
+                return Err(Error::UnsupportedExecution);
+            }
+            let root = RenderFrame {
+                frame: frame.root,
+                origin: [0; 2],
+                ..frame
+            };
+            mask.scene()
+                .preflight_source_capture_devices(&self.device)?;
+            let placed = mask.scene().place_visual_page(
+                mask.transform(),
+                root.dpi_scale,
+                root.source.is_some_and(|f| f.suppress_cached_cleartype()),
+                1.0,
+                true,
+            )?;
+            let mut recording = Scene::default();
+            let mut metrics = MaskCompositionMetrics::default();
+            // Bind preceding analytic/sampled masks directly when admitted.
+            // Prequantizing an otherwise direct prefix would change source alpha.
+            for component in &source.components[..index] {
+                match component.operation {
+                    crate::mask::MaskOperation::Intersect => {
+                        recording.push_mask(component.mask.clone())?
+                    }
+                    crate::mask::MaskOperation::Difference => {
+                        recording.push_mask_difference(component.mask.clone())?
+                    }
+                }
+            }
+            recording.append(&placed)?;
+            for _ in 0..index {
+                recording.pop_scope()?;
+            }
+            let prepared = Box::pin(self.prepare_target_scene_inner(&recording, root)).await?;
+            let capture = self.capture(&prepared, None).await?;
+            metrics.merge(prepared.mask_composition_metrics())?;
+            let source_metrics = capture.source_preparation_metrics();
+            metrics.merge(MaskCompositionMetrics {
+                source_captures: 1,
+                source_draws: capture.source_replay_metrics().draws,
+                texture_bytes: capture.capture_bytes(),
+                geometry_bytes: source_metrics.geometry_bytes,
+                uniform_bytes: source_metrics.uniform_bytes,
+                atlas_bytes: source_metrics.atlas_bytes,
+                ..Default::default()
+            })?;
+            let mut components = Vec::with_capacity(source.components.len() - index);
+            components.push(crate::mask::MaskComponent {
+                mask: completed_source_mask(
+                    capture.into_image(),
+                    MaskChannel::Alpha,
+                    root,
+                    self.device.limits().max_texture_dimension_2d,
+                )?,
+                operation: crate::mask::MaskOperation::Intersect,
+            });
+            components.extend_from_slice(&source.components[index + 1..]);
+            let tail = CompiledDrawState {
+                components: components.into(),
+                materialized: true,
+                ..Default::default()
+            };
+            let (image, tail_metrics) =
+                Box::pin(self.materialize_mask(&tail, frame, cache, state, uploads, textures))
+                    .await?;
+            metrics.merge(tail_metrics)?;
+            return Ok((image, metrics));
+        }
         let size = [frame.width, frame.height];
         let has_analytic = source.components.iter().any(|c| {
             matches!(
@@ -633,6 +746,15 @@ fn mask_cost(
             .checked_add((source.components.len() + analytic) as u32)
             .ok_or(Error::Capacity)?;
         for component in source.components.iter() {
+            if matches!(&component.mask, Mask::Source(_) | Mask::Geometry(_)) {
+                // Actual whole-root RGBA source plus prefix R8 accumulations.
+                bytes = bytes
+                    .checked_add(u64::from(frame.root.width) * u64::from(frame.root.height) * 6)
+                    .ok_or(Error::Capacity)?;
+                passes = passes
+                    .checked_add(source.components.len() as u32 + 1)
+                    .ok_or(Error::Capacity)?;
+            }
             if let Mask::Path(path) = &component.mask {
                 let root_size = [frame.root.width, frame.root.height];
                 let plan = crate::mask::ClipPlan::new(
@@ -654,4 +776,101 @@ fn mask_cost(
         }
     }
     Ok((bytes, passes))
+}
+
+fn completed_source_mask(
+    image: GpuImage,
+    channel: MaskChannel,
+    frame: RenderFrame,
+    limit: u32,
+) -> Result<Mask, Error> {
+    let size = image.size();
+    let mut texture = TextureMask::new(image, [0.0, 0.0, size[0] as f32, size[1] as f32], channel);
+    texture.sampling = MaskSampling::Nearest;
+    Ok(Mask::RenderedTexture(crate::mask::RenderedTextureMask {
+        texture,
+        size,
+        dpi: frame.dpi_scale,
+        projection: frame.uniforms(limit)?.projection,
+        replaces_chain: true,
+    }))
+}
+
+fn resolve_geometry(
+    source: &CompiledDrawState,
+    frame: RenderFrame,
+    maximum: u32,
+) -> Result<CompiledDrawState, Error> {
+    if !source
+        .components
+        .iter()
+        .any(|c| matches!(c.mask, Mask::Geometry(_)))
+    {
+        return Ok(source.clone());
+    }
+    let mut result = CompiledDrawState {
+        clip: source.clip,
+        blend: source.blend,
+        ..Default::default()
+    };
+    for component in source.components.iter() {
+        let Mask::Geometry(geometry) = &component.mask else {
+            result.append_mask(component.mask.clone(), component.operation, frame.dpi_scale)?;
+            continue;
+        };
+        let matrix = crate::vector::Matrix4::from_affine(geometry.transform);
+        if let Some([l, t, r, b]) = geometry.geometry.axis_aligned_rectangle_bounds()
+            && geometry.transform.0[1].abs() <= 0.0001
+            && geometry.transform.0[2].abs() <= 0.0001
+        {
+            let mut scene = Scene::default();
+            scene.push_visual_clip([l, t, r - l, b - t], matrix)?;
+            scene.pop_scope()?;
+            let (states, _) = scene.compile_states(frame.dpi_scale)?;
+            let clip = states
+                .get(1)
+                .and_then(|s| s.clip)
+                .ok_or(Error::ResourceDomain)?;
+            result.clip = Some(if let Some(old) = result.clip {
+                [
+                    old[0].max(clip[0]),
+                    old[1].max(clip[1]),
+                    old[2].min(clip[2]),
+                    old[3].min(clip[3]),
+                ]
+            } else {
+                clip
+            });
+            continue;
+        }
+        let previous = result
+            .components
+            .iter()
+            .map(|v| v.mask.clone())
+            .collect::<Vec<_>>();
+        let canonical = if frame.mask_depth <= 1 {
+            visual::geometry::canonical(&geometry.geometry, matrix, frame, &previous, maximum)?
+        } else {
+            None
+        };
+        let mask = if let Some(mask) = canonical {
+            mask
+        } else {
+            let mut scene = Scene::default();
+            if let Some(path) = geometry.geometry.compile_raster_path()? {
+                scene.draw_path(crate::scene::PathDraw {
+                    path,
+                    transform: geometry.transform,
+                    color: [1.0; 4],
+                    sampling: Default::default(),
+                })?;
+            }
+            Mask::Source(crate::mask::SourceMask::new(
+                Arc::new(scene),
+                crate::vector::Matrix4::IDENTITY,
+            )?)
+        };
+        result.append_mask(mask, component.operation, frame.dpi_scale)?;
+    }
+    Ok(result)
 }

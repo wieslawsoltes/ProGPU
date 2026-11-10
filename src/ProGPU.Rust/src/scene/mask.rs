@@ -6,6 +6,7 @@ use wide::f32x4;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CompiledDrawState {
+    pub blend: LayerBlend,
     pub masks: [MaskUniforms; 4],
     pub count: usize,
     pub coverage: Option<TextureMask>,
@@ -17,6 +18,7 @@ pub(crate) struct CompiledDrawState {
 impl Default for CompiledDrawState {
     fn default() -> Self {
         Self {
+            blend: LayerBlend::SrcOver,
             masks: [MaskUniforms::zeroed(); 4],
             count: 0,
             coverage: None,
@@ -33,7 +35,12 @@ impl CompiledDrawState {
         result.append_mask(mask, MaskOperation::Intersect, dpi)?;
         Ok(result)
     }
-    fn append_mask(&mut self, mask: Mask, operation: MaskOperation, dpi: f32) -> Result<(), Error> {
+    pub(crate) fn append_mask(
+        &mut self,
+        mask: Mask,
+        operation: MaskOperation,
+        dpi: f32,
+    ) -> Result<(), Error> {
         if self.components.len() == 64 {
             return Err(Error::Capacity);
         }
@@ -53,7 +60,7 @@ impl CompiledDrawState {
         let direct = components.len() <= 4
             && components.iter().enumerate().all(|(i, c)| {
                 c.operation == MaskOperation::Intersect
-                    && !matches!(c.mask, Mask::Path(_))
+                    && !matches!(c.mask, Mask::Path(_) | Mask::Source(_) | Mask::Geometry(_))
                     && (i == 0 || analytic(&c.mask))
             });
         self.masks = [MaskUniforms::zeroed(); 4];
@@ -62,7 +69,12 @@ impl CompiledDrawState {
         self.count = if direct { components.len() } else { 1 };
         // Validate every original record even when it will be materialized later.
         for (i, c) in components.iter().enumerate() {
-            if matches!(c.mask, Mask::Path(_)) {
+            if matches!(c.mask, Mask::Path(_) | Mask::Source(_) | Mask::Geometry(_)) {
+                if matches!(c.mask, Mask::Source(_) | Mask::Geometry(_))
+                    && c.operation != MaskOperation::Intersect
+                {
+                    return Err(Error::UnsupportedExecution);
+                }
                 c.mask.validate()?;
             } else {
                 let uniforms = c.mask.uniforms(dpi)?;
@@ -114,7 +126,9 @@ impl Scene {
                     | Command::PushMaskDifference(_)
                     | Command::PushClip(_)
                     | Command::PushClipEdges(_)
-                    | Command::PopScope => None,
+                    | Command::PopScope
+                    | Command::PushBlend(_)
+                    | Command::PopBlend => None,
                     Command::ImageEffect(draw) if draw.mask.is_some() => None,
                     _ => Some(current),
                 }
@@ -164,7 +178,7 @@ impl Scene {
     /// Restore the preceding mask or clip state. Underflow leaves recording
     /// unchanged; all scopes must be closed before compilation/preparation.
     pub fn pop_scope(&mut self) -> Result<(), Error> {
-        if self.scope_depth == 0 {
+        if self.scope_depth == self.blend_depth {
             return Err(Error::InvalidInput);
         }
         self.commands.try_reserve(1).map_err(|_| Error::Capacity)?;
@@ -192,8 +206,42 @@ impl Scene {
             .try_reserve_exact(self.commands.len())
             .map_err(|_| Error::Capacity)?;
         let mut stack = Vec::new();
+        let mut blend_stack = Vec::new();
         let mut current = 0;
         for command in &self.commands {
+            #[cfg(feature = "gpu")]
+            let glyph = matches!(command, Command::Glyph(_));
+            #[cfg(not(feature = "gpu"))]
+            let glyph = false;
+            let state = &states[current];
+            if state.count > 1
+                && !state.materialized
+                && state.blend.requires_premultiplied()
+                && (glyph
+                    || matches!(
+                        command,
+                        Command::VertexMesh(_)
+                            | Command::Analytic(_)
+                            | Command::Path(_)
+                            | Command::MaterialAnalytic(..)
+                            | Command::MaterialPath(..)
+                            | Command::Stroke(_)
+                            | Command::PlacedStroke(..)
+                            | Command::Text(_)
+                            | Command::TextPath(..)
+                    ))
+            {
+                let mut state = state.clone();
+                state.materialized = true;
+                state.count = 1;
+                state.masks = [MaskUniforms::zeroed(); 4];
+                state.coverage = None;
+                states.try_reserve(1).map_err(|_| Error::Capacity)?;
+                current = states.len();
+                states.push(state);
+                changes.push(Some(current));
+                continue;
+            }
             if let Command::ImageEffect(draw) = command {
                 let state = &states[current];
                 if draw.mask.is_none()
@@ -252,8 +300,32 @@ impl Scene {
             if matches!(command, Command::ShaderEffect(_)) && states[current].count != 0 {
                 return Err(Error::UnsupportedExecution);
             }
+            if matches!(command, Command::PushBlend(_) | Command::PopBlend) {
+                let mut candidate = states[current].clone();
+                match command {
+                    Command::PushBlend(blend) => {
+                        blend_stack.try_reserve(1).map_err(|_| Error::Capacity)?;
+                        blend_stack.push(candidate.blend);
+                        candidate.blend = *blend;
+                    }
+                    Command::PopBlend => {
+                        candidate.blend = blend_stack.pop().ok_or(Error::InvalidInput)?
+                    }
+                    _ => unreachable!(),
+                }
+                states.try_reserve(1).map_err(|_| Error::Capacity)?;
+                current = states.len();
+                states.push(candidate);
+                changes.push(Some(current));
+                continue;
+            }
             if matches!(command, Command::PopScope) {
-                current = stack.pop().ok_or(Error::InvalidInput)?;
+                let previous = stack.pop().ok_or(Error::InvalidInput)?;
+                let mut candidate = states[previous].clone();
+                candidate.blend = states[current].blend;
+                states.try_reserve(1).map_err(|_| Error::Capacity)?;
+                current = states.len();
+                states.push(candidate);
                 changes.push(Some(current));
                 continue;
             }
@@ -317,7 +389,7 @@ impl Scene {
             states.push(candidate);
             changes.push(Some(current));
         }
-        if !stack.is_empty() {
+        if !stack.is_empty() || !blend_stack.is_empty() {
             return Err(Error::InvalidInput);
         }
         Ok((states, changes))

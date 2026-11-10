@@ -17,6 +17,7 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 mod advanced;
+mod blend;
 mod uniform_backdrop;
 pub use advanced::AdvancedBlendMetrics;
 pub use uniform_backdrop::{
@@ -272,6 +273,7 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    draw_blends: blend::DrawBlendPipelines,
     format: wgpu::TextureFormat,
     brush: wgpu::Buffer,
     stops: wgpu::Buffer,
@@ -291,6 +293,7 @@ pub struct Renderer {
     owned_shaders: owned_shader::OwnedShaderState,
     cached_pictures: cached_picture::CachedPictureState,
     visuals: visual::VisualState,
+    preparation_mask_depth: std::rc::Rc<std::cell::Cell<u16>>,
     owned_shader_completed: std::sync::atomic::AtomicU64,
     masks: Option<mask::MaskState>,
     materialized_masks: Option<materialized_mask::MaterialMaskState>,
@@ -416,6 +419,7 @@ impl Renderer {
             device: device.clone(),
             queue: queue.clone(),
             pipeline,
+            draw_blends: Default::default(),
             format,
             brush,
             stops,
@@ -435,6 +439,7 @@ impl Renderer {
             owned_shaders: Default::default(),
             cached_pictures: Default::default(),
             visuals: Default::default(),
+            preparation_mask_depth: Default::default(),
             owned_shader_completed: Default::default(),
             masks: None,
             materialized_masks: None,
@@ -503,6 +508,7 @@ impl Renderer {
         scene: &Scene,
         target: RenderFrame,
     ) -> Result<PreparedScene, Error> {
+        let _target_depth = self.enter_target_depth(target);
         self.preflight_owned_shaders(scene, target)?;
         target.uniforms(self.device.limits().max_texture_dimension_2d)?;
         self.preflight_shaders(scene, target)?;
@@ -587,6 +593,7 @@ impl Renderer {
         self.validate_masks(compiled)?;
         self.validate_shaders(compiled, frame)?;
         self.validate_managed_shaders(compiled, frame)?;
+        self.prepare_draw_blends(compiled).await?;
         let (mask_bytes, mask_passes) = self.compiled_mask_cost(compiled, frame)?;
         let (effect_bytes, effect_passes) = self.validate_image_effects(compiled)?;
         let (filter_bytes, filter_passes) = self.validate_color_filters(compiled)?;
@@ -1151,6 +1158,8 @@ impl Renderer {
                     continue;
                 }
                 let masked = draw_state.and_then(|state| state.binding.as_ref());
+                let blend =
+                    draw_state.map_or(crate::scene::LayerBlend::SrcOver, |state| state.blend);
                 if let DrawRange::ImageColor(range, binding, matrix) = draw {
                     scene
                         .images
@@ -1194,6 +1203,8 @@ impl Renderer {
                         *vertex_count,
                         masked,
                         texture,
+                        self.draw_blends
+                            .get(blend::Family::Hinted, blend, masked.is_some())?,
                     )?;
                     continue;
                 }
@@ -1227,7 +1238,11 @@ impl Renderer {
                         unreachable!()
                     }
                     DrawRange::Vector(range) => {
-                        pass.set_pipeline(masked_pipeline.unwrap_or(&self.pipeline));
+                        pass.set_pipeline(
+                            self.draw_blends
+                                .get(blend::Family::Vector, blend, masked.is_some())?
+                                .unwrap_or_else(|| masked_pipeline.unwrap_or(&self.pipeline)),
+                        );
                         pass.set_bind_group(0, &scene.bindings, &[]);
                         pass.set_bind_group(1, &scene.atlas, &[]);
                         if let Some(mask) = masked {
@@ -1240,7 +1255,11 @@ impl Renderer {
                     DrawRange::Text(range) => {
                         let state = self.text.as_ref().ok_or(Error::ResourceDomain)?;
                         let text = scene.text.as_ref().ok_or(Error::ResourceDomain)?;
-                        pass.set_pipeline(masked_pipeline.unwrap_or(&state.pipeline));
+                        pass.set_pipeline(
+                            self.draw_blends
+                                .get(blend::Family::Text, blend, masked.is_some())?
+                                .unwrap_or_else(|| masked_pipeline.unwrap_or(&state.pipeline)),
+                        );
                         pass.set_bind_group(0, &text.bindings, &[]);
                         pass.set_bind_group(1, &text.atlas, &[]);
                         if let Some(mask) = masked {

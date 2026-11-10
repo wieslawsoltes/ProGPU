@@ -18,7 +18,7 @@ use crate::{
 };
 use std::{future::Future, pin::Pin};
 mod compute;
-mod geometry;
+pub(super) mod geometry;
 mod shader;
 
 /// Original compositor switches, independent of source cache requirements.
@@ -113,6 +113,14 @@ impl PreparedVisual {
     pub fn shader_source_captures(&self) -> impl Iterator<Item = &CapturedScene> {
         self.shaders.iter().map(|v| v.capture())
     }
+    /// Actual separately retained shadow-mask captures and their source recordings.
+    pub fn shadow_mask_sources(&self) -> impl Iterator<Item = (&Arc<Scene>, &CapturedScene)> {
+        self.captures.iter().filter_map(|v| {
+            v.shadow_source
+                .as_ref()
+                .map(|(scene, capture)| (scene, capture))
+        })
+    }
     /// Actual independently owned picture/brush opacity masks.
     pub fn mask_captures(&self) -> &[CapturedScene] {
         &self.masks
@@ -174,6 +182,7 @@ struct VisualCapture {
     identity: VisualIdentity,
     versions: VisualVersions,
     frame: SourceRenderFrame,
+    mask_depth: u16,
     effect: Option<(i64, CompositionEffectValue)>,
     // Full source recording ownership, not merely texture aliases.
     recording: Arc<Scene>,
@@ -183,6 +192,7 @@ struct VisualCapture {
         crate::composition::visual::RenderPresentationState,
     )>,
     source: CapturedScene,
+    shadow_source: Option<(Arc<Scene>, CapturedScene)>,
     computed: Option<compute::ComputedVisual>,
 }
 impl VisualCapture {
@@ -197,12 +207,18 @@ impl VisualCapture {
         frame: SourceRenderFrame,
         effect: Option<&(i64, CompositionEffectValue)>,
         policy: VisualPolicy,
+        mask_depth: u16,
     ) -> bool {
         self.policy == policy
+            && self.mask_depth == mask_depth
             && self.identity == *node.identity()
             && self.versions == node.versions()
             && self.frame.same_frame(frame)
             && self.effect.as_ref() == effect
+            && effect.is_none_or(|(_, effect)| match effect {
+                CompositionEffectValue::DropShadowSource { source, .. } => source.cacheable(),
+                _ => true,
+            })
             && same_pages(node, &self.pages)
     }
 }
@@ -338,6 +354,7 @@ impl Builder<'_> {
         depth: u16,
     ) -> Pin<Box<dyn Future<Output = Result<Scene, Error>> + 'a>> {
         Box::pin(async move {
+            let _target_depth = self.renderer.enter_target_depth(target);
             if depth >= 256 {
                 return Err(Error::Capacity);
             }
@@ -533,7 +550,8 @@ impl Builder<'_> {
                         VisualBlurKernel::Box => radius.ceil(),
                     }; 2]
                 }
-                CompositionEffectValue::DropShadow { radii, .. } => {
+                CompositionEffectValue::DropShadow { radii, .. }
+                | CompositionEffectValue::DropShadowSource { radii, .. } => {
                     radii.map(|r| (r.max(0.0) * 2.0).ceil())
                 }
                 _ => [0.0; 2],
@@ -567,7 +585,15 @@ impl Builder<'_> {
             .captures
             .iter()
             .chain(self.renderer.visuals.targets.iter())
-            .find(|v| v.same(node, frame, effect, policy))
+            .find(|v| {
+                v.same(
+                    node,
+                    frame,
+                    effect,
+                    policy,
+                    target.mask_depth.saturating_add(1),
+                )
+            })
             .cloned();
         let captured = if let Some(captured) = captured {
             self.metrics.cache_hits = self
@@ -577,7 +603,8 @@ impl Builder<'_> {
                 .ok_or(Error::Capacity)?;
             captured
         } else {
-            let source_target = self.renderer.source_target(frame)?;
+            let mut source_target = self.renderer.source_target(frame)?;
+            source_target.mask_depth = target.mask_depth.checked_add(1).ok_or(Error::Capacity)?;
             self.depth += 1;
             let recording = self
                 .node(
@@ -602,13 +629,63 @@ impl Builder<'_> {
                 .await?;
             let source = self.renderer.capture(&prepared, None).await?;
             self.charge(source.capture_bytes())?;
+            let shadow_source =
+                if let Some((_, CompositionEffectValue::DropShadowSource { source: mask, .. })) =
+                    effect
+                {
+                    let mask_recording =
+                        if let crate::composition::visual::ShadowOpacitySource::Visual(mask) =
+                            mask.as_ref()
+                        {
+                            self.depth += 1;
+                            let result = self
+                                .node(
+                                    mask,
+                                    frame.source_to_raster(),
+                                    1.0,
+                                    source_target,
+                                    None,
+                                    Vec::new(),
+                                    frame.suppress_cached_cleartype(),
+                                    true,
+                                    false,
+                                    false,
+                                    depth + 1,
+                                )
+                                .await;
+                            self.depth -= 1;
+                            Arc::new(result?)
+                        } else {
+                            Arc::new(
+                                mask.recording()?
+                                    .ok_or(Error::ResourceDomain)?
+                                    .place_source_capture(frame)?,
+                            )
+                        };
+                    let prepared = self
+                        .renderer
+                        .prepare_target_scene_inner(&mask_recording, source_target)
+                        .await?;
+                    let capture = self.renderer.capture(&prepared, None).await?;
+                    self.charge(capture.capture_bytes())?;
+                    self.metrics.mask_captures = self
+                        .metrics
+                        .mask_captures
+                        .checked_add(1)
+                        .ok_or(Error::Capacity)?;
+                    Some((mask_recording, capture))
+                } else {
+                    None
+                };
             let computed = if let Some((_, value)) = effect {
                 let mut compute = std::mem::take(&mut self.renderer.visuals.compute);
                 let result = compute
                     .apply(
                         &self.renderer.device,
                         &self.renderer.queue,
-                        source.image(),
+                        shadow_source
+                            .as_ref()
+                            .map_or(source.image(), |(_, capture)| capture.image()),
                         value,
                         target.dpi_scale,
                     )
@@ -636,10 +713,12 @@ impl Builder<'_> {
                 identity: node.identity().clone(),
                 versions: node.versions(),
                 frame,
+                mask_depth: source_target.mask_depth,
                 effect: effect.cloned(),
                 recording,
                 pages: retain_pages(node),
                 source,
+                shadow_source,
                 computed,
             })
         };
@@ -680,6 +759,11 @@ impl Builder<'_> {
         draw.opacity = final_opacity;
         match effect.map(|v| &v.1) {
             Some(CompositionEffectValue::DropShadow {
+                offset,
+                draw_source,
+                ..
+            })
+            | Some(CompositionEffectValue::DropShadowSource {
                 offset,
                 draw_source,
                 ..
@@ -805,17 +889,18 @@ impl Builder<'_> {
                 masks = vec![mask];
                 count += 1;
             } else if let Some(brush) = node.opacity_mask() {
-                let analytic = if self.depth <= 1 && masks.is_empty() {
-                    solid_mask(
-                        brush,
-                        bounds,
-                        global,
-                        target,
-                        self.renderer.device.limits().max_texture_dimension_2d,
-                    )?
-                } else {
-                    None
-                };
+                let analytic =
+                    if target.mask_depth <= 1 && masks.is_empty() && brush.material().is_some() {
+                        solid_mask(
+                            brush.material().ok_or(Error::ResourceDomain)?,
+                            bounds,
+                            global,
+                            target,
+                            self.renderer.device.limits().max_texture_dimension_2d,
+                        )?
+                    } else {
+                        None
+                    };
                 let mask = if let Some(mask) = analytic {
                     mask
                 } else {
@@ -823,13 +908,15 @@ impl Builder<'_> {
                     for mask in &masks {
                         source.push_mask(mask.clone())?;
                     }
-                    let mut rectangle = AnalyticPrimitive::rectangle(bounds, [1.0; 4]);
-                    rectangle.transform = affine(global)?;
-                    source.draw_material_analytic(
-                        rectangle,
-                        MaterialPaint::new(brush.clone()),
-                        [bounds[0] + bounds[2] * 0.5, bounds[1] + bounds[3] * 0.5],
-                    )?;
+                    let mut brush_scene = Scene::default();
+                    brush.record(&mut brush_scene, bounds)?;
+                    source.append(&brush_scene.place_visual_page(
+                        global,
+                        target.dpi_scale,
+                        suppress,
+                        1.0,
+                        true,
+                    )?)?;
                     for _ in &masks {
                         source.pop_scope()?;
                     }
@@ -945,6 +1032,9 @@ fn preflight(node: &VisualSnapshot, device: &wgpu::Device, depth: u16) -> Result
     node.page()
         .scene()
         .preflight_source_capture_devices(device)?;
+    if let Some(brush) = node.opacity_mask() {
+        brush.preflight_device(device)?;
+    }
     if let Some(picture) = &node.properties().composite.opacity_mask_picture {
         picture.preflight_source_capture_devices(device)?;
     }
@@ -960,6 +1050,7 @@ fn preflight(node: &VisualSnapshot, device: &wgpu::Device, depth: u16) -> Result
                 }
             }
             CompositionEffectValue::DropShadow { offset, color, .. }
+            | CompositionEffectValue::DropShadowSource { offset, color, .. }
                 if offset.iter().chain(color).any(|v| !v.is_finite()) =>
             {
                 return Err(Error::InvalidInput);
@@ -968,6 +1059,22 @@ fn preflight(node: &VisualSnapshot, device: &wgpu::Device, depth: u16) -> Result
         }
     }
     let mut count = 1u32;
+    if let Some((_, CompositionEffectValue::DropShadowSource { source, .. })) = node.effect() {
+        match source.as_ref() {
+            crate::composition::visual::ShadowOpacitySource::Visual(mask) => {
+                count = count
+                    .checked_add(preflight(mask, device, depth + 1)?)
+                    .ok_or(Error::Capacity)?;
+            }
+            crate::composition::visual::ShadowOpacitySource::Picture(scene) => {
+                scene.preflight_source_capture_devices(device)?
+            }
+            crate::composition::visual::ShadowOpacitySource::Brush { brush, .. } => {
+                brush.preflight_device(device)?;
+                source.recording()?;
+            }
+        }
+    }
     for child in node.children() {
         count = count
             .checked_add(preflight(child, device, depth + 1)?)

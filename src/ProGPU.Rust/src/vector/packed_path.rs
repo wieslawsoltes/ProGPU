@@ -10,6 +10,54 @@ use wide::f32x4 as V;
 mod bounds;
 use bounds::Bounds;
 
+impl PathGeometry {
+    /// Original SKPath derivative/arc extent, including move-only figures. This
+    /// does not initialize a GPU to reconstruct an unresolved Boolean result.
+    pub fn tight_bounds(&self) -> Result<[f32; 4], Error> {
+        if let Some(deferred) = &self.deferred {
+            if !deferred.has_exact_bounds() {
+                return Err(Error::UnsupportedExecution);
+            }
+            return Ok(self.bounds().unwrap_or([0.0; 4]));
+        }
+        let mut bounds = Bounds::default();
+        for figure in &self.figures {
+            let mut current = figure.start;
+            bounds.include(current);
+            for segment in &figure.segments {
+                match segment.kind {
+                    PathSegmentKind::Line(p) => bounds.include(p),
+                    PathSegmentKind::Quadratic([control, p]) => {
+                        bounds.quadratic(current, control, p);
+                        bounds.include(p);
+                    }
+                    PathSegmentKind::Cubic([a, b, p]) => {
+                        bounds.cubic(current, a, b, p);
+                        bounds.include(p);
+                    }
+                    PathSegmentKind::Arc(arc) => {
+                        if let Some([left, top, right, bottom]) = arc.bounds(current) {
+                            bounds.include([left, top]);
+                            bounds.include([right, bottom]);
+                        } else {
+                            bounds.include(arc.end);
+                        }
+                    }
+                    // Original managed conics use their separate retained render
+                    // spans/metadata. Native rational curves cannot masquerade as
+                    // that source inventory or inherit polynomial extrema.
+                    PathSegmentKind::RationalQuadratic { .. }
+                    | PathSegmentKind::RationalCubic { .. } => {
+                        return Err(Error::UnsupportedExecution);
+                    }
+                }
+                current = segment.end();
+            }
+        }
+        Ok(bounds.rect())
+    }
+}
+
 /// Original common path verb inventory, retaining every actual control point.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PackedPathCommand {

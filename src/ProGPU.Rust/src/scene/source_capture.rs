@@ -81,6 +81,8 @@ fn place_scene(
     for command in &source.commands {
         let placed = match command {
             Command::Empty => Command::Empty,
+            Command::PushBlend(blend) => Command::PushBlend(*blend),
+            Command::PopBlend => Command::PopBlend,
             Command::CachedPicture(draw) => {
                 let mut placed = draw.as_ref().clone();
                 placed.transform = draw.transform * transform;
@@ -116,6 +118,11 @@ fn place_scene(
                 let edges = place_edges(axis.bounds_edges(), transform)?;
                 let child = place_scene(axis.scene(), frame, depth + 1, inverse)?;
                 Command::AxisClip(Box::new(axis.placed(Arc::new(child), edges)))
+            }
+            Command::VertexMesh(draw) => {
+                let mut placed = draw.as_ref().clone();
+                placed.transform = draw.transform * transform;
+                Command::VertexMesh(Box::new(placed))
             }
             Command::Analytic(primitive) => {
                 Command::Analytic(place_analytic(*primitive, transform)?)
@@ -293,6 +300,8 @@ fn place_mask(mask: &Mask, transform: Matrix4) -> Result<Mask, Error> {
             }
             return Mask::axis_clip_edges(place_edges(source.edges(), transform)?);
         }
+        Mask::Source(source) => *source = source.placed(transform)?,
+        Mask::Geometry(source) => source.transform = compose(source.transform, transform)?,
         Mask::Path(source) => source.transform = compose(source.transform, transform)?,
         Mask::Analytic(source) => source.transform = compose(source.transform, transform)?,
         Mask::Coverage(source) => source.transform = compose(source.transform, transform)?,
@@ -545,12 +554,15 @@ fn preflight_devices(
                 preflight_devices(axis.scene(), device, depth + 1, owned_depth)?
             }
             Command::PushMask(mask) | Command::PushMaskDifference(mask) => match mask.as_ref() {
+                Mask::Source(mask) => {
+                    preflight_devices(mask.scene(), device, depth + 1, owned_depth)?
+                }
                 Mask::Coverage(mask) => extent(mask.image.size())?,
                 Mask::Texture(mask) => image(&mask.source)?,
                 Mask::RenderedTexture(_) | Mask::FrameAnalytic(_) => {
                     return Err(Error::UnsupportedExecution);
                 }
-                Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::Path(_) => {}
+                Mask::Analytic(_) | Mask::AxisClipEdges(_) | Mask::Path(_) | Mask::Geometry(_) => {}
             },
             Command::Image(draw, _, _, operation) => {
                 image(&draw.image)?;
@@ -688,6 +700,7 @@ impl Scene {
 fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
     for command in &mut scene.commands {
         match command {
+            Command::VertexMesh(v) => v.semantic_opacity *= opacity,
             Command::Analytic(v) => v.color[3] *= opacity,
             Command::Path(v) => v.color[3] *= opacity,
             Command::MaterialAnalytic(_, p)
@@ -726,6 +739,8 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             | Command::HintedGlyphPaint(_) => return Err(Error::UnsupportedExecution),
             Command::Empty
             | Command::Clear(_)
+            | Command::PushBlend(_)
+            | Command::PopBlend
             | Command::PopScope
             | Command::PushClip(_)
             | Command::PushClipEdges(_)
@@ -812,11 +827,39 @@ impl Scene {
     pub(crate) fn visual_page_cacheable(&self) -> bool {
         self.commands.iter().all(|command| match command {
             Command::CachedPicture(_) => false,
+            Command::PushMask(mask) | Command::PushMaskDifference(mask) => match mask.as_ref() {
+                Mask::Source(source) => source.scene().visual_page_cacheable(),
+                _ => true,
+            },
             #[cfg(feature = "gpu")]
             Command::OwnedShaderEffect(_) => false,
             Command::Layer(layer) => layer.scene.visual_page_cacheable(),
             Command::AxisClip(axis) => axis.scene().visual_page_cacheable(),
             _ => true,
         })
+    }
+}
+
+impl Scene {
+    pub(crate) fn source_mask_depth(&self) -> Result<u8, Error> {
+        if self.scope_depth != 0 || self.inherited_clip.is_some() {
+            return Err(Error::InvalidInput);
+        }
+        let mut depth = 0u8;
+        for command in &self.commands {
+            let next = match command {
+                Command::PushMask(mask) | Command::PushMaskDifference(mask) => {
+                    match mask.as_ref() {
+                        Mask::Source(source) => source.depth(),
+                        _ => 0,
+                    }
+                }
+                Command::Layer(layer) => layer.scene.source_mask_depth()?,
+                Command::AxisClip(axis) => axis.scene().source_mask_depth()?,
+                _ => 0,
+            };
+            depth = depth.max(next);
+        }
+        Ok(depth)
     }
 }
