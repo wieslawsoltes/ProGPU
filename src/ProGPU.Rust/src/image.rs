@@ -48,6 +48,7 @@ pub use atlas::ImageAtlasTransform;
 /// Shared original four-coefficient transform used by atlas and text-blob sources.
 pub type RotationScaleMatrix = ImageAtlasTransform;
 pub use lattice::{ImageLattice, ImageLatticeRectType};
+pub(crate) use patch_batch::apply_sampling;
 pub use patch_batch::{ImageBatchSource, ImagePatchBatch, ImagePatchPolicy};
 pub use vertices::{ImageBrush, TileImageDraw, TileImageSampling};
 #[cfg(feature = "gpu")]
@@ -58,8 +59,9 @@ pub use gpu::GpuImage;
 mod texture;
 #[cfg(feature = "gpu")]
 pub use texture::{
-    ImageCachingHint, ImageContext, ImageResourceError, PictureCaptureSession, TextureImage,
-    TextureOwnership, TextureRasterView, TextureReadback, TextureReadbackWork, TextureRelease,
+    AppliedImageFilter, ImageCachingHint, ImageContext, ImageResourceError, PictureCaptureSession,
+    TextureImage, TextureOwnership, TextureRasterView, TextureReadback, TextureReadbackWork,
+    TextureRelease,
 };
 #[cfg(feature = "gpu")]
 mod surface;

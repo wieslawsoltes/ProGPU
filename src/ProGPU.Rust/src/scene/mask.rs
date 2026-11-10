@@ -227,6 +227,7 @@ impl Scene {
                     || matches!(
                         command,
                         Command::VertexMesh(_)
+                            | Command::ArchiveVector(_)
                             | Command::Analytic(_)
                             | Command::Path(_)
                             | Command::MaterialAnalytic(..)

@@ -11,9 +11,11 @@ fn bounded(r: [f32; 4], size: [u32; 2]) -> bool {
 }
 pub(super) fn validate(draw: &ImageDraw) -> Result<(), Error> {
     let anisotropy = draw.max_anisotropy.max(1);
-    let managed = draw.patches.is_some() && draw.patch_policy != ImagePatchPolicy::Native;
+    let managed_image = draw.patch_policy == ImagePatchPolicy::ManagedImage;
+    let managed =
+        managed_image || (draw.patches.is_some() && draw.patch_policy != ImagePatchPolicy::Native);
     if draw.image.size().iter().any(|v| *v == 0 || *v > 16384)
-        || !rect(draw.source, true)
+        || !rect(draw.source, !managed_image)
         || !rect(draw.destination, !managed)
         || !finite(draw.transform)
         || !draw.opacity.is_finite()
@@ -28,6 +30,7 @@ pub(super) fn validate(draw: &ImageDraw) -> Result<(), Error> {
                 .cubic
                 .iter()
                 .any(|v| !v.is_finite() || (!managed && v.abs() > 16.0)))
+        || (managed_image && (draw.patches.is_some() || draw.quad.is_some()))
     {
         return Err(Error::InvalidInput);
     }
@@ -150,7 +153,11 @@ pub(super) fn append(
         ];
         let mut kind = 0.0;
         let mut blend = draw.address[0] as u8 as f32;
-        let mut opacity = draw.address[1] as u8 as f32;
+        let mut opacity = if draw.patch_policy == ImagePatchPolicy::ManagedImage {
+            1.0
+        } else {
+            draw.address[1] as u8 as f32
+        };
         if let Some(patch) = patch {
             // Native patch resolver has independent defaults, including sampled
             // patch V metadata 1. Do not repair it to manufacture source parity.

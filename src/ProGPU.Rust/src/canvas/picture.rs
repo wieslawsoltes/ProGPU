@@ -15,6 +15,11 @@ struct Data {
 pub struct RecordedPicture(Arc<Data>);
 impl RecordedPicture {
     fn new(picture: CanvasPicture, bounds: [f32; 4]) -> Self {
+        let bounds = if picture.is_empty() { [0.0; 4] } else { bounds };
+        Self::from_archive(picture, bounds)
+    }
+    /// Decoded archives retain their original cull bounds even when empty.
+    pub(crate) fn from_archive(picture: CanvasPicture, bounds: [f32; 4]) -> Self {
         let id = loop {
             let id = NEXT_PICTURE_ID
                 .fetch_add(1, Ordering::Relaxed)
@@ -23,7 +28,6 @@ impl RecordedPicture {
                 break id;
             }
         };
-        let bounds = if picture.is_empty() { [0.0; 4] } else { bounds };
         Self(Arc::new(Data {
             picture,
             bounds,
@@ -142,6 +146,10 @@ impl CanvasPicture {
                         stack.push(picture);
                         0
                     }
+                    Command::Archive { picture, .. } if include_nested => picture
+                        .approximate_operation_count(true)
+                        .unwrap_or(i32::MAX)
+                        as usize,
                     Command::Leaf(scene) => scene.recorded_operation_count(),
                     _ => 1,
                 });
@@ -166,6 +174,9 @@ impl CanvasPicture {
                     Command::Picture { picture, .. } => {
                         stack.push(picture);
                         0
+                    }
+                    Command::Archive { picture, .. } => {
+                        picture.approximate_bytes_used().unwrap_or(i32::MAX) as usize
                     }
                     Command::Leaf(scene) => scene.recorded_storage_bytes(),
                     Command::ImageBatch { layout, .. } => std::mem::size_of_val(layout.patches()),

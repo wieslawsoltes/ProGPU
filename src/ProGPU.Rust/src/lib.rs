@@ -14,6 +14,7 @@ pub mod image_filter;
 pub mod mask;
 pub mod paint;
 pub mod path;
+pub mod picture_archive;
 #[cfg(feature = "gpu")]
 pub mod renderer;
 pub mod runtime_effect;

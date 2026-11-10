@@ -231,7 +231,7 @@ impl Canvas {
             paint,
         )
     }
-    /// Original deprecated quality overload, retaining unknown-quality nearest.
+    /// Original deprecated paint-quality overload rejects unknown quality values.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_atlas_legacy(
         &mut self,
@@ -249,7 +249,7 @@ impl Canvas {
             transforms,
             colors,
             blend,
-            RasterSampling::from_quality(paint.map_or(0, |p| p.filter_quality)),
+            super::image_api::legacy(paint)?,
             cull,
             paint,
         )

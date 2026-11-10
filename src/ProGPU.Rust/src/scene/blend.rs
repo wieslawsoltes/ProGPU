@@ -140,6 +140,7 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
         | Command::Clear(_)
         | Command::Analytic(_)
         | Command::VertexMesh(_)
+        | Command::ArchiveVector(_)
         | Command::MaterialAnalytic(..)
         | Command::Path(_)
         | Command::MaterialPath(..)

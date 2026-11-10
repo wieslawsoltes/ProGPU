@@ -120,6 +120,16 @@ fn ordinary(scene: &mut Scene, command: &Command, size: [f32; 2]) -> Result<(), 
             }
             image(scene, draw.clone(), paint.as_deref())
         }
+        Command::SampledImage(draw) => {
+            if draw
+                .paint
+                .as_ref()
+                .is_some_and(|paint| paint.color_filter.is_some())
+            {
+                return Err(Error::UnsupportedExecution);
+            }
+            image(scene, draw.cpu_draw()?, draw.paint.as_deref())
+        }
         Command::ImageBatch {
             source,
             layout,
@@ -167,6 +177,17 @@ fn ordinary(scene: &mut Scene, command: &Command, size: [f32; 2]) -> Result<(), 
             let mut draw = layout.image_draw(source, *sampling)?;
             draw.transform = matrix.affine()?;
             image(scene, draw, paint.as_deref())
+        }
+        Command::Archive {
+            picture,
+            matrix,
+            opacity,
+            options,
+        } => {
+            let child = picture
+                .to_scene_with(options.placed(matrix.matrix4(), *opacity))
+                .map_err(crate::picture_archive::drawing_error)?;
+            scene.append(&child)
         }
         Command::Leaf(leaf) => scene.append(leaf),
         Command::Layer(_) | Command::Picture { .. } => Err(Error::UnsupportedExecution),

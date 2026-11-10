@@ -165,6 +165,7 @@ fn place_scene(
                 placed.validate()?;
                 Command::BackdropMaterial(Box::new(placed))
             }
+            Command::ArchiveVector(draw) => Command::ArchiveVector(Arc::new(draw.placed(transform)?)),
             Command::VertexMesh(draw) => {
                 let mut placed = draw.as_ref().clone();
                 placed.transform = draw.transform * transform;
@@ -617,6 +618,7 @@ fn preflight_devices(
                     image(pattern)?;
                 }
             }
+            Command::ArchiveVector(draw) => draw.validate()?,
             Command::NativeDesignVector(draw) => {
                 draw.validate()
                     .map_err(native_design::native_design_error)?;
@@ -753,6 +755,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
         match command {
             #[cfg(feature = "gpu")]
             Command::BackdropMaterial(v) => v.opacity *= opacity,
+            Command::ArchiveVector(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::VertexMesh(v) => v.semantic_opacity *= opacity,
             Command::Analytic(v) => v.color[3] *= opacity,
             Command::Path(v) => v.color[3] *= opacity,

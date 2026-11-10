@@ -32,6 +32,7 @@ pub use axis_clip::AxisClipDraw;
 #[cfg(feature = "gpu")]
 pub(crate) use axis_clip::{GroupOutput, GroupRef};
 mod blend;
+mod archive_vector;
 mod clear;
 mod color_filter;
 mod image_filter;
@@ -197,7 +198,8 @@ impl MaterialPaint {
 }
 
 #[derive(Clone, Debug)]
-enum Command {
+pub(crate) enum Command {
+    ArchiveVector(Arc<crate::picture_archive::ArchiveVectorDraw>),
     CanvasTextPath(Arc<canvas_text::CanvasTextPath>),
     NativeDesignAtlas(Arc<crate::text::native_atlas::NativeDesignAtlasDraw>),
     NativeAtlasLease(Arc<crate::text::native_atlas::NativeAtlasPlan>),
@@ -624,6 +626,7 @@ impl Scene {
                     | Command::Stroke(_)
                     | Command::PlacedStroke(..)
                     | Command::VertexMesh(_)
+                | Command::ArchiveVector(_)
             )
         });
         let mut rasters = Vec::new();
@@ -646,6 +649,7 @@ impl Scene {
                 | Command::PopScope
                 | Command::Analytic(_)
                 | Command::VertexMesh(_)
+                | Command::ArchiveVector(_)
                 | Command::MaterialAnalytic(..)
                 | Command::Stroke(_)
                 | Command::PlacedStroke(..)
@@ -759,6 +763,9 @@ impl Scene {
             blend::admit_command(command, active_blend)?;
             let brush_index = match command {
                 Command::VertexMesh(draw) => materials.register(Some(&draw.brush), 1.0)?,
+                Command::ArchiveVector(draw) if draw.is_renderable() => {
+                    materials.register(Some(&draw.brush()?), draw.opacity())?
+                }
                 Command::MaterialAnalytic(_, paint)
                 | Command::MaterialPath(_, paint)
                 | Command::TextPath(_, paint, _) => {
@@ -1045,6 +1052,7 @@ impl Scene {
                     draw.append(&mut mesh, brush_index)?
                 }
                 Command::VertexMesh(draw) => draw.append(&mut mesh, brush_index)?,
+                Command::ArchiveVector(draw) => draw.append(&mut mesh, brush_index)?,
                 Command::Analytic(primitive) | Command::MaterialAnalytic(primitive, _) => {
                     let [_, minimum] = primitive.transform.scales()?;
                     // Original native analytic execution expands in the local

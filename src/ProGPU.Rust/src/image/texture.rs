@@ -12,6 +12,8 @@ use std::{
     },
 };
 mod compatibility;
+mod filter_api;
+pub use filter_api::AppliedImageFilter;
 mod picture;
 pub use picture::PictureCaptureSession;
 mod readback;

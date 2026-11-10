@@ -6,6 +6,7 @@ use crate::image_filter::{
     FilterPlanRequest, FilterTransform, ImageFilter, ImageFilterPlan, ImageFilteredImageDraw,
 };
 use std::{future::Future, pin::Pin};
+mod image_api;
 mod texture_batch;
 type Result<T> = std::result::Result<T, ImageResourceError>;
 impl CanvasPicture {
@@ -84,6 +85,7 @@ impl CanvasPicture {
                         admit_output_paint(paint, context)?;
                     }
                 }
+                Command::SampledImage(draw) => image_api::preflight(draw, context)?,
                 Command::ImageBatch {
                     source,
                     layout,
@@ -124,6 +126,17 @@ impl CanvasPicture {
                     matrix.affine()?;
                     admit_blend(*blend)?;
                     picture.preflight(context, depth + 1, count)?;
+                }
+                Command::Archive {
+                    picture,
+                    matrix,
+                    opacity,
+                    options,
+                } => {
+                    let scene = picture
+                        .to_scene_with(options.placed(matrix.matrix4(), *opacity))
+                        .map_err(crate::picture_archive::drawing_error)?;
+                    scene.preflight_source_capture_devices(context.device())?;
                 }
                 Command::Leaf(scene) => scene.preflight_source_capture_devices(context.device())?,
                 Command::Layer(layer) => {
@@ -355,6 +368,9 @@ impl CanvasPicture {
                             self.size,
                         )
                         .await?
+                    }
+                    Command::SampledImage(draw) => {
+                        image_api::prepare(&mut scene, draw, self.size, context, captures).await?;
                     }
                     Command::ImageBatch {
                         source,

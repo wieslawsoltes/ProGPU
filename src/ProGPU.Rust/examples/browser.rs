@@ -2,6 +2,9 @@
 //! This example uses the same production renderer and shared scene as winit.
 
 #[cfg(target_arch = "wasm32")]
+#[path = "support/archive_scene.rs"]
+mod archive_sample;
+#[cfg(target_arch = "wasm32")]
 #[path = "support/axis_clip_scene.rs"]
 mod axis_clip_sample;
 #[path = "support/backdrop_blend_scene.rs"]
@@ -1727,6 +1730,7 @@ mod web {
         path_effect_scene: bool,
         mesh_scene: bool,
         backdrop_blend_scene: bool,
+        archive_scene: bool,
         visual_scene: bool,
         materialized_mask_sources: progpu::mask::MaskCompositionMetrics,
         axis_clip_metrics: super::axis_clip_sample::GalleryMetrics,
@@ -1824,6 +1828,7 @@ mod web {
             path_effect_scene: false,
             mesh_scene: false,
             backdrop_blend_scene: false,
+            archive_scene: false,
             visual_scene: false,
             materialized_mask_sources: Default::default(),
             axis_clip_metrics: Default::default(),
@@ -1876,6 +1881,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.text_font = None;
             self.image_scene = false;
@@ -1914,6 +1920,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.material_scene = false;
             self.text_font = None;
@@ -1941,6 +1948,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.image_scene = false;
             self.material_scene = false;
@@ -1967,6 +1975,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.mask_scene = false;
             self.image_scene = false;
@@ -1993,6 +2002,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.effect_scene = false;
             self.mask_scene = false;
@@ -2019,6 +2029,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.layer_scene = false;
             self.effect_scene = false;
@@ -2045,6 +2056,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.clear_scene = false;
             self.layer_scene = false;
@@ -2071,6 +2083,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.axis_clip_scene = false;
             self.clear_scene = false;
@@ -2097,6 +2110,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.retained_aa_scene = false;
             self.axis_clip_scene = false;
@@ -2123,6 +2137,7 @@ mod web {
             self.path_effect_scene = false;
             self.mesh_scene = false;
             self.backdrop_blend_scene = false;
+            self.archive_scene = false;
             self.visual_scene = false;
             self.image_effect_scene = false;
             self.retained_aa_scene = false;
@@ -2175,6 +2190,12 @@ mod web {
         pub fn select_visual_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.visual_scene = enabled;
+            Ok(())
+        }
+        /// Select complete owned picture archive transport and retained replay.
+        pub fn select_archive_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.archive_scene = enabled;
             Ok(())
         }
         /// Select ordered host backdrops and the original family-specific blend gallery.
@@ -2305,6 +2326,12 @@ mod web {
                 (
                     super::image_filter_sample::image_filter_scene()
                         .await
+                        .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.archive_scene {
+                (
+                    super::archive_sample::archive_scene(self.text_font.clone(), dpi)
                         .map_err(error)?,
                     Default::default(),
                 )

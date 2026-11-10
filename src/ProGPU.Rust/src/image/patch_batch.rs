@@ -11,6 +11,9 @@ pub enum ImagePatchPolicy {
     ManagedCanvas,
     /// Same source admission with the atlas's explicit Matrix3x2 sprite step.
     ManagedAtlas,
+    /// Original ordinary Canvas texture command, retaining source fallback UVs,
+    /// signed destination extent and unit homogeneous/patch-opacity metadata.
+    ManagedImage,
 }
 /// Original complete row/sprite ordered patch batch, shared without per-cell draws.
 #[derive(Clone, Debug)]

@@ -1,16 +1,18 @@
 //! Original retained canvas state and immutable command generations.
 use crate::{
-    Error, Scene,
+    Error,
     geometry::Affine,
     image::{ImageDraw, ImageSampling, ImageSource},
     paint::{Paint, PaintSnapshot, PaintStyle},
-    scene::{LayerBlend, PathSampling},
+    scene::{LayerBlend, PathSampling, Scene},
     vector::{Matrix4, PathEffectKind, PathEffectSource, PathGeometry, Region, RoundRect},
 };
 use std::sync::Arc;
+mod archive;
 mod clip;
 mod drawable;
 mod drawing;
+mod image_api;
 mod text;
 pub use drawable::{CanvasDrawable, CanvasDrawableSource, DrawableSnapshot};
 mod matrix;
@@ -58,11 +60,11 @@ pub struct SaveLayer {
     pub flags: SaveLayerFlags,
 }
 #[derive(Clone, Debug)]
-struct Clip {
-    geometry: Arc<PathGeometry>,
-    matrix: CanvasMatrix,
-    operation: CanvasClipOperation,
-    rect: Option<[f32; 4]>,
+pub(crate) struct Clip {
+    pub(crate) geometry: Arc<PathGeometry>,
+    pub(crate) matrix: CanvasMatrix,
+    pub(crate) operation: CanvasClipOperation,
+    pub(crate) rect: Option<[f32; 4]>,
 }
 #[derive(Clone, Copy, Debug)]
 struct ClipState {
@@ -75,7 +77,7 @@ impl ClipState {
     }
 }
 #[derive(Clone, Debug)]
-enum Command {
+pub(crate) enum Command {
     DeviceColor {
         color: [f32; 4],
         blend: LayerBlend,
@@ -102,6 +104,7 @@ enum Command {
         draw: ImageDraw,
         paint: Option<PaintSnapshot>,
     },
+    SampledImage(image_api::SampledImage),
     ImageBatch {
         source: crate::image::ImageBatchSource,
         layout: crate::image::ImagePatchBatch,
@@ -124,17 +127,23 @@ enum Command {
         opacity: f32,
         blend: LayerBlend,
     },
+    Archive {
+        picture: Arc<crate::picture_archive::ArchivePicture>,
+        matrix: CanvasMatrix,
+        opacity: f32,
+        options: crate::picture_archive::ArchiveReplayOptions,
+    },
     Leaf(Scene),
     Layer(Arc<Layer>),
 }
 #[derive(Clone, Debug)]
-struct Layer {
-    source: CanvasPicture,
-    prior: Option<CanvasPicture>,
-    clips: Arc<[Clip]>,
-    description: SaveLayer,
-    bounds: [f32; 4],
-    matrix: CanvasMatrix,
+pub(crate) struct Layer {
+    pub(crate) source: CanvasPicture,
+    pub(crate) prior: Option<CanvasPicture>,
+    pub(crate) clips: Arc<[Clip]>,
+    pub(crate) description: SaveLayer,
+    pub(crate) bounds: [f32; 4],
+    pub(crate) matrix: CanvasMatrix,
 }
 struct LayerFrame {
     parent: Vec<Command>,
