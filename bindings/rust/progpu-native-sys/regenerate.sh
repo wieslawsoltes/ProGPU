@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regenerates src/progpu_native.rs, src/webgpu.rs, src/scene_builder.rs and src/font.rs with bindgen (cargo install
+# Regenerates src/progpu_native.rs, src/webgpu.rs, src/scene_builder.rs, src/font.rs and src/image.rs with bindgen (cargo install
 # bindgen-cli): plain extern declarations of the statically linked engine and wgpu-native. headers/wgpu.h
 # is that of FerroUI/wgpu-native, branch progpu/wgpu-30 (the native-object interop); progpu_native_dawn.h
 # (which includes progpu_native.h) is the engine of the standard webgpu.h with a procedure resolver.
@@ -21,3 +21,5 @@ bindgen native/progpu_native_font_c.h --allowlist-function 'progpu_native_font_(
   --allowlist-type 'progpu_native_font_(catalog|face|style|face_info|face_metrics|glyph_bounds|outline_growth)' \
   --allowlist-var 'PROGPU_NATIVE_FONT_(SLANT|OUTLINE)_.*' --no-recursive-allowlist \
   --raw-line 'use crate::progpu::*;' --no-doc-comments --use-core -o src/font.rs -- -I"$INCLUDE" -Inative
+bindgen native/progpu_native_image_c.h --allowlist-function 'progpu_native_image_.*' \
+  --allowlist-var 'PROGPU_NATIVE_IMAGE_.*' --no-doc-comments --use-core -o src/image.rs -- -Inative

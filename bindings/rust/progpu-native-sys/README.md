@@ -40,3 +40,10 @@ compiled by the build script against the engine's static text library):
 
 Shaping is `progpu_native_text_context_*` of the engine's C ABI (the `progpu` module), over the
 bytes of a face. `tests/font.rs` covers both.
+
+## Images
+
+The `image` module is a C ABI over the engine's own image module
+(`native/progpu_native_image_c.h`): the size of a PNG and its pixels as RGBA (eight bits a
+channel, alpha not premultiplied), with every colour type, bit depth and interlace method of PNG.
+PNG is the only format the image module reads. `tests/image.rs` covers it.

@@ -30,6 +30,12 @@ pub mod font {
     include!("font.rs");
 }
 
+/// The C ABI over the engine's image module (`native/progpu_native_image_c.h`): the size of a PNG
+/// and its pixels as RGBA, linked statically.
+pub mod image {
+    include!("image.rs");
+}
+
 /// The wgpu-native WebGPU C ABI, with the native-object interop of the fork.
 pub mod webgpu {
     include!("webgpu.rs");

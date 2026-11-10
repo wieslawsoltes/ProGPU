@@ -1,7 +1,8 @@
 //! Builds the ProGPU native engine for the target from the ProGPU sources and links it statically:
 //! the renderer archive (`progpu_native_static`, the engine without a WebGPU library: its WebGPU
 //! calls are linked to the wgpu-native crate, a dependency of this crate) with the archives it is
-//! made of, and the C ABIs of `native/` over the retained scene builder and the font stack.
+//! made of, and the C ABIs of `native/` over the retained scene builder, the font stack and the
+//! image module.
 //!
 //! The sources are `PROGPU_SOURCE_DIR`, or the ProGPU checkout this crate is part of
 //! (`bindings/rust/progpu-native-sys`, as in a git submodule of ProGPU). The engine is built with
@@ -71,12 +72,13 @@ fn main() {
     compile_native_abis(&include, &sdk);
 }
 
-/// Compiles the C ABIs of `native/` (over the retained scene builder and over the font stack) and
+/// Compiles the C ABIs of `native/` (over the retained scene builder, the font stack and the image
+/// module) and
 /// links them with the static archives of the SDK.
 fn compile_native_abis(include: &Path, sdk: &Path) {
     let mut build = cc::Build::new();
     build.cpp(true).std("c++20").include(include).include("native");
-    for name in ["progpu_native_scene_builder_c", "progpu_native_font_c"] {
+    for name in ["progpu_native_scene_builder_c", "progpu_native_font_c", "progpu_native_image_c"] {
         println!("cargo:rerun-if-changed=native/{name}.cpp");
         println!("cargo:rerun-if-changed=native/{name}.h");
         build.file(format!("native/{name}.cpp"));

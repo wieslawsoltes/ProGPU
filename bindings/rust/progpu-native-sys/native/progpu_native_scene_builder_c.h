@@ -54,6 +54,10 @@ int progpu_native_scene_builder_add_axis_aligned_clip_mask(progpu_native_scene_b
     progpu_native_image_rect bounds, uint32_t* resource_index);
 int progpu_native_scene_builder_add_rounded_rectangle_mask(progpu_native_scene_builder* builder,
     const progpu_native_scene_layer_mask* mask, uint32_t* resource_index);
+/* Two to PROGPU_NATIVE_SCENE_MAX_ANALYTIC_MASKS rounded rectangle masks that all apply: the mask of
+   clips nested in each other, evaluated per draw without a mask texture. */
+int progpu_native_scene_builder_add_analytic_mask_chain(progpu_native_scene_builder* builder,
+    const progpu_native_scene_layer_mask* masks, size_t mask_count, uint32_t* resource_index);
 int progpu_native_scene_builder_add_vector_clip_mask(progpu_native_scene_builder* builder,
     const progpu_native_scene_clip_path* paths, size_t path_count, const progpu_native_path_segment* segments,
     size_t segment_count, float opacity, uint32_t* resource_index);
