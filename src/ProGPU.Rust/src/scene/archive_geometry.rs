@@ -18,7 +18,7 @@ impl Scene {
         if !self
             .commands
             .iter()
-            .any(|c| matches!(c, Command::ArchiveGeometry(_)))
+            .any(|c| matches!(late_camera::split(c).0, Command::ArchiveGeometry(_)))
         {
             return Ok(None);
         }
@@ -29,13 +29,20 @@ impl Scene {
             .try_reserve(self.commands.len())
             .map_err(|_| Error::Capacity)?;
         for command in &self.commands {
-            if let Command::ArchiveGeometry(draw) = command {
-                let (resolved, final_target) = draw.resolve(dpi, offscreen)?;
+            let (inner, camera) = late_camera::split(command);
+            if let Command::ArchiveGeometry(draw) = inner {
+                let (resolved, final_target) = if let Some(camera) = camera {
+                    draw.resolve_with_camera(dpi, offscreen, Some(camera))?
+                } else {
+                    draw.resolve(dpi, offscreen)?
+                };
                 candidate
                     .commands
                     .try_reserve(resolved.commands.len().max(1))
                     .map_err(|_| Error::Capacity)?;
-                if draw.compile_only() {
+                if let Some(camera) = camera {
+                    candidate.append_archive_camera(resolved, camera)?;
+                } else if draw.compile_only() {
                     // The original explicit extension records compiled vectors,
                     // advances the pending range, then invokes a no-op Render.
                     if resolved.commands.is_empty() {

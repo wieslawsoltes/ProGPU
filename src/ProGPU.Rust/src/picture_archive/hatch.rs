@@ -191,7 +191,9 @@ impl HatchBatch {
     }
 }
 
-fn boundary(command: &ArchiveCommand) -> Result<(Vec<GpuHatchSegment>, [f32; 4]), Error> {
+pub(super) fn boundary(
+    command: &ArchiveCommand,
+) -> Result<(Vec<GpuHatchSegment>, [f32; 4]), Error> {
     let path = command.path.as_ref().ok_or(Error::InvalidInput)?;
     let mut segments = Vec::new();
     let mut bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];

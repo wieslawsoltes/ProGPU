@@ -265,6 +265,23 @@ impl Mesh {
         self.indices.extend(indices.map(|i| base + i));
         Ok(())
     }
+    /// Original post-command camera marker, applied once to every emitted lane.
+    pub(crate) fn mark_late_camera(&mut self, first: usize) -> Result<(), Error> {
+        let vertices = self.vertices.get_mut(first..).ok_or(Error::InvalidInput)?;
+        let mut lanes = vertices.chunks_exact_mut(4);
+        for lane in &mut lanes {
+            let marked = (wide::f32x4::from(std::array::from_fn(|i| lane[i].shape_type))
+                + wide::f32x4::splat(100.0))
+            .to_array();
+            for (vertex, value) in lane.iter_mut().zip(marked) {
+                vertex.shape_type = value;
+            }
+        }
+        for vertex in lanes.into_remainder() {
+            vertex.shape_type += 100.0;
+        }
+        Ok(())
+    }
     /// Read the original vertex records.
     pub fn vertices(&self) -> &[VectorVertex] {
         &self.vertices

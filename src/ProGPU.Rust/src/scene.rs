@@ -37,6 +37,7 @@ mod blend;
 mod clear;
 mod color_filter;
 mod image_filter;
+mod late_camera;
 pub use clear::{ClearColor, TargetAlpha};
 mod coverage_scope;
 mod layer;
@@ -225,6 +226,7 @@ pub(crate) enum Command {
     ArchiveThreeD(Arc<crate::picture_archive::ArchiveThreeDDraw>),
     ArchiveVector(Arc<crate::picture_archive::ArchiveVectorDraw>),
     ArchiveGeometry(Arc<crate::picture_archive::ArchiveGeometryDraw>),
+    LateCamera(Box<Command>, crate::vector::Matrix4),
     CompileOnly(
         Box<Command>,
         Arc<crate::picture_archive::ArchiveGeometryDraw>,
@@ -617,12 +619,21 @@ impl Scene {
         commands
             .try_reserve_exact(self.commands.len())
             .map_err(|_| Error::Capacity)?;
+        let mut late_cameras = Vec::new();
+        late_cameras
+            .try_reserve_exact(self.commands.len())
+            .map_err(|_| Error::Capacity)?;
         let mut compile_only = Vec::new();
         compile_only
             .try_reserve_exact(self.commands.len())
             .map_err(|_| Error::Capacity)?;
         let mut compile_only_owners = Vec::new();
         for command in &self.commands {
+            let (command, camera) = late_camera::split(command);
+            if let Some(camera) = camera {
+                late_camera::validate(command, camera)?;
+            }
+            late_cameras.push(camera);
             let command = if let Command::CompileOnly(command, owner) = command {
                 compile_only.push(true);
                 compile_only_owners
@@ -702,7 +713,7 @@ impl Scene {
         let mut rasters = Vec::new();
         let mut retained = HashMap::new();
         let mut placements = Vec::with_capacity(commands.len());
-        for command in &commands {
+        for (command_index, command) in commands.iter().enumerate() {
             match command.as_ref() {
                 Command::Empty
                 | Command::NativeDesignLease(_)
@@ -710,6 +721,7 @@ impl Scene {
                 | Command::NativeDesignVector(_)
                 | Command::ArchiveGeometry(_)
                 | Command::CompileOnly(..)
+                | Command::LateCamera(..)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
@@ -760,7 +772,15 @@ impl Scene {
                 Command::Path(draw)
                 | Command::MaterialPath(draw, _)
                 | Command::TextPath(draw, _, _) => {
-                    let placement = if let Command::TextPath(_, _, policy) = command.as_ref() {
+                    let placement = if let Some(camera) = late_cameras[command_index] {
+                        let policy = late_camera::path_policy(command, dpi_scale)
+                            .ok_or(Error::InvalidInput)?;
+                        text::placement_with_frame(
+                            draw,
+                            policy,
+                            crate::vector::Matrix4::from_affine(draw.transform) * camera,
+                        )?
+                    } else if let Command::TextPath(_, _, policy) = command.as_ref() {
                         text::placement(draw, *policy)?
                     } else {
                         Placement::new(draw, dpi_scale)?
@@ -788,11 +808,14 @@ impl Scene {
         let mut three_d = crate::picture_archive::ThreeDBatch::default();
         let camera = commands
             .iter()
-            .filter_map(|c| match c.as_ref() {
-                Command::ArchiveThreeD(draw) => draw.camera(),
-                #[cfg(feature = "gpu")]
-                Command::Mesh3DCamera(camera) => Some(*camera),
-                _ => None,
+            .enumerate()
+            .filter_map(|(index, c)| {
+                late_cameras[index].or_else(|| match c.as_ref() {
+                    Command::ArchiveThreeD(draw) => draw.camera(),
+                    #[cfg(feature = "gpu")]
+                    Command::Mesh3DCamera(camera) => Some(*camera),
+                    _ => None,
+                })
             })
             .last();
         let mut image_mesh = Mesh::default();
@@ -885,6 +908,7 @@ impl Scene {
                 // when material zero happens to be a non-solid source brush.
                 _ => legacy_index,
             } as f32;
+            let first_vertex = mesh.vertices().len();
             let first_index = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             match command {
                 #[cfg(feature = "gpu")]
@@ -895,6 +919,7 @@ impl Scene {
                 | Command::NativeDesignVector(_)
                 | Command::ArchiveGeometry(_)
                 | Command::CompileOnly(..)
+                | Command::LateCamera(..)
                 | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
@@ -1208,7 +1233,18 @@ impl Scene {
                 | Command::MaterialPath(draw, _)
                 | Command::TextPath(draw, _, _) => {
                     let (index, placement) = placement.ok_or(Error::InvalidInput)?;
-                    let mut vertices = if let Command::TextPath(_, _, policy) = command {
+                    let mut vertices = if late_cameras[command_index].is_some() {
+                        let policy = late_camera::path_policy(command, dpi_scale)
+                            .ok_or(Error::InvalidInput)?;
+                        text::vertices_with_camera(
+                            &placement,
+                            draw,
+                            policy,
+                            layout.origins[index],
+                            dpi_scale,
+                            true,
+                        )
+                    } else if let Command::TextPath(_, _, policy) = command {
                         text::vertices(&placement, draw, *policy, layout.origins[index], dpi_scale)
                     } else {
                         placement.vertices(draw, layout.origins[index], dpi_scale)?
@@ -1219,6 +1255,9 @@ impl Scene {
                     exact_loads += u32::from(vertices[0].stroke_thickness < 0.0);
                     mesh.push_quad(vertices)?;
                 }
+            }
+            if late_cameras[command_index].is_some() {
+                mesh.mark_late_camera(first_vertex)?;
             }
             let end = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             if end != first_index && !compile_only[command_index] {

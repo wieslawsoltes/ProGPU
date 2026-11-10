@@ -134,7 +134,16 @@ fn phase(value: f32, grid: u32) -> f32 {
 }
 
 pub(super) fn placement(draw: &PathDraw, policy: TextPathPolicy) -> Result<Placement, Error> {
-    let [a, b, c, d, x, y] = draw.transform.0;
+    placement_with_frame(draw, policy, Matrix4::from_affine(draw.transform))
+}
+
+pub(super) fn placement_with_frame(
+    draw: &PathDraw,
+    policy: TextPathPolicy,
+    frame: Matrix4,
+) -> Result<Placement, Error> {
+    let m = frame.0;
+    let [a, b, c, d, x, y] = [m[0][0], m[0][1], m[1][0], m[1][1], m[3][0], m[3][1]];
     let lengths = (wide::f32x4::from([a, c, 0.0, 0.0]) * wide::f32x4::from([a, c, 0.0, 0.0])
         + wide::f32x4::from([b, d, 0.0, 0.0]) * wide::f32x4::from([b, d, 0.0, 0.0]))
     .sqrt()
@@ -196,6 +205,17 @@ pub(super) fn vertices(
     origin: [u32; 2],
     dpi: f32,
 ) -> [VectorVertex; 4] {
+    vertices_with_camera(p, draw, policy, origin, dpi, false)
+}
+
+pub(super) fn vertices_with_camera(
+    p: &Placement,
+    draw: &PathDraw,
+    policy: TextPathPolicy,
+    origin: [u32; 2],
+    dpi: f32,
+    late_camera: bool,
+) -> [VectorVertex; 4] {
     let [sx, sy] = p.request.scale;
     let [left, top] = [p.minimum[0] / sx, p.minimum[1] / sy];
     let [width, height] = p.request.size.map(|v| v as f32);
@@ -219,7 +239,7 @@ pub(super) fn vertices(
     let vy = (xs * wide::f32x4::splat(b) + ys * wide::f32x4::splat(d) + wide::f32x4::splat(ty))
         .to_array();
     let positions = std::array::from_fn(|i| [vx[i], vy[i]]);
-    let exact = dpi == 1.0 && exact_mapping(positions, uv);
+    let exact = !late_camera && dpi == 1.0 && exact_mapping(positions, uv);
     let transfer = policy.coverage_transfer.encoding();
     let gamma = if transfer != 0 {
         -(transfer as f32)

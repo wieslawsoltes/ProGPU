@@ -104,8 +104,7 @@ impl ArchiveGeometryDraw {
                 .validate_join_semantics()?;
         }
 
-        if self.command.use_gpu_transforms
-            || self.options.text_context.gpu_transforms_active
+        if self.options.text_context.gpu_transforms_active
             || self.options.text_context.use_mvp
             || self.options.text_context.camera_view != Matrix4::IDENTITY
         {
@@ -114,7 +113,18 @@ impl ArchiveGeometryDraw {
         Ok(())
     }
     pub(crate) fn resolve(&self, dpi: f32, offscreen: bool) -> Result<(Scene, bool), Error> {
+        self.resolve_with_camera(dpi, offscreen, None)
+    }
+    pub(crate) fn resolve_with_camera(
+        &self,
+        dpi: f32,
+        offscreen: bool,
+        camera: Option<Matrix4>,
+    ) -> Result<(Scene, bool), Error> {
         self.validate()?;
+        if self.command.use_gpu_transforms && camera.is_none() {
+            return Err(Error::UnsupportedExecution);
+        }
         if self.command.kind == ArchiveCommandKind::DrawSpline || self.compile_only() {
             return Ok((self.spline_scene()?, false));
         }
@@ -178,7 +188,8 @@ impl ArchiveGeometryDraw {
                     } else {
                         0.0
                     };
-                    let m = self.transform.0;
+                    let coverage = camera.map_or(self.transform, |camera| self.transform * camera);
+                    let m = coverage.0;
                     gamma = if skew.abs() > 0.0001
                         || font_scale < 0.0
                         || m[0][1].abs() > 0.0001
@@ -201,7 +212,7 @@ impl ArchiveGeometryDraw {
                         };
                         let effective_dpi = effective_dpi * zoom;
                         let pixels = c.font_size.abs()
-                            * self.transform.stroke_scales().map_or(1.0, |s| s[0])
+                            * coverage.stroke_scales().map_or(1.0, |s| s[0])
                             * effective_dpi;
                         if pixels.is_finite() && pixels >= 24.0 {
                             0.5

@@ -34,7 +34,8 @@ Latest connected continuation (2026-11-10), implementation only:
 | Archive rendering and capture | Ordered retained Canvas/Scene replay, original analytic triangle/quad/point/grid routes and explicit source-preserving capture; recorded-picture serialization | Unsupported GPU/provider/source-history records stay explicit; complete native/browser/pixel/performance qualification |
 | Image filter and picture factories | Exact subset/clip/offset filter application, optional context transfer, painted picture captures and full-sampling image/bitmap/surface Canvas producers | Original source/UV/lifetime/format/filter/browser/pixel/performance controls |
 | Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
-| Hatch boundaries and execution | Exact retained segment/record inventories and canonical dedicated pipeline, preserving ordinary Vector versus explicit extension dispatch | Static-DXF/late-camera/MSAA integration and all source/runtime qualification |
+| Hatch boundaries and execution | Exact retained segment/record inventories and canonical dedicated pipeline, preserving ordinary Vector versus explicit extension dispatch; immutable static-Hatch producer, buffers and per-target MSAA execution | Mixed static-DXF/source-provider integration and all source/runtime qualification |
+| Late-camera vectors | Original ordinary +100 route for fourteen analytic/path/stroke command kinds, per-command coverage camera, final shared target camera and exact brush/source placement | Remaining text/provider/extension families and all source/runtime/pixel/performance qualification |
 | GPU line/scatter series | Separate built-in/extension shaders, exact side-buffer selection, immutable CPU/GPU generations, same-device ownership, bounded reuse and actual upload metrics | Original cold/warm, byte/NaN/float/pixel/device/browser/performance controls |
 | Bounded opacity masks | Original declared bounds, active clip, 2-pixel padding/16-pixel storage and direct R8 Vector/Text/HintedGlyphPaint/Texture capture | Unsupported original mask source families stay explicit; all original source/pixel/lifetime/performance gates |
 | Retained interaction | Original command cache/quadtree, strict immutable source-Visual/command/glyph ownership, exact clip/template traversal and paragraph-backed hinted interaction | Actual platform producer adapters and all source/input/lifetime qualification |
@@ -72,6 +73,10 @@ crate still forbids unsafe code; the [companion](freetype/README.md) isolates th
 private C ABI and exports exclusive safe owners. Existing all-feature CI needs
 that explicit dependency provisioning during the deferred qualification phase.
 The dependency lock was updated offline without building or running any verifier.
+The [late-camera vector route](notes/late-camera-vector-port.md) and separate
+[static Hatch producer](notes/static-hatch-port.md) now preserve their distinct
+original +100 and +200 shader markers. Both are implementation-only; no build,
+shader, browser, pixel or performance validation has run for these additions.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,

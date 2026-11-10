@@ -18,6 +18,7 @@ use crate::{
 };
 use std::sync::Arc;
 mod geometry;
+mod late_camera;
 mod materials;
 mod scopes;
 mod text;
@@ -81,7 +82,7 @@ impl ArchivePicture {
         self.to_scene_with(ArchiveReplayOptions::default())
     }
     /// Compile the complete candidate atomically. Unsupported source providers,
-    /// late GPU camera transforms and malformed scope nesting fail before output.
+    /// unsupported camera families and malformed scope nesting fail before output.
     pub fn to_scene_with(&self, options: ArchiveReplayOptions) -> Result<Scene> {
         affine(options.transform)?;
         if !options.opacity.is_finite() {
@@ -148,9 +149,6 @@ impl Replay {
             };
             let three_d = matches!(command.kind, K::DrawLine3D | K::DrawAcisSolid)
                 || command.kind == K::DrawExtension && matches!(command.extension_id, 1 | 2);
-            if command.use_gpu_transforms && !three_d {
-                return Err(ArchiveError::Unsupported);
-            }
             let base = if command.use_gpu_transforms {
                 Matrix4::IDENTITY
             } else {
@@ -176,6 +174,18 @@ impl Replay {
                         self.opacity,
                         camera,
                     )?)?;
+                continue;
+            }
+            if command.use_gpu_transforms {
+                late_camera::record(
+                    &mut self.scene,
+                    picture,
+                    command,
+                    transform,
+                    command.camera_view * parent,
+                    self.opacity,
+                    &self.options,
+                )?;
                 continue;
             }
             match command.kind {

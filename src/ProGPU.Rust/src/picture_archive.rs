@@ -14,6 +14,13 @@ mod three_d;
 pub(crate) use three_d::ThreeDBatch;
 pub use three_d::{ArchiveThreeDDraw, ThreeDRoute};
 mod hatch;
+mod static_hatch;
+pub use static_hatch::{StaticHatchBatch, StaticHatchBuffer, StaticHatchRoute, StaticHatchViewport};
+#[cfg(feature = "gpu")]
+pub use static_hatch::{
+    PreparedStaticHatches, StaticHatchEngine, StaticHatchMetrics, StaticHatchTarget,
+    UploadedStaticHatches,
+};
 pub(crate) use hatch::HatchBatch;
 pub use hatch::{ArchiveHatchDraw, GpuHatchRecord, GpuHatchSegment};
 mod command;

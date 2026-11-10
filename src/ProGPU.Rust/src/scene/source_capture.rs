@@ -80,6 +80,12 @@ fn place_scene(
         .map_err(|_| Error::Capacity)?;
     for command in &source.commands {
         let placed = match command {
+            Command::LateCamera(inner, camera) => {
+                late_camera::validate(inner, *camera)?;
+                let camera = *camera * transform;
+                late_camera::validate(inner, camera)?;
+                Command::LateCamera(inner.clone(), camera)
+            }
             Command::Empty => Command::Empty,
             Command::CanvasTextPath(draw) => {
                 let mut draw = draw.as_ref().clone();
@@ -622,6 +628,10 @@ fn preflight_devices(
         Ok(())
     };
     for command in &source.commands {
+        let (command, camera) = late_camera::split(command);
+        if let Some(camera) = camera {
+            late_camera::validate(command, camera)?;
+        }
         match command {
             Command::Layer(layer) => {
                 preflight_devices(&layer.scene, device, depth + 1, owned_depth)?
@@ -650,7 +660,9 @@ fn preflight_devices(
                     image(pattern)?;
                 }
             }
-            Command::CompileOnly(..) => return Err(Error::UnsupportedExecution),
+            Command::CompileOnly(..) | Command::LateCamera(..) => {
+                return Err(Error::UnsupportedExecution);
+            }
             Command::ArchiveGeometry(draw) => draw.validate()?,
             Command::ArchiveVector(draw) => draw.validate()?,
             Command::ArchiveHatch(draw) => draw.validate()?,
@@ -802,10 +814,18 @@ impl Scene {
 // visual. A retained explicit ordinary layer owns its own composite boundary.
 fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
     for command in &mut scene.commands {
+        let command = if let Command::LateCamera(inner, camera) = command {
+            late_camera::validate(inner, *camera)?;
+            inner.as_mut()
+        } else {
+            command
+        };
         match command {
             #[cfg(feature = "gpu")]
             Command::BackdropMaterial(v) => v.opacity *= opacity,
-            Command::CompileOnly(..) => return Err(Error::UnsupportedExecution),
+            Command::CompileOnly(..) | Command::LateCamera(..) => {
+                return Err(Error::UnsupportedExecution);
+            }
             Command::ArchiveGeometry(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::ArchiveVector(v) => *v = Arc::new(v.with_opacity(opacity)?),
             Command::ArchiveHatch(v) => *v = Arc::new(v.with_opacity(opacity)?),

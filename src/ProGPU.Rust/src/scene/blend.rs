@@ -120,6 +120,7 @@ impl LayerBlend {
 }
 
 pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), Error> {
+    let command = super::late_camera::split(command).0;
     if blend == LayerBlend::SrcOver {
         return Ok(());
     }
@@ -143,6 +144,7 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
         | Command::VertexMesh(_)
         | Command::ArchiveGeometry(_)
         | Command::CompileOnly(..)
+        | Command::LateCamera(..)
         | Command::ArchiveVector(_)
         | Command::CustomGrid(_)
         | Command::Series(_)

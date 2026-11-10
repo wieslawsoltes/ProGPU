@@ -18,6 +18,11 @@ impl Scene {
             .capacity()
             .saturating_mul(std::mem::size_of::<Command>());
         for command in &self.commands {
+            let nested = matches!(command, Command::LateCamera(..));
+            let command = late_camera::split(command).0;
+            if nested {
+                bytes = bytes.saturating_add(std::mem::size_of::<Command>());
+            }
             let payload = match command {
                 Command::Text(record) => {
                     let arrays = match &record.0.source {

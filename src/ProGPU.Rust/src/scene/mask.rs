@@ -141,6 +141,7 @@ impl Scene {
                 if let Some(Some(next)) = changes.get(index) {
                     current = *next;
                 }
+                let command = late_camera::split(command).0;
                 match command {
                     Command::Empty
                     | Command::Clear(_)
@@ -245,6 +246,7 @@ impl Scene {
         let mut blend_stack = Vec::new();
         let mut current = 0;
         for command in &self.commands {
+            let command = late_camera::split(command).0;
             #[cfg(feature = "gpu")]
             let glyph = matches!(command, Command::Glyph(_));
             #[cfg(not(feature = "gpu"))]
