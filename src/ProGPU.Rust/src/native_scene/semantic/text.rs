@@ -6,7 +6,7 @@ fn finite(values: &[f32]) -> bool {
 fn zero(values: &[f32]) -> bool {
     values.iter().all(|&v| v == 0.0)
 }
-fn paint(p: &wire::GlyphPaint) -> bool {
+pub(crate) fn paint(p: &wire::GlyphPaint) -> bool {
     if p.kind > 1
         || p.coverage_transfer > 13
         || p.source_offset_opacity[3] != 0.0
@@ -135,7 +135,7 @@ pub(super) fn validate_painted_glyph_draw(
     Ok(())
 }
 /// Original common prefix reader; semantic style/paint gates remain separate.
-pub(super) fn glyph_payload(input: &Input<'_>, c: &wire::Command) -> TransportResult<(u32, u32)> {
+pub(crate) fn glyph_payload(input: &Input<'_>, c: &wire::Command) -> TransportResult<(u32, u32)> {
     let bad = || error(E::Value, c.payload_offset);
     if c.kind == 26 {
         if c.payload_size < 128 {

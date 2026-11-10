@@ -5,6 +5,7 @@ use wire::constants::*;
 pub(crate) mod brush;
 pub(crate) mod color_glyph;
 mod commands;
+pub(crate) mod glyph_scan;
 pub(crate) mod hit;
 pub(crate) mod image_payload;
 mod inventory;

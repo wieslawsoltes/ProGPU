@@ -1,10 +1,10 @@
 //! Glyph-only original binary scan descriptors. Generic/RGB paths stay separate.
-use super::*;
+use crate::native_scene::wire::{self, constants::*};
 const SEGMENT_MARKER: u32 = 256;
 const CONTOUR_OVERRIDE: u32 = 512;
 const ORIGINAL_FLAGS_MASK: u32 = 20_774_912;
 const DESCRIPTOR_MASK: u32 = SEGMENT_MARKER | CONTOUR_OVERRIDE | ORIGINAL_FLAGS_MASK | 7;
-pub(super) fn segment(segment: &wire::PathSegment) -> bool {
+pub(crate) fn segment(segment: &wire::PathSegment) -> bool {
     if ![segment.p0, segment.p1, segment.p2, segment.p3]
         .into_iter()
         .all(|p| p.x.is_finite() && p.y.is_finite())
@@ -19,7 +19,7 @@ pub(super) fn segment(segment: &wire::PathSegment) -> bool {
         && segment.pad0 & !DESCRIPTOR_MASK == 0
         && segment.pad2 != 0
 }
-pub(super) fn outline(outline: &wire::GlyphOutline, segments: &[wire::PathSegment]) -> bool {
+pub(crate) fn outline(outline: &wire::GlyphOutline, segments: &[wire::PathSegment]) -> bool {
     let Some(first) = segments.first() else {
         return false;
     };

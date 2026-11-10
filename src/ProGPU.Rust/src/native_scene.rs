@@ -14,7 +14,10 @@ pub use builder::{
 };
 pub mod identity;
 pub use identity::NativeSceneContentHashes;
+pub mod draw;
+pub mod engine_materials;
 mod envelope;
+pub mod execution;
 mod hit;
 pub(crate) mod semantic;
 pub use semantic::{

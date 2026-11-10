@@ -1,6 +1,9 @@
 //! Original native state and guideline producers; finite and non-finite static
 //! guideline policies remain separate from explicitly resolved offsets.
 use super::*;
+use crate::native_scene::execution::{
+    nearest_guideline_index, uniform_guideline_translation, wpf_guideline_offset,
+};
 
 impl NativeSceneBuilder {
     pub fn add_state(&mut self, source: wire::State) -> BuildResult<u32> {
@@ -244,88 +247,6 @@ impl NativeSceneBuilder {
             .resources
             .get(index as usize)
             .filter(|r| r.record.kind == SCENE_RESOURCE_GUIDELINE_SET)?;
-        uniform_guideline_translation(&resource.payload, dpi, dpi)
+        uniform_guideline_translation(&resource.payload, [dpi, dpi])
     }
-}
-
-fn wpf_guideline_offset(value: f32) -> f32 {
-    if !(value.abs() < 8388608.0) {
-        return 0.0;
-    }
-    let mut offset = (value + 0.5).floor() - value;
-    if offset <= -0.5 {
-        offset += 1.0;
-    }
-    offset
-}
-fn nearest_guideline_index(count: u32, coordinate: f32, read: impl Fn(u32) -> f32) -> u32 {
-    if count <= 1 || coordinate <= read(0) {
-        return 0;
-    }
-    let (mut lower, mut upper) = (0, count - 1);
-    let (mut low, mut high) = (read(lower), read(upper));
-    if coordinate > high {
-        return upper;
-    }
-    while upper - lower > 1 {
-        let middle = (lower + upper) >> 1;
-        let value = read(middle);
-        if coordinate > value {
-            lower = middle;
-            low = value;
-        } else {
-            upper = middle;
-            high = value;
-        }
-    }
-    if high - coordinate < coordinate - low {
-        upper
-    } else {
-        lower
-    }
-}
-fn uniform_guideline_translation(payload: &[u8], dpi_x: f32, dpi_y: f32) -> Option<wire::Point> {
-    if !dpi_x.is_finite() || dpi_x <= 0.0 || !dpi_y.is_finite() || dpi_y <= 0.0 {
-        return None;
-    }
-    let header = wire::GuidelineSet::read(payload)?;
-    if header.struct_size != wire::GuidelineSet::WIRE_SIZE as u32
-        || header.guideline_x_count > 1
-        || header.guideline_y_count > 1
-        || header.flags & !SCENE_GUIDELINE_EXPLICIT_OFFSETS != 0
-    {
-        return None;
-    }
-    let explicit = header.flags & SCENE_GUIDELINE_EXPLICIT_OFFSETS != 0;
-    let count = header.guideline_x_count + header.guideline_y_count;
-    if payload.len()
-        != wire::GuidelineSet::WIRE_SIZE + count as usize * 8 * if explicit { 2 } else { 1 }
-    {
-        return None;
-    }
-    let axis = |index: u32, dpi: f32| {
-        let start =
-            wire::GuidelineSet::WIRE_SIZE + (index + if explicit { count } else { 0 }) as usize * 8;
-        let value = f64::read(&payload[start..])? as f32;
-        Some(
-            if explicit {
-                value
-            } else {
-                wpf_guideline_offset(value * dpi)
-            } / dpi,
-        )
-    };
-    let result = wire::Point {
-        x: if header.guideline_x_count == 0 {
-            0.0
-        } else {
-            axis(0, dpi_x)?
-        },
-        y: if header.guideline_y_count == 0 {
-            0.0
-        } else {
-            axis(header.guideline_x_count, dpi_y)?
-        },
-    };
-    (result.x.is_finite() && result.y.is_finite()).then_some(result)
 }

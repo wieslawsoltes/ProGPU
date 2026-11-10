@@ -1,7 +1,7 @@
 //! Original owned text-style, outline/color atlas and positioned-glyph producers.
 use super::*;
+use crate::native_scene::semantic::glyph_scan as scan;
 use crate::native_scene::semantic::{rgb_glyph, values};
-mod scan;
 
 impl NativeSceneBuilder {
     pub fn add_text_style(&mut self, source: &wire::TextStyle) -> BuildResult<u32> {
