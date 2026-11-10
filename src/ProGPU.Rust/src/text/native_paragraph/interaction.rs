@@ -44,6 +44,13 @@ pub struct NativeParagraphInteraction {
     boxes: Vec<NativeClusterBox>,
     carets: Vec<NativeCaretStop>,
 }
+// Preserve original std::min/std::max first-operand ties, including signed zero.
+fn source_min(a: f32, b: f32) -> f32 {
+    if b < a { b } else { a }
+}
+fn source_max(a: f32, b: f32) -> f32 {
+    if a < b { b } else { a }
+}
 fn valid_box(b: NativeClusterBox) -> bool {
     let r = b.bounds;
     [r.x, r.y, r.width, r.height, r.x + r.width, r.y + r.height]
@@ -173,8 +180,8 @@ impl NativeParagraphInteraction {
                 let mut cluster_end = p.ends[i];
                 loop {
                     let next = pen + p.glyphs[i].advance[0];
-                    left = left.min(pen.min(next));
-                    right = right.max(pen.max(next));
+                    left = source_min(left, source_min(pen, next));
+                    right = source_max(right, source_max(pen, next));
                     pen = next;
                     cluster_end = cluster_end.max(p.ends[i]);
                     i += 1;
@@ -190,7 +197,7 @@ impl NativeParagraphInteraction {
                     bounds: NativeTextRectangle {
                         x: left,
                         y: top as f32,
-                        width: (right - left).max(0.0),
+                        width: source_max(0.0, right - left),
                         height: line.height,
                     },
                 };
@@ -370,7 +377,7 @@ impl NativeParagraphInteraction {
                 count += 1;
                 previous_right = r.x + r.width;
             } else {
-                previous_right = previous_right.max(r.x + r.width);
+                previous_right = source_max(previous_right, r.x + r.width);
             }
             previous_line = b.line_index;
         }
@@ -400,8 +407,8 @@ impl NativeParagraphInteraction {
                 && r.x <= rectangles[written - 1].x + rectangles[written - 1].width + 0.5
             {
                 let p = &mut rectangles[written - 1];
-                let right = (p.x + p.width).max(r.x + r.width);
-                p.x = p.x.min(r.x);
+                let right = source_max(p.x + p.width, r.x + r.width);
+                p.x = source_min(p.x, r.x);
                 p.width = right - p.x;
             } else {
                 rectangles[written] = r;

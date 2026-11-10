@@ -1,6 +1,7 @@
 //! Original captured batch/shaped-source replay and retained selected occurrence views.
 use super::*;
 use crate::text::hinted_source::{NativeHintedOccurrence, NativeHintedSourceGeometry};
+use crate::text::native_paragraph::{NativeParagraphGeometry, NativeParagraphOccurrence};
 pub(super) const MAXIMUM_SLOTS: usize = 1 << 24;
 pub(super) const MAXIMUM_OUTLINES: usize = 1 << 20;
 const MAXIMUM_BINARY_SEGMENTS: usize = 256;
@@ -25,6 +26,7 @@ pub struct FontGlyphPlacement {
 enum SourceOwner {
     Batch(Arc<NativeFontOutlineGeometry>),
     Shaped(Arc<NativeHintedSourceGeometry>),
+    Paragraph(Arc<NativeParagraphGeometry>),
 }
 #[derive(Debug)]
 struct Generation {
@@ -42,6 +44,7 @@ pub struct FontReplayGeometry {
     generation: Arc<Generation>,
     placements: Vec<FontGlyphPlacement>,
     occurrences: Option<Vec<NativeHintedOccurrence>>,
+    paragraph_occurrences: Option<Vec<NativeParagraphOccurrence>>,
 }
 impl FontReplayGeometry {
     /// Import every original descriptor without shaping, hinting again or
@@ -135,6 +138,7 @@ impl FontReplayGeometry {
             }),
             placements,
             occurrences: None,
+            paragraph_occurrences: None,
         })
     }
     /// Import an actual native fitted source without decoding, shaping or hinting
@@ -199,6 +203,62 @@ impl FontReplayGeometry {
             }),
             placements,
             occurrences: Some(occurrences),
+            paragraph_occurrences: None,
+        })
+    }
+    /// Retain actual combined native paragraph or independent imported paragraph
+    /// records. Full run/font/style/source identities remain distinct from batches
+    /// and one-run shaping; no metadata is manufactured from placement arrays.
+    pub fn from_paragraph_source(
+        source: Arc<NativeParagraphGeometry>,
+    ) -> Result<Self, FontPolicyError> {
+        validate_dpi(source.dpi_scale())?;
+        require(
+            source.outlines().len() <= MAXIMUM_OUTLINES
+                && source.segments().len() <= MAXIMUM_SLOTS
+                && source.occurrences().len() <= MAXIMUM_SLOTS
+                && source.coverage() != NativeHintedCoverage::Monochrome,
+        )?;
+        validate_geometry(source.outlines(), source.segments(), false)?;
+        let mut outlines = Vec::new();
+        outlines
+            .try_reserve_exact(source.outlines().len())
+            .map_err(|_| FontPolicyError::ResourceExhausted)?;
+        for &o in source.outlines() {
+            outlines.push(
+                o.gpu_record()
+                    .map_err(|_| FontPolicyError::InvalidGeneration)?,
+            );
+        }
+        let occurrences = copy(source.occurrences())?;
+        let mut placements = Vec::new();
+        placements
+            .try_reserve_exact(occurrences.len())
+            .map_err(|_| FontPolicyError::ResourceExhausted)?;
+        for o in &occurrences {
+            require(
+                o.outline_index == NATIVE_HINTED_NO_OUTLINE
+                    || (o.outline_index as usize) < outlines.len(),
+            )?;
+            require(o.position.iter().chain(&o.advance).all(|v| v.is_finite()))?;
+            placements.push(FontGlyphPlacement {
+                descriptor_index: o.descriptor_index,
+                glyph_id: o.glyph_id,
+                outline_index: o.outline_index,
+                position: o.position,
+            });
+        }
+        Ok(Self {
+            generation: Arc::new(Generation {
+                dpi_scale: source.dpi_scale(),
+                coverage: source.coverage(),
+                outlines,
+                segments: copy(source.segments())?,
+                source: SourceOwner::Paragraph(source),
+            }),
+            placements,
+            occurrences: None,
+            paragraph_occurrences: Some(occurrences),
         })
     }
     /// Retain selected occurrence slots in caller order, including duplicates and
@@ -223,10 +283,21 @@ impl FontReplayGeometry {
         } else {
             None
         };
+        let paragraph_occurrences = if let Some(original) = &self.paragraph_occurrences {
+            let mut selected = Vec::new();
+            selected
+                .try_reserve_exact(indices.len())
+                .map_err(|_| FontPolicyError::ResourceExhausted)?;
+            selected.extend(indices.iter().map(|&index| original[index]));
+            Some(selected)
+        } else {
+            None
+        };
         Ok(Self {
             generation: Arc::clone(&self.generation),
             placements,
             occurrences,
+            paragraph_occurrences,
         })
     }
     pub(crate) fn generation_identity(&self) -> usize {
@@ -248,19 +319,30 @@ impl FontReplayGeometry {
             _ => None,
         }
     }
-    /// True only when the actual original producer retained source shaping metadata.
+    /// True for retained source shaping records. A flat import preserves those
+    /// records without claiming a live native paragraph or hinted producer.
     pub fn has_shaping_metadata(&self) -> bool {
-        self.occurrences.is_some()
+        self.occurrences.is_some() || self.paragraph_occurrences.is_some()
     }
     /// Selected original shaped occurrences; None rejects metadata-free batch access.
     pub fn shaped_occurrences(&self) -> Option<&[NativeHintedOccurrence]> {
         self.occurrences.as_deref()
     }
+    /// Actual combined paragraph/import geometry, absent for other source families.
+    pub fn paragraph_source_geometry(&self) -> Option<&Arc<NativeParagraphGeometry>> {
+        match &self.generation.source {
+            SourceOwner::Paragraph(source) => Some(source),
+            _ => None,
+        }
+    }
+    /// Selected original paragraph occurrences, retaining all original source
+    /// indices and no-ink slots. Imports retain records, not a live producer claim.
+    pub fn paragraph_occurrences(&self) -> Option<&[NativeParagraphOccurrence]> {
+        self.paragraph_occurrences.as_deref()
+    }
     /// Caller placement-only records, absent when the source owns shaped occurrences.
     pub fn font_placements(&self) -> Option<&[FontGlyphPlacement]> {
-        self.occurrences
-            .is_none()
-            .then_some(self.placements.as_slice())
+        (!self.has_shaping_metadata()).then_some(self.placements.as_slice())
     }
     /// Actual original immutable GPU outline records.
     pub fn outlines(&self) -> &[GpuGlyphRecord] {

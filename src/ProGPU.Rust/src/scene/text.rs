@@ -396,3 +396,36 @@ impl Scene {
         })
     }
 }
+
+impl Scene {
+    /// Record original native paragraph style groups atomically in visual order.
+    /// Actual paragraph/import source metadata and selected no-ink slots survive
+    /// through the common hinted commands; target paint preflight covers all groups.
+    pub fn draw_native_paragraph(
+        &mut self,
+        geometry: std::sync::Arc<crate::text::font_policy::FontReplayGeometry>,
+        paints: &[crate::text::native_paragraph::NativeParagraphPaint],
+        position: [f32; 2],
+        context: TextPaintContext,
+    ) -> Result<(), Error> {
+        validate_context(context)?;
+        let draws = crate::text::native_paragraph::prepare_native_paragraph_draws(
+            geometry, paints, position, context,
+        )?;
+        let mut commands = Vec::new();
+        commands
+            .try_reserve_exact(draws.len())
+            .map_err(|_| Error::Capacity)?;
+        for draw in draws {
+            commands.push(Command::HintedText(Box::new((draw, context))));
+        }
+        self.commands
+            .try_reserve(commands.len())
+            .map_err(|_| Error::Capacity)?;
+        if !commands.is_empty() {
+            self.tree_text = true;
+            self.commands.append(&mut commands);
+        }
+        Ok(())
+    }
+}

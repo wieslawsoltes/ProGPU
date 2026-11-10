@@ -17,7 +17,9 @@ use super::{
 use crate::font::{FontError, SfntFace, Tag, layout::GposDirection};
 use std::{ops::Range, sync::Arc};
 mod fallback;
+mod geometry;
 mod interaction;
+pub use geometry::*;
 mod prepare;
 pub use fallback::{NativeFallbackCandidate, NativeFallbackRun, native_itemize_font_fallback};
 pub use interaction::{
