@@ -6,9 +6,12 @@ use crate::{
     vector::{MeasuredPath, PathAddMode, PathBuilder, PathMeasure, RetainedPath},
 };
 use std::sync::{
-    Arc, OnceLock,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicU32, Ordering},
 };
+mod builder;
+mod intercepts;
+pub use builder::{MAX_REUSABLE_POSITIONED_GLYPHS, TextBlobBuilder, TextBlobRunBuffer};
 type Result<T> = std::result::Result<T, CanvasFontError>;
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -20,6 +23,7 @@ pub struct TextBlobRun {
     glyphs: Arc<[u16]>,
     positions: Arc<[[f32; 2]]>,
     transforms: Option<Arc<[RotationScaleMatrix]>>,
+    paths: Arc<Mutex<std::collections::HashMap<u16, Option<RetainedPath>>>>,
 }
 impl TextBlobRun {
     /// Adopt complete immutable arrays, retaining exact used glyph slots.
@@ -39,6 +43,7 @@ impl TextBlobRun {
             glyphs,
             positions,
             transforms,
+            paths: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
     /// Frozen font settings and actual selected source owner.
@@ -57,8 +62,32 @@ impl TextBlobRun {
     pub fn transforms(&self) -> Option<&[RotationScaleMatrix]> {
         self.transforms.as_deref()
     }
+    /// Actual selected glyph path with immutable font size/skew/bold policy.
+    /// Cache publication happens after source work and never holds the cache
+    /// lock while decoding an outline. Missing/no-ink results retain their slots.
+    pub fn glyph_path(&self, index: usize) -> Result<Option<RetainedPath>> {
+        let glyph = *self.glyphs.get(index).ok_or(Error::InvalidInput)?;
+        if let Some(path) = self
+            .paths
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&glyph)
+        {
+            return Ok(path.clone());
+        }
+        let candidate = self.font.glyph_path(glyph)?;
+        let mut paths = self.paths.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(path) = paths.get(&glyph) {
+            return Ok(path.clone());
+        }
+        paths.try_reserve(1).map_err(|_| Error::Capacity)?;
+        Ok(paths.entry(glyph).or_insert(candidate).clone())
+    }
     /// Retain original arrays in the renderer's metadata-free positioned record.
     pub fn positioned_run(&self) -> Option<super::paint::PositionedGlyphRun> {
+        if self.transforms.is_some() {
+            return None;
+        }
         self.font.typeface.clone().map(|font| {
             super::paint::PositionedGlyphRun::new(font, self.glyphs.clone(), self.positions.clone())
         })
@@ -72,6 +101,9 @@ struct Data {
     bounds: OnceLock<[f32; 4]>,
     id: u32,
     bold: bool,
+    // Last field: actual run/aggregate arrays retire before a scratch lease is
+    // returned. Independent renderer/run arrays still forbid mutable reuse.
+    _lease: Option<builder::BlobLease>,
 }
 /// Immutable multi-run source generation. Cloning retains exact font/array owners
 /// in O(1); bounds are computed lazily from actual outlines and cached once.
@@ -111,6 +143,7 @@ impl TextBlob {
             bounds: OnceLock::new(),
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed).wrapping_add(1),
             bold,
+            _lease: None,
         })))
     }
     /// Original monotonically wrapping identity, shared by cloned references.
@@ -274,8 +307,8 @@ impl TextBlob {
         }
         let mut bounds = None;
         for run in self.runs() {
-            for (index, &glyph) in run.glyphs.iter().enumerate() {
-                let Some(path) = run.font.glyph_path(glyph)? else {
+            for index in 0..run.glyphs.len() {
+                let Some(path) = run.glyph_path(index)? else {
                     continue;
                 };
                 if path.is_empty()? {
@@ -302,8 +335,8 @@ impl TextBlob {
     pub fn path(&self, origin: [f32; 2]) -> Result<RetainedPath> {
         let mut output = PathBuilder::new();
         for run in self.runs() {
-            for (index, &glyph) in run.glyphs.iter().enumerate() {
-                let Some(path) = run.font.glyph_path(glyph)? else {
+            for index in 0..run.glyphs.len() {
+                let Some(path) = run.glyph_path(index)? else {
                     continue;
                 };
                 if let Some(matrices) = &run.transforms {
