@@ -20,6 +20,13 @@ path = "src/lib.rs"
 # WGSL.
 wgpu-native = { git = "https://github.com/FerroUI/wgpu-native", rev = "309bf22", default-features = false, features = ["wgsl", "metal", "dx12"] }
 
+# The backends of Linux. wgpu-core takes Metal on Apple targets and DX12 on Windows from the
+# features above and nothing on Linux, where a device then finds no adapter unless another crate
+# of the build enables a backend of the shared wgpu-core. The bindings enable theirs themselves:
+# Vulkan, and OpenGL ES for hosts without a Vulkan driver.
+[target.'cfg(target_os = "linux")'.dependencies]
+wgpu-native = { git = "https://github.com/FerroUI/wgpu-native", rev = "309bf22", default-features = false, features = ["vulkan", "gles"] }
+
 [build-dependencies]
 cc = "1"
 sha2 = "0.10"
