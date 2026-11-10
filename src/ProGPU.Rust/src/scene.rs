@@ -47,11 +47,12 @@ mod owned_shader;
 pub use owned_shader::OwnedShaderEffectDraw;
 #[cfg(feature = "gpu")]
 mod backdrop;
+mod canvas_text;
+mod native_design;
 #[cfg(feature = "gpu")]
 mod shader_effect;
 mod source_capture;
 mod text;
-mod native_design;
 #[cfg(feature = "gpu")]
 pub use managed_shader::ManagedShaderEffectDraw;
 #[cfg(feature = "gpu")]
@@ -195,6 +196,7 @@ impl MaterialPaint {
 
 #[derive(Clone, Debug)]
 enum Command {
+    CanvasTextPath(Arc<canvas_text::CanvasTextPath>),
     NativeDesignVector(Arc<crate::text::native_design_geometry::NativeDesignVectorDraw>),
     NativeDesignLease(Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>),
     #[cfg(feature = "gpu")]
@@ -546,6 +548,9 @@ impl Scene {
         if !dpi_scale.is_finite() || dpi_scale <= 0.0 {
             return Err(Error::InvalidInput);
         }
+        if let Some(expanded) = self.expand_canvas_text(dpi_scale)? {
+            return expanded.compile_with_sampling(dpi_scale, materials, image_sampling);
+        }
         if let Some(expanded) = self.expand_native_design(dpi_scale)? {
             return expanded.compile_with_sampling(dpi_scale, materials, image_sampling);
         }
@@ -625,6 +630,7 @@ impl Scene {
                 Command::Empty
                 | Command::NativeDesignLease(_)
                 | Command::NativeDesignVector(_)
+                | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
                 | Command::Clear(_)
@@ -769,6 +775,7 @@ impl Scene {
                 Command::Empty
                 | Command::NativeDesignLease(_)
                 | Command::NativeDesignVector(_)
+                | Command::CanvasTextPath(_)
                 | Command::PushBlend(_)
                 | Command::PopBlend
                 | Command::PushMask(_)
@@ -1106,7 +1113,8 @@ impl Scene {
 /// Frozen CPU compilation that can be prepared on a worker without a GPU.
 #[derive(Debug)]
 pub struct CompiledScene {
-    pub(crate) native_design_leases: Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
+    pub(crate) native_design_leases:
+        Vec<Arc<crate::text::native_design_geometry::NativeDesignVectorPlan>>,
     pub(crate) mesh: Mesh,
     pub(crate) rasters: Vec<(Path, RasterRequest)>,
     pub(crate) layout: AtlasLayout,

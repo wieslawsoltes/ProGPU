@@ -613,15 +613,16 @@ async fn prepare_painted(
     clips: &[Clip],
     canvas: [f32; 2],
 ) -> Result<()> {
-    let (geometry, paint, matrix, inverse, analytic) = match command {
+    let (geometry, paint, matrix, inverse, analytic, text) = match command {
         Command::Path {
             geometry,
             paint,
             matrix,
             inverse,
+            text,
         } => {
             let (g, p, i) = effect(geometry, paint, *matrix, *inverse)?;
-            (g, p, *matrix, i, None)
+            (g, p, *matrix, i, None, *text)
         }
         Command::Analytic {
             geometry,
@@ -637,6 +638,7 @@ async fn prepare_painted(
             *matrix,
             false,
             Some((*shape, *bounds, *radius, *center)),
+            None,
         ),
         _ => return Err(Error::InvalidInput.into()),
     };
@@ -674,6 +676,7 @@ async fn prepare_painted(
                 matrix,
                 inverse,
                 canvas,
+                text,
             )?;
         }
     } else {
@@ -709,6 +712,7 @@ async fn prepare_painted(
                 matrix,
                 inverse,
                 canvas,
+                None,
             )?;
             source.push_mask(Mask::Source(crate::mask::SourceMask::new(
                 Arc::new(mask),

@@ -91,6 +91,7 @@ impl Canvas {
             matrix: self.matrix,
             paint: paint.snapshot(),
             inverse,
+            text: None,
         })
     }
     /// Exact region boundary geometry, independent of integer region scan.

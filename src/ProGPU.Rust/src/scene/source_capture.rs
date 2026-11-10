@@ -81,6 +81,14 @@ fn place_scene(
     for command in &source.commands {
         let placed = match command {
             Command::Empty => Command::Empty,
+            Command::CanvasTextPath(draw) => {
+                let mut draw = draw.as_ref().clone();
+                draw.context.transform = draw.context.transform * transform;
+                draw.context.dpi_scale = frame.dpi_scale();
+                draw.context.suppress_cached_cleartype |= frame.suppress_cached_cleartype();
+                text::validate_context(draw.context)?;
+                Command::CanvasTextPath(Arc::new(draw))
+            }
             Command::NativeDesignLease(plan) => Command::NativeDesignLease(plan.clone()),
             Command::NativeDesignVector(draw) => {
                 let mut context = draw.context();
@@ -90,8 +98,10 @@ fn place_scene(
                 context.gpu_transforms_active = false;
                 context.camera_view = Matrix4::IDENTITY;
                 context.suppress_cached_cleartype |= frame.suppress_cached_cleartype();
-                Command::NativeDesignVector(Arc::new(draw.with_context(context)
-                    .map_err(native_design::native_design_error)?))
+                Command::NativeDesignVector(Arc::new(
+                    draw.with_context(context)
+                        .map_err(native_design::native_design_error)?,
+                ))
             }
             Command::PushBlend(blend) => Command::PushBlend(*blend),
             Command::PopBlend => Command::PopBlend,
@@ -594,8 +604,10 @@ fn preflight_devices(
                 }
             }
             Command::NativeDesignVector(draw) => {
-                draw.validate().map_err(native_design::native_design_error)?;
+                draw.validate()
+                    .map_err(native_design::native_design_error)?;
             }
+            Command::CanvasTextPath(draw) => text::validate_context(draw.context)?,
             Command::NativeDesignLease(_) => {}
             Command::HintedText(record) => {
                 record.0.validate(record.1)?;
@@ -734,10 +746,18 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             | Command::TextPath(_, p, _) => p.semantic_opacity *= opacity,
             Command::Stroke(v) | Command::PlacedStroke(v, _) => v.semantic_opacity *= opacity,
             Command::Text(v) => v.1.semantic_opacity *= opacity,
+            Command::CanvasTextPath(v) => {
+                let mut draw = v.as_ref().clone();
+                draw.context.semantic_opacity *= opacity;
+                *v = Arc::new(draw);
+            }
             Command::NativeDesignVector(v) => {
                 let mut context = v.context();
                 context.semantic_opacity *= opacity;
-                *v = Arc::new(v.with_context(context).map_err(native_design::native_design_error)?);
+                *v = Arc::new(
+                    v.with_context(context)
+                        .map_err(native_design::native_design_error)?,
+                );
             }
             Command::HintedText(v) => {
                 v.1.semantic_opacity *= opacity;

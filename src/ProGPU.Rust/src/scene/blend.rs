@@ -121,6 +121,7 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
         Command::Empty
         | Command::NativeDesignLease(_)
         | Command::NativeDesignVector(_)
+        | Command::CanvasTextPath(_)
         | Command::PushBlend(_)
         | Command::PopBlend
         | Command::PushMask(_)

@@ -71,13 +71,14 @@ fn ordinary(scene: &mut Scene, command: &Command, size: [f32; 2]) -> Result<(), 
             matrix,
             paint,
             inverse,
+            text,
         } => {
             if paint.mask_filter.is_some() {
                 return Err(Error::UnsupportedExecution);
             }
             let (geometry, paint, inverse) = effect(geometry, paint, *matrix, *inverse)?;
             scope(scene, paint.canvas_blend()?, |scene| {
-                path(scene, geometry, &paint, *matrix, inverse, size)
+                path(scene, geometry, &paint, *matrix, inverse, size, *text)
             })
         }
         Command::Analytic {
@@ -215,33 +216,53 @@ fn path(
     matrix: CanvasMatrix,
     inverse: bool,
     size: [f32; 2],
+    text: Option<text::TextPathInfo>,
 ) -> Result<(), Error> {
     let brush = paint.fill_brush()?;
     if paint.style != PaintStyle::Stroke {
-        if inverse {
+        let (fill, transform) = if inverse {
             let excluded = Arc::new(geometry.transformed(matrix.matrix4())?);
             let whole = Arc::new(PathGeometry::rectangle(0.0, 0.0, size[0], size[1]));
-            let difference = PathGeometry::combine_deferred(
-                whole,
-                excluded,
-                crate::vector::BooleanOperation::Difference,
-            );
-            if let Some(path) = difference.compile_raster_path()? {
-                scene.draw_material_path(
-                    PathDraw {
-                        path,
-                        transform: Affine::IDENTITY,
-                        color: [1.0; 4],
-                        sampling: PathSampling::new(if paint.antialias { 8 } else { 1 })?,
+            (
+                Arc::new(PathGeometry::combine_deferred(
+                    whole,
+                    excluded,
+                    crate::vector::BooleanOperation::Difference,
+                )),
+                CanvasMatrix::IDENTITY,
+            )
+        } else {
+            (geometry.clone(), matrix)
+        };
+        if let Some(text) = text {
+            use crate::text::paint::{
+                TextPaintContext, TextRenderingMode, VectorGlyphRasterInputs,
+            };
+            scene.draw_canvas_text_path(
+                fill,
+                brush.clone(),
+                TextPaintContext {
+                    transform: transform.matrix4(),
+                    ..TextPaintContext::default()
+                },
+                VectorGlyphRasterInputs {
+                    font_size: text.font_size,
+                    scale_x: text.font_transform[0],
+                    skew_x: text.font_transform[1],
+                    rendering_mode: if paint.antialias {
+                        TextRenderingMode::Grayscale
+                    } else {
+                        TextRenderingMode::Aliased
                     },
-                    MaterialPaint::new(brush.clone()),
-                )?;
-            }
-        } else if let Some(path) = geometry.compile_raster_path()? {
+                    coverage_transfer: Default::default(),
+                    logical_atlas_resolution: false,
+                },
+            )?;
+        } else if let Some(path) = fill.compile_raster_path()? {
             scene.draw_material_path(
                 PathDraw {
                     path,
-                    transform: matrix.affine()?,
+                    transform: transform.affine()?,
                     color: [1.0; 4],
                     sampling: PathSampling::new(if paint.antialias { 8 } else { 1 })?,
                 },

@@ -9,8 +9,9 @@ use crate::{
 };
 use std::sync::Arc;
 mod clip;
-mod drawing;
 mod drawable;
+mod drawing;
+mod text;
 pub use drawable::{CanvasDrawable, CanvasDrawableSource, DrawableSnapshot};
 mod matrix;
 mod texture_batch;
@@ -83,6 +84,7 @@ enum Command {
         matrix: CanvasMatrix,
         paint: PaintSnapshot,
         inverse: bool,
+        text: Option<text::TextPathInfo>,
     },
     Analytic {
         geometry: Arc<PathGeometry>,
