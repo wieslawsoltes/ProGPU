@@ -1,5 +1,5 @@
 //! Original contour measurements retain analytic output and bounded sample evidence.
-use super::{Matrix4, PathFigure, PathGeometry, PathSegment, PathSegmentKind};
+use super::{Matrix4, PathBuilder, PathGeometry};
 use crate::Error;
 use std::{cell::RefCell, sync::Arc};
 use wide::f32x4 as V;
@@ -47,55 +47,20 @@ impl MeasuredPath {
     /// Publish analytic original command geometry; measurement samples are never
     /// used as drawn line segments. Close remains independent figure metadata.
     pub fn to_geometry(&self, fill_rule: super::FillRule) -> Result<PathGeometry, Error> {
-        let mut result = PathGeometry {
-            fill_rule,
-            ..Default::default()
-        };
-        let mut current = None;
-        let mut last = [0.0; 2];
+        let mut builder = PathBuilder::new();
+        builder.set_fill(fill_rule, false);
         for command in self.commands.iter() {
-            if let MeasureCommand::Move(point) = *command {
-                result.figures.try_reserve(1).map_err(|_| Error::Capacity)?;
-                result.figures.push(PathFigure::new(point, false));
-                current = Some(result.figures.len() - 1);
-                last = point;
-                continue;
+            match *command {
+                MeasureCommand::Move(p) => builder.move_to(p)?,
+                MeasureCommand::Line(p) => builder.line_to(p)?,
+                MeasureCommand::Quadratic(p) => builder.quadratic_to(p)?,
+                MeasureCommand::Cubic(p) => builder.cubic_to(p)?,
+                MeasureCommand::Conic { points, weight } => builder.conic_to(points, weight)?,
+                MeasureCommand::Close => builder.close()?,
             }
-            if matches!(command, MeasureCommand::Close) {
-                if let Some(index) = current.take() {
-                    let f = &mut result.figures[index];
-                    f.is_closed = true;
-                    last = f.start;
-                }
-                continue;
-            }
-            let index = if let Some(index) = current {
-                index
-            } else {
-                result.figures.try_reserve(1).map_err(|_| Error::Capacity)?;
-                result.figures.push(PathFigure::new(last, false));
-                let index = result.figures.len() - 1;
-                current = Some(index);
-                index
-            };
-            let kind = match *command {
-                MeasureCommand::Line(p) => PathSegmentKind::Line(p),
-                MeasureCommand::Quadratic(p) => PathSegmentKind::Quadratic(p),
-                MeasureCommand::Conic { points, weight } => {
-                    PathSegmentKind::RationalQuadratic { points, weight }
-                }
-                MeasureCommand::Cubic(p) => PathSegmentKind::Cubic(p),
-                _ => unreachable!(),
-            };
-            let segment = PathSegment::new(kind);
-            last = segment.end();
-            result.figures[index]
-                .segments
-                .try_reserve(1)
-                .map_err(|_| Error::Capacity)?;
-            result.figures[index].segments.push(segment);
         }
-        Ok(result)
+        let geometry = builder.detach().geometry()?;
+        Ok(Arc::try_unwrap(geometry).unwrap_or_else(|shared| (*shared).clone()))
     }
 }
 /// Reusable raw command builder for measurement/effect output.

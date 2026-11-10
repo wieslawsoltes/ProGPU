@@ -520,7 +520,7 @@ pub(super) fn copy_figures(source: &PathGeometry, target: &mut PathGeometry) -> 
             .map_err(|_| Error::Capacity)?;
         figure
             .segments
-            .extend(original.segments.iter().copied().filter(|s| {
+            .extend(original.segments.iter().cloned().filter(|s| {
                 !matches!(
                     s.kind,
                     PathSegmentKind::RationalQuadratic { .. }

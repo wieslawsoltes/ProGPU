@@ -9,6 +9,7 @@ use crate::{
     },
 };
 use std::{ops::Deref, sync::Arc};
+mod fill_path;
 mod mask_filter;
 pub use mask_filter::{MaskBlurStyle, PaintMaskFilter};
 /// Original independent fill/stroke selection.

@@ -240,7 +240,7 @@ struct Reader<'a> {
 impl Reader<'_> {
     fn segment(&self) -> Option<PathSegment> {
         (self.index < self.segments.len())
-            .then(|| self.segments[(self.rotation + self.index) % self.segments.len()])
+            .then(|| self.segments[(self.rotation + self.index) % self.segments.len()].clone())
     }
     fn line(&mut self, horizontal: bool, fixed: f32, increasing: bool) -> bool {
         let Some(segment) = self.segment() else {

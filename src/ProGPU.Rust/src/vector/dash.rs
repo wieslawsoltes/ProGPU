@@ -11,7 +11,7 @@ pub struct DashState {
     pub distance: f32,
 }
 /// Source segment with its actual starting point and retained segment flags.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PositionedSegment {
     /// Original start of this span.
     pub start: [f32; 2],

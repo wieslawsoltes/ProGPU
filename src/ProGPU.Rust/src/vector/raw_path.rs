@@ -103,7 +103,11 @@ pub(super) fn copy_figure(figure: &PathFigure, offset: [f32; 2]) -> Result<PathF
             }
             PathSegmentKind::RationalCubic { .. } => return Err(Error::UnsupportedExecution),
         };
-        result.segments.push(PathSegment { kind, ..*segment });
+        result.segments.push(PathSegment {
+            kind,
+            source_conic: segment.map_conic(map),
+            ..segment.clone()
+        });
     }
     Ok(result)
 }
@@ -120,7 +124,19 @@ fn raw_figure(figure: &PathFigure, out: &mut Vec<Operation>) -> Result<(), Error
     )?;
     let mut index = 0;
     while index < figure.segments.len() {
-        let command = figure.segments[index];
+        let command = &figure.segments[index];
+        if let Some(conic) = &command.source_conic {
+            let mut operation = Operation::new(
+                PathVerb::Conic,
+                [conic.start(), conic.control(), conic.end(), [0.0; 2]],
+                closed,
+            );
+            operation.weight = conic.weight();
+            push(out, operation)?;
+            current = conic.end();
+            index += conic.span_count();
+            continue;
+        }
         let mut operation = match command.kind {
             PathSegmentKind::Line(p) => {
                 Operation::new(PathVerb::Line, [current, p, [0.0; 2], [0.0; 2]], closed)

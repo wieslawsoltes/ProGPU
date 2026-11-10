@@ -13,6 +13,13 @@ pub use path_effect::{
 mod raw_path;
 pub use raw_path::{PathIterator, PathVerb, RawPathIterator};
 mod packed_path;
+mod path_builder;
+pub use path_builder::{
+    PathAddMode, PathBuilder, PathConvexity, PathDirection, PathInventory, PathRectangle,
+    RetainedPath,
+};
+mod retained_conic;
+pub use retained_conic::{RetainedConic, conic_to_quadratics};
 mod region;
 pub use packed_path::{PackedPath, PackedPathBuilder, PackedPathCommand, PackedPathCommands};
 pub use region::{
@@ -212,10 +219,13 @@ pub enum PathSegmentKind {
     Arc(ArcSegment),
 }
 /// Original segment plus independent stroke/smooth-join metadata.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PathSegment {
     /// Original geometry payload.
     pub kind: PathSegmentKind,
+    /// Original rational-conic source metadata on the first of sixteen render spans.
+    /// Rendering continues to consume the actual polynomial `kind` inventory.
+    pub source_conic: Option<std::sync::Arc<RetainedConic>>,
     /// Original source smooth-join flag.
     pub is_smooth_join: bool,
     /// Original stroke participation, independent of fill participation.
@@ -231,12 +241,13 @@ impl PathSegment {
         );
         Self {
             kind,
+            source_conic: None,
             is_smooth_join: false,
             is_stroked,
         }
     }
     /// Original endpoint selected without reconstructing a curve.
-    pub fn end(self) -> [f32; 2] {
+    pub fn end(&self) -> [f32; 2] {
         match self.kind {
             PathSegmentKind::Line(p) => p,
             PathSegmentKind::Quadratic(p)
@@ -393,7 +404,11 @@ impl PathGeometry {
                         |(_, arc)| PathSegmentKind::Arc(arc),
                     ),
                 };
-                figure.segments.push(PathSegment { kind, ..*segment });
+                figure.segments.push(PathSegment {
+                    kind,
+                    source_conic: segment.map_conic(|p| transform.transform_point(p)),
+                    ..segment.clone()
+                });
                 current = segment.end();
             }
             result.figures.push(figure);

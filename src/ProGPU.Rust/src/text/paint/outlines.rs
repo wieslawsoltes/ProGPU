@@ -139,7 +139,11 @@ impl Mapping {
                 PathSegmentKind::Arc(arc)
             }
         };
-        PathSegment { kind, ..segment }
+        PathSegment {
+            kind,
+            source_conic: segment.map_conic(|p| self.point(p)),
+            ..segment
+        }
     }
 }
 fn positioned(
@@ -176,7 +180,7 @@ fn positioned(
                     .map_err(|_| Error::Capacity)?;
                 target
                     .segments
-                    .extend(figure.segments.iter().map(|s| mapping.segment(*s)));
+                    .extend(figure.segments.iter().map(|s| mapping.segment(s.clone())));
                 output.figures.push(target);
             }
         }

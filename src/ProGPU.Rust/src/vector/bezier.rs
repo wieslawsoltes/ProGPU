@@ -30,7 +30,7 @@ impl PathSegment {
     /// Original polynomial Bezier subsegment with retained stroke/smooth flags.
     /// Other segment families return None; arc subdivision has its own API.
     pub fn bezier_subsegment(
-        self,
+        &self,
         start: [f32; 2],
         first: f32,
         last: f32,
@@ -76,14 +76,18 @@ impl PathSegment {
             }
             _ => return None,
         };
-        let segment = Self { kind, ..self };
+        let segment = Self {
+            kind,
+            source_conic: None,
+            ..self.clone()
+        };
         segment.bezier_lengths(start, DEFAULT_LENGTH_SEGMENTS)?;
         Some(PositionedSegment { start, segment })
     }
     /// Original quadratic/cubic dash routing. Length sampling is bounded to
     /// 1..256 exactly as the source; emitted pieces remain analytic curves.
     pub fn bezier_dashes(
-        self,
+        &self,
         start: [f32; 2],
         intervals: &[f32],
         state: DashState,
@@ -96,7 +100,7 @@ impl PathSegment {
             self.bezier_subsegment(start, a, b)
         })
     }
-    fn bezier_lengths(self, start: [f32; 2], count: i32) -> Option<([f32; 257], usize)> {
+    fn bezier_lengths(&self, start: [f32; 2], count: i32) -> Option<([f32; 257], usize)> {
         if !finite(start) {
             return None;
         }
@@ -125,7 +129,7 @@ impl PathSegment {
     /// Original arc dash route, retaining both source segment flags on every
     /// successful analytic subarc. Other segment kinds reject explicitly.
     pub fn arc_dashes(
-        self,
+        &self,
         start: [f32; 2],
         intervals: &[f32],
         state: DashState,
@@ -156,7 +160,8 @@ impl PathSegment {
                     start,
                     segment: Self {
                         kind: PathSegmentKind::Arc(arc),
-                        ..self
+                        source_conic: None,
+                        ..self.clone()
                     },
                 })
         })

@@ -35,8 +35,8 @@ impl CompositionPath {
         for (index, figure) in geometry.figures.iter().enumerate() {
             let mut current = figure.start;
             for segment in &figure.segments {
-                let end = endpoint(*segment, current);
-                if let Some((segment, table, segment_length)) = measure(current, *segment) {
+                let end = endpoint(segment, current);
+                if let Some((segment, table, segment_length)) = measure(current, segment.clone()) {
                     segments.try_reserve(1).map_err(|_| Error::Capacity)?;
                     segments.push(MeasuredSegment {
                         figure: index,
@@ -124,7 +124,8 @@ impl CompositionPath {
             }
             let first = measured.parameter(overlap_start - segment_start);
             let last = measured.parameter(overlap_end - segment_start);
-            let Some((start, segment)) = slice(measured.start, measured.segment, first, last)
+            let Some((start, segment)) =
+                slice(measured.start, measured.segment.clone(), first, last)
             else {
                 continue;
             };
@@ -144,8 +145,8 @@ impl CompositionPath {
                 .segments
                 .try_reserve(1)
                 .map_err(|_| Error::Capacity)?;
+            output_end = endpoint(&segment, start);
             output.segments.push(segment);
-            output_end = endpoint(segment, start);
         }
         Ok(())
     }
@@ -233,7 +234,7 @@ fn measure(
         _ => return None,
     };
     let length = table.as_ref().map_or_else(
-        || distance(start, endpoint(segment, start)),
+        || distance(start, endpoint(&segment, start)),
         |table| table[table.len() - 1],
     );
     (length.is_finite() && length > EPS).then_some((segment, table, length))
@@ -282,7 +283,7 @@ fn slice(
         _ => None,
     }
 }
-fn endpoint(segment: PathSegment, fallback: [f32; 2]) -> [f32; 2] {
+fn endpoint(segment: &PathSegment, fallback: [f32; 2]) -> [f32; 2] {
     match segment.kind {
         PathSegmentKind::Line(p) => p,
         PathSegmentKind::Quadratic(p) => p[1],
