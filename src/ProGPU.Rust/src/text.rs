@@ -3,6 +3,8 @@
 //! from OpenType shaping, bidi and paragraph layout.
 
 mod font_face;
+pub mod canvas_font;
+pub mod text_blob;
 pub mod font_policy;
 pub mod glyph;
 pub mod hinted_replay;

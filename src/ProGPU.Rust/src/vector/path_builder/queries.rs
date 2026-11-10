@@ -356,7 +356,7 @@ fn round_rect(path: &PathGeometry) -> Result<Option<RoundRect>, Error> {
         return Ok(None);
     }
     let b = path.tight_bounds()?;
-    let center = [(b[0] + b[2]) * 0.5, (b[1] + b[3]) * 0.5];
+    let center = [b[0] + (b[2] - b[0]) / 2.0, b[1] + (b[3] - b[1]) / 2.0];
     let mut radii = [[0.0; 2]; 4];
     let mut found = [false; 4];
     let mut current = f.start;

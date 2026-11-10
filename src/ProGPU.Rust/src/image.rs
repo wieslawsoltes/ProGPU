@@ -39,7 +39,15 @@ pub use raster::{
     Bitmap, ImageInfo, PixelAlphaType, PixelColorType, Pixmap, PixmapMut, RasterError,
     RasterExecution, RasterFilterMode, RasterMipmapMode, RasterSampling, RasterSnapshot,
 };
+mod atlas;
+mod lattice;
+mod patch_batch;
 mod vertices;
+pub use atlas::ImageAtlasTransform;
+/// Shared original four-coefficient transform used by atlas and text-blob sources.
+pub type RotationScaleMatrix = ImageAtlasTransform;
+pub use lattice::{ImageLattice, ImageLatticeRectType};
+pub use patch_batch::{ImageBatchSource, ImagePatchBatch, ImagePatchPolicy};
 pub use vertices::{ImageBrush, TileImageDraw, TileImageSampling};
 #[cfg(feature = "gpu")]
 mod gpu;
@@ -458,6 +466,8 @@ pub struct ImageDraw {
     pub snap_to_pixels: bool,
     /// Ordered complete patch inventory; None selects one ordinary quad.
     pub patches: Option<Arc<[ImagePatch]>>,
+    /// Independent original native versus managed patch admission and placement.
+    pub patch_policy: ImagePatchPolicy,
     /// Original explicit/projective destination, incompatible with patch batches.
     pub quad: Option<ImageQuad>,
 }
@@ -480,6 +490,7 @@ impl ImageDraw {
             ignore_source_alpha: false,
             snap_to_pixels: false,
             patches: None,
+            patch_policy: ImagePatchPolicy::Native,
             quad: None,
         }
     }

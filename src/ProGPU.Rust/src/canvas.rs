@@ -11,6 +11,7 @@ use std::sync::Arc;
 mod clip;
 mod drawing;
 mod matrix;
+mod texture_batch;
 pub use drawing::CanvasPointMode;
 mod prepare;
 #[cfg(feature = "gpu")]
@@ -92,6 +93,13 @@ enum Command {
     },
     Image {
         draw: ImageDraw,
+        paint: Option<PaintSnapshot>,
+    },
+    ImageBatch {
+        source: crate::image::ImageBatchSource,
+        layout: crate::image::ImagePatchBatch,
+        sampling: crate::image::RasterSampling,
+        matrix: CanvasMatrix,
         paint: Option<PaintSnapshot>,
     },
     #[cfg(feature = "gpu")]

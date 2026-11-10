@@ -4,6 +4,7 @@ use crate::image_filter::{
     FilterPlanRequest, FilterTransform, ImageFilter, ImageFilterPlan, ImageFilteredImageDraw,
 };
 use std::{future::Future, pin::Pin};
+mod texture_batch;
 type Result<T> = std::result::Result<T, ImageResourceError>;
 impl CanvasPicture {
     /// Prepare all original source producers against one explicit context. Source
@@ -79,6 +80,22 @@ impl CanvasPicture {
                     if let Some(paint) = paint {
                         admit_output_paint(paint, context)?;
                     }
+                }
+                Command::ImageBatch {
+                    source,
+                    layout,
+                    sampling,
+                    matrix,
+                    paint,
+                } => {
+                    texture_batch::preflight(
+                        source,
+                        layout,
+                        *sampling,
+                        *matrix,
+                        paint.as_deref(),
+                        context,
+                    )?;
                 }
                 Command::Texture {
                     image,
@@ -315,6 +332,25 @@ impl CanvasPicture {
                             self.size,
                         )
                         .await?
+                    }
+                    Command::ImageBatch {
+                        source,
+                        layout,
+                        sampling,
+                        matrix,
+                        paint,
+                    } => {
+                        texture_batch::prepare(
+                            &mut scene,
+                            source,
+                            layout,
+                            *sampling,
+                            *matrix,
+                            paint.as_deref(),
+                            self.size,
+                            context,
+                        )
+                        .await?;
                     }
                     Command::Path { paint, .. } | Command::Analytic { paint, .. }
                         if paint.mask_filter.is_some() || paint.fill_brush().is_err() =>

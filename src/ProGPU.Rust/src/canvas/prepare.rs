@@ -119,6 +119,54 @@ fn ordinary(scene: &mut Scene, command: &Command, size: [f32; 2]) -> Result<(), 
             }
             image(scene, draw.clone(), paint.as_deref())
         }
+        Command::ImageBatch {
+            source,
+            layout,
+            sampling,
+            matrix,
+            paint,
+        } => {
+            if paint.as_ref().is_some_and(|p| p.color_filter.is_some()) {
+                return Err(Error::UnsupportedExecution);
+            }
+            let source = match source {
+                crate::image::ImageBatchSource::Image(image) => image.clone(),
+                crate::image::ImageBatchSource::Raster(source) => {
+                    if !matches!(
+                        source.info().color_type,
+                        crate::image::PixelColorType::Rgba8888
+                            | crate::image::PixelColorType::Bgra8888
+                            | crate::image::PixelColorType::Rgb888x
+                            | crate::image::PixelColorType::Rgb565
+                    ) {
+                        return Err(Error::UnsupportedExecution);
+                    }
+                    if source
+                        .info()
+                        .color_space
+                        .as_ref()
+                        .is_some_and(|space| !space.to_filter_color_space().is_srgb())
+                    {
+                        return Err(Error::UnsupportedExecution);
+                    }
+                    source
+                        .to_image(crate::image::RasterExecution::default())
+                        .map_err(|error| match error {
+                            crate::image::RasterError::Image(error) => error,
+                            crate::image::RasterError::Capacity => Error::Capacity,
+                            _ => Error::UnsupportedExecution,
+                        })?
+                        .into()
+                }
+                #[cfg(feature = "gpu")]
+                crate::image::ImageBatchSource::Texture(_) => {
+                    return Err(Error::UnsupportedExecution);
+                }
+            };
+            let mut draw = layout.image_draw(source, *sampling)?;
+            draw.transform = matrix.affine()?;
+            image(scene, draw, paint.as_deref())
+        }
         Command::Leaf(leaf) => scene.append(leaf),
         Command::Layer(_) | Command::Picture { .. } => Err(Error::UnsupportedExecution),
         #[cfg(feature = "gpu")]

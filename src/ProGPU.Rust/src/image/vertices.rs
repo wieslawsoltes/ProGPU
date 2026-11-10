@@ -11,9 +11,10 @@ fn bounded(r: [f32; 4], size: [u32; 2]) -> bool {
 }
 pub(super) fn validate(draw: &ImageDraw) -> Result<(), Error> {
     let anisotropy = draw.max_anisotropy.max(1);
+    let managed = draw.patches.is_some() && draw.patch_policy != ImagePatchPolicy::Native;
     if draw.image.size().iter().any(|v| *v == 0 || *v > 16384)
         || !rect(draw.source, true)
-        || !rect(draw.destination, true)
+        || !rect(draw.destination, !managed)
         || !finite(draw.transform)
         || !draw.opacity.is_finite()
         || !(0.0..=1.0).contains(&draw.opacity)
@@ -23,7 +24,10 @@ pub(super) fn validate(draw: &ImageDraw) -> Result<(), Error> {
             && (!bounded(draw.source, draw.image.size())
                 || draw.address != [ImageAddress::Clamp; 2]))
         || (draw.sampling == ImageSampling::Cubic
-            && draw.cubic.iter().any(|v| !v.is_finite() || v.abs() > 16.0))
+            && draw
+                .cubic
+                .iter()
+                .any(|v| !v.is_finite() || (!managed && v.abs() > 16.0)))
     {
         return Err(Error::InvalidInput);
     }
@@ -48,7 +52,7 @@ pub(super) fn validate(draw: &ImageDraw) -> Result<(), Error> {
         }
         for patch in patches.iter() {
             if !rect(patch.source, false)
-                || !rect(patch.destination, true)
+                || !rect(patch.destination, !managed)
                 || !finite(patch.transform)
             {
                 return Err(Error::InvalidInput);
@@ -60,7 +64,9 @@ pub(super) fn validate(draw: &ImageDraw) -> Result<(), Error> {
                     }
                 }
                 _ => {
-                    if !rect(patch.source, true) || !bounded(patch.source, draw.image.size()) {
+                    if !rect(patch.source, !managed)
+                        || (!managed && !bounded(patch.source, draw.image.size()))
+                    {
                         return Err(Error::InvalidInput);
                     }
                     if let ImagePatchKind::AtlasColor { color, .. } = patch.kind
@@ -186,17 +192,31 @@ pub(super) fn append(
                 }
             }
         }
-        let mut positions = transform(
-            draw.quad.map_or_else(|| points(destination), |q| q.points),
-            matrix,
-        );
+        let corners = draw.quad.map_or_else(|| points(destination), |q| q.points);
+        let mut positions = if draw.patch_policy == ImagePatchPolicy::ManagedAtlas {
+            if let Some(patch) = patch {
+                // Original managed AppendTextureQuad applies each sprite matrix
+                // first, then the canvas matrix, with separate float rounding.
+                transform(transform(corners, patch.transform), draw.transform)
+            } else {
+                transform(corners, matrix)
+            }
+        } else if draw.patch_policy == ImagePatchPolicy::ManagedCanvas {
+            transform(corners, draw.transform)
+        } else {
+            transform(corners, matrix)
+        };
         if draw.snap_to_pixels {
             for p in &mut positions {
                 *p = p.map(|v| (v * dpi).round_ties_even() / dpi);
             }
         }
         let [w, h] = draw.image.size().map(|v| v as f32);
-        let uv = if kind == 1.0 || kind == 2.0 {
+        let uv = if kind == 1.0
+            || kind == 2.0
+            || (draw.patch_policy != ImagePatchPolicy::Native
+                && (source[2] <= 0.0 || source[3] <= 0.0))
+        {
             [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
         } else {
             let [x, y, sx, sy] = source;
@@ -211,7 +231,14 @@ pub(super) fn append(
         } else {
             [coefficient(draw.sampling, path), 0.5]
         };
-        let q = draw.quad.map_or([0.0; 4], |q| q.weights);
+        let q = draw.quad.map_or(
+            if draw.patch_policy == ImagePatchPolicy::Native {
+                [0.0; 4]
+            } else {
+                [1.0; 4]
+            },
+            |q| q.weights,
+        );
         let vertices = std::array::from_fn(|i| VectorVertex {
             position: positions[i],
             color,

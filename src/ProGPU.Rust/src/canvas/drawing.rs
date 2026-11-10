@@ -163,13 +163,13 @@ impl Canvas {
         let b = xywh(bounds);
         self.push(Command::Analytic {
             geometry: Arc::new(PathGeometry::ellipse(
-                [(bounds[0] + bounds[2]) * 0.5, (bounds[1] + bounds[3]) * 0.5],
+                [bounds[0] + b[2] / 2.0, bounds[1] + b[3] / 2.0],
                 b[2] * 0.5,
                 b[3] * 0.5,
             )),
             shape: crate::geometry::Shape::Ellipse,
             bounds: b,
-            center: [(bounds[0] + bounds[2]) * 0.5, (bounds[1] + bounds[3]) * 0.5],
+            center: [bounds[0] + b[2] / 2.0, bounds[1] + b[3] / 2.0],
             radius: 0.0,
             matrix: self.matrix,
             paint: paint.snapshot(),

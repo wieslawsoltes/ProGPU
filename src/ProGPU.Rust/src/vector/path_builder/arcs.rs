@@ -174,7 +174,7 @@ struct Oval {
 }
 impl Oval {
     fn new([l, t, r, b]: [f32; 4], start: f32, sweep: f32) -> Option<Self> {
-        let center = [(l + r) * 0.5, (t + b) * 0.5];
+        let center = [l + (r - l) / 2.0, t + (b - t) / 2.0];
         let radii = [(r - l).abs() * 0.5, (b - t).abs() * 0.5];
         if !start.is_finite()
             || !sweep.is_finite()
