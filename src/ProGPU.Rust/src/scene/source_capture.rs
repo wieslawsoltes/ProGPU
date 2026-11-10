@@ -245,11 +245,8 @@ fn place_scene(
                 Command::ImageFilteredImage(Box::new(placed))
             }
             Command::ImageEffect(draw) => {
-                // These are the original explicitly supplied texture quad
-                // positions, never already-rasterized vector/path vertices.
                 let mut placed = draw.as_ref().clone();
-                place_quad(&mut placed.vertices, transform)?;
-                placed.validate()?;
+                placed.place_source(transform)?;
                 Command::ImageEffect(Box::new(placed))
             }
             Command::TileImage(draw) => {
@@ -768,9 +765,7 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             Command::ColorFilteredImage(v) => v.draw.opacity *= opacity,
             Command::ImageFilteredImage(v) => v.draw.opacity *= opacity,
             Command::ImageEffect(v) => {
-                for vertex in &mut v.vertices {
-                    vertex.color[3] *= opacity;
-                }
+                v.apply_source_opacity(opacity)?;
             }
             Command::TileImage(v) | Command::PlacedTileImage(v, _) => v.opacity *= opacity,
             Command::CachedPicture(v) => v.opacity *= opacity,

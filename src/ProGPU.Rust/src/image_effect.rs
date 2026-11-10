@@ -3,6 +3,12 @@
 use crate::Error;
 use bytemuck::{Pod, Zeroable};
 use wide::f32x4;
+mod managed;
+pub(crate) use managed::clip_quad;
+pub use managed::{
+    ImageEffectColorMatrix, ImageEffectCommandData, ImageEffectGeometry,
+    ImageEffectSphericalProjection, ManagedImageEffectCommand,
+};
 #[cfg(feature = "gpu")]
 mod gpu;
 #[cfg(feature = "gpu")]
@@ -97,9 +103,15 @@ impl ImageEffectUniforms {
     /// Original finite/binary/radius admission, allowing the managed alpha modes.
     /// Source-specific native transport retains its stricter straight-alpha rule.
     pub fn validate(&self) -> Result<(), Error> {
+        self.validate_common()?;
+        if !(0.0..=32.0).contains(&self.effects1[2]) {
+            return Err(Error::InvalidInput);
+        }
+        Ok(())
+    }
+    fn validate_common(&self) -> Result<(), Error> {
         finite(bytemuck::cast_slice(std::slice::from_ref(self)))?;
-        if !(0.0..=32.0).contains(&self.effects1[2])
-            || !flag(self.effects1[3])
+        if !flag(self.effects1[3])
             || self.flags0.iter().any(|v| !flag(*v))
             || self.texture0[0] <= 0.0
             || self.texture0[1] <= 0.0
@@ -332,11 +344,15 @@ pub struct ImageEffectDraw {
     pub source: ImageEffectSource,
     /// Original four vertices in painter/root coordinates.
     pub vertices: [crate::geometry::VectorVertex; 4],
+    /// Optional original managed rectangle/transform recipe. When present it
+    /// owns geometry construction; `vertices` remains its initial quad snapshot.
+    /// Source capture composes this matrix before transforming any corners.
+    pub managed_geometry: Option<ImageEffectGeometry>,
     /// Exact fused shader parameters. Source alpha/YUV and primary-mask flags
     /// are resolved from actual retained resources at preparation.
     pub effect: ImageEffectUniforms,
-    /// Original hardware sampler. Cubic/Fant require the separate Texture shader
-    /// and reject here rather than silently selecting linear reconstruction.
+    /// Original hardware sampler. Explicit uniforms reject Cubic/Fant; managed
+    /// commands preserve the extension's original linear sampler fallback.
     pub sampling: crate::image::ImageSampling,
     /// Original independent addressing for the selected source sampler.
     pub address: [crate::image::ImageAddress; 2],
@@ -345,6 +361,19 @@ pub struct ImageEffectDraw {
     pub mask: Option<crate::image::ImageSource>,
     /// Native versus managed live-blur storage and parameter arithmetic.
     pub blur_storage: ImageBlurPolicy,
+    /// Independent original draw contract. Explicit uniforms retain their
+    /// output-alpha flag; managed commands derive it from the actual source and
+    /// active blend, and use the extension's geometry/sampler/blur policies.
+    pub policy: ImageEffectDrawPolicy,
+}
+/// Original explicit shader record versus the managed drawing extension.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ImageEffectDrawPolicy {
+    /// Existing raw/native draw admission and caller-selected output alpha.
+    #[default]
+    ExplicitUniforms,
+    /// Managed extension source-alpha, sampler and inline/live-blur selection.
+    ManagedExtension,
 }
 /// CPU-recordable original live-blur policy.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -370,21 +399,41 @@ impl ImageEffectDraw {
                 texture_coordinate: uv[i],
                 ..Zeroable::zeroed()
             }),
+            managed_geometry: None,
             effect: Default::default(),
             sampling: crate::image::ImageSampling::Linear,
             address: [crate::image::ImageAddress::Clamp; 2],
             mask: None,
             blur_storage: Default::default(),
+            policy: Default::default(),
         }
     }
     /// Whole original numeric inventory; GPU identity/format remain realization checks.
     pub fn validate(&self) -> Result<(), Error> {
-        self.effect.validate()?;
+        if self.policy == ImageEffectDrawPolicy::ManagedExtension {
+            self.effect.validate_common()?;
+            if self.blur_storage != ImageBlurPolicy::Managed {
+                return Err(Error::InvalidInput);
+            }
+            if self.address != [crate::image::ImageAddress::Clamp; 2] {
+                return Err(Error::UnsupportedExecution);
+            }
+        } else {
+            self.effect.validate()?;
+        }
         finite(bytemuck::cast_slice(&self.vertices))?;
-        if matches!(
-            self.sampling,
-            crate::image::ImageSampling::Cubic | crate::image::ImageSampling::Fant
-        ) {
+        if let Some(geometry) = self.managed_geometry {
+            if self.policy != ImageEffectDrawPolicy::ManagedExtension {
+                return Err(Error::InvalidInput);
+            }
+            geometry.vertices(self.source.size())?;
+        }
+        if self.policy == ImageEffectDrawPolicy::ExplicitUniforms
+            && matches!(
+                self.sampling,
+                crate::image::ImageSampling::Cubic | crate::image::ImageSampling::Fant
+            )
+        {
             return Err(Error::UnsupportedExecution);
         }
         if self.source.size().contains(&0) {

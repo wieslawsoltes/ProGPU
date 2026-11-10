@@ -783,20 +783,20 @@ impl Builder<'_> {
                 }
             }
             Some(CompositionEffectValue::ColorMatrix(matrix)) => {
-                let mut effect =
-                    crate::image_effect::ImageEffectDraw::new(captured.image().clone(), bounds);
-                effect.blur_storage = crate::image_effect::ImageBlurPolicy::Managed;
-                for vertex in &mut effect.vertices {
-                    vertex.position = global.transform_point(vertex.position);
-                    vertex.color[3] = final_opacity;
-                }
-                effect.effect.color_matrix_red = matrix.red;
-                effect.effect.color_matrix_green = matrix.green;
-                effect.effect.color_matrix_blue = matrix.blue;
-                effect.effect.color_matrix_alpha = matrix.alpha;
-                effect.effect.color_matrix_offset = matrix.offset;
-                effect.effect.flags0[2] = 1.0;
-                scene.draw_image_effect(effect)?;
+                let mut command = crate::image_effect::ManagedImageEffectCommand::new(
+                    captured.image().clone(),
+                    bounds,
+                );
+                command.transform = global;
+                command.opacity = final_opacity;
+                command.effect.color_matrix = Some(crate::image_effect::ImageEffectColorMatrix {
+                    red: matrix.red,
+                    green: matrix.green,
+                    blue: matrix.blue,
+                    alpha: matrix.alpha,
+                    offset: matrix.offset,
+                });
+                command.record(&mut scene)?;
             }
             Some(CompositionEffectValue::Blend(blend)) => scene.draw_visual_image(draw, *blend)?,
             _ => scene.draw_image(draw)?,

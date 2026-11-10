@@ -107,6 +107,21 @@ impl BlurInput {
             4
         }
     }
+    pub(crate) fn managed_live_blur_eligible(&self) -> bool {
+        if self.conversion.is_some() {
+            self.chroma.width() == self.luma.width().div_ceil(2)
+                && self.chroma.height() == self.luma.height().div_ceil(2)
+        } else {
+            matches!(
+                self.luma.format(),
+                wgpu::TextureFormat::Rgba8Unorm
+                    | wgpu::TextureFormat::Bgra8Unorm
+                    | wgpu::TextureFormat::Rgba8UnormSrgb
+                    | wgpu::TextureFormat::Bgra8UnormSrgb
+                    | wgpu::TextureFormat::Rgba16Float
+            )
+        }
+    }
     pub(crate) fn device(&self) -> &wgpu::Device {
         &self.device
     }

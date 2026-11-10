@@ -71,6 +71,12 @@ impl LayerBlend {
     }
     #[cfg(feature = "gpu")]
     pub(crate) fn straight_draw_state(self) -> Result<wgpu::BlendState, Error> {
+        self.managed_draw_state(false)
+    }
+    /// Original shared RenderPipelineCache factors. Each family owns the
+    /// independent decision whether its shader emits premultiplied source.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn managed_draw_state(self, premultiplied: bool) -> Result<wgpu::BlendState, Error> {
         use wgpu::{BlendComponent as C, BlendFactor as F, BlendOperation as O};
         let component = |src_factor, dst_factor, operation| C {
             src_factor,
@@ -106,7 +112,7 @@ impl LayerBlend {
         }
         let selected = self.managed_vector_effective_mode();
         let mut state = selected.fixed()?;
-        if matches!(selected, Self::SrcOver | Self::Src | Self::Plus) {
+        if !premultiplied && matches!(selected, Self::SrcOver | Self::Src | Self::Plus) {
             state.color.src_factor = F::SrcAlpha;
         }
         Ok(state)
@@ -142,6 +148,11 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
         | Command::PlacedTileImage(..) => Ok(()),
         Command::Image(_, source_blend, _, operation)
             if *source_blend == LayerBlend::SrcOver && operation.is_none() =>
+        {
+            Ok(())
+        }
+        Command::ImageEffect(draw)
+            if draw.policy == crate::image_effect::ImageEffectDrawPolicy::ManagedExtension =>
         {
             Ok(())
         }

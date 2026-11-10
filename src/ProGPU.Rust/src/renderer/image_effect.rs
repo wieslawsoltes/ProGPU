@@ -3,8 +3,8 @@ use super::*;
 use crate::{
     image::{GpuImage, ImageSource},
     image_effect::{
-        BlurInput, BlurStorage, ImageBlurEngine, ImageBlurPolicy, ImageEffectSource,
-        PreparedImageBlur,
+        BlurInput, BlurStorage, ImageBlurEngine, ImageBlurPolicy, ImageEffectDrawPolicy,
+        ImageEffectSource, PreparedImageBlur,
     },
     mask::MaskUniforms,
 };
@@ -24,13 +24,18 @@ pub struct ImageEffectMetrics {
     /// Actual quad/index bytes, also included in scene geometry upload counters.
     /// The shared 224-byte frame is counted separately in scene uniform uploads.
     pub geometry_bytes: u64,
+    /// Canonical bounded fragment blur draws outside original live eligibility.
+    pub inline_blur_draws: u32,
+    /// Managed commands selecting the original default SrcOver factor fallback.
+    pub blend_fallback_draws: u32,
 }
 #[derive(Clone)]
 struct Pipeline {
     pipeline: wgpu::RenderPipeline,
 }
 pub(super) struct ImageEffectState {
-    pipelines: HashMap<(bool, bool), Pipeline>,
+    pipelines: HashMap<(wgpu::TextureFormat, bool, bool, crate::scene::LayerBlend), Pipeline>,
+    samplers: HashMap<crate::image::ImageSampling, wgpu::Sampler>,
     blur: ImageBlurEngine,
 }
 pub(super) struct EffectDraw {
@@ -83,8 +88,40 @@ impl ImageEffectState {
     fn new(device: &wgpu::Device) -> Result<Self, Error> {
         Ok(Self {
             pipelines: HashMap::new(),
+            samplers: HashMap::new(),
             blur: ImageBlurEngine::new(device, crate::path::ExecutionPreference::Automatic)?,
         })
+    }
+    fn managed_sampler(
+        &mut self,
+        device: &wgpu::Device,
+        mode: crate::image::ImageSampling,
+    ) -> wgpu::Sampler {
+        self.samplers
+            .entry(mode)
+            .or_insert_with(|| {
+                let [mag, min, mip] = mode.filters();
+                let filter = |linear| {
+                    if linear {
+                        wgpu::FilterMode::Linear
+                    } else {
+                        wgpu::FilterMode::Nearest
+                    }
+                };
+                device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("ProGPU managed image-effect original sampler"),
+                    mag_filter: filter(mag),
+                    min_filter: filter(min),
+                    mipmap_filter: if mip || mode == crate::image::ImageSampling::Linear {
+                        wgpu::MipmapFilterMode::Linear
+                    } else {
+                        wgpu::MipmapFilterMode::Nearest
+                    },
+                    lod_max_clamp: if mode.uses_mipmaps() { 32.0 } else { 1.0 },
+                    ..Default::default()
+                })
+            })
+            .clone()
     }
     async fn pipeline(
         &mut self,
@@ -92,10 +129,13 @@ impl ImageEffectState {
         format: wgpu::TextureFormat,
         chain: bool,
         premultiplied: bool,
+        blend: crate::scene::LayerBlend,
     ) -> Result<Pipeline, Error> {
-        if let Some(p) = self.pipelines.get(&(chain, premultiplied)) {
+        let key = (format, chain, premultiplied, blend);
+        if let Some(p) = self.pipelines.get(&key) {
             return Ok(p.clone());
         }
+        let blend_state = blend.managed_draw_state(premultiplied)?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ProGPU original fused ImageEffect"),
@@ -170,11 +210,7 @@ impl ImageEffectState {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(if premultiplied {
-                        wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING
-                    } else {
-                        wgpu::BlendState::ALPHA_BLENDING
-                    }),
+                    blend: Some(blend_state),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -185,12 +221,38 @@ impl ImageEffectState {
             return Err(error.into());
         }
         let result = Pipeline { pipeline };
-        self.pipelines
-            .insert((chain, premultiplied), result.clone());
+        self.pipelines.insert(key, result.clone());
         Ok(result)
     }
 }
 impl Renderer {
+    fn image_effect_uses_live_blur(
+        draw: &crate::image_effect::ImageEffectDraw,
+    ) -> Result<bool, Error> {
+        let sigma = draw.effect.effects1[2];
+        let unfilterable = matches!(&draw.source,
+            ImageEffectSource::Gpu(source) if source.is_unfilterable());
+        if draw.policy == ImageEffectDrawPolicy::ExplicitUniforms {
+            return Ok(sigma > 0.01 || unfilterable);
+        }
+        let eligible = match &draw.source {
+            ImageEffectSource::Rgb(ImageSource::Pixels(source)) => {
+                source.format() != crate::image::ImageFormat::R8
+            }
+            ImageEffectSource::Rgb(ImageSource::Gpu(source)) => {
+                BlurInput::image(source).managed_live_blur_eligible()
+            }
+            ImageEffectSource::Gpu(source) => source.managed_live_blur_eligible(),
+        };
+        let live = sigma > 0.01 && sigma <= 32.0 && eligible;
+        if unfilterable && !live {
+            // The managed fused shader requires a filterable binding. Its
+            // original failed live-prepass gate does not authorize a decode
+            // prepass with different sigma or a different resource generation.
+            return Err(Error::UnsupportedExecution);
+        }
+        Ok(live)
+    }
     fn image_effect_cost(
         &self,
         draw: &crate::image_effect::ImageEffectDraw,
@@ -205,7 +267,7 @@ impl Renderer {
             return Err(Error::UnsupportedExecution);
         }
         let size = draw.source.size();
-        let (unfilterable, managed_bpp) = match &draw.source {
+        let managed_bpp = match &draw.source {
             ImageEffectSource::Rgb(source) => {
                 let bpp = match source {
                     ImageSource::Pixels(i) => u64::from(i.format().bytes_per_pixel()),
@@ -213,20 +275,16 @@ impl Renderer {
                         if i.device() != &self.device {
                             return Err(Error::ResourceDomain);
                         }
-                        if i.texture().format() == wgpu::TextureFormat::R8Unorm {
-                            1
-                        } else {
-                            4
-                        }
+                        BlurInput::image(i).managed_bytes_per_pixel()
                     }
                 };
-                (false, bpp)
+                bpp
             }
             ImageEffectSource::Gpu(source) => {
                 if source.device() != &self.device {
                     return Err(Error::ResourceDomain);
                 }
-                (source.is_unfilterable(), source.managed_bytes_per_pixel())
+                source.managed_bytes_per_pixel()
             }
         };
         if size.iter().any(|v| *v > limits.max_texture_dimension_2d) {
@@ -246,7 +304,7 @@ impl Renderer {
                 return Err(Error::ResourceDomain);
             }
         }
-        if draw.effect.effects1[2] > 0.01 || unfilterable {
+        if Self::image_effect_uses_live_blur(draw)? {
             let bpp = if draw.blur_storage == ImageBlurPolicy::Native {
                 4
             } else {
@@ -307,6 +365,12 @@ impl Renderer {
                         return Err(Error::Capacity);
                     }
                     let masks = &compiled.states[state];
+                    draw.clipped_vertices(masks.logical_clip)?;
+                    if draw.policy == ImageEffectDrawPolicy::ExplicitUniforms
+                        && masks.blend != crate::scene::LayerBlend::SrcOver
+                    {
+                        return Err(Error::UnsupportedExecution);
+                    }
                     if draw.mask.is_none()
                         && !masks.materialized
                         && (masks.count > 3
@@ -374,6 +438,11 @@ impl Renderer {
                 draws.push(None);
                 continue;
             }
+            let Some(quad) = draw.clipped_vertices(source_state.logical_clip)? else {
+                draws.push(None);
+                continue;
+            };
+            let sampling = draw.effective_sampling();
             let source = match &draw.source {
                 ImageEffectSource::Rgb(source) => BlurInput::image(
                     &realize(
@@ -381,7 +450,7 @@ impl Renderer {
                         &self.queue,
                         &mut images,
                         source,
-                        draw.sampling.uses_mipmaps(),
+                        sampling.uses_mipmaps(),
                         &mut prepared.metrics,
                     )
                     .await?,
@@ -405,7 +474,7 @@ impl Renderer {
             } else {
                 0.0
             };
-            let blur = if params.effects1[2] > 0.01 || source.is_unfilterable() {
+            let blur = if Self::image_effect_uses_live_blur(draw)? {
                 Some(
                     state
                         .blur
@@ -431,8 +500,31 @@ impl Renderer {
                 None => source,
             };
             let chain = draw.mask.is_none() && source_state.count > 1;
+            let blend = source_state.blend;
+            if draw.policy == ImageEffectDrawPolicy::ManagedExtension {
+                params.texture0[2] = if actual.alpha() == crate::image::ImageAlpha::Premultiplied {
+                    1.0
+                } else {
+                    0.0
+                };
+                params.texture0[3] = if crate::image_effect::ImageEffectDraw::managed_output_alpha(
+                    actual.alpha(),
+                    blend,
+                ) == crate::image::ImageAlpha::Premultiplied
+                {
+                    1.0
+                } else {
+                    0.0
+                };
+            }
             let pipeline = state
-                .pipeline(&self.device, self.format, chain, params.texture0[3] > 0.5)
+                .pipeline(
+                    &self.device,
+                    self.format,
+                    chain,
+                    params.texture0[3] > 0.5,
+                    blend,
+                )
                 .await?;
             let explicit_mask = if let Some(source) = &draw.mask {
                 Some(
@@ -458,6 +550,7 @@ impl Renderer {
                     &self.device,
                     &pipeline.pipeline,
                     source,
+                    draw.policy == ImageEffectDrawPolicy::ManagedExtension,
                     &mut prepared.metrics,
                 ))
             } else {
@@ -490,21 +583,27 @@ impl Renderer {
                 }
             };
             let views = actual.views();
-            let sampler = images.sampler(
-                &self.device,
-                image::SamplerKey {
-                    mode: draw.sampling,
-                    anisotropy: 1,
-                    address: draw.address,
-                },
-            );
+            let sampler = if draw.policy == ImageEffectDrawPolicy::ManagedExtension {
+                state.managed_sampler(&self.device, sampling)
+            } else {
+                images
+                    .sampler(
+                        &self.device,
+                        image::SamplerKey {
+                            mode: sampling,
+                            anisotropy: 1,
+                            address: draw.address,
+                        },
+                    )
+                    .clone()
+            };
             let textures = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ProGPU frozen image-effect source pair"),
                 layout: &pipeline.pipeline.get_bind_group_layout(2),
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::Sampler(sampler),
+                        resource: wgpu::BindingResource::Sampler(&sampler),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -535,6 +634,11 @@ impl Renderer {
                 return Err(error.into());
             }
             metrics.draws += 1;
+            metrics.inline_blur_draws += u32::from(params.effects1[2] > 0.01);
+            metrics.blend_fallback_draws += u32::from(
+                draw.policy == ImageEffectDrawPolicy::ManagedExtension
+                    && blend.managed_vector_effective_mode() != blend,
+            );
             metrics.parameter_bytes += 288;
             if let Some(blur) = &blur {
                 let m = blur.metrics();
@@ -543,7 +647,7 @@ impl Renderer {
                 metrics.blur_texture_bytes += m.texture_bytes;
             }
             let first_vertex = i32::try_from(vertices.len()).map_err(|_| Error::Capacity)?;
-            vertices.extend_from_slice(&draw.vertices);
+            vertices.extend_from_slice(&quad);
             frame_pipeline = Some(pipeline.pipeline.clone());
             draws.push(Some(EffectDraw {
                 pipeline: pipeline.pipeline,
@@ -616,6 +720,7 @@ fn own_mask(
     device: &wgpu::Device,
     pipeline: &wgpu::RenderPipeline,
     source: &GpuImage,
+    managed: bool,
     metrics: &mut UploadMetrics,
 ) -> wgpu::BindGroup {
     let mut uniform = MaskUniforms::zeroed();
@@ -638,6 +743,12 @@ fn own_mask(
         label: Some("ProGPU source effect mask sampler"),
         min_filter: wgpu::FilterMode::Linear,
         mag_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: if managed {
+            wgpu::MipmapFilterMode::Linear
+        } else {
+            wgpu::MipmapFilterMode::Nearest
+        },
+        lod_max_clamp: if managed { 1.0 } else { 32.0 },
         ..Default::default()
     });
     let view = source.texture().create_view(&Default::default());
@@ -678,6 +789,8 @@ impl ImageEffectMetrics {
             };
         }
         add!(draws);
+        add!(inline_blur_draws);
+        add!(blend_fallback_draws);
         add!(blur_passes);
         add!(blur_texture_bytes);
         add!(parameter_bytes);
