@@ -35,6 +35,7 @@ Latest connected continuation (2026-11-10), implementation only:
 | ImageEffect reuse | Completion-owned parameter/blur pools, original module/pipeline/sampler caches, tracked source/mip/view generations, explicit host-frame aging and actual reuse metrics | Original runtime/pixel/lifetime/browser/performance controls |
 | Surface root flushing | Flush/snapshot of the actual root while save layers remain open, retaining child state and atomic prepared ownership | Existing Rust clip continuation remains distinct; original repeated-flush/clip/backdrop/source pixels |
 | Picture archive transport | Versions 1–10, all 39 command tags and fields, complete brush/pen/path/mesh/patch transport, typed recording and safe bounded scalar/vector IO | Exact bytes/version/error/stream/ownership controls |
+| Native scene stream transport | Independent native header/command/resource wire, immutable raw payload owners, structural admission, stable ID inventory, canonical serialization and exact generation comparison | Full semantic payload/source/device validation and rendering adapters; all original byte/error/lifetime/package/performance controls |
 | Archive rendering and capture | Ordered retained Canvas/Scene replay, original analytic triangle/quad/point/grid routes and explicit source-preserving capture; recorded-picture serialization | Unsupported GPU/provider/source-history records stay explicit; complete native/browser/pixel/performance qualification |
 | Image filter and picture factories | Exact subset/clip/offset filter application, optional context transfer, painted picture captures and full-sampling image/bitmap/surface Canvas producers | Original source/UV/lifetime/format/filter/browser/pixel/performance controls |
 | Target-dependent path and spline replay | Original rounded-path recognition/triangulation, final-target rectangle admission, text-path gamma and complete De Boor NURBS producers | Original numerical/target/byte/pixel/performance controls |
@@ -97,6 +98,9 @@ all new execution remains unvalidated.
 The [native SVG layer producer](notes/native-svg-layer-port.md) now connects
 owned font documents through parsing to retained canonical drawing. Its reported
 host-f64 number policy remains an explicit source-arithmetic qualification gap.
+The independent [native scene stream envelope](notes/native-scene-transport-port.md)
+retains original raw command/resource bytes and generation identity. It does not
+grant semantic scene or renderer admission.
 
 The shared `--archives` / browser `?scene=archives` gallery authors twelve
 recorded-and-reloaded panels: rectangles, ellipses, circles, rounded rectangles,
