@@ -32,6 +32,9 @@ impl PreparedScene {
     /// complete, independently of this prepared scene's lifetime. Call after an
     /// externally managed queue submission; Renderer submission APIs do it for you.
     pub fn retain_submitted_images(&self, queue: &wgpu::Queue) {
+        for source in &self.mesh3d_sources {
+            source.retain_submitted(queue);
+        }
         if let Some(owners) = self.image_source_owners.clone() {
             queue.on_submitted_work_done(move || drop(owners));
         }

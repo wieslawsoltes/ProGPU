@@ -152,6 +152,9 @@ pub const ACIS_SOLID: &str = include_str!("../../ProGPU.Scene/Shaders/AcisSolid.
 
 /// Named modules available for validation. Inclusion does not qualify host replay.
 pub const MODULES: &[(&str, &str)] = &[
+    ("mesh3d_solid", MESH_3D_SOLID),
+    ("mesh3d_wireframe", MESH_3D_WIREFRAME),
+    ("mesh3d_edges", MESH_3D_EDGES),
     ("hatch", HATCH),
     ("line_3d", LINE_3D),
     ("acis_solid", ACIS_SOLID),
@@ -195,3 +198,10 @@ pub const HIT_TESTING: &str = include_str!("../../ProGPU.Vector/Shaders/GpuHitTe
 
 /// Original binding-free fullscreen procedural grid extension.
 pub const CUSTOM_GRID: &str = include_str!("../../ProGPU.Scene/Shaders/CustomGrid.wgsl");
+
+/// Original Mesh3D solid material and lighting program.
+pub const MESH_3D_SOLID: &str = include_str!("../../ProGPU.Scene/Shaders/Mesh3DSolid.wgsl");
+/// Original Mesh3D wireframe and solid-wireframe program.
+pub const MESH_3D_WIREFRAME: &str = include_str!("../../ProGPU.Scene/Shaders/Mesh3DWireframe.wgsl");
+/// Original Mesh3D visible and occluded edge program.
+pub const MESH_3D_EDGES: &str = include_str!("../../ProGPU.Scene/Shaders/Mesh3DEdges.wgsl");

@@ -284,7 +284,9 @@ impl Renderer {
             .as_mut()
             .ok_or(Error::ResourceDomain)?
             .resources
-            .host_frame(frame)
+            .host_frame(frame)?;
+        self.begin_mesh3d_frame(frame);
+        Ok(())
     }
     fn image_effect_uses_live_blur(
         draw: &crate::image_effect::ImageEffectDraw,

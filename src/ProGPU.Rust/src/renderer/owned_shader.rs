@@ -171,6 +171,7 @@ impl<'a> OwnedShaderFrame<'a> {
         let state = &mut renderer.owned_shaders;
         let outer = state.depth == 0;
         if outer {
+            renderer.mesh3d_plans.clear();
             // render/capture marks only successfully submitted complete frames.
             // Cache maintenance runs at the next exclusive preparation boundary;
             // no successful preparation alone retires unused source variants.
@@ -218,6 +219,9 @@ impl Drop for OwnedShaderFrame<'_> {
                 .truncate(self.cached_checkpoint);
         }
         state.depth = state.depth.saturating_sub(1);
+        if state.depth == 0 {
+            self.renderer.mesh3d_plans.clear();
+        }
     }
 }
 /// Detached source-cycle lease shared by ordered picture and visual recipes.

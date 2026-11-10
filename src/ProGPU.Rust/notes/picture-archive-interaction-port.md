@@ -46,10 +46,11 @@ opacity, image-input scope ownership, and point-only/region-only scopes. These
 retain source owners and original finite/extents/type admission before input
 publication. Failed captures require `clear`; image and point scopes must close
 before index publication. Raw archive transport does not infer or serialize these
-facts. Live `ISourceGeometryHitTestCommands` Visual traversal, source visibility/
-template/clip/cache callback producers, authoritative source glyph ink, and
-hinted-input generations remain independent integration boundaries. No visual
-size rectangle or alpha-mask envelope is substituted for those contracts.
+facts. The following `source-visual-input-port.md` increment adds the full explicit
+source Visual walker, callback/snapshot contracts, strict clips, authoritative
+source glyph ownership and actual paragraph-backed hinted interaction binding.
+Platform producer implementation and source qualification remain independent; no
+visual-size rectangle or alpha-mask envelope substitutes for those contracts.
 
 Full matrix inverse rows preserve residual source components and the original
 singular-to-identity rule; they do not reuse the stricter image-filter inverse

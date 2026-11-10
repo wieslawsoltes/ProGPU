@@ -90,6 +90,10 @@ window.progpuReady = (async () => {
     renderer.select_visual_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);
   }
+  if (new URLSearchParams(location.search).get('scene') === 'mesh3d') {
+    renderer.select_mesh3d_scene(true);
+    await renderer.resize(size.width, size.height, size.dpi);
+  }
   if (new URLSearchParams(location.search).get('scene') === 'meshes') {
     renderer.select_mesh_scene(true);
     await renderer.resize(size.width, size.height, size.dpi);

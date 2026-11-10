@@ -6,6 +6,10 @@ pub use interaction::{
     ArchiveHitIndex, ArchiveHitTestCache, CapturedHitCommand, HitNode, HitPrimitive,
     HitPrimitiveKind, SourceHitGeometry, SourceHitGeometryKind,
 };
+pub use interaction::{SourceInputOwner, SourceVisualProvider, SourceVisualTransform,
+    SourceVisualClip, SourceVisualState, SourceVisualCommands, SourceVisualSnapshot,
+    SourceInputCommand, SourceCommandList, SourceVisualCaptureOptions,
+    SourceGlyphProvider, SourceGlyphInput, HintedTextInput};
 mod three_d;
 pub(crate) use three_d::ThreeDBatch;
 pub use three_d::{ArchiveThreeDDraw, ThreeDRoute};

@@ -290,6 +290,10 @@ fn place_scene(
             }
             Command::CustomGrid(command) => Command::CustomGrid(command.clone()),
             Command::Series(draw) => Command::Series(Arc::new(draw.placed(transform))),
+            #[cfg(feature = "gpu")]
+            Command::Mesh3D(draw) => Command::Mesh3D(Arc::new(draw.placed(transform)?)),
+            #[cfg(feature = "gpu")]
+            Command::Mesh3DCamera(camera) => Command::Mesh3DCamera(*camera),
             Command::ImageEffect(draw) => {
                 let mut placed = draw.as_ref().clone();
                 placed.place_source(transform)?;
@@ -672,6 +676,12 @@ fn preflight_devices(
             Command::ImageFilteredImage(draw) => draw.preflight_source_devices(device)?,
             Command::TileImage(draw) | Command::PlacedTileImage(draw, _) => image(&draw.image)?,
             Command::BackdropMaterial(draw) => draw.preflight_device(device)?,
+            Command::Mesh3D(draw) => {
+                draw.validate()?;
+                if !draw.is_empty() {
+                    draw.request.resource_cost(device)?;
+                }
+            }
             Command::CustomGrid(command) => super::custom_grid::validate(command)?,
             Command::Series(draw) => {
                 if let crate::series::SeriesSource::Gpu(buffer) = &draw.source {
@@ -836,6 +846,10 @@ fn apply_opacity(scene: &mut Scene, opacity: f32) -> Result<(), Error> {
             Command::ImageFilteredImage(v) => v.draw.opacity *= opacity,
             Command::CustomGrid(_) => {}
             Command::Series(v) => *v = Arc::new(v.with_opacity(opacity)?),
+            #[cfg(feature = "gpu")]
+            Command::Mesh3D(v) => *v = Arc::new(v.with_opacity(opacity)?),
+            #[cfg(feature = "gpu")]
+            Command::Mesh3DCamera(_) => {}
             Command::ImageEffect(v) => {
                 v.apply_source_opacity(opacity)?;
             }
@@ -953,7 +967,7 @@ impl Scene {
                 _ => true,
             },
             #[cfg(feature = "gpu")]
-            Command::OwnedShaderEffect(_) => false,
+            Command::OwnedShaderEffect(_) | Command::Mesh3D(_) => false,
             Command::Layer(layer) => layer.scene.visual_page_cacheable(),
             Command::AxisClip(axis) => axis.scene().visual_page_cacheable(),
             _ => true,

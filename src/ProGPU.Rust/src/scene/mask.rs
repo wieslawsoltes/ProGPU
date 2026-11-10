@@ -154,7 +154,7 @@ impl Scene {
                     | Command::PopCoverage { .. }
                     | Command::PushBlend(_)
                     | Command::PopBlend => None,
-                    Command::CustomGrid(_) | Command::Series(_) => None,
+                    Command::CustomGrid(_) | Command::Series(_) | Command::Mesh3DCamera(_) => None,
                     Command::ArchiveHatch(draw) if draw.uses_extension_pipeline() => None,
                     Command::ArchiveThreeD(draw)
                         if matches!(

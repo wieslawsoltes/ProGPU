@@ -13,6 +13,7 @@ pub mod image;
 pub mod image_effect;
 pub mod image_filter;
 pub mod mask;
+pub mod mesh3d;
 pub mod paint;
 pub mod path;
 pub mod picture_archive;

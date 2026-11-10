@@ -52,6 +52,7 @@ use groups::{GroupTarget, PreparedGroup, PreparedGroups};
 mod custom_grid;
 mod image;
 mod image_effect;
+mod mesh3d;
 mod series;
 pub use series::{GpuSeriesBuffer, SeriesMetrics};
 mod image_filter;
@@ -205,6 +206,7 @@ pub struct PreparedScene {
     groups: PreparedGroups,
     image_effects: Option<image_effect::PreparedImageEffects>,
     series: Option<series::PreparedSeries>,
+    mesh3d_sources: Vec<Arc<crate::mesh3d::PreparedMesh3D>>,
     custom_grid: Option<custom_grid::PreparedCustomGrid>,
     color_filters: Option<color_filter::PreparedColorFilteredImages>,
     image_filters: Option<image_filter::PreparedImageFilteredImages>,
@@ -327,6 +329,9 @@ pub struct Renderer {
     images: Option<image::ImageState>,
     image_effects: Option<image_effect::ImageEffectState>,
     series: Option<series::SeriesState>,
+    mesh3d: Option<crate::mesh3d::Mesh3DEngine>,
+    mesh3d_frame: Option<u64>,
+    mesh3d_plans: mesh3d::Mesh3DPlans,
     custom_grid: Option<wgpu::RenderPipeline>,
     color_filters: Option<color_filter::ColorFilterState>,
     image_filters: Option<image_filter::ImageFilterState>,
@@ -479,6 +484,9 @@ impl Renderer {
             images: None,
             image_effects: None,
             series: None,
+            mesh3d: None,
+            mesh3d_frame: None,
+            mesh3d_plans: Default::default(),
             custom_grid: None,
             color_filters: None,
             image_filters: None,
@@ -582,6 +590,7 @@ impl Renderer {
         if scene.layer_depth() != 0 {
             self.preflight_layers(scene, target)?;
         } else {
+            let (mesh_bytes, mesh_passes) = self.preflight_mesh3d(scene)?;
             let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
             let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
             let (image_filter_bytes, image_filter_passes) = self.preflight_image_filters(scene)?;
@@ -590,9 +599,19 @@ impl Renderer {
             self.validate_mask_states(&states)?;
             let (mask_bytes, mask_passes) =
                 self.mask_resource_cost(scene, &states, &changes, target)?;
-            if effect_bytes + mask_bytes + filter_bytes + image_filter_bytes + cached_bytes
+            if mesh_bytes
+                + effect_bytes
+                + mask_bytes
+                + filter_bytes
+                + image_filter_bytes
+                + cached_bytes
                 > 512 * 1024 * 1024
-                || effect_passes + mask_passes + filter_passes + image_filter_passes + cached_passes
+                || mesh_passes
+                    + effect_passes
+                    + mask_passes
+                    + filter_passes
+                    + image_filter_passes
+                    + cached_passes
                     > 16384
             {
                 return Err(Error::Capacity);
@@ -615,20 +634,25 @@ impl Renderer {
         frame: RenderFrame,
         groups: PreparedGroups,
     ) -> Result<PreparedScene, Error> {
-        if scene.has_text() {
+        let (resolved, mesh3d) = self.prepare_mesh3d_scene(scene).await?;
+        let scene = resolved.as_ref();
+        let mut prepared = if scene.has_text() {
             let (states, _) = scene.compile_states(frame.dpi_scale)?;
             self.validate_mask_states(&states)?;
-            return self.prepare_text_scene(scene, frame, groups).await;
-        }
-        let compiled = scene.compile_for_target(
-            frame.dpi_scale,
-            &mut self.materials,
-            self.image_sampling
-                .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
-            frame.mask_depth != 0,
-        )?;
-        self.prepare_compiled_geometry(&compiled, frame, groups)
-            .await
+            self.prepare_text_scene(scene, frame, groups).await?
+        } else {
+            let compiled = scene.compile_for_target(
+                frame.dpi_scale,
+                &mut self.materials,
+                self.image_sampling
+                    .unwrap_or(crate::image::ImageSamplingPath::NativeSampler),
+                frame.mask_depth != 0,
+            )?;
+            self.prepare_compiled_geometry(&compiled, frame, groups)
+                .await?
+        };
+        prepared.attach_mesh3d(mesh3d)?;
+        Ok(prepared)
     }
 
     /// Upload a CPU-compiled immutable generation. Exact DPI must match the
@@ -955,6 +979,7 @@ impl Renderer {
             groups: PreparedGroups::default(),
             image_effects: None,
             series: None,
+            mesh3d_sources: Vec::new(),
             custom_grid: None,
             color_filters: None,
             image_filters: None,
@@ -1057,6 +1082,7 @@ impl Renderer {
         {
             return Err(Error::InvalidInput);
         }
+        scene.encode_mesh3d_sources(encoder)?;
         if let Some(filters) = &scene.color_filters {
             filters.encode_sources(encoder)?;
         }
@@ -1149,6 +1175,7 @@ impl Renderer {
                 },
             );
         }
+        scene.encode_mesh3d_sources(encoder)?;
         if let Some(filters) = &scene.color_filters {
             filters.encode_sources(encoder)?;
         }

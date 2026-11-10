@@ -23,6 +23,9 @@ pub struct ArchiveHitIndex {
     pub(super) pictures: Arc<[Arc<ArchivePicture>]>,
     pub(super) commands: Arc<[Arc<ArchiveCommand>]>,
     captured: Arc<[Arc<CapturedHitCommand>]>,
+    source_visuals: Arc<[Arc<SourceVisualSnapshot>]>,
+    source_lists: Arc<[Arc<SourceCommandList>]>,
+    source_glyphs: Arc<[Arc<SourceGlyphInput>]>,
 }
 impl ArchiveHitIndex {
     pub fn bounds(&self) -> [f32; 4] {
@@ -92,6 +95,9 @@ impl ArchiveHitIndex {
             pictures: Arc::from([]),
             commands: Arc::from([]),
             captured: Arc::from([]),
+            source_visuals: Arc::from([]),
+            source_lists: Arc::from([]),
+            source_glyphs: Arc::from([]),
         })
     }
     pub(super) fn build(
@@ -108,7 +114,19 @@ impl ArchiveHitIndex {
         result.pictures = copy(&cache.pictures)?.into();
         result.commands = copy(&cache.commands)?.into();
         result.captured = copy(&cache.captured)?.into();
+        result.source_visuals = copy(&cache.source_visuals)?.into();
+        result.source_lists = copy(&cache.source_lists)?.into();
+        result.source_glyphs = copy(&cache.source_glyphs)?.into();
         Ok(result)
+    }
+    pub fn source_visual_owners(&self) -> &[Arc<SourceVisualSnapshot>] {
+        &self.source_visuals
+    }
+    pub fn source_command_owners(&self) -> &[Arc<SourceCommandList>] {
+        &self.source_lists
+    }
+    pub fn source_glyph_owners(&self) -> &[Arc<SourceGlyphInput>] {
+        &self.source_glyphs
     }
     pub fn captured_command_owners(&self) -> &[Arc<CapturedHitCommand>] {
         &self.captured

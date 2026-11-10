@@ -516,6 +516,15 @@ impl ImageDraw {
     ) -> Result<(), Error> {
         vertices::append(self, mesh, dpi, path)
     }
+    pub(crate) fn append_clipped(
+        &self,
+        mesh: &mut Mesh,
+        dpi: f32,
+        path: ImageSamplingPath,
+        clip: Option<[f32; 4]>,
+    ) -> Result<(), Error> {
+        vertices::append_clipped(self, mesh, dpi, path, clip)
+    }
     pub(crate) fn binding_key(&self) -> ImageBindingKey {
         ImageBindingKey {
             source: self.image.identity(),

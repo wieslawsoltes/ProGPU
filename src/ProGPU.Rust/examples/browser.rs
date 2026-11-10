@@ -46,6 +46,9 @@ mod material_sample;
 #[cfg(target_arch = "wasm32")]
 #[path = "support/materialized_mask_scene.rs"]
 mod materialized_mask_sample;
+#[cfg(target_arch = "wasm32")]
+#[path = "support/mesh3d_scene.rs"]
+mod mesh3d_sample;
 #[path = "support/mesh_scene.rs"]
 mod mesh_sample;
 #[path = "support/owned_shader_scene.rs"]
@@ -1732,6 +1735,7 @@ mod web {
         cached_picture_scene: bool,
         path_effect_scene: bool,
         mesh_scene: bool,
+        mesh3d_scene: bool,
         backdrop_blend_scene: bool,
         archive_scene: bool,
         series_scene: bool,
@@ -1831,6 +1835,7 @@ mod web {
             cached_picture_scene: false,
             path_effect_scene: false,
             mesh_scene: false,
+            mesh3d_scene: false,
             backdrop_blend_scene: false,
             archive_scene: false,
             series_scene: false,
@@ -1885,6 +1890,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -1925,6 +1931,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -1954,6 +1961,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -1982,6 +1990,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2010,6 +2019,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2038,6 +2048,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2066,6 +2077,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2094,6 +2106,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2122,6 +2135,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2150,6 +2164,7 @@ mod web {
             self.cached_picture_scene = false;
             self.path_effect_scene = false;
             self.mesh_scene = false;
+            self.mesh3d_scene = false;
             self.backdrop_blend_scene = false;
             self.archive_scene = false;
             self.series_scene = false;
@@ -2223,6 +2238,12 @@ mod web {
         pub fn select_backdrop_blend_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
             self.select_materialized_mask_scene(false)?;
             self.backdrop_blend_scene = enabled;
+            Ok(())
+        }
+        /// Select retained Mesh3D models, depth, lighting and textured materials.
+        pub fn select_mesh3d_scene(&mut self, enabled: bool) -> Result<(), JsValue> {
+            self.select_materialized_mask_scene(false)?;
+            self.mesh3d_scene = enabled;
             Ok(())
         }
         /// Select original meshes, adaptive Coons patches and fixed draw blends.
@@ -2365,6 +2386,12 @@ mod web {
                 (
                     super::backdrop_blend_sample::backdrop_blend_scene(&mut self.renderer, dpi)
                         .await
+                        .map_err(error)?,
+                    Default::default(),
+                )
+            } else if self.mesh3d_scene {
+                (
+                    super::mesh3d_sample::mesh3d_scene(&self.device, &self.queue, dpi)
                         .map_err(error)?,
                     Default::default(),
                 )

@@ -54,10 +54,14 @@ mod backdrop;
 mod canvas_text;
 mod custom_grid;
 mod hatch;
+#[cfg(feature = "gpu")]
+mod mesh3d;
 mod native_atlas;
 mod native_design;
 mod recording;
 mod series;
+#[cfg(feature = "gpu")]
+pub use mesh3d::Mesh3DViewportDraw;
 #[cfg(feature = "gpu")]
 mod shader_effect;
 mod source_capture;
@@ -211,6 +215,10 @@ impl MaterialPaint {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Command {
+    #[cfg(feature = "gpu")]
+    Mesh3D(Arc<Mesh3DViewportDraw>),
+    #[cfg(feature = "gpu")]
+    Mesh3DCamera(crate::vector::Matrix4),
     Series(Arc<crate::series::SeriesDraw>),
     CustomGrid(Arc<crate::picture_archive::ArchiveCommand>),
     ArchiveHatch(Arc<crate::picture_archive::ArchiveHatchDraw>),
@@ -730,14 +738,17 @@ impl Scene {
                 | Command::ColorFilteredImage(_)
                 | Command::ImageFilteredImage(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
-                Command::BackdropMaterial(_)
+                Command::Mesh3DCamera(_)
+                | Command::BackdropMaterial(_)
                 | Command::Glyph(_)
                 | Command::HintedGlyphPaint(_)
                 | Command::ResolvedAxis(_)
                 | Command::ShaderEffect(_)
                 | Command::ManagedShaderEffect(_) => placements.push(None),
                 #[cfg(feature = "gpu")]
-                Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
+                Command::OwnedShaderEffect(_) | Command::Mesh3D(_) => {
+                    return Err(Error::UnsupportedExecution);
+                }
                 Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_)
                 | Command::NativeDesignAtlas(_)
@@ -779,6 +790,8 @@ impl Scene {
             .iter()
             .filter_map(|c| match c.as_ref() {
                 Command::ArchiveThreeD(draw) => draw.camera(),
+                #[cfg(feature = "gpu")]
+                Command::Mesh3DCamera(camera) => Some(*camera),
                 _ => None,
             })
             .last();
@@ -809,6 +822,7 @@ impl Scene {
         let mut managed_shader_effects = Vec::new();
         let mut exact_loads = 0;
         let mut active_blend = LayerBlend::SrcOver;
+        let mut active_state = 0usize;
         let legacy_solid = Brush::default();
         // A mixed native scene reserves its existing unit-opacity vertex-color
         // binding first. Original capacity fallback then cannot turn a legacy
@@ -827,6 +841,7 @@ impl Scene {
             if let Some(index) = state_changes.get(command_index).copied().flatten() {
                 draws.push(DrawRange::State(index));
                 active_blend = states[index].blend;
+                active_state = index;
                 if matches!(
                     command,
                     Command::PushBlend(_)
@@ -872,6 +887,8 @@ impl Scene {
             } as f32;
             let first_index = u32::try_from(mesh.indices().len()).map_err(|_| Error::Capacity)?;
             match command {
+                #[cfg(feature = "gpu")]
+                Command::Mesh3DCamera(_) => {}
                 Command::Empty
                 | Command::NativeDesignLease(_)
                 | Command::NativeAtlasLease(_)
@@ -938,7 +955,12 @@ impl Scene {
                     let draw = &color_draw.draw;
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
-                    draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
+                    draw.append_clipped(
+                        &mut image_mesh,
+                        dpi_scale,
+                        image_sampling,
+                        states[active_state].logical_clip,
+                    )?;
                     let end =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
                     if end != start {
@@ -986,7 +1008,12 @@ impl Scene {
                     let start =
                         u32::try_from(image_mesh.indices().len()).map_err(|_| Error::Capacity)?;
                     if blend.is_fixed() || raster_operation.is_some() || bounds.is_none() {
-                        draw.append(&mut image_mesh, dpi_scale, image_sampling)?;
+                        draw.append_clipped(
+                            &mut image_mesh,
+                            dpi_scale,
+                            image_sampling,
+                            states[active_state].logical_clip,
+                        )?;
                     }
                     let key = draw.binding_key();
                     let next = images.len();
@@ -1086,7 +1113,9 @@ impl Scene {
                     }
                 }
                 #[cfg(feature = "gpu")]
-                Command::OwnedShaderEffect(_) => return Err(Error::UnsupportedExecution),
+                Command::OwnedShaderEffect(_) | Command::Mesh3D(_) => {
+                    return Err(Error::UnsupportedExecution);
+                }
                 Command::CachedPicture(_) => return Err(Error::UnsupportedExecution),
                 Command::Text(_)
                 | Command::NativeDesignAtlas(_)

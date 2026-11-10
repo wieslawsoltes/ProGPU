@@ -214,6 +214,7 @@ impl Renderer {
         self.preflight_managed_shaders(scene, frame)?;
         let (states, changes) = scene.compile_states(frame.dpi_scale)?;
         self.validate_mask_states(&states)?;
+        let (mesh_bytes, mesh_passes) = self.preflight_mesh3d(scene)?;
         let (effect_bytes, effect_passes) = self.preflight_image_effects(scene)?;
         let (filter_bytes, filter_passes) = self.preflight_color_filters(scene)?;
         let (image_filter_bytes, image_filter_passes) = self.preflight_image_filters(scene)?;
@@ -221,12 +222,22 @@ impl Renderer {
         let (mask_bytes, mask_passes) = self.mask_resource_cost(scene, &states, &changes, frame)?;
         *bytes = bytes
             .checked_add(
-                effect_bytes + mask_bytes + filter_bytes + image_filter_bytes + cached_bytes,
+                mesh_bytes
+                    + effect_bytes
+                    + mask_bytes
+                    + filter_bytes
+                    + image_filter_bytes
+                    + cached_bytes,
             )
             .ok_or(Error::Capacity)?;
         *passes = passes
             .checked_add(
-                effect_passes + mask_passes + filter_passes + image_filter_passes + cached_passes,
+                mesh_passes
+                    + effect_passes
+                    + mask_passes
+                    + filter_passes
+                    + image_filter_passes
+                    + cached_passes,
             )
             .ok_or(Error::Capacity)?;
         if *bytes > 512 * 1024 * 1024 || *passes > 16 * 1024 {

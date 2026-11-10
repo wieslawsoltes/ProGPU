@@ -44,6 +44,8 @@ mod mask_sample;
 mod material_sample;
 #[path = "support/materialized_mask_scene.rs"]
 mod materialized_mask_sample;
+#[path = "support/mesh3d_scene.rs"]
+mod mesh3d_sample;
 #[path = "support/mesh_scene.rs"]
 mod mesh_sample;
 #[path = "support/owned_shader_scene.rs"]
@@ -88,6 +90,7 @@ enum CompositeGallery {
     CachedPictures,
     PathEffects,
     Meshes,
+    Mesh3D,
     BackdropBlends,
     Archives,
     Series,
@@ -281,6 +284,8 @@ impl WindowRenderer {
                 &mut self.renderer,
                 dpi,
             ))?
+        } else if self.composite_gallery == CompositeGallery::Mesh3D {
+            mesh3d_sample::mesh3d_scene(&self.device, &self.queue, dpi)?
         } else if self.composite_gallery == CompositeGallery::Meshes {
             mesh_sample::mesh_scene()?
         } else if self.composite_gallery == CompositeGallery::PathEffects {
@@ -520,6 +525,7 @@ fn main() -> Result<()> {
             "--owned-shaders" => app.composite_gallery = CompositeGallery::OwnedShaders,
             "--cached-pictures" => app.composite_gallery = CompositeGallery::CachedPictures,
             "--meshes" => app.composite_gallery = CompositeGallery::Meshes,
+            "--mesh3d" => app.composite_gallery = CompositeGallery::Mesh3D,
             "--series" => app.composite_gallery = CompositeGallery::Series,
             "--archives" => app.composite_gallery = CompositeGallery::Archives,
             "--backdrop-blends" => app.composite_gallery = CompositeGallery::BackdropBlends,
@@ -544,7 +550,7 @@ fn main() -> Result<()> {
             }
             _ => {
                 return Err(format!(
-                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --meshes, --backdrop-blends, --archives, --series, --visuals, --text FONT_PATH, or --frames N"
+                    "unknown argument {argument}; use --materials, --images, --masks, --effects, --layers, --clears, --axis-clips, --retained-aa, --image-effects, --materialized-masks, --path-programs, --compositor, --shader-effects, --managed-shaders, --color-filters, --image-filters, --owned-shaders, --cached-pictures, --path-effects, --meshes, --mesh3d, --backdrop-blends, --archives, --series, --visuals, --text FONT_PATH, or --frames N"
                 )
                 .into());
             }

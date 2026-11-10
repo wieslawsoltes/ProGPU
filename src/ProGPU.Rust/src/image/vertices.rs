@@ -124,6 +124,15 @@ pub(super) fn append(
     dpi: f32,
     path: ImageSamplingPath,
 ) -> Result<(), Error> {
+    append_clipped(draw, mesh, dpi, path, None)
+}
+pub(super) fn append_clipped(
+    draw: &ImageDraw,
+    mesh: &mut Mesh,
+    dpi: f32,
+    path: ImageSamplingPath,
+    clip: Option<[f32; 4]>,
+) -> Result<(), Error> {
     if !dpi.is_finite() || dpi <= 0.0 {
         return Err(Error::InvalidInput);
     }
@@ -219,7 +228,7 @@ pub(super) fn append(
             }
         }
         let [w, h] = draw.image.size().map(|v| v as f32);
-        let uv = if kind == 1.0
+        let mut uv = if kind == 1.0
             || kind == 2.0
             || (draw.patch_policy != ImagePatchPolicy::Native
                 && (source[2] <= 0.0 || source[3] <= 0.0))
@@ -233,6 +242,41 @@ pub(super) fn append(
             let b = (y + sy) / h;
             [[l, t], [r, t], [r, b], [l, b]]
         };
+        if positions
+            .iter()
+            .flatten()
+            .chain(uv.iter().flatten())
+            .any(|v| !v.is_finite())
+        {
+            return Err(Error::InvalidInput);
+        }
+        // Original ordinary managed Texture command clips its transformed quad
+        // only when axis aligned. Rotated quads keep original positions/UVs and
+        // the independent scissor. Patches and native image policies are separate.
+        if draw.patch_policy == ImagePatchPolicy::ManagedImage
+            && let Some(clip) = clip
+        {
+            let min_x = positions[0][0]
+                .min(positions[1][0])
+                .min(positions[2][0].min(positions[3][0]));
+            let min_y = positions[0][1]
+                .min(positions[1][1])
+                .min(positions[2][1].min(positions[3][1]));
+            let max_x = positions[0][0]
+                .max(positions[1][0])
+                .max(positions[2][0].max(positions[3][0]));
+            let max_y = positions[0][1]
+                .max(positions[1][1])
+                .max(positions[2][1].max(positions[3][1]));
+            if max_x <= clip[0]
+                || min_x >= clip[2]
+                || max_y <= clip[1]
+                || min_y >= clip[3]
+                || !crate::image_effect::clip_quad(clip, &mut positions, &mut uv)
+            {
+                continue;
+            }
+        }
         let coefficients = if cubic {
             draw.cubic
         } else {

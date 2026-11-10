@@ -1,6 +1,6 @@
 //! Original retained command input cache and independent raster-bounds traversal.
-//! Archive commands have no SourceHitGeometry override, hinted geometry or live
-//! Visual source contract; no such metadata is inferred from these records.
+//! Archive commands have no SourceHitGeometry override or live Visual contract.
+//! Explicit source snapshots retain those facts separately; none are inferred.
 use super::{
     ArchiveCommand, ArchiveCommandKind as K, ArchiveError, ArchivePicture, PictureArchive, Result,
 };
@@ -13,16 +13,27 @@ mod index;
 mod paths;
 mod primitive;
 mod series;
+mod source_glyph;
+mod source_visual;
 mod strokes;
 mod traversal;
 pub use index::{ArchiveHitIndex, HitNode};
 pub use primitive::{HitPrimitive, HitPrimitiveKind};
+pub use source_glyph::{HintedTextInput, SourceGlyphInput, SourceGlyphProvider};
+pub use source_visual::{
+    SourceCommandList, SourceInputCommand, SourceInputOwner, SourceVisualCaptureOptions,
+    SourceVisualClip, SourceVisualCommands, SourceVisualProvider, SourceVisualSnapshot,
+    SourceVisualState, SourceVisualTransform,
+};
 
 /// Original reusable CPU builder. An error faults publication until `clear`;
 /// completed indices independently retain all source picture/command owners.
 #[derive(Debug, Default)]
 pub struct ArchiveHitTestCache {
     captured: Vec<Arc<CapturedHitCommand>>,
+    source_visuals: Vec<Arc<SourceVisualSnapshot>>,
+    source_lists: Vec<Arc<SourceCommandList>>,
+    source_glyphs: Vec<Arc<SourceGlyphInput>>,
     image_depth: u32,
     point_stack: Vec<u32>,
     participation: u32,
@@ -65,6 +76,9 @@ impl ArchiveHitTestCache {
     }
     pub fn clear(&mut self) {
         self.captured.clear();
+        self.source_visuals.clear();
+        self.source_lists.clear();
+        self.source_glyphs.clear();
         self.image_depth = 0;
         self.point_stack.clear();
         self.participation = 0;

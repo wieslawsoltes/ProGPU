@@ -173,7 +173,10 @@ pub(super) fn admit_command(command: &Command, blend: LayerBlend) -> Result<(), 
             Ok(())
         }
         #[cfg(feature = "gpu")]
-        Command::Glyph(_) | Command::HintedGlyphPaint(_) => Ok(()),
+        Command::Glyph(_)
+        | Command::HintedGlyphPaint(_)
+        | Command::Mesh3D(_)
+        | Command::Mesh3DCamera(_) => Ok(()),
         // Other families own independent blend/filter contracts. Their remaining
         // scope transport rejects instead of silently using source-over.
         _ => Err(Error::UnsupportedExecution),

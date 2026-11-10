@@ -34,6 +34,8 @@ impl Scene {
                         .as_data()
                         .map_or(0, |data| std::mem::size_of_val(data.owner().as_ref())),
                 ),
+                #[cfg(feature = "gpu")]
+                Command::Mesh3D(draw) => std::mem::size_of_val(draw.as_ref()),
                 Command::ImageEffect(draw) => std::mem::size_of_val(draw.as_ref()),
                 _ => 0,
             };
